@@ -146,7 +146,7 @@ INSERT INTO flink_doris_sink select name,age,price,sale from flink_doris_source
 
 #### DataStream
 
-DorisSink是通过StreamLoad想Doris写入数据，DataStream写入时，支持不同的序列化方法
+DorisSink是通过StreamLoad向Doris写入数据，DataStream写入时，支持不同的序列化方法
 
 **String 数据流(SimpleStringSerializer)**
 
@@ -163,22 +163,31 @@ dorisBuilder.setFenodes("FE_IP:HTTP_PORT")
         .setUsername("root")
         .setPassword("password");
 
+
+Properties properties = new Properties();
+// 上游是json写入时，需要开启配置
+//properties.setProperty("format", "json");
+//properties.setProperty("read_json_by_line", "true");
 DorisExecutionOptions.Builder  executionBuilder = DorisExecutionOptions.builder();
 executionBuilder.setLabelPrefix("label-doris") //streamload label prefix
-                .setDeletable(false); 
+                .setDeletable(false)
+                .setStreamLoadProp(properties); 
 
 builder.setDorisReadOptions(DorisReadOptions.builder().build())
         .setDorisExecutionOptions(executionBuilder.build())
         .setSerializer(new SimpleStringSerializer()) //serialize according to string 
         .setDorisOptions(dorisBuilder.build());
 
-//mock string source
+//mock csv string source
 List<Tuple2<String, Integer>> data = new ArrayList<>();
 data.add(new Tuple2<>("doris",1));
 DataStreamSource<Tuple2<String, Integer>> source = env.fromCollection(data);
-
 source.map((MapFunction<Tuple2<String, Integer>, String>) t -> t.f0 + "\t" + t.f1)
       .sinkTo(builder.build());
+
+//mock json string source
+//env.fromElements("{\"name\":\"zhangsan\",\"age\":1}").sinkTo(builder.build());
+
 ```
 
 **RowData 数据流(RowDataSerializer)**

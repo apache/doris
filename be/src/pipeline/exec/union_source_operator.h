@@ -68,6 +68,7 @@ private:
     std::shared_ptr<DataQueue> _data_queue;
     bool _need_read_for_const_expr;
 };
+
 class UnionSourceOperatorX;
 class UnionSourceLocalState final : public PipelineXLocalState<UnionDependency> {
 public:
@@ -87,9 +88,9 @@ public:
     UnionSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
             : Base(pool, tnode, descs), _child_size(tnode.num_children) {};
     ~UnionSourceOperatorX() override = default;
-    bool can_read(RuntimeState* state) override {
+    Dependency* wait_for_dependency(RuntimeState* state) override {
         auto& local_state = state->get_local_state(id())->cast<UnionSourceLocalState>();
-        return local_state._shared_state->_data_queue->is_all_finish();
+        return local_state._dependency->read_blocked_by();
     }
 
     Status get_block(RuntimeState* state, vectorized::Block* block,
@@ -100,7 +101,7 @@ public:
 private:
     bool _has_data(RuntimeState* state) {
         auto& local_state = state->get_local_state(id())->cast<UnionSourceLocalState>();
-        return local_state._shared_state->_data_queue->remaining_has_data();
+        return local_state._shared_state->data_queue->remaining_has_data();
     }
     bool has_more_const(const RuntimeState* state) const {
         return state->per_fragment_instance_idx() == 0;

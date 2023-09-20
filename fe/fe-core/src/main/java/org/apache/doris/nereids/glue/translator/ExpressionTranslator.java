@@ -433,10 +433,13 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 .map(Expression::getDataType)
                 .map(DataType::toCatalogDataType)
                 .forEach(argTypes::add);
+        NullableMode nullableMode = function.nullable()
+                ? NullableMode.ALWAYS_NULLABLE
+                : NullableMode.ALWAYS_NOT_NULLABLE;
         org.apache.doris.catalog.Function catalogFunction = new Function(
                 new FunctionName(function.getName()), argTypes,
                 ArrayType.create(lambda.getRetType().toCatalogDataType(), true),
-                true, true, NullableMode.DEPEND_ON_ARGUMENT);
+                true, true, nullableMode);
 
         // create catalog FunctionCallExpr without analyze again
         Expr lambdaBody = visitLambda(lambda, context);
@@ -469,6 +472,10 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 "", TFunctionBinaryType.BUILTIN, true, true, nullableMode);
 
         // create catalog FunctionCallExpr without analyze again
+        if (LambdaFunctionCallExpr.LAMBDA_FUNCTION_SET.contains(function.getName())
+                || LambdaFunctionCallExpr.LAMBDA_MAPPED_FUNCTION_SET.contains(function.getName())) {
+            return new LambdaFunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
+        }
         return new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
     }
 

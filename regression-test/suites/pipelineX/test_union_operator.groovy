@@ -80,7 +80,7 @@ suite("test_union_operator") {
 
     """
     
-    sql"""set experimental_enable_pipeline_x_engine=true,parallel_pipeline_task_num = 8;;    """
+    sql"""set experimental_enable_pipeline_x_engine=false,parallel_pipeline_task_num = 8;;    """
 
     qt_pipelineX """
         SELECT count(*)

@@ -86,11 +86,11 @@ suite("test_cast_null") {
     """
 
     sql """
-        drop table if exists test_table_t1;
+        drop table if exists test_table_tabc;
     """
 
     sql """
-        CREATE TABLE `test_table_t1` (
+        CREATE TABLE `test_table_tabc` (
         `k1` DECIMAL(12, 5) NULL
         ) ENGINE=OLAP
         DUPLICATE KEY(`k1`)
@@ -105,11 +105,11 @@ suite("test_cast_null") {
         "enable_single_replica_compaction" = "false"
         );
     """
-    sql """insert into test_table_t1 values(1.0);"""
+    sql """insert into test_table_tabc values(1.0);"""
 
-    qt_sql5 """select k1 <> '' from test_table_t1;"""
+    qt_sql5 """select k1 <> '' from test_table_tabc;"""
 
     sql """
-        drop table if exists test_table_t1;
+        drop table if exists test_table_tabc;
     """
 }

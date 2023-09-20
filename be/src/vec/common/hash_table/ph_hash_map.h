@@ -178,14 +178,18 @@ public:
     }
 
     template <typename KeyHolder>
-    void ALWAYS_INLINE emplace(KeyHolder&& key_holder, LookupResult& it, size_t hash_value,
-                               bool& inserted) {
+    void ALWAYS_INLINE emplace(KeyHolder&& key_holder, LookupResult& it, bool& inserted,
+                               size_t hash_value) {
         const auto& key = key_holder_get_key(key_holder);
         inserted = false;
         it = &*_hash_map.lazy_emplace_with_hash(key, hash_value, [&](const auto& ctor) {
             inserted = true;
             key_holder_persist_key(key_holder);
-            ctor(key, nullptr);
+            if constexpr (std::is_pointer_v<std::remove_reference_t<mapped_type>>) {
+                ctor(key, nullptr);
+            } else {
+                ctor(key, mapped_type());
+            }
         });
 
         if constexpr (PartitionedHashTable) {
@@ -230,9 +234,15 @@ public:
 
     size_t hash(const Key& x) const { return _hash_map.hash(x); }
 
-    void ALWAYS_INLINE prefetch_by_hash(size_t hash_value) { _hash_map.prefetch_hash(hash_value); }
+    template <bool read = true>
+    void ALWAYS_INLINE prefetch_by_hash(size_t hash_value) {
+        _hash_map.prefetch_hash(hash_value);
+    }
 
-    void ALWAYS_INLINE prefetch_by_key(Key key) { _hash_map.prefetch(key); }
+    template <bool read = true>
+    void ALWAYS_INLINE prefetch_by_key(Key key) {
+        _hash_map.prefetch(key);
+    }
 
     /// Call func(const Key &, Mapped &) for each hash map element.
     template <typename Func>
@@ -279,6 +289,8 @@ public:
     bool empty() const { return _hash_map.empty(); }
 
     void clear_and_shrink() { _hash_map.clear(); }
+
+    void expanse_for_add_elem(size_t num_elem) { _hash_map.reserve(num_elem); }
 
 private:
     void _check_if_need_partition() {

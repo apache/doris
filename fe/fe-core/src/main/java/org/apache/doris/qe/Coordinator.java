@@ -19,8 +19,6 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DescriptorTable;
-import org.apache.doris.analysis.PrepareStmt;
-import org.apache.doris.analysis.PrepareStmt.PreparedType;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
@@ -80,6 +78,7 @@ import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TBrokerScanRange;
 import org.apache.doris.thrift.TDescriptorTable;
+import org.apache.doris.thrift.TDetailedReportParams;
 import org.apache.doris.thrift.TErrorTabletInfo;
 import org.apache.doris.thrift.TEsScanRange;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
@@ -149,7 +148,7 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
-public class Coordinator {
+public class Coordinator implements CoordInterface {
     private static final Logger LOG = LogManager.getLogger(Coordinator.class);
 
     private static final String localIP = FrontendOptions.getLocalHostAddress();
@@ -259,7 +258,6 @@ public class Coordinator {
     public Map<RuntimeFilterId, Integer> ridToBuilderNum = Maps.newHashMap();
     private ConnectContext context;
 
-    private boolean isPointQuery = false;
     private PointQueryExec pointExec = null;
 
     private StatsErrorEstimator statsErrorEstimator;
@@ -293,32 +291,7 @@ public class Coordinator {
         this.queryId = context.queryId();
         this.fragments = planner.getFragments();
         this.scanNodes = planner.getScanNodes();
-
-        if (this.scanNodes.size() == 1 && this.scanNodes.get(0) instanceof OlapScanNode) {
-            OlapScanNode olapScanNode = (OlapScanNode) (this.scanNodes.get(0));
-            isPointQuery = olapScanNode.isPointQuery();
-            if (isPointQuery) {
-                PlanFragment fragment = fragments.get(0);
-                LOG.debug("execPointGet fragment {}", fragment);
-                OlapScanNode planRoot = (OlapScanNode) fragment.getPlanRoot();
-                Preconditions.checkNotNull(planRoot);
-                pointExec = new PointQueryExec(planRoot.getPointQueryEqualPredicates(),
-                                                planRoot.getDescTable(), fragment.getOutputExprs());
-            }
-        }
-        PrepareStmt prepareStmt = analyzer == null ? null : analyzer.getPrepareStmt();
-        if (prepareStmt != null && prepareStmt.getPreparedType() == PreparedType.FULL_PREPARED) {
-            // Used cached or better performance
-            this.descTable = prepareStmt.getDescTable();
-            if (pointExec != null) {
-                pointExec.setCacheID(prepareStmt.getID());
-                pointExec.setSerializedDescTable(prepareStmt.getSerializedDescTable());
-                pointExec.setSerializedOutputExpr(prepareStmt.getSerializedOutputExprs());
-                pointExec.setBinaryProtocol(prepareStmt.isBinaryProtocol());
-            }
-        } else {
-            this.descTable = planner.getDescTable().toThrift();
-        }
+        this.descTable = planner.getDescTable().toThrift();
 
         this.returnedAllResults = false;
         this.enableShareHashTableForBroadcastJoin = context.getSessionVariable().enableShareHashTableForBroadcastJoin;
@@ -505,6 +478,7 @@ public class Coordinator {
         return result;
     }
 
+    @Override
     public int getInstanceTotalNum() {
         return instanceTotalNum;
     }
@@ -597,6 +571,7 @@ public class Coordinator {
     // 'Request' must contain at least a coordinator plan fragment (ie, can't
     // be for a query like 'SELECT 1').
     // A call to Exec() must precede all other member function calls.
+    @Override
     public void exec() throws Exception {
         if (LOG.isDebugEnabled() && !scanNodes.isEmpty()) {
             LOG.debug("debug: in Coordinator::exec. query id: {}, planNode: {}",
@@ -648,17 +623,10 @@ public class Coordinator {
             LOG.info("dispatch load job: {} to {}", DebugUtil.printId(queryId), addressToBackendID.keySet());
         }
         executionProfile.markInstances(instanceIds);
-        if (!isPointQuery) {
-            if (enablePipelineEngine) {
-                sendPipelineCtx();
-            } else {
-                sendFragment();
-            }
+        if (enablePipelineEngine) {
+            sendPipelineCtx();
         } else {
-            OlapScanNode planRoot = (OlapScanNode) fragments.get(0).getPlanRoot();
-            Preconditions.checkState(planRoot.getScanTabletIds().size() == 1);
-            pointExec.setCandidateBackends(planRoot.getScanBackendIds());
-            pointExec.setTabletId(planRoot.getScanTabletIds().get(0));
+            sendFragment();
         }
     }
 
@@ -1186,6 +1154,7 @@ public class Coordinator {
         }
     }
 
+    @Override
     public RowBatch getNext() throws Exception {
         if (receiver == null) {
             throw new UserException("There is no receiver.");
@@ -1193,12 +1162,7 @@ public class Coordinator {
 
         RowBatch resultBatch;
         Status status = new Status();
-
-        if (!isPointQuery) {
-            resultBatch = receiver.getNext(status);
-        } else {
-            resultBatch = pointExec.getNext(status);
-        }
+        resultBatch = receiver.getNext(status);
         if (!status.ok()) {
             LOG.warn("get next fail, need cancel. query id: {}", DebugUtil.printId(queryId));
         }
@@ -1324,6 +1288,7 @@ public class Coordinator {
         cancel(Types.PPlanFragmentCancelReason.USER_CANCEL);
     }
 
+    @Override
     public void cancel(Types.PPlanFragmentCancelReason cancelReason) {
         lock();
         try {
@@ -2094,13 +2059,6 @@ public class Coordinator {
     // Populates scan_range_assignment_.
     // <fragment, <server, nodeId>>
     private void computeScanRangeAssignment() throws Exception {
-        if (isPointQuery) {
-            // Fast path for evaluate Backend for point query
-            List<TScanRangeLocations> locations = ((OlapScanNode) scanNodes.get(0)).lazyEvaluateRangeLocations();
-            Preconditions.checkNotNull(locations);
-            return;
-        }
-
         Map<TNetworkAddress, Long> assignedBytesPerHost = Maps.newHashMap();
         Map<TNetworkAddress, Long> replicaNumPerHost = getReplicaNumPerHostForOlapTable();
         Collections.shuffle(scanNodes);
@@ -2305,9 +2263,42 @@ public class Coordinator {
 
     // update job progress from BE
     public void updateFragmentExecStatus(TReportExecStatusParams params) {
-        if (enablePipelineEngine) {
+        if (enablePipelineXEngine) {
             PipelineExecContext ctx = pipelineExecContexts.get(Pair.of(params.getFragmentId(), params.getBackendId()));
-            if (!ctx.updateProfile(params)) {
+            if (!ctx.updateProfile(params, true)) {
+                return;
+            }
+
+            // print fragment instance profile
+            if (LOG.isDebugEnabled()) {
+                StringBuilder builder = new StringBuilder();
+                ctx.printProfile(builder);
+                LOG.debug("profile for query_id={} fragment_id={}\n{}",
+                        DebugUtil.printId(queryId),
+                        params.getFragmentId(),
+                        builder.toString());
+            }
+
+            Status status = new Status(params.status);
+            // for now, abort the query if we see any error except if the error is cancelled
+            // and returned_all_results_ is true.
+            // (UpdateStatus() initiates cancellation, if it hasn't already been initiated)
+            if (!(returnedAllResults && status.isCancelled()) && !status.ok()) {
+                LOG.warn("one instance report fail, query_id={} instance_id={}, error message: {}",
+                        DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()),
+                        status.getErrorMsg());
+                updateStatus(status, params.getFragmentInstanceId());
+            }
+            Preconditions.checkArgument(params.isSetDetailedReport());
+            for (TDetailedReportParams param : params.detailed_report) {
+                if (ctx.fragmentInstancesMap.get(param.fragment_instance_id).getIsDone()) {
+                    // TODO
+                    executionProfile.markOneInstanceDone(param.getFragmentInstanceId());
+                }
+            }
+        } else if (enablePipelineEngine) {
+            PipelineExecContext ctx = pipelineExecContexts.get(Pair.of(params.getFragmentId(), params.getBackendId()));
+            if (!ctx.updateProfile(params, false)) {
                 return;
             }
 
@@ -2485,12 +2476,12 @@ public class Coordinator {
 
     // map from a BE host address to the per-node assigned scan ranges;
     // records scan range assignment for a single fragment
-    class FragmentScanRangeAssignment
+    static class FragmentScanRangeAssignment
             extends HashMap<TNetworkAddress, Map<Integer, List<TScanRangeParams>>> {
     }
 
     // Bucket sequence -> (scan node id -> list of TScanRangeParams)
-    class BucketSeqToScanRange extends HashMap<Integer, Map<Integer, List<TScanRangeParams>>> {
+    static class BucketSeqToScanRange extends HashMap<Integer, Map<Integer, List<TScanRangeParams>>> {
 
     }
 
@@ -2932,27 +2923,51 @@ public class Coordinator {
 
         // update profile.
         // return true if profile is updated. Otherwise, return false.
-        public synchronized boolean updateProfile(TReportExecStatusParams params) {
-            RuntimeProfile profile = fragmentInstancesMap.get(params.fragment_instance_id);
-            if (params.done && profile.getIsDone()) {
-                // duplicate packet
-                return false;
-            }
+        public synchronized boolean updateProfile(TReportExecStatusParams params, boolean isPipelineX) {
+            if (isPipelineX) {
+                for (TDetailedReportParams param : params.detailed_report) {
+                    RuntimeProfile profile = fragmentInstancesMap.get(param.fragment_instance_id);
+                    if (params.done && profile.getIsDone()) {
+                        continue;
+                    }
 
-            if (params.isSetProfile()) {
-                profile.update(params.profile);
+                    if (param.isSetProfile()) {
+                        profile.update(param.profile);
+                    }
+                    if (params.isSetLoadChannelProfile()) {
+                        loadChannelProfile.update(params.loadChannelProfile);
+                    }
+                    if (params.done) {
+                        profile.setIsDone(true);
+                        profileReportProgress++;
+                    }
+                    if (profileReportProgress == numInstances) {
+                        this.done = true;
+                    }
+                }
+                return true;
+            } else {
+                RuntimeProfile profile = fragmentInstancesMap.get(params.fragment_instance_id);
+                if (params.done && profile.getIsDone()) {
+                    // duplicate packet
+                    return false;
+                }
+
+                if (params.isSetProfile()) {
+                    profile.update(params.profile);
+                }
+                if (params.isSetLoadChannelProfile()) {
+                    loadChannelProfile.update(params.loadChannelProfile);
+                }
+                if (params.done) {
+                    profile.setIsDone(true);
+                    profileReportProgress++;
+                }
+                if (profileReportProgress == numInstances) {
+                    this.done = true;
+                }
+                return true;
             }
-            if (params.isSetLoadChannelProfile()) {
-                loadChannelProfile.update(params.loadChannelProfile);
-            }
-            if (params.done) {
-                profile.setIsDone(true);
-                profileReportProgress++;
-            }
-            if (profileReportProgress == numInstances) {
-                this.done = true;
-            }
-            return true;
         }
 
         public synchronized void printProfile(StringBuilder builder) {

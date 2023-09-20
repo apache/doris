@@ -113,7 +113,7 @@ void StreamLoadAction::handle(HttpRequest* req) {
             _exec_env->stream_load_executor()->rollback_txn(ctx.get());
             ctx->need_rollback = false;
         }
-        if (ctx->body_sink != nullptr) {
+        if (ctx->body_sink.get() != nullptr) {
             ctx->body_sink->cancel(ctx->status.to_string());
         }
     }
@@ -194,7 +194,7 @@ int StreamLoadAction::on_header(HttpRequest* req) {
             _exec_env->stream_load_executor()->rollback_txn(ctx.get());
             ctx->need_rollback = false;
         }
-        if (ctx->body_sink != nullptr) {
+        if (ctx->body_sink.get() != nullptr) {
             ctx->body_sink->cancel(ctx->status.to_string());
         }
         auto str = ctx->to_json();
@@ -554,6 +554,13 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     if (!http_req->header(HTTP_MEMTABLE_ON_SINKNODE).empty()) {
         bool value = iequal(http_req->header(HTTP_MEMTABLE_ON_SINKNODE), "true");
         request.__set_memtable_on_sink_node(value);
+    }
+    if (!http_req->header(HTTP_IGNORE_MODE).empty()) {
+        if (iequal(http_req->header(HTTP_IGNORE_MODE), "true")) {
+            request.__set_ignore_mode(true);
+        } else {
+            request.__set_ignore_mode(false);
+        }
     }
 
 #ifndef BE_TEST
