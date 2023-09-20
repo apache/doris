@@ -39,6 +39,7 @@
 #include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/type_limit.h"
+#include "runtime/types.h"
 #include "serde/data_type_decimal_serde.h"
 #include "util/binary_cast.hpp"
 #include "vec/columns/column_decimal.h"
@@ -146,16 +147,19 @@ public:
     std::string do_get_name() const override;
     TypeIndex get_type_id() const override { return TypeId<T>::value; }
     TypeDescriptor get_type_as_type_descriptor() const override {
+        TypeDescriptor desc;
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal32>>) {
-            return TypeDescriptor(TYPE_DECIMAL32);
+            desc = TypeDescriptor(TYPE_DECIMAL32);
+        } else if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal64>>) {
+            desc = TypeDescriptor(TYPE_DECIMAL64);
+        } else if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128I>>) {
+            desc = TypeDescriptor(TYPE_DECIMAL128I);
+        } else {
+            desc = TypeDescriptor(TYPE_DECIMALV2);
         }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal64>>) {
-            return TypeDescriptor(TYPE_DECIMAL64);
-        }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128I>>) {
-            return TypeDescriptor(TYPE_DECIMAL128I);
-        }
-        return TYPE_DECIMALV2;
+        desc.scale = scale;
+        desc.precision = precision;
+        return desc;
     }
 
     TPrimitiveType::type get_type_as_tprimitive_type() const override {
