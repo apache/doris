@@ -27,6 +27,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
 
 import com.google.common.base.Preconditions;
@@ -440,6 +441,9 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
                         substituteExpr = expr.clone();
                         substituteExpr.analyze(analyzer);
                     } catch (AnalysisException ex) {
+                        if (ConnectContext.get() != null) {
+                            ConnectContext.get().getState().reset();
+                        }
                         // then consider alias name
                         substituteExpr = expr.trySubstitute(aliasSMap, analyzer, false);
                     }

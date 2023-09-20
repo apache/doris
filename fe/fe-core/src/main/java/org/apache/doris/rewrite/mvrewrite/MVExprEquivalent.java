@@ -18,6 +18,7 @@
 package org.apache.doris.rewrite.mvrewrite;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 

@@ -22,6 +22,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.gson.annotations.SerializedName;
 import org.apache.log4j.LogManager;
@@ -48,6 +49,9 @@ public class DefaultValueExprDef {
         try {
             expr.analyzeImplForDefaultValue(type);
         } catch (AnalysisException e) {
+            if (ConnectContext.get() != null) {
+                ConnectContext.get().getState().reset();
+            }
             LOG.warn("analyzeImplForDefaultValue fail: {}", e);
         }
         return expr;

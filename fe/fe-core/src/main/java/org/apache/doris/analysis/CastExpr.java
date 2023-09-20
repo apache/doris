@@ -408,6 +408,9 @@ public class CastExpr extends Expr {
         try {
             targetExpr = castTo((LiteralExpr) value);
         } catch (AnalysisException ae) {
+            if (ConnectContext.get() != null) {
+                ConnectContext.get().getState().reset();
+            }
             targetExpr = this;
         } catch (NumberFormatException nfe) {
             targetExpr = new NullLiteral();
