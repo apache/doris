@@ -45,6 +45,7 @@ FunctionUtils::FunctionUtils(const doris::TypeDescriptor& return_type,
     globals.__set_timestamp_ms(1565026737805);
     globals.__set_time_zone("Asia/Shanghai");
     if (state == nullptr) {
+        TimezoneUtils::init_timezone_cache();
         _state = RuntimeState::create_unique(globals).release();
         _fn_ctx = FunctionContext::create_context(_state, return_type, arg_types);
     } else {

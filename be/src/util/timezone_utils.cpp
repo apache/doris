@@ -59,6 +59,12 @@ void TimezoneUtils::clear_timezone_names() {
     inited_ = false;
 }
 
+void TimezoneUtils::init_timezone_cache() {
+    if (zone_cache == nullptr) {
+        zone_cache.reset(new vectorized::ZoneList);
+    }
+}
+
 void TimezoneUtils::load_timezone_names() {
     if (inited_) {
         return;
@@ -221,7 +227,7 @@ bool parse_load_timezone(vectorized::ZoneList& zone_list, int8_t* data, int len,
 } // namespace
 
 void TimezoneUtils::load_timezones_to_cache() {
-    zone_cache.reset(new vectorized::ZoneList); // make this function idempotent
+    init_timezone_cache(); // make this function idempotent
     (*zone_cache)["CST"] = cctz::fixed_time_zone(cctz::seconds(8 * 3600));
 
     std::string base_str;

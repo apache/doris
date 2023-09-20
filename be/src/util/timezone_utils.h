@@ -43,6 +43,7 @@ public:
     static const std::string default_time_zone;
 
 private:
+    static void init_timezone_cache(); // sometimes for ut
     static bool find_cctz_time_zone_impl(const std::string& timezone, cctz::time_zone& ctz);
 
     static bool inited_;
