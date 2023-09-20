@@ -224,10 +224,9 @@ public class IndexDef {
                         + "invalid column: " + indexColName);
             } else if (indexType == IndexType.INVERTED
                     && ((keysType == KeysType.AGG_KEYS && !column.isKey())
-                        || (keysType == KeysType.UNIQUE_KEYS && !enableUniqueKeyMergeOnWrite))) {
+                        || (keysType == KeysType.UNIQUE_KEYS))) {
                 throw new AnalysisException(indexType.toString()
                     + " index only used in columns of DUP_KEYS table"
-                    + " or UNIQUE_KEYS table with merge_on_write enabled"
                     + " or key columns of AGG_KEYS table. invalid column: " + indexColName);
             } else if (keysType == KeysType.AGG_KEYS && !column.isKey() && indexType != IndexType.INVERTED) {
                 throw new AnalysisException(indexType.toString()
