@@ -381,15 +381,6 @@ Status StorageEngine::get_special_dir_info(SpecialDirInfo* special_dir_infos, Ta
     return res;
 }
 
-// Status StorageEngine::get_deploy_dir_info(SpecialDirInfo* deploy_dir_infos) {
-//     Status res = Status::OK();
-//     _deploy_dir->health_check();
-//     _deploy_dir->update_capacity();
-//     SpecialDirInfo dir_info = _deploy_dir->get_dir_info();
-//     *deploy_dir_infos = dir_info;
-//     return res;
-// }
-
 int64_t StorageEngine::get_file_or_directory_size(const std::string& file_path) {
     if (!std::filesystem::exists(file_path)) {
         return 0;
