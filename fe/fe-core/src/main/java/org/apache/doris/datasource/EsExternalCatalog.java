@@ -19,6 +19,9 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.external.EsExternalDatabase;
+import org.apache.doris.catalog.external.ExternalDatabase;
+import org.apache.doris.catalog.external.ExternalTable;
+import org.apache.doris.external.elasticsearch.DorisEsException;
 import org.apache.doris.external.elasticsearch.EsRestClient;
 
 import com.google.common.collect.Lists;
@@ -115,6 +118,10 @@ public class EsExternalCatalog extends ExternalCatalog {
     @Override
     protected void initLocalObjectsImpl() {
         esRestClient = new EsRestClient(getNodes(), getUsername(), getPassword(), enableSsl());
+        if (!esRestClient.health()) {
+            throw new DorisEsException("Failed to connect to ES cluster,"
+                    + " please check your ES cluster or your ES catalog configuration.");
+        }
     }
 
     @Override

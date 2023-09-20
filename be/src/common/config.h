@@ -96,9 +96,9 @@ DECLARE_Int32(be_port);
 // port for brpc
 DECLARE_Int32(brpc_port);
 
-// port for arrow flight
-// Default -1, do not start arrow flight server.
-DECLARE_Int32(arrow_flight_port);
+// port for arrow flight sql
+// Default -1, do not start arrow flight sql server.
+DECLARE_Int32(arrow_flight_sql_port);
 
 // the number of bthreads for brpc, the default value is set to -1,
 // which means the number of bthreads is #cpu-cores

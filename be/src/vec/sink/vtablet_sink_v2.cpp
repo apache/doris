@@ -64,7 +64,7 @@
 namespace doris {
 class TExpr;
 
-namespace stream_load {
+namespace vectorized {
 
 VOlapTableSinkV2::VOlapTableSinkV2(ObjectPool* pool, const RowDescriptor& row_desc,
                                    const std::vector<TExpr>& texprs, Status* status)
@@ -283,7 +283,7 @@ Status VOlapTableSinkV2::send(RuntimeState* state, vectorized::Block* input_bloc
     std::shared_ptr<vectorized::Block> block;
     bool has_filtered_rows = false;
     RETURN_IF_ERROR(_block_convertor->validate_and_convert_block(
-            state, input_block, block, _output_vexpr_ctxs, input_rows, eos, has_filtered_rows));
+            state, input_block, block, _output_vexpr_ctxs, input_rows, has_filtered_rows));
 
     // clear and release the references of columns
     input_block->clear();
@@ -458,5 +458,5 @@ Status VOlapTableSinkV2::_close_load(const Streams& streams) {
     return Status::OK();
 }
 
-} // namespace stream_load
+} // namespace vectorized
 } // namespace doris
