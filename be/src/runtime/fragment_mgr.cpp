@@ -379,9 +379,9 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     if (!coord_status.ok()) {
         std::stringstream ss;
         UniqueId uid(req.query_id.hi, req.query_id.lo);
-        ss << "couldn't get a client for " << req.coord_addr << ", reason: " << coord_status;
-        LOG(WARNING) << "query_id: " << uid << ", " << ss.str();
-        req.update_fn(Status::InternalError(ss.str()));
+        req.update_fn(Status::InternalError(
+                "query_id: {}, couldn't get a client for {}, reason is {}", uid.to_string(),
+                PrintThriftNetworkAddress(req.coord_addr), coord_status.to_string()));
         return;
     }
 
@@ -501,12 +501,10 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             coord->reportExecStatus(res, params);
         }
 
-        rpc_status = Status(Status::create(res.status));
+        rpc_status = Status::create<false>(res.status);
     } catch (TException& e) {
-        std::stringstream msg;
-        msg << "ReportExecStatus() to " << req.coord_addr << " failed:\n" << e.what();
-        LOG(WARNING) << msg.str();
-        rpc_status = Status::InternalError(msg.str());
+        rpc_status = Status::InternalError("ReportExecStatus() to {} failed: {}",
+                                           PrintThriftNetworkAddress(req.coord_addr), e.what());
     }
 
     if (!rpc_status.ok()) {
@@ -1263,7 +1261,7 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
         std::shared_ptr<pipeline::PipelineFragmentContext> pip_context;
 
         RuntimeFilterMgr* runtime_filter_mgr = nullptr;
-        ObjectPool* pool;
+        ObjectPool* pool = nullptr;
         if (is_pipeline) {
             std::unique_lock<std::mutex> lock(_lock);
             auto iter = _pipeline_map.find(tfragment_instance_id);
