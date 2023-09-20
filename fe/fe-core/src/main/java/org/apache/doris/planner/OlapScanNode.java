@@ -98,6 +98,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -1207,6 +1208,22 @@ public class OlapScanNode extends ScanNode {
             output.append(getRuntimeFilterExplainString(false));
         }
 
+        if (!outputColumnUniqueIds.isEmpty()) {
+            output.append(prefix).append("scan columns required by project: ");
+            Iterator<Integer> iterator = outputColumnUniqueIds.iterator();
+            while (iterator.hasNext()) {
+                Integer uniqId = iterator.next();
+                for (SlotDescriptor slotDesc : desc.getSlots()) {
+                    if (slotDesc.getColumn() != null && slotDesc.getColumn().getUniqueId() == uniqId) {
+                        output.append(slotDesc.getColumn().getName());
+                        if (iterator.hasNext()) {
+                            output.append(", ");
+                        }
+                    }
+                }
+            }
+            output.append("\n");
+        }
         output.append(prefix).append(String.format("partitions=%s/%s, tablets=%s/%s", selectedPartitionNum,
                 olapTable.getPartitions().size(), selectedTabletsNum, totalTabletsNum));
         // We print up to 3 tablet, and we print "..." if the number is more than 3
