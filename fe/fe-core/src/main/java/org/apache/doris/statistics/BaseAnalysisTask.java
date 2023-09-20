@@ -225,7 +225,8 @@ public abstract class BaseAnalysisTask {
         }
         int sampleRows = info.sampleRows;
         if (info.analysisMethod == AnalysisMethod.FULL) {
-            if (Config.enable_auto_sample && tbl.getDataSize() > Config.huge_table_lower_bound_size_in_bytes) {
+            if (Config.enable_auto_sample
+                    && tbl.getDataSize(true) > Config.huge_table_lower_bound_size_in_bytes) {
                 sampleRows = Config.huge_table_default_sample_rows;
             } else {
                 return "";
