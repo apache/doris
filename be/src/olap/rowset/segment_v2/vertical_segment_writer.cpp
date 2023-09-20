@@ -835,9 +835,9 @@ std::string VerticalSegmentWriter::_encode_keys(
 uint64_t VerticalSegmentWriter::_estimated_segment_size() {
     // footer_size(4) + checksum(4) + segment_magic(4)
     uint64_t size = 12;
-    for (auto& column_writer : _column_writers) {
-        size += column_writer->estimate_buffer_size();
-    }
+    //for (auto& column_writer : _column_writers) {
+    //    size += column_writer->estimate_buffer_size();
+    //}
     if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
         size += _primary_key_index_builder->size();
     } else {
