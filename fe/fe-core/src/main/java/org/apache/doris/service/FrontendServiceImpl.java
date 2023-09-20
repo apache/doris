@@ -1476,15 +1476,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 .getDatabaseTransactionMgr(database.getId());
         String txnOperation = request.getOperation().trim();
         if (!request.isSetTxnId()) {
-            if (txnOperation.equalsIgnoreCase("commit")) {
-                request.setTxnId(dbTransactionMgr
-                        .getTransactionIdByLabel(request.getLabel(), TransactionStatus.PRECOMMITTED));
-            } else if (txnOperation.equalsIgnoreCase("abort")) {
-                request.setTxnId(dbTransactionMgr
-                        .getTransactionIdByLabel(request.getLabel(), TransactionStatus.PREPARE));
-            } else {
-                throw new UserException("transaction operation should be \'commit\' or \'abort\'");
+            List<TransactionStatus> statusList = new ArrayList<>();
+            statusList.add(TransactionStatus.PRECOMMITTED);
+            if (txnOperation.equalsIgnoreCase("abort")) {
+                statusList.add(TransactionStatus.PREPARE);
             }
+            request.setTxnId(dbTransactionMgr.getTransactionIdByLabel(request.getLabel(), statusList));
         }
         TransactionState transactionState = dbTransactionMgr.getTransactionState(request.getTxnId());
         LOG.debug("txn {} has multi table {}", request.getTxnId(), transactionState.getTableIdList());

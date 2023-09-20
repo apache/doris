@@ -842,19 +842,21 @@ public class DatabaseTransactionMgr {
         }
     }
 
-    public Long getTransactionIdByLabel(String label, TransactionStatus status) throws UserException {
+    public Long getTransactionIdByLabel(String label, List<TransactionStatus> statusList) throws UserException {
         readLock();
         try {
-            Set<Long> existingTxns = unprotectedGetTxnIdsByLabel(label);
-            if (existingTxns == null || existingTxns.isEmpty()) {
-                throw new TransactionNotFoundException("transaction not found, label=" + label);
-            }
             TransactionState findTxn = null;
-            for (Long txnId : existingTxns) {
-                TransactionState txn = unprotectedGetTransactionState(txnId);
-                if (txn.getTransactionStatus() == status) {
-                    findTxn = txn;
-                    break;
+            for (TransactionStatus status : statusList) {
+                Set<Long> existingTxns = unprotectedGetTxnIdsByLabel(label);
+                if (existingTxns == null || existingTxns.isEmpty()) {
+                    throw new TransactionNotFoundException("transaction not found, label=" + label);
+                }
+                for (Long txnId : existingTxns) {
+                    TransactionState txn = unprotectedGetTransactionState(txnId);
+                    if (txn.getTransactionStatus() == status) {
+                        findTxn = txn;
+                        break;
+                    }
                 }
             }
 
@@ -1324,7 +1326,9 @@ public class DatabaseTransactionMgr {
 
     public void abortTransaction(String label, String reason) throws UserException {
         Preconditions.checkNotNull(label);
-        long transactionId = getTransactionIdByLabel(label, TransactionStatus.PREPARE);
+        List<TransactionStatus> status = new ArrayList<>();
+        status.add(TransactionStatus.PREPARE);
+        long transactionId = getTransactionIdByLabel(label, status);
         abortTransaction(transactionId, reason, null);
     }
 
