@@ -19,6 +19,7 @@ package org.apache.doris.system;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FeDiskInfo;
 
 import com.google.gson.annotations.SerializedName;
@@ -38,29 +39,35 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
     private int queryPort;
     @SerializedName(value = "rpcPort")
     private int rpcPort;
+    @SerializedName(value = "arrowFlightSqlPort")
+    private int arrowFlightSqlPort;
     @SerializedName(value = "replayedJournalId")
     private long replayedJournalId;
     private String version;
     private long feStartTime;
+    private long processUUID;
     private List<FeDiskInfo> diskInfos;
 
     public FrontendHbResponse() {
         super(HeartbeatResponse.Type.FRONTEND);
     }
 
-    public FrontendHbResponse(String name, int queryPort, int rpcPort,
+    public FrontendHbResponse(String name, int queryPort, int rpcPort, int arrowFlightSqlPort,
             long replayedJournalId, long hbTime, String version,
-            long feStartTime, List<FeDiskInfo> diskInfos) {
+            long feStartTime, List<FeDiskInfo> diskInfos,
+            long processUUID) {
         super(HeartbeatResponse.Type.FRONTEND);
         this.status = HbStatus.OK;
         this.name = name;
         this.queryPort = queryPort;
         this.rpcPort = rpcPort;
+        this.arrowFlightSqlPort = arrowFlightSqlPort;
         this.replayedJournalId = replayedJournalId;
         this.hbTime = hbTime;
         this.version = version;
-        this.feStartTime = feStartTime;
+        this.processUUID = processUUID;
         this.diskInfos = diskInfos;
+        this.processUUID = processUUID;
     }
 
     public FrontendHbResponse(String name, String errMsg) {
@@ -68,6 +75,7 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
         this.status = HbStatus.BAD;
         this.name = name;
         this.msg = errMsg;
+        this.processUUID = ExecuteEnv.getInstance().getProcessUUID();
     }
 
     public String getName() {
@@ -82,12 +90,20 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
         return rpcPort;
     }
 
+    public int getArrowFlightSqlPort() {
+        return arrowFlightSqlPort;
+    }
+
     public long getReplayedJournalId() {
         return replayedJournalId;
     }
 
     public String getVersion() {
         return version;
+    }
+
+    public long getProcessUUID() {
+        return processUUID;
     }
 
     public long getFeStartTime() {
@@ -104,6 +120,7 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
         name = Text.readString(in);
         queryPort = in.readInt();
         rpcPort = in.readInt();
+        arrowFlightSqlPort = in.readInt();
         replayedJournalId = in.readLong();
     }
 
@@ -115,8 +132,9 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
         sb.append(", version: ").append(version);
         sb.append(", queryPort: ").append(queryPort);
         sb.append(", rpcPort: ").append(rpcPort);
+        sb.append(", arrowFlightSqlPort: ").append(arrowFlightSqlPort);
         sb.append(", replayedJournalId: ").append(replayedJournalId);
-        sb.append(", festartTime: ").append(feStartTime);
+        sb.append(", festartTime: ").append(processUUID);
         return sb.toString();
     }
 

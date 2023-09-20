@@ -71,7 +71,6 @@ SHOW JOBS 用于展示当前 DB 下所有作业的运行状态，SHOW JOB FOR jo
         * PAUSED：暂停
         * STOPPED：结束（用户手动触发）
         * FINISHED: 完成
-        * WAITING_FINISH: 待结束
 
 ### Example
 

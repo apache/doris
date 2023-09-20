@@ -49,6 +49,8 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.io.Serializable;
 import java.lang.reflect.Field;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -66,6 +68,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
     public static final String SCAN_QUEUE_MEM_LIMIT = "scan_queue_mem_limit";
     public static final String QUERY_TIMEOUT = "query_timeout";
+    public static final String ANALYZE_TIMEOUT = "analyze_timeout";
+
     public static final String MAX_EXECUTION_TIME = "max_execution_time";
     public static final String INSERT_TIMEOUT = "insert_timeout";
     public static final String ENABLE_PROFILE = "enable_profile";
@@ -107,6 +111,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_BUCKET_SHUFFLE_JOIN = "enable_bucket_shuffle_join";
     public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM = "parallel_fragment_exec_instance_num";
     public static final String PARALLEL_PIPELINE_TASK_NUM = "parallel_pipeline_task_num";
+    public static final String ENABLE_SIMPLY_PROFILE = "enable_simply_profile";
     public static final String MAX_INSTANCE_NUM = "max_instance_num";
     public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
     public static final String ENABLE_SPILLING = "enable_spilling";
@@ -132,6 +137,9 @@ public class SessionVariable implements Serializable, Writable {
     // Compatible with datagrip mysql
     public static final String DEFAULT_STORAGE_ENGINE = "default_storage_engine";
     public static final String DEFAULT_TMP_STORAGE_ENGINE = "default_tmp_storage_engine";
+
+    // Compatible with  mysql
+    public static final String PROFILLING = "profiling";
 
     public static final String DIV_PRECISION_INCREMENT = "div_precision_increment";
 
@@ -322,6 +330,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_INVERTED_INDEX_QUERY = "enable_inverted_index_query";
 
+    public static final String ENABLE_PUSHDOWN_COUNT_ON_INDEX = "enable_count_on_index_pushdown";
+
     public static final String GROUP_BY_AND_HAVING_USE_ALIAS_FIRST = "group_by_and_having_use_alias_first";
     public static final String DROP_TABLE_IF_CTAS_FAILED = "drop_table_if_ctas_failed";
 
@@ -331,6 +341,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SHOW_USER_DEFAULT_ROLE = "show_user_default_role";
 
     public static final String ENABLE_MINIDUMP = "enable_minidump";
+
+    public static final String ENABLE_PAGE_CACHE = "enable_page_cache";
 
     public static final String MINIDUMP_PATH = "minidump_path";
 
@@ -368,6 +380,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String EXTERNAL_TABLE_ANALYZE_PART_NUM = "external_table_analyze_part_num";
 
     public static final String ENABLE_STRONG_CONSISTENCY = "enable_strong_consistency_read";
+    public static final String ENABLE_INSERT_GROUP_COMMIT = "enable_insert_group_commit";
 
     public static final String PARALLEL_SYNC_ANALYZE_TASK_NUM = "parallel_sync_analyze_task_num";
 
@@ -388,6 +401,18 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_MEMTABLE_ON_SINK_NODE =
             "enable_memtable_on_sink_node";
 
+    public static final String ENABLE_UNIQUE_KEY_PARTIAL_UPDATE = "enable_unique_key_partial_update";
+
+    public static final String INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD = "inverted_index_conjunction_opt_threshold";
+
+    public static final String FULL_AUTO_ANALYZE_START_TIME = "full_auto_analyze_start_time";
+
+    public static final String FULL_AUTO_ANALYZE_END_TIME = "full_auto_analyze_end_time";
+
+    public static final String EXPAND_RUNTIME_FILTER_BY_INNER_JION = "expand_runtime_filter_by_inner_join";
+
+    public static final String TEST_QUERY_CACHE_HIT = "test_query_cache_hit";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -401,6 +426,9 @@ public class SessionVariable implements Serializable, Writable {
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
     // if it is setStmt, we needn't collect session origin value
     public boolean isSingleSetVar = false;
+
+    @VariableMgr.VarAttr(name = EXPAND_RUNTIME_FILTER_BY_INNER_JION)
+    public boolean expandRuntimeFilterByInnerJoin = false;
 
     @VariableMgr.VarAttr(name = JDBC_CLICKHOUSE_QUERY_FINAL)
     public boolean jdbcClickhouseQueryFinal = false;
@@ -431,7 +459,11 @@ public class SessionVariable implements Serializable, Writable {
 
     // query timeout in second.
     @VariableMgr.VarAttr(name = QUERY_TIMEOUT)
-    public int queryTimeoutS = 300;
+    public int queryTimeoutS = 900;
+
+    // query timeout in second.
+    @VariableMgr.VarAttr(name = ANALYZE_TIMEOUT, needForward = true)
+    public int analyzeTimeoutS = 43200;
 
     // The global max_execution_time value provides the default for the session value for new connections.
     // The session value applies to SELECT executions executed within the session that include
@@ -588,6 +620,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = PARALLEL_PIPELINE_TASK_NUM, fuzzy = true, needForward = true)
     public int parallelPipelineTaskNum = 0;
 
+    @VariableMgr.VarAttr(name = ENABLE_SIMPLY_PROFILE, fuzzy = true)
+    public boolean enableSimplyProfile = true;
+
     @VariableMgr.VarAttr(name = MAX_INSTANCE_NUM)
     public int maxInstanceNum = 64;
 
@@ -725,6 +760,9 @@ public class SessionVariable implements Serializable, Writable {
     public int getBeNumberForTest() {
         return beNumberForTest;
     }
+
+    @VariableMgr.VarAttr(name = PROFILLING)
+    public boolean profiling = false;
 
     public void setBeNumberForTest(int beNumberForTest) {
         this.beNumberForTest = beNumberForTest;
@@ -1015,8 +1053,13 @@ public class SessionVariable implements Serializable, Writable {
 
     // Whether enable query with inverted index.
     @VariableMgr.VarAttr(name = ENABLE_INVERTED_INDEX_QUERY, needForward = true, description = {
-            "是否启用inverted index query。", "Set wether to use inverted index query."})
+            "是否启用inverted index query。", "Set whether to use inverted index query."})
     public boolean enableInvertedIndexQuery = true;
+
+    // Whether enable pushdown count agg to scan node when using inverted index match.
+    @VariableMgr.VarAttr(name = ENABLE_PUSHDOWN_COUNT_ON_INDEX, needForward = true, description = {
+            "是否启用count_on_index pushdown。", "Set whether to pushdown count_on_index."})
+    public boolean enablePushDownCountOnIndex = true;
 
     // Whether drop table when create table as select insert data appear error.
     @VariableMgr.VarAttr(name = DROP_TABLE_IF_CTAS_FAILED, needForward = true)
@@ -1041,6 +1084,15 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_MINIDUMP)
     public boolean enableMinidump = false;
+
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_PAGE_CACHE,
+            description = {"控制是否启用page cache。默认为 true。",
+                "Controls whether to use page cache. "
+                    + "The default value is true."},
+            needForward = true)
+    public boolean enablePageCache = true;
 
     @VariableMgr.VarAttr(name = ENABLE_FOLD_NONDETERMINISTIC_FN)
     public boolean enableFoldNondeterministicFn = false;
@@ -1129,6 +1181,40 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_MEMTABLE_ON_SINK_NODE, needForward = true)
     public boolean enableMemtableOnSinkNode = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_INSERT_GROUP_COMMIT)
+    public boolean enableInsertGroupCommit = false;
+
+    @VariableMgr.VarAttr(name = INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD,
+            description = {"在match_all中求取多个倒排索引的交集时,如果最大的倒排索引中的总数是最小倒排索引中的总数的整数倍,"
+                    + "则使用跳表来优化交集操作。",
+                    "When intersecting multiple inverted indexes in match_all,"
+                    + " if the maximum total count of the largest inverted index"
+                    + " is a multiple of the minimum total count of the smallest inverted index,"
+                    + " use a skiplist to optimize the intersection."})
+    public int invertedIndexConjunctionOptThreshold = 1000;
+
+    @VariableMgr.VarAttr(name = FULL_AUTO_ANALYZE_START_TIME, needForward = true, checker = "checkAnalyzeTimeFormat",
+            description = {"该参数定义自动ANALYZE例程的开始时间",
+                    "This parameter defines the start time for the automatic ANALYZE routine."},
+            flag = VariableMgr.GLOBAL)
+    public String fullAutoAnalyzeStartTime = "";
+
+    @VariableMgr.VarAttr(name = FULL_AUTO_ANALYZE_END_TIME, needForward = true, checker = "checkAnalyzeTimeFormat",
+            description = {"该参数定义自动ANALYZE例程的结束时间",
+                    "This parameter defines the end time for the automatic ANALYZE routine."},
+            flag = VariableMgr.GLOBAL)
+    public String fullAutoAnalyzeEndTime = "";
+
+    @VariableMgr.VarAttr(name = ENABLE_UNIQUE_KEY_PARTIAL_UPDATE, needForward = false)
+    public boolean enableUniqueKeyPartialUpdate = false;
+
+    @VariableMgr.VarAttr(name = TEST_QUERY_CACHE_HIT, description = {
+            "用于测试查询缓存是否命中，如果未命中指定类型的缓存，则会报错",
+            "Used to test whether the query cache is hit. "
+                    + "If the specified type of cache is not hit, an error will be reported."},
+            options = {"none", "sql_cache", "partition_cache"})
+    public String testQueryCacheHit = "none";
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -1306,6 +1392,10 @@ public class SessionVariable implements Serializable, Writable {
         return queryTimeoutS;
     }
 
+    public int getAnalyzeTimeoutS() {
+        return analyzeTimeoutS;
+    }
+
     public void setEnableTwoPhaseReadOpt(boolean enable) {
         enableTwoPhaseReadOpt = enable;
     }
@@ -1317,6 +1407,7 @@ public class SessionVariable implements Serializable, Writable {
     public int getInsertTimeoutS() {
         return insertTimeoutS;
     }
+
 
     public void setInsertTimeoutS(int insertTimeoutS) {
         this.insertTimeoutS = insertTimeoutS;
@@ -1469,7 +1560,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void setMaxScanQueueMemByte(long scanQueueMemByte) {
-        this.maxScanQueueMemByte = Math.min(scanQueueMemByte, maxExecMemByte / 20);
+        this.maxScanQueueMemByte = Math.min(scanQueueMemByte, maxExecMemByte / 2);
     }
 
     public boolean isSqlQuoteShowCreate() {
@@ -1482,6 +1573,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setQueryTimeoutS(int queryTimeoutS) {
         this.queryTimeoutS = queryTimeoutS;
+    }
+
+    public void setAnalyzeTimeoutS(int analyzeTimeoutS) {
+        this.analyzeTimeoutS = analyzeTimeoutS;
     }
 
     public void setMaxExecutionTimeMS(int maxExecutionTimeMS) {
@@ -2100,6 +2195,14 @@ public class SessionVariable implements Serializable, Writable {
         this.enableInvertedIndexQuery = enableInvertedIndexQuery;
     }
 
+    public boolean isEnablePushDownCountOnIndex() {
+        return enablePushDownCountOnIndex;
+    }
+
+    public void setEnablePushDownCountOnIndex(boolean enablePushDownCountOnIndex) {
+        this.enablePushDownCountOnIndex = enablePushDownCountOnIndex;
+    }
+
     public int getMaxTableCountUseCascadesJoinReorder() {
         return this.maxTableCountUseCascadesJoinReorder;
     }
@@ -2127,6 +2230,14 @@ public class SessionVariable implements Serializable, Writable {
         this.truncateCharOrVarcharColumns = truncateCharOrVarcharColumns;
     }
 
+    public boolean isEnableUniqueKeyPartialUpdate() {
+        return enableUniqueKeyPartialUpdate;
+    }
+
+    public void setEnableUniqueKeyPartialUpdate(boolean enableUniqueKeyPartialUpdate) {
+        this.enableUniqueKeyPartialUpdate = enableUniqueKeyPartialUpdate;
+    }
+
     /**
      * Serialize to thrift object.
      * Used for rest api.
@@ -2143,7 +2254,13 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setBufferPoolLimit(maxExecMemByte);
 
         tResult.setQueryTimeout(queryTimeoutS);
-        tResult.setIsReportSuccess(enableProfile);
+        tResult.setEnableProfile(enableProfile);
+        if (enableProfile) {
+            // If enable profile == true, then also set report success to true
+            // be need report success to start report thread. But it is very tricky
+            // we should modify BE in the future.
+            tResult.setIsReportSuccess(true);
+        }
         tResult.setCodegenLevel(codegenLevel);
         tResult.setBeExecVersion(Config.be_exec_version);
         tResult.setEnablePipelineEngine(enablePipelineEngine);
@@ -2201,6 +2318,8 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableFileCache(enableFileCache);
 
+        tResult.setEnablePageCache(enablePageCache);
+
         tResult.setFileCacheBasePath(fileCacheBasePath);
 
         tResult.setEnableInvertedIndexQuery(enableInvertedIndexQuery);
@@ -2215,6 +2334,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableDeleteSubPredicateV2(enableDeleteSubPredicateV2);
         tResult.setTruncateCharOrVarcharColumns(truncateCharOrVarcharColumns);
         tResult.setEnableMemtableOnSinkNode(enableMemtableOnSinkNode);
+
+        tResult.setInvertedIndexConjunctionOptThreshold(invertedIndexConjunctionOptThreshold);
 
         return tResult;
     }
@@ -2392,6 +2513,9 @@ public class SessionVariable implements Serializable, Writable {
         if (queryOptions.isSetInsertTimeout()) {
             setInsertTimeoutS(queryOptions.getInsertTimeout());
         }
+        if (queryOptions.isSetAnalyzeTimeout()) {
+            setAnalyzeTimeoutS(queryOptions.getAnalyzeTimeout());
+        }
     }
 
     /**
@@ -2403,6 +2527,7 @@ public class SessionVariable implements Serializable, Writable {
         queryOptions.setScanQueueMemLimit(Math.min(maxScanQueueMemByte, maxExecMemByte / 20));
         queryOptions.setQueryTimeout(queryTimeoutS);
         queryOptions.setInsertTimeout(insertTimeoutS);
+        queryOptions.setAnalyzeTimeout(analyzeTimeoutS);
         return queryOptions;
     }
 
@@ -2532,5 +2657,18 @@ public class SessionVariable implements Serializable, Writable {
         }
         return connectContext.getSessionVariable().enableAggState;
     }
-}
 
+    public void checkAnalyzeTimeFormat(String time) {
+        try {
+            DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss");
+            timeFormatter.parse(time);
+        } catch (DateTimeParseException e) {
+            LOG.warn("Parse analyze start/end time format fail", e);
+            throw new UnsupportedOperationException("Expect format: HH:mm:ss");
+        }
+    }
+
+    public boolean getEnableSimplyProfile() {
+        return this.enableSimplyProfile;
+    }
+}

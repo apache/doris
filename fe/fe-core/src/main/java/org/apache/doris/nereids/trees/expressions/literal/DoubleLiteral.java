@@ -58,4 +58,9 @@ public class DoubleLiteral extends Literal {
         nf.setGroupingUsed(false);
         return nf.format(value);
     }
+
+    @Override
+    public String getStringValue() {
+        return toString();
+    }
 }

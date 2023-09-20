@@ -48,13 +48,13 @@ class AsyncResultWriter : public ResultWriter {
 public:
     AsyncResultWriter(const VExprContextSPtrs& output_expr_ctxs);
 
-    Status close() override { return Status::OK(); }
-
-    void force_close();
+    void force_close(Status s);
 
     virtual bool in_transaction() { return false; }
 
-    bool need_normal_close() { return _need_normal_close; }
+    virtual Status commit_trans() { return Status::OK(); }
+
+    bool need_normal_close() const { return _need_normal_close; }
 
     Status init(RuntimeState* state) override { return Status::OK(); }
 
@@ -90,7 +90,6 @@ private:
     std::deque<std::unique_ptr<Block>> _data_queue;
     Status _writer_status = Status::OK();
     bool _eos = false;
-    bool _force_close = false;
     bool _need_normal_close = true;
     bool _writer_thread_closed = false;
 };

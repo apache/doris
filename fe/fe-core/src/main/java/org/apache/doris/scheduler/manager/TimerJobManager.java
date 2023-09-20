@@ -23,6 +23,7 @@ import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.scheduler.constants.JobCategory;
 import org.apache.doris.scheduler.constants.JobStatus;
 import org.apache.doris.scheduler.disruptor.TaskDisruptor;
@@ -50,13 +51,13 @@ import java.util.concurrent.TimeUnit;
 public class TimerJobManager implements Closeable, Writable {
 
     private final ConcurrentHashMap<Long, Job> jobMap = new ConcurrentHashMap<>(128);
-
     private long lastBatchSchedulerTimestamp;
+    private static final long BATCH_SCHEDULER_INTERVAL_SECONDS = 600;
 
     /**
-     * batch scheduler interval time
+     * batch scheduler interval ms time
      */
-    private static final long BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS = 10 * 60 * 1000L;
+    private static final long BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS = BATCH_SCHEDULER_INTERVAL_SECONDS * 1000L;
 
     private boolean isClosed = false;
 
@@ -70,7 +71,7 @@ public class TimerJobManager implements Closeable, Writable {
     /**
      * scheduler tasks, it's used to scheduler job
      */
-    private final HashedWheelTimer dorisTimer = new HashedWheelTimer(1, TimeUnit.SECONDS, 660);
+    private HashedWheelTimer dorisTimer;
 
     /**
      * Producer and Consumer model
@@ -81,16 +82,24 @@ public class TimerJobManager implements Closeable, Writable {
     private TaskDisruptor disruptor;
 
     public TimerJobManager() {
-        dorisTimer.start();
         this.lastBatchSchedulerTimestamp = System.currentTimeMillis();
+    }
+
+    public void start() {
+        dorisTimer = new HashedWheelTimer(1, TimeUnit.SECONDS, 660);
+        dorisTimer.start();
+        Long currentTimeMs = System.currentTimeMillis();
+        jobMap.forEach((jobId, job) -> {
+            Long nextExecuteTimeMs = findFistExecuteTime(currentTimeMs, job.getStartTimeMs(),
+                    job.getIntervalMs(), job.isCycleJob());
+            job.setNextExecuteTimeMs(nextExecuteTimeMs);
+        });
         batchSchedulerTasks();
         cycleSystemSchedulerTasks();
     }
 
     public Long registerJob(Job job) throws DdlException {
-        if (!job.checkJobParam()) {
-            throw new DdlException("Job param is invalid, please check time param");
-        }
+        job.checkJobParam();
         checkIsJobNameUsed(job.getDbName(), job.getJobName(), job.getJobCategory());
         jobMap.putIfAbsent(job.getJobId(), job);
         initAndSchedulerJob(job);
@@ -99,6 +108,9 @@ public class TimerJobManager implements Closeable, Writable {
     }
 
     public void replayCreateJob(Job job) {
+        if (jobMap.containsKey(job.getJobId())) {
+            return;
+        }
         jobMap.putIfAbsent(job.getJobId(), job);
         initAndSchedulerJob(job);
         log.info(new LogBuilder(LogKey.SCHEDULER_JOB, job.getJobId())
@@ -144,9 +156,9 @@ public class TimerJobManager implements Closeable, Writable {
         Long nextExecuteTimeMs = findFistExecuteTime(currentTimeMs, job.getStartTimeMs(),
                 job.getIntervalMs(), job.isCycleJob());
         job.setNextExecuteTimeMs(nextExecuteTimeMs);
-        if (job.getNextExecuteTimeMs() < BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS + lastBatchSchedulerTimestamp) {
+        if (job.getNextExecuteTimeMs() < lastBatchSchedulerTimestamp) {
             List<Long> executeTimestamp = findTasksBetweenTime(job,
-                    BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS + lastBatchSchedulerTimestamp,
+                    lastBatchSchedulerTimestamp,
                     job.getNextExecuteTimeMs());
             if (!executeTimestamp.isEmpty()) {
                 for (Long timestamp : executeTimestamp) {
@@ -252,6 +264,20 @@ public class TimerJobManager implements Closeable, Writable {
         Env.getCurrentEnv().getEditLog().logUpdateJob(job);
     }
 
+    public void finishJob(long jobId) {
+        Job job = jobMap.get(jobId);
+        if (jobMap.get(jobId) == null) {
+            log.warn("update job status failed, jobId: {} not exist", jobId);
+        }
+        if (jobMap.get(jobId).getJobStatus().equals(JobStatus.FINISHED)) {
+            return;
+        }
+        cancelJobAllTask(job.getJobId());
+        job.setJobStatus(JobStatus.FINISHED);
+        jobMap.get(job.getJobId()).finish();
+        Env.getCurrentEnv().getEditLog().logUpdateJob(job);
+    }
+
     private Optional<Job> findJob(String dbName, String jobName, JobCategory jobCategory) {
         return jobMap.values().stream().filter(job -> checkJobMatch(job, dbName, jobName, jobCategory)).findFirst();
     }
@@ -297,15 +323,14 @@ public class TimerJobManager implements Closeable, Writable {
     }
 
     private List<Long> findTasksBetweenTime(Job job, Long endTimeEndWindow, Long nextExecuteTime) {
+
         List<Long> jobExecuteTimes = new ArrayList<>();
         if (!job.isCycleJob() && (nextExecuteTime < endTimeEndWindow)) {
             jobExecuteTimes.add(nextExecuteTime);
-            if (job.isStreamingJob()) {
-                job.setJobStatus(JobStatus.RUNNING);
-            } else {
-                job.setJobStatus(JobStatus.WAITING_FINISH);
-            }
             return jobExecuteTimes;
+        }
+        if (job.isCycleJob() && (nextExecuteTime > endTimeEndWindow)) {
+            return new ArrayList<>();
         }
         while (endTimeEndWindow >= nextExecuteTime) {
             if (job.isTaskTimeExceeded()) {
@@ -323,18 +348,18 @@ public class TimerJobManager implements Closeable, Writable {
     private void executeJobIdsWithinLastTenMinutesWindow() {
         // if the task executes for more than 10 minutes, it will be delay, so,
         // set lastBatchSchedulerTimestamp to current time
-        if (lastBatchSchedulerTimestamp + BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS < System.currentTimeMillis()) {
+        if (lastBatchSchedulerTimestamp < System.currentTimeMillis()) {
             this.lastBatchSchedulerTimestamp = System.currentTimeMillis();
         }
+        this.lastBatchSchedulerTimestamp += BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS;
         if (jobMap.isEmpty()) {
-            this.lastBatchSchedulerTimestamp += BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS;
             return;
         }
         jobMap.forEach((k, v) -> {
             if (v.isRunning() && (v.getNextExecuteTimeMs()
-                    + v.getIntervalMs() < lastBatchSchedulerTimestamp + BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS)) {
+                    + v.getIntervalMs() < lastBatchSchedulerTimestamp)) {
                 List<Long> executeTimes = findTasksBetweenTime(
-                        v, lastBatchSchedulerTimestamp + BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS,
+                        v, lastBatchSchedulerTimestamp,
                         v.getNextExecuteTimeMs());
                 if (!executeTimes.isEmpty()) {
                     for (Long executeTime : executeTimes) {
@@ -343,7 +368,6 @@ public class TimerJobManager implements Closeable, Writable {
                 }
             }
         });
-        this.lastBatchSchedulerTimestamp += BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS;
     }
 
     /**
@@ -351,10 +375,12 @@ public class TimerJobManager implements Closeable, Writable {
      * Jobs will be re-registered after the task is completed
      */
     private void cycleSystemSchedulerTasks() {
+        log.info("re-register system scheduler tasks" + TimeUtils.longToTimeString(System.currentTimeMillis()));
         dorisTimer.newTimeout(timeout -> {
             batchSchedulerTasks();
             cycleSystemSchedulerTasks();
-        }, BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS, TimeUnit.MILLISECONDS);
+        }, BATCH_SCHEDULER_INTERVAL_SECONDS, TimeUnit.SECONDS);
+
     }
 
     /**
@@ -367,11 +393,12 @@ public class TimerJobManager implements Closeable, Writable {
      *                         delay seconds, we just can be second precision
      */
     public void putOneTask(Long jobId, Long startExecuteTime) {
-        TimerJobTask task = new TimerJobTask(jobId, startExecuteTime, disruptor);
         if (isClosed) {
-            log.info("putOneTask failed, scheduler is closed, jobId: {}", task.getJobId());
+            log.info("putOneTask failed, scheduler is closed, jobId: {}", jobId);
             return;
         }
+        long taskId = System.nanoTime();
+        TimerJobTask task = new TimerJobTask(jobId, taskId, startExecuteTime, disruptor);
         long delay = getDelaySecond(task.getStartTimestamp());
         Timeout timeout = dorisTimer.newTimeout(task, delay, TimeUnit.SECONDS);
         if (timeout == null) {
@@ -380,11 +407,13 @@ public class TimerJobManager implements Closeable, Writable {
         }
         if (jobTimeoutMap.containsKey(task.getJobId())) {
             jobTimeoutMap.get(task.getJobId()).put(task.getTaskId(), timeout);
+            JobTaskManager.addPrepareTaskStartTime(jobId, taskId, startExecuteTime);
             return;
         }
         Map<Long, Timeout> timeoutMap = new ConcurrentHashMap<>();
         timeoutMap.put(task.getTaskId(), timeout);
         jobTimeoutMap.put(task.getJobId(), timeoutMap);
+        JobTaskManager.addPrepareTaskStartTime(jobId, taskId, startExecuteTime);
     }
 
     // cancel all task for one job
@@ -399,14 +428,7 @@ public class TimerJobManager implements Closeable, Writable {
                 timeout.cancel();
             }
         });
-    }
-
-    public void stopTask(Long jobId, Long taskId) {
-        if (!jobTimeoutMap.containsKey(jobId)) {
-            return;
-        }
-        cancelJobAllTask(jobId);
-        jobTimeoutMap.get(jobId).remove(taskId);
+        JobTaskManager.clearPrepareTaskByJobId(jobId);
     }
 
     // get delay time, if startTimestamp is less than now, return 0
@@ -461,7 +483,9 @@ public class TimerJobManager implements Closeable, Writable {
     }
 
     public void putOneJobToQueen(Long jobId) {
-        disruptor.tryPublish(jobId);
+        long taskId = System.nanoTime();
+        JobTaskManager.addPrepareTaskStartTime(jobId, taskId, System.currentTimeMillis());
+        disruptor.tryPublish(jobId, taskId);
     }
 
     @Override
@@ -482,8 +506,7 @@ public class TimerJobManager implements Closeable, Writable {
         int size = in.readInt();
         for (int i = 0; i < size; i++) {
             Job job = Job.readFields(in);
-            jobMap.put(job.getJobId(), job);
-            initAndSchedulerJob(job);
+            jobMap.putIfAbsent(job.getJobId(), job);
         }
     }
 }

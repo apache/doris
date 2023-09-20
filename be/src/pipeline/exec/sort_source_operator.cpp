@@ -26,53 +26,48 @@ namespace doris::pipeline {
 OPERATOR_CODE_GENERATOR(SortSourceOperator, SourceOperator)
 
 SortLocalState::SortLocalState(RuntimeState* state, OperatorXBase* parent)
-        : PipelineXLocalState(state, parent), _get_next_timer(nullptr) {}
+        : PipelineXLocalState<SortDependency>(state, parent), _get_next_timer(nullptr) {}
 
 Status SortLocalState::init(RuntimeState* state, LocalStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXLocalState::init(state, info));
-    _dependency = (SortDependency*)info.dependency;
-    _shared_state = (SortSharedState*)_dependency->shared_state();
+    RETURN_IF_ERROR(PipelineXLocalState<SortDependency>::init(state, info));
+    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(_open_timer);
     _get_next_timer = ADD_TIMER(profile(), "GetResultTime");
     return Status::OK();
 }
 
 SortSourceOperatorX::SortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
-                                         const DescriptorTbl& descs, std::string op_name)
-        : OperatorXBase(pool, tnode, descs, op_name) {}
+                                         const DescriptorTbl& descs)
+        : OperatorX<SortLocalState>(pool, tnode, descs) {}
 
 Status SortSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                       SourceState& source_state) {
     auto& local_state = state->get_local_state(id())->cast<SortLocalState>();
+    SCOPED_TIMER(local_state.profile()->total_time_counter());
     SCOPED_TIMER(local_state._get_next_timer);
-    bool eos;
+    bool eos = false;
     RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
             local_state._shared_state->sorter->get_next(state, block, &eos));
-    local_state.reached_limit(block, &eos);
     if (eos) {
-        _runtime_profile->add_info_string(
-                "Spilled", local_state._shared_state->sorter->is_spilled() ? "true" : "false");
         source_state = SourceState::FINISHED;
     }
+    local_state.reached_limit(block, source_state);
     return Status::OK();
 }
 
-bool SortSourceOperatorX::can_read(RuntimeState* state) {
+Dependency* SortSourceOperatorX::wait_for_dependency(RuntimeState* state) {
     auto& local_state = state->get_local_state(id())->cast<SortLocalState>();
-    return local_state._dependency->done();
-}
-
-Status SortSourceOperatorX::setup_local_state(RuntimeState* state, LocalStateInfo& info) {
-    auto local_state = SortLocalState::create_shared(state, this);
-    state->emplace_local_state(id(), local_state);
-    return local_state->init(state, info);
+    return local_state._dependency->read_blocked_by();
 }
 
 Status SortLocalState::close(RuntimeState* state) {
+    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(_close_timer);
     if (_closed) {
         return Status::OK();
     }
     _shared_state->sorter = nullptr;
-    return PipelineXLocalState::close(state);
+    return PipelineXLocalState<SortDependency>::close(state);
 }
 
 } // namespace doris::pipeline

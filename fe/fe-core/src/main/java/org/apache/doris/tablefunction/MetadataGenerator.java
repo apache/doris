@@ -188,6 +188,7 @@ public class MetadataGenerator {
                 trow.addToColumnValue(new TCell().setIntVal(backend.getBePort()));
                 trow.addToColumnValue(new TCell().setIntVal(backend.getHttpPort()));
                 trow.addToColumnValue(new TCell().setIntVal(backend.getBrpcPort()));
+                trow.addToColumnValue(new TCell().setIntVal(backend.getArrowFlightSqlPort()));
             }
             trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(backend.getLastStartTime())));
             trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(backend.getLastUpdateMs())));
@@ -198,6 +199,9 @@ public class MetadataGenerator {
             // capacity
             // data used
             trow.addToColumnValue(new TCell().setLongVal(backend.getDataUsedCapacityB()));
+
+            // trash used
+            trow.addToColumnValue(new TCell().setLongVal(backend.getTrashUsedCapacityB()));
 
             // available
             long availB = backend.getAvailableCapacityB();

@@ -66,6 +66,7 @@
 
 namespace doris {
 class DeltaWriterV2;
+class LoadStreamStub;
 class ObjectPool;
 class RowDescriptor;
 class RuntimeState;
@@ -74,15 +75,14 @@ class TExpr;
 class TabletSchema;
 class TupleDescriptor;
 
-namespace stream_load {
+namespace vectorized {
 
 class OlapTableBlockConvertor;
 class OlapTabletFinder;
 class VOlapTableSinkV2;
+class DeltaWriterV2Map;
 
-using DeltaWriterForTablet = std::unordered_map<int64_t, std::unique_ptr<DeltaWriterV2>>;
-using StreamPool = std::vector<brpc::StreamId>;
-using StreamPoolForNode = std::unordered_map<int64_t, StreamPool>;
+using Streams = std::vector<std::shared_ptr<LoadStreamStub>>;
 using NodeIdForStream = std::unordered_map<brpc::StreamId, int64_t>;
 using NodePartitionTabletMapping =
         std::unordered_map<int64_t, std::unordered_map<int64_t, std::unordered_set<int64_t>>>;
@@ -131,13 +131,8 @@ public:
     Status close(RuntimeState* state, Status close_status) override;
     Status send(RuntimeState* state, vectorized::Block* block, bool eos = false) override;
 
-    // Returns the runtime profile for the sink.
-    RuntimeProfile* profile() override { return _profile; }
-
 private:
-    Status _init_stream_pool(const NodeInfo& node_info, StreamPool& stream_pool);
-
-    Status _init_stream_pools();
+    Status _open_streams(int64_t src_id);
 
     void _build_tablet_node_mapping();
 
@@ -146,11 +141,11 @@ private:
                                    int row_idx);
 
     Status _write_memtable(std::shared_ptr<vectorized::Block> block, int64_t tablet_id,
-                           const Rows& rows, const std::vector<brpc::StreamId>& streams);
+                           const Rows& rows, const Streams& streams);
 
-    Status _select_streams(int64_t tablet_id, std::vector<brpc::StreamId>& streams);
+    Status _select_streams(int64_t tablet_id, Streams& streams);
 
-    Status _close_load(brpc::StreamId stream);
+    Status _close_load(const Streams& streams);
 
     Status _cancel(Status status);
 
@@ -173,15 +168,12 @@ private:
     int _sender_id = -1;
     int _num_senders = -1;
     bool _is_high_priority = false;
+    bool _write_file_cache = false;
 
     // TODO(zc): think about cache this data
     std::shared_ptr<OlapTableSchemaParam> _schema;
-    std::unordered_map<int64_t, std::shared_ptr<TabletSchema>> _tablet_schema_for_index;
-    std::unordered_map<int64_t, bool> _enable_unique_mow_for_index;
     OlapTableLocationParam* _location = nullptr;
     DorisNodesInfo* _nodes_info = nullptr;
-
-    RuntimeProfile* _profile = nullptr;
 
     std::unique_ptr<OlapTabletFinder> _tablet_finder;
 
@@ -206,7 +198,6 @@ private:
     RuntimeProfile::Counter* _close_timer = nullptr;
     RuntimeProfile::Counter* _close_writer_timer = nullptr;
     RuntimeProfile::Counter* _close_load_timer = nullptr;
-    RuntimeProfile::Counter* _close_stream_timer = nullptr;
 
     // Save the status of close() method
     Status _close_status;
@@ -221,10 +212,9 @@ private:
     std::unordered_map<int64_t, std::vector<PTabletID>> _tablets_for_node;
     std::unordered_map<int64_t, std::vector<PTabletID>> _indexes_from_node;
 
-    std::shared_ptr<StreamPoolForNode> _stream_pool_for_node;
-    std::shared_ptr<NodeIdForStream> _node_id_for_stream;
+    std::unordered_map<int64_t, std::shared_ptr<Streams>> _streams_for_node;
     size_t _stream_index = 0;
-    std::shared_ptr<DeltaWriterForTablet> _delta_writer_for_tablet;
+    std::shared_ptr<DeltaWriterV2Map> _delta_writer_for_tablet;
 
     std::atomic<int> _pending_streams {0};
 
@@ -236,5 +226,5 @@ private:
     friend class StreamSinkHandler;
 };
 
-} // namespace stream_load
+} // namespace vectorized
 } // namespace doris

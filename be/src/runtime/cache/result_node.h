@@ -63,6 +63,9 @@ private:
         if (req_param.last_version_time() > _cache_value->param().last_version_time()) {
             return false;
         }
+        if (req_param.partition_num() != _cache_value->param().partition_num()) {
+            return false;
+        }
         return true;
     }
 
@@ -74,7 +77,15 @@ private:
         if (up_param.last_version_time() > _cache_value->param().last_version_time()) {
             return true;
         }
+        if (up_param.last_version_time() == _cache_value->param().last_version_time() &&
+            up_param.partition_num() != _cache_value->param().partition_num()) {
+            return true;
+        }
         if (up_param.last_version() > _cache_value->param().last_version()) {
+            return true;
+        }
+        if (up_param.last_version() == _cache_value->param().last_version() &&
+            up_param.partition_num() != _cache_value->param().partition_num()) {
             return true;
         }
         return false;

@@ -104,7 +104,7 @@ public:
                                    DescriptorTbl& desc_tbl);
 
     // Returns the runtime profile for the sink.
-    virtual RuntimeProfile* profile() = 0;
+    RuntimeProfile* profile() { return _profile; }
 
     virtual void set_query_statistics(std::shared_ptr<QueryStatistics> statistics) {
         _query_statistics = statistics;
@@ -120,6 +120,8 @@ protected:
     bool _closed = false;
     std::string _name;
     const RowDescriptor& _row_desc;
+
+    RuntimeProfile* _profile = nullptr; // Allocated from _pool
 
     // Maybe this will be transferred to BufferControlBlock.
     std::shared_ptr<QueryStatistics> _query_statistics;

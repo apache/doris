@@ -19,6 +19,7 @@ package org.apache.doris.scheduler.disruptor;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.scheduler.executor.JobExecutor;
+import org.apache.doris.scheduler.job.ExecutorResult;
 import org.apache.doris.scheduler.job.Job;
 import org.apache.doris.scheduler.manager.TimerJobManager;
 import org.apache.doris.scheduler.manager.TransientTaskManager;
@@ -64,7 +65,7 @@ public class TaskDisruptorTest {
                 timerJobManager.getJob(anyLong);
                 result = job;
             }};
-        taskDisruptor.tryPublish(job.getJobId());
+        taskDisruptor.tryPublish(job.getJobId(), 1L);
         Awaitility.await().atMost(1, TimeUnit.SECONDS).until(() -> testEventExecuteFlag);
         Assertions.assertTrue(testEventExecuteFlag);
     }
@@ -72,9 +73,9 @@ public class TaskDisruptorTest {
 
     class TestExecutor implements JobExecutor<Boolean> {
         @Override
-        public Boolean execute(Job job) {
+        public ExecutorResult execute(Job job) {
             testEventExecuteFlag = true;
-            return true;
+            return new ExecutorResult(true, true, null, "null");
         }
     }
 

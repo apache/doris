@@ -23,6 +23,7 @@
 #include "common/status.h"
 #include "operator.h"
 #include "pipeline/exec/aggregation_source_operator.h"
+#include "pipeline/pipeline_x/operator.h"
 #include "vec/exec/vaggregation_node.h"
 
 namespace doris {
@@ -61,9 +62,12 @@ private:
 
 class StreamingAggSourceOperatorX final : public AggSourceOperatorX {
 public:
+    using Base = AggSourceOperatorX;
     StreamingAggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
-                                const DescriptorTbl& descs, std::string op_name);
-    bool can_read(RuntimeState* state) override;
+                                const DescriptorTbl& descs);
+    ~StreamingAggSourceOperatorX() = default;
+
+    Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override;

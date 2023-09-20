@@ -348,8 +348,16 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         return estimated;
     }
 
+    // Right Now, we just assume the selectivity is 1 when stats is Unknown
+    private Statistics handleUnknownCase(EstimationContext context) {
+        return context.statistics;
+    }
+
     @Override
     public Statistics visitNot(Not not, EstimationContext context) {
+        if (context.statistics.isInputSlotsUnknown(not.getInputSlots())) {
+            return handleUnknownCase(context);
+        }
         Statistics childStats = new FilterEstimation().estimate(not.child(), context.statistics);
         //if estimated rowCount is 0, adjust to 1 to make upper join reorder reasonable.
         double rowCount = Math.max(context.statistics.getRowCount() - childStats.getRowCount(), 1);

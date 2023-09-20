@@ -26,6 +26,7 @@
 #include <cstddef>
 #include <iostream>
 #include <iterator>
+#include <shared_mutex>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -34,7 +35,6 @@
 #include "util/hash_util.hpp"
 #include "util/time_lut.h"
 #include "util/timezone_utils.h"
-#include "vec/common/hash_table/phmap_fwd_decl.h"
 
 namespace cctz {
 class time_zone;
@@ -48,6 +48,7 @@ using ZoneList = std::unordered_map<std::string, cctz::time_zone>;
 
 enum TimeUnit {
     MICROSECOND,
+    MILLISECOND,
     SECOND,
     MINUTE,
     HOUR,
@@ -76,6 +77,7 @@ struct TimeInterval {
     int64_t hour;
     int64_t minute;
     int64_t second;
+    int64_t millisecond;
     int64_t microsecond;
     bool is_neg;
 
@@ -86,6 +88,7 @@ struct TimeInterval {
               hour(0),
               minute(0),
               second(0),
+              millisecond(0),
               microsecond(0),
               is_neg(false) {}
 
@@ -96,6 +99,7 @@ struct TimeInterval {
               hour(0),
               minute(0),
               second(0),
+              millisecond(0),
               microsecond(0),
               is_neg(is_neg_param) {
         switch (unit) {
@@ -122,6 +126,9 @@ struct TimeInterval {
             break;
         case SECOND_MICROSECOND:
             microsecond = count;
+            break;
+        case MILLISECOND:
+            millisecond = count;
             break;
         case MICROSECOND:
             microsecond = count;
@@ -269,6 +276,9 @@ public:
 
     template <typename T>
     void create_from_date_v2(DateV2Value<T>& value, TimeType type);
+
+    template <typename T>
+    void create_from_date_v2(DateV2Value<T>&& value, TimeType type);
 
     void set_time(uint32_t year, uint32_t month, uint32_t day, uint32_t hour, uint32_t minute,
                   uint32_t second);
@@ -479,7 +489,7 @@ public:
     uint32_t year_week(uint8_t mode) const;
 
     // Add interval
-    template <TimeUnit unit>
+    template <TimeUnit unit, bool need_check = true>
     bool date_add_interval(const TimeInterval& interval);
 
     // set interval
@@ -940,7 +950,7 @@ public:
     template <TimeUnit unit, typename TO>
     bool date_add_interval(const TimeInterval& interval, DateV2Value<TO>& to_value);
 
-    template <TimeUnit unit>
+    template <TimeUnit unit, bool need_check = true>
     bool date_add_interval(const TimeInterval& interval);
 
     template <TimeUnit unit>
@@ -1388,6 +1398,15 @@ int64_t datetime_diff(const DateV2Value<T0>& ts_value1, const DateV2Value<T1>& t
         int64_t second = ts_value2.second_diff(ts_value1);
         return second;
     }
+    case MILLISECOND: {
+        int64_t microsecond = ts_value2.microsecond_diff(ts_value1);
+        int64_t millisecond = microsecond / 1000;
+        return millisecond;
+    }
+    case MICROSECOND: {
+        int64_t microsecond = ts_value2.microsecond_diff(ts_value1);
+        return microsecond;
+    }
     }
     // Rethink the default return value
     return 0;
@@ -1496,8 +1515,24 @@ class DataTypeDateTime;
 class DataTypeDateV2;
 class DataTypeDateTimeV2;
 
-[[maybe_unused]] void init_date_day_offset_dict();
-[[maybe_unused]] DateV2Value<DateV2ValueType>* get_date_day_offset_dict();
+class date_day_offset_dict {
+private:
+    static date_day_offset_dict instance;
+
+    date_day_offset_dict();
+    ~date_day_offset_dict() = default;
+    date_day_offset_dict(const date_day_offset_dict&) = default;
+    date_day_offset_dict& operator=(const date_day_offset_dict&) = default;
+
+public:
+    static constexpr int DAY_BEFORE_EPOCH = 25566; // 1900-01-01
+    static constexpr int DAY_AFTER_EPOCH = 25500;  // 2039-10-24
+    static constexpr int DICT_DAYS = DAY_BEFORE_EPOCH + DAY_AFTER_EPOCH;
+
+    static date_day_offset_dict& get();
+
+    DateV2Value<DateV2ValueType> operator[](int day);
+};
 
 template <typename T>
 struct DateTraits {};

@@ -21,6 +21,7 @@
 
 #include "common/status.h"
 #include "operator.h"
+#include "pipeline/pipeline_x/operator.h"
 #include "vec/exec/vanalytic_eval_node.h"
 
 namespace doris {
@@ -46,7 +47,7 @@ public:
 };
 
 class AnalyticSourceOperatorX;
-class AnalyticLocalState final : public PipelineXLocalState {
+class AnalyticLocalState final : public PipelineXLocalState<AnalyticDependency> {
 public:
     ENABLE_FACTORY_CREATOR(AnalyticLocalState);
     AnalyticLocalState(RuntimeState* state, OperatorXBase* parent);
@@ -78,9 +79,6 @@ private:
     Status _destroy_agg_status();
 
     friend class AnalyticSourceOperatorX;
-
-    AnalyticDependency* _dependency;
-    AnalyticSharedState* _shared_state;
 
     int64_t _output_block_index;
     int64_t _window_end_position;
@@ -116,13 +114,10 @@ private:
     executor _executor;
 };
 
-class AnalyticSourceOperatorX final : public OperatorXBase {
+class AnalyticSourceOperatorX final : public OperatorX<AnalyticLocalState> {
 public:
-    AnalyticSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs,
-                            std::string op_name);
-    bool can_read(RuntimeState* state) override;
-
-    Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override;
+    AnalyticSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    Dependency* wait_for_dependency(RuntimeState* state) override;
 
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override;

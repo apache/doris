@@ -23,6 +23,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.TableStats;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.collect.Lists;
@@ -33,6 +34,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -136,6 +138,10 @@ public interface TableIf {
 
     Optional<ColumnStatistic> getColumnStatistic(String colName);
 
+    boolean needReAnalyzeTable(TableStats tblStats);
+
+    Map<String, Set<String>> findReAnalyzeNeededPartitions();
+
     void write(DataOutput out) throws IOException;
 
     /**
@@ -238,6 +244,11 @@ public interface TableIf {
 
     default long getLastUpdateTime() {
         return -1L;
+    }
+
+    default long getDataSize() {
+        // TODO: Each tableIf should impl it by itself.
+        return 0;
     }
 }
 

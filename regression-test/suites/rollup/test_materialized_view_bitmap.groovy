@@ -16,9 +16,6 @@
 // under the License.
 suite("test_materialized_view_bitmap", "rollup") {
 
-    // because nereids cannot support rollup correctly forbid it temporary
-    sql """set enable_nereids_planner=false"""
-
     def tbName1 = "test_materialized_view_bitmap"
 
     def getJobState = { tableName ->

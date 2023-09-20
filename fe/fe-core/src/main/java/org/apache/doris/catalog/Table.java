@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.alter.AlterCancelException;
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -31,6 +30,7 @@ import org.apache.doris.external.hudi.HudiTable;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.TableStats;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.base.Preconditions;
@@ -572,6 +572,15 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         return Optional.empty();
     }
 
-    public void analyze(Analyzer analyzer) {
+    public void analyze(String dbName) {}
+
+    @Override
+    public boolean needReAnalyzeTable(TableStats tblStats) {
+        return true;
+    }
+
+    @Override
+    public Map<String, Set<String>> findReAnalyzeNeededPartitions() {
+        return Collections.emptyMap();
     }
 }

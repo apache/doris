@@ -32,12 +32,18 @@ array_filter(lambda,array)
 
 </version>
 
+<version since="2.0.2">
+
+array array_filter(array arr, array_bool filter_column)
+
+</version>
+
 ### description
 
 #### Syntax
 ```sql
-ARRAY<T> array_filter(lambda, ARRAY<T> arr1, ARRAY<T> arr2, ... )
-ARRAY<T> array_filter(ARRAY<T> arr)
+ARRAY<T> array_filter(lambda, ARRAY<T> arr)
+ARRAY<T> array_filter(ARRAY<T> arr, ARRAY<Bool> filter_column)
 ```
 
 使用lambda表达式作为输入参数，计算筛选另外的输入参数ARRAY列的数据。
@@ -47,12 +53,22 @@ ARRAY<T> array_filter(ARRAY<T> arr)
 array_filter(x->x>0, array1);
 array_filter(x->(x+2)=10, array1);
 array_filter(x->(abs(x)-2)>0, array1);
-
+array_filter(c_array,[0,1,0]);
 ```
 
 ### example
 
 ```shell
+mysql [test]>select c_array,array_filter(c_array,[0,1,0]) from array_test;
++-----------------+----------------------------------------------------+
+| c_array         | array_filter(`c_array`, ARRAY(FALSE, TRUE, FALSE)) |
++-----------------+----------------------------------------------------+
+| [1, 2, 3, 4, 5] | [2]                                                |
+| [6, 7, 8]       | [7]                                                |
+| []              | []                                                 |
+| NULL            | NULL                                               |
++-----------------+----------------------------------------------------+
+
 mysql [test]>select array_filter(x->(x > 1),[1,2,3,0,null]);
 +----------------------------------------------------------------------------------------------+
 | array_filter(ARRAY(1, 2, 3, 0, NULL), array_map([x] -> (x(0) > 1), ARRAY(1, 2, 3, 0, NULL))) |

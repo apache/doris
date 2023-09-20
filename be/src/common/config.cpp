@@ -39,7 +39,6 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 
@@ -59,6 +58,8 @@ DEFINE_Int32(be_port, "9060");
 
 // port for brpc
 DEFINE_Int32(brpc_port, "8060");
+
+DEFINE_Int32(arrow_flight_sql_port, "-1");
 
 // the number of bthreads for brpc, the default value is set to -1,
 // which means the number of bthreads is #cpu-cores
@@ -300,6 +301,7 @@ DEFINE_mInt32(trash_file_expire_time_sec, "259200");
 // minimum file descriptor number
 // modify them upon necessity
 DEFINE_Int32(min_file_descriptor_number, "60000");
+DEFINE_mBool(disable_segment_cache, "false");
 DEFINE_Int64(index_stream_cache_capacity, "10737418240");
 DEFINE_String(row_cache_mem_limit, "20%");
 
@@ -579,7 +581,7 @@ DEFINE_mInt32(result_buffer_cancelled_interval_time, "300");
 DEFINE_mInt32(priority_queue_remaining_tasks_increased_frequency, "512");
 
 // sync tablet_meta when modifying meta
-DEFINE_mBool(sync_tablet_meta, "false");
+DEFINE_mBool(sync_tablet_meta, "true");
 
 // default thrift rpc timeout ms
 DEFINE_mInt32(thrift_rpc_timeout_ms, "60000");
@@ -728,7 +730,11 @@ DEFINE_mInt32(mem_tracker_consume_min_size_bytes, "1048576");
 // In most cases, it does not need to be modified.
 DEFINE_mDouble(tablet_version_graph_orphan_vertex_ratio, "0.1");
 
-// number of brpc stream per OlapTableSinkV2
+// share brpc streams when memtable_on_sink_node = true
+DEFINE_Bool(share_load_streams, "true");
+// share delta writers when memtable_on_sink_node = true
+DEFINE_Bool(share_delta_writers, "true");
+// number of brpc stream per OlapTableSinkV2 (per load if share_load_streams = true)
 DEFINE_Int32(num_streams_per_sink, "5");
 // timeout for open stream sink rpc in ms
 DEFINE_Int64(open_stream_sink_timeout_ms, "500");
@@ -879,20 +885,14 @@ DEFINE_mInt32(remove_unused_remote_files_interval_sec, "21600"); // 6h
 DEFINE_mInt32(confirm_unused_remote_files_interval_sec, "60");
 DEFINE_Int32(cold_data_compaction_thread_num, "2");
 DEFINE_mInt32(cold_data_compaction_interval_sec, "1800");
-DEFINE_mInt64(generate_cache_cleaner_task_interval_sec, "43200"); // 12 h
 DEFINE_Int32(concurrency_per_dir, "2");
-DEFINE_mInt64(cooldown_lag_time_sec, "10800");       // 3h
-DEFINE_mInt64(max_sub_cache_file_size, "104857600"); // 100MB
-DEFINE_mInt64(file_cache_alive_time_sec, "604800");  // 1 week
 // file_cache_type is used to set the type of file cache for remote files.
 // "": no cache, "sub_file_cache": split sub files from remote file.
 // "whole_file_cache": the whole file.
 DEFINE_mString(file_cache_type, "file_block_cache");
-DEFINE_Validator(file_cache_type, [](const std::string config) -> bool {
-    return config == "sub_file_cache" || config == "whole_file_cache" || config == "" ||
-           config == "file_block_cache";
+DEFINE_Validator(file_cache_type, [](std::string_view config) -> bool {
+    return config == "" || config == "file_block_cache";
 });
-DEFINE_mInt64(file_cache_max_size_per_disk, "0"); // zero for no limit
 
 DEFINE_Int32(s3_transfer_executor_pool_size, "2");
 
@@ -977,6 +977,7 @@ DEFINE_Validator(file_cache_min_file_segment_size, [](const int64_t config) -> b
 });
 DEFINE_Bool(clear_file_cache, "false");
 DEFINE_Bool(enable_file_cache_query_limit, "false");
+DEFINE_mInt32(file_cache_wait_sec_after_fail, "0"); // // zero for no waiting and retrying
 
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
@@ -1030,6 +1031,9 @@ DEFINE_Bool(enable_shrink_memory, "false");
 DEFINE_mInt32(schema_cache_capacity, "1024");
 DEFINE_mInt32(schema_cache_sweep_time_sec, "100");
 
+// max number of segment cache, default -1 for backward compatibility fd_number*2/5
+DEFINE_mInt32(segment_cache_capacity, "-1");
+
 // enable feature binlog, default false
 DEFINE_Bool(enable_feature_binlog, "false");
 
@@ -1064,9 +1068,6 @@ DEFINE_mInt64(lookup_connection_cache_bytes_limit, "4294967296");
 // level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
 DEFINE_mInt64(LZ4_HC_compression_level, "9");
 
-// enable window_funnel_function with different modes
-DEFINE_mBool(enable_window_funnel_function_v2, "false");
-
 DEFINE_Bool(enable_hdfs_hedged_read, "false");
 DEFINE_Int32(hdfs_hedged_read_thread_num, "128");
 DEFINE_Int32(hdfs_hedged_read_threshold_time, "500");
@@ -1077,6 +1078,17 @@ DEFINE_mBool(enable_merge_on_write_correctness_check, "true");
 DEFINE_mString(user_files_secure_path, "${DORIS_HOME}");
 
 DEFINE_Int32(partition_topn_partition_threshold, "1024");
+
+DEFINE_Int32(fe_expire_duration_seconds, "60");
+
+DEFINE_Int32(grace_shutdown_wait_seconds, "120");
+
+DEFINE_Int16(bitmap_serialize_version, "1");
+
+// the count of thread to group commit insert
+DEFINE_Int32(group_commit_insert_threads, "10");
+
+DEFINE_mInt32(scan_thread_nice_value, "0");
 
 #ifdef BE_TEST
 // test s3
@@ -1410,32 +1422,34 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
     return true;
 }
 
-#define UPDATE_FIELD(FIELD, VALUE, TYPE, PERSIST)                                                 \
-    if (strcmp((FIELD).type, #TYPE) == 0) {                                                       \
-        TYPE new_value;                                                                           \
-        if (!convert((VALUE), new_value)) {                                                       \
-            return Status::InvalidArgument("convert '{}' as {} failed", VALUE, #TYPE);            \
-        }                                                                                         \
-        TYPE& ref_conf_value = *reinterpret_cast<TYPE*>((FIELD).storage);                         \
-        TYPE old_value = ref_conf_value;                                                          \
-        if (RegisterConfValidator::_s_field_validator != nullptr) {                               \
-            auto validator = RegisterConfValidator::_s_field_validator->find((FIELD).name);       \
-            if (validator != RegisterConfValidator::_s_field_validator->end() &&                  \
-                !(validator->second)()) {                                                         \
-                ref_conf_value = old_value;                                                       \
-                return Status::InvalidArgument("validate {}={} failed", (FIELD).name, new_value); \
-            }                                                                                     \
-        }                                                                                         \
-        ref_conf_value = new_value;                                                               \
-        if (full_conf_map != nullptr) {                                                           \
-            std::ostringstream oss;                                                               \
-            oss << new_value;                                                                     \
-            (*full_conf_map)[(FIELD).name] = oss.str();                                           \
-        }                                                                                         \
-        if (PERSIST) {                                                                            \
-            RETURN_IF_ERROR(persist_config(std::string((FIELD).name), VALUE));                    \
-        }                                                                                         \
-        return Status::OK();                                                                      \
+#define UPDATE_FIELD(FIELD, VALUE, TYPE, PERSIST)                                                  \
+    if (strcmp((FIELD).type, #TYPE) == 0) {                                                        \
+        TYPE new_value;                                                                            \
+        if (!convert((VALUE), new_value)) {                                                        \
+            return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("convert '{}' as {} failed",  \
+                                                                     VALUE, #TYPE);                \
+        }                                                                                          \
+        TYPE& ref_conf_value = *reinterpret_cast<TYPE*>((FIELD).storage);                          \
+        TYPE old_value = ref_conf_value;                                                           \
+        if (RegisterConfValidator::_s_field_validator != nullptr) {                                \
+            auto validator = RegisterConfValidator::_s_field_validator->find((FIELD).name);        \
+            if (validator != RegisterConfValidator::_s_field_validator->end() &&                   \
+                !(validator->second)()) {                                                          \
+                ref_conf_value = old_value;                                                        \
+                return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("validate {}={} failed",  \
+                                                                         (FIELD).name, new_value); \
+            }                                                                                      \
+        }                                                                                          \
+        ref_conf_value = new_value;                                                                \
+        if (full_conf_map != nullptr) {                                                            \
+            std::ostringstream oss;                                                                \
+            oss << new_value;                                                                      \
+            (*full_conf_map)[(FIELD).name] = oss.str();                                            \
+        }                                                                                          \
+        if (PERSIST) {                                                                             \
+            RETURN_IF_ERROR(persist_config(std::string((FIELD).name), VALUE));                     \
+        }                                                                                          \
+        return Status::OK();                                                                       \
     }
 
 // write config to be_custom.conf
@@ -1460,11 +1474,12 @@ Status set_config(const std::string& field, const std::string& value, bool need_
                   bool force) {
     auto it = Register::_s_field_map->find(field);
     if (it == Register::_s_field_map->end()) {
-        return Status::NotFound("'{}' is not found", field);
+        return Status::Error<ErrorCode::NOT_FOUND, false>("'{}' is not found", field);
     }
 
     if (!force && !it->second.valmutable) {
-        return Status::NotSupported("'{}' is not support to modify", field);
+        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR, false>(
+                "'{}' is not support to modify", field);
     }
 
     UPDATE_FIELD(it->second, value, bool, need_persist);
@@ -1479,8 +1494,8 @@ Status set_config(const std::string& field, const std::string& value, bool need_
     }
 
     // The other types are not thread safe to change dynamically.
-    return Status::NotSupported("'{}' is type of '{}' which is not support to modify", field,
-                                it->second.type);
+    return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR, false>(
+            "'{}' is type of '{}' which is not support to modify", field, it->second.type);
 }
 
 Status set_fuzzy_config(const std::string& field, const std::string& value) {
@@ -1515,7 +1530,11 @@ std::vector<std::vector<std::string>> get_config_info() {
         _config.push_back(it.first);
 
         _config.push_back(field_it->second.type);
-        _config.push_back(it.second);
+        if (0 == strcmp(field_it->second.type, "bool")) {
+            _config.push_back(it.second == "1" ? "true" : "false");
+        } else {
+            _config.push_back(it.second);
+        }
         _config.push_back(field_it->second.valmutable ? "true" : "false");
 
         configs.push_back(_config);

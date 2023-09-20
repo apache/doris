@@ -169,6 +169,7 @@ Status RowsetBuilder::init() {
     context.tablet = _tablet;
     context.write_type = DataWriteType::TYPE_DIRECT;
     context.mow_context = mow_context;
+    context.write_file_cache = _req.write_file_cache;
     std::unique_ptr<RowsetWriter> rowset_writer;
     RETURN_IF_ERROR(_tablet->create_rowset_writer(context, &rowset_writer));
     _rowset_writer = std::move(rowset_writer);
@@ -249,6 +250,20 @@ Status RowsetBuilder::wait_calc_delete_bitmap() {
 }
 
 Status RowsetBuilder::commit_txn() {
+    if (_tablet->enable_unique_key_merge_on_write() &&
+        config::enable_merge_on_write_correctness_check && _rowset->num_rows() != 0) {
+        auto st = _tablet->check_delete_bitmap_correctness(
+                _delete_bitmap, _rowset->end_version() - 1, _req.txn_id, _rowset_ids);
+        if (!st.ok()) {
+            LOG(WARNING) << fmt::format(
+                    "[tablet_id:{}][txn_id:{}][load_id:{}][partition_id:{}] "
+                    "delete bitmap correctness check failed in commit phase!",
+                    _req.tablet_id, _req.txn_id, UniqueId(_req.load_id).to_string(),
+                    _req.partition_id);
+            return st;
+        }
+    }
+
     std::lock_guard<std::mutex> l(_lock);
     SCOPED_TIMER(_commit_txn_timer);
     Status res = _storage_engine->txn_manager()->commit_txn(_req.partition_id, _tablet, _req.txn_id,
@@ -308,6 +323,7 @@ void RowsetBuilder::_build_current_tablet_schema(int64_t index_id,
     _tablet_schema->set_partial_update_info(table_schema_param->is_partial_update(),
                                             table_schema_param->partial_update_input_columns());
     _tablet_schema->set_is_strict_mode(table_schema_param->is_strict_mode());
+    _tablet_schema->set_is_unique_key_ignore_mode(table_schema_param->is_unique_key_ignore_mode());
 }
 
 } // namespace doris

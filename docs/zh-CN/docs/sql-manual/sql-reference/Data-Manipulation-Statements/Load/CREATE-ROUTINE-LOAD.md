@@ -146,7 +146,7 @@ FROM data_source [data_source_properties]
 
   1. `desired_concurrent_number`
 
-     期望的并发度。一个例行导入作业会被分成多个子任务执行。这个参数指定一个作业最多有多少任务可以同时执行。必须大于0。默认为3。
+     期望的并发度。一个例行导入作业会被分成多个子任务执行。这个参数指定一个作业最多有多少任务可以同时执行。必须大于0。默认为5。
 
      这个并发度并不是实际的并发度，实际的并发度，会通过集群的节点数、负载情况，以及数据源的情况综合考虑。
 
@@ -246,10 +246,18 @@ FROM data_source [data_source_properties]
 
   11. `load_to_single_tablet`
 
-      布尔类型，为 true 表示支持一个任务只导入数据到对应分区的一个 tablet，默认值为 false，该参数只允许在对带有 random 分区的 olap 表导数的时候设置。
+      布尔类型，为 true 表示支持一个任务只导入数据到对应分区的一个 tablet，默认值为 false，该参数只允许在对带有 random 分桶的 olap 表导数的时候设置。
 
   12. `partial_columns`
       布尔类型，为 true 表示使用部分列更新，默认值为 false，该参数只允许在表模型为 Unique 且采用 Merge on Write 时设置。一流多表不支持此参数。
+
+  13. `max_filter_ratio`
+
+      采样窗口内，允许的最大过滤率。必须在大于等于0到小于等于1之间。默认值是 1.0。
+
+      采样窗口为 `max_batch_rows * 10`。即如果在采样窗口内，错误行数/总行数大于 `max_filter_ratio`，则会导致例行作业被暂停，需要人工介入检查数据质量问题。
+
+      被 where 条件过滤掉的行不算错误行。
 
 - `FROM data_source [data_source_properties]`
 
@@ -583,7 +591,7 @@ FROM data_source [data_source_properties]
    (
        "kafka_broker_list" = "broker1:9092,broker2:9092",
        "kafka_topic" = "my_topic",
-       "kafka_default_offset" = "2021-05-21 10:00:00"
+       "kafka_default_offsets" = "2021-05-21 10:00:00"
    );
    ```
 
@@ -601,11 +609,11 @@ Doris 支持指定 Partition 和 Offset 开始消费，还支持了指定时间�
 
 - `kafka_partitions`：指定待消费的 partition 列表，如："0, 1, 2, 3"。
 - `kafka_offsets`：指定每个分区的起始offset，必须和 `kafka_partitions` 列表个数对应。如："1000, 1000, 2000, 2000"
-- `property.kafka_default_offset`：指定分区默认的起始offset。
+- `property.kafka_default_offsets：指定分区默认的起始offset。
 
 在创建导入作业时，这三个参数可以有以下组合：
 
-| 组合 | `kafka_partitions` | `kafka_offsets` | `property.kafka_default_offset` | 行为                                                         |
+| 组合 | `kafka_partitions` | `kafka_offsets` | `property.kafka_default_offsets` | 行为                                                         |
 | ---- | ------------------ | --------------- | ------------------------------- | ------------------------------------------------------------ |
 | 1    | No                 | No              | No                              | 系统会自动查找topic对应的所有分区并从 OFFSET_END 开始消费    |
 | 2    | No                 | No              | Yes                             | 系统会自动查找topic对应的所有分区并从 default offset 指定的位置开始消费 |

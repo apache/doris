@@ -37,7 +37,11 @@ class TimezoneUtils {
 public:
     static void load_timezone_names();
     static void load_timezones_to_cache(vectorized::ZoneList& cache_list);
+    // we support to parse lower_case timezone name iff execution environment has timezone file
     static bool find_cctz_time_zone(const std::string& timezone, cctz::time_zone& ctz);
+
+    // for ut only
+    static void clear_timezone_names();
 
     static const std::string default_time_zone;
 

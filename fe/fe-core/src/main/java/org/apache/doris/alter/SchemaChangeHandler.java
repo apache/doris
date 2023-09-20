@@ -32,6 +32,8 @@ import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.analysis.ModifyColumnClause;
 import org.apache.doris.analysis.ModifyTablePropertiesClause;
 import org.apache.doris.analysis.ReorderColumnsClause;
+import org.apache.doris.analysis.ShowAlterStmt.AlterType;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
@@ -403,21 +405,28 @@ public class SchemaChangeHandler extends AlterHandler {
                 throw new DdlException("Column does not exists: " + dropColName);
             }
 
-            // remove column in rollup index if exists (i = 1 to skip base index)
             for (int i = 1; i < indexIds.size(); i++) {
                 List<Column> rollupSchema = indexSchemaMap.get(indexIds.get(i));
                 Iterator<Column> iter = rollupSchema.iterator();
                 while (iter.hasNext()) {
                     Column column = iter.next();
-                    if (column.getName().equalsIgnoreCase(dropColName)) {
-                        if (column.isKey()) {
-                            lightSchemaChange = false;
+                    boolean containedByMV = column.getName().equalsIgnoreCase(dropColName);
+                    if (!containedByMV && column.getDefineExpr() != null) {
+                        List<SlotRef> slots = new ArrayList<>();
+                        column.getDefineExpr().collect(SlotRef.class, slots);
+                        for (SlotRef slot : slots) {
+                            if (slot.getColumnName().equalsIgnoreCase(dropColName)) {
+                                containedByMV = true;
+                                break;
+                            }
                         }
-                        iter.remove();
-                        break;
+                    }
+                    if (containedByMV) {
+                        throw new DdlException("Can not drop column contained by mv, mv="
+                                + olapTable.getIndexNameById(indexIds.get(i)));
                     }
                 }
-            } // end for index names
+            }
         } else {
             // if specify rollup index, only drop column from specified rollup index
             // find column
@@ -2013,7 +2022,12 @@ public class SchemaChangeHandler extends AlterHandler {
 
     private void enableLightSchemaChange(Database db, OlapTable olapTable) throws DdlException {
         final AlterLightSchChangeHelper alterLightSchChangeHelper = new AlterLightSchChangeHelper(db, olapTable);
-        alterLightSchChangeHelper.enableLightSchemaChange();
+        try {
+            alterLightSchChangeHelper.enableLightSchemaChange();
+        } catch (IllegalStateException e) {
+            throw new DdlException(String.format("failed to enable light schema change for table %s.%s",
+                    db.getFullName(), olapTable.getName()), e);
+        }
     }
 
     public void replayAlterLightSchChange(AlterLightSchemaChangeInfo info) throws MetaNotFoundException {
@@ -2023,7 +2037,7 @@ public class SchemaChangeHandler extends AlterHandler {
         final AlterLightSchChangeHelper alterLightSchChangeHelper = new AlterLightSchChangeHelper(db, olapTable);
         try {
             alterLightSchChangeHelper.updateTableMeta(info);
-        } catch (DdlException e) {
+        } catch (IllegalStateException e) {
             LOG.warn("failed to replay alter light schema change", e);
         } finally {
             olapTable.writeUnlock();
@@ -2331,7 +2345,14 @@ public class SchemaChangeHandler extends AlterHandler {
     @Override
     public void cancel(CancelStmt stmt) throws DdlException {
         CancelAlterTableStmt cancelAlterTableStmt = (CancelAlterTableStmt) stmt;
+        if (cancelAlterTableStmt.getAlterType() == AlterType.INDEX) {
+            cancelIndexJob(cancelAlterTableStmt);
+        } else {
+            cancelColumnJob(cancelAlterTableStmt);
+        }
+    }
 
+    private void cancelColumnJob(CancelAlterTableStmt cancelAlterTableStmt) throws DdlException {
         String dbName = cancelAlterTableStmt.getDbName();
         String tableName = cancelAlterTableStmt.getTableName();
         Preconditions.checkState(!Strings.isNullOrEmpty(dbName));
@@ -2367,6 +2388,59 @@ public class SchemaChangeHandler extends AlterHandler {
                 throw new DdlException("Job can not be cancelled. State: " + schemaChangeJobV2.getJobState());
             }
             return;
+        }
+    }
+
+    private void cancelIndexJob(CancelAlterTableStmt cancelAlterTableStmt) throws DdlException {
+        String dbName = cancelAlterTableStmt.getDbName();
+        String tableName = cancelAlterTableStmt.getTableName();
+        Preconditions.checkState(!Strings.isNullOrEmpty(dbName));
+        Preconditions.checkState(!Strings.isNullOrEmpty(tableName));
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+
+        List<IndexChangeJob> jobList = new ArrayList<>();
+
+        Table olapTable = db.getTableOrDdlException(tableName, Table.TableType.OLAP);
+        olapTable.writeLock();
+        try {
+            // find from index change jobs first
+            if (cancelAlterTableStmt.getAlterJobIdList() != null
+                    && cancelAlterTableStmt.getAlterJobIdList().size() > 0) {
+                for (Long jobId : cancelAlterTableStmt.getAlterJobIdList()) {
+                    IndexChangeJob job = indexChangeJobs.get(jobId);
+                    if (job == null) {
+                        continue;
+                    }
+                    jobList.add(job);
+                    LOG.debug("add build index job {} on table {} for specific id", jobId, tableName);
+                }
+            } else {
+                for (IndexChangeJob job : indexChangeJobs.values()) {
+                    if (!job.isDone() && job.getTableId() == olapTable.getId()) {
+                        jobList.add(job);
+                        LOG.debug("add build index job {} on table {} for all", job.getJobId(), tableName);
+                    }
+                }
+            }
+        } finally {
+            olapTable.writeUnlock();
+        }
+
+        // alter job v2's cancel must be called outside the table lock
+        if (jobList.size() > 0) {
+            for (IndexChangeJob job : jobList) {
+                long jobId = job.getJobId();
+                LOG.debug("cancel build index job {} on table {}", jobId, tableName);
+                if (!job.cancel("user cancelled")) {
+                    LOG.warn("cancel build index job {} on table {} failed", jobId, tableName);
+                    throw new DdlException("Job can not be cancelled. State: " + job.getJobState());
+                } else {
+                    LOG.info("cancel build index job {} on table {} success", jobId, tableName);
+                }
+            }
+        } else {
+            throw new DdlException("No job to cancel for Table[" + tableName + "]");
         }
     }
 
@@ -2832,8 +2906,8 @@ public class SchemaChangeHandler extends AlterHandler {
                     && indexChangeJob.getTableId() == tableId
                     && indexChangeJob.getPartitionName().equals(partitionName)
                     && indexChangeJob.hasSameAlterInvertedIndex(isDrop, alterIndexes)
-                    && indexChangeJob.getJobState() != IndexChangeJob.JobState.CANCELLED) {
-                // if JobState is CANCELLED, also allow user to create job again
+                    && !indexChangeJob.isDone()) {
+                // if JobState is done (CANCELLED or FINISHED), also allow user to create job again
                 return true;
             }
         }

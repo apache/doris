@@ -79,7 +79,8 @@ public class ExplainCommand extends Command implements NoForward {
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
         planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
         executor.setPlanner(planner);
-        executor.handleExplainStmt(planner.getExplainString(new ExplainOptions(level)));
+        executor.checkBlockRules();
+        executor.handleExplainStmt(planner.getExplainString(new ExplainOptions(level)), true);
     }
 
     @Override

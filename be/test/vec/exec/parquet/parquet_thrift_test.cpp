@@ -437,7 +437,6 @@ static void read_parquet_data_and_check(const std::string& parquet_file,
 }
 
 TEST_F(ParquetThriftReaderTest, type_decoder) {
-    init_date_day_offset_dict();
     read_parquet_data_and_check("./be/test/exec/test_data/parquet_scanner/type-decoder.parquet",
                                 "./be/test/exec/test_data/parquet_scanner/type-decoder.txt", 10);
 }

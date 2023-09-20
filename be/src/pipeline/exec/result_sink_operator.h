@@ -20,10 +20,12 @@
 #include <stdint.h>
 
 #include "operator.h"
+#include "pipeline/pipeline_x/operator.h"
 #include "vec/sink/vresult_sink.h"
 
 namespace doris {
 class DataSink;
+class PipBufferControlBlock;
 
 namespace pipeline {
 
@@ -41,15 +43,42 @@ public:
     bool can_write() override;
 };
 
-class ResultSinkLocalState final : public PipelineXSinkLocalState {
+class ResultBufferDependency : public WriteDependency {
+public:
+    ENABLE_FACTORY_CREATOR(ResultBufferDependency);
+    ResultBufferDependency(int id) : WriteDependency(id, "ResultBufferDependency") {}
+    ~ResultBufferDependency() = default;
+
+    void* shared_state() override { return nullptr; }
+};
+
+class ResultQueueDependency : public WriteDependency {
+public:
+    ENABLE_FACTORY_CREATOR(ResultQueueDependency);
+    ResultQueueDependency(int id) : WriteDependency(id, "ResultQueueDependency") {}
+    ~ResultQueueDependency() = default;
+
+    void* shared_state() override { return nullptr; }
+};
+
+class CancelDependency : public WriteDependency {
+public:
+    ENABLE_FACTORY_CREATOR(CancelDependency);
+    CancelDependency(int id) : WriteDependency(id, "CancelDependency") { _ready_for_write = false; }
+    ~CancelDependency() = default;
+
+    void* shared_state() override { return nullptr; }
+};
+
+class ResultSinkLocalState final : public PipelineXSinkLocalState<> {
     ENABLE_FACTORY_CREATOR(ResultSinkLocalState);
 
 public:
-    ResultSinkLocalState(DataSinkOperatorX* parent, RuntimeState* state)
-            : PipelineXSinkLocalState(parent, state) {}
+    ResultSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
+            : PipelineXSinkLocalState<>(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
-
+    Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
 
 private:
@@ -59,22 +88,28 @@ private:
 
     std::shared_ptr<BufferControlBlock> _sender;
     std::shared_ptr<ResultWriter> _writer;
+    std::shared_ptr<OrDependency> _result_sink_dependency;
+    std::shared_ptr<pipeline::ResultBufferDependency> _buffer_dependency;
+    std::shared_ptr<pipeline::ResultQueueDependency> _queue_dependency;
+    std::shared_ptr<pipeline::CancelDependency> _cancel_dependency;
+
+    RuntimeProfile::Counter* _wait_for_queue_timer = nullptr;
+    RuntimeProfile::Counter* _wait_for_buffer_timer = nullptr;
+    // time of prefilter input block from scanner
+    RuntimeProfile::Counter* _wait_for_cancel_timer = nullptr;
 };
 
-class ResultSinkOperatorX final : public DataSinkOperatorX {
+class ResultSinkOperatorX final : public DataSinkOperatorX<ResultSinkLocalState> {
 public:
     ResultSinkOperatorX(const RowDescriptor& row_desc, const std::vector<TExpr>& select_exprs,
                         const TResultSink& sink);
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
-    Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
 
-    bool can_write(RuntimeState* state) override;
-
-    [[nodiscard]] bool need_to_create_result_sender() const override { return true; }
+    WriteDependency* wait_for_dependency(RuntimeState* state) override;
 
 private:
     friend class ResultSinkLocalState;

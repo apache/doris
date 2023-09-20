@@ -37,7 +37,7 @@ public class DropTableEvent extends MetastoreTableEvent {
     // for test
     public DropTableEvent(long eventId, String catalogName, String dbName,
                            String tblName) {
-        super(eventId, catalogName, dbName, tblName);
+        super(eventId, catalogName, dbName, tblName, MetastoreEventType.DROP_TABLE);
         this.tableName = tblName;
     }
 
@@ -68,6 +68,11 @@ public class DropTableEvent extends MetastoreTableEvent {
     }
 
     @Override
+    protected boolean willChangeTableName() {
+        return false;
+    }
+
+    @Override
     protected void process() throws MetastoreNotificationException {
         try {
             infoLog("catalogName:[{}],dbName:[{}],tableName:[{}]", catalogName, dbName, tableName);
@@ -80,8 +85,18 @@ public class DropTableEvent extends MetastoreTableEvent {
 
     @Override
     protected boolean canBeBatched(MetastoreEvent that) {
-        // `that` event must not be a rename table event
-        // so merge all events which belong to this table before is ok
-        return isSameTable(that);
+        if (!isSameTable(that)) {
+            return false;
+        }
+
+        /**
+         * Check if `that` event is a rename event, a rename event can not be batched
+         * because the process of `that` event will change the reference relation of this table,
+         * otherwise it can be batched because this event is a drop-table event
+         * and the process of this event will drop the whole table,
+         * and `that` event must be a MetastoreTableEvent event otherwise `isSameTable` will return false
+         * */
+        MetastoreTableEvent thatTblEvent = (MetastoreTableEvent) that;
+        return !thatTblEvent.willChangeTableName();
     }
 }

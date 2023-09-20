@@ -29,6 +29,7 @@
 
 #include <cstdlib>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -46,6 +47,7 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/tablet_manager.h"
+#include "runtime/exec_env.h"
 #include "util/cpu_info.h"
 
 using namespace std;
@@ -56,7 +58,7 @@ namespace doris {
 using namespace ErrorCode;
 
 static const uint32_t MAX_PATH_LEN = 1024;
-static StorageEngine* k_engine = nullptr;
+static std::unique_ptr<StorageEngine> k_engine;
 
 static void set_up() {
     char buffer[MAX_PATH_LEN];
@@ -78,8 +80,10 @@ static void set_up() {
 
     doris::EngineOptions options;
     options.store_paths = paths;
-    Status s = doris::StorageEngine::open(options, &k_engine);
+    k_engine = std::make_unique<StorageEngine>(options);
+    Status s = k_engine->open();
     EXPECT_TRUE(s.ok()) << s.to_string();
+    ExecEnv::GetInstance()->set_storage_engine(k_engine.get());
 }
 
 static void tear_down() {
@@ -90,11 +94,8 @@ static void tear_down() {
     EXPECT_TRUE(io::global_local_filesystem()
                         ->delete_directory(string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX)
                         .ok());
-    if (k_engine != nullptr) {
-        k_engine->stop();
-        delete k_engine;
-        k_engine = nullptr;
-    }
+    ExecEnv::GetInstance()->set_storage_engine(nullptr);
+    k_engine.reset();
 }
 
 static void set_default_create_tablet_request(TCreateTabletReq* request) {

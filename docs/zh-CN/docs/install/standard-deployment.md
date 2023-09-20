@@ -119,6 +119,7 @@ Doris 各个实例直接通过网络进行通讯。以下表格展示了所有�
 | FE | http_port  | 8030 | FE <--> FE，用户 <--> FE |FE 上的 http server 端口 |
 | FE | rpc_port | 9020 | BE --> FE, FE <--> FE | FE 上的 thrift server 端口，每个fe的配置需要保持一致|
 | FE | query_port | 9030 | 用户 <--> FE | FE 上的 mysql server 端口 |
+| FE | arrow_flight_sql_port | 9040 | 用户 <--> FE | FE 上的 Arrow Flight SQL server 端口 |
 | FE | edit\_log_port | 9010 | FE <--> FE | FE 上的 bdbje 之间通信用的端口 |
 | Broker | broker\_ipc_port | 8000 | FE --> Broker, BE --> Broker | Broker 上的 thrift server，用于接收请求 |
 
@@ -172,7 +173,7 @@ doris默认为表名大小写敏感，如有表名大小写不敏感的需求需
 
        **注意：生产环境强烈建议单独指定目录不要放在Doris安装目录下，最好是单独的磁盘（如果有SSD最好），测试开发环境可以使用默认配置**
 
-    2. fe.conf 中 JAVA_OPTS 默认 java 最大堆内存为 4GB，**建议生产环境调整至 8G 以上**。
+    2. fe.conf 中 JAVA_OPTS 默认 java 最大堆内存为 8GB。
 
 * 启动FE
 
