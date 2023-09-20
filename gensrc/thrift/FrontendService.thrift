@@ -390,6 +390,12 @@ enum FrontendServiceVersion {
   V1
 }
 
+struct TDetailedReportParams {
+  1: optional Types.TUniqueId fragment_instance_id
+  2: optional RuntimeProfile.TRuntimeProfileTree profile
+  3: optional RuntimeProfile.TRuntimeProfileTree loadChannelProfile
+}
+
 // The results of an INSERT query, sent to the coordinator as part of
 // TReportExecStatusParams
 struct TReportExecStatusParams {
@@ -447,6 +453,8 @@ struct TReportExecStatusParams {
   21: optional RuntimeProfile.TRuntimeProfileTree loadChannelProfile
 
   22: optional i32 finished_scan_ranges
+
+  23: optional list<TDetailedReportParams> detailed_report
 }
 
 struct TFeResult {
@@ -482,6 +490,7 @@ struct TMasterOpRequest {
     23: optional i32 clientNodePort
     24: optional bool syncJournalOnly // if set to true, this request means to do nothing but just sync max journal id of master
     25: optional string defaultCatalog
+    26: optional string defaultDatabase
 }
 
 struct TColumnDefinition {
@@ -627,6 +636,7 @@ struct TStreamLoadPutRequest {
     // only valid when file type is CSV
     52: optional i8 escape
     53: optional bool memtable_on_sink_node;
+    54: optional bool ignore_mode = false
 }
 
 struct TStreamLoadPutResult {
@@ -634,6 +644,8 @@ struct TStreamLoadPutResult {
     // valid when status is OK
     2: optional PaloInternalService.TExecPlanFragmentParams params
     3: optional PaloInternalService.TPipelineFragmentParams pipeline_params
+    // used for group commit
+    4: optional i64 base_schema_version
 }
 
 struct TStreamLoadMultiTablePutResult {
@@ -692,6 +704,7 @@ struct TLoadTxnCommitRequest {
     13: optional string token
     14: optional i64 db_id
     15: optional list<string> tbls
+    16: optional i64 table_id
 }
 
 struct TLoadTxnCommitResult {
@@ -811,6 +824,7 @@ struct TFrontendPingFrontendResult {
     7: optional i64 lastStartupTime
     8: optional list<TDiskInfo> diskInfos
     9: optional i64 processUUID
+    10: optional i32 arrowFlightSqlPort
 }
 
 struct TPropertyVal {
@@ -1129,6 +1143,21 @@ struct TAutoIncrementRangeResult {
     3: optional i64 length
 }
 
+struct TCreatePartitionRequest {
+    1: optional i64 txn_id
+    2: optional i64 db_id
+    3: optional i64 table_id
+    // for each partition column's partition values. [missing_rows, partition_keys]->Left bound(for range) or Point(for list)
+    4: optional list<list<Exprs.TStringLiteral>> partitionValues
+}
+
+struct TCreatePartitionResult {
+    1: optional Status.TStatus status
+    2: optional list<Descriptors.TOlapTablePartition> partitions
+    3: optional list<Descriptors.TTabletLocation> tablets
+    4: optional list<Descriptors.TNodeInfo> nodes
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1198,4 +1227,6 @@ service FrontendService {
     Status.TStatus updateStatsCache(1: TUpdateFollowerStatsCacheRequest request)
 
     TAutoIncrementRangeResult getAutoIncrementRange(1: TAutoIncrementRangeRequest request)
+
+    TCreatePartitionResult createPartition(1: TCreatePartitionRequest request)
 }

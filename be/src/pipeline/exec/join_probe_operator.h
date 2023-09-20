@@ -30,16 +30,22 @@ class JoinProbeOperatorX;
 template <typename DependencyType, typename Derived>
 class JoinProbeLocalState : public PipelineXLocalState<DependencyType> {
 public:
+    using Base = PipelineXLocalState<DependencyType>;
     virtual Status init(RuntimeState* state, LocalStateInfo& info) override;
     virtual Status close(RuntimeState* state) override;
+    virtual void add_tuple_is_null_column(vectorized::Block* block) = 0;
 
 protected:
+    template <typename LocalStateType>
+    friend class StatefulOperatorX;
     JoinProbeLocalState(RuntimeState* state, OperatorXBase* parent)
-            : PipelineXLocalState<DependencyType>(state, parent) {}
+            : Base(state, parent),
+              _child_block(vectorized::Block::create_unique()),
+              _child_source_state(SourceState::DEPEND_ON_SOURCE) {}
     virtual ~JoinProbeLocalState() = default;
     void _construct_mutable_join_block();
     Status _build_output_block(vectorized::Block* origin_block, vectorized::Block* output_block,
-                               bool keep_origin);
+                               bool keep_origin = true);
     void _reset_tuple_is_null_column();
     // output expr
     vectorized::VExprContextSPtrs _output_expr_ctxs;
@@ -47,16 +53,19 @@ protected:
     vectorized::MutableColumnPtr _tuple_is_null_left_flag_column;
     vectorized::MutableColumnPtr _tuple_is_null_right_flag_column;
 
-    RuntimeProfile* _probe_phase_profile;
     RuntimeProfile::Counter* _probe_timer;
     RuntimeProfile::Counter* _probe_rows_counter;
     RuntimeProfile::Counter* _join_filter_timer;
     RuntimeProfile::Counter* _build_output_block_timer;
+
+    std::unique_ptr<vectorized::Block> _child_block;
+    SourceState _child_source_state;
 };
 
 template <typename LocalStateType>
-class JoinProbeOperatorX : public OperatorX<LocalStateType> {
+class JoinProbeOperatorX : public StatefulOperatorX<LocalStateType> {
 public:
+    using Base = StatefulOperatorX<LocalStateType>;
     JoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     virtual Status init(const TPlanNode& tnode, RuntimeState* state) override;
 

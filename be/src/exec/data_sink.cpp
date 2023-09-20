@@ -145,13 +145,20 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         break;
     }
     case TDataSinkType::OLAP_TABLE_SINK: {
-        Status status;
+        Status status = Status::OK();
         DCHECK(thrift_sink.__isset.olap_table_sink);
         if (state->query_options().enable_memtable_on_sink_node) {
-            sink->reset(new stream_load::VOlapTableSinkV2(pool, row_desc, output_exprs, &status));
+            sink->reset(new vectorized::VOlapTableSinkV2(pool, row_desc, output_exprs, &status));
         } else {
-            sink->reset(new stream_load::VOlapTableSink(pool, row_desc, output_exprs, &status));
+            sink->reset(new vectorized::VOlapTableSink(pool, row_desc, output_exprs, false));
         }
+        RETURN_IF_ERROR(status);
+        break;
+    }
+    case TDataSinkType::GROUP_COMMIT_OLAP_TABLE_SINK: {
+        Status status = Status::OK();
+        DCHECK(thrift_sink.__isset.olap_table_sink);
+        sink->reset(new vectorized::VOlapTableSink(pool, row_desc, output_exprs, true));
         RETURN_IF_ERROR(status);
         break;
     }
@@ -285,12 +292,12 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         break;
     }
     case TDataSinkType::OLAP_TABLE_SINK: {
-        Status status;
+        Status status = Status::OK();
         DCHECK(thrift_sink.__isset.olap_table_sink);
         if (state->query_options().enable_memtable_on_sink_node) {
-            sink->reset(new stream_load::VOlapTableSinkV2(pool, row_desc, output_exprs, &status));
+            sink->reset(new vectorized::VOlapTableSinkV2(pool, row_desc, output_exprs, &status));
         } else {
-            sink->reset(new stream_load::VOlapTableSink(pool, row_desc, output_exprs, &status));
+            sink->reset(new vectorized::VOlapTableSink(pool, row_desc, output_exprs, false));
         }
         RETURN_IF_ERROR(status);
         break;
@@ -303,7 +310,13 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         sink->reset(new vectorized::MultiCastDataStreamSink(multi_cast_data_streamer));
         break;
     }
-
+    case TDataSinkType::GROUP_COMMIT_OLAP_TABLE_SINK: {
+        Status status = Status::OK();
+        DCHECK(thrift_sink.__isset.olap_table_sink);
+        sink->reset(new vectorized::VOlapTableSink(pool, row_desc, output_exprs, true));
+        RETURN_IF_ERROR(status);
+        break;
+    }
     default: {
         std::stringstream error_msg;
         std::map<int, const char*>::const_iterator i =

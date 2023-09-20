@@ -30,12 +30,14 @@ OPTS="$(getopt \
     -n "$0" \
     -o '' \
     -l 'daemon' \
+    -l 'console' \
     -- "$@")"
 
 eval set -- "${OPTS}"
 
 RUN_DAEMON=0
 RUN_IN_AWS=0
+RUN_CONSOLE=0
 while true; do
     case "$1" in
     --daemon)
@@ -44,6 +46,10 @@ while true; do
         ;;
     --aws)
         RUN_IN_AWS=1
+        shift
+        ;;
+    --console)
+        RUN_CONSOLE=1
         shift
         ;;
     --)
@@ -77,6 +83,11 @@ if [[ "${MAX_FILE_COUNT}" -lt 65536 ]]; then
     exit 1
 fi
 
+if [[ "$(swapon -s | wc -l)" -gt 1 ]]; then
+    echo "Please disable swap memory before installation."
+    exit 1
+fi
+
 # add java libs
 preload_jars=("preload-extensions")
 preload_jars+=("java-udf")
@@ -103,6 +114,13 @@ if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
         DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
     done
     for f in "${DORIS_HOME}/lib/hadoop_hdfs/hdfs/lib"/*.jar; do
+        DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
+    done
+fi
+
+# add custome_libs to CLASSPATH
+if [[ -d "${DORIS_HOME}/custom_lib" ]]; then
+    for f in "${DORIS_HOME}/custom_lib"/*.jar; do
         DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
     done
 fi
@@ -292,11 +310,11 @@ fi
 if [[ "${MACHINE_OS}" == "Darwin" ]]; then
     max_fd_limit='-XX:-MaxFDLimit'
 
-    if ! echo "${final_java_opt}" | grep "${max_fd_limit/-/\-}" >/dev/null; then
+    if ! echo "${final_java_opt}" | grep "${max_fd_limit/-/\\-}" >/dev/null; then
         final_java_opt="${final_java_opt} ${max_fd_limit}"
     fi
 
-    if [[ -n "${JAVA_OPTS}" ]] && ! echo "${JAVA_OPTS}" | grep "${max_fd_limit/-/\-}" >/dev/null; then
+    if [[ -n "${JAVA_OPTS}" ]] && ! echo "${JAVA_OPTS}" | grep "${max_fd_limit/-/\\-}" >/dev/null; then
         JAVA_OPTS="${JAVA_OPTS} ${max_fd_limit}"
     fi
 fi
@@ -324,7 +342,9 @@ export AWS_MAX_ATTEMPTS=2
 
 if [[ "${RUN_DAEMON}" -eq 1 ]]; then
     nohup ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" >>"${LOG_DIR}/be.out" 2>&1 </dev/null &
-else
+elif [[ "${RUN_CONSOLE}" -eq 1 ]]; then
     export DORIS_LOG_TO_STDERR=1
     ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" 2>&1 </dev/null
+else
+    ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" >>"${LOG_DIR}/be.out" 2>&1 </dev/null
 fi

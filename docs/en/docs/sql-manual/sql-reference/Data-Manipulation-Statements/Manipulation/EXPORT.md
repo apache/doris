@@ -366,7 +366,5 @@ WITH BROKER "broker_name"
   - If the Export job fails, the generated files will not be deleted, and the user needs to delete it manually.
   - The Export job only exports the data of the Base table, not the data of the materialized view.
   - The export job scans data and occupies IO resources, which may affect the query latency of the system.
-  - The maximum number of export jobs running simultaneously in a cluster is 5. Only jobs submitted after that will be queued.
   - Currently, The `Export Job` is simply check whether the `Tablets version` is the same, it is recommended not to import data during the execution of the `Export Job`.
-  - The maximum parallelism of all `Export jobs` in a cluster is `50`. You can change the value by adding the parameter `maximum_parallelism_of_export_job` to fe.conf and restart FE.
   - The maximum number of partitions that an `Export job` allows is 2000. You can add a parameter to the fe.conf `maximum_number_of_export_partitions` and restart FE to modify the setting.

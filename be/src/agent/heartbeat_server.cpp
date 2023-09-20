@@ -76,9 +76,12 @@ void HeartbeatServer::heartbeat(THeartbeatResult& heartbeat_result,
         heartbeat_result.backend_info.__set_http_port(config::webserver_port);
         heartbeat_result.backend_info.__set_be_rpc_port(-1);
         heartbeat_result.backend_info.__set_brpc_port(config::brpc_port);
+        heartbeat_result.backend_info.__set_arrow_flight_sql_port(config::arrow_flight_sql_port);
         heartbeat_result.backend_info.__set_version(get_short_version());
         heartbeat_result.backend_info.__set_be_start_time(_be_epoch);
         heartbeat_result.backend_info.__set_be_node_role(config::be_node_role);
+        // If be is gracefully stop, then k_doris_exist is set to true
+        heartbeat_result.backend_info.__set_is_shutdown(doris::k_doris_exit);
     }
     watch.stop();
     if (watch.elapsed_time() > 1000L * 1000L * 1000L) {

@@ -72,7 +72,7 @@ public class PartitionCache extends Cache {
     public void setCacheInfo(CacheAnalyzer.CacheTable latestTable, RangePartitionInfo partitionInfo, Column partColumn,
                              CompoundPredicate partitionPredicate, String allViewExpandStmtListStr) {
         this.latestTable = latestTable;
-        this.olapTable = latestTable.olapTable;
+        this.olapTable = (OlapTable) latestTable.table;
         this.partitionInfo = partitionInfo;
         this.partColumn = partColumn;
         this.partitionPredicate = partitionPredicate;

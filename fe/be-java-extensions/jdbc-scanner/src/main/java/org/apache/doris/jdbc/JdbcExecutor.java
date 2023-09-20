@@ -85,6 +85,7 @@ public class JdbcExecutor {
     private int curBlockRows = 0;
     private static final byte[] emptyBytes = new byte[0];
     private DruidDataSource druidDataSource = null;
+    private byte[] druidDataSourceLock = new byte[0];
     private int minPoolSize;
     private int maxPoolSize;
     private int minIdleSize;
@@ -147,11 +148,15 @@ public class JdbcExecutor {
             int columnCount = resultSetMetaData.getColumnCount();
             resultColumnTypeNames = new ArrayList<>(columnCount);
             block = new ArrayList<>(columnCount);
-            for (int i = 0; i < columnCount; ++i) {
-                if (!isNebula()) {
-                    resultColumnTypeNames.add(resultSetMetaData.getColumnClassName(i + 1));
+            if (isNebula()) {
+                for (int i = 0; i < columnCount; ++i) {
+                    block.add((Object[]) Array.newInstance(Object.class, batchSizeNum));
                 }
-                block.add((Object[]) Array.newInstance(Object.class, batchSizeNum));
+            } else {
+                for (int i = 0; i < columnCount; ++i) {
+                    resultColumnTypeNames.add(resultSetMetaData.getColumnClassName(i + 1));
+                    block.add((Object[]) Array.newInstance(Object.class, batchSizeNum));
+                }
             }
             return columnCount;
         } catch (SQLException e) {
@@ -366,16 +371,22 @@ public class JdbcExecutor {
         try {
             int columnCount = resultSetMetaData.getColumnCount();
             curBlockRows = 0;
-            do {
-                for (int i = 0; i < columnCount; ++i) {
-                    if (isNebula()) {
+
+            if (isNebula()) {
+                do {
+                    for (int i = 0; i < columnCount; ++i) {
                         block.get(i)[curBlockRows] = UdfUtils.convertObject((ValueWrapper) resultSet.getObject(i + 1));
-                    } else {
+                    }
+                    curBlockRows++;
+                } while (curBlockRows < batchSize && resultSet.next());
+            } else {
+                do {
+                    for (int i = 0; i < columnCount; ++i) {
                         block.get(i)[curBlockRows] = resultSet.getObject(i + 1);
                     }
-                }
-                curBlockRows++;
-            } while (curBlockRows < batchSize && resultSet.next());
+                    curBlockRows++;
+                } while (curBlockRows < batchSize && resultSet.next());
+            }
         } catch (SQLException e) {
             throw new UdfRuntimeException("get next block failed: ", e);
         }
@@ -410,29 +421,41 @@ public class JdbcExecutor {
                 ClassLoader classLoader = UdfUtils.getClassLoader(driverUrl, parent);
                 druidDataSource = JdbcDataSource.getDataSource().getSource(jdbcUrl + jdbcUser + jdbcPassword);
                 if (druidDataSource == null) {
-                    DruidDataSource ds = new DruidDataSource();
-                    ds.setDriverClassLoader(classLoader);
-                    ds.setDriverClassName(driverClass);
-                    ds.setUrl(jdbcUrl);
-                    ds.setUsername(jdbcUser);
-                    ds.setPassword(jdbcPassword);
-                    ds.setMinIdle(minIdleSize);
-                    ds.setInitialSize(minPoolSize);
-                    ds.setMaxActive(maxPoolSize);
-                    ds.setMaxWait(maxWaitTime);
-                    ds.setTestWhileIdle(true);
-                    ds.setTestOnBorrow(false);
-                    setValidationQuery(ds, tableType);
-                    ds.setTimeBetweenEvictionRunsMillis(maxIdleTime / 5);
-                    ds.setMinEvictableIdleTimeMillis(maxIdleTime);
-                    druidDataSource = ds;
-                    // here is a cache of datasource, which using the string(jdbcUrl + jdbcUser +
-                    // jdbcPassword) as key.
-                    // and the default datasource init = 1, min = 1, max = 100, if one of connection idle
-                    // time greater than 10 minutes. then connection will be retrieved.
-                    JdbcDataSource.getDataSource().putSource(jdbcUrl + jdbcUser + jdbcPassword, ds);
+                    synchronized (druidDataSourceLock) {
+                        druidDataSource = JdbcDataSource.getDataSource().getSource(jdbcUrl + jdbcUser + jdbcPassword);
+                        if (druidDataSource == null) {
+                            long start = System.currentTimeMillis();
+                            DruidDataSource ds = new DruidDataSource();
+                            ds.setDriverClassLoader(classLoader);
+                            ds.setDriverClassName(driverClass);
+                            ds.setUrl(jdbcUrl);
+                            ds.setUsername(jdbcUser);
+                            ds.setPassword(jdbcPassword);
+                            ds.setMinIdle(minIdleSize);
+                            ds.setInitialSize(minPoolSize);
+                            ds.setMaxActive(maxPoolSize);
+                            ds.setMaxWait(maxWaitTime);
+                            ds.setTestWhileIdle(true);
+                            ds.setTestOnBorrow(false);
+                            setValidationQuery(ds, tableType);
+                            ds.setTimeBetweenEvictionRunsMillis(maxIdleTime / 5);
+                            ds.setMinEvictableIdleTimeMillis(maxIdleTime);
+                            druidDataSource = ds;
+                            // here is a cache of datasource, which using the string(jdbcUrl + jdbcUser +
+                            // jdbcPassword) as key.
+                            // and the default datasource init = 1, min = 1, max = 100, if one of connection idle
+                            // time greater than 10 minutes. then connection will be retrieved.
+                            JdbcDataSource.getDataSource().putSource(jdbcUrl + jdbcUser + jdbcPassword, ds);
+                            LOG.info("init datasource [" + (jdbcUrl + jdbcUser) + "] cost: " + (
+                                    System.currentTimeMillis() - start) + " ms");
+                        }
+                    }
                 }
+
+                long start = System.currentTimeMillis();
                 conn = druidDataSource.getConnection();
+                LOG.info("get connection [" + (jdbcUrl + jdbcUser) + "] cost: " + (System.currentTimeMillis() - start)
+                        + " ms");
                 if (op == TJdbcOperation.READ) {
                     conn.setAutoCommit(false);
                     Preconditions.checkArgument(sql != null);
@@ -2140,3 +2163,4 @@ public class JdbcExecutor {
         return i;
     }
 }
+

@@ -64,15 +64,21 @@ public:
     PipelineXFragmentContext(const TUniqueId& query_id, const int fragment_id,
                              std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
                              const std::function<void(RuntimeState*, Status*)>& call_back,
-                             const report_status_callback& report_status_cb);
+                             const report_status_callback& report_status_cb,
+                             bool group_commit = false);
 
     ~PipelineXFragmentContext() override;
 
-    void instance_ids(std::vector<TUniqueId>& ins_ids) const {
+    void instance_ids(std::vector<TUniqueId>& ins_ids) const override {
         ins_ids.resize(_runtime_states.size());
         for (size_t i = 0; i < _runtime_states.size(); i++) {
             ins_ids[i] = _runtime_states[i]->fragment_instance_id();
         }
+    }
+
+    void add_merge_controller_handler(
+            std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) override {
+        _merge_controller_handlers.emplace_back(handler);
     }
 
     //    bool is_canceled() const { return _runtime_state->is_cancelled(); }
@@ -91,6 +97,15 @@ public:
     void send_report(bool);
 
     void report_profile() override;
+
+    RuntimeState* get_runtime_state(UniqueId fragment_instance_id) override {
+        std::lock_guard<std::mutex> l(_state_map_lock);
+        if (_instance_id_to_runtime_state.count(fragment_instance_id) > 0) {
+            return _instance_id_to_runtime_state[fragment_instance_id];
+        } else {
+            return _runtime_state.get();
+        }
+    }
 
 private:
     void _close_action() override;
@@ -121,6 +136,9 @@ private:
     // Local runtime states for each pipeline task.
     std::vector<std::unique_ptr<RuntimeState>> _runtime_states;
 
+    // It is used to manage the lifecycle of RuntimeFilterMergeController
+    std::vector<std::shared_ptr<RuntimeFilterMergeControllerEntity>> _merge_controller_handlers;
+
     // TODO: remove the _sink and _multi_cast_stream_sink_senders to set both
     // of it in pipeline task not the fragment_context
     DataSinkOperatorXPtr _sink;
@@ -135,6 +153,11 @@ private:
     // ProbeSide first, and use `_pipelines_to_build` to store which pipeline the build operator
     // is in, so we can build BuildSide once we complete probe side.
     std::map<int, PipelinePtr> _build_side_pipelines;
+
+    std::map<UniqueId, RuntimeState*> _instance_id_to_runtime_state;
+    std::mutex _state_map_lock;
+    std::map<int, std::vector<PipelinePtr>> _union_child_pipelines;
 };
+
 } // namespace pipeline
 } // namespace doris

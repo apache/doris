@@ -22,7 +22,6 @@
 #include "operator.h"
 #include "pipeline/exec/join_probe_operator.h"
 #include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/join/vhash_join_node.h"
 
 namespace doris {
 class ExecNode;
@@ -48,18 +47,18 @@ public:
 
 class HashJoinProbeOperatorX;
 class HashJoinProbeLocalState final
-        : public JoinProbeLocalState<JoinDependency, HashJoinProbeLocalState> {
+        : public JoinProbeLocalState<HashJoinDependency, HashJoinProbeLocalState> {
 public:
     using Parent = HashJoinProbeOperatorX;
     ENABLE_FACTORY_CREATOR(HashJoinProbeLocalState);
     HashJoinProbeLocalState(RuntimeState* state, OperatorXBase* parent);
-    ~HashJoinProbeLocalState() = default;
+    ~HashJoinProbeLocalState() override = default;
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status close(RuntimeState* state) override;
 
     void prepare_for_next();
-    void add_tuple_is_null_column(vectorized::Block* block);
+    void add_tuple_is_null_column(vectorized::Block* block) override;
     void init_for_probe(RuntimeState* state);
 
     HashJoinProbeOperatorX* join_probe() { return (HashJoinProbeOperatorX*)_parent; }
@@ -70,10 +69,8 @@ private:
     friend class HashJoinProbeOperatorX;
     friend struct vectorized::HashJoinProbeContext;
 
-    std::unique_ptr<vectorized::Block> _child_block;
-    SourceState _child_source_state;
-
     int _probe_index = -1;
+    int _ready_probe_index = -1;
     bool _probe_eos = false;
     std::atomic<bool> _probe_inited = false;
 
@@ -93,7 +90,8 @@ private:
     vectorized::ColumnUInt8::MutablePtr _null_map_column;
     // for cases when a probe row matches more than batch size build rows.
     bool _is_any_probe_match_row_output = false;
-    std::unique_ptr<vectorized::HashTableCtxVariants> _process_hashtable_ctx_variants = nullptr;
+    std::unique_ptr<vectorized::HashTableCtxVariants> _process_hashtable_ctx_variants =
+            std::make_unique<vectorized::HashTableCtxVariants>();
 
     RuntimeProfile::Counter* _probe_expr_call_timer;
     RuntimeProfile::Counter* _probe_next_timer;
@@ -111,20 +109,19 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
-    bool can_read(RuntimeState* state) override;
+    Dependency* wait_for_dependency(RuntimeState* state) override;
 
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
-
-    Status push(RuntimeState* state, vectorized::Block* input_block, SourceState source_state);
+    Status push(RuntimeState* state, vectorized::Block* input_block,
+                SourceState source_state) const override;
     Status pull(doris::RuntimeState* state, vectorized::Block* output_block,
-                SourceState& source_state);
+                SourceState& source_state) const override;
 
-    bool need_more_input_data(RuntimeState* state) const;
+    bool need_more_input_data(RuntimeState* state) const override;
 
 private:
     Status _do_evaluate(vectorized::Block& block, vectorized::VExprContextSPtrs& exprs,
-                        RuntimeProfile::Counter& expr_call_timer, std::vector<int>& res_col_ids);
+                        RuntimeProfile::Counter& expr_call_timer,
+                        std::vector<int>& res_col_ids) const;
     friend class HashJoinProbeLocalState;
     friend struct vectorized::HashJoinProbeContext;
 

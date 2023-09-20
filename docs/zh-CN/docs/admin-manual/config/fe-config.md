@@ -384,6 +384,12 @@ heartbeat_mgr 中处理心跳事件的线程数。
 
 Doris FE 通过 mysql 协议查询连接端口
 
+#### `arrow_flight_sql_port`
+
+默认值：-1
+
+Doris FE 通过 Arrow Flight SQL 协议查询连接端口
+
 #### `frontend_address`
 
 状态:已弃用，不建议使用。
@@ -613,7 +619,7 @@ FE向BE的BackendService发送rpc请求时的超时时间，单位：毫秒。
 
 #### `remote_fragment_exec_timeout_ms`
 
-默认值：5000  （ms）
+默认值：30000  （ms）
 
 是否可以动态配置：true
 
@@ -2770,3 +2776,9 @@ show data （其他用法：HELP SHOW DATA）
 默认值：true
 
 暂时性配置项，开启后会启动后台线程自动将所有的olap表修改为可light schema change，修改结果可通过命令`show convert_light_schema_change [from db]` 来查看，将会展示所有非light schema change表的转换结果
+
+#### `disable_local_deploy_manager_drop_node`
+
+默认值：true
+
+禁止LocalDeployManager删除节点，防止cluster.info文件有误导致节点被删除。

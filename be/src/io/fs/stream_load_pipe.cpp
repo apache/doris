@@ -31,7 +31,7 @@
 
 namespace doris {
 namespace io {
-class IOContext;
+struct IOContext;
 
 StreamLoadPipe::StreamLoadPipe(size_t max_buffered_bytes, size_t min_chunk_size,
                                int64_t total_length, bool use_proto)

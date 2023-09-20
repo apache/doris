@@ -66,6 +66,8 @@ public abstract class TableValuedFunctionIf {
                 return new WorkloadGroupsTableValuedFunction(params);
             case CatalogsTableValuedFunction.NAME:
                 return new CatalogsTableValuedFunction(params);
+            case GroupCommitTableValuedFunction.NAME:
+                return new GroupCommitTableValuedFunction(params);
             default:
                 throw new AnalysisException("Could not find table function " + funcName);
         }

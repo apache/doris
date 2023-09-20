@@ -100,6 +100,11 @@ public class BackendServiceClient {
         return blockingStub.fetchData(request);
     }
 
+    public Future<InternalService.PFetchArrowFlightSchemaResult> fetchArrowFlightSchema(
+            InternalService.PFetchArrowFlightSchemaRequest request) {
+        return stub.fetchArrowFlightSchema(request);
+    }
+
     public Future<InternalService.PFetchTableSchemaResult> fetchTableStructureAsync(
             InternalService.PFetchTableSchemaRequest request) {
         return stub.fetchTableSchema(request);
@@ -149,6 +154,11 @@ public class BackendServiceClient {
 
     public Future<InternalService.PGlobResponse> glob(InternalService.PGlobRequest request) {
         return stub.glob(request);
+    }
+
+    public Future<InternalService.PGroupCommitInsertResponse> groupCommitInsert(
+            InternalService.PGroupCommitInsertRequest request) {
+        return stub.groupCommitInsert(request);
     }
 
     public void shutdown() {
