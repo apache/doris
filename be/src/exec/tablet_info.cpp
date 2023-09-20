@@ -210,7 +210,7 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
                                                  tcolumn_desc.column_name,
                                                  tcolumn_desc.column_type.type);
                 }
-                index_slots_map.emplace(tcolumn_desc.column_name, it->second);
+                index_slots_map.emplace(to_lower(tcolumn_desc.column_name), it->second);
                 index->slots.emplace_back(it->second);
             }
             TabletColumn* tc = _obj_pool.add(new TabletColumn());
