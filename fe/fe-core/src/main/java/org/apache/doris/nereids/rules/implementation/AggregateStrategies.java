@@ -36,7 +36,6 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
-import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
@@ -77,7 +76,6 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -104,7 +102,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 logicalAggregate(
                     logicalFilter(
                         logicalOlapScan().when(this::isDupOrMowKeyTable)
-                    ).when(filter -> containsMatchExpression(filter.getConjuncts())))
+                    ).when(filter -> filter.getConjuncts().size() > 0))
                     .when(agg -> enablePushDownCountOnIndex())
                     .when(agg -> agg.getGroupByExpressions().size() == 0)
                     .when(agg -> {
@@ -124,7 +122,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     logicalProject(
                         logicalFilter(
                             logicalOlapScan().when(this::isDupOrMowKeyTable)
-                        ).when(filter -> containsMatchExpression(filter.getConjuncts()))))
+                        ).when(filter -> filter.getConjuncts().size() > 0)))
                     .when(agg -> enablePushDownCountOnIndex())
                     .when(agg -> agg.getGroupByExpressions().size() == 0)
                     .when(agg -> {
@@ -228,18 +226,6 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                             .thenApplyMulti(ctx -> fourPhaseAggregateWithDistinct(ctx.root, ctx.connectContext))
             )
         );
-    }
-
-    private boolean containsMatchExpression(Set<Expression> expressions) {
-        List<Expression> exprs = new ArrayList<>();
-        expressions.forEach(conjunct -> {
-            conjunct.getInputSlots().forEach(slot -> {
-                if (!slot.getName().equalsIgnoreCase(Column.DELETE_SIGN)) {
-                    exprs.add(conjunct);
-                }
-            });
-        });
-        return exprs.stream().allMatch(expr -> expr instanceof Match);
     }
 
     private boolean enablePushDownCountOnIndex() {
