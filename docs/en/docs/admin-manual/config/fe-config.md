@@ -384,6 +384,12 @@ Default：9030
 
 FE MySQL server port
 
+#### `arrow_flight_sql_port`
+
+Default：-1
+
+Arrow Flight SQL server port
+
 #### `frontend_address`
 
 Status: Deprecated, not recommended use. This parameter may be deleted later
