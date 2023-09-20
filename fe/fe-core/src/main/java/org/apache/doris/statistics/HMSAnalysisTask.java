@@ -17,10 +17,10 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
@@ -31,6 +31,9 @@ import org.apache.commons.text.StringSubstitutor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
@@ -58,14 +61,14 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
             + "${idxId} AS idx_id, "
             + "'${colId}' AS col_id, "
             + "NULL AS part_id, "
-            + "${countExpr} AS row_count, "
+            + "COUNT(1) AS row_count, "
             + "NDV(`${colName}`) AS ndv, "
-            + "${nullCountExpr} AS null_count, "
+            + "SUM(CASE WHEN `${colName}` IS NULL THEN 1 ELSE 0 END) AS null_count, "
             + "MIN(`${colName}`) AS min, "
             + "MAX(`${colName}`) AS max, "
             + "${dataSizeFunction} AS data_size, "
             + "NOW() "
-            + "FROM `${catalogName}`.`${dbName}`.`${tblName}` ${sampleExpr}";
+            + "FROM `${catalogName}`.`${dbName}`.`${tblName}`";
 
     private static final String ANALYZE_PARTITION_TEMPLATE = " SELECT "
             + "CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}', '-', ${partId}) AS id, "
@@ -83,8 +86,8 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
             + "${dataSizeFunction} AS data_size, "
             + "NOW() FROM `${catalogName}`.`${dbName}`.`${tblName}` where ";
 
-    private static final String ANALYZE_TABLE_COUNT_TEMPLATE = "SELECT ${countExpr} as rowCount "
-            + "FROM `${catalogName}`.`${dbName}`.`${tblName}` ${sampleExpr}";
+    private static final String ANALYZE_TABLE_COUNT_TEMPLATE = "SELECT COUNT(1) as rowCount "
+            + "FROM `${catalogName}`.`${dbName}`.`${tblName}`";
 
     // cache stats for each partition, it would be inserted into column_statistics in a batch.
     private final List<List<ColStatsData>> buf = new ArrayList<>();
@@ -160,7 +163,6 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
             params.put("colName", col.getName());
             params.put("colId", info.colName);
             params.put("dataSizeFunction", getDataSizeFunction(col));
-            params.put("nullCountExpr", getNullCountExpression());
             StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
             String sql = stringSubstitutor.replace(sb.toString());
             executeInsertSql(sql);
@@ -277,8 +279,6 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
         commonParams.put("catalogName", catalog.getName());
         commonParams.put("dbName", db.getFullName());
         commonParams.put("tblName", tbl.getName());
-        commonParams.put("sampleExpr", getSampleExpression());
-        commonParams.put("countExpr", getCountExpression());
         if (col != null) {
             commonParams.put("type", col.getType().toString());
         }
@@ -286,30 +286,20 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
         return commonParams;
     }
 
-    protected String getCountExpression() {
-        if (info.samplePercent > 0) {
-            return String.format("ROUND(COUNT(1) * 100 / %d)", info.samplePercent);
-        } else {
-            return "COUNT(1)";
+    private void setParameterData(Map<String, String> parameters, Map<String, String> params) {
+        String numRows = "";
+        String timestamp = "";
+        if (parameters.containsKey(NUM_ROWS)) {
+            numRows = parameters.get(NUM_ROWS);
         }
-    }
-
-    protected String getNullCountExpression() {
-        if (info.samplePercent > 0) {
-            return String.format("ROUND(SUM(CASE WHEN `${colName}` IS NULL THEN 1 ELSE 0 END) * 100 / %d)",
-                info.samplePercent);
-        } else {
-            return "SUM(CASE WHEN `${colName}` IS NULL THEN 1 ELSE 0 END)";
+        if (parameters.containsKey(TIMESTAMP)) {
+            timestamp = parameters.get(TIMESTAMP);
         }
-    }
-
-    protected String getDataSizeFunction(Column column) {
-        String originFunction = super.getDataSizeFunction(column);
-        if (info.samplePercent > 0 && !isPartitionOnly) {
-            return String.format("ROUND((%s) * 100 / %d)", originFunction, info.samplePercent);
-        } else {
-            return originFunction;
-        }
+        params.put("numRows", numRows);
+        params.put("rowCount", numRows);
+        params.put("update_time", TimeUtils.DATETIME_FORMAT.format(
+                LocalDateTime.ofInstant(Instant.ofEpochMilli(Long.parseLong(timestamp) * 1000),
+                        ZoneId.systemDefault())));
     }
 
     @Override

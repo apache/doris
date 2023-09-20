@@ -20,7 +20,6 @@ package org.apache.doris.planner.external;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
-import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -92,8 +91,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     protected Map<String, SlotDescriptor> destSlotDescByName;
     protected TFileScanRangeParams params;
-
-    protected TableSample tableSample;
 
     /**
      * External file scan node for Query hms table
@@ -201,10 +198,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
         }
         // Update required slots and column_idxs in scanRangeLocations.
         setColumnPositionMapping();
-    }
-
-    public void setTableSample(TableSample tSample) {
-        this.tableSample = tSample;
     }
 
     @Override

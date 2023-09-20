@@ -272,10 +272,6 @@ public class AnalyzeProperties {
         return properties.containsKey(PROPERTY_FORCE_FULL);
     }
 
-    public boolean isSampleRows() {
-        return properties.containsKey(PROPERTY_SAMPLE_ROWS);
-    }
-
     public String toSQL() {
         StringBuilder sb = new StringBuilder();
         sb.append("PROPERTIES(");
