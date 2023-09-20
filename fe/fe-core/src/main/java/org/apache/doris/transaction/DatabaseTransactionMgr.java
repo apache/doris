@@ -827,7 +827,7 @@ public class DatabaseTransactionMgr {
         }
     }
 
-    public Long getTransactionId(String label) {
+    public Long getTransactionIdByLabel(String label) {
         readLock();
         try {
             Set<Long> existingTxnIds = unprotectedGetTxnIdsByLabel(label);
@@ -841,7 +841,7 @@ public class DatabaseTransactionMgr {
         }
     }
 
-    public Long getTransactionId(String label, TransactionStatus status) throws UserException {
+    public Long getTransactionIdByLabel(String label, TransactionStatus status) throws UserException {
         readLock();
         try {
             Set<Long> existingTxns = unprotectedGetTxnIdsByLabel(label);
@@ -1323,7 +1323,7 @@ public class DatabaseTransactionMgr {
 
     public void abortTransaction(String label, String reason) throws UserException {
         Preconditions.checkNotNull(label);
-        long transactionId = getTransactionId(label, TransactionStatus.PREPARE);
+        long transactionId = getTransactionIdByLabel(label, TransactionStatus.PREPARE);
         abortTransaction(transactionId, reason, null);
     }
 

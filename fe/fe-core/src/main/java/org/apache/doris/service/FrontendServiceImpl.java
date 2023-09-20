@@ -1477,9 +1477,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         String txnOperation = request.getOperation().trim();
         if (!request.isSetTxnId()) {
             if (txnOperation.equalsIgnoreCase("commit")) {
-                request.setTxnId(dbTransactionMgr.getTransactionId(request.getLabel(), TransactionStatus.PRECOMMITTED));
+                request.setTxnId(dbTransactionMgr
+                        .getTransactionIdByLabel(request.getLabel(), TransactionStatus.PRECOMMITTED));
             } else if (txnOperation.equalsIgnoreCase("abort")) {
-                request.setTxnId(dbTransactionMgr.getTransactionId(request.getLabel(), TransactionStatus.PREPARE));
+                request.setTxnId(dbTransactionMgr
+                        .getTransactionIdByLabel(request.getLabel(), TransactionStatus.PREPARE));
             } else {
                 throw new UserException("transaction operation should be \'commit\' or \'abort\'");
             }
