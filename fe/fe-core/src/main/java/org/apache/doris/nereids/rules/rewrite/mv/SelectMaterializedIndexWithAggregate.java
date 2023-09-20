@@ -700,6 +700,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
         List<AggRewriteResult> candidatesWithRewriting = indexesGroupByIsBaseOrNot
                 .getOrDefault(false, ImmutableList.of()).stream()
                 .filter(index -> !candidatesWithoutRewriting.contains(index))
+                .filter(index -> (new CheckContext(scan, index.getId()).getMeta().haveDefineExpr()))
                 .map(index -> rewriteAgg(index, scan, nonVirtualRequiredScanOutput, predicates, aggregateFunctions,
                         groupingExprs))
                 .filter(aggRewriteResult -> checkPreAggStatus(scan, aggRewriteResult.index.getId(), predicates,
@@ -721,6 +722,11 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 .collect(Collectors.toList());
 
         long selectIndexId = selectBestIndex(haveAllRequiredColumns, scan, predicates);
+        if (!table.isDupKeysOrMergeOnWrite() && (new CheckContext(scan, selectIndexId)).isBaseIndex()) {
+            return new SelectResult(checkPreAggStatus(scan, scan.getTable().getBaseIndexId(), predicates,
+                    aggregateFunctions, groupingExprs), scan.getTable().getBaseIndexId(), new ExprRewriteMap());
+        }
+
         Optional<AggRewriteResult> rewriteResultOpt = candidatesWithRewriting.stream()
                 .filter(aggRewriteResult -> aggRewriteResult.index.getId() == selectIndexId).findAny();
         // Pre-aggregation is set to `on` by default for duplicate-keys table.
