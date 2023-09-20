@@ -824,6 +824,7 @@ struct TFrontendPingFrontendResult {
     7: optional i64 lastStartupTime
     8: optional list<TDiskInfo> diskInfos
     9: optional i64 processUUID
+    10: optional i32 arrowFlightSqlPort
 }
 
 struct TPropertyVal {
@@ -1084,6 +1085,7 @@ struct TGetSnapshotResult {
 
 struct TTableRef {
     1: optional string table
+    3: optional string alias_name
 }
 
 struct TRestoreSnapshotRequest {
