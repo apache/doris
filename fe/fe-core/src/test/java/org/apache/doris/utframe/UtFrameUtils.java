@@ -183,6 +183,12 @@ public class UtFrameUtils {
         if (!file.exists()) {
             file.mkdir();
         }
+        if (null != System.getenv("DORIS_HOME")) {
+            File metaDir = new File(Config.meta_dir);
+            if (!metaDir.exists()) {
+                metaDir.mkdir();
+            }
+        }
 
         int feHttpPort = findValidPort();
         int feRpcPort = findValidPort();

@@ -18,13 +18,18 @@
 #pragma once
 
 #include <sqltypes.h>
+
+#include <mutex>
+
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/multi_cast_data_streamer.h"
+#include "vec/common/sort/partition_sorter.h"
 #include "vec/common/sort/sorter.h"
 #include "vec/exec/join/process_hash_table_probe.h"
 #include "vec/exec/join/vhash_join_node.h"
 #include "vec/exec/vaggregation_node.h"
 #include "vec/exec/vanalytic_eval_node.h"
+#include "vec/exec/vpartition_sort_node.h"
 
 namespace doris {
 namespace pipeline {
@@ -65,6 +70,8 @@ public:
         _read_dependency_watcher.stop();
         _ready_for_read = true;
     }
+
+    bool is_ready_for_read() { return _ready_for_read; }
 
     // Notify downstream pipeline tasks this dependency is blocked.
     virtual void block_reading() { _ready_for_read = false; }
@@ -323,7 +330,15 @@ public:
     void set_make_nullable_keys(std::vector<size_t>& make_nullable_keys) {
         _make_nullable_keys = make_nullable_keys;
     }
-
+    void _make_nullable_output_key(vectorized::Block* block) {
+        if (block->rows() != 0) {
+            for (auto cid : _make_nullable_keys) {
+                block->get_by_position(cid).column =
+                        make_nullable(block->get_by_position(cid).column);
+                block->get_by_position(cid).type = make_nullable(block->get_by_position(cid).type);
+            }
+        }
+    }
     const std::vector<size_t>& make_nullable_keys() { return _make_nullable_keys; }
     void release_tracker();
 
@@ -536,6 +551,28 @@ public:
 
 private:
     NestedLoopJoinSharedState _join_state;
+};
+
+struct PartitionSortNodeSharedState {
+public:
+    std::queue<vectorized::Block> blocks_buffer;
+    std::mutex buffer_mutex;
+    std::vector<std::unique_ptr<vectorized::PartitionSorter>> partition_sorts;
+    std::unique_ptr<vectorized::SortCursorCmp> previous_row = nullptr;
+    int sort_idx = 0;
+};
+
+class PartitionSortDependency final : public WriteDependency {
+public:
+    using SharedState = PartitionSortNodeSharedState;
+    PartitionSortDependency(int id) : WriteDependency(id, "PartitionSortDependency") {}
+    ~PartitionSortDependency() override = default;
+    void* shared_state() override { return (void*)&_partition_sort_state; };
+    void set_ready_for_write() override {}
+    void block_writing() override {}
+
+private:
+    PartitionSortNodeSharedState _partition_sort_state;
 };
 
 } // namespace pipeline
