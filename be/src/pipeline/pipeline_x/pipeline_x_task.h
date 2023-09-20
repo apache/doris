@@ -115,7 +115,14 @@ public:
         return false;
     }
 
-    DependencySPtr& get_downstream_dependency() { return _downstream_dependency; }
+    std::vector<DependencySPtr>& get_downstream_dependency() { return _downstream_dependency; }
+
+    void set_multi_upstream_dependency(std::vector<DependencySPtr>& multi_upstream_dependency) {
+        for (auto& upstream_dependency : multi_upstream_dependency) {
+            set_upstream_dependency(upstream_dependency);
+        }
+    }
+
     void set_upstream_dependency(DependencySPtr& upstream_dependency) {
         if (_upstream_dependency.contains(upstream_dependency->id())) {
             upstream_dependency = _upstream_dependency[upstream_dependency->id()];
@@ -143,7 +150,8 @@ private:
     DataSinkOperatorXPtr _sink;
 
     DependencyMap _upstream_dependency;
-    DependencySPtr _downstream_dependency;
+
+    std::vector<DependencySPtr> _downstream_dependency;
 
     bool _dry_run = false;
 };

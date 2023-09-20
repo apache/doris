@@ -22,6 +22,7 @@
 #include "common/status.h"
 #include "pipeline/exec/multi_cast_data_streamer.h"
 #include "pipeline/exec/operator.h"
+#include "runtime/query_statistics.h"
 #include "vec/core/block.h"
 
 namespace doris::pipeline {
@@ -124,4 +125,43 @@ RuntimeProfile* MultiCastDataStreamerSourceOperator::get_runtime_profile() const
     return _multi_cast_data_streamer->profile();
 }
 
+Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
+    RETURN_IF_ERROR(Base::init(state, info));
+    auto& p = _parent->cast<Parent>();
+    if (p._t_data_stream_sink.__isset.output_exprs) {
+        _output_expr_contexts.resize(p._output_expr_contexts.size());
+        for (size_t i = 0; i < p._output_expr_contexts.size(); i++) {
+            RETURN_IF_ERROR(p._output_expr_contexts[i]->clone(state, _output_expr_contexts[i]));
+        }
+    }
+    return Status::OK();
+}
+
+Status MultiCastDataStreamerSourceOperatorX::get_block(RuntimeState* state,
+                                                       vectorized::Block* block,
+                                                       SourceState& source_state) {
+    auto& local_state = state->get_local_state(id())->cast<MultiCastDataStreamSourceLocalState>();
+    bool eos = false;
+    vectorized::Block tmp_block;
+    vectorized::Block* output_block = block;
+    if (!local_state._output_expr_contexts.empty()) {
+        output_block = &tmp_block;
+    }
+    local_state._shared_state->_multi_cast_data_streamer->pull(_consumer_id, output_block, &eos);
+
+    if (!local_state._conjuncts.empty()) {
+        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, output_block,
+                                                               output_block->columns()));
+    }
+
+    if (!local_state._output_expr_contexts.empty() && output_block->rows() > 0) {
+        RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
+                local_state._output_expr_contexts, *output_block, block));
+        materialize_block_inplace(*block);
+    }
+    if (eos) {
+        source_state = SourceState::FINISHED;
+    }
+    return Status::OK();
+}
 } // namespace doris::pipeline

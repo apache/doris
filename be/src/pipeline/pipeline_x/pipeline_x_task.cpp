@@ -23,6 +23,7 @@
 #include <stddef.h>
 
 #include <ostream>
+#include <vector>
 
 #include "pipeline/exec/operator.h"
 #include "pipeline/exec/scan_operator.h"
@@ -62,9 +63,13 @@ Status PipelineXTask::prepare(RuntimeState* state, const TPipelineInstanceParams
     SCOPED_CPU_TIMER(_task_cpu_timer);
     SCOPED_TIMER(_prepare_timer);
 
-    LocalSinkStateInfo sink_info {_pipeline->pipeline_profile(), local_params.sender_id,
-                                  get_downstream_dependency().get()};
-    RETURN_IF_ERROR(_sink->setup_local_state(state, sink_info));
+    auto& deps = get_downstream_dependency();
+    std::vector<LocalSinkStateInfo> infos;
+    for (auto& dep : deps) {
+        infos.push_back(LocalSinkStateInfo {_pipeline->pipeline_profile(), local_params.sender_id,
+                                            dep.get()});
+    }
+    RETURN_IF_ERROR(_sink->setup_local_states(state, infos));
 
     std::vector<TScanRangeParams> no_scan_ranges;
     auto scan_ranges = find_with_default(local_params.per_node_scan_ranges,
