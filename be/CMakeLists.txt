@@ -584,8 +584,14 @@ endif()
 if (absl_FOUND)
     set(COMMON_THIRDPARTY
         ${COMMON_THIRDPARTY}
-        absl::flat_hash_set
-        absl::str_format
+        absl::flags_internal
+        absl::flags_reflection
+        absl::random_internal_pool_urbg
+        absl::random_internal_randen
+        absl::spinlock_wait
+        absl::status
+        absl::statusor
+        absl::strings
     )
 endif()
 
