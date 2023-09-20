@@ -59,8 +59,8 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
     public LogicalOlapTableSink(Database database, OlapTable targetTable, List<Column> cols, List<Long> partitionIds,
             List<NamedExpression> outputExprs, boolean isPartialUpdate, boolean isFromNativeInsertStmt,
             boolean isIgnoreMode, CHILD_TYPE child) {
-        this(database, targetTable, cols, partitionIds, outputExprs, isPartialUpdate, isFromNativeInsertStmt, isIgnoreMode,
-                Optional.empty(), Optional.empty(), child);
+        this(database, targetTable, cols, partitionIds, outputExprs, isPartialUpdate, isFromNativeInsertStmt,
+                isIgnoreMode, Optional.empty(), Optional.empty(), child);
     }
 
     /**
@@ -77,6 +77,7 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
         this.isPartialUpdate = isPartialUpdate;
         this.isFromNativeInsertStmt = isFromNativeInsertStmt;
         this.partitionIds = Utils.copyRequiredList(partitionIds);
+        this.isIgnoreMode = isIgnoreMode;
     }
 
     public Plan withChildAndUpdateOutput(Plan child) {
@@ -84,14 +85,14 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
                 .map(NamedExpression.class::cast)
                 .collect(ImmutableList.toImmutableList());
         return new LogicalOlapTableSink<>(database, targetTable, cols, partitionIds, output, isPartialUpdate,
-                isFromNativeInsertStmt, Optional.empty(), Optional.empty(), child);
+                isFromNativeInsertStmt, isIgnoreMode, Optional.empty(), Optional.empty(), child);
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "LogicalOlapTableSink only accepts one child");
         return new LogicalOlapTableSink<>(database, targetTable, cols, partitionIds, outputExprs, isPartialUpdate,
-                isFromNativeInsertStmt, Optional.empty(), Optional.empty(), children.get(0));
+                isFromNativeInsertStmt, isIgnoreMode, Optional.empty(), Optional.empty(), children.get(0));
     }
 
     public Database getDatabase() {
