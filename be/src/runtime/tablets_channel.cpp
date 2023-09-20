@@ -420,17 +420,19 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
             continue;
         }
         tablet_cnt++;
-        WriteRequest wrequest;
-        wrequest.index_id = request.index_id();
-        wrequest.tablet_id = tablet.tablet_id();
-        wrequest.schema_hash = schema_hash;
-        wrequest.txn_id = _txn_id;
-        wrequest.partition_id = tablet.partition_id();
-        wrequest.load_id = request.id();
-        wrequest.tuple_desc = _tuple_desc;
-        wrequest.slots = index_slots;
-        wrequest.is_high_priority = _is_high_priority;
-        wrequest.table_schema_param = _schema;
+        WriteRequest wrequest {
+                .tablet_id = tablet.tablet_id(),
+                .schema_hash = schema_hash,
+                .txn_id = _txn_id,
+                .index_id = request.index_id(),
+                .partition_id = tablet.partition_id(),
+                .load_id = request.id(),
+                .tuple_desc = _tuple_desc,
+                .slots = index_slots,
+                .table_schema_param = _schema,
+                .is_high_priority = _is_high_priority,
+                .write_file_cache = request.write_file_cache(),
+        };
 
         DeltaWriter* writer = nullptr;
         auto st = DeltaWriter::open(&wrequest, &writer, _profile, _load_id);

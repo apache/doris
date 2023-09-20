@@ -374,7 +374,6 @@ public class RuntimeProfile {
                 counter.addValue(othCounter);
             }
         }
-        counter.setValue(0); // Because the time is not accurate, it has been set to 0.
     }
 
     private static void removePipelineContext(RuntimeProfile src) {
@@ -400,7 +399,7 @@ public class RuntimeProfile {
 
             mergeProfileCounter(src, childCounterName, rhs);
             mergeCounter(src, childCounterName, counter, rhsCounter);
-            removeZeroeCounter(childCounterSet, childCounterName, counter);
+            removeCounter(childCounterSet, childCounterName, counter);
 
         }
     }
@@ -424,14 +423,17 @@ public class RuntimeProfile {
         }
     }
 
-    private static void removeZeroeCounter(Set<String> childCounterSet, String childCounterName, Counter counter) {
-        if (counter.getValue() == 0) {
+    private static void removeCounter(Set<String> childCounterSet, String childCounterName, Counter counter) {
+        if (counter.isRemove()) {
             childCounterSet.remove(childCounterName);
         }
     }
 
     private static void mergeCounter(RuntimeProfile src, String counterName, Counter counter,
             LinkedList<Counter> rhsCounter) {
+        if (rhsCounter == null) {
+            return;
+        }
         if (rhsCounter.size() == 0) {
             return;
         }
@@ -439,15 +441,19 @@ public class RuntimeProfile {
             Counter maxCounter = new Counter(counter.getType(), counter.getValue());
             Counter minCounter = new Counter(counter.getType(), counter.getValue());
             for (Counter cnt : rhsCounter) {
-                if (cnt.getValue() > maxCounter.getValue()) {
-                    maxCounter.setValue(cnt.getValue());
-                }
-                if (cnt.getValue() < minCounter.getValue()) {
-                    minCounter.setValue(cnt.getValue());
+                if (cnt != null) {
+                    if (cnt.getValue() > maxCounter.getValue()) {
+                        maxCounter.setValue(cnt.getValue());
+                    }
+                    if (cnt.getValue() < minCounter.getValue()) {
+                        minCounter.setValue(cnt.getValue());
+                    }
                 }
             }
             for (Counter cnt : rhsCounter) {
-                counter.addValue(cnt);
+                if (cnt != null) {
+                    counter.addValue(cnt);
+                }
             }
             long countNumber = rhsCounter.size() + 1;
             counter.divValue(countNumber);
@@ -470,13 +476,15 @@ public class RuntimeProfile {
                         + MIN_TIME_PRE + printCounter(minCounter.getValue(), minCounter.getType()) + " ]";
                 src.infoStrings.put(counterName, infoString);
             }
-            counter.setValue(0); // value 0 will remove in removeZeroeCounter
+            counter.setCanRemove(); // value will remove in removeCounter
         } else {
             if (rhsCounter.size() == 0) {
                 return;
             }
             for (Counter cnt : rhsCounter) {
-                counter.addValue(cnt);
+                if (cnt != null) {
+                    counter.addValue(cnt);
+                }
             }
         }
     }

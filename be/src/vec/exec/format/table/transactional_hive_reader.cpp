@@ -25,7 +25,7 @@
 namespace doris {
 
 namespace io {
-class IOContext;
+struct IOContext;
 } // namespace io
 namespace vectorized {
 class VExprContext;

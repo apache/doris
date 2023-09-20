@@ -53,7 +53,6 @@ protected:
     vectorized::MutableColumnPtr _tuple_is_null_left_flag_column;
     vectorized::MutableColumnPtr _tuple_is_null_right_flag_column;
 
-    RuntimeProfile* _probe_phase_profile;
     RuntimeProfile::Counter* _probe_timer;
     RuntimeProfile::Counter* _probe_rows_counter;
     RuntimeProfile::Counter* _join_filter_timer;
