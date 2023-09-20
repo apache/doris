@@ -60,10 +60,9 @@ struct ProcessHashTableProbe {
     // the logic of probe
     // TODO: opt the visited here to reduce the size of hash table
     template <bool need_null_map_for_probe, bool ignore_null, typename HashTableType,
-              bool with_other_conjuncts>
+              bool with_other_conjuncts, bool is_mark_join>
     Status do_process(HashTableType& hash_table_ctx, ConstNullMapPtr null_map,
-                      MutableBlock& mutable_block, Block* output_block, size_t probe_rows,
-                      bool is_mark_join);
+                      MutableBlock& mutable_block, Block* output_block, size_t probe_rows);
     // In the presence of other join conjunct, the process of join become more complicated.
     // each matching join column need to be processed by other join conjunct. so the struct of mutable block
     // and output block may be different
@@ -88,9 +87,8 @@ struct ProcessHashTableProbe {
     ForwardIterator<Mapped>& _probe_row_match(int& current_offset, int& probe_index,
                                               size_t& probe_size, bool& all_match_one);
 
-    template <bool need_null_map_for_probe, bool ignore_null, typename HashTableType>
-    void _probe_hash(size_t probe_rows, HashTableType& hash_table_ctx,
-                     HashTableType::State key_getter, ConstNullMapPtr null_map);
+    template <bool need_null_map_for_probe, bool ignore_null, typename HashTableType, typename Keys>
+    void _probe_hash(const Keys& keys, HashTableType& hash_table_ctx, ConstNullMapPtr null_map);
 
     // Process full outer join/ right join / right semi/anti join to output the join result
     // in hash table
@@ -105,8 +103,8 @@ struct ProcessHashTableProbe {
     std::vector<StringRef> _probe_keys;
 
     std::vector<uint32_t> _probe_indexs;
-    std::vector<int8_t> _build_block_offsets;
-    std::vector<int32_t> _build_block_rows;
+    PaddedPODArray<int8_t> _build_block_offsets;
+    PaddedPODArray<int32_t> _build_block_rows;
     std::vector<std::pair<int8_t, int>> _build_blocks_locs;
     // only need set the tuple is null in RIGHT_OUTER_JOIN and FULL_OUTER_JOIN
     ColumnUInt8::Container* _tuple_is_null_left_flags;
@@ -117,6 +115,7 @@ struct ProcessHashTableProbe {
     uint8_t* _serialized_key_buffer;
     std::unique_ptr<Arena> _serialize_key_arena;
     std::vector<size_t> _probe_side_hash_values;
+    std::vector<char> _probe_side_find_result;
 
     std::vector<bool*> _visited_map;
     std::vector<bool> _same_to_prev;
@@ -130,8 +129,7 @@ struct ProcessHashTableProbe {
     RuntimeProfile::Counter* _build_side_output_timer;
     RuntimeProfile::Counter* _probe_side_output_timer;
     RuntimeProfile::Counter* _probe_process_hashtable_timer;
-    static constexpr int PROBE_SIDE_EXPLODE_RATE = 3;
-    static constexpr double VISITED_MAP_EXPLODE_RATE = 1.2;
+    static constexpr int PROBE_SIDE_EXPLODE_RATE = 1;
 };
 
 } // namespace vectorized

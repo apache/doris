@@ -82,16 +82,23 @@ struct HashTableBuild {
             key_getter.set_serialized_keys(hash_table_ctx.keys.data());
         }
 
+        _build_side_hash_values.resize(_rows);
+        auto keys = key_getter.get_keys(_rows);
+        for (size_t k = 0; k < _rows; ++k) {
+            _build_side_hash_values[k] = hash_table_ctx.hash_table.hash(keys[k]);
+        }
+
         for (size_t k = 0; k < _rows; ++k) {
             if (k % CHECK_FRECUENCY == 0) {
                 RETURN_IF_CANCELLED(_state);
             }
-            auto emplace_result = key_getter.emplace_key(hash_table_ctx.hash_table, k,
-                                                         *(_operation_node->_arena));
+            auto emplace_result = key_getter.emplace_with_key(hash_table_ctx.hash_table, keys[k],
+                                                              _build_side_hash_values[k], k);
 
-            if (k + 1 < _rows) {
-                key_getter.prefetch_by_key(hash_table_ctx.hash_table, k + 1,
-                                           *(_operation_node->_arena));
+            if (LIKELY(k + HASH_MAP_PREFETCH_DIST < _rows)) {
+                key_getter.template prefetch_by_hash<false>(
+                        hash_table_ctx.hash_table,
+                        _build_side_hash_values[k + HASH_MAP_PREFETCH_DIST]);
             }
 
             if (emplace_result.is_inserted()) { //only inserted once as the same key, others skip
@@ -107,6 +114,7 @@ private:
     ColumnRawPtrs& _build_raw_ptrs;
     VSetOperationNode<is_intersect>* _operation_node;
     RuntimeState* _state;
+    std::vector<size_t> _build_side_hash_values;
 };
 
 template <class HashTableContext, bool is_intersected>

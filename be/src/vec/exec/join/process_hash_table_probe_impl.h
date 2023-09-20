@@ -54,6 +54,7 @@ template <int JoinOpType>
 void ProcessHashTableProbe<JoinOpType>::build_side_output_column(
         MutableColumns& mcol, const std::vector<bool>& output_slot_flags, int size,
         bool have_other_join_conjunct) {
+    SCOPED_TIMER(_build_side_output_timer);
     constexpr auto is_semi_anti_join = JoinOpType == TJoinOp::RIGHT_ANTI_JOIN ||
                                        JoinOpType == TJoinOp::RIGHT_SEMI_JOIN ||
                                        JoinOpType == TJoinOp::LEFT_ANTI_JOIN ||
@@ -128,6 +129,7 @@ void ProcessHashTableProbe<JoinOpType>::probe_side_output_column(
         MutableColumns& mcol, const std::vector<bool>& output_slot_flags, int size,
         int last_probe_index, size_t probe_size, bool all_match_one,
         bool have_other_join_conjunct) {
+    SCOPED_TIMER(_probe_side_output_timer);
     auto& probe_block = *_join_context->_probe_block;
     for (int i = 0; i < output_slot_flags.size(); ++i) {
         if (output_slot_flags[i]) {
@@ -135,7 +137,7 @@ void ProcessHashTableProbe<JoinOpType>::probe_side_output_column(
             if (all_match_one) {
                 mcol[i]->insert_range_from(*column, last_probe_index, probe_size);
             } else {
-                column->replicate(&_probe_indexs[0], size, *mcol[i]);
+                column->replicate(_probe_indexs.data(), size, *mcol[i]);
             }
         } else {
             mcol[i]->insert_many_defaults(size);
@@ -220,25 +222,19 @@ KeyGetter ProcessHashTableProbe<JoinOpType>::_init_probe_side(size_t probe_rows,
     _build_block_offsets.clear();
     _visited_map.clear();
     _same_to_prev.clear();
-    if (_build_block_rows.capacity() < probe_rows * PROBE_SIDE_EXPLODE_RATE) {
-        if (with_other_join_conjuncts) {
-            _probe_indexs.reserve(probe_rows * PROBE_SIDE_EXPLODE_RATE);
-        }
-        _build_block_rows.reserve(probe_rows * PROBE_SIDE_EXPLODE_RATE);
-        _build_block_offsets.reserve(probe_rows * PROBE_SIDE_EXPLODE_RATE);
-    }
-
-    // use in right join to change visited state after
-    // exec the vother join conjunct
     if (with_other_join_conjuncts) {
-        _visited_map.reserve(_batch_size * VISITED_MAP_EXPLODE_RATE);
-        _same_to_prev.reserve(_batch_size * VISITED_MAP_EXPLODE_RATE);
+        _probe_indexs.reserve(probe_rows * PROBE_SIDE_EXPLODE_RATE);
+        // use in right join to change visited state after exec the vother join conjunct
+        _visited_map.reserve(probe_rows * PROBE_SIDE_EXPLODE_RATE);
+        _same_to_prev.reserve(probe_rows * PROBE_SIDE_EXPLODE_RATE);
     }
+    _build_block_rows.reserve(probe_rows * PROBE_SIDE_EXPLODE_RATE);
+    _build_block_offsets.reserve(probe_rows * PROBE_SIDE_EXPLODE_RATE);
 
     KeyGetter key_getter(*_join_context->_probe_columns, _join_context->_probe_key_sz, nullptr);
 
     if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<KeyGetter>::value) {
-        if (*_join_context->_probe_index == 0) {
+        if (*_join_context->_ready_probe == false) {
             _pre_serialize_key(*_join_context->_probe_columns, probe_rows, _probe_keys);
         }
         key_getter.set_serialized_keys(_probe_keys.data());
@@ -248,31 +244,23 @@ KeyGetter ProcessHashTableProbe<JoinOpType>::_init_probe_side(size_t probe_rows,
 }
 
 template <int JoinOpType>
-template <bool need_null_map_for_probe, bool ignore_null, typename HashTableType>
-void ProcessHashTableProbe<JoinOpType>::_probe_hash(size_t probe_rows,
-                                                    HashTableType& hash_table_ctx,
-                                                    HashTableType::State key_getter,
+template <bool need_null_map_for_probe, bool ignore_null, typename HashTableType, typename Keys>
+void ProcessHashTableProbe<JoinOpType>::_probe_hash(const Keys& keys, HashTableType& hash_table_ctx,
                                                     ConstNullMapPtr null_map) {
-    if (*(_join_context->_ready_probe_index) >= probe_rows) {
+    if (*_join_context->_ready_probe) {
         return;
     }
-    _probe_side_hash_values.resize(probe_rows);
-    for (size_t k = *(_join_context->_ready_probe_index); k < probe_rows; ++k) {
-        if constexpr (ignore_null && need_null_map_for_probe) {
+    SCOPED_TIMER(_search_hashtable_timer);
+    _probe_side_hash_values.resize(keys.size());
+    for (size_t k = 0; k < keys.size(); ++k) {
+        if constexpr (need_null_map_for_probe) {
             if ((*null_map)[k]) {
                 continue;
             }
         }
-        if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
-                              typename HashTableType::State>::value) {
-            _probe_side_hash_values[k] =
-                    hash_table_ctx.hash_table.hash(key_getter.get_key_holder(k, *_arena).key);
-        } else {
-            _probe_side_hash_values[k] =
-                    hash_table_ctx.hash_table.hash(key_getter.get_key_holder(k, *_arena));
-        }
+        _probe_side_hash_values[k] = hash_table_ctx.hash_table.hash(keys[k]);
     }
-    *(_join_context->_ready_probe_index) = probe_rows;
+    *(_join_context->_ready_probe) = true;
 }
 
 template <int JoinOpType>
@@ -291,7 +279,7 @@ ForwardIterator<Mapped>& ProcessHashTableProbe<JoinOpType>::_probe_row_match(int
     for (; probe_row_match_iter.ok() && current_offset < _batch_size; ++probe_row_match_iter) {
         _emplace_element(probe_row_match_iter->block_offset, probe_row_match_iter->row_num,
                          current_offset);
-        _probe_indexs.template emplace_back(probe_index);
+        _probe_indexs.emplace_back(probe_index);
         if constexpr (with_other_join_conjuncts) {
             _visited_map.emplace_back(&probe_row_match_iter->visited);
         }
@@ -317,12 +305,11 @@ void ProcessHashTableProbe<JoinOpType>::_emplace_element(int8_t block_offset, in
 
 template <int JoinOpType>
 template <bool need_null_map_for_probe, bool ignore_null, typename HashTableType,
-          bool with_other_conjuncts>
+          bool with_other_conjuncts, bool is_mark_join>
 Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_ctx,
                                                      ConstNullMapPtr null_map,
                                                      MutableBlock& mutable_block,
-                                                     Block* output_block, size_t probe_rows,
-                                                     bool is_mark_join) {
+                                                     Block* output_block, size_t probe_rows) {
     auto& probe_index = *_join_context->_probe_index;
 
     using KeyGetter = typename HashTableType::State;
@@ -355,46 +342,42 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
         }
     }
 
+    auto keys = key_getter.get_keys(probe_rows);
     int multi_matched_output_row_count = 0;
-    if (current_offset < _batch_size) {
-        auto empty = decltype(key_getter.find_key(hash_table_ctx.hash_table, probe_index,
-                                                  *_arena)) {nullptr, false};
-        _probe_hash<need_null_map_for_probe, ignore_null, HashTableType>(probe_rows, hash_table_ctx,
-                                                                         key_getter, null_map);
+    _probe_hash<need_null_map_for_probe, ignore_null, HashTableType>(keys, hash_table_ctx,
+                                                                     null_map);
 
+    {
         SCOPED_TIMER(_search_hashtable_timer);
-        while (probe_index < probe_rows) {
+        using FindResult = decltype(key_getter.find_key(hash_table_ctx.hash_table, 0, *_arena));
+        FindResult empty = {nullptr, false};
+        while (current_offset < _batch_size && probe_index < probe_rows) {
             if constexpr (ignore_null && need_null_map_for_probe) {
                 if ((*null_map)[probe_index]) {
                     if constexpr (probe_all) {
                         // only full outer / left outer need insert the data of right table
                         _emplace_element(-1, -1, current_offset);
-                        _probe_indexs.template emplace_back(probe_index);
+                        _probe_indexs.emplace_back(probe_index);
 
                         if constexpr (with_other_conjuncts) {
                             _same_to_prev.emplace_back(false);
                             _visited_map.emplace_back(nullptr);
                         }
+                    } else {
+                        all_match_one = false;
                     }
                     probe_index++;
-                    all_match_one = false;
-                    if constexpr (probe_all) {
-                        if (current_offset >= _batch_size) {
-                            break;
-                        }
-                    }
-                    continue;
                 }
             }
 
-            int last_offset = current_offset;
-            auto find_result =
-                    (need_null_map_for_probe && (*null_map)[probe_index])
+            const auto& find_result =
+                    need_null_map_for_probe && (*null_map)[probe_index]
                             ? empty
                             : key_getter.find_key_with_hash(hash_table_ctx.hash_table,
                                                             _probe_side_hash_values[probe_index],
-                                                            probe_index, *_arena);
-            if (probe_index + HASH_MAP_PREFETCH_DIST < probe_rows) {
+                                                            keys[probe_index]);
+
+            if (LIKELY(probe_index + HASH_MAP_PREFETCH_DIST < probe_rows)) {
                 key_getter.template prefetch_by_hash<true>(
                         hash_table_ctx.hash_table,
                         _probe_side_hash_values[probe_index + HASH_MAP_PREFETCH_DIST]);
@@ -407,9 +390,9 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                            JoinOpType == TJoinOp::LEFT_SEMI_JOIN)) {
                 bool need_go_ahead =
                         (JoinOpType != TJoinOp::LEFT_SEMI_JOIN) ^ find_result.is_found();
-                if (is_mark_join) {
+                if constexpr (is_mark_join) {
                     ++current_offset;
-                    assert_cast<doris::vectorized::ColumnVector<UInt8>&>(*mcol[mcol.size() - 1])
+                    assert_cast<ColumnVector<UInt8>&>(*mcol[mcol.size() - 1])
                             .get_data()
                             .template push_back(need_go_ahead);
                 } else {
@@ -420,65 +403,47 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                 if (find_result.is_found()) {
                     auto& mapped = find_result.get_mapped();
                     auto origin_offset = current_offset;
-                    // TODO: Iterators are currently considered to be a heavy operation and have a certain impact on performance.
-                    // We should rethink whether to use this iterator mode in the future. Now just opt the one row case
-                    if (mapped.is_single()) {
-                        if constexpr (std::is_same_v<Mapped, RowRefListWithFlag>) {
-                            mapped.visited = true;
-                        }
 
-                        if constexpr (with_other_conjuncts || !is_right_semi_anti_join) {
-                            _emplace_element(mapped.block_offset, mapped.row_num, current_offset);
+                    // For mark join, if euqual-matched tuple count for one probe row
+                    // excceeds batch size, it's difficult to implement the logic to
+                    // split them into multiple sub blocks and handle them, keep the original
+                    // logic for now.
+                    if constexpr (is_mark_join && with_other_conjuncts) {
+                        for (auto it = mapped.begin(); it.ok(); ++it) {
+                            _emplace_element(it->block_offset, it->row_num, current_offset);
+                            _visited_map.emplace_back(&it->visited);
                         }
                         ++probe_index;
+                    } else if constexpr (with_other_conjuncts || !is_right_semi_anti_join) {
+                        auto multi_match_last_offset = current_offset;
+                        auto it = mapped.begin();
+                        for (; it.ok() && current_offset < _batch_size; ++it) {
+                            _emplace_element(it->block_offset, it->row_num, current_offset);
 
-                        if constexpr (with_other_conjuncts) {
-                            _visited_map.emplace_back(&mapped.visited);
+                            if constexpr (with_other_conjuncts) {
+                                _visited_map.emplace_back(&it->visited);
+                            }
+                        }
+                        probe_row_match_iter = it;
+                        if (!it.ok()) {
+                            // If all matched rows for the current probe row are handled,
+                            // advance to next probe row.
+                            // If not(which means it excceed batch size), probe_index is not increased and
+                            // remaining matched rows for the current probe row will be
+                            // handled in the next call of this function
+                            ++probe_index;
+                        } else if constexpr (with_other_conjuncts) {
+                            // If not(which means it excceed batch size), probe_index is not increased and
+                            // remaining matched rows for the current probe row will be
+                            // handled in the next call of this function
+                            multi_matched_output_row_count =
+                                    current_offset - multi_match_last_offset;
                         }
                     } else {
-                        // For mark join, if euqual-matched tuple count for one probe row
-                        // excceeds batch size, it's difficult to implement the logic to
-                        // split them into multiple sub blocks and handle them, keep the original
-                        // logic for now.
-                        if (is_mark_join) {
-                            for (auto it = mapped.begin(); it.ok(); ++it) {
-                                _emplace_element(it->block_offset, it->row_num, current_offset);
-                                if constexpr (with_other_conjuncts) {
-                                    _visited_map.emplace_back(&it->visited);
-                                }
-                            }
-                            ++probe_index;
-                        } else if constexpr (with_other_conjuncts || !is_right_semi_anti_join) {
-                            auto multi_match_last_offset = current_offset;
-                            auto it = mapped.begin();
-                            for (; it.ok() && current_offset < _batch_size; ++it) {
-                                _emplace_element(it->block_offset, it->row_num, current_offset);
-
-                                if constexpr (with_other_conjuncts) {
-                                    _visited_map.emplace_back(&it->visited);
-                                }
-                            }
-                            probe_row_match_iter = it;
-                            if (!it.ok()) {
-                                // If all matched rows for the current probe row are handled,
-                                // advance to next probe row.
-                                // If not(which means it excceed batch size), probe_index is not increased and
-                                // remaining matched rows for the current probe row will be
-                                // handled in the next call of this function
-                                ++probe_index;
-                            } else if constexpr (with_other_conjuncts) {
-                                // If not(which means it excceed batch size), probe_index is not increased and
-                                // remaining matched rows for the current probe row will be
-                                // handled in the next call of this function
-                                multi_matched_output_row_count =
-                                        current_offset - multi_match_last_offset;
-                            }
-                        } else {
-                            ++probe_index;
-                        }
-                        if constexpr (std::is_same_v<Mapped, RowRefListWithFlag>) {
-                            mapped.visited = true;
-                        }
+                        ++probe_index;
+                    }
+                    if constexpr (std::is_same_v<Mapped, RowRefListWithFlag>) {
+                        mapped.visited = true;
                     }
 
                     if constexpr (with_other_conjuncts) {
@@ -487,11 +452,9 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                             _same_to_prev.emplace_back(true);
                         }
                     }
-                } else if (JoinOpType == TJoinOp::LEFT_OUTER_JOIN ||
-                           JoinOpType == TJoinOp::FULL_OUTER_JOIN ||
-                           JoinOpType == TJoinOp::LEFT_ANTI_JOIN ||
-                           JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
-                           (JoinOpType == TJoinOp::LEFT_SEMI_JOIN && is_mark_join)) {
+                } else if constexpr (probe_all || JoinOpType == TJoinOp::LEFT_ANTI_JOIN ||
+                                     JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+                                     (JoinOpType == TJoinOp::LEFT_SEMI_JOIN && is_mark_join)) {
                     // only full outer / left outer need insert the data of right table
                     _emplace_element(-1, -1, current_offset);
 
@@ -505,33 +468,21 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                 }
             }
 
-            all_match_one &= (current_offset == last_offset + 1);
-            if (LIKELY(current_offset < _probe_indexs.size())) {
-                for (int i = last_offset; i < current_offset; ++i) {
-                    _probe_indexs[i] = current_probe_index;
-                }
+            if (current_offset == _probe_indexs.size() + 1) {
+                _probe_indexs.emplace_back(current_probe_index);
             } else {
-                for (int i = last_offset; i < _probe_indexs.size(); ++i) {
-                    _probe_indexs[i] = current_probe_index;
-                }
+                all_match_one = false;
                 _probe_indexs.resize(current_offset, current_probe_index);
-            }
-            if (current_offset >= _batch_size) {
-                break;
             }
         }
         probe_size = probe_index - last_probe_index + probe_row_match_iter.ok();
     }
 
-    {
-        SCOPED_TIMER(_build_side_output_timer);
-        build_side_output_column(mcol, *_join_context->_right_output_slot_flags, current_offset,
-                                 with_other_conjuncts);
-    }
+    build_side_output_column(mcol, *_join_context->_right_output_slot_flags, current_offset,
+                             with_other_conjuncts);
 
     if constexpr (with_other_conjuncts || (JoinOpType != TJoinOp::RIGHT_SEMI_JOIN &&
                                            JoinOpType != TJoinOp::RIGHT_ANTI_JOIN)) {
-        SCOPED_TIMER(_probe_side_output_timer);
         RETURN_IF_CATCH_EXCEPTION(probe_side_output_column(
                 mcol, *_join_context->_left_output_slot_flags, current_offset, last_probe_index,
                 probe_size, all_match_one, with_other_conjuncts));
@@ -697,7 +648,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_other_join_conjuncts(
         }
 
         if (is_mark_join) {
-            auto& matched_map = assert_cast<doris::vectorized::ColumnVector<UInt8>&>(
+            auto& matched_map = assert_cast<ColumnVector<UInt8>&>(
                                         *(output_block->get_by_position(orig_columns - 1)
                                                   .column->assume_mutable()))
                                         .get_data();
@@ -764,7 +715,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_other_join_conjuncts(
         }
 
         if (is_mark_join) {
-            auto& matched_map = assert_cast<doris::vectorized::ColumnVector<UInt8>&>(
+            auto& matched_map = assert_cast<ColumnVector<UInt8>&>(
                                         *(output_block->get_by_position(orig_columns - 1)
                                                   .column->assume_mutable()))
                                         .get_data();
@@ -1061,18 +1012,29 @@ Status ProcessHashTableProbe<JoinOpType>::process(HashTableType& hash_table_ctx,
                                                   MutableBlock& mutable_block, Block* output_block,
                                                   size_t probe_rows, bool is_mark_join,
                                                   bool have_other_join_conjunct) {
-    if (have_other_join_conjunct) {
-        if constexpr (!std::is_same_v<typename HashTableType::Mapped, RowRefListWithFlags>) {
-            return Status::InvalidArgument("Invalid HashTableType::Mapped");
+    Status res;
+    if constexpr (!std::is_same_v<typename HashTableType::Mapped, RowRefListWithFlags>) {
+        if (have_other_join_conjunct) {
+            res = Status::InvalidArgument("Invalid HashTableType::Mapped");
         } else {
-            return do_process<need_null_map_for_probe, ignore_null, HashTableType, true>(
-                    hash_table_ctx, null_map, mutable_block, output_block, probe_rows,
-                    is_mark_join);
+            std::visit(
+                    [&](auto is_mark_join) {
+                        res = do_process<need_null_map_for_probe, ignore_null, HashTableType, false,
+                                         is_mark_join>(hash_table_ctx, null_map, mutable_block,
+                                                       output_block, probe_rows);
+                    },
+                    make_bool_variant(is_mark_join));
         }
     } else {
-        return do_process<need_null_map_for_probe, ignore_null, HashTableType, false>(
-                hash_table_ctx, null_map, mutable_block, output_block, probe_rows, is_mark_join);
+        std::visit(
+                [&](auto is_mark_join, auto have_other_join_conjunct) {
+                    res = do_process<need_null_map_for_probe, ignore_null, HashTableType,
+                                     have_other_join_conjunct, is_mark_join>(
+                            hash_table_ctx, null_map, mutable_block, output_block, probe_rows);
+                },
+                make_bool_variant(is_mark_join), make_bool_variant(have_other_join_conjunct));
     }
+    return res;
 }
 
 template <typename T>

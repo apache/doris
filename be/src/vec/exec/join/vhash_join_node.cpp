@@ -125,7 +125,7 @@ HashJoinProbeContext::HashJoinProbeContext(HashJoinNode* join_node)
           _probe_block(&join_node->_probe_block),
           _probe_columns(&join_node->_probe_columns),
           _probe_index(&join_node->_probe_index),
-          _ready_probe_index(&join_node->_ready_probe_index),
+          _ready_probe(&join_node->_ready_probe),
           _probe_key_sz(join_node->_probe_key_sz),
           _left_output_slot_flags(&join_node->_left_output_slot_flags),
           _right_output_slot_flags(&join_node->_right_output_slot_flags),
@@ -154,7 +154,7 @@ HashJoinProbeContext::HashJoinProbeContext(pipeline::HashJoinProbeLocalState* lo
           _probe_block(&local_state->_probe_block),
           _probe_columns(&local_state->_probe_columns),
           _probe_index(&local_state->_probe_index),
-          _ready_probe_index(&local_state->_ready_probe_index),
+          _ready_probe(&local_state->_ready_probe),
           _probe_key_sz(local_state->_shared_state->probe_key_sz),
           _left_output_slot_flags(&local_state->join_probe()->_left_output_slot_flags),
           _right_output_slot_flags(&local_state->join_probe()->_right_output_slot_flags),
@@ -420,7 +420,7 @@ bool HashJoinNode::need_more_input_data() const {
 
 void HashJoinNode::prepare_for_next() {
     _probe_index = 0;
-    _ready_probe_index = 0;
+    _ready_probe = false;
     _prepare_probe_block();
 }
 
