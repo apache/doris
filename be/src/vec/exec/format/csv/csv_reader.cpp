@@ -139,9 +139,27 @@ void PlainCsvTextFieldSplitter::_split_field_multi_char(const Slice& line,
         if (j == value_sep_len - 1) {
             curpos = i - value_sep_len + 1;
 
-            process_value_func(line.data, start, curpos - start, trimming_char, splitted_values);
+            /*
+             * column_separator : "xx"
+             * data.csv :  data1xxxxdata2
+             *
+             * Parse incorrectly:
+             *      data1[xx]xxdata2
+             *      data1x[xx]xdata2
+             *      data1xx[xx]data2
+             * The string "xxxx" is parsed into three "xx" delimiters.
+             *
+             * Parse correctly:
+             *      data1[xx]xxdata2
+             *      data1xx[xx]data2
+             */
 
-            start = i + 1;
+            if (curpos >= start) {
+                process_value_func(line.data, start, curpos - start, trimming_char,
+                                   splitted_values);
+                start = i + 1;
+            }
+
             j = next[j];
         }
     }
