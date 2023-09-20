@@ -583,4 +583,6 @@ static void help(const char* progname) {
     printf("Options:\n");
     printf("  -v, --version      output version information, then exit\n");
     printf("  -?, --help         show this help, then exit\n");
+
+    
 }
