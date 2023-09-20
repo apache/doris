@@ -1,5 +1,5 @@
 -- tables: partsupp,supplier,nation
-SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=true) */
+SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=false) */
   ps_partkey,
   sum(ps_supplycost * ps_availqty) AS value
 FROM
