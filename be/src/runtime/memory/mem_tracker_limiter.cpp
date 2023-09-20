@@ -256,7 +256,7 @@ std::string MemTrackerLimiter::log_process_usage_str() {
     std::vector<MemTracker::Snapshot> snapshots;
     MemTrackerLimiter::make_process_snapshots(&snapshots);
     MemTrackerLimiter::make_type_snapshots(&snapshots, MemTrackerLimiter::Type::GLOBAL);
-    MemTrackerLimiter::make_top_consumption_snapshots(&snapshots);
+    MemTrackerLimiter::make_top_consumption_snapshots(&snapshots, 15);
 
     // Add additional tracker printed when memory exceeds limit.
     snapshots.emplace_back(
