@@ -1,6 +1,6 @@
 ---
 {
-    "title": "异步导出",
+    "title": "数据导出",
     "language": "zh-CN"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 异步导出
+# 数据导出
 
 异步导出（Export）是 Doris 提供的一种将数据异步导出的功能。该功能可以将用户指定的表或分区的数据，以指定的文件格式，通过 Broker 进程或 S3协议/HDFS协议 导出到远端存储上，如 对象存储 / HDFS 等。
 

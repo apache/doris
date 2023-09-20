@@ -1,6 +1,6 @@
 ---
 {
-    "title": "同步导出",
+    "title": "导出查询结果集",
     "language": "zh-CN"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 同步导出
+# 导出查询结果集
 
 本文档介绍如何使用 [SELECT INTO OUTFILE](../../sql-manual/sql-reference/Data-Manipulation-Statements/OUTFILE.md) 命令进行查询结果的导出操作。
 
