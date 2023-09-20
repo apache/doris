@@ -41,13 +41,13 @@ suite("test_nereids_insert_ignore") {
                 "enable_single_replica_compaction" = "false" 
             );
     """
-    // sql """insert into ${tableName} values
-    //     (1,"kevin",18,"shenzhen",400),
-    //     (2,"bob",20,"beijing",500),
-    //     (3,"alice",22,"shanghai",600),
-    //     (4,"jack",24,"hangzhou",700),
-    //     (5,"tom",26,"guanzhou",800);"""
-    // qt_origin_data "select * from ${tableName} order by id;"
+    sql """insert into ${tableName} values
+        (1,"kevin",18,"shenzhen",400),
+        (2,"bob",20,"beijing",500),
+        (3,"alice",22,"shanghai",600),
+        (4,"jack",24,"hangzhou",700),
+        (5,"tom",26,"guanzhou",800);"""
+    qt_origin_data "select * from ${tableName} order by id;"
     
     // some rows are with existing keys, some are not
     sql """insert ignore into ${tableName} values
