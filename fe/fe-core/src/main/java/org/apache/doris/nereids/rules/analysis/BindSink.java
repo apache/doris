@@ -21,6 +21,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
@@ -74,6 +75,20 @@ public class BindSink implements AnalysisRuleFactory {
                             OlapTable table = pair.second;
 
                             LogicalPlan child = ((LogicalPlan) sink.child());
+
+                            if (sink.isIgnoreMode()) {
+                                if (table.getKeysType() != KeysType.UNIQUE_KEYS
+                                        || !table.getEnableUniqueKeyMergeOnWrite()) {
+                                    throw new AnalysisException("ignore mode can only be enabled if the target"
+                                            + " table is a unique table with merge-on-write enabled.");
+                                } else if (sink.isPartialUpdate()) {
+                                    throw new AnalysisException("ignore mode can't be used in partial update.");
+                                } else if (table.hasSequenceCol()) {
+                                    throw new AnalysisException("ignore mode can't be used if the target table has"
+                                            + " sequence column, but table[" + table.getName()
+                                                    + "] has sequnce column.");
+                                }
+                            }
 
                             LogicalOlapTableSink<?> boundSink = new LogicalOlapTableSink<>(
                                     database,
