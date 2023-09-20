@@ -325,6 +325,12 @@ public class RuntimeProfile {
          * Instance 1
          * Instance 2
          */
+        if (childList == null) {
+            return;
+        }
+        if (childList.size() == 0) {
+            return;
+        }
         int numInstance = childList.size();
         Pair<RuntimeProfile, Boolean> pair = childList.get(0);
         RuntimeProfile mergedProfile = pair.first;
@@ -341,7 +347,9 @@ public class RuntimeProfile {
     private static LinkedList<RuntimeProfile> getChildListFromLists(int idx, LinkedList<RuntimeProfile> rhs) {
         LinkedList<RuntimeProfile> ret = new LinkedList<RuntimeProfile>();
         for (RuntimeProfile profile : rhs) {
-            ret.add(profile.childList.get(idx).first);
+            if (idx < profile.childList.size()) {
+                ret.add(profile.childList.get(idx).first);
+            }
         }
         return ret;
     }
@@ -355,6 +363,9 @@ public class RuntimeProfile {
     }
 
     private static void mergeInstanceProfile(RuntimeProfile src, LinkedList<RuntimeProfile> rhs) {
+        if (rhs.size() == 0) {
+            return;
+        }
         mergeProfileCounter(src, ROOT_COUNTER, rhs);
         mergeTotalTime(src, rhs);
         mergeProfileInfoStr(src, rhs);
@@ -652,6 +663,10 @@ public class RuntimeProfile {
 
     public void setProfileLevel() {
         this.enableSimplyProfile = ConnectContext.get().getSessionVariable().getEnableSimplyProfile();
+    }
+
+    public boolean getEnableSimplyProfile() {
+        return this.enableSimplyProfile;
     }
 
     private void computeTimeInProfile(long total) {

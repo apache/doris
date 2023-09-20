@@ -83,10 +83,16 @@ public class ProfileManager {
             // no need to lock because the possibility of concurrent read is very low
             if (profileContent == null) {
                 // Simple profile will change the structure of the profile.
-                try {
-                    profileContent = profile.getSimpleString();
-                } catch (Exception e) {
-                    LOG.warn("profile get error : " + e.toString());
+                if (profile.getEnableSimplyProfile()) {
+                    String originContent = profile.toString();
+                    try {
+                        profileContent = profile.getSimpleString();
+                    } catch (Exception e) {
+                        LOG.warn("profile get error : " + e.toString());
+                        profileContent = originContent;
+                    }
+                } else {
+                    profileContent = profile.toString();
                 }
             }
             return profileContent;
