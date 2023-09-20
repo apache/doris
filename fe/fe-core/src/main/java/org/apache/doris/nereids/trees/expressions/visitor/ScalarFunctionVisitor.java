@@ -176,7 +176,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Initcap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Instr;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtract;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonObject;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonQuote;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonUnQuote;
@@ -1137,6 +1139,14 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitJsonbType(JsonbType jsonbType, C context) {
         return visitScalarFunction(jsonbType, context);
+    }
+
+    default R visitJsonLength(JsonLength jsonLength, C context) {
+        return visitScalarFunction(jsonLength, context);
+    }
+
+    default R visitJsonContains(JsonContains jsonContains, C context) {
+        return visitScalarFunction(jsonContains, context);
     }
 
     default R visitLastDay(LastDay lastDay, C context) {
