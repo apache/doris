@@ -22,6 +22,7 @@
 #include <memory>
 
 #include "aggregation_sink_operator.h"
+#include "aggregation_source_operator.h"
 #include "common/status.h"
 #include "operator.h"
 #include "pipeline/pipeline_x/operator.h"
@@ -112,7 +113,9 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
 
-    bool can_write(RuntimeState* state) override;
+    WriteDependency* wait_for_dependency(RuntimeState* state) override {
+        return state->get_local_state(id())->cast<AggLocalState>()._dependency->write_blocked_by();
+    }
 };
 
 } // namespace pipeline
