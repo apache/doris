@@ -99,12 +99,22 @@ public class FEFunctions {
         return new IntLiteral(t + 1);
     }
 
-    @FEFunction(name = "date_add", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
+    @FEFunctionList({
+        @FEFunction(name = "date_add", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME"),
+        @FEFunction(name = "date_add", argTypes = { "DATE", "INT" }, returnType = "DATE"),
+        @FEFunction(name = "date_add", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIMEV2"),
+        @FEFunction(name = "date_add", argTypes = { "DATEV2", "INT" }, returnType = "DATEV2")
+    })
     public static DateLiteral dateAdd(LiteralExpr date, LiteralExpr day) throws AnalysisException {
         return daysAdd(date, day);
     }
 
-    @FEFunction(name = "adddate", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
+    @FEFunctionList({
+        @FEFunction(name = "adddate", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME"),
+        @FEFunction(name = "adddate", argTypes = { "DATE", "INT" }, returnType = "DATE"),
+        @FEFunction(name = "adddate", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIMEV2"),
+        @FEFunction(name = "adddate", argTypes = { "DATEV2", "INT" }, returnType = "DATEV2")
+    })
     public static DateLiteral addDate(LiteralExpr date, LiteralExpr day) throws AnalysisException {
         return daysAdd(date, day);
     }
@@ -163,7 +173,12 @@ public class FEFunctions {
         }
     }
 
-    @FEFunction(name = "date_sub", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
+    @FEFunctionList({
+        @FEFunction(name = "date_sub", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME"),
+        @FEFunction(name = "date_sub", argTypes = { "DATE", "INT" }, returnType = "DATE"),
+        @FEFunction(name = "date_sub", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIMEV2"),
+        @FEFunction(name = "date_sub", argTypes = { "DATEV2", "INT" }, returnType = "DATEV2")
+    })
     public static DateLiteral dateSub(LiteralExpr date, LiteralExpr day) throws AnalysisException {
         return dateAdd(date, new IntLiteral(-(int) day.getLongValue()));
     }
