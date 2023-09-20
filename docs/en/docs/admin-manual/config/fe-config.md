@@ -437,14 +437,6 @@ Default：1024
 
 Maximal number of connections per FE.
 
-#### `max_connection_scheduler_threads_num`
-
-Default：4096
-
-Maximal number of thread in connection-scheduler-pool.
-
-The current strategy is to apply for a separate thread for service when there is a request
-
 #### `check_java_version`
 
 Default：true
