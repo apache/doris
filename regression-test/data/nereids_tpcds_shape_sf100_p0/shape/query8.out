@@ -40,6 +40,6 @@ PhysicalResultSink
 ------------------------------------------PhysicalOlapScan[customer_address]
 ----------------------------------------PhysicalDistribute
 ------------------------------------------PhysicalProject
---------------------------------------------filter((cast(c_preferred_cust_flag as VARCHAR(*)) = 'Y'))
+--------------------------------------------filter((customer.c_preferred_cust_flag = 'Y'))
 ----------------------------------------------PhysicalOlapScan[customer]
 

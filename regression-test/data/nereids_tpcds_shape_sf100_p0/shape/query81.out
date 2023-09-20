@@ -35,7 +35,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------PhysicalOlapScan[customer]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
---------------------------filter((cast(ca_state as VARCHAR(*)) = 'CA'))
+--------------------------filter((customer_address.ca_state = 'CA'))
 ----------------------------PhysicalOlapScan[customer_address]
 --------------PhysicalDistribute
 ----------------hashAgg[GLOBAL]

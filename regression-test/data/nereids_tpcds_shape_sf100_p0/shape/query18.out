@@ -33,7 +33,7 @@ PhysicalResultSink
 --------------------------------------------------PhysicalOlapScan[catalog_sales]
 ------------------------------------------------PhysicalDistribute
 --------------------------------------------------PhysicalProject
-----------------------------------------------------filter((cast(cd_gender as VARCHAR(*)) = 'F')(cast(cd_education_status as VARCHAR(*)) = 'Advanced Degree'))
+----------------------------------------------------filter((cd1.cd_education_status = 'Advanced Degree')(cd1.cd_gender = 'F'))
 ------------------------------------------------------PhysicalOlapScan[customer_demographics]
 --------------------------------------------PhysicalDistribute
 ----------------------------------------------PhysicalProject
