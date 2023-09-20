@@ -823,6 +823,7 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
     for (const auto& c : *this) {
         PColumnMeta* pcm = pblock->add_column_metas();
         c.to_pb_column_meta(pcm);
+        DCHECK(pcm->type() != PGenericType::UNKNOWN) << " forget to set pb type";
         // get serialized size
         content_uncompressed_size +=
                 c.type->get_uncompressed_serialized_bytes(*(c.column), pblock->be_exec_version());
