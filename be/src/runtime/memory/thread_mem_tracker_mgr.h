@@ -176,7 +176,7 @@ inline void ThreadMemTrackerMgr::consume(int64_t size, bool large_memory_check) 
         flush_untracked_mem();
     }
 
-    if (large_memory_check && doris::config::large_memory_check_bytes <= 0 &&
+    if (large_memory_check && doris::config::large_memory_check_bytes > 0 &&
         size > doris::config::large_memory_check_bytes) {
         _stop_consume = true;
         LOG(WARNING) << fmt::format(
