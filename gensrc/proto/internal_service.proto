@@ -249,6 +249,16 @@ message PFetchDataResult {
     optional bool empty_batch = 6;
 };
 
+message PFetchArrowFlightSchemaRequest {
+    optional PUniqueId finst_id = 1;
+};
+
+message PFetchArrowFlightSchemaResult {
+    optional PStatus status = 1;
+    // valid when status is ok
+    optional bytes schema = 2;
+};
+
 message KeyTuple {
     repeated string key_column_rep = 1;
 }
@@ -812,5 +822,6 @@ service PBackendService {
     rpc report_stream_load_status(PReportStreamLoadStatusRequest) returns (PReportStreamLoadStatusResponse);
     rpc glob(PGlobRequest) returns (PGlobResponse);
     rpc group_commit_insert(PGroupCommitInsertRequest) returns (PGroupCommitInsertResponse);
+    rpc fetch_arrow_flight_schema(PFetchArrowFlightSchemaRequest) returns (PFetchArrowFlightSchemaResult);
 };
 

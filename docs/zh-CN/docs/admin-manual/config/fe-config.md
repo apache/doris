@@ -384,6 +384,12 @@ heartbeat_mgr 中处理心跳事件的线程数。
 
 Doris FE 通过 mysql 协议查询连接端口
 
+#### `arrow_flight_sql_port`
+
+默认值：-1
+
+Doris FE 通过 Arrow Flight SQL 协议查询连接端口
+
 #### `frontend_address`
 
 状态:已弃用，不建议使用。
