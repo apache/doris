@@ -134,7 +134,8 @@
                     "label": "Doris Partition",
                     "items": [
                         "advanced/partition/dynamic-partition",
-                        "advanced/partition/table-temp-partition"
+                        "advanced/partition/table-temp-partition",
+                        "advanced/partition/auto-partition"
                     ]
                 },
                 {
