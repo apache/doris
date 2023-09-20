@@ -494,7 +494,7 @@ void VNestedLoopJoinNode::_finalize_current_phase(MutableBlock& mutable_block, s
             DCHECK_LE(_left_block_start_pos + _left_side_process_count, _left_block.rows());
             for (int j = _left_block_start_pos;
                  j < _left_block_start_pos + _left_side_process_count; ++j) {
-                mark_data.emplace_back(IsSemi != _cur_probe_row_visited_flags[j]);
+                mark_data.emplace_back(IsSemi == _cur_probe_row_visited_flags[j]);
             }
             for (size_t i = 0; i < _num_probe_side_columns; ++i) {
                 const ColumnWithTypeAndName src_column = _left_block.get_by_position(i);
