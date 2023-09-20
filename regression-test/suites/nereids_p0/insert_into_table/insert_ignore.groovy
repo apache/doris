@@ -15,12 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_insert_ignore") {
-    sql "set enable_nereids_dml=false;"
-    sql "set experimental_enable_nereids_planner=false;"
+suite("test_nereids_insert_ignore") {
+    sql "set enable_nereids_dml=true;"
+    sql "set experimental_enable_nereids_planner=true;"
+    sql "set enable_fallback_to_original_planner=false;"
     sql "sync;"
 
-    def tableName = "test_insert_ignore1"
+    def tableName = "test_nereids_insert_ignore1"
     sql """ DROP TABLE IF EXISTS ${tableName} FORCE;"""
     sql """
             CREATE TABLE ${tableName} ( 
@@ -64,7 +65,7 @@ suite("test_insert_ignore") {
     qt_after_insert_ignore "select * from ${tableName} order by id;"
     sql """ DROP TABLE IF EXISTS ${tableName};"""
 
-    def tableName2 = "test_insert_ignore2"
+    def tableName2 = "test_nereids_insert_ignore2"
     sql """ DROP TABLE IF EXISTS ${tableName2} FORCE; """
     sql """CREATE TABLE IF NOT EXISTS ${tableName2} (
                 `uid` BIGINT NULL,
@@ -98,7 +99,7 @@ suite("test_insert_ignore") {
 
 
     // test illigal cases
-    def tableName3 = "test_insert_ignore3"
+    def tableName3 = "test_nereids_insert_ignore3"
     sql """ DROP TABLE IF EXISTS ${tableName3} FORCE; """
     sql """CREATE TABLE IF NOT EXISTS ${tableName3} (
                 `uid` BIGINT NULL,
@@ -116,7 +117,7 @@ suite("test_insert_ignore") {
     }
     sql """ DROP TABLE IF EXISTS ${tableName3}; """
 
-    def tableName4 = "test_insert_ignore4"
+    def tableName4 = "test_nereids_insert_ignore4"
     sql """ DROP TABLE IF EXISTS ${tableName4} FORCE; """
     sql """CREATE TABLE IF NOT EXISTS ${tableName4} (
                 `uid` BIGINT NULL,

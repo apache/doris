@@ -402,7 +402,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitInsertIntoQuery(InsertIntoQueryContext ctx) {
         boolean isOverwrite = ctx.INTO() == null;
-        boolean isIgnoreMode = ctx.ignore() != null;
+        boolean isIgnoreMode = ctx.IGNORE() != null;
         List<String> tableName = visitMultipartIdentifier(ctx.tableName);
         String labelName = ctx.labelName == null ? null : ctx.labelName.getText();
         List<String> colNames = ctx.cols == null ? ImmutableList.of() : visitIdentifierList(ctx.cols);

@@ -50,7 +50,7 @@ statement
         (ROLLUP LEFT_PAREN rollupDefs RIGHT_PAREN)?
         propertyClause?
         (AS query)?                                                    #createTable
-    | explain? INSERT ignore? (INTO | OVERWRITE TABLE) tableName=multipartIdentifier
+    | explain? INSERT (IGNORE)? (INTO | OVERWRITE TABLE) tableName=multipartIdentifier
         (PARTITION partition=identifierList)?  // partition define
         (WITH LABEL labelName=identifier)? cols=identifierList?  // label and columns define
         (LEFT_BRACKET hints=identifierSeq RIGHT_BRACKET)?  // hint define

@@ -47,11 +47,19 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
     private final List<Long> partitionIds;
     private final boolean isPartialUpdate;
     private final boolean isFromNativeInsertStmt;
+    private final boolean isIgnoreMode;
 
     public LogicalOlapTableSink(Database database, OlapTable targetTable, List<Column> cols, List<Long> partitionIds,
             List<NamedExpression> outputExprs, boolean isPartialUpdate, boolean isFromNativeInsertStmt,
             CHILD_TYPE child) {
-        this(database, targetTable, cols, partitionIds, outputExprs, isPartialUpdate, isFromNativeInsertStmt,
+        this(database, targetTable, cols, partitionIds, outputExprs, isPartialUpdate, isFromNativeInsertStmt, false,
+                Optional.empty(), Optional.empty(), child);
+    }
+
+    public LogicalOlapTableSink(Database database, OlapTable targetTable, List<Column> cols, List<Long> partitionIds,
+            List<NamedExpression> outputExprs, boolean isPartialUpdate, boolean isFromNativeInsertStmt,
+            boolean isIgnoreMode, CHILD_TYPE child) {
+        this(database, targetTable, cols, partitionIds, outputExprs, isPartialUpdate, isFromNativeInsertStmt, isIgnoreMode,
                 Optional.empty(), Optional.empty(), child);
     }
 
@@ -60,7 +68,7 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
      */
     public LogicalOlapTableSink(Database database, OlapTable targetTable, List<Column> cols,
             List<Long> partitionIds, List<NamedExpression> outputExprs, boolean isPartialUpdate,
-            boolean isFromNativeInsertStmt, Optional<GroupExpression> groupExpression,
+            boolean isFromNativeInsertStmt, boolean isIgnoreMode, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_OLAP_TABLE_SINK, outputExprs, groupExpression, logicalProperties, child);
         this.database = Objects.requireNonNull(database, "database != null in LogicalOlapTableSink");
@@ -110,6 +118,10 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
         return isFromNativeInsertStmt;
     }
 
+    public boolean isIgnoreMode() {
+        return isIgnoreMode;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -123,6 +135,7 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
         }
         LogicalOlapTableSink<?> that = (LogicalOlapTableSink<?>) o;
         return isPartialUpdate == that.isPartialUpdate && isFromNativeInsertStmt == that.isFromNativeInsertStmt
+                && isIgnoreMode == that.isIgnoreMode
                 && Objects.equals(database, that.database)
                 && Objects.equals(targetTable, that.targetTable) && Objects.equals(cols, that.cols)
                 && Objects.equals(partitionIds, that.partitionIds);
@@ -131,7 +144,7 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
     @Override
     public int hashCode() {
         return Objects.hash(super.hashCode(), database, targetTable, cols, partitionIds,
-                isPartialUpdate, isFromNativeInsertStmt);
+                isPartialUpdate, isFromNativeInsertStmt, isIgnoreMode);
     }
 
     @Override
@@ -143,7 +156,8 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
                 "cols", cols,
                 "partitionIds", partitionIds,
                 "isPartialUpdate", isPartialUpdate,
-                "isFromNativeInsertStmt", isFromNativeInsertStmt
+                "isFromNativeInsertStmt", isFromNativeInsertStmt,
+                "isIgnoreMode", isIgnoreMode
         );
     }
 
@@ -155,13 +169,13 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalOlapTableSink<>(database, targetTable, cols, partitionIds, outputExprs, isPartialUpdate,
-                isFromNativeInsertStmt, groupExpression, Optional.of(getLogicalProperties()), child());
+                isFromNativeInsertStmt, isIgnoreMode, groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalOlapTableSink<>(database, targetTable, cols, partitionIds, outputExprs, isPartialUpdate,
-                isFromNativeInsertStmt, groupExpression, logicalProperties, children.get(0));
+                isFromNativeInsertStmt, isIgnoreMode, groupExpression, logicalProperties, children.get(0));
     }
 }
