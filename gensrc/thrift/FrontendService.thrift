@@ -409,6 +409,7 @@ struct TReportExecStatusParams {
   3: optional i32 backend_num
 
   // required in V1
+  // Move to TDetailedReportParams for pipelineX
   4: optional Types.TUniqueId fragment_instance_id
 
   // Status of fragment execution; any error status means it's done.
@@ -421,6 +422,7 @@ struct TReportExecStatusParams {
 
   // cumulative profile
   // required in V1
+  // Move to TDetailedReportParams for pipelineX
   7: optional RuntimeProfile.TRuntimeProfileTree profile
 
   // New errors that have not been reported to the coordinator
@@ -450,6 +452,7 @@ struct TReportExecStatusParams {
 
   20: optional PaloInternalService.TQueryType query_type
 
+  // Move to TDetailedReportParams for pipelineX
   21: optional RuntimeProfile.TRuntimeProfileTree loadChannelProfile
 
   22: optional i32 finished_scan_ranges
