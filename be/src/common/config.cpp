@@ -274,7 +274,7 @@ DEFINE_mInt32(tablet_lookup_cache_clean_interval, "30");
 DEFINE_mInt32(disk_stat_monitor_interval, "5");
 DEFINE_mInt32(unused_rowset_monitor_interval, "30");
 DEFINE_String(storage_root_path, "${DORIS_HOME}/storage");
-DEFINE_String(broken_storage_path, "");
+DEFINE_mString(broken_storage_path, "");
 
 // Config is used to check incompatible old format hdr_ format
 // whether doris uses strict way. When config is true, process will log fatal

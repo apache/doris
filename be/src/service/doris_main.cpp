@@ -411,6 +411,7 @@ int main(int argc, char** argv) {
         if (broken_paths.count(it->path) > 0) {
             if (doris::config::ignore_broken_disk) {
                 LOG(WARNING) << "ignore broken disk, path = " << it->path;
+                it = paths.erase(it);
             } else {
                 LOG(FATAL) << "a broken disk is found " << it->path;
                 exit(-1);

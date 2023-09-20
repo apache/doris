@@ -239,6 +239,8 @@ public:
     bool add_broken_path(std::string path);
     bool remove_broken_path(std::string path);
 
+    std::set<string> get_broken_paths() { return _broken_paths; }
+
 private:
     // Instance should be inited from `static open()`
     // MUST NOT be called in other circumstances.
