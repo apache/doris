@@ -84,4 +84,4 @@ TEST_F(StorageEngineTest, TestBrokenDisk) {
     }
 }
 
-}
+} // namespace doris
