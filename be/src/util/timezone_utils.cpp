@@ -31,6 +31,9 @@
 #include <cctype>
 #include <exception>
 #include <filesystem>
+#include <memory>
+#include <mutex>
+#include <shared_mutex>
 #include <string>
 
 #include "common/exception.h"
@@ -38,9 +41,15 @@
 
 namespace doris {
 
+namespace vectorized {
+using ZoneList = std::unordered_map<std::string, cctz::time_zone>;
+}
+
 RE2 TimezoneUtils::time_zone_offset_format_reg("^[+-]{1}\\d{2}\\:\\d{2}$");
 std::unordered_map<std::string, std::string> TimezoneUtils::timezone_names_map_;
 bool TimezoneUtils::inited_ = false;
+std::unique_ptr<vectorized::ZoneList> zone_cache;
+std::shared_mutex zone_cache_rw_lock;
 
 const std::string TimezoneUtils::default_time_zone = "+08:00";
 static const char* tzdir = "/usr/share/zoneinfo"; // default value, may change by TZDIR env var
@@ -211,8 +220,9 @@ bool parse_load_timezone(vectorized::ZoneList& zone_list, int8_t* data, int len,
 
 } // namespace
 
-void TimezoneUtils::load_timezones_to_cache(vectorized::ZoneList& cache_list) {
-    cache_list["CST"] = cctz::fixed_time_zone(cctz::seconds(8 * 3600));
+void TimezoneUtils::load_timezones_to_cache() {
+    zone_cache.reset(new vectorized::ZoneList); // make this function idempotent
+    (*zone_cache)["CST"] = cctz::fixed_time_zone(cctz::seconds(8 * 3600));
 
     std::string base_str;
     // try get from System
@@ -240,7 +250,7 @@ void TimezoneUtils::load_timezones_to_cache(vectorized::ZoneList& cache_list) {
             auto tz_path = dir_entry.path().string();
             auto [handle, length] = load_file_to_memory(tz_path);
 
-            parse_load_timezone(cache_list, handle, length);
+            parse_load_timezone(*zone_cache, handle, length);
 
             delete[] handle;
         } else if (dir_entry.is_directory() && ignore_paths.contains(dir_entry.path().filename())) {
@@ -248,11 +258,24 @@ void TimezoneUtils::load_timezones_to_cache(vectorized::ZoneList& cache_list) {
         }
     }
 
-    cache_list.erase("LMT"); // local mean time for every timezone
-    LOG(INFO) << "Read " << cache_list.size() << " timezones.";
+    zone_cache->erase("LMT"); // local mean time for every timezone
+    LOG(INFO) << "Read " << zone_cache->size() << " timezones.";
 }
 
 bool TimezoneUtils::find_cctz_time_zone(const std::string& timezone, cctz::time_zone& ctz) {
+    zone_cache_rw_lock.lock_shared();
+    if (auto it = zone_cache->find(timezone); it != nullptr) {
+        ctz = it->second;
+        zone_cache_rw_lock.unlock_shared();
+        return true;
+    }
+    zone_cache_rw_lock.unlock_shared();
+    return find_cctz_time_zone_impl(timezone, ctz);
+}
+
+bool TimezoneUtils::find_cctz_time_zone_impl(const std::string& timezone, cctz::time_zone& ctz) {
+    // now timezone is not in zone_cache
+
     auto timezone_lower = boost::algorithm::to_lower_copy(timezone);
     re2::StringPiece value;
     // +08:00
@@ -273,6 +296,8 @@ bool TimezoneUtils::find_cctz_time_zone(const std::string& timezone, cctz::time_
         int offset = hour * 60 * 60 + minute * 60;
         offset *= positive ? 1 : -1;
         ctz = cctz::fixed_time_zone(cctz::seconds(offset));
+        std::unique_lock<std::shared_mutex> l(zone_cache_rw_lock);
+        zone_cache->emplace(timezone, ctz);
         return true;
     } else { // not only offset, GMT or GMT+8
         // split tz_name and offset
@@ -312,6 +337,8 @@ bool TimezoneUtils::find_cctz_time_zone(const std::string& timezone, cctz::time_
         }
         if (tz_parsed) {
             if (!have_both) { // GMT only
+                std::unique_lock<std::shared_mutex> l(zone_cache_rw_lock);
+                zone_cache->emplace(timezone, ctz);
                 return true;
             }
             // GMT+8
@@ -320,6 +347,8 @@ bool TimezoneUtils::find_cctz_time_zone(const std::string& timezone, cctz::time_
                       (cctz::convert(cctz::civil_second {}, offset) -
                        cctz::time_point<cctz::seconds>());
             ctz = cctz::fixed_time_zone(std::chrono::duration_cast<std::chrono::seconds>(tz));
+            std::unique_lock<std::shared_mutex> l(zone_cache_rw_lock);
+            zone_cache->emplace(timezone, ctz);
             return true;
         }
     }

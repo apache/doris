@@ -25,7 +25,6 @@
 #include <map>
 #include <memory>
 #include <mutex>
-#include <shared_mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -36,14 +35,12 @@
 #include "olap/options.h"
 #include "runtime/frontend_info.h" // TODO(zhiqiang): find a way to remove this include header
 #include "util/threadpool.h"
-#include "vec/common/hash_table/phmap_fwd_decl.h"
 
 namespace doris {
 namespace vectorized {
 class VDataStreamMgr;
 class ScannerScheduler;
 class DeltaWriterV2Pool;
-using ZoneList = std::unordered_map<std::string, cctz::time_zone>;
 } // namespace vectorized
 namespace pipeline {
 class TaskScheduler;
@@ -235,9 +232,6 @@ public:
     }
 
 #endif
-    vectorized::ZoneList& global_zone_cache() { return *_global_zone_cache; }
-    std::shared_mutex& zone_cache_rw_lock() { return _zone_cache_rw_lock; }
-
     stream_load::LoadStreamStubPool* load_stream_stub_pool() {
         return _load_stream_stub_pool.get();
     }
@@ -346,9 +340,6 @@ private:
     std::unique_ptr<MemTableMemoryLimiter> _memtable_memory_limiter;
     std::unique_ptr<stream_load::LoadStreamStubPool> _load_stream_stub_pool;
     std::unique_ptr<vectorized::DeltaWriterV2Pool> _delta_writer_v2_pool;
-
-    std::unique_ptr<vectorized::ZoneList> _global_zone_cache;
-    std::shared_mutex _zone_cache_rw_lock;
 
     std::mutex _frontends_lock;
     std::map<TNetworkAddress, FrontendInfo> _frontends;
