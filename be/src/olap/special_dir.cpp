@@ -31,11 +31,11 @@ using namespace ErrorCode;
 static const char* const kTestFilePath = ".testfile";
 
 SpecialDir::SpecialDir(const std::string& path)
-            : _path(path),
-            _fs(io::LocalFileSystem::create(path)),
-            _available_bytes(0),
-            _capacity_bytes(0),
-            _is_used(true) {}
+        : _path(path),
+          _fs(io::LocalFileSystem::create(path)),
+          _available_bytes(0),
+          _capacity_bytes(0),
+          _is_used(true) {}
 
 SpecialDir::~SpecialDir() {}
 

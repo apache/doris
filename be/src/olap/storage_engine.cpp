@@ -362,7 +362,8 @@ Status StorageEngine::get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_i
     return res;
 }
 
-Status StorageEngine::get_special_dir_info(SpecialDirInfo* special_dir_infos, TaskWorkerPool::DiskType type) {
+Status StorageEngine::get_special_dir_info(SpecialDirInfo* special_dir_infos,
+                                           TaskWorkerPool::DiskType type) {
     Status res = Status::OK();
     switch (type) {
     case TaskWorkerPool::DiskType::LOG:
