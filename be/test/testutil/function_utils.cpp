@@ -39,13 +39,17 @@ FunctionUtils::FunctionUtils() {
 
 FunctionUtils::FunctionUtils(const doris::TypeDescriptor& return_type,
                              const std::vector<doris::TypeDescriptor>& arg_types,
-                             int varargs_buffer_size) {
+                             int varargs_buffer_size, RuntimeState* state = nullptr) {
     TQueryGlobals globals;
     globals.__set_now_string("2019-08-06 01:38:57");
     globals.__set_timestamp_ms(1565026737805);
     globals.__set_time_zone("Asia/Shanghai");
-    _state = RuntimeState::create_unique(globals).release();
-    _fn_ctx = FunctionContext::create_context(_state, return_type, arg_types);
+    if (state == nullptr) {
+        _state = RuntimeState::create_unique(globals).release();
+        _fn_ctx = FunctionContext::create_context(_state, return_type, arg_types);
+    } else {
+        _fn_ctx = FunctionContext::create_context(state, return_type, arg_types);
+    }
 }
 
 FunctionUtils::~FunctionUtils() {
