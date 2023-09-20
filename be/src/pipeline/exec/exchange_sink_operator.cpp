@@ -572,7 +572,7 @@ Status ExchangeSinkLocalState::close(RuntimeState* state) {
 }
 
 WriteDependency* ExchangeSinkOperatorX::wait_for_dependency(RuntimeState* state) {
-    auto& local_state = state->get_sink_local_state(id())->cast<ExchangeSinkLocalState>();
+    CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
     return local_state._exchange_sink_dependency->write_blocked_by();
 }
 

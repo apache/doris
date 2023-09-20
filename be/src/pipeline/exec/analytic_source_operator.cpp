@@ -428,7 +428,7 @@ Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
 }
 
 Dependency* AnalyticSourceOperatorX::wait_for_dependency(RuntimeState* state) {
-    auto& local_state = state->get_local_state(id())->cast<AnalyticLocalState>();
+    CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
     return local_state._dependency->read_blocked_by();
 }
 

@@ -113,7 +113,8 @@ public:
                 SourceState source_state) override;
 
     WriteDependency* wait_for_dependency(RuntimeState* state) override {
-        return state->get_local_state(id())->cast<AggLocalState>()._dependency->write_blocked_by();
+        CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
+        return local_state._dependency->write_blocked_by();
     }
 };
 

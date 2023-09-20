@@ -167,9 +167,8 @@ Status ExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
 }
 
 Dependency* ExchangeSourceOperatorX::wait_for_dependency(RuntimeState* state) {
-    return state->get_local_state(id())
-            ->cast<ExchangeLocalState>()
-            .source_dependency->read_blocked_by();
+    CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
+    return local_state.source_dependency->read_blocked_by();
 }
 
 bool ExchangeSourceOperatorX::is_pending_finish(RuntimeState* /*state*/) const {

@@ -31,6 +31,16 @@ namespace doris::pipeline {
     if (!_sptr) return Status::InternalError("could not find local state id {}", id()); \
     auto& local_state = _sptr->template cast<LocalState>();
 
+#define CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state) \
+    auto _sptr = state->get_local_state(id());               \
+    if (!_sptr) return nullptr;                              \
+    auto& local_state = _sptr->template cast<LocalState>();
+
+#define CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state) \
+    auto _sptr = state->get_sink_local_state(id());               \
+    if (!_sptr) return nullptr;                                   \
+    auto& local_state = _sptr->template cast<LocalState>();
+
 // This struct is used only for initializing local state.
 struct LocalStateInfo {
     RuntimeProfile* parent_profile;

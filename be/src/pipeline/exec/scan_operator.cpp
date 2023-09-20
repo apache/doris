@@ -1273,9 +1273,8 @@ ScanOperatorX<LocalStateType>::ScanOperatorX(ObjectPool* pool, const TPlanNode& 
 
 template <typename LocalStateType>
 Dependency* ScanOperatorX<LocalStateType>::wait_for_dependency(RuntimeState* state) {
-    return state->get_local_state(id())
-            ->template cast<LocalStateType>()
-            ._source_dependency->read_blocked_by();
+    CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
+    return local_state._source_dependency->read_blocked_by();
 }
 
 template <typename LocalStateType>

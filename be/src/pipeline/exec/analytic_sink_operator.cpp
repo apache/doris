@@ -123,9 +123,8 @@ Status AnalyticSinkOperatorX::prepare(RuntimeState* state) {
 }
 
 WriteDependency* AnalyticSinkOperatorX::wait_for_dependency(RuntimeState* state) {
-    return state->get_sink_local_state(id())
-            ->cast<AnalyticSinkLocalState>()
-            ._dependency->write_blocked_by();
+    CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
+    return local_state._dependency->write_blocked_by();
 }
 
 Status AnalyticSinkOperatorX::open(RuntimeState* state) {

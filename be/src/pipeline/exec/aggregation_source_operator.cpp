@@ -554,7 +554,8 @@ Status AggLocalState::close(RuntimeState* state) {
 }
 
 Dependency* AggSourceOperatorX::wait_for_dependency(RuntimeState* state) {
-    return state->get_local_state(Base::id())->cast<AggLocalState>()._dependency->read_blocked_by();
+    CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
+    return local_state._dependency->read_blocked_by();
 }
 
 } // namespace pipeline
