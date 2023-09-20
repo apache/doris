@@ -63,7 +63,7 @@ public class UnCorrelatedApplyProjectFilter extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalApply(any(), logicalProject(logicalFilter()))
                 .when(LogicalApply::isCorrelated)
-                .when(LogicalApply::isIn)
+                //.when(LogicalApply::isIn)
                 .then(apply -> {
                     LogicalProject<LogicalFilter<Plan>> project = apply.right();
                     LogicalFilter<Plan> filter = project.child();
