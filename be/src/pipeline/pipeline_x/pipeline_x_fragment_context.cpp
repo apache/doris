@@ -48,6 +48,8 @@
 #include "pipeline/exec/assert_num_rows_operator.h"
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/datagen_operator.h"
+#include "pipeline/exec/distinct_streaming_aggregation_sink_operator.h"
+#include "pipeline/exec/distinct_streaming_aggregation_source_operator.h"
 #include "pipeline/exec/empty_set_operator.h"
 #include "pipeline/exec/exchange_sink_operator.h"
 #include "pipeline/exec/exchange_source_operator.h"
@@ -56,6 +58,8 @@
 #include "pipeline/exec/nested_loop_join_build_operator.h"
 #include "pipeline/exec/nested_loop_join_probe_operator.h"
 #include "pipeline/exec/olap_scan_operator.h"
+#include "pipeline/exec/partition_sort_sink_operator.h"
+#include "pipeline/exec/partition_sort_source_operator.h"
 #include "pipeline/exec/repeat_operator.h"
 #include "pipeline/exec/result_sink_operator.h"
 #include "pipeline/exec/scan_operator.h"
@@ -498,8 +502,22 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         break;
     }
     case TPlanNodeType::AGGREGATION_NODE: {
-        if (tnode.agg_node.__isset.use_streaming_preaggregation &&
-            tnode.agg_node.use_streaming_preaggregation) {
+        if (tnode.agg_node.aggregate_functions.empty()) {
+            op.reset(new DistinctStreamingAggSourceOperatorX(pool, tnode, descs));
+            RETURN_IF_ERROR(cur_pipe->add_operator(op));
+
+            const auto downstream_pipeline_id = cur_pipe->id();
+            if (_dag.find(downstream_pipeline_id) == _dag.end()) {
+                _dag.insert({downstream_pipeline_id, {}});
+            }
+            cur_pipe = add_pipeline();
+            _dag[downstream_pipeline_id].push_back(cur_pipe->id());
+            DataSinkOperatorXPtr sink;
+            sink.reset(new DistinctStreamingAggSinkOperatorX(pool, tnode, descs));
+            RETURN_IF_ERROR(cur_pipe->set_sink(sink));
+            RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
+        } else if (tnode.agg_node.__isset.use_streaming_preaggregation &&
+                   tnode.agg_node.use_streaming_preaggregation) {
             op.reset(new StreamingAggSourceOperatorX(pool, tnode, descs));
             RETURN_IF_ERROR(cur_pipe->add_operator(op));
 
@@ -606,6 +624,23 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
 
         DataSinkOperatorXPtr sink;
         sink.reset(new SortSinkOperatorX(pool, tnode, descs));
+        RETURN_IF_ERROR(cur_pipe->set_sink(sink));
+        RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
+        break;
+    }
+    case doris::TPlanNodeType::PARTITION_SORT_NODE: {
+        op.reset(new PartitionSortSourceOperatorX(pool, tnode, descs));
+        RETURN_IF_ERROR(cur_pipe->add_operator(op));
+
+        const auto downstream_pipeline_id = cur_pipe->id();
+        if (_dag.find(downstream_pipeline_id) == _dag.end()) {
+            _dag.insert({downstream_pipeline_id, {}});
+        }
+        cur_pipe = add_pipeline();
+        _dag[downstream_pipeline_id].push_back(cur_pipe->id());
+
+        DataSinkOperatorXPtr sink;
+        sink.reset(new PartitionSortSinkOperatorX(pool, tnode, descs));
         RETURN_IF_ERROR(cur_pipe->set_sink(sink));
         RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
         break;
