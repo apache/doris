@@ -117,6 +117,7 @@ struct ProcessHashTableProbe {
     uint8_t* _serialized_key_buffer;
     std::unique_ptr<Arena> _serialize_key_arena;
     std::vector<size_t> _probe_side_hash_values;
+    std::vector<char> _probe_side_find_result;
 
     std::vector<bool*> _visited_map;
     std::vector<bool> _same_to_prev;
