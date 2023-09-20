@@ -57,13 +57,7 @@ public:
     }
 
     // Which dependency current pipeline task is blocked by. `nullptr` if this dependency is ready.
-    [[nodiscard]] virtual Dependency* read_blocked_by() {
-        if (!_ready_for_read &&
-            _read_dependency_watcher.elapsed_time() > 10 * 1000L * 1000L * 1000L) {
-            LOG(WARNING) << "=====1 " << _name << " " << _id;
-        }
-        return _ready_for_read ? nullptr : this;
-    }
+    [[nodiscard]] virtual Dependency* read_blocked_by() { return _ready_for_read ? nullptr : this; }
 
     // Notify downstream pipeline tasks this dependency is ready.
     virtual void set_ready_for_read() {
@@ -124,10 +118,6 @@ public:
     }
 
     [[nodiscard]] virtual WriteDependency* write_blocked_by() {
-        if (!_ready_for_write &&
-            _write_dependency_watcher.elapsed_time() > 10 * 1000L * 1000L * 1000L) {
-            LOG(WARNING) << "=====2 " << _name;
-        }
         return _ready_for_write ? nullptr : this;
     }
 
