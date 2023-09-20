@@ -1393,10 +1393,10 @@ bool StorageEngine::add_broken_path(std::string path) {
 bool StorageEngine::remove_broken_path(std::string path) {
     std::lock_guard<std::mutex> lock(_broken_paths_mutex);
     auto count = _broken_paths.erase(path);
-    if (count > 1) {
+    if (count > 0) {
         _persist_broken_paths();
     }
-    return count > 1;
+    return count > 0;
 }
 
 Status StorageEngine::_persist_broken_paths() {
