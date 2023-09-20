@@ -352,6 +352,7 @@ protected:
     template <typename DependencyType, typename Derived>
     friend class AggSinkLocalState;
     friend class StreamingAggSinkLocalState;
+    friend class DistinctStreamingAggSinkLocalState;
     std::vector<vectorized::AggFnEvaluator*> _aggregate_evaluators;
     bool _can_short_circuit = false;
 
