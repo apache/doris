@@ -19,9 +19,109 @@ package org.apache.doris.cassandra;
 
 import org.apache.doris.common.jni.vec.ColumnValue;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
+
 /**
  * Cassandra Column value in vector column
  */
 public class CassandraColumnValue implements ColumnValue {
 
+    @Override
+    public boolean canGetStringAsBytes() {
+        return false;
+    }
+
+    @Override
+    public boolean isNull() {
+        return false;
+    }
+
+    @Override
+    public boolean getBoolean() {
+        return false;
+    }
+
+    @Override
+    public byte getByte() {
+        return 0;
+    }
+
+    @Override
+    public short getShort() {
+        return 0;
+    }
+
+    @Override
+    public int getInt() {
+        return 0;
+    }
+
+    @Override
+    public float getFloat() {
+        return 0;
+    }
+
+    @Override
+    public long getLong() {
+        return 0;
+    }
+
+    @Override
+    public double getDouble() {
+        return 0;
+    }
+
+    @Override
+    public BigInteger getBigInteger() {
+        return null;
+    }
+
+    @Override
+    public BigDecimal getDecimal() {
+        return null;
+    }
+
+    @Override
+    public String getString() {
+        return null;
+    }
+
+    @Override
+    public byte[] getStringAsBytes() {
+        return new byte[0];
+    }
+
+    @Override
+    public LocalDate getDate() {
+        return null;
+    }
+
+    @Override
+    public LocalDateTime getDateTime() {
+        return null;
+    }
+
+    @Override
+    public byte[] getBytes() {
+        return new byte[0];
+    }
+
+    @Override
+    public void unpackArray(List<ColumnValue> values) {
+
+    }
+
+    @Override
+    public void unpackMap(List<ColumnValue> keys, List<ColumnValue> values) {
+
+    }
+
+    @Override
+    public void unpackStruct(List<Integer> structFieldIndex, List<ColumnValue> values) {
+
+    }
 }

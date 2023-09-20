@@ -29,8 +29,8 @@ under the License.
     <modelVersion>4.0.0</modelVersion>
     
     <artifactId>cassandra-scanner</artifactId>
-    
-    <properties>
+
+    <dependencies>
         <dependency>
             <groupId>org.apache.doris</groupId>
             <artifactId>java-common</artifactId>
@@ -41,7 +41,7 @@ under the License.
             <artifactId>java-driver-core</artifactId>
             <version>${cassandra-driver.version}</version>
         </dependency>
-    </properties>
+    </dependencies>
     
     <build>
         <finalName>cassandra-scanner</finalName>

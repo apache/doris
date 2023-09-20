@@ -19,9 +19,25 @@ package org.apache.doris.cassandra;
 
 import org.apache.doris.common.jni.JniScanner;
 
+import java.io.IOException;
+
 /**
  * CassandraJ JniScanner. BE will read data from the scanner object.
  */
 public class CassandraJniScanner extends JniScanner {
 
+    @Override
+    public void open() throws IOException {
+
+    }
+
+    @Override
+    public void close() throws IOException {
+
+    }
+
+    @Override
+    protected int getNext() throws IOException {
+        return 0;
+    }
 }
