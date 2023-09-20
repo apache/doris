@@ -304,10 +304,13 @@ protected:
     RuntimeProfile::Counter* _wait_source_timer;
     MonotonicStopWatch _wait_bf_watcher;
     RuntimeProfile::Counter* _wait_bf_timer;
+    RuntimeProfile::Counter* _wait_bf_counts;
     MonotonicStopWatch _wait_sink_watcher;
     RuntimeProfile::Counter* _wait_sink_timer;
     MonotonicStopWatch _wait_worker_watcher;
     RuntimeProfile::Counter* _wait_worker_timer;
+    RuntimeProfile::Counter* _wait_dependency_counts;
+    RuntimeProfile::Counter* _pending_finish_counts;
     // TODO we should calculate the time between when really runnable and runnable
     RuntimeProfile::Counter* _yield_counts;
     RuntimeProfile::Counter* _core_change_times;

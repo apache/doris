@@ -48,6 +48,7 @@ using ZoneList = std::unordered_map<std::string, cctz::time_zone>;
 
 enum TimeUnit {
     MICROSECOND,
+    MILLISECOND,
     SECOND,
     MINUTE,
     HOUR,
@@ -76,6 +77,7 @@ struct TimeInterval {
     int64_t hour;
     int64_t minute;
     int64_t second;
+    int64_t millisecond;
     int64_t microsecond;
     bool is_neg;
 
@@ -86,6 +88,7 @@ struct TimeInterval {
               hour(0),
               minute(0),
               second(0),
+              millisecond(0),
               microsecond(0),
               is_neg(false) {}
 
@@ -96,6 +99,7 @@ struct TimeInterval {
               hour(0),
               minute(0),
               second(0),
+              millisecond(0),
               microsecond(0),
               is_neg(is_neg_param) {
         switch (unit) {
@@ -122,6 +126,9 @@ struct TimeInterval {
             break;
         case SECOND_MICROSECOND:
             microsecond = count;
+            break;
+        case MILLISECOND:
+            millisecond = count;
             break;
         case MICROSECOND:
             microsecond = count;
@@ -1390,6 +1397,15 @@ int64_t datetime_diff(const DateV2Value<T0>& ts_value1, const DateV2Value<T1>& t
     case SECOND: {
         int64_t second = ts_value2.second_diff(ts_value1);
         return second;
+    }
+    case MILLISECOND: {
+        int64_t microsecond = ts_value2.microsecond_diff(ts_value1);
+        int64_t millisecond = microsecond / 1000;
+        return millisecond;
+    }
+    case MICROSECOND: {
+        int64_t microsecond = ts_value2.microsecond_diff(ts_value1);
+        return microsecond;
     }
     }
     // Rethink the default return value

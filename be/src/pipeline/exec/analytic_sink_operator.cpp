@@ -122,10 +122,10 @@ Status AnalyticSinkOperatorX::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-bool AnalyticSinkOperatorX::can_write(RuntimeState* state) {
+WriteDependency* AnalyticSinkOperatorX::wait_for_dependency(RuntimeState* state) {
     return state->get_sink_local_state(id())
             ->cast<AnalyticSinkLocalState>()
-            ._shared_state->need_more_input;
+            ._dependency->write_blocked_by();
 }
 
 Status AnalyticSinkOperatorX::open(RuntimeState* state) {
@@ -144,8 +144,8 @@ Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)input_block->rows());
     local_state._shared_state->input_eos = source_state == SourceState::FINISHED;
     if (local_state._shared_state->input_eos && input_block->rows() == 0) {
-        local_state._shared_state->need_more_input = false;
         local_state._dependency->set_ready_for_read();
+        local_state._dependency->block_writing();
         return Status::OK();
     }
 

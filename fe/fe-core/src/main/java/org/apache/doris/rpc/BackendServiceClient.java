@@ -100,6 +100,11 @@ public class BackendServiceClient {
         return blockingStub.fetchData(request);
     }
 
+    public Future<InternalService.PFetchArrowFlightSchemaResult> fetchArrowFlightSchema(
+            InternalService.PFetchArrowFlightSchemaRequest request) {
+        return stub.fetchArrowFlightSchema(request);
+    }
+
     public Future<InternalService.PFetchTableSchemaResult> fetchTableStructureAsync(
             InternalService.PFetchTableSchemaRequest request) {
         return stub.fetchTableSchema(request);

@@ -240,6 +240,7 @@ FE 目前有以下几个端口
 * http_port：http 端口，也用于推送 image
 * rpc_port：FE 的 thrift server port
 * query_port：Mysql 连接端口
+* arrow_flight_sql_port: Arrow Flight SQL 连接端口
 
 1. edit_log_port
 
@@ -257,6 +258,9 @@ FE 目前有以下几个端口
 
     修改配置后，直接重启 FE 即可。这个只影响到 mysql 的连接目标。
 
+5. arrow_flight_sql_port
+
+    修改配置后，直接重启 FE 即可。这个只影响到 Arrow Flight SQL 的连接目标。
 
 ### 从 FE 内存中恢复元数据
 

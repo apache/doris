@@ -178,6 +178,15 @@ public class LoadingTaskPlanner {
             }
         }
 
+        // analyze expr in whereExpr before rewrite
+        scanTupleDesc.setTable(table);
+        analyzer.registerTupleDescriptor(scanTupleDesc);
+        for (BrokerFileGroup fileGroup : fileGroups) {
+            if (fileGroup.getWhereExpr() != null) {
+                fileGroup.getWhereExpr().analyze(analyzer);
+            }
+        }
+
         // Generate plan trees
         // 1. Broker scan node
         ScanNode scanNode;

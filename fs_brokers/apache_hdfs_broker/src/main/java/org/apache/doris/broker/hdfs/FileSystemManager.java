@@ -343,15 +343,15 @@ public class FileSystemManager {
                         // different kerberos account has different file
                         tmpFilePath ="/tmp/." +
                                 principal.replace('/', '_') +
-                                "_" + Long.toString(currentTime) +
-                                "_" + Integer.toString(randNumber) +
+                                "_" + currentTime +
+                                "_" + randNumber +
                                 "_" + Thread.currentThread().getId();
                         logger.info("create kerberos tmp file" + tmpFilePath);
-                        FileOutputStream fileOutputStream = new FileOutputStream(tmpFilePath);
-                        FileLock lock = fileOutputStream.getChannel().lock();
-                        fileOutputStream.write(base64decodedBytes);
-                        lock.release();
-                        fileOutputStream.close();
+                        try (FileOutputStream fileOutputStream = new FileOutputStream(tmpFilePath)) {
+                            FileLock lock = fileOutputStream.getChannel().lock();
+                            fileOutputStream.write(base64decodedBytes);
+                            lock.release();
+                        }
                         keytab = tmpFilePath;
                     } else {
                         throw  new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
@@ -730,10 +730,10 @@ public class FileSystemManager {
                         long currentTime = System.currentTimeMillis();
                         Random random = new Random(currentTime);
                         int randNumber = random.nextInt(10000);
-                        tmpFilePath = "/tmp/." + Long.toString(currentTime) + "_" + Integer.toString(randNumber);
-                        FileOutputStream fileOutputStream = new FileOutputStream(tmpFilePath);
-                        fileOutputStream.write(base64decodedBytes);
-                        fileOutputStream.close();
+                        tmpFilePath = "/tmp/." + currentTime + "_" + randNumber;
+                        try (FileOutputStream fileOutputStream = new FileOutputStream(tmpFilePath)) {
+                            fileOutputStream.write(base64decodedBytes);
+                        }
                         keytab = tmpFilePath;
                     } else {
                         throw  new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
@@ -948,10 +948,10 @@ public class FileSystemManager {
                         long currentTime = System.currentTimeMillis();
                         Random random = new Random(currentTime);
                         int randNumber = random.nextInt(10000);
-                        tmpFilePath = "/tmp/." + Long.toString(currentTime) + "_" + Integer.toString(randNumber);
-                        FileOutputStream fileOutputStream = new FileOutputStream(tmpFilePath);
-                        fileOutputStream.write(base64decodedBytes);
-                        fileOutputStream.close();
+                        tmpFilePath = "/tmp/." + currentTime + "_" + randNumber;
+                        try (FileOutputStream fileOutputStream = new FileOutputStream(tmpFilePath)) {
+                            fileOutputStream.write(base64decodedBytes);
+                        }
                         keytab = tmpFilePath;
                     } else {
                         throw new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
@@ -1212,8 +1212,14 @@ public class FileSystemManager {
                 try {
                     int readLength = fsDataInputStream.read(buf, hasRead, bufSize);
                     if (readLength < 0) {
-                        throw new BrokerException(TBrokerOperationStatusCode.END_OF_FILE,
-                                "end of file reached");
+                        // If no data is read, just return EOF
+                        // Otherwise, return the read data.
+                        // Because the "length" may be longer than the rest length of the file.
+                        if (hasRead == 0) {
+                            throw new BrokerException(TBrokerOperationStatusCode.END_OF_FILE,
+                                    "end of file reached");
+                        }
+                        break;
                     }
                     if (logger.isDebugEnabled()) {
                         logger.debug("read buffer from input stream, buffer size:" + buf.length + ", read length:"
@@ -1227,8 +1233,7 @@ public class FileSystemManager {
                 }
             }
             if (hasRead != length) {
-                throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
-                        String.format("errors while read data from stream: hasRead(%d) != length(%d)", hasRead, length));
+                logger.debug("broker pread return diff length. read bytes: " + hasRead + ", request bytes: " + length);
             }
             return ByteBuffer.wrap(buf, 0, hasRead);
         }

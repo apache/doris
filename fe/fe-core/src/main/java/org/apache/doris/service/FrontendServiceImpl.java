@@ -1963,7 +1963,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 throw new MetaNotFoundException("table not found");
             }
             olapTables = new ArrayList<>(tableNames.size());
-            Map<String, OlapTable> olapTableMap = tables.stream().map(OlapTable.class::cast)
+            Map<String, OlapTable> olapTableMap = tables.stream()
+                    .filter(OlapTable.class::isInstance)
+                    .map(OlapTable.class::cast)
                     .collect(Collectors.toMap(OlapTable::getName, olapTable -> olapTable));
             for (String tableName : tableNames) {
                 if (null == olapTableMap.get(tableName)) {
@@ -2224,6 +2226,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 result.setReplayedJournalId(replayedJournalId);
                 result.setQueryPort(Config.query_port);
                 result.setRpcPort(Config.rpc_port);
+                result.setArrowFlightSqlPort(Config.arrow_flight_sql_port);
                 result.setVersion(Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH);
                 result.setLastStartupTime(exeEnv.getStartupTime());
                 result.setProcessUUID(exeEnv.getProcessUUID());
