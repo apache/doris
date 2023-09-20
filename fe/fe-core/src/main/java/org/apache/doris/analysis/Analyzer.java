@@ -602,6 +602,14 @@ public class Analyzer {
         }
     }
 
+    public void registerTupleDescriptor(TupleDescriptor desc) {
+        tupleByAlias.put(desc.getAlias(), desc);
+        for (SlotDescriptor slot : desc.getSlots()) {
+            String key = desc.getAlias() + "." + slot.getColumn().getName();
+            slotRefMap.put(key, slot);
+        }
+    }
+
     /**
      * Create query global parameters to be set in each TPlanExecRequest.
      */
