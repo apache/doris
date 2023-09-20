@@ -576,7 +576,9 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("days_diff")
                 || fnName.getFunction().equalsIgnoreCase("hours_diff")
                 || fnName.getFunction().equalsIgnoreCase("minutes_diff")
-                || fnName.getFunction().equalsIgnoreCase("seconds_diff")) {
+                || fnName.getFunction().equalsIgnoreCase("seconds_diff")
+                || fnName.getFunction().equalsIgnoreCase("milliseconds_diff")
+                || fnName.getFunction().equalsIgnoreCase("microseconds_diff")) {
             sb.append(children.get(0).toSql()).append(", ");
             sb.append(children.get(1).toSql()).append(")");
             return sb.toString();
