@@ -185,6 +185,10 @@ public:
         _free_blocks_memory_usage->add(free_blocks_memory_usage);
     }
 
+    bool has_enough_space_in_blocks_queue() const override {
+        return _current_used_bytes < _max_bytes_in_queue / 2 * _num_parallel_instances;
+    }
+
     void _dispose_coloate_blocks_not_in_queue() override {
         if (_need_colocate_distribute) {
             for (int i = 0; i < _num_parallel_instances; ++i) {
@@ -253,7 +257,8 @@ private:
                 if (_data_dependency) {
                     _data_dependency->set_ready_for_read();
                 }
-                _colocate_blocks[loc] = get_free_block();
+                bool get_block_not_empty = true;
+                _colocate_blocks[loc] = get_free_block(&get_block_not_empty, get_block_not_empty);
                 _colocate_mutable_blocks[loc]->set_muatable_columns(
                         _colocate_blocks[loc]->mutate_columns());
             }
