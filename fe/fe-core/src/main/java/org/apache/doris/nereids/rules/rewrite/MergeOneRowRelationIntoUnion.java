@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.types.DataType;
@@ -39,17 +40,20 @@ public class MergeOneRowRelationIntoUnion extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalUnion().when(u -> u.children().stream()
                 .anyMatch(LogicalOneRowRelation.class::isInstance)).then(u -> {
-                    List<List<NamedExpression>> constantExprsList = Lists.newArrayList();
+                    ImmutableList.Builder<List<NamedExpression>> constantExprsList = ImmutableList.builder();
                     List<Plan> newChildren = Lists.newArrayList();
-                    for (Plan child : u.children()) {
+                    ImmutableList.Builder<List<SlotReference>> newChildrenOutputs = ImmutableList.builder();
+                    for (int i = 0; i < u.arity(); i++) {
+                        Plan child = u.child(i);
                         if (!(child instanceof LogicalOneRowRelation)) {
                             newChildren.add(child);
+                            newChildrenOutputs.add(u.getRegularChildOutput(i));
                         } else {
                             ImmutableList.Builder<NamedExpression> constantExprs = new Builder<>();
                             List<NamedExpression> projects = ((LogicalOneRowRelation) child).getProjects();
-                            for (int i = 0; i < projects.size(); i++) {
-                                NamedExpression project = projects.get(i);
-                                DataType targetType = u.getOutput().get(i).getDataType();
+                            for (int j = 0; j < projects.size(); j++) {
+                                NamedExpression project = projects.get(j);
+                                DataType targetType = u.getOutput().get(j).getDataType();
                                 if (project.getDataType().equals(targetType)) {
                                     constantExprs.add(project);
                                 } else {
@@ -60,7 +64,8 @@ public class MergeOneRowRelationIntoUnion extends OneRewriteRuleFactory {
                             constantExprsList.add(constantExprs.build());
                         }
                     }
-                    return u.withChildrenAndConstExprsList(newChildren, constantExprsList);
+                    return u.withChildrenAndConstExprsList(newChildren,
+                            newChildrenOutputs.build(), constantExprsList.build());
                 }).toRule(RuleType.MERGE_ONE_ROW_RELATION_INTO_UNION);
     }
 }

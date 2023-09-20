@@ -28,13 +28,19 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayAvg;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCompact;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayContains;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCumSum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayDifference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayDistinct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayEnumerate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayExcept;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayExists;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayFilter;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayFirstIndex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayJoin;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayLastIndex;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMax;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayPopBack;
@@ -46,6 +52,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRemove;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayReverseSort;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySlice;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySort;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySortBy;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayUnion;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayWithConstant;
@@ -74,6 +81,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapMin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapNot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapOr;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapOrCount;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapRemove;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapSubsetInRange;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapSubsetLimit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapToArray;
@@ -143,6 +151,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Fmod;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Fpow;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromBase64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromDays;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.FromMicrosecond;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.FromMillisecond;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.FromSecond;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonBigInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonDouble;
@@ -165,7 +176,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Initcap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Instr;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtract;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonObject;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonQuote;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonUnQuote;
@@ -212,7 +225,15 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MaskFirstN;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MaskLastN;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Md5;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Md5Sum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MicroSecondTimestamp;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MicroSecondsAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MicroSecondsDiff;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MicroSecondsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Microsecond;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MilliSecondTimestamp;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MilliSecondsAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MilliSecondsDiff;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MilliSecondsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Minute;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteFloor;
@@ -232,6 +253,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiSearchAl
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash332;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash364;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Negative;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NotNullOrEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
@@ -266,6 +288,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.SecToTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Second;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondFloor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsSub;
@@ -336,6 +359,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Upper;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.User;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UtcTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Uuid;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidNumeric;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Version;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Week;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeekCeil;
@@ -377,13 +401,19 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ArrayAvg.class, "array_avg"),
             scalar(ArrayCompact.class, "array_compact"),
             scalar(ArrayContains.class, "array_contains"),
+            scalar(ArrayCount.class, "array_count"),
             scalar(ArrayCumSum.class, "array_cum_sum"),
             scalar(ArrayDifference.class, "array_difference"),
             scalar(ArrayDistinct.class, "array_distinct"),
             scalar(ArrayEnumerate.class, "array_enumerate"),
             scalar(ArrayExcept.class, "array_except"),
+            scalar(ArrayExists.class, "array_exists"),
+            scalar(ArrayFilter.class, "array_filter"),
+            scalar(ArrayFirstIndex.class, "array_first_index"),
             scalar(ArrayIntersect.class, "array_intersect"),
             scalar(ArrayJoin.class, "array_join"),
+            scalar(ArrayLastIndex.class, "array_last_index"),
+            scalar(ArrayMap.class, "array_map"),
             scalar(ArrayMax.class, "array_max"),
             scalar(ArrayMin.class, "array_min"),
             scalar(ArrayPopBack.class, "array_popback"),
@@ -395,6 +425,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ArrayReverseSort.class, "array_reverse_sort"),
             scalar(ArraySlice.class, "array_slice"),
             scalar(ArraySort.class, "array_sort"),
+            scalar(ArraySortBy.class, "array_sortby"),
             scalar(ArraySum.class, "array_sum"),
             scalar(ArrayUnion.class, "array_union"),
             scalar(ArrayWithConstant.class, "array_with_constant"),
@@ -423,6 +454,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(BitmapNot.class, "bitmap_not"),
             scalar(BitmapOr.class, "bitmap_or"),
             scalar(BitmapOrCount.class, "bitmap_or_count"),
+            scalar(BitmapRemove.class, "bitmap_remove"),
             scalar(BitmapSubsetInRange.class, "bitmap_subset_in_range"),
             scalar(BitmapSubsetLimit.class, "bitmap_subset_limit"),
             scalar(BitmapToArray.class, "bitmap_to_array"),
@@ -538,6 +570,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(JsonbParseNullableErrorToNull.class, "jsonb_parse_nullable_error_to_null"),
             scalar(JsonbParseNullableErrorToValue.class, "jsonb_parse_nullable_error_to_value"),
             scalar(JsonbType.class, "jsonb_type"),
+            scalar(JsonLength.class, "json_length"),
+            scalar(JsonContains.class, "json_conatins"),
             scalar(LastDay.class, "last_day"),
             scalar(Least.class, "least"),
             scalar(Left.class, "left"),
@@ -562,6 +596,12 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Md5.class, "md5"),
             scalar(Md5Sum.class, "md5sum"),
             scalar(Microsecond.class, "microsecond"),
+            scalar(MicroSecondsAdd.class, "microseconds_add"),
+            scalar(MicroSecondsDiff.class, "microseconds_diff"),
+            scalar(MicroSecondsSub.class, "microseconds_sub"),
+            scalar(MilliSecondsAdd.class, "milliseconds_add"),
+            scalar(MilliSecondsDiff.class, "milliseconds_diff"),
+            scalar(MilliSecondsSub.class, "milliseconds_sub"),
             scalar(Minute.class, "minute"),
             scalar(MinuteCeil.class, "minute_ceil"),
             scalar(MinuteFloor.class, "minute_floor"),
@@ -581,6 +621,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(MurmurHash332.class, "murmur_hash3_32"),
             scalar(MurmurHash364.class, "murmur_hash3_64"),
             scalar(Negative.class, "negative"),
+            scalar(NonNullable.class, "non_nullable"),
             scalar(NotNullOrEmpty.class, "not_null_or_empty"),
             scalar(Now.class, "now", "current_timestamp", "localtime", "localtimestamp"),
             scalar(NullIf.class, "nullif"),
@@ -618,6 +659,12 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(SecondsDiff.class, "seconds_diff"),
             scalar(SecondsSub.class, "seconds_sub"),
             scalar(SecToTime.class, "sec_to_time"),
+            scalar(FromMicrosecond.class, "from_microsecond"),
+            scalar(FromMillisecond.class, "from_millisecond"),
+            scalar(FromSecond.class, "from_second"),
+            scalar(SecondTimestamp.class, "second_timestamp"),
+            scalar(MilliSecondTimestamp.class, "millisecond_timestamp"),
+            scalar(MicroSecondTimestamp.class, "microsecond_timestamp"),
             scalar(Sign.class, "sign"),
             scalar(Sin.class, "sin"),
             scalar(Sleep.class, "sleep"),
@@ -685,6 +732,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(User.class, "user"),
             scalar(UtcTimestamp.class, "utc_timestamp"),
             scalar(Uuid.class, "uuid"),
+            scalar(UuidNumeric.class, "uuid_numeric"),
             scalar(Version.class, "version"),
             scalar(Week.class, "week"),
             scalar(WeekCeil.class, "week_ceil"),

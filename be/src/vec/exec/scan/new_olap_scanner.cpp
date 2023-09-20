@@ -272,6 +272,9 @@ Status NewOlapScanner::open(RuntimeState* state) {
         return Status::InternalError(ss.str());
     }
 
+    // Do not hold rs_splits any more to release memory.
+    _tablet_reader_params.rs_splits.clear();
+
     return Status::OK();
 }
 
@@ -412,9 +415,7 @@ Status NewOlapScanner::_init_tablet_reader_params(
         }
     }
 
-    if (!config::disable_storage_page_cache) {
-        _tablet_reader_params.use_page_cache = true;
-    }
+    _tablet_reader_params.use_page_cache = _state->enable_page_cache();
 
     if (_tablet->enable_unique_key_merge_on_write() && !_state->skip_delete_bitmap()) {
         _tablet_reader_params.delete_bitmap = &_tablet->tablet_meta()->delete_bitmap();
@@ -532,7 +533,8 @@ Status NewOlapScanner::close(RuntimeState* state) {
     // so that it will core
     _tablet_reader_params.rs_splits.clear();
     _tablet_reader.reset();
-
+    auto tablet_id = _scan_range.tablet_id;
+    LOG(INFO) << "close_tablet_id" << tablet_id;
     RETURN_IF_ERROR(VScanner::close(state));
     return Status::OK();
 }

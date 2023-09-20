@@ -40,7 +40,7 @@ public class ColumnStatisticBuilder {
 
     private ColumnStatistic original;
 
-    private Map<Long, ColumnStatistic> partitionIdToColStats = new HashMap<>();
+    private Map<String, ColumnStatistic> partitionIdToColStats = new HashMap<>();
 
     private String updatedTime;
 

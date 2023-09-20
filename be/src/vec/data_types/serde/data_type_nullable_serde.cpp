@@ -38,13 +38,13 @@ namespace doris {
 namespace vectorized {
 class Arena;
 
-void DataTypeNullableSerDe::serialize_column_to_text(const IColumn& column, int start_idx,
+void DataTypeNullableSerDe::serialize_column_to_json(const IColumn& column, int start_idx,
                                                      int end_idx, BufferWritable& bw,
                                                      FormatOptions& options) const {
-    SERIALIZE_COLUMN_TO_TEXT()
+    SERIALIZE_COLUMN_TO_JSON()
 }
 
-void DataTypeNullableSerDe::serialize_one_cell_to_text(const IColumn& column, int row_num,
+void DataTypeNullableSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
                                                        BufferWritable& bw,
                                                        FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
@@ -55,29 +55,127 @@ void DataTypeNullableSerDe::serialize_one_cell_to_text(const IColumn& column, in
     if (col_null.is_null_at(row_num)) {
         bw.write("NULL", 4);
     } else {
-        nested_serde->serialize_one_cell_to_text(col_null.get_nested_column(), row_num, bw,
+        nested_serde->serialize_one_cell_to_json(col_null.get_nested_column(), row_num, bw,
                                                  options);
     }
 }
 
-Status DataTypeNullableSerDe::deserialize_column_from_text_vector(
-        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
-        const FormatOptions& options) const {
-    DESERIALIZE_COLUMN_FROM_TEXT_VECTOR()
+Status DataTypeNullableSerDe::deserialize_column_from_json_vector(IColumn& column,
+                                                                  std::vector<Slice>& slices,
+                                                                  int* num_deserialized,
+                                                                  const FormatOptions& options,
+                                                                  int nesting_level) const {
+    DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
     return Status::OK();
 }
 
-Status DataTypeNullableSerDe::deserialize_one_cell_from_text(IColumn& column, Slice& slice,
-                                                             const FormatOptions& options) const {
+void DataTypeNullableSerDe::serialize_one_cell_to_hive_text(const IColumn& column, int row_num,
+                                                            BufferWritable& bw,
+                                                            FormatOptions& options,
+                                                            int nesting_level) const {
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
+
+    const auto& col_null = assert_cast<const ColumnNullable&>(*ptr);
+    if (col_null.is_null_at(row_num)) {
+        bw.write("\\N", 2);
+    } else {
+        nested_serde->serialize_one_cell_to_hive_text(col_null.get_nested_column(), row_num, bw,
+                                                      options, nesting_level);
+    }
+}
+
+Status DataTypeNullableSerDe::deserialize_one_cell_from_hive_text(IColumn& column, Slice& slice,
+                                                                  const FormatOptions& options,
+                                                                  int nesting_level) const {
     auto& null_column = assert_cast<ColumnNullable&>(column);
-    // TODO(Amory) make null literal configurable
-    if (slice.size == 4 && slice[0] == 'N' && slice[1] == 'U' && slice[2] == 'L' &&
-        slice[3] == 'L') {
+    if (slice.size == 2 && slice[0] == '\\' && slice[1] == 'N') {
         null_column.insert_data(nullptr, 0);
         return Status::OK();
     }
-    auto st = nested_serde->deserialize_one_cell_from_text(null_column.get_nested_column(), slice,
-                                                           options);
+
+    auto st = nested_serde->deserialize_one_cell_from_hive_text(null_column.get_nested_column(),
+                                                                slice, options, nesting_level);
+    if (!st.ok()) {
+        // fill null if fail
+        null_column.insert_data(nullptr, 0); // 0 is meaningless here
+        return Status::OK();
+    }
+
+    // fill not null if success
+    null_column.get_null_map_data().push_back(0);
+    return Status::OK();
+}
+
+Status DataTypeNullableSerDe::deserialize_column_from_hive_text_vector(IColumn& column,
+                                                                       std::vector<Slice>& slices,
+                                                                       int* num_deserialized,
+                                                                       const FormatOptions& options,
+                                                                       int nesting_level) const {
+    DESERIALIZE_COLUMN_FROM_HIVE_TEXT_VECTOR();
+    return Status::OK();
+}
+
+Status DataTypeNullableSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
+                                                             const FormatOptions& options,
+                                                             int nesting_level) const {
+    auto& null_column = assert_cast<ColumnNullable&>(column);
+    // TODO(Amory) make null literal configurable
+
+    // only slice trim quote return true make sure slice is quoted and converted_from_string make
+    // sure slice is from string parse , we can parse this "null" literal as string "null" to
+    // nested column , otherwise we insert null to null column
+    if (!(options.converted_from_string && slice.trim_quote())) {
+        /*
+         * For null values in ordinary types, we use \N to represent them;
+         * for null values in nested types, we use null to represent them, just like the json format.
+         *
+         * example:
+         * If you have three nullable columns
+         *    a : int, b : string, c : map<string,int>
+         * data:
+         *      \N,hello world,\N
+         *      1,\N,{"cmake":2,"null":11}
+         *      9,"\N",{"\N":null,null:0}
+         *      \N,"null",{null:null}
+         *      null,null,null
+         *
+         * if you set trim_double_quotes = true
+         * you will get :
+         *      NULL,hello world,NULL
+         *      1,NULL,{"cmake":2,"null":11}
+         *      9,\N,{"\N":NULL,NULL:0}
+         *      NULL,null,{NULL:NULL}
+         *      NULL,null,NULL
+         *
+         * if you set trim_double_quotes = false
+         * you will get :
+         *      NULL,hello world,NULL
+         *      1,\N,{"cmake":2,"null":11}
+         *      9,"\N",{"\N":NULL,NULL:0}
+         *      NULL,"null",{NULL:NULL}
+         *      NULL,null,NULL
+         *
+         * in csv(text) for normal type: we only recognize \N for null , so
+         * for not char family type, like int, if we put null literal ,
+         * it will parse fail, and make result null，not just because it equals \N.
+         * for char family type, like string, if we put null literal, it will parse success,
+         * and "null" literal will be stored in doris.
+         *
+         */
+        if (nesting_level >= 2 && slice.size == 4 && slice[0] == 'n' && slice[1] == 'u' &&
+            slice[2] == 'l' && slice[3] == 'l') {
+            null_column.insert_data(nullptr, 0);
+            return Status::OK();
+        } else if (nesting_level == 1 && slice.size == 2 && slice[0] == '\\' && slice[1] == 'N') {
+            null_column.insert_data(nullptr, 0);
+            return Status::OK();
+        }
+    }
+
+    auto st = nested_serde->deserialize_one_cell_from_json(null_column.get_nested_column(), slice,
+                                                           options, nesting_level);
     if (!st.ok()) {
         // fill null if fail
         null_column.insert_data(nullptr, 0); // 0 is meaningless here
@@ -124,6 +222,7 @@ Status DataTypeNullableSerDe::read_column_from_pb(IColumn& column, const PValues
     }
     return Status::OK();
 }
+
 void DataTypeNullableSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
                                                     Arena* mem_pool, int32_t col_id,
                                                     int row_num) const {
@@ -136,6 +235,7 @@ void DataTypeNullableSerDe::write_one_cell_to_jsonb(const IColumn& column, Jsonb
     nested_serde->write_one_cell_to_jsonb(nullable_col.get_nested_column(), result, mem_pool,
                                           col_id, row_num);
 }
+
 void DataTypeNullableSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
     auto& col = reinterpret_cast<ColumnNullable&>(column);
     if (!arg || arg->isNull()) {

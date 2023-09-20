@@ -28,7 +28,6 @@
 #include "gtest/gtest_pred_impl.h"
 #include "gutil/stringprintf.h"
 #include "io/fs/file_writer.h"
-#include "io/fs/fs_utils.h"
 #include "io/fs/local_file_system.h"
 #include "olap/types.h"
 #include "vec/columns/column.h"
@@ -129,7 +128,7 @@ TEST_F(PrimaryKeyIndexTest, builder) {
         EXPECT_FALSE(exists);
         auto status = index_iterator->seek_at_or_after(&slice, &exact_match);
         EXPECT_FALSE(exact_match);
-        EXPECT_TRUE(status.is<NOT_FOUND>());
+        EXPECT_TRUE(status.is<ErrorCode::ENTRY_NOT_FOUND>());
     }
 
     // read all key

@@ -33,11 +33,11 @@ import org.apache.doris.datasource.property.constants.S3Properties.Env;
 import org.apache.doris.load.loadv2.LoadTask.MergeType;
 import org.apache.doris.tablefunction.S3TableValuedFunction;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import mockit.Expectations;
 import mockit.Injectable;
-import org.apache.hadoop.util.Lists;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -129,15 +129,12 @@ public class S3TvfLoadStmtTest {
     @Injectable
     Table targetTable;
 
-    @Injectable
-    DataDescription dataDescription;
-
     @Test
     public void testColumnMappings() throws Exception {
         // c1/c2/c3 in both file and table, and c5 is only in table
         final List<ImportColumnDesc> columnsDescList = getColumnsDescList(
                 "c1,c2,c3,c1=upper(c1), tmp_c4=c1 + 1, c5 = tmp_c4+1");
-        //        DataDescription dataDescription = buildDataDesc(colNames, null, null, null);
+        DataDescription dataDescription = buildDataDesc(colNames, null, null, null);
         new Expectations() {
             {
                 dataDescription.getParsedColumnExprList();

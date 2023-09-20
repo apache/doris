@@ -18,7 +18,6 @@
 package org.apache.doris.nereids;
 
 import org.apache.doris.analysis.StatementBase;
-import org.apache.doris.catalog.View;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.hint.Hint;
@@ -87,8 +86,8 @@ public class StatementContext {
     // Used to update consumer's stats
     private final Map<CTEId, List<Pair<Map<Slot, Slot>, Group>>> cteIdToConsumerGroup = new HashMap<>();
     private final Map<CTEId, LogicalPlan> rewrittenCtePlan = new HashMap<>();
-    private final Set<View> views = Sets.newHashSet();
     private final Map<String, Hint> hintMap = Maps.newLinkedHashMap();
+    private final Set<String> viewDdlSqlSet = Sets.newHashSet();
 
     public StatementContext() {
         this.connectContext = ConnectContext.get();
@@ -235,11 +234,11 @@ public class StatementContext {
         return rewrittenCtePlan;
     }
 
-    public void addView(View view) {
-        this.views.add(view);
+    public void addViewDdlSql(String ddlSql) {
+        this.viewDdlSqlSet.add(ddlSql);
     }
 
-    public List<View> getViews() {
-        return ImmutableList.copyOf(views);
+    public List<String> getViewDdlSqls() {
+        return ImmutableList.copyOf(viewDdlSqlSet);
     }
 }

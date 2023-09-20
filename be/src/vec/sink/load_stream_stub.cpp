@@ -108,6 +108,7 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
                             const NodeInfo& node_info, int64_t txn_id,
                             const OlapTableSchemaParam& schema,
                             const std::vector<PTabletID>& tablets_for_schema, bool enable_profile) {
+    _num_open++;
     std::unique_lock<bthread::Mutex> lock(_mutex);
     if (_is_init) {
         return Status::OK();
@@ -188,6 +189,9 @@ Status LoadStreamStub::add_segment(int64_t partition_id, int64_t index_id, int64
 
 // CLOSE_LOAD
 Status LoadStreamStub::close_load(const std::vector<PTabletID>& tablets_to_commit) {
+    if (--_num_open > 0) {
+        return Status::OK();
+    }
     PStreamHeader header;
     *header.mutable_load_id() = _load_id;
     header.set_src_id(_src_id);
@@ -215,16 +219,15 @@ Status LoadStreamStub::_encode_and_send(PStreamHeader& header, std::span<const S
 
 Status LoadStreamStub::_send_with_buffer(butil::IOBuf& buf, bool eos) {
     butil::IOBuf output;
-    {
-        std::unique_lock<decltype(_buffer_mutex)> lock(_buffer_mutex);
-        _buffer.append(buf);
-        if (eos || _buffer.size() >= config::brpc_streaming_client_batch_bytes) {
-            output.swap(_buffer);
-        }
-    }
-    if (output.size() == 0) {
+    std::unique_lock<decltype(_buffer_mutex)> buffer_lock(_buffer_mutex);
+    _buffer.append(buf);
+    if (!eos && _buffer.size() < config::brpc_streaming_client_batch_bytes) {
         return Status::OK();
     }
+    output.swap(_buffer);
+    // acquire send lock while holding buffer lock, to ensure the message order
+    std::lock_guard<decltype(_send_mutex)> send_lock(_send_mutex);
+    buffer_lock.unlock();
     VLOG_DEBUG << "send buf size : " << output.size() << ", eos: " << eos;
     return _send_with_retry(output);
 }
