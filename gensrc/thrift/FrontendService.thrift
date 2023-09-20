@@ -1085,6 +1085,7 @@ struct TGetSnapshotResult {
 
 struct TTableRef {
     1: optional string table
+    3: optional string alias_name
 }
 
 struct TRestoreSnapshotRequest {
