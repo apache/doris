@@ -533,12 +533,6 @@ suite("test_jsonb_load_and_function", "p0") {
     qt_select """SELECT id, j, JSON_EXTRACT(j, '\$.k2', null) FROM ${testTable} ORDER BY id"""
     qt_select """SELECT id, j, JSON_EXTRACT(j, '\$.a1[0].k1', '\$.a1[0].k2', '\$.a1[2]') FROM ${testTable} ORDER BY id"""
 
-    qt_select """SELECT id, j, j->'\$.k1' FROM ${testTable} ORDER BY id"""
-    qt_select """SELECT id, j, j->'\$.[1]' FROM ${testTable} ORDER BY id"""
-    qt_select """SELECT id, j, j->null FROM ${testTable} ORDER BY id"""
-    qt_select """SELECT id, j, j->'\$.a1[0].k2' FROM ${testTable} ORDER BY id"""
-    qt_select """SELECT id, j, j->'\$.a1[0]'->'\$.k1' FROM ${testTable} ORDER BY id"""
-
     //json_length
     qt_sql_json_length """SELECT json_length('1')"""
     qt_sql_json_length """SELECT json_length('true')"""

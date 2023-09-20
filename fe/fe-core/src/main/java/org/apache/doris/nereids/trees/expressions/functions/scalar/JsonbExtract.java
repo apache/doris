@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -39,15 +40,15 @@ public class JsonbExtract extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(JsonType.INSTANCE).args(JsonType.INSTANCE, VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(JsonType.INSTANCE).args(JsonType.INSTANCE, StringType.INSTANCE)
+            FunctionSignature.ret(JsonType.INSTANCE).varArgs(JsonType.INSTANCE, VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(JsonType.INSTANCE).varArgs(JsonType.INSTANCE, StringType.INSTANCE)
     );
 
     /**
-     * constructor with 2 arguments.
+     * constructor with 2 or more arguments.
      */
-    public JsonbExtract(Expression arg0, Expression arg1) {
-        super("jsonb_extract", arg0, arg1);
+    public JsonbExtract(Expression arg0, Expression arg1, Expression... varArgs) {
+        super("jsonb_extract", ExpressionUtils.mergeArguments(arg0, arg1, varArgs));
     }
 
     /**
@@ -55,8 +56,9 @@ public class JsonbExtract extends ScalarFunction
      */
     @Override
     public JsonbExtract withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 2);
-        return new JsonbExtract(children.get(0), children.get(1));
+        Preconditions.checkArgument(children.size() >= 2, "JsonbExtract should have at least two arguments");
+        return new JsonbExtract(children.get(0), children.get(1),
+            children.subList(2, children.size()).toArray(new Expression[0]));
     }
 
     @Override

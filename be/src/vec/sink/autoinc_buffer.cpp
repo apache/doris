@@ -25,8 +25,7 @@
 #include "util/thrift_rpc_helper.h"
 #include "vec/sink/vtablet_block_convertor.h"
 
-namespace doris {
-namespace stream_load {
+namespace doris::vectorized {
 
 FetchAutoIncIDExecutor::FetchAutoIncIDExecutor() {
     ThreadPoolBuilder("AsyncFetchAutoIncIDExecutor")
@@ -125,5 +124,4 @@ void AutoIncIDBuffer::_prefetch_ids(size_t length) {
     });
 }
 
-} // namespace stream_load
-} // namespace doris
+} // namespace doris::vectorized

@@ -390,6 +390,9 @@ public class Config extends ConfigBase {
     @ConfField(description = {"FE MySQL server 的端口号", "The port of FE MySQL server"})
     public static int query_port = 9030;
 
+    @ConfField(description = {"FE Arrow-Flight-SQL server 的端口号", "The port of FE Arrow-Flight-SQ server"})
+    public static int arrow_flight_sql_port = -1;
+
     @ConfField(description = {"MySQL 服务的 IO 线程数", "The number of IO threads in MySQL service"})
     public static int mysql_service_io_threads_num = 4;
 
