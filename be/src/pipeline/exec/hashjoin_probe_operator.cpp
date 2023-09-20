@@ -60,7 +60,7 @@ Status HashJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& info) 
 
 void HashJoinProbeLocalState::prepare_for_next() {
     _probe_index = 0;
-    _ready_probe_index = 0;
+    _ready_probe = false;
     _prepare_probe_block();
 }
 

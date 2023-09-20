@@ -982,21 +982,11 @@ void AggregationNode::_find_in_hash_table(AggregateDataPtr* places, ColumnRawPtr
                 AggState state(key_columns, _probe_key_sz, nullptr);
 
                 _pre_serialize_key_if_need(state, agg_method, key_columns, num_rows);
-
+                auto keys = state.get_keys(num_rows);
                 if constexpr (HashTableTraits<HashTableType>::is_phmap) {
-                    if (_hash_values.size() < num_rows) {
-                        _hash_values.resize(num_rows);
-                    }
-                    if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
-                                          AggState>::value) {
-                        for (size_t i = 0; i < num_rows; ++i) {
-                            _hash_values[i] = agg_method.data.hash(agg_method.keys[i]);
-                        }
-                    } else {
-                        for (size_t i = 0; i < num_rows; ++i) {
-                            _hash_values[i] =
-                                    agg_method.data.hash(state.get_key_holder(i, *_agg_arena_pool));
-                        }
+                    _hash_values.resize(num_rows);
+                    for (size_t i = 0; i < num_rows; ++i) {
+                        _hash_values[i] = agg_method.data.hash(keys[i]);
                     }
                 }
 
@@ -1009,8 +999,8 @@ void AggregationNode::_find_in_hash_table(AggregateDataPtr* places, ColumnRawPtr
                                         _hash_values[i + HASH_MAP_PREFETCH_DIST]);
                             }
 
-                            return state.find_key_with_hash(agg_method.data, _hash_values[i], i,
-                                                            *_agg_arena_pool);
+                            return state.find_key_with_hash(agg_method.data, _hash_values[i],
+                                                            keys[i]);
                         } else {
                             return state.find_key(agg_method.data, i, *_agg_arena_pool);
                         }

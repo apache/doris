@@ -69,9 +69,6 @@ struct HashMethodOneNumber : public columns_hashing_impl::HashMethodBase<
     using Base::find_key; /// (Data & data, size_t row, Arena & pool) -> FindResult
     using Base::find_key_with_hash;
 
-    /// Get hash value of row.
-    using Base::get_hash; /// (const Data & data, size_t row, Arena & pool) -> size_t
-
     /// Is used for default implementation in HashMethodBase.
     FieldType get_key_holder(size_t row, Arena&) const { return ((FieldType*)(vec))[row]; }
     FieldType pack_key_holder(FieldType key, Arena&) const { return key; }
@@ -108,6 +105,14 @@ struct HashMethodString : public columns_hashing_impl::HashMethodBase<
         } else {
             return key;
         }
+    }
+
+    std::vector<StringRef> get_keys(size_t rows_number) const {
+        std::vector<StringRef> keys(rows_number);
+        for (size_t row = 0; row < rows_number; row++) {
+            keys[row] = StringRef(chars + offsets[row - 1], offsets[row] - offsets[row - 1]);
+        }
+        return keys;
     }
 
 protected:
@@ -271,14 +276,38 @@ struct HashMethodSingleLowNullableColumn : public SingleColumnMethod {
                 new (&mapped) Mapped();
             }
             return EmplaceResult(mapped, mapped, inserted);
-        } else
+        } else {
             return EmplaceResult(inserted);
+        }
     }
 
-    template <typename Data>
-    ALWAYS_INLINE EmplaceResult emplace_key(Data& data, size_t hash_value, size_t row,
-                                            Arena& pool) {
-        return emplace_with_key(data, Base::get_key_holder(row, pool), hash_value, row, pool);
+    template <typename Data, typename KeyHolder>
+    ALWAYS_INLINE EmplaceResult emplace_with_key(Data& data, KeyHolder&& key, size_t row) {
+        if (key_column->is_null_at(row)) {
+            bool has_null_key = data.has_null_key_data();
+            data.has_null_key_data() = true;
+
+            if constexpr (has_mapped) {
+                return EmplaceResult(data.get_null_key_data(), data.get_null_key_data(),
+                                     !has_null_key);
+            } else {
+                return EmplaceResult(!has_null_key);
+            }
+        }
+
+        bool inserted = false;
+        typename Data::LookupResult it;
+        data.emplace(key, it, inserted);
+
+        if constexpr (has_mapped) {
+            auto& mapped = *lookup_result_get_mapped(it);
+            if (inserted) {
+                new (&mapped) Mapped();
+            }
+            return EmplaceResult(mapped, mapped, inserted);
+        } else {
+            return EmplaceResult(inserted);
+        }
     }
 
     template <typename Data, typename KeyHolder>
