@@ -112,7 +112,7 @@ suite("test_get_binlog_case") {
     
     logger.info("=== Test 3.2: no priv user get binlog case ===")
     syncer.context.seq = -1
-    noPrivUser = "no_priv_user"
+    noPrivUser = "no_priv_user2"
     emptyTable = "tbl_empty_test"
     sql "DROP TABLE IF EXISTS ${emptyTable}"
     sql """

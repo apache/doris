@@ -18,6 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_json_load_and_function", "p0") {
+
     // define a sql table
     def testTable = "tbl_test_json"
     def dataFile = "test_json.csv"

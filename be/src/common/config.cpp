@@ -59,7 +59,7 @@ DEFINE_Int32(be_port, "9060");
 // port for brpc
 DEFINE_Int32(brpc_port, "8060");
 
-DEFINE_Int32(arrow_flight_port, "-1");
+DEFINE_Int32(arrow_flight_sql_port, "-1");
 
 // the number of bthreads for brpc, the default value is set to -1,
 // which means the number of bthreads is #cpu-cores
@@ -581,7 +581,7 @@ DEFINE_mInt32(result_buffer_cancelled_interval_time, "300");
 DEFINE_mInt32(priority_queue_remaining_tasks_increased_frequency, "512");
 
 // sync tablet_meta when modifying meta
-DEFINE_mBool(sync_tablet_meta, "false");
+DEFINE_mBool(sync_tablet_meta, "true");
 
 // default thrift rpc timeout ms
 DEFINE_mInt32(thrift_rpc_timeout_ms, "60000");
@@ -1087,6 +1087,8 @@ DEFINE_Int16(bitmap_serialize_version, "1");
 
 // the count of thread to group commit insert
 DEFINE_Int32(group_commit_insert_threads, "10");
+
+DEFINE_mInt32(scan_thread_nice_value, "0");
 
 #ifdef BE_TEST
 // test s3

@@ -42,6 +42,11 @@ class TUniqueId;
 
 using InstanceLoId = int64_t;
 
+namespace pipeline {
+class BroadcastDependency;
+class ExchangeSinkQueueDependency;
+} // namespace pipeline
+
 namespace vectorized {
 class VDataStreamSender;
 template <typename>
@@ -65,13 +70,11 @@ struct AtomicWrapper {
 // PBlock is available for next serialization.
 class BroadcastPBlockHolder {
 public:
-    BroadcastPBlockHolder() : _ref_count(0) {}
+    BroadcastPBlockHolder() : _ref_count(0), _dep(nullptr) {}
+    BroadcastPBlockHolder(pipeline::BroadcastDependency* dep) : _ref_count(0), _dep(dep) {}
     ~BroadcastPBlockHolder() noexcept = default;
 
-    void unref() noexcept {
-        DCHECK_GT(_ref_count._value, 0);
-        _ref_count._value.fetch_sub(1);
-    }
+    void unref() noexcept;
     void ref() noexcept { _ref_count._value.fetch_add(1); }
 
     bool available() { return _ref_count._value == 0; }
@@ -81,6 +84,7 @@ public:
 private:
     AtomicWrapper<uint32_t> _ref_count;
     PBlock pblock;
+    pipeline::BroadcastDependency* _dep;
 };
 } // namespace vectorized
 
@@ -177,6 +181,10 @@ public:
     void set_rpc_time(InstanceLoId id, int64_t start_rpc_time, int64_t receive_rpc_time);
     void update_profile(RuntimeProfile* profile);
 
+    void set_queue_dependency(std::shared_ptr<ExchangeSinkQueueDependency> queue_dependency) {
+        _queue_dependency = queue_dependency;
+    }
+
 private:
     phmap::flat_hash_map<InstanceLoId, std::unique_ptr<std::mutex>>
             _instance_to_package_queue_mutex;
@@ -216,6 +224,11 @@ private:
     inline bool _is_receiver_eof(InstanceLoId id);
     void get_max_min_rpc_time(int64_t* max_time, int64_t* min_time);
     int64_t get_sum_rpc_time();
+
+    std::atomic<int> _total_queue_size = 0;
+    static constexpr int QUEUE_CAPACITY_FACTOR = 64;
+    int _queue_capacity = 0;
+    std::shared_ptr<ExchangeSinkQueueDependency> _queue_dependency = nullptr;
 };
 
 } // namespace pipeline
