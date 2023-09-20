@@ -91,8 +91,8 @@ suite("test_export_external_table", "p0,external,mysql,external_docker,external_
     }
     
 
-
-    def table_export_name = "test_export_external_table"
+    // this table name must be `test1`, because this is an external table.
+    def table_export_name = "test1"
     def table_load_name = "test_load_external__basic"
     def outfile_path_prefix = """/tmp/test_export"""
 
