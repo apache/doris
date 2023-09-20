@@ -1337,6 +1337,9 @@ Status ScanOperatorX<LocalStateType>::try_close(RuntimeState* state) {
 
 template <typename Derived>
 Status ScanLocalState<Derived>::close(RuntimeState* state) {
+    if (_closed) {
+        return Status::OK();
+    }
     SCOPED_TIMER(_close_timer);
     if (_data_ready_dependency) {
         COUNTER_UPDATE(_wait_for_data_timer, _data_ready_dependency->read_watcher_elapse_time());
@@ -1355,9 +1358,6 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
                        _scanner_done_dependency->read_watcher_elapse_time());
     }
     SCOPED_TIMER(profile()->total_time_counter());
-    if (_closed) {
-        return Status::OK();
-    }
     if (_scanner_ctx.get()) {
         _scanner_ctx->clear_and_join(reinterpret_cast<ScanLocalStateBase*>(this), state);
     }
