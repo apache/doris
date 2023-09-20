@@ -17,12 +17,12 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_jsonb_load_and_function", "p0") {
+suite("nereids_scalar_fn_J") {
+    sql "SET enable_nereids_planner=true"
+    sql "SET enable_fallback_to_original_planner=false"
     // define a sql table
     def testTable = "tbl_test_jsonb"
     def dataFile = "test_jsonb.csv"
-
-    sql """ set experimental_enable_nereids_planner = false """
 
     sql "DROP TABLE IF EXISTS ${testTable}"
 
@@ -39,7 +39,7 @@ suite("test_jsonb_load_and_function", "p0") {
     // load the jsonb data from csv file
     streamLoad {
         table testTable
-        
+
         file dataFile // import csv file
         time 10000 // limit inflight 10s
         set 'strict_mode', 'true'
@@ -69,7 +69,7 @@ suite("test_jsonb_load_and_function", "p0") {
     // success with header 'max_filter_ratio: 0.3'
     streamLoad {
         table testTable
-        
+
         // set http request header params
         set 'max_filter_ratio', '0.3'
         file dataFile // import csv file
@@ -116,16 +116,16 @@ suite("test_jsonb_load_and_function", "p0") {
     try {
         sql """INSERT INTO ${testTable} VALUES(26, '')"""
     } catch(Exception ex) {
-       logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
-       success = false
+        logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
+        success = false
     }
     assertEquals(false, success)
     success = true
     try {
         sql """INSERT INTO ${testTable} VALUES(26, 'abc')"""
     } catch(Exception ex) {
-       logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
-       success = false
+        logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
+        success = false
     }
     assertEquals(false, success)
 
@@ -136,16 +136,16 @@ suite("test_jsonb_load_and_function", "p0") {
     try {
         sql """INSERT INTO ${testTable} VALUES(26, '')"""
     } catch(Exception ex) {
-       logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
-       success = false
+        logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
+        success = false
     }
     assertEquals(true, success)
     success = true
     try {
         sql """INSERT INTO ${testTable} VALUES(26, 'abc')"""
     } catch(Exception ex) {
-       logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
-       success = false
+        logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
+        success = false
     }
     assertEquals(true, success)
 
@@ -532,36 +532,4 @@ suite("test_jsonb_load_and_function", "p0") {
     qt_select """SELECT id, j, JSON_EXTRACT(j, '\$.k2', '\$.x.y') FROM ${testTable} ORDER BY id"""
     qt_select """SELECT id, j, JSON_EXTRACT(j, '\$.k2', null) FROM ${testTable} ORDER BY id"""
     qt_select """SELECT id, j, JSON_EXTRACT(j, '\$.a1[0].k1', '\$.a1[0].k2', '\$.a1[2]') FROM ${testTable} ORDER BY id"""
-
-    //json_length
-    qt_sql_json_length """SELECT json_length('1')"""
-    qt_sql_json_length """SELECT json_length('true')"""
-    qt_sql_json_length """SELECT json_length('null')"""
-    qt_sql_json_length """SELECT json_length('"abc"')"""
-    qt_sql_json_length """SELECT json_length('[]')"""
-    qt_sql_json_length """SELECT json_length('[1, 2]')"""
-    qt_sql_json_length """SELECT json_length('[1, {"x": 2}]')"""
-    qt_sql_json_length """SELECT json_length('{"x": 1, "y": [1, 2]}', '\$.y')"""
-    qt_sql_json_length """SELECT json_length('{"k1":"v31","k2":300}')"""
-    qt_sql_json_length """SELECT json_length('{"a.b.c":{"k1.a1":"v31", "k2": 300},"a":"niu"}')"""
-    qt_sql_json_length """SELECT json_length('{"a":{"k1.a1":"v31", "k2": 300},"b":"niu"}','\$.a')"""
-
-    qt_select_length """SELECT id, j, json_length(j) FROM ${testTable} ORDER BY id"""
-    qt_select_length """SELECT id, j, json_length(j, '\$[1]') FROM ${testTable} ORDER BY id"""
-    qt_select_length """SELECT id, j, json_length(j, '\$.k2') FROM ${testTable} ORDER BY id"""
-    qt_select_length """SELECT id, j, json_length(null) FROM ${testTable} ORDER BY id"""
-
-    //json_contains
-    qt_sql_json_contains """SELECT json_contains('[1, 2, {"x": 3}]', '1')"""
-    qt_sql_json_contains """SELECT json_contains('[1, 2, {"x": 3}]', '{"x": 3}')"""
-    qt_sql_json_contains """SELECT json_contains('[1, 2, {"x": 3}]', '3')"""
-    qt_sql_json_contains """SELECT json_contains('[1, 2, [3, 4]]', '2')"""
-    qt_sql_json_contains """SELECT json_contains('[1, 2, [3, 4]]', '2', '\$[2]')"""
-    qt_sql_json_contains """SELECT json_contains('{"k1":"v31","k2":300}', '{"k2":300}')"""
-    qt_sql_json_contains """SELECT json_contains('{"k1":"v31","k2":300}', '{"k2":300,"k1":"v31"}')"""
-
-    qt_select_json_contains """SELECT id, j, json_contains(j, cast('true' as json)) FROM ${testTable} ORDER BY id"""
-    qt_select_json_contains """SELECT id, j, json_contains(j, cast('{"k2":300}' as json)) FROM ${testTable} ORDER BY id"""
-    qt_select_json_contains """SELECT id, j, json_contains(j, cast('{"k1":"v41","k2":400}' as json), '\$.a1') FROM ${testTable} ORDER BY id"""
-    qt_select_json_contains """SELECT id, j, json_contains(j, cast('[123,456]' as json)) FROM ${testTable} ORDER BY id"""
 }

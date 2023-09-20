@@ -15,14 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.codehaus.groovy.runtime.IOGroovyMethods
-
-suite("test_jsonb_load_and_function", "p0") {
+suite("test_jsonb_unique_load_and_function", "p0") {
+    sql "SET enable_nereids_planner=true"
+    sql "SET enable_fallback_to_original_planner=false"
     // define a sql table
-    def testTable = "tbl_test_jsonb"
-    def dataFile = "test_jsonb.csv"
-
-    sql """ set experimental_enable_nereids_planner = false """
+    def testTable = "tbl_test_jsonb_unique"
+    def dataFile = "test_jsonb_unique_key.csv"
 
     sql "DROP TABLE IF EXISTS ${testTable}"
 
@@ -31,12 +29,13 @@ suite("test_jsonb_load_and_function", "p0") {
             id INT,
             j JSONB
         )
-        DUPLICATE KEY(id)
+        UNIQUE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 10
         PROPERTIES("replication_num" = "1");
         """
 
     // load the jsonb data from csv file
+    // fail by default for invalid data rows
     streamLoad {
         table testTable
         
@@ -52,16 +51,12 @@ suite("test_jsonb_load_and_function", "p0") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
-            def (code, out, err) = curl("GET", json.ErrorURL)
-            log.info("error result: " + out)
-
             assertEquals("fail", json.Status.toLowerCase())
             assertTrue(json.Message.contains("too many filtered rows"))
-            assertEquals(25, json.NumberTotalRows)
-            assertEquals(18, json.NumberLoadedRows)
-            assertEquals(7, json.NumberFilteredRows)
+            assertEquals(75, json.NumberTotalRows)
+            assertEquals(54, json.NumberLoadedRows)
+            assertEquals(21, json.NumberFilteredRows)
             assertTrue(json.LoadBytes > 0)
-            log.info("url: " + json.ErrorURL)
         }
     }
 
@@ -84,17 +79,15 @@ suite("test_jsonb_load_and_function", "p0") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
-            def (code, out, err) = curl("GET", json.ErrorURL)
-            log.info("error result: " + out)
-
             assertEquals("success", json.Status.toLowerCase())
-            assertEquals(25, json.NumberTotalRows)
-            assertEquals(18, json.NumberLoadedRows)
-            assertEquals(7, json.NumberFilteredRows)
+            assertEquals(75, json.NumberTotalRows)
+            assertEquals(54, json.NumberLoadedRows)
+            assertEquals(21, json.NumberFilteredRows)
             assertTrue(json.LoadBytes > 0)
         }
     }
 
+    sql "sync"
     // check result
     qt_select "SELECT * FROM ${testTable} ORDER BY id"
 
@@ -102,12 +95,6 @@ suite("test_jsonb_load_and_function", "p0") {
     sql """INSERT INTO ${testTable} VALUES(26, NULL)"""
     sql """INSERT INTO ${testTable} VALUES(27, '{"k1":"v1", "k2": 200}')"""
     sql """INSERT INTO ${testTable} VALUES(28, '{"a.b.c":{"k1.a1":"v31", "k2": 300},"a":"niu"}')"""
-    // int64 value
-    sql """INSERT INTO ${testTable} VALUES(29, '12524337771678448270')"""
-    // int64 min value
-    sql """INSERT INTO ${testTable} VALUES(30, '-9223372036854775808')"""
-    // int64 max value
-    sql """INSERT INTO ${testTable} VALUES(31, '18446744073709551615')"""
 
     // insert into invalid json rows with enable_insert_strict=true
     // expect excepiton and no rows not changed
@@ -185,6 +172,7 @@ suite("test_jsonb_load_and_function", "p0") {
     qt_select "SELECT id, j, jsonb_extract(j, '\$.a1[-0]') FROM ${testTable} ORDER BY id"
     qt_select "SELECT id, j, jsonb_extract(j, '\$.a1[-1]') FROM ${testTable} ORDER BY id"
     qt_select "SELECT id, j, jsonb_extract(j, '\$.a1[-10]') FROM ${testTable} ORDER BY id"
+
 
     // jsonb_extract_multipath
     qt_jsonb_extract_multipath "SELECT id, j, jsonb_extract(j, '\$', '\$.*', '\$.k1', '\$[0]') FROM ${testTable} ORDER BY id"
@@ -284,39 +272,6 @@ suite("test_jsonb_load_and_function", "p0") {
     qt_select "SELECT id, j, jsonb_extract_bigint(j, '\$.a1[-0]') FROM ${testTable} ORDER BY id"
     qt_select "SELECT id, j, jsonb_extract_bigint(j, '\$.a1[-1]') FROM ${testTable} ORDER BY id"
     qt_select "SELECT id, j, jsonb_extract_bigint(j, '\$.a1[-10]') FROM ${testTable} ORDER BY id"
-
-
-    // jsonb_extract_largeint
-    qt_jsonb_extract_largeint_select "SELECT id, j, jsonb_extract_largeint(j, '\$') FROM ${testTable} ORDER BY id"
-
-    qt_select "SELECT id, j, jsonb_extract_largeint(j, '\$.k1') FROM ${testTable} ORDER BY id"
-    qt_select "SELECT id, j, jsonb_extract_largeint(j, '\$.k2') FROM ${testTable} ORDER BY id"
-
-    qt_select "SELECT id, j, jsonb_extract_largeint(j, '\$[0]') FROM ${testTable} ORDER BY id"
-    qt_select "SELECT id, j, jsonb_extract_largeint(j, '\$[1]') FROM ${testTable} ORDER BY id"
-    qt_select "SELECT id, j, jsonb_extract_largeint(j, '\$[2]') FROM ${testTable} ORDER BY id"
-    qt_select "SELECT id, j, jsonb_extract_largeint(j, '\$[3]') FROM ${testTable} ORDER BY id"
-    qt_select "SELECT id, j, jsonb_extract_largeint(j, '\$[4]') FROM ${testTable} ORDER BY id"
-    qt_select "SELECT id, j, jsonb_extract_largeint(j, '\$[5]') FROM ${testTable} ORDER BY id"
-    qt_select "SELECT id, j, jsonb_extract_largeint(j, '\$[6]') FROM ${testTable} ORDER BY id"
-    qt_select "SELECT id, j, jsonb_extract_largeint(j, '\$[10]') FROM ${testTable} ORDER BY id"
-
-    qt_select "SELECT id, j, jsonb_extract_largeint(j, '\$.a1') FROM ${testTable} ORDER BY id"
-
-    qt_select "SELECT id, j, jsonb_extract_largeint(j, '\$.a1[0]') FROM ${testTable} ORDER BY id"
-    qt_select "SELECT id, j, jsonb_extract_largeint(j, '\$.a1[1]') FROM ${testTable} ORDER BY id"
-    qt_select "SELECT id, j, jsonb_extract_largeint(j, '\$.a1[2]') FROM ${testTable} ORDER BY id"
-    qt_select "SELECT id, j, jsonb_extract_largeint(j, '\$.a1[3]') FROM ${testTable} ORDER BY id"
-    qt_select "SELECT id, j, jsonb_extract_largeint(j, '\$.a1[4]') FROM ${testTable} ORDER BY id"
-    qt_select "SELECT id, j, jsonb_extract_largeint(j, '\$.a1[10]') FROM ${testTable} ORDER BY id"
-    qt_select "SELECT id, j, jsonb_extract_largeint(j, '\$.a1[last]') FROM ${testTable} ORDER BY id"
-    qt_select "SELECT id, j, jsonb_extract_largeint(j, '\$.a1[last-0]') FROM ${testTable} ORDER BY id"
-    qt_select "SELECT id, j, jsonb_extract_largeint(j, '\$.a1[last-1]') FROM ${testTable} ORDER BY id"
-    qt_select "SELECT id, j, jsonb_extract_largeint(j, '\$.a1[last-2]') FROM ${testTable} ORDER BY id"
-    qt_select "SELECT id, j, jsonb_extract_largeint(j, '\$.a1[last-10]') FROM ${testTable} ORDER BY id"
-    qt_select "SELECT id, j, jsonb_extract_largeint(j, '\$.a1[-0]') FROM ${testTable} ORDER BY id"
-    qt_select "SELECT id, j, jsonb_extract_largeint(j, '\$.a1[-1]') FROM ${testTable} ORDER BY id"
-    qt_select "SELECT id, j, jsonb_extract_largeint(j, '\$.a1[-10]') FROM ${testTable} ORDER BY id"
 
 
     // jsonb_extract_double
@@ -522,46 +477,4 @@ suite("test_jsonb_load_and_function", "p0") {
     qt_select """SELECT CAST('{x' AS JSONB)"""
     qt_select """SELECT CAST('[123, abc]' AS JSONB)"""
 
-    qt_select """SELECT id, JSON_VALID(j) FROM ${testTable} ORDER BY id"""
-    qt_select """SELECT JSON_VALID('{"k1":"v31","k2":300}')"""
-    qt_select """SELECT JSON_VALID('invalid json')"""
-    qt_select """SELECT JSON_VALID(NULL)"""
-
-    qt_select """SELECT id, j, JSON_EXTRACT(j, '\$.k1') FROM ${testTable} ORDER BY id"""
-    qt_select """SELECT id, j, JSON_EXTRACT(j, '\$.k2', '\$.[1]') FROM ${testTable} ORDER BY id"""
-    qt_select """SELECT id, j, JSON_EXTRACT(j, '\$.k2', '\$.x.y') FROM ${testTable} ORDER BY id"""
-    qt_select """SELECT id, j, JSON_EXTRACT(j, '\$.k2', null) FROM ${testTable} ORDER BY id"""
-    qt_select """SELECT id, j, JSON_EXTRACT(j, '\$.a1[0].k1', '\$.a1[0].k2', '\$.a1[2]') FROM ${testTable} ORDER BY id"""
-
-    //json_length
-    qt_sql_json_length """SELECT json_length('1')"""
-    qt_sql_json_length """SELECT json_length('true')"""
-    qt_sql_json_length """SELECT json_length('null')"""
-    qt_sql_json_length """SELECT json_length('"abc"')"""
-    qt_sql_json_length """SELECT json_length('[]')"""
-    qt_sql_json_length """SELECT json_length('[1, 2]')"""
-    qt_sql_json_length """SELECT json_length('[1, {"x": 2}]')"""
-    qt_sql_json_length """SELECT json_length('{"x": 1, "y": [1, 2]}', '\$.y')"""
-    qt_sql_json_length """SELECT json_length('{"k1":"v31","k2":300}')"""
-    qt_sql_json_length """SELECT json_length('{"a.b.c":{"k1.a1":"v31", "k2": 300},"a":"niu"}')"""
-    qt_sql_json_length """SELECT json_length('{"a":{"k1.a1":"v31", "k2": 300},"b":"niu"}','\$.a')"""
-
-    qt_select_length """SELECT id, j, json_length(j) FROM ${testTable} ORDER BY id"""
-    qt_select_length """SELECT id, j, json_length(j, '\$[1]') FROM ${testTable} ORDER BY id"""
-    qt_select_length """SELECT id, j, json_length(j, '\$.k2') FROM ${testTable} ORDER BY id"""
-    qt_select_length """SELECT id, j, json_length(null) FROM ${testTable} ORDER BY id"""
-
-    //json_contains
-    qt_sql_json_contains """SELECT json_contains('[1, 2, {"x": 3}]', '1')"""
-    qt_sql_json_contains """SELECT json_contains('[1, 2, {"x": 3}]', '{"x": 3}')"""
-    qt_sql_json_contains """SELECT json_contains('[1, 2, {"x": 3}]', '3')"""
-    qt_sql_json_contains """SELECT json_contains('[1, 2, [3, 4]]', '2')"""
-    qt_sql_json_contains """SELECT json_contains('[1, 2, [3, 4]]', '2', '\$[2]')"""
-    qt_sql_json_contains """SELECT json_contains('{"k1":"v31","k2":300}', '{"k2":300}')"""
-    qt_sql_json_contains """SELECT json_contains('{"k1":"v31","k2":300}', '{"k2":300,"k1":"v31"}')"""
-
-    qt_select_json_contains """SELECT id, j, json_contains(j, cast('true' as json)) FROM ${testTable} ORDER BY id"""
-    qt_select_json_contains """SELECT id, j, json_contains(j, cast('{"k2":300}' as json)) FROM ${testTable} ORDER BY id"""
-    qt_select_json_contains """SELECT id, j, json_contains(j, cast('{"k1":"v41","k2":400}' as json), '\$.a1') FROM ${testTable} ORDER BY id"""
-    qt_select_json_contains """SELECT id, j, json_contains(j, cast('[123,456]' as json)) FROM ${testTable} ORDER BY id"""
 }
