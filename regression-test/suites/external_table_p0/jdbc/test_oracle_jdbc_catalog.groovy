@@ -141,6 +141,9 @@ suite("test_oracle_jdbc_catalog", "p0") {
         qt_lower_case_table_names2  """ select * from test_char order by ID; """
         qt_lower_case_table_names3  """ select * from test_int order by ID; """
 
+        // test lower case name
+        order_qt_lower_case_table_names4  """ select * from student2 order by id; """
+
         sql """drop catalog if exists ${catalog_name} """
 
         // test for clob type
