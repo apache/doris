@@ -127,7 +127,7 @@ public class PredicatePropagation {
     private boolean canEquivalentInfer(Expression predicate) {
         return predicate instanceof EqualTo
                 && predicate.children().stream().allMatch(e ->
-                    (e instanceof SlotReference) || (e instanceof Cast && e.child(0).isSlot()))
+                    (e instanceof SlotReference) || (e instanceof Cast && e.child(0) instanceof SlotReference))
                 && predicate.child(0).getDataType().equals(predicate.child(1).getDataType());
     }
 

@@ -134,6 +134,7 @@ Status Compaction::do_compaction(int64_t permits) {
                          << ", before=" << checksum_before << ", checksum_after=" << checksum_after;
         }
     }
+    _load_segment_to_cache();
     return st;
 }
 
@@ -823,6 +824,14 @@ int64_t Compaction::get_compaction_permits() {
         permits += rowset->rowset_meta()->get_compaction_score();
     }
     return permits;
+}
+
+Status Compaction::_load_segment_to_cache() {
+    // Load new rowset's segments to cache.
+    SegmentCacheHandle handle;
+    RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
+            std::static_pointer_cast<BetaRowset>(_output_rowset), &handle, true));
+    return Status::OK();
 }
 
 #ifdef BE_TEST

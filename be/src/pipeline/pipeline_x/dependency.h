@@ -466,7 +466,9 @@ public:
         auto need_more_input = whether_need_next_partition(_analytic_state.found_partition_end);
         if (need_more_input) {
             block_reading();
+            set_ready_for_write();
         } else {
+            block_writing();
             set_ready_for_read();
         }
         return need_more_input;

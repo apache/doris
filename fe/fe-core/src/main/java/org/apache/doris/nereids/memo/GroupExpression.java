@@ -79,6 +79,9 @@ public class GroupExpression {
 
     private final ObjectId id = StatementScopeIdGenerator.newObjectId();
 
+    /**
+     * Just for UT.
+     */
     public GroupExpression(Plan plan) {
         this(plan, Lists.newArrayList());
     }
@@ -302,8 +305,7 @@ public class GroupExpression {
             return false;
         }
         GroupExpression that = (GroupExpression) o;
-        return children.equals(that.children) && plan.equals(that.plan)
-                && plan.getLogicalProperties().equals(that.plan.getLogicalProperties());
+        return children.equals(that.children) && plan.equals(that.plan);
     }
 
     @Override

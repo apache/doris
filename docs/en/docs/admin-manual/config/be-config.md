@@ -127,6 +127,12 @@ There are two ways to configure BE configuration items:
 * Description: The port of BRPC on BE, used for communication between BEs
 * Default value: 8060
 
+#### `arrow_flight_sql_port`
+
+* Type: int32
+* Description: The port of Arrow Flight SQL server on BE, used for communication between Arrow Flight Client and BE
+* Default value: -1
+
 #### `enable_https`
 
 * Type: bool
