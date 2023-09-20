@@ -38,6 +38,7 @@ import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
+import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.external.hive.util.HiveUtil;
 import org.apache.doris.fs.FileSystemCache;
 import org.apache.doris.fs.FileSystemFactory;
@@ -405,14 +406,19 @@ public class HiveMetaStoreCache {
         ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
         try {
             Thread.currentThread().setContextClassLoader(ClassLoader.getSystemClassLoader());
-            String finalLocation = S3Util.convertToS3IfNecessary(key.location, catalog.getProperties());
+            String finalLocation = S3Util.convertToS3IfNecessary(key.location,
+                    catalog.getCatalogProperty().getProperties());
             // disable the fs cache in FileSystem, or it will always from new FileSystem
             // and save it in cache when calling FileInputFormat.setInputPaths().
             try {
                 Path path = new Path(finalLocation);
                 URI uri = path.toUri();
                 if (uri.getScheme() != null) {
-                    updateJobConf("fs." + uri.getScheme() + ".impl.disable.cache", "true");
+                    String scheme = uri.getScheme();
+                    updateJobConf("fs." + scheme + ".impl.disable.cache", "true");
+                    if (!scheme.equals("hdfs") && !scheme.equals("viewfs")) {
+                        updateJobConf("fs." + scheme + ".impl", PropertyConverter.getHadoopFSImplByScheme(scheme));
+                    }
                 }
             } catch (Exception e) {
                 LOG.warn("unknown scheme in path: " + finalLocation, e);
@@ -1065,6 +1071,9 @@ public class HiveMetaStoreCache {
         long length;
         long blockSize;
         long modificationTime;
+        boolean splittable;
+        List<String> partitionValues;
+        AcidInfo acidInfo;
     }
 
     @Data

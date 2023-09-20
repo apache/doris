@@ -30,25 +30,19 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/consts.h"
 #include "common/status.h"
-#include "gutil/strings/numbers.h"
 #include "io/file_factory.h"
 #include "io/fs/broker_file_system.h"
-#include "io/fs/file_writer.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/s3_file_system.h"
 #include "io/hdfs_builder.h"
 #include "runtime/buffer_control_block.h"
-#include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/large_int_value.h"
 #include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
-#include "runtime/types.h"
 #include "service/backend_options.h"
-#include "util/metrics.h"
-#include "util/mysql_global.h"
 #include "util/mysql_row_buffer.h"
 #include "util/s3_uri.h"
 #include "util/s3_util.h"
@@ -57,20 +51,15 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/common/string_ref.h"
 #include "vec/core/block.h"
-#include "vec/core/column_with_type_and_name.h"
-#include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
-#include "vec/runtime/vdatetime_value.h"
-#include "vec/runtime/vorc_writer.h"
-#include "vec/runtime/vparquet_writer.h"
+#include "vec/runtime/vcsv_transformer.h"
+#include "vec/runtime/vorc_transformer.h"
+#include "vec/runtime/vparquet_transformer.h"
 #include "vec/sink/vresult_sink.h"
 
 namespace doris::vectorized {
-const size_t VFileResultWriter::OUTSTREAM_BUFFER_SIZE_BYTES = 1024 * 1024;
-using doris::operator<<;
 
 VFileResultWriter::VFileResultWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs)
         : AsyncResultWriter(output_exprs) {}
@@ -88,8 +77,7 @@ VFileResultWriter::VFileResultWriter(const ResultFileOptions* file_opts,
           _fragment_instance_id(fragment_instance_id),
           _sinker(sinker),
           _output_block(output_block),
-          _output_row_descriptor(output_row_descriptor),
-          _vfile_writer(nullptr) {
+          _output_row_descriptor(output_row_descriptor) {
     _output_object_data = output_object_data;
 }
 
@@ -158,19 +146,19 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
             _file_writer_impl));
     switch (_file_opts->file_format) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
-        // just use file writer is enough
+        _vfile_writer.reset(new VCSVTransformer(
+                _file_writer_impl.get(), _vec_output_expr_ctxs, _output_object_data, _header_type,
+                _header, _file_opts->column_separator, _file_opts->line_delimiter));
         break;
     case TFileFormatType::FORMAT_PARQUET:
-        _vfile_writer.reset(new VParquetWriterWrapper(
+        _vfile_writer.reset(new VParquetTransformer(
                 _file_writer_impl.get(), _vec_output_expr_ctxs, _file_opts->parquet_schemas,
                 _file_opts->parquet_commpression_type, _file_opts->parquert_disable_dictionary,
                 _file_opts->parquet_version, _output_object_data));
-        RETURN_IF_ERROR(_vfile_writer->prepare());
         break;
     case TFileFormatType::FORMAT_ORC:
-        _vfile_writer.reset(new VOrcWriterWrapper(_file_writer_impl.get(), _vec_output_expr_ctxs,
-                                                  _file_opts->orc_schema, _output_object_data));
-        RETURN_IF_ERROR(_vfile_writer->prepare());
+        _vfile_writer.reset(new VOrcTransformer(_file_writer_impl.get(), _vec_output_expr_ctxs,
+                                                _file_opts->orc_schema, _output_object_data));
         break;
     default:
         return Status::InternalError("unsupported file format: {}", _file_opts->file_format);
@@ -178,16 +166,18 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
     LOG(INFO) << "create file for exporting query result. file name: " << file_name
               << ". query id: " << print_id(_state->query_id())
               << " format:" << _file_opts->file_format;
-    return Status::OK();
+
+    return _vfile_writer->open();
 }
 
 // file name format as: my_prefix_{fragment_instance_id}_0.csv
 Status VFileResultWriter::_get_next_file_name(std::string* file_name) {
+    std::string suffix =
+            _file_opts->file_suffix.empty() ? _file_format_to_name() : _file_opts->file_suffix;
     std::stringstream ss;
     ss << _file_opts->file_path << print_id(_fragment_instance_id) << "_" << (_file_idx++) << "."
-       << _file_format_to_name();
+       << suffix;
     *file_name = ss.str();
-    _header_sent = false;
     if (_storage_type == TStorageBackendType::LOCAL) {
         // For local file writer, the file_path is a local dir.
         // Here we do a simple security verification by checking whether the file exists.
@@ -237,215 +227,22 @@ Status VFileResultWriter::append_block(Block& block) {
     if (block.rows() == 0) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(write_csv_header());
     SCOPED_TIMER(_append_row_batch_timer);
     Block output_block;
     RETURN_IF_ERROR(_projection_block(block, &output_block));
-
-    if (_vfile_writer) {
-        RETURN_IF_ERROR(_write_file(output_block));
-    } else {
-        RETURN_IF_ERROR(_write_csv_file(output_block));
-    }
+    RETURN_IF_ERROR(_write_file(output_block));
 
     _written_rows += block.rows();
     return Status::OK();
 }
 
 Status VFileResultWriter::_write_file(const Block& block) {
-    RETURN_IF_ERROR(_vfile_writer->write(block));
+    {
+        SCOPED_TIMER(_file_write_timer);
+        RETURN_IF_ERROR(_vfile_writer->write(block));
+    }
     // split file if exceed limit
     _current_written_bytes = _vfile_writer->written_len();
-    return _create_new_file_if_exceed_size();
-}
-
-Status VFileResultWriter::_write_csv_file(const Block& block) {
-    for (size_t i = 0; i < block.rows(); i++) {
-        for (size_t col_id = 0; col_id < block.columns(); col_id++) {
-            auto col = block.get_by_position(col_id);
-            if (col.column->is_null_at(i)) {
-                _plain_text_outstream << NULL_IN_CSV;
-            } else {
-                switch (_vec_output_expr_ctxs[col_id]->root()->type().type) {
-                case TYPE_BOOLEAN:
-                case TYPE_TINYINT:
-                    _plain_text_outstream << (int)*reinterpret_cast<const int8_t*>(
-                            col.column->get_data_at(i).data);
-                    break;
-                case TYPE_SMALLINT:
-                    _plain_text_outstream
-                            << *reinterpret_cast<const int16_t*>(col.column->get_data_at(i).data);
-                    break;
-                case TYPE_INT:
-                    _plain_text_outstream
-                            << *reinterpret_cast<const int32_t*>(col.column->get_data_at(i).data);
-                    break;
-                case TYPE_BIGINT:
-                    _plain_text_outstream
-                            << *reinterpret_cast<const int64_t*>(col.column->get_data_at(i).data);
-                    break;
-                case TYPE_LARGEINT:
-                    _plain_text_outstream
-                            << *reinterpret_cast<const __int128*>(col.column->get_data_at(i).data);
-                    break;
-                case TYPE_FLOAT: {
-                    char buffer[MAX_FLOAT_STR_LENGTH + 2];
-                    float float_value =
-                            *reinterpret_cast<const float*>(col.column->get_data_at(i).data);
-                    buffer[0] = '\0';
-                    int length = FloatToBuffer(float_value, MAX_FLOAT_STR_LENGTH, buffer);
-                    DCHECK(length >= 0) << "gcvt float failed, float value=" << float_value;
-                    _plain_text_outstream << buffer;
-                    break;
-                }
-                case TYPE_DOUBLE: {
-                    // To prevent loss of precision on float and double types,
-                    // they are converted to strings before output.
-                    // For example: For a double value 27361919854.929001,
-                    // the direct output of using std::stringstream is 2.73619e+10,
-                    // and after conversion to a string, it outputs 27361919854.929001
-                    char buffer[MAX_DOUBLE_STR_LENGTH + 2];
-                    double double_value =
-                            *reinterpret_cast<const double*>(col.column->get_data_at(i).data);
-                    buffer[0] = '\0';
-                    int length = DoubleToBuffer(double_value, MAX_DOUBLE_STR_LENGTH, buffer);
-                    DCHECK(length >= 0) << "gcvt double failed, double value=" << double_value;
-                    _plain_text_outstream << buffer;
-                    break;
-                }
-                case TYPE_DATEV2: {
-                    char buf[64];
-                    const DateV2Value<DateV2ValueType>* time_val =
-                            (const DateV2Value<DateV2ValueType>*)(col.column->get_data_at(i).data);
-                    time_val->to_string(buf);
-                    _plain_text_outstream << buf;
-                    break;
-                }
-                case TYPE_DATETIMEV2: {
-                    char buf[64];
-                    const DateV2Value<DateTimeV2ValueType>* time_val =
-                            (const DateV2Value<DateTimeV2ValueType>*)(col.column->get_data_at(i)
-                                                                              .data);
-                    time_val->to_string(buf, _vec_output_expr_ctxs[col_id]->root()->type().scale);
-                    _plain_text_outstream << buf;
-                    break;
-                }
-                case TYPE_DATE:
-                case TYPE_DATETIME: {
-                    char buf[64];
-                    const VecDateTimeValue* time_val =
-                            (const VecDateTimeValue*)(col.column->get_data_at(i).data);
-                    time_val->to_string(buf);
-                    _plain_text_outstream << buf;
-                    break;
-                }
-                case TYPE_OBJECT:
-                case TYPE_HLL: {
-                    if (!_output_object_data) {
-                        _plain_text_outstream << NULL_IN_CSV;
-                        break;
-                    }
-                    [[fallthrough]];
-                }
-                case TYPE_VARCHAR:
-                case TYPE_CHAR:
-                case TYPE_STRING: {
-                    auto value = col.column->get_data_at(i);
-                    _plain_text_outstream << value;
-                    break;
-                }
-                case TYPE_DECIMALV2: {
-                    const DecimalV2Value decimal_val(
-                            reinterpret_cast<const PackedInt128*>(col.column->get_data_at(i).data)
-                                    ->value);
-                    std::string decimal_str;
-                    decimal_str = decimal_val.to_string();
-                    _plain_text_outstream << decimal_str;
-                    break;
-                }
-                case TYPE_DECIMAL32: {
-                    _plain_text_outstream << col.type->to_string(*col.column, i);
-                    break;
-                }
-                case TYPE_DECIMAL64: {
-                    _plain_text_outstream << col.type->to_string(*col.column, i);
-                    break;
-                }
-                case TYPE_DECIMAL128I: {
-                    _plain_text_outstream << col.type->to_string(*col.column, i);
-                    break;
-                }
-                case TYPE_ARRAY: {
-                    _plain_text_outstream << col.type->to_string(*col.column, i);
-                    break;
-                }
-                case TYPE_MAP: {
-                    _plain_text_outstream << col.type->to_string(*col.column, i);
-                    break;
-                }
-                case TYPE_STRUCT: {
-                    _plain_text_outstream << col.type->to_string(*col.column, i);
-                    break;
-                }
-                default: {
-                    // not supported type, like BITMAP, just export null
-                    _plain_text_outstream << NULL_IN_CSV;
-                }
-                }
-            }
-            if (col_id < block.columns() - 1) {
-                _plain_text_outstream << _file_opts->column_separator;
-            }
-        }
-        _plain_text_outstream << _file_opts->line_delimiter;
-    }
-
-    return _flush_plain_text_outstream(true);
-}
-
-std::string VFileResultWriter::gen_types() {
-    std::string types;
-    int num_columns = _vec_output_expr_ctxs.size();
-    for (int i = 0; i < num_columns; ++i) {
-        types += type_to_string(_vec_output_expr_ctxs[i]->root()->type().type);
-        if (i < num_columns - 1) {
-            types += _file_opts->column_separator;
-        }
-    }
-    types += _file_opts->line_delimiter;
-    return types;
-}
-
-Status VFileResultWriter::write_csv_header() {
-    if (!_header_sent && _header.size() > 0) {
-        std::string tmp_header(_header);
-        if (_header_type == BeConsts::CSV_WITH_NAMES_AND_TYPES) {
-            tmp_header += gen_types();
-        }
-        RETURN_IF_ERROR(_file_writer_impl->append(tmp_header));
-        _header_sent = true;
-    }
-    return Status::OK();
-}
-
-Status VFileResultWriter::_flush_plain_text_outstream(bool eos) {
-    SCOPED_TIMER(_file_write_timer);
-    size_t pos = _plain_text_outstream.tellp();
-    if (pos == 0 || (pos < OUTSTREAM_BUFFER_SIZE_BYTES && !eos)) {
-        return Status::OK();
-    }
-
-    const std::string& buf = _plain_text_outstream.str();
-    size_t written_len = buf.size();
-    RETURN_IF_ERROR(_file_writer_impl->append(buf));
-    COUNTER_UPDATE(_written_data_bytes, written_len);
-    _current_written_bytes += written_len;
-
-    // clear the stream
-    _plain_text_outstream.str("");
-    _plain_text_outstream.clear();
-
-    // split file if exceed limit
     return _create_new_file_if_exceed_size();
 }
 
@@ -516,7 +313,7 @@ Status VFileResultWriter::_send_result() {
     result->result_batch.rows.resize(1);
     result->result_batch.rows[0].assign(row_buffer.buf(), row_buffer.length());
 
-    std::map<std::string, string> attach_infos;
+    std::map<std::string, std::string> attach_infos;
     attach_infos.insert(std::make_pair("FileNumber", std::to_string(_file_idx)));
     attach_infos.insert(
             std::make_pair("TotalRows", std::to_string(_written_rows_counter->value())));
@@ -633,7 +430,5 @@ Status VFileResultWriter::close() {
     }
     return _close_file_writer(true);
 }
-
-const string VFileResultWriter::NULL_IN_CSV = "\\N";
 
 } // namespace doris::vectorized

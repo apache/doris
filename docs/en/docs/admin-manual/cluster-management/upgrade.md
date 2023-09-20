@@ -156,38 +156,32 @@ admin set frontend config("disable_tablet_scheduler" = "true");
     echo "cluster_id=123456" >> ${DORIS_NEW_HOME}/conf/fe.conf
     ```
 
-4. Add metadata failover configuration in fe.conf
-
-    ```shell
-    echo "metadata_failure_recovery=true" >> ${DORIS_NEW_HOME}/conf/fe.conf
-    ```
-
-5. Copy the metadata directory doris-meta of the online environment Master FE to the test environment
+4. Copy the metadata directory doris-meta of the online environment Master FE to the test environment
 
     ```shell
     cp ${DORIS_OLD_HOME}/fe/doris-meta/* ${DORIS_NEW_HOME}/fe/doris-meta
     ```
 
-6. Change the cluster_id in the VERSION file copied to the test environment to 123456 (that is, the same as in step 3)
+5. Change the cluster_id in the VERSION file copied to the test environment to 123456 (that is, the same as in step 3)
 
     ```shell
     vi ${DORIS_NEW_HOME}/fe/doris-meta/image/VERSION
     clusterId=123456
     ```
 
-7. In the test environment, run the startup FE
+6. In the test environment, run the startup FE
 
     ```shell
-    sh ${DORIS_NEW_HOME}/bin/start_fe.sh --daemon
+    sh ${DORIS_NEW_HOME}/bin/start_fe.sh --daemon --metadata_failure_recovery
     ```
 
-8. Observe whether the startup is successful through the FE log fe.log
+7. Observe whether the startup is successful through the FE log fe.log
 
     ```shell
     tail -f ${DORIS_NEW_HOME}/log/fe.log
     ```
 
-9. If the startup is successful, it means that there is no problem with the compatibility, stop the FE process of the test environment, and prepare for the upgrade
+8. If the startup is successful, it means that there is no problem with the compatibility, stop the FE process of the test environment, and prepare for the upgrade
 
     ```
     sh ${DORIS_NEW_HOME}/bin/stop_fe.sh

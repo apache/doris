@@ -91,7 +91,9 @@ import org.apache.doris.nereids.types.TimeType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
+import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 import org.apache.doris.nereids.types.coercion.FractionalType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.types.coercion.NumericType;
@@ -183,7 +185,9 @@ public class TypeCoercionUtils {
         // TODO: complete the cast logic like FunctionCallExpr.analyzeImpl
         boolean legacyCastCompatible = false;
         try {
-            legacyCastCompatible = !input.toCatalogDataType().matchesType(expected.toCatalogDataType());
+            if (!(expected instanceof AnyDataType) && !(expected instanceof FollowToAnyDataType)) {
+                legacyCastCompatible = !input.toCatalogDataType().matchesType(expected.toCatalogDataType());
+            }
         } catch (Throwable t) {
             // ignore.
         }
@@ -693,6 +697,11 @@ public class TypeCoercionUtils {
             commonType = DoubleType.INSTANCE;
         }
 
+        if (t1.isDecimalV3Type() && t2.isDecimalV2Type()
+                || t1.isDecimalV2Type() && t2.isDecimalV3Type()) {
+            return processDecimalV3BinaryArithmetic(binaryArithmetic, left, right);
+        }
+
         if (t1.isDecimalV2Type() || t2.isDecimalV2Type()) {
             // to be consitent with old planner
             // see findCommonType() method in ArithmeticExpr.java
@@ -731,26 +740,7 @@ public class TypeCoercionUtils {
 
         // double and float already process, we only process decimalv2 and fixed point number.
         if (t1 instanceof DecimalV3Type || t2 instanceof DecimalV3Type) {
-            DecimalV3Type dt1 = DecimalV3Type.forType(t1);
-            DecimalV3Type dt2 = DecimalV3Type.forType(t2);
-
-            // check return type whether overflow, if true, turn to double
-            DecimalV3Type retType;
-            try {
-                retType = binaryArithmetic.getDataTypeForDecimalV3(dt1, dt2);
-            } catch (Exception e) {
-                // exception means overflow.
-                return castChildren(binaryArithmetic, left, right, DoubleType.INSTANCE);
-            }
-
-            // add, subtract and mod should cast children to exactly same type as return type
-            if (binaryArithmetic instanceof Add
-                    || binaryArithmetic instanceof Subtract
-                    || binaryArithmetic instanceof Mod) {
-                return castChildren(binaryArithmetic, left, right, retType);
-            }
-            // multiply do not need to cast children to same type
-            return binaryArithmetic.withChildren(castIfNotSameType(left, dt1), castIfNotSameType(right, dt2));
+            return processDecimalV3BinaryArithmetic(binaryArithmetic, left, right);
         }
 
         // double, float and decimalv3 already process, we only process fixed point number
@@ -1438,5 +1428,31 @@ public class TypeCoercionUtils {
         } catch (Throwable t) {
             throw new AnalysisException(t.getMessage());
         }
+    }
+
+    private static Expression processDecimalV3BinaryArithmetic(BinaryArithmetic binaryArithmetic,
+            Expression left, Expression right) {
+        DecimalV3Type dt1 =
+                DecimalV3Type.forType(TypeCoercionUtils.getNumResultType(left.getDataType()));
+        DecimalV3Type dt2 =
+                DecimalV3Type.forType(TypeCoercionUtils.getNumResultType(right.getDataType()));
+
+        // check return type whether overflow, if true, turn to double
+        DecimalV3Type retType;
+        try {
+            retType = binaryArithmetic.getDataTypeForDecimalV3(dt1, dt2);
+        } catch (Exception e) {
+            // exception means overflow.
+            return castChildren(binaryArithmetic, left, right, DoubleType.INSTANCE);
+        }
+
+        // add, subtract and mod should cast children to exactly same type as return type
+        if (binaryArithmetic instanceof Add || binaryArithmetic instanceof Subtract
+                || binaryArithmetic instanceof Mod) {
+            return castChildren(binaryArithmetic, left, right, retType);
+        }
+        // multiply do not need to cast children to same type
+        return binaryArithmetic.withChildren(castIfNotSameType(left, dt1),
+                castIfNotSameType(right, dt2));
     }
 }

@@ -117,6 +117,37 @@ public class AlterTest {
                 + "    PARTITION p2 values less than('2020-03-01')\n" + ")\n" + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n"
                 + "PROPERTIES('replication_num' = '1');");
 
+        createTable("CREATE TABLE test.colocate_tbl1\n" + "(\n" + "    k1 date,\n" + "    k2 int,\n" + "    v1 int \n"
+                + ") ENGINE=OLAP\n" + "UNIQUE KEY (k1,k2)\n"
+                + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n"
+                + "PROPERTIES('replication_num' = '1', 'colocate_with' = 'group_1');");
+
+        createTable("CREATE TABLE test.colocate_tbl2\n" + "(\n" + "    k1 date,\n" + "    k2 int,\n" + "    v1 int \n"
+                + ") ENGINE=OLAP\n" + "UNIQUE KEY (k1,k2)\n" + "PARTITION BY RANGE(k1)\n" + "(\n"
+                + "    PARTITION p1 values less than('2020-02-01'),\n"
+                + "    PARTITION p2 values less than('2020-03-01')\n" + ")\n" + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n"
+                + "PROPERTIES('replication_num' = '1', 'colocate_with' = 'group_2');");
+
+        createTable("CREATE TABLE test.colocate_tbl3 (\n"
+                + "`uuid` varchar(255) NULL,\n"
+                + "`action_datetime` date NULL\n"
+                + ")\n"
+                + "DUPLICATE KEY(uuid)\n"
+                + "PARTITION BY RANGE(action_datetime)()\n"
+                + "DISTRIBUTED BY HASH(uuid) BUCKETS 3\n"
+                + "PROPERTIES\n"
+                + "(\n"
+                + "\"colocate_with\" = \"group_3\",\n"
+                + "\"dynamic_partition.enable\" = \"true\",\n"
+                + "\"dynamic_partition.time_unit\" = \"DAY\",\n"
+                + "\"dynamic_partition.end\" = \"3\",\n"
+                + "\"dynamic_partition.prefix\" = \"p\",\n"
+                + "\"dynamic_partition.buckets\" = \"32\",\n"
+                + "\"dynamic_partition.replication_num\" = \"1\",\n"
+                + "\"dynamic_partition.create_history_partition\"=\"true\",\n"
+                + "\"dynamic_partition.start\" = \"-3\"\n"
+                + ");\n");
+
         createTable(
                 "CREATE TABLE test.tbl6\n" + "(\n" + "    k1 datetime(3),\n" + "    k2 datetime(3),\n"
                         + "    v1 int \n,"
@@ -250,6 +281,36 @@ public class AlterTest {
 
         stmt = "alter table test.tbl5 enable feature \"SEQUENCE_LOAD\" with properties (\"function_column.sequence_type\" = \"double\") ";
         alterTable(stmt, true);
+    }
+
+    @Test
+    public void alterTableModifyRepliaAlloc() throws Exception {
+        String[] tables = new String[]{"test.colocate_tbl1", "test.colocate_tbl2"};
+        final String errChangeReplicaAlloc = "Cannot change replication allocation of colocate table";
+        for (int i = 0; i < tables.length; i++) {
+            String sql = "alter table " + tables[i] + " set ('default.replication_allocation' = 'tag.location.default:1')";
+            AlterTableStmt alterTableStmt2 = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+            ExceptionChecker.expectThrowsWithMsg(DdlException.class, errChangeReplicaAlloc,
+                    () -> Env.getCurrentEnv().alterTable(alterTableStmt2));
+
+            sql = "alter table " + tables[i] + " modify partition (*) set (\n"
+                + "'replication_allocation' = 'tag.location.default:1')";
+            AlterTableStmt alterTableStmt3 = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+            ExceptionChecker.expectThrowsWithMsg(DdlException.class, errChangeReplicaAlloc,
+                    () -> Env.getCurrentEnv().alterTable(alterTableStmt3));
+        }
+
+        String sql = "alter table test.colocate_tbl1 set ('replication_allocation' = 'tag.location.default:1')";
+        AlterTableStmt alterTableStmt1 = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, errChangeReplicaAlloc,
+                () -> Env.getCurrentEnv().alterTable(alterTableStmt1));
+
+        sql = "alter table test.colocate_tbl3 set (\n"
+            + "'dynamic_partition.replication_allocation' = 'tag.location.default:1'\n"
+            + " );";
+        AlterTableStmt alterTableStmt4 = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, errChangeReplicaAlloc,
+                () -> Env.getCurrentEnv().alterTable(alterTableStmt4));
     }
 
     @Test

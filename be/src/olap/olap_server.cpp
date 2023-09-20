@@ -46,7 +46,6 @@
 #include "gen_cpp/Types_constants.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "gutil/ref_counted.h"
-#include "io/cache/file_cache_manager.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "io/fs/path.h"
 #include "olap/cold_data_compaction.h"
@@ -84,7 +83,6 @@ using std::string;
 
 namespace doris {
 
-using io::FileCacheManager;
 using io::Path;
 
 // number of running SCHEMA-CHANGE threads
@@ -227,12 +225,6 @@ Status StorageEngine::start_bg_threads() {
             &_cold_data_compaction_producer_thread));
     LOG(INFO) << "cold data compaction producer thread started";
 
-    RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "cache_file_cleaner_tasks_producer_thread",
-            [this]() { this->_cache_file_cleaner_tasks_producer_callback(); },
-            &_cache_file_cleaner_tasks_producer_thread));
-    LOG(INFO) << "cache file cleaner tasks producer thread started";
-
     // add tablet publish version thread pool
     ThreadPoolBuilder("TabletPublishTxnThreadPool")
             .set_min_threads(config::tablet_publish_txn_max_thread)
@@ -304,6 +296,10 @@ void StorageEngine::_garbage_sweeper_thread_callback() {
 
         // start clean trash and update usage.
         Status res = start_trash_sweep(&usage);
+        if (res.ok() && _need_clean_trash.exchange(false, std::memory_order_relaxed)) {
+            res = start_trash_sweep(&usage, true);
+        }
+
         if (!res.ok()) {
             LOG(WARNING) << "one or more errors occur when sweep trash."
                          << "see previous message for detail. err code=" << res;
@@ -1203,24 +1199,6 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
                 }
             });
         }
-    }
-}
-
-void StorageEngine::_cache_file_cleaner_tasks_producer_callback() {
-    while (true) {
-        int64_t interval = config::generate_cache_cleaner_task_interval_sec;
-        if (interval <= 0) {
-            interval = 10;
-        }
-        bool stop = _stop_background_threads_latch.wait_for(std::chrono::seconds(interval));
-        if (stop) {
-            break;
-        }
-        if (config::generate_cache_cleaner_task_interval_sec <= 0) {
-            continue;
-        }
-        LOG(INFO) << "Begin to Clean cache files";
-        FileCacheManager::instance()->gc_file_caches();
     }
 }
 

@@ -27,6 +27,9 @@ under the License.
 ## QUANTILE_STATE
 ### description
     QUANTILE_STATE
+
+  **在2.0中我们支持了[agg_state](AGG_STATE.md)功能，推荐使用agg_state quantile_union(quantile_state not null)来代替本类型。**
+
     QUANTILE_STATE不能作为key列使用，建表时配合聚合类型为QUANTILE_UNION。
     用户不需要指定长度和默认值。长度根据数据的聚合程度系统内控制。
     并且QUANTILE_STATE列只能通过配套的QUANTILE_PERCENT、QUANTILE_UNION、TO_QUANTILE_STATE等函数进行查询或使用。
@@ -39,7 +42,7 @@ under the License.
       此函数为聚合函数，用于将不同的分位数计算中间结果进行聚合操作。此函数返回的结果仍是QUANTILE_STATE
     
       
-      TO_QUANTILE_STATE(INT/FLOAT/DOUBLE raw_data [,FLOAT compression]):
+      TO_QUANTILE_STATE(DOUBLE raw_data [,FLOAT compression]):
       此函数将数值类型转化成QUANTILE_STATE类型
       compression参数是可选项，可设置范围是[2048, 10000]，值越大，后续分位数近似计算的精度越高，内存消耗越大，计算耗时越长。 
       compression参数未指定或设置的值在[2048, 10000]范围外，以2048的默认值运行

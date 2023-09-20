@@ -116,7 +116,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                                         ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(value))))
                         ).when(FieldChecker.check("conjuncts", ImmutableSet.of(new GreaterThan(value.toSlot(), new TinyIntLiteral((byte) 0))))));
 
-        sql = "SELECT SUM(a2) FROM t1 GROUP BY a1 HAVING a1 > 0";
+        sql = "SELECT sum(a2) FROM t1 GROUP BY a1 HAVING a1 > 0";
         a1 = new SlotReference(
                 new ExprId(1), "a1", TinyIntType.INSTANCE, true,
                 ImmutableList.of("default_cluster:test_resolve_aggregate_functions", "t1")
@@ -125,7 +125,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                 new ExprId(2), "a2", TinyIntType.INSTANCE, true,
                 ImmutableList.of("default_cluster:test_resolve_aggregate_functions", "t1")
         );
-        Alias sumA2 = new Alias(new ExprId(3), new Sum(a2), "SUM(a2)");
+        Alias sumA2 = new Alias(new ExprId(3), new Sum(a2), "sum(a2)");
         PlanChecker.from(connectContext).analyze(sql)
                 .applyBottomUp(new ExpressionRewrite(FunctionBinder.INSTANCE))
                 .matches(
@@ -141,7 +141,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
 
     @Test
     public void testHavingAggregateFunction() {
-        String sql = "SELECT a1 FROM t1 GROUP BY a1 HAVING SUM(a2) > 0";
+        String sql = "SELECT a1 FROM t1 GROUP BY a1 HAVING sum(a2) > 0";
         SlotReference a1 = new SlotReference(
                 new ExprId(1), "a1", TinyIntType.INSTANCE, true,
                 ImmutableList.of("default_cluster:test_resolve_aggregate_functions", "t1")
@@ -162,8 +162,8 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                                 ).when(FieldChecker.check("conjuncts", ImmutableSet.of(new GreaterThan(sumA2.toSlot(), Literal.of(0L)))))
                         ).when(FieldChecker.check("projects", Lists.newArrayList(a1.toSlot()))));
 
-        sql = "SELECT a1, SUM(a2) FROM t1 GROUP BY a1 HAVING SUM(a2) > 0";
-        sumA2 = new Alias(new ExprId(3), new Sum(a2), "SUM(a2)");
+        sql = "SELECT a1, sum(a2) FROM t1 GROUP BY a1 HAVING sum(a2) > 0";
+        sumA2 = new Alias(new ExprId(3), new Sum(a2), "sum(a2)");
         PlanChecker.from(connectContext).analyze(sql)
                 .matches(
                         logicalProject(
@@ -176,7 +176,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                                                 ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA2))))
                                 ).when(FieldChecker.check("conjuncts", ImmutableSet.of(new GreaterThan(sumA2.toSlot(), Literal.of(0L)))))));
 
-        sql = "SELECT a1, SUM(a2) as value FROM t1 GROUP BY a1 HAVING SUM(a2) > 0";
+        sql = "SELECT a1, sum(a2) as value FROM t1 GROUP BY a1 HAVING sum(a2) > 0";
         a1 = new SlotReference(
                 new ExprId(1), "a1", TinyIntType.INSTANCE, true,
                 ImmutableList.of("default_cluster:test_resolve_aggregate_functions", "t1")
@@ -197,7 +197,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                                                 ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, value))))
                                 ).when(FieldChecker.check("conjuncts", ImmutableSet.of(new GreaterThan(value.toSlot(), Literal.of(0L)))))));
 
-        sql = "SELECT a1, SUM(a2) as value FROM t1 GROUP BY a1 HAVING value > 0";
+        sql = "SELECT a1, sum(a2) as value FROM t1 GROUP BY a1 HAVING value > 0";
         PlanChecker.from(connectContext).analyze(sql)
                 .matches(
                         logicalFilter(
@@ -208,7 +208,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                                         ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, value))))
                         ).when(FieldChecker.check("conjuncts", ImmutableSet.of(new GreaterThan(value.toSlot(), Literal.of(0L))))));
 
-        sql = "SELECT a1, SUM(a2) FROM t1 GROUP BY a1 HAVING MIN(pk) > 0";
+        sql = "SELECT a1, sum(a2) FROM t1 GROUP BY a1 HAVING MIN(pk) > 0";
         a1 = new SlotReference(
                 new ExprId(1), "a1", TinyIntType.INSTANCE, true,
                 ImmutableList.of("default_cluster:test_resolve_aggregate_functions", "t1")
@@ -217,7 +217,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                 new ExprId(2), "a2", TinyIntType.INSTANCE, true,
                 ImmutableList.of("default_cluster:test_resolve_aggregate_functions", "t1")
         );
-        sumA2 = new Alias(new ExprId(3), new Sum(a2), "SUM(a2)");
+        sumA2 = new Alias(new ExprId(3), new Sum(a2), "sum(a2)");
         SlotReference pk = new SlotReference(
                 new ExprId(0), "pk", TinyIntType.INSTANCE, true,
                 ImmutableList.of("default_cluster:test_resolve_aggregate_functions", "t1")
@@ -234,8 +234,8 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                                 ).when(FieldChecker.check("conjuncts", ImmutableSet.of(new GreaterThan(minPK.toSlot(), Literal.of((byte) 0)))))
                         ).when(FieldChecker.check("projects", Lists.newArrayList(a1.toSlot(), sumA2.toSlot()))));
 
-        sql = "SELECT a1, SUM(a1 + a2) FROM t1 GROUP BY a1 HAVING SUM(a1 + a2) > 0";
-        Alias sumA1A2 = new Alias(new ExprId(3), new Sum(new Add(a1, a2)), "SUM((a1 + a2))");
+        sql = "SELECT a1, sum(a1 + a2) FROM t1 GROUP BY a1 HAVING sum(a1 + a2) > 0";
+        Alias sumA1A2 = new Alias(new ExprId(3), new Sum(new Add(a1, a2)), "sum((a1 + a2))");
         PlanChecker.from(connectContext).analyze(sql)
                 .matches(
                         logicalProject(
@@ -246,7 +246,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                                                 ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA1A2))))
                                 ).when(FieldChecker.check("conjuncts", ImmutableSet.of(new GreaterThan(sumA1A2.toSlot(), Literal.of(0L)))))));
 
-        sql = "SELECT a1, SUM(a1 + a2) FROM t1 GROUP BY a1 HAVING SUM(a1 + a2 + 3) > 0";
+        sql = "SELECT a1, sum(a1 + a2) FROM t1 GROUP BY a1 HAVING sum(a1 + a2 + 3) > 0";
         Alias sumA1A23 = new Alias(new ExprId(4), new Sum(new Add(new Add(a1, a2), new TinyIntLiteral((byte) 3))),
                 "sum(((a1 + a2) + 3))");
         PlanChecker.from(connectContext).analyze(sql)
@@ -260,7 +260,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                                 ).when(FieldChecker.check("conjuncts", ImmutableSet.of(new GreaterThan(sumA1A23.toSlot(), Literal.of(0L)))))
                         ).when(FieldChecker.check("projects", Lists.newArrayList(a1.toSlot(), sumA1A2.toSlot()))));
 
-        sql = "SELECT a1 FROM t1 GROUP BY a1 HAVING COUNT(*) > 0";
+        sql = "SELECT a1 FROM t1 GROUP BY a1 HAVING count(*) > 0";
         Alias countStar = new Alias(new ExprId(3), new Count(), "count(*)");
         PlanChecker.from(connectContext).analyze(sql)
                 .matches(
@@ -276,7 +276,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
 
     @Test
     void testJoinWithHaving() {
-        String sql = "SELECT a1, sum(a2) FROM t1, t2 WHERE t1.pk = t2.pk GROUP BY a1 HAVING a1 > SUM(b1)";
+        String sql = "SELECT a1, sum(a2) FROM t1, t2 WHERE t1.pk = t2.pk GROUP BY a1 HAVING a1 > sum(b1)";
         SlotReference a1 = new SlotReference(
                 new ExprId(1), "a1", TinyIntType.INSTANCE, true,
                 ImmutableList.of("default_cluster:test_resolve_aggregate_functions", "t1")
@@ -324,7 +324,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                 "Aggregate functions in having clause can't be nested:"
                         + " sum((cast(a1 as DOUBLE) + avg(a2))).",
                 () -> PlanChecker.from(connectContext).analyze(
-                        "SELECT a1 FROM t1 GROUP BY a1 HAVING SUM(a1 + AVG(a2)) > 0"
+                        "SELECT a1 FROM t1 GROUP BY a1 HAVING sum(a1 + AVG(a2)) > 0"
                 ));
 
         ExceptionChecker.expectThrowsWithMsg(
@@ -332,15 +332,15 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                 "Aggregate functions in having clause can't be nested:"
                         + " sum((cast((a1 + a2) as DOUBLE) + avg(a2))).",
                 () -> PlanChecker.from(connectContext).analyze(
-                        "SELECT a1 FROM t1 GROUP BY a1 HAVING SUM(a1 + a2 + AVG(a2)) > 0"
+                        "SELECT a1 FROM t1 GROUP BY a1 HAVING sum(a1 + a2 + AVG(a2)) > 0"
                 ));
     }
 
     @Test
     void testComplexQueryWithHaving() {
-        String sql = "SELECT t1.pk + 1, t1.pk + 1 + 1, t1.pk + 2, SUM(a1), COUNT(a1) + 1, SUM(a1 + a2), COUNT(a2) as v1\n"
+        String sql = "SELECT t1.pk + 1, t1.pk + 1 + 1, t1.pk + 2, sum(a1), count(a1) + 1, sum(a1 + a2), count(a2) as v1\n"
                 + "FROM t1, t2 WHERE t1.pk = t2.pk GROUP BY t1.pk, t1.pk + 1\n"
-                + "HAVING t1.pk > 0 AND COUNT(a1) + 1 > 0 AND SUM(a1 + a2) + 1 > 0 AND v1 + 1 > 0 AND v1 > 0";
+                + "HAVING t1.pk > 0 AND count(a1) + 1 > 0 AND sum(a1 + a2) + 1 > 0 AND v1 + 1 > 0 AND v1 > 0";
         SlotReference pk = new SlotReference(
                 new ExprId(0), "pk", TinyIntType.INSTANCE, true,
                 ImmutableList.of("default_cluster:test_resolve_aggregate_functions", "t1")
@@ -359,10 +359,10 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         );
         Alias pk11 = new Alias(new ExprId(7), new Add(new Add(pk, Literal.of((byte) 1)), Literal.of((byte) 1)), "((pk + 1) + 1)");
         Alias pk2 = new Alias(new ExprId(8), new Add(pk, Literal.of((byte) 2)), "(pk + 2)");
-        Alias sumA1 = new Alias(new ExprId(9), new Sum(a1), "SUM(a1)");
+        Alias sumA1 = new Alias(new ExprId(9), new Sum(a1), "sum(a1)");
         Alias countA1 = new Alias(new ExprId(13), new Count(a1), "count(a1)");
-        Alias countA11 = new Alias(new ExprId(10), new Add(countA1.toSlot(), Literal.of((byte) 1)), "(COUNT(a1) + 1)");
-        Alias sumA1A2 = new Alias(new ExprId(11), new Sum(new Add(a1, a2)), "SUM((a1 + a2))");
+        Alias countA11 = new Alias(new ExprId(10), new Add(countA1.toSlot(), Literal.of((byte) 1)), "(count(a1) + 1)");
+        Alias sumA1A2 = new Alias(new ExprId(11), new Sum(new Add(a1, a2)), "sum((a1 + a2))");
         Alias v1 = new Alias(new ExprId(12), new Count(a2), "v1");
         PlanChecker.from(connectContext).analyze(sql)
                 .matches(
@@ -397,7 +397,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
 
     @Test
     public void testSortAggregateFunction() {
-        String sql = "SELECT a1 FROM t1 GROUP BY a1 ORDER BY SUM(a2)";
+        String sql = "SELECT a1 FROM t1 GROUP BY a1 ORDER BY sum(a2)";
         SlotReference a1 = new SlotReference(
                 new ExprId(1), "a1", TinyIntType.INSTANCE, true,
                 ImmutableList.of("default_cluster:test_resolve_aggregate_functions", "t1")
@@ -418,8 +418,8 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                                 ).when(FieldChecker.check("orderKeys", ImmutableList.of(new OrderKey(sumA2.toSlot(), true, true))))
                         ).when(FieldChecker.check("projects", Lists.newArrayList(a1.toSlot()))));
 
-        sql = "SELECT a1, SUM(a2) FROM t1 GROUP BY a1 ORDER BY SUM(a2)";
-        sumA2 = new Alias(new ExprId(3), new Sum(a2), "SUM(a2)");
+        sql = "SELECT a1, sum(a2) FROM t1 GROUP BY a1 ORDER BY sum(a2)";
+        sumA2 = new Alias(new ExprId(3), new Sum(a2), "sum(a2)");
         PlanChecker.from(connectContext).analyze(sql)
                 .matches(
                         logicalSort(
@@ -429,7 +429,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                                         ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA2))))
                         ).when(FieldChecker.check("orderKeys", ImmutableList.of(new OrderKey(sumA2.toSlot(), true, true)))));
 
-        sql = "SELECT a1, SUM(a2) as value FROM t1 GROUP BY a1 ORDER BY SUM(a2)";
+        sql = "SELECT a1, sum(a2) as value FROM t1 GROUP BY a1 ORDER BY sum(a2)";
         a1 = new SlotReference(
                 new ExprId(1), "a1", TinyIntType.INSTANCE, true,
                 ImmutableList.of("default_cluster:test_resolve_aggregate_functions", "t1")
@@ -448,7 +448,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                                         ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, value))))
                         ).when(FieldChecker.check("orderKeys", ImmutableList.of(new OrderKey(sumA2.toSlot(), true, true)))));
 
-        sql = "SELECT a1, SUM(a2) FROM t1 GROUP BY a1 ORDER BY MIN(pk)";
+        sql = "SELECT a1, sum(a2) FROM t1 GROUP BY a1 ORDER BY MIN(pk)";
         a1 = new SlotReference(
                 new ExprId(1), "a1", TinyIntType.INSTANCE, true,
                 ImmutableList.of("default_cluster:test_resolve_aggregate_functions", "t1")
@@ -457,7 +457,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                 new ExprId(2), "a2", TinyIntType.INSTANCE, true,
                 ImmutableList.of("default_cluster:test_resolve_aggregate_functions", "t1")
         );
-        sumA2 = new Alias(new ExprId(3), new Sum(a2), "SUM(a2)");
+        sumA2 = new Alias(new ExprId(3), new Sum(a2), "sum(a2)");
         SlotReference pk = new SlotReference(
                 new ExprId(0), "pk", TinyIntType.INSTANCE, true,
                 ImmutableList.of("default_cluster:test_resolve_aggregate_functions", "t1")
@@ -474,8 +474,8 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                                 ).when(FieldChecker.check("orderKeys", ImmutableList.of(new OrderKey(minPK.toSlot(), true, true))))
                         ).when(FieldChecker.check("projects", Lists.newArrayList(a1.toSlot(), sumA2.toSlot()))));
 
-        sql = "SELECT a1, SUM(a1 + a2) FROM t1 GROUP BY a1 ORDER BY SUM(a1 + a2)";
-        Alias sumA1A2 = new Alias(new ExprId(3), new Sum(new Add(a1, a2)), "SUM((a1 + a2))");
+        sql = "SELECT a1, sum(a1 + a2) FROM t1 GROUP BY a1 ORDER BY sum(a1 + a2)";
+        Alias sumA1A2 = new Alias(new ExprId(3), new Sum(new Add(a1, a2)), "sum((a1 + a2))");
         PlanChecker.from(connectContext).analyze(sql)
                 .matches(
                         logicalSort(
@@ -485,7 +485,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                                         ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA1A2))))
                         ).when(FieldChecker.check("orderKeys", ImmutableList.of(new OrderKey(sumA1A2.toSlot(), true, true)))));
 
-        sql = "SELECT a1, SUM(a1 + a2) FROM t1 GROUP BY a1 ORDER BY SUM(a1 + a2 + 3)";
+        sql = "SELECT a1, sum(a1 + a2) FROM t1 GROUP BY a1 ORDER BY sum(a1 + a2 + 3)";
         Alias sumA1A23 = new Alias(new ExprId(4), new Sum(new Add(new Add(a1, a2), new TinyIntLiteral((byte) 3))),
                 "sum(((a1 + a2) + 3))");
         PlanChecker.from(connectContext).analyze(sql)
@@ -499,7 +499,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                                 ).when(FieldChecker.check("orderKeys", ImmutableList.of(new OrderKey(sumA1A23.toSlot(), true, true))))
                         ).when(FieldChecker.check("projects", Lists.newArrayList(a1.toSlot(), sumA1A2.toSlot()))));
 
-        sql = "SELECT a1 FROM t1 GROUP BY a1 ORDER BY COUNT(*)";
+        sql = "SELECT a1 FROM t1 GROUP BY a1 ORDER BY count(*)";
         Alias countStar = new Alias(new ExprId(3), new Count(), "count(*)");
         PlanChecker.from(connectContext).analyze(sql)
                 .matches(
@@ -515,9 +515,9 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
 
     @Test
     void testComplexQueryWithOrderBy() {
-        String sql = "SELECT t1.pk + 1, t1.pk + 1 + 1, t1.pk + 2, SUM(a1), COUNT(a1) + 1, SUM(a1 + a2), COUNT(a2) as v1\n"
+        String sql = "SELECT t1.pk + 1, t1.pk + 1 + 1, t1.pk + 2, sum(a1), count(a1) + 1, sum(a1 + a2), count(a2) as v1\n"
                 + "FROM t1, t2 WHERE t1.pk = t2.pk GROUP BY t1.pk, t1.pk + 1\n"
-                + "ORDER BY t1.pk, COUNT(a1) + 1, SUM(a1 + a2) + 1, v1 + 1, v1";
+                + "ORDER BY t1.pk, count(a1) + 1, sum(a1 + a2) + 1, v1 + 1, v1";
         SlotReference pk = new SlotReference(
                 new ExprId(0), "pk", TinyIntType.INSTANCE, true,
                 ImmutableList.of("default_cluster:test_resolve_aggregate_functions", "t1")
@@ -536,10 +536,10 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         );
         Alias pk11 = new Alias(new ExprId(7), new Add(new Add(pk, Literal.of((byte) 1)), Literal.of((byte) 1)), "((pk + 1) + 1)");
         Alias pk2 = new Alias(new ExprId(8), new Add(pk, Literal.of((byte) 2)), "(pk + 2)");
-        Alias sumA1 = new Alias(new ExprId(9), new Sum(a1), "SUM(a1)");
+        Alias sumA1 = new Alias(new ExprId(9), new Sum(a1), "sum(a1)");
         Alias countA1 = new Alias(new ExprId(13), new Count(a1), "count(a1)");
-        Alias countA11 = new Alias(new ExprId(10), new Add(new Count(a1), Literal.of((byte) 1)), "(COUNT(a1) + 1)");
-        Alias sumA1A2 = new Alias(new ExprId(11), new Sum(new Add(a1, a2)), "SUM((a1 + a2))");
+        Alias countA11 = new Alias(new ExprId(10), new Add(new Count(a1), Literal.of((byte) 1)), "(count(a1) + 1)");
+        Alias sumA1A2 = new Alias(new ExprId(11), new Sum(new Add(a1, a2)), "sum((a1 + a2))");
         Alias v1 = new Alias(new ExprId(12), new Count(a2), "v1");
         PlanChecker.from(connectContext).analyze(sql)
                 .matches(logicalProject(logicalSort(logicalProject(logicalAggregate(logicalProject(
@@ -573,7 +573,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
 
     @Test
     void testSortHavingAgg() {
-        String sql = "SELECT pk FROM t1 GROUP BY pk HAVING SUM(a1) > (SELECT AVG(a1) FROM t1) ORDER BY SUM(a1)";
+        String sql = "SELECT pk FROM t1 GROUP BY pk HAVING sum(a1) > (SELECT AVG(a1) FROM t1) ORDER BY sum(a1)";
         PlanChecker.from(connectContext).analyze(sql)
                 .matches(logicalFilter());
     }

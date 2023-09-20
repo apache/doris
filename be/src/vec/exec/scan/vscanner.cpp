@@ -62,11 +62,6 @@ Status VScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts
 }
 
 Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
-    // debug case failure, to be removed
-    if (state->enable_profile()) {
-        LOG(WARNING) << "debug case failure " << print_id(state->query_id()) << " "
-                     << _parent->get_name() << ": VScanner::get_block";
-    }
     // only empty block should be here
     DCHECK(block->rows() == 0);
     // scanner running time
@@ -135,6 +130,12 @@ Status VScanner::_filter_output_block(Block* block) {
     auto old_rows = block->rows();
     Status st = VExprContext::filter_block(_conjuncts, block, block->columns());
     _counter.num_rows_unselected += old_rows - block->rows();
+    auto all_column_names = block->get_names();
+    for (auto& name : all_column_names) {
+        if (name.rfind(BeConsts::BLOCK_TEMP_COLUMN_PREFIX, 0) == 0) {
+            block->erase(name);
+        }
+    }
     return st;
 }
 

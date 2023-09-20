@@ -47,6 +47,8 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
@@ -74,7 +76,7 @@ import java.util.stream.Collectors;
  */
 public class RuntimeFilterGenerator extends PlanPostProcessor {
 
-    private static final ImmutableSet<JoinType> DENIED_JOIN_TYPES = ImmutableSet.of(
+    public static final ImmutableSet<JoinType> DENIED_JOIN_TYPES = ImmutableSet.of(
             JoinType.LEFT_ANTI_JOIN,
             JoinType.FULL_OUTER_JOIN,
             JoinType.LEFT_OUTER_JOIN,
@@ -110,33 +112,13 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
     public PhysicalPlan visitPhysicalHashJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> join,
             CascadesContext context) {
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
-        Map<NamedExpression, Pair<PhysicalRelation, Slot>> aliasTransferMap = ctx.getAliasTransferMap();
         join.right().accept(this, context);
         join.left().accept(this, context);
-        if (DENIED_JOIN_TYPES.contains(join.getJoinType()) || join.isMarkJoin()) {
-            // aliasTransMap is also used for judging whether the slot can be as rf target.
-            // for denied join type, the forbidden slots will be removed from the map.
-            // for example: a full outer join b on a.id = b.id, all slots will be removed out.
-            // for left outer join, only remove the right side slots and leave the left side.
-            // in later visit, the additional checking for the join type will be invoked for different cases:
-            // case 1: a left join b on a.id = b.id, checking whether rf on b.id can be pushed to a, the answer is no,
-            //         since current join type is left outer join which is in denied list;
-            // case 2: (a left join b on a.id = b.id) inner join c on a.id2 = c.id2, checking whether rf on c.id2 can
-            //         be pushed to a, the answer is yes, since the current join is inner join which is permitted.
-            if (join.getJoinType() == JoinType.LEFT_OUTER_JOIN) {
-                Set<Slot> slots = join.right().getOutputSet();
-                slots.forEach(aliasTransferMap::remove);
-            } else {
-                Set<Slot> slots = join.getOutputSet();
-                slots.forEach(aliasTransferMap::remove);
-            }
+        collectPushDownCTEInfos(join, context);
+        if (!getPushDownCTECandidates(ctx).isEmpty()) {
+            pushDownRuntimeFilterIntoCTE(ctx);
         } else {
-            collectPushDownCTEInfos(join, context);
-            if (!getPushDownCTECandidates(ctx).isEmpty()) {
-                pushDownRuntimeFilterIntoCTE(ctx);
-            } else {
-                pushDownRuntimeFilterCommon(join, context);
-            }
+            pushDownRuntimeFilterCommon(join, context);
         }
         return join;
     }
@@ -528,9 +510,30 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                     for (Slot slot : targetList) {
                         ctx.setTargetExprIdToFilter(slot.getExprId(), filter);
                     }
+                    ctx.setRuntimeFilterIdentityToFilter(equalTo.right(), type, join, filter);
                 }
             }
         }
+    }
+
+    @Override
+    public PhysicalPlan visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, CascadesContext context) {
+        topN.child().accept(this, context);
+        PhysicalPlan child = (PhysicalPlan) topN.child();
+        for (Slot slot : child.getOutput()) {
+            context.getRuntimeFilterContext().getAliasTransferMap().remove(slot);
+        }
+        return topN;
+    }
+
+    @Override
+    public PhysicalPlan visitPhysicalWindow(PhysicalWindow<? extends Plan> window, CascadesContext context) {
+        window.child().accept(this, context);
+        Set<SlotReference> commonPartitionKeys = window.getCommonPartitionKeyFromWindowExpressions();
+        window.child().getOutput().stream().filter(slot -> !commonPartitionKeys.contains(slot)).forEach(
+                slot -> context.getRuntimeFilterContext().getAliasTransferMap().remove(slot)
+        );
+        return window;
     }
 
     /**

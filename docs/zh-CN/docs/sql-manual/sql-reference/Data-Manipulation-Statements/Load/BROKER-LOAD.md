@@ -67,6 +67,7 @@ WITH BROKER broker_name
   [COLUMNS TERMINATED BY "column_separator"]
   [LINES TERMINATED BY "line_delimiter"]
   [FORMAT AS "file_type"]
+  [COMPRESS_TYPE AS "compress_type"]
   [(column_list)]
   [COLUMNS FROM PATH AS (c1, c2, ...)]
   [SET (column_mapping)]
@@ -104,6 +105,9 @@ WITH BROKER broker_name
   - `FORMAT AS`
 
     指定文件类型，支持 CSV、PARQUET 和 ORC 格式。默认为 CSV。
+
+  - `COMPRESS_TYPE AS`
+    指定文件压缩类型, 支持GZ/BZ2/LZ4FRAME。
 
   - `column list`
 
@@ -193,7 +197,7 @@ WITH BROKER broker_name
     
     - `load_to_single_tablet`
       
-      布尔类型，为true表示支持一个任务只导入数据到对应分区的一个tablet，默认值为false，作业的任务数取决于整体并发度。该参数只允许在对带有random分区的olap表导数的时候设置。
+      布尔类型，为true表示支持一个任务只导入数据到对应分区的一个tablet，默认值为false，作业的任务数取决于整体并发度。该参数只允许在对带有random分桶的olap表导数的时候设置。
 
     - <version since="dev" type="inline"> priority </version>
 
@@ -425,7 +429,7 @@ WITH BROKER broker_name
    )
    ```
 
-   `my_table` 必须是 Unqiue Key 模型表，并且指定了 Sequcence Col。数据会按照源数据中 `source_sequence` 列的值来保证顺序性。
+   `my_table` 必须是 Unique Key 模型表，并且指定了 Sequcence Col。数据会按照源数据中 `source_sequence` 列的值来保证顺序性。
 
 10. 从 HDFS 导入一批数据，指定文件格式为 `json` 并指定 `json_root`、`jsonpaths`
 

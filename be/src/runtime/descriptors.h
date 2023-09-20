@@ -108,6 +108,7 @@ public:
 
     bool is_key() const { return _is_key; }
     bool need_materialize() const { return _need_materialize; }
+    const std::vector<std::string>& column_paths() const { return _column_paths; };
 
     bool is_auto_increment() const { return _is_auto_increment; }
 
@@ -143,6 +144,7 @@ private:
 
     const bool _is_key;
     const bool _need_materialize;
+    const std::vector<std::string> _column_paths;
 
     const bool _is_auto_increment;
 
@@ -361,6 +363,15 @@ public:
     bool has_hll_slot() const {
         for (auto slot : _slots) {
             if (slot->type().is_hll_type()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool has_bitmap_slot() const {
+        for (auto slot : _slots) {
+            if (slot->type().is_bitmap_type()) {
                 return true;
             }
         }

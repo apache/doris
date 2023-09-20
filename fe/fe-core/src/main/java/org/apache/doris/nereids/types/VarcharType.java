@@ -29,6 +29,7 @@ import java.util.Objects;
 public class VarcharType extends CharacterType {
 
     public static final VarcharType SYSTEM_DEFAULT = new VarcharType(-1);
+    public static final int MAX_VARCHAR_LENGTH = ScalarType.MAX_VARCHAR_LENGTH;
 
     public VarcharType(int len) {
         super(len);

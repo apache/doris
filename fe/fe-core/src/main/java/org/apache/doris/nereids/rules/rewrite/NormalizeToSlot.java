@@ -213,7 +213,7 @@ public interface NormalizeToSlot {
                 return new NormalizeToSlotTriplet(expression, namedExpression.toSlot(), namedExpression);
             }
 
-            Alias alias = new Alias(expression, expression.toSql());
+            Alias alias = new Alias(expression);
             return new NormalizeToSlotTriplet(expression, alias.toSlot(), alias);
         }
     }

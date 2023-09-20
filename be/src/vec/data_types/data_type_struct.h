@@ -125,7 +125,7 @@ public:
         for (auto iter = elems.begin(); iter < elems.end(); ++iter) {
             ptrs.push_back((*iter)->get_serde());
         }
-        return std::make_shared<DataTypeStructSerDe>(ptrs);
+        return std::make_shared<DataTypeStructSerDe>(ptrs, names);
     };
 };
 

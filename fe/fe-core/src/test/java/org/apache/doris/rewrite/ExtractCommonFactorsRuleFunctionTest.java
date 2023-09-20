@@ -273,27 +273,27 @@ public class ExtractCommonFactorsRuleFunctionTest {
         // tinyint
         String sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb3 where k1 like '%4%';";
         LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
-        dorisAssert.query(sql).explainContains("`k1` LIKE '%4%'");
+        dorisAssert.query(sql).explainContains("CAST(`k1` AS VARCHAR(*)) LIKE '%4%'");
 
         // smallint
         sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb3 where k2 like '%4%';";
         LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
-        dorisAssert.query(sql).explainContains("`k2` LIKE '%4%'");
+        dorisAssert.query(sql).explainContains("CAST(`k2` AS VARCHAR(*)) LIKE '%4%'");
 
         // int
         sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb3 where k3 like '%4%';";
         LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
-        dorisAssert.query(sql).explainContains("`k3` LIKE '%4%'");
+        dorisAssert.query(sql).explainContains("CAST(`k3` AS VARCHAR(*)) LIKE '%4%'");
 
         // bigint
         sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb3 where k4 like '%4%';";
         LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
-        dorisAssert.query(sql).explainContains("`k4` LIKE '%4%'");
+        dorisAssert.query(sql).explainContains("CAST(`k4` AS VARCHAR(*)) LIKE '%4%'");
 
         // largeint
         sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb3 where k5 like '%4%';";
         LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
-        dorisAssert.query(sql).explainContains("`k5` LIKE '%4%'");
+        dorisAssert.query(sql).explainContains("CAST(`k5` AS VARCHAR(*)) LIKE '%4%'");
     }
 
     @Test

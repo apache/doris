@@ -232,6 +232,10 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
         //treat as CSV
         format_str = BeConsts::CSV;
     }
+    if (iequal(format_str, "hive_text")) {
+        ctx->header_type = format_str;
+        format_str = BeConsts::CSV;
+    }
     LoadUtil::parse_format(format_str, http_req->header(HTTP_COMPRESS_TYPE), &ctx->format,
                            &ctx->compress_type);
     if (ctx->format == TFileFormatType::FORMAT_UNKNOWN) {
@@ -550,6 +554,13 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     if (!http_req->header(HTTP_MEMTABLE_ON_SINKNODE).empty()) {
         bool value = iequal(http_req->header(HTTP_MEMTABLE_ON_SINKNODE), "true");
         request.__set_memtable_on_sink_node(value);
+    }
+    if (!http_req->header(HTTP_IGNORE_MODE).empty()) {
+        if (iequal(http_req->header(HTTP_IGNORE_MODE), "true")) {
+            request.__set_ignore_mode(true);
+        } else {
+            request.__set_ignore_mode(false);
+        }
     }
 
 #ifndef BE_TEST

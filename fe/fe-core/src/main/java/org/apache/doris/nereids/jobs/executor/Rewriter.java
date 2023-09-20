@@ -49,8 +49,10 @@ import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.ConvertInnerOrCrossJoin;
 import org.apache.doris.nereids.rules.rewrite.CountDistinctRewrite;
 import org.apache.doris.nereids.rules.rewrite.CountLiteralToCountStar;
+import org.apache.doris.nereids.rules.rewrite.CreatePartitionTopNFromWindow;
 import org.apache.doris.nereids.rules.rewrite.DeferMaterializeTopNResult;
 import org.apache.doris.nereids.rules.rewrite.EliminateAggregate;
+import org.apache.doris.nereids.rules.rewrite.EliminateAssertNumRows;
 import org.apache.doris.nereids.rules.rewrite.EliminateDedupJoinCondition;
 import org.apache.doris.nereids.rules.rewrite.EliminateEmptyRelation;
 import org.apache.doris.nereids.rules.rewrite.EliminateFilter;
@@ -87,7 +89,6 @@ import org.apache.doris.nereids.rules.rewrite.PushFilterInsideJoin;
 import org.apache.doris.nereids.rules.rewrite.PushProjectIntoOneRowRelation;
 import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughProject;
-import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughWindow;
 import org.apache.doris.nereids.rules.rewrite.PushdownLimit;
 import org.apache.doris.nereids.rules.rewrite.PushdownTopNThroughWindow;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
@@ -168,7 +169,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     bottomUp(
                             new EliminateLimit(),
                             new EliminateFilter(),
-                            new EliminateAggregate()
+                            new EliminateAggregate(),
+                            new EliminateAssertNumRows()
                     )
             ),
             // please note: this rule must run before NormalizeAggregate
@@ -277,7 +279,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             new SplitLimit(),
                             new PushdownLimit(),
                             new PushdownTopNThroughWindow(),
-                            new PushdownFilterThroughWindow()
+                            new CreatePartitionTopNFromWindow()
                     )
             ),
             // TODO: these rules should be implementation rules, and generate alternative physical plans.
