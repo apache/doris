@@ -81,7 +81,7 @@ jobs:
         run: |
           # Install Bash if necessary
           sudo apt-get update
-          sudo apt-get install -y bash  
+          sudo apt-get install -y bash
       - name: Generated Source Code
         if: ${{ steps.filter.outputs.fe_changes == 'true' }}
         shell: bash
@@ -94,7 +94,7 @@ jobs:
           path: ~/.m2/repository
           key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
           restore-keys: |
-              ${{ runner.os }}-maven-           
+              ${{ runner.os }}-maven-
       - name: Analyze FE
         if: ${{ steps.filter.outputs.fe_changes == 'true' }}
         env:
@@ -103,7 +103,7 @@ jobs:
           MAVEN_OPTS: -Xmx4g
         run: |
           cd fe
-          mvn --batch-mode verify sonar:sonar -DskipTests -Dhttp.keepAlive=false -Dmaven.wagon.http.pool=false -Dmaven.wagon.httpconnectionManager.ttlSeconds=120
+          mvn --batch-mode verify sonar:sonar -DskipTests -Dhttp.keepAlive=false -Dsonar.host.url=https://sonarcloud.io -Dsonar.organization=apache -Dsonar.projectKey=apache_incubator-doris -Dhttp.keepAlive=false -Dmaven.wagon.http.pool=false -Dmaven.wagon.httpconnectionManager.ttlSeconds=120
   sonar-cloud-cpp:
     name: "SonarCloud on cpp"
     runs-on: ubuntu-22.04
