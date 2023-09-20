@@ -174,6 +174,7 @@ PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
     case TypeIndex::TimeV2:
         return PGenericType::TIMEV2;
     default:
+        LOG(FATAL) << "could not mapping type " << data_type->get_type_id() << " to pb type";
         return PGenericType::UNKNOWN;
     }
 }
