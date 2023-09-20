@@ -95,7 +95,6 @@ import org.apache.doris.transaction.TransactionStatus;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.File;
 import java.io.IOException;
 import java.util.List;
 
@@ -1155,12 +1154,6 @@ public class EditLog {
      */
     public synchronized void close() throws IOException {
         journal.close();
-    }
-
-    public synchronized void createEditLogFile(File name) throws IOException {
-        EditLogOutputStream editLogOutputStream = new EditLogFileOutputStream(name);
-        editLogOutputStream.create();
-        editLogOutputStream.close();
     }
 
     public void open() {

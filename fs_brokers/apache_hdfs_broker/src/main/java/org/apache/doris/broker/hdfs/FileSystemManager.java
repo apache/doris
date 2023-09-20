@@ -343,15 +343,15 @@ public class FileSystemManager {
                         // different kerberos account has different file
                         tmpFilePath ="/tmp/." +
                                 principal.replace('/', '_') +
-                                "_" + Long.toString(currentTime) +
-                                "_" + Integer.toString(randNumber) +
+                                "_" + currentTime +
+                                "_" + randNumber +
                                 "_" + Thread.currentThread().getId();
                         logger.info("create kerberos tmp file" + tmpFilePath);
-                        FileOutputStream fileOutputStream = new FileOutputStream(tmpFilePath);
-                        FileLock lock = fileOutputStream.getChannel().lock();
-                        fileOutputStream.write(base64decodedBytes);
-                        lock.release();
-                        fileOutputStream.close();
+                        try (FileOutputStream fileOutputStream = new FileOutputStream(tmpFilePath)) {
+                            FileLock lock = fileOutputStream.getChannel().lock();
+                            fileOutputStream.write(base64decodedBytes);
+                            lock.release();
+                        }
                         keytab = tmpFilePath;
                     } else {
                         throw  new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
@@ -730,10 +730,10 @@ public class FileSystemManager {
                         long currentTime = System.currentTimeMillis();
                         Random random = new Random(currentTime);
                         int randNumber = random.nextInt(10000);
-                        tmpFilePath = "/tmp/." + Long.toString(currentTime) + "_" + Integer.toString(randNumber);
-                        FileOutputStream fileOutputStream = new FileOutputStream(tmpFilePath);
-                        fileOutputStream.write(base64decodedBytes);
-                        fileOutputStream.close();
+                        tmpFilePath = "/tmp/." + currentTime + "_" + randNumber;
+                        try (FileOutputStream fileOutputStream = new FileOutputStream(tmpFilePath)) {
+                            fileOutputStream.write(base64decodedBytes);
+                        }
                         keytab = tmpFilePath;
                     } else {
                         throw  new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
@@ -948,10 +948,10 @@ public class FileSystemManager {
                         long currentTime = System.currentTimeMillis();
                         Random random = new Random(currentTime);
                         int randNumber = random.nextInt(10000);
-                        tmpFilePath = "/tmp/." + Long.toString(currentTime) + "_" + Integer.toString(randNumber);
-                        FileOutputStream fileOutputStream = new FileOutputStream(tmpFilePath);
-                        fileOutputStream.write(base64decodedBytes);
-                        fileOutputStream.close();
+                        tmpFilePath = "/tmp/." + currentTime + "_" + randNumber;
+                        try (FileOutputStream fileOutputStream = new FileOutputStream(tmpFilePath)) {
+                            fileOutputStream.write(base64decodedBytes);
+                        }
                         keytab = tmpFilePath;
                     } else {
                         throw new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
