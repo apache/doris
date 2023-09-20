@@ -827,14 +827,7 @@ int64_t Compaction::get_compaction_permits() {
 }
 
 Status Compaction::_load_segment_to_cache() {
-    // Remove old rowset's segments from cache.
-    for (const auto& rowset : _input_rowsets) {
-        for (int64_t i = 0; i < rowset->num_segments(); i++) {
-            SegmentLoader::instance()->erase_segment(
-                    SegmentCache::CacheKey(rowset->rowset_id(), i));
-        }
-    }
-    // load new rowset's segments to cache.
+    // Load new rowset's segments to cache.
     SegmentCacheHandle handle;
     RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
             std::static_pointer_cast<BetaRowset>(_output_rowset), &handle, true));
