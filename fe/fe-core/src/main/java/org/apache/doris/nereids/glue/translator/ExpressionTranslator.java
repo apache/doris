@@ -102,7 +102,9 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -194,6 +196,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     public Expr visitMatch(Match match, PlanTranslatorContext context) {
         String invertedIndexParser = InvertedIndexUtil.INVERTED_INDEX_PARSER_UNKNOWN;
         String invertedIndexParserMode = InvertedIndexUtil.INVERTED_INDEX_PARSER_FINE_GRANULARITY;
+        Map<String, String> invertedIndexCharFilter = new HashMap<>();
         SlotRef left = (SlotRef) match.left().accept(this, context);
         OlapTable olapTbl = Optional.ofNullable(getOlapTableFromSlotDesc(left.getDesc()))
                                     .orElse(getOlapTableDirectly(left));
@@ -210,6 +213,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                     if (columns != null && !columns.isEmpty() && left.getColumnName().equals(columns.get(0))) {
                         invertedIndexParser = index.getInvertedIndexParser();
                         invertedIndexParserMode = index.getInvertedIndexParserMode();
+                        invertedIndexCharFilter = index.getInvertedIndexCharFilter();
                         break;
                     }
                 }
@@ -223,7 +227,8 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
             match.getDataType().toCatalogDataType(),
             NullableMode.DEPEND_ON_ARGUMENT,
             invertedIndexParser,
-            invertedIndexParserMode);
+            invertedIndexParserMode,
+            invertedIndexCharFilter);
     }
 
     @Override
@@ -428,10 +433,13 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 .map(Expression::getDataType)
                 .map(DataType::toCatalogDataType)
                 .forEach(argTypes::add);
+        NullableMode nullableMode = function.nullable()
+                ? NullableMode.ALWAYS_NULLABLE
+                : NullableMode.ALWAYS_NOT_NULLABLE;
         org.apache.doris.catalog.Function catalogFunction = new Function(
                 new FunctionName(function.getName()), argTypes,
                 ArrayType.create(lambda.getRetType().toCatalogDataType(), true),
-                true, true, NullableMode.DEPEND_ON_ARGUMENT);
+                true, true, nullableMode);
 
         // create catalog FunctionCallExpr without analyze again
         Expr lambdaBody = visitLambda(lambda, context);
@@ -464,6 +472,10 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 "", TFunctionBinaryType.BUILTIN, true, true, nullableMode);
 
         // create catalog FunctionCallExpr without analyze again
+        if (LambdaFunctionCallExpr.LAMBDA_FUNCTION_SET.contains(function.getName())
+                || LambdaFunctionCallExpr.LAMBDA_MAPPED_FUNCTION_SET.contains(function.getName())) {
+            return new LambdaFunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
+        }
         return new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
     }
 

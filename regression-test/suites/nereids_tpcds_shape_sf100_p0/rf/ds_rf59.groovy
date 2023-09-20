@@ -93,6 +93,5 @@ limit 100;
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.59"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
-    
      assertEquals("RF0[d_date_sk->[ss_sold_date_sk],RF4[s_store_sk->[ss_store_sk],RF3[d_week_seq->[d_week_seq],RF2[s_store_sk->[ss_store_sk],RF1[d_week_seq->[d_week_seq]", getRuntimeFilters(plan))
 }

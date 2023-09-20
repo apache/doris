@@ -25,8 +25,6 @@ import org.apache.doris.datasource.property.constants.PaimonProperties;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.catalog.Catalog;
@@ -58,15 +56,6 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
     @Override
     protected void init() {
         super.init();
-    }
-
-    protected Configuration getConfiguration() {
-        Configuration conf = new HdfsConfiguration();
-        Map<String, String> catalogProperties = catalogProperty.getHadoopProperties();
-        for (Map.Entry<String, String> entry : catalogProperties.entrySet()) {
-            conf.set(entry.getKey(), entry.getValue());
-        }
-        return conf;
     }
 
     public Catalog getCatalog() {

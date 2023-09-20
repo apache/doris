@@ -147,23 +147,23 @@ doris
 123
 
 -- !sql --
-1
+true
 
 -- !sql --
-0
+false
 
 -- !sql --
-0
+false
 
 -- !sql --
-1
+true
 
 -- !sql --
-0
+false
 
 -- !sql --
-1
+true
 
 -- !sql --
-1
+true
 

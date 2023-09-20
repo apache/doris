@@ -60,10 +60,12 @@ void DataTypeNullableSerDe::serialize_one_cell_to_json(const IColumn& column, in
     }
 }
 
-Status DataTypeNullableSerDe::deserialize_column_from_json_vector(
-        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
-        const FormatOptions& options) const {
-    DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
+Status DataTypeNullableSerDe::deserialize_column_from_json_vector(IColumn& column,
+                                                                  std::vector<Slice>& slices,
+                                                                  int* num_deserialized,
+                                                                  const FormatOptions& options,
+                                                                  int nesting_level) const {
+    DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
     return Status::OK();
 }
 
@@ -88,7 +90,6 @@ Status DataTypeNullableSerDe::deserialize_one_cell_from_hive_text(IColumn& colum
                                                                   const FormatOptions& options,
                                                                   int nesting_level) const {
     auto& null_column = assert_cast<ColumnNullable&>(column);
-    // TODO(Amory) make null literal configurable
     if (slice.size == 2 && slice[0] == '\\' && slice[1] == 'N') {
         null_column.insert_data(nullptr, 0);
         return Status::OK();
@@ -117,24 +118,64 @@ Status DataTypeNullableSerDe::deserialize_column_from_hive_text_vector(IColumn& 
 }
 
 Status DataTypeNullableSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                                             const FormatOptions& options) const {
+                                                             const FormatOptions& options,
+                                                             int nesting_level) const {
     auto& null_column = assert_cast<ColumnNullable&>(column);
     // TODO(Amory) make null literal configurable
 
+    // only slice trim quote return true make sure slice is quoted and converted_from_string make
+    // sure slice is from string parse , we can parse this "null" literal as string "null" to
+    // nested column , otherwise we insert null to null column
     if (!(options.converted_from_string && slice.trim_quote())) {
-        //for map<string,string> type : {"abc","NULL"} , the NULL is string , instead of null values
-        if (slice.size == 4 && slice[0] == 'N' && slice[1] == 'U' && slice[2] == 'L' &&
-            slice[3] == 'L') {
+        /*
+         * For null values in ordinary types, we use \N to represent them;
+         * for null values in nested types, we use null to represent them, just like the json format.
+         *
+         * example:
+         * If you have three nullable columns
+         *    a : int, b : string, c : map<string,int>
+         * data:
+         *      \N,hello world,\N
+         *      1,\N,{"cmake":2,"null":11}
+         *      9,"\N",{"\N":null,null:0}
+         *      \N,"null",{null:null}
+         *      null,null,null
+         *
+         * if you set trim_double_quotes = true
+         * you will get :
+         *      NULL,hello world,NULL
+         *      1,NULL,{"cmake":2,"null":11}
+         *      9,\N,{"\N":NULL,NULL:0}
+         *      NULL,null,{NULL:NULL}
+         *      NULL,null,NULL
+         *
+         * if you set trim_double_quotes = false
+         * you will get :
+         *      NULL,hello world,NULL
+         *      1,\N,{"cmake":2,"null":11}
+         *      9,"\N",{"\N":NULL,NULL:0}
+         *      NULL,"null",{NULL:NULL}
+         *      NULL,null,NULL
+         *
+         * in csv(text) for normal type: we only recognize \N for null , so
+         * for not char family type, like int, if we put null literal ,
+         * it will parse fail, and make result null，not just because it equals \N.
+         * for char family type, like string, if we put null literal, it will parse success,
+         * and "null" literal will be stored in doris.
+         *
+         */
+        if (nesting_level >= 2 && slice.size == 4 && slice[0] == 'n' && slice[1] == 'u' &&
+            slice[2] == 'l' && slice[3] == 'l') {
             null_column.insert_data(nullptr, 0);
             return Status::OK();
-        } else if (slice.size == 2 && slice[0] == '\\' && slice[1] == 'N') {
+        } else if (nesting_level == 1 && slice.size == 2 && slice[0] == '\\' && slice[1] == 'N') {
             null_column.insert_data(nullptr, 0);
             return Status::OK();
         }
     }
 
     auto st = nested_serde->deserialize_one_cell_from_json(null_column.get_nested_column(), slice,
-                                                           options);
+                                                           options, nesting_level);
     if (!st.ok()) {
         // fill null if fail
         null_column.insert_data(nullptr, 0); // 0 is meaningless here

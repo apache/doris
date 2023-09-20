@@ -173,6 +173,7 @@ import org.apache.doris.planner.external.iceberg.IcebergScanNode;
 import org.apache.doris.planner.external.jdbc.JdbcScanNode;
 import org.apache.doris.planner.external.paimon.PaimonScanNode;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TFetchOption;
 import org.apache.doris.thrift.TPartitionType;
@@ -352,9 +353,41 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanFragment rootFragment = olapTableSink.child().accept(this, context);
         rootFragment.setOutputPartition(DataPartition.UNPARTITIONED);
 
+        HashSet<String> partialUpdateCols = new HashSet<>();
+        boolean isPartialUpdate = olapTableSink.isPartialUpdate();
+        if (isPartialUpdate) {
+            OlapTable olapTable = (OlapTable) olapTableSink.getTargetTable();
+            if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
+                throw new AnalysisException("Partial update is only allowed in"
+                        + "unique table with merge-on-write enabled.");
+            }
+            for (Column col : olapTable.getFullSchema()) {
+                boolean exists = false;
+                for (Column insertCol : olapTableSink.getCols()) {
+                    if (insertCol.getName() != null && insertCol.getName().equals(col.getName())) {
+                        exists = true;
+                        break;
+                    }
+                }
+                if (col.isKey() && !exists) {
+                    throw new AnalysisException("Partial update should include all key columns, missing: "
+                            + col.getName());
+                }
+            }
+            for (Column col : olapTableSink.getCols()) {
+                partialUpdateCols.add(col.getName());
+            }
+            if (olapTable.hasSequenceCol() && olapTable.getSequenceMapCol() != null
+                        && partialUpdateCols.contains(olapTable.getSequenceMapCol())) {
+                partialUpdateCols.add(Column.SEQUENCE_COL);
+            }
+        }
         TupleDescriptor olapTuple = context.generateTupleDesc();
         List<Column> targetTableColumns = olapTableSink.getTargetTable().getFullSchema();
         for (Column column : targetTableColumns) {
+            if (isPartialUpdate && !partialUpdateCols.contains(column.getName())) {
+                continue;
+            }
             SlotDescriptor slotDesc = context.addSlotDesc(olapTuple);
             slotDesc.setIsMaterialized(true);
             slotDesc.setType(column.getType());
@@ -367,13 +400,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 olapTableSink.getPartitionIds().isEmpty() ? null : olapTableSink.getPartitionIds(),
                 olapTableSink.isSingleReplicaLoad()
         );
-        if (olapTableSink.isPartialUpdate()) {
-            HashSet<String> partialUpdateCols = new HashSet<>();
-            for (Column col : olapTableSink.getCols()) {
-                partialUpdateCols.add(col.getName());
-            }
-            sink.setPartialUpdateInputColumns(true, partialUpdateCols);
-        }
+        sink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateCols);
         rootFragment.setSink(sink);
 
         return rootFragment;
@@ -558,7 +585,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 for (int i = 0; i < slots.size(); i++) {
                     Slot slot = slots.get(i);
                     if (olapScan.getStats().findColumnStatistics(slot).isUnKnown()
-                            && !isComplexDataType(slot.getDataType())) {
+                            && !isComplexDataType(slot.getDataType())
+                            && !StatisticConstants.isSystemTable(olapTable)) {
                         context.addUnknownStatsColumn(olapScanNode, tupleDescriptor.getSlots().get(i).getId());
                     }
                 }
@@ -1651,9 +1679,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             throw new RuntimeException("not support set operation type " + setOperation);
         }
 
-        setOperation.children().stream()
-                .map(Plan::getOutput)
-                .map(l -> l.stream()
+        setOperation.getRegularChildrenOutputs().stream()
+                .map(o -> o.stream()
                         .map(e -> ExpressionTranslator.translate(e, context))
                         .collect(ImmutableList.toImmutableList()))
                 .forEach(setOperationNode::addResultExprLists);
@@ -2021,7 +2048,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             scanNode.getTupleDesc().getSlots().add(smallest);
         }
         try {
-            if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().forbidUnknownColStats) {
+            if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().forbidUnknownColStats
+                    && !StatisticConstants.isSystemTable(scanNode.getTupleDesc().getTable())) {
                 for (SlotId slotId : requiredByProjectSlotIdSet) {
                     if (context.isColumnStatsUnknown(scanNode, slotId)) {
                         throw new AnalysisException("meet unknown column stats on table " + scanNode);

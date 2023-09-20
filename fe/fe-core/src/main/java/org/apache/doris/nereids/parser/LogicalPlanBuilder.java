@@ -79,6 +79,7 @@ import org.apache.doris.nereids.DorisParser.IdentifierSeqContext;
 import org.apache.doris.nereids.DorisParser.InPartitionDefContext;
 import org.apache.doris.nereids.DorisParser.IndexDefContext;
 import org.apache.doris.nereids.DorisParser.IndexDefsContext;
+import org.apache.doris.nereids.DorisParser.InlineTableContext;
 import org.apache.doris.nereids.DorisParser.InsertIntoQueryContext;
 import org.apache.doris.nereids.DorisParser.IntegerLiteralContext;
 import org.apache.doris.nereids.DorisParser.IntervalContext;
@@ -119,6 +120,7 @@ import org.apache.doris.nereids.DorisParser.RegularQuerySpecificationContext;
 import org.apache.doris.nereids.DorisParser.RelationContext;
 import org.apache.doris.nereids.DorisParser.RollupDefContext;
 import org.apache.doris.nereids.DorisParser.RollupDefsContext;
+import org.apache.doris.nereids.DorisParser.RowConstructorContext;
 import org.apache.doris.nereids.DorisParser.SelectClauseContext;
 import org.apache.doris.nereids.DorisParser.SelectColumnClauseContext;
 import org.apache.doris.nereids.DorisParser.SelectHintContext;
@@ -170,6 +172,7 @@ import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.properties.SelectHintLeading;
 import org.apache.doris.nereids.properties.SelectHintSetVar;
 import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.BitAnd;
 import org.apache.doris.nereids.trees.expressions.BitNot;
@@ -408,6 +411,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 colNames,
                 ImmutableList.of(),
                 partitions,
+                ConnectContext.get().getSessionVariable().isEnableUniqueKeyPartialUpdate(),
+                true,
                 visitQuery(ctx.query()));
         if (ctx.explain() != null) {
             return withExplain(sink, ctx.explain());
@@ -729,6 +734,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             selectPlan = withQueryOrganization(selectPlan, ctx.queryOrganization());
             return withSelectHint(selectPlan, selectCtx.selectHint());
         });
+    }
+
+    @Override
+    public LogicalPlan visitInlineTable(InlineTableContext ctx) {
+        List<LogicalPlan> exprsList = ctx.rowConstructor().stream()
+                .map(this::visitRowConstructor)
+                .map(LogicalPlan.class::cast)
+                .collect(ImmutableList.toImmutableList());
+        return reduceToLogicalPlanTree(0, exprsList.size() - 1, exprsList, Qualifier.ALL);
     }
 
     /**
@@ -1672,6 +1686,18 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Expression visitParenthesizedExpression(ParenthesizedExpressionContext ctx) {
         return getExpression(ctx.expression());
+    }
+
+    @Override
+    public UnboundOneRowRelation visitRowConstructor(RowConstructorContext ctx) {
+        return new UnboundOneRowRelation(
+                StatementScopeIdGenerator.newRelationId(),
+                ctx.namedExpression().stream()
+                .map(this::visitNamedExpression)
+                .map(e -> (e instanceof NamedExpression)
+                        ? ((NamedExpression) e)
+                        : new Alias(e, e.toSql()))
+                .collect(ImmutableList.toImmutableList()));
     }
 
     @Override
