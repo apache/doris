@@ -61,16 +61,17 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalSink
     private final boolean singleReplicaLoad;
     private final boolean isPartialUpdate;
     private final boolean isFromNativeInsertStmt;
+    private final boolean isIgnoreMode;
 
     /**
      * Constructor
      */
     public PhysicalOlapTableSink(Database database, OlapTable targetTable, List<Column> cols, List<Long> partitionIds,
             List<NamedExpression> outputExprs, boolean singleReplicaLoad,
-            boolean isPartialUpdate, boolean isFromNativeInsertStmt,
+            boolean isPartialUpdate, boolean isFromNativeInsertStmt, boolean isIgnoreMode,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties, CHILD_TYPE child) {
         this(database, targetTable, cols, partitionIds, outputExprs,
-                singleReplicaLoad, isPartialUpdate, isFromNativeInsertStmt,
+                singleReplicaLoad, isPartialUpdate, isFromNativeInsertStmt, isIgnoreMode,
                 groupExpression, logicalProperties, PhysicalProperties.GATHER, null, child);
     }
 
@@ -79,7 +80,7 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalSink
      */
     public PhysicalOlapTableSink(Database database, OlapTable targetTable, List<Column> cols, List<Long> partitionIds,
             List<NamedExpression> outputExprs, boolean singleReplicaLoad,
-            boolean isPartialUpdate, boolean isFromNativeInsertStmt,
+            boolean isPartialUpdate, boolean isFromNativeInsertStmt, boolean isIgnoreMode,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             PhysicalProperties physicalProperties, Statistics statistics, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_OLAP_TABLE_SINK, outputExprs, groupExpression,
@@ -91,6 +92,7 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalSink
         this.singleReplicaLoad = singleReplicaLoad;
         this.isPartialUpdate = isPartialUpdate;
         this.isFromNativeInsertStmt = isFromNativeInsertStmt;
+        this.isIgnoreMode = isIgnoreMode;
     }
 
     public Database getDatabase() {
@@ -121,11 +123,15 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalSink
         return isFromNativeInsertStmt;
     }
 
+    public boolean isIgnoreMode() {
+        return isIgnoreMode;
+    }
+
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "PhysicalOlapTableSink only accepts one child");
         return new PhysicalOlapTableSink<>(database, targetTable, cols, partitionIds, outputExprs,
-                singleReplicaLoad, isPartialUpdate, isFromNativeInsertStmt, groupExpression,
+                singleReplicaLoad, isPartialUpdate, isFromNativeInsertStmt, isIgnoreMode, groupExpression,
                         getLogicalProperties(), physicalProperties, statistics, children.get(0));
     }
 
@@ -141,6 +147,7 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalSink
         return singleReplicaLoad == that.singleReplicaLoad
                 && isPartialUpdate == that.isPartialUpdate
                 && isFromNativeInsertStmt == that.isFromNativeInsertStmt
+                && isIgnoreMode == that.isIgnoreMode
                 && Objects.equals(database, that.database)
                 && Objects.equals(targetTable, that.targetTable)
                 && Objects.equals(cols, that.cols)
@@ -150,7 +157,7 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalSink
     @Override
     public int hashCode() {
         return Objects.hash(database, targetTable, cols, partitionIds, singleReplicaLoad,
-                isPartialUpdate, isFromNativeInsertStmt);
+                isPartialUpdate, isFromNativeInsertStmt, isIgnoreMode);
     }
 
     @Override
@@ -163,7 +170,8 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalSink
                 "partitionIds", partitionIds,
                 "singleReplicaLoad", singleReplicaLoad,
                 "isPartialUpdate", isPartialUpdate,
-                "isFromNativeInsertStmt", isFromNativeInsertStmt
+                "isFromNativeInsertStmt", isFromNativeInsertStmt,
+                "isIgnoreMode", isIgnoreMode
         );
     }
 
@@ -193,20 +201,22 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalSink
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalOlapTableSink<>(database, targetTable, cols, partitionIds, outputExprs, singleReplicaLoad,
-                isPartialUpdate, isFromNativeInsertStmt, groupExpression, getLogicalProperties(), child());
+                isPartialUpdate, isFromNativeInsertStmt, isIgnoreMode, groupExpression,
+                        getLogicalProperties(), child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalOlapTableSink<>(database, targetTable, cols, partitionIds, outputExprs, singleReplicaLoad,
-                isPartialUpdate, isFromNativeInsertStmt, groupExpression, logicalProperties.get(), children.get(0));
+                isPartialUpdate, isFromNativeInsertStmt, isIgnoreMode, groupExpression,
+                        logicalProperties.get(), children.get(0));
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
         return new PhysicalOlapTableSink<>(database, targetTable, cols, partitionIds, outputExprs, singleReplicaLoad,
-                isPartialUpdate, isFromNativeInsertStmt, groupExpression, getLogicalProperties(),
+                isPartialUpdate, isFromNativeInsertStmt, isIgnoreMode, groupExpression, getLogicalProperties(),
                         physicalProperties, statistics, child());
     }
 
@@ -247,7 +257,7 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalSink
     @Override
     public PhysicalOlapTableSink<Plan> resetLogicalProperties() {
         return new PhysicalOlapTableSink<>(database, targetTable, cols, partitionIds, outputExprs, singleReplicaLoad,
-                isPartialUpdate, isFromNativeInsertStmt, groupExpression,
+                isPartialUpdate, isFromNativeInsertStmt, isIgnoreMode, groupExpression,
                         null, physicalProperties, statistics, child());
     }
 }

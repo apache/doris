@@ -354,6 +354,19 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanFragment rootFragment = olapTableSink.child().accept(this, context);
         rootFragment.setOutputPartition(DataPartition.UNPARTITIONED);
 
+        if (olapTableSink.isIgnoreMode()) {
+            OlapTable dstTable = olapTableSink.getTargetTable();
+            if (dstTable.getKeysType() != KeysType.UNIQUE_KEYS || !dstTable.getEnableUniqueKeyMergeOnWrite()) {
+                throw new AnalysisException("ignore mode can only be enabled if the target table is "
+                        + "a unique table with merge-on-write enabled.");
+            } else if (olapTableSink.isPartialUpdate()) {
+                throw new AnalysisException("ignore mode can't be used in partial update.");
+            } else if (olapTableSink.getTargetTable().hasSequenceCol()) {
+                throw new AnalysisException("ignore mode can't be used if the target table has sequence column, "
+                        + "but table[" + dstTable.getName() + "] has sequnce column.");
+            }
+        }
+
         HashSet<String> partialUpdateCols = new HashSet<>();
         boolean isPartialUpdate = olapTableSink.isPartialUpdate();
         if (isPartialUpdate) {

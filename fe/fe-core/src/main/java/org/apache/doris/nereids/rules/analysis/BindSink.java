@@ -85,6 +85,7 @@ public class BindSink implements AnalysisRuleFactory {
                                             .collect(ImmutableList.toImmutableList()),
                                     sink.isPartialUpdate(),
                                     sink.isFromNativeInsertStmt(),
+                                    sink.isIgnoreMode(),
                                     sink.child());
 
                             // we need to insert all the columns of the target table

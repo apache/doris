@@ -402,6 +402,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitInsertIntoQuery(InsertIntoQueryContext ctx) {
         boolean isOverwrite = ctx.INTO() == null;
+        boolean isIgnoreMode = ctx.ignore() != null;
         List<String> tableName = visitMultipartIdentifier(ctx.tableName);
         String labelName = ctx.labelName == null ? null : ctx.labelName.getText();
         List<String> colNames = ctx.cols == null ? ImmutableList.of() : visitIdentifierList(ctx.cols);
@@ -413,6 +414,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 partitions,
                 ConnectContext.get().getSessionVariable().isEnableUniqueKeyPartialUpdate(),
                 true,
+                isIgnoreMode,
                 visitQuery(ctx.query()));
         if (ctx.explain() != null) {
             return withExplain(sink, ctx.explain());
