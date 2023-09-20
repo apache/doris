@@ -1269,6 +1269,9 @@ public class SelectStmt extends QueryStmt {
                             excludeAliasSMap.removeByLhsExpr(expr);
                         } catch (AnalysisException ex) {
                             // according to case3, column name do not exist, keep alias name inside alias map
+                            if (ConnectContext.get() != null) {
+                                ConnectContext.get().getState().reset();
+                            }
                         }
                     }
                     havingClauseAfterAnalyzed = havingClause.substitute(excludeAliasSMap, analyzer, false);
@@ -1839,6 +1842,9 @@ public class SelectStmt extends QueryStmt {
                     }
                 } catch (AnalysisException ex) {
                     //ignore any exception
+                    if (ConnectContext.get() != null) {
+                        ConnectContext.get().getState().reset();
+                    }
                 }
                 rewriter.rewriteList(oriGroupingExprs, analyzer);
                 // after rewrite, need reset the analyze status for later re-analyze
@@ -1860,6 +1866,9 @@ public class SelectStmt extends QueryStmt {
                     }
                 } catch (AnalysisException ex) {
                     //ignore any exception
+                    if (ConnectContext.get() != null) {
+                        ConnectContext.get().getState().reset();
+                    }
                 }
                 orderByElem.setExpr(rewriter.rewrite(orderByElem.getExpr(), analyzer));
                 // after rewrite, need reset the analyze status for later re-analyze

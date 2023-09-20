@@ -123,6 +123,9 @@ public enum ExpressionFunctions {
                         try {
                             ((DateLiteral) dateLiteral).checkValueValid();
                         } catch (AnalysisException e) {
+                            if (ConnectContext.get() != null) {
+                                ConnectContext.get().getState().reset();
+                            }
                             return NullLiteral.create(dateLiteral.getType());
                         }
                         return dateLiteral;
@@ -130,6 +133,9 @@ public enum ExpressionFunctions {
                         return invoker.invoke(constExpr.getChildrenWithoutCast());
                     }
                 } catch (AnalysisException e) {
+                    if (ConnectContext.get() != null) {
+                        ConnectContext.get().getState().reset();
+                    }
                     LOG.debug("failed to invoke", e);
                     return constExpr;
                 }
