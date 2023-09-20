@@ -278,6 +278,14 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
         Thread::set_self_name("_scanner_scan");
     }
 #endif
+
+#ifndef __APPLE__
+    // The configuration item is used to lower the priority of the scanner thread,
+    // typically employed to ensure CPU scheduling for write operations.
+    if (config::scan_thread_nice_value != 0 && scanner->get_name() != VFileScanner::NAME) {
+        Thread::set_thread_nice_value();
+    }
+#endif
     scanner->update_wait_worker_timer();
     scanner->start_scan_cpu_timer();
     Status status = Status::OK();
