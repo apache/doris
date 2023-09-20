@@ -46,9 +46,7 @@
 #include "util/mysql_row_buffer.h"
 #include "util/s3_uri.h"
 #include "util/s3_util.h"
-#include "util/types.h"
 #include "util/uid_util.h"
-#include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/core/block.h"
@@ -81,7 +79,7 @@ VFileResultWriter::VFileResultWriter(const ResultFileOptions* file_opts,
     _output_object_data = output_object_data;
 }
 
-Status VFileResultWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
+Status VFileResultWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     _state = state;
     _init_profile(profile);
     // Delete existing files
@@ -418,7 +416,7 @@ Status VFileResultWriter::_delete_dir() {
     return Status::OK();
 }
 
-Status VFileResultWriter::close() {
+Status VFileResultWriter::close(Status) {
     // the following 2 profile "_written_rows_counter" and "_writer_close_timer"
     // must be outside the `_close_file_writer()`.
     // because `_close_file_writer()` may be called in deconstructor,
