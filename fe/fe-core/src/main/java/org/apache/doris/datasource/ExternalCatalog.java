@@ -49,6 +49,8 @@ import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -106,6 +108,15 @@ public abstract class ExternalCatalog
         this.name = name;
         this.logType = logType;
         this.comment = com.google.common.base.Strings.nullToEmpty(comment);
+    }
+
+    public Configuration getConfiguration() {
+        Configuration conf = new HdfsConfiguration();
+        Map<String, String> catalogProperties = catalogProperty.getHadoopProperties();
+        for (Map.Entry<String, String> entry : catalogProperties.entrySet()) {
+            conf.set(entry.getKey(), entry.getValue());
+        }
+        return conf;
     }
 
     protected List<String> listDatabaseNames() {

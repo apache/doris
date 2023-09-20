@@ -76,7 +76,7 @@ public class StatisticsAutoCollector extends StatisticsCollector {
             }
             Collection<DatabaseIf> dbs = ctl.getAllDbs();
             for (DatabaseIf<TableIf> databaseIf : dbs) {
-                if (StatisticConstants.STATISTICS_DB_BLACK_LIST.contains(databaseIf.getFullName())) {
+                if (StatisticConstants.SYSTEM_DBS.contains(databaseIf.getFullName())) {
                     continue;
                 }
                 analyzeDb(databaseIf);

@@ -157,19 +157,10 @@ Status StreamingAggSinkLocalState::do_pre_agg(vectorized::Block* input_block,
 
     // pre stream agg need use _num_row_return to decide whether to do pre stream agg
     _num_rows_returned += output_block->rows();
-    _make_nullable_output_key(output_block);
+    _dependency->_make_nullable_output_key(output_block);
     //    COUNTER_SET(_rows_returned_counter, _num_rows_returned);
     _executor.update_memusage();
     return Status::OK();
-}
-
-void StreamingAggSinkLocalState::_make_nullable_output_key(vectorized::Block* block) {
-    if (block->rows() != 0) {
-        for (auto cid : _dependency->make_nullable_keys()) {
-            block->get_by_position(cid).column = make_nullable(block->get_by_position(cid).column);
-            block->get_by_position(cid).type = make_nullable(block->get_by_position(cid).type);
-        }
-    }
 }
 
 bool StreamingAggSinkLocalState::_should_expand_preagg_hash_tables() {

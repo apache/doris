@@ -91,7 +91,6 @@ private:
 
     Status _pre_agg_with_serialized_key(doris::vectorized::Block* in_block,
                                         doris::vectorized::Block* out_block);
-    void _make_nullable_output_key(vectorized::Block* block);
     bool _should_expand_preagg_hash_tables();
 
     vectorized::Block _preagg_block = vectorized::Block();
