@@ -833,14 +833,13 @@ public class Column implements Writable, GsonPostProcessable {
                 && Objects.equals(children, other.children)
                 && Objects.equals(realDefaultValue, other.realDefaultValue);
 
-        return ok;
         if (!ok) {
-            log.info("this column: name {} default value {} aggregationType {} isAggregationTypeImplicit {} "
+            LOG.info("this column: name {} default value {} aggregationType {} isAggregationTypeImplicit {} "
                      + "isKey {}, isAllowNull {}, datatype {}, strlen {}, precision {}, scale {}, visible {} "
                      + "children {} realDefaultValue {}",
                      name, getDefaultValue(), aggregationType, isAggregationTypeImplicit, isKey, isAllowNull,
                      getDataType(), getStrLen(), getPrecision(), getScale(), visible, children, realDefaultValue);
-            log.info("other column: name {} default value {} aggregationType {} isAggregationTypeImplicit {} "
+            LOG.info("other column: name {} default value {} aggregationType {} isAggregationTypeImplicit {} "
                      + "isKey {}, isAllowNull {}, datatype {}, strlen {}, precision {}, scale {}, visible {} "
                      + "children {} realDefaultValue {}",
                      other.name, other.getDefaultValue(), other.aggregationType, other.isAggregationTypeImplicit,
