@@ -144,6 +144,7 @@ StreamingAggSinkLocalState::StreamingAggSinkLocalState(DataSinkOperatorXBase* pa
 
 Status StreamingAggSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
+    _shared_state->data_queue.reset(new DataQueue(1, _dependency));
     _queue_byte_size_counter = ADD_COUNTER(profile(), "MaxSizeInBlockQueue", TUnit::BYTES);
     _queue_size_counter = ADD_COUNTER(profile(), "MaxSizeOfBlockQueue", TUnit::UNIT);
     _streaming_agg_timer = ADD_TIMER(profile(), "StreamingAggTime");
@@ -156,19 +157,10 @@ Status StreamingAggSinkLocalState::do_pre_agg(vectorized::Block* input_block,
 
     // pre stream agg need use _num_row_return to decide whether to do pre stream agg
     _num_rows_returned += output_block->rows();
-    _make_nullable_output_key(output_block);
+    _dependency->_make_nullable_output_key(output_block);
     //    COUNTER_SET(_rows_returned_counter, _num_rows_returned);
     _executor.update_memusage();
     return Status::OK();
-}
-
-void StreamingAggSinkLocalState::_make_nullable_output_key(vectorized::Block* block) {
-    if (block->rows() != 0) {
-        for (auto cid : _dependency->make_nullable_keys()) {
-            block->get_by_position(cid).column = make_nullable(block->get_by_position(cid).column);
-            block->get_by_position(cid).type = make_nullable(block->get_by_position(cid).type);
-        }
-    }
 }
 
 bool StreamingAggSinkLocalState::_should_expand_preagg_hash_tables() {
@@ -352,13 +344,6 @@ Status StreamingAggSinkLocalState::_pre_agg_with_serialized_key(
 StreamingAggSinkOperatorX::StreamingAggSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode,
                                                      const DescriptorTbl& descs)
         : AggSinkOperatorX<StreamingAggSinkLocalState>(pool, tnode, descs) {}
-
-bool StreamingAggSinkOperatorX::can_write(RuntimeState* state) {
-    // sink and source in diff threads
-    return state->get_sink_local_state(id())
-            ->cast<StreamingAggSinkLocalState>()
-            ._shared_state->data_queue->has_enough_space_to_push();
-}
 
 Status StreamingAggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(AggSinkOperatorX<StreamingAggSinkLocalState>::init(tnode, state));

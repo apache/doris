@@ -19,6 +19,7 @@
 
 #include <string>
 
+#include "pipeline/exec/distinct_streaming_aggregation_sink_operator.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/exec/streaming_aggregation_sink_operator.h"
 #include "runtime/primitive_type.h"
@@ -946,10 +947,12 @@ Status AggSinkLocalState<DependencyType, Derived>::close(RuntimeState* state) {
 }
 
 class StreamingAggSinkLocalState;
+class DistinctStreamingAggSinkLocalState;
 
 template class AggSinkOperatorX<BlockingAggSinkLocalState>;
 template class AggSinkOperatorX<StreamingAggSinkLocalState>;
+template class AggSinkOperatorX<DistinctStreamingAggSinkLocalState>;
 template class AggSinkLocalState<AggDependency, BlockingAggSinkLocalState>;
 template class AggSinkLocalState<AggDependency, StreamingAggSinkLocalState>;
-
+template class AggSinkLocalState<AggDependency, DistinctStreamingAggSinkLocalState>;
 } // namespace doris::pipeline

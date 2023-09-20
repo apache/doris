@@ -173,6 +173,7 @@ import org.apache.doris.planner.external.iceberg.IcebergScanNode;
 import org.apache.doris.planner.external.jdbc.JdbcScanNode;
 import org.apache.doris.planner.external.paimon.PaimonScanNode;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TFetchOption;
 import org.apache.doris.thrift.TPartitionType;
@@ -369,7 +370,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         );
         if (olapTableSink.isPartialUpdate() || (olapTableSink.isFromNativeInsertStmt()
                 && ConnectContext.get().getSessionVariable().isEnableUniqueKeyPartialUpdate())) {
-            OlapTable olapTable = (OlapTable) olapTableSink.getTargetTable();
+            OlapTable olapTable = olapTableSink.getTargetTable();
             if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
                 throw new AnalysisException("Partial update is only allowed in"
                         + "unique table with merge-on-write enabled.");
@@ -581,7 +582,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 for (int i = 0; i < slots.size(); i++) {
                     Slot slot = slots.get(i);
                     if (olapScan.getStats().findColumnStatistics(slot).isUnKnown()
-                            && !isComplexDataType(slot.getDataType())) {
+                            && !isComplexDataType(slot.getDataType())
+                            && !StatisticConstants.isSystemTable(olapTable)) {
                         context.addUnknownStatsColumn(olapScanNode, tupleDescriptor.getSlots().get(i).getId());
                     }
                 }
@@ -2043,7 +2045,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             scanNode.getTupleDesc().getSlots().add(smallest);
         }
         try {
-            if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().forbidUnknownColStats) {
+            if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().forbidUnknownColStats
+                    && !StatisticConstants.isSystemTable(scanNode.getTupleDesc().getTable())) {
                 for (SlotId slotId : requiredByProjectSlotIdSet) {
                     if (context.isColumnStatsUnknown(scanNode, slotId)) {
                         throw new AnalysisException("meet unknown column stats on table " + scanNode);

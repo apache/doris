@@ -353,6 +353,12 @@ public abstract class TestWithFeService {
         if (!file.exists()) {
             file.mkdir();
         }
+        if (null != System.getenv("DORIS_HOME")) {
+            File metaDir = new File(Config.meta_dir);
+            if (!metaDir.exists()) {
+                metaDir.mkdir();
+            }
+        }
         System.out.println("CREATE FE SERVER DIR: " + Config.custom_config_dir);
 
         int feHttpPort = findValidPort();
