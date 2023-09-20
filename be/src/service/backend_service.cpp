@@ -29,6 +29,7 @@
 #include <gen_cpp/Types_types.h>
 #include <sys/types.h>
 #include <thrift/concurrency/ThreadFactory.h>
+#include <thrift/protocol/TDebugProtocol.h>
 #include <time.h>
 
 #include <map>
