@@ -407,9 +407,9 @@ Status VOrcTransformer::write(const Block& block) {
     }
 
     // Buffer used by date/datetime/datev2/datetimev2/largeint type
-    std::vector<StringRef> bufferList;
+    std::vector<StringRef> buffer_list;
     Defer defer {[&]() {
-        for (auto& bufferRef : bufferList) {
+        for (auto& bufferRef : buffer_list) {
             if (bufferRef.data) {
                 free(const_cast<char*>(bufferRef.data));
             }
@@ -423,7 +423,7 @@ Status VOrcTransformer::write(const Block& block) {
         for (size_t i = 0; i < block.columns(); i++) {
             auto& raw_column = block.get_by_position(i).column;
             _write_one_col(_output_vexpr_ctxs[i]->root()->type(), root->fields[i], raw_column, 0,
-                           sz, &bufferList);
+                           sz, &buffer_list);
         }
     } catch (const std::exception& e) {
         LOG(WARNING) << "Orc write error: " << e.what();
@@ -436,10 +436,10 @@ Status VOrcTransformer::write(const Block& block) {
     return Status::OK();
 }
 
-Status VOrcTransformer::_write_one_col(const TypeDescriptor type_descriptor,
+Status VOrcTransformer::_write_one_col(const TypeDescriptor& type_descriptor,
                                        orc::ColumnVectorBatch* orc_col_batch,
                                        const ColumnPtr& raw_column, size_t start_row_id,
-                                       size_t end_row_id, std::vector<StringRef>* bufferList) {
+                                       size_t end_row_id, std::vector<StringRef>* buffer_list) {
     auto nullable = raw_column->is_nullable();
     const auto col = nullable ? reinterpret_cast<const ColumnNullable*>(raw_column.get())
                                         ->get_nested_column_ptr()
@@ -481,7 +481,7 @@ Status VOrcTransformer::_write_one_col(const TypeDescriptor type_descriptor,
         bufferRef.size = BUFFER_UNIT_SIZE;
         size_t offset = 0;
         WRITE_LARGEINT_STRING_INTO_BATCH(orc::StringVectorBatch, ColumnVector<Int128>, bufferRef)
-        bufferList->emplace_back(bufferRef);
+        buffer_list->emplace_back(bufferRef);
         SET_NUM_ELEMENTS;
         break;
     }
@@ -503,7 +503,7 @@ Status VOrcTransformer::_write_one_col(const TypeDescriptor type_descriptor,
         bufferRef.size = BUFFER_UNIT_SIZE;
         size_t offset = 0;
         WRITE_DATE_STRING_INTO_BATCH(Int64, VecDateTimeValue, bufferRef)
-        bufferList->emplace_back(bufferRef);
+        buffer_list->emplace_back(bufferRef);
         SET_NUM_ELEMENTS
         break;
     }
@@ -514,7 +514,7 @@ Status VOrcTransformer::_write_one_col(const TypeDescriptor type_descriptor,
         bufferRef.size = BUFFER_UNIT_SIZE;
         size_t offset = 0;
         WRITE_DATE_STRING_INTO_BATCH(UInt32, DateV2Value<DateV2ValueType>, bufferRef)
-        bufferList->emplace_back(bufferRef);
+        buffer_list->emplace_back(bufferRef);
         SET_NUM_ELEMENTS
         break;
     }
@@ -525,7 +525,7 @@ Status VOrcTransformer::_write_one_col(const TypeDescriptor type_descriptor,
         bufferRef.size = BUFFER_UNIT_SIZE;
         size_t offset = 0;
         WRITE_DATETIMEV2_STRING_INTO_BATCH(UInt64, DateV2Value<DateTimeV2ValueType>, bufferRef)
-        bufferList->emplace_back(bufferRef);
+        buffer_list->emplace_back(bufferRef);
         SET_NUM_ELEMENTS
         break;
     }
@@ -645,7 +645,7 @@ Status VOrcTransformer::_write_one_col(const TypeDescriptor type_descriptor,
                     for (int j = 0; j < struct_col.tuple_size(); ++j) {
                         _write_one_col(type_descriptor.children[j], cur_batch->fields[j],
                                        struct_col.get_column_ptr(j), row_id, row_id + 1,
-                                       bufferList);
+                                       buffer_list);
                     }
                 }
             }
@@ -655,7 +655,7 @@ Status VOrcTransformer::_write_one_col(const TypeDescriptor type_descriptor,
                 for (int j = 0; j < not_null_column->tuple_size(); ++j) {
                     _write_one_col(type_descriptor.children[j], cur_batch->fields[j],
                                    not_null_column->get_column_ptr(j), row_id, row_id + 1,
-                                   bufferList);
+                                   buffer_list);
                 }
             }
         } else {
@@ -687,9 +687,9 @@ Status VOrcTransformer::_write_one_col(const TypeDescriptor type_descriptor,
                 } else {
                     cur_batch->notNull[row_id] = 1;
                     _write_one_col(type_descriptor.children[0], cur_batch->keys.get(),
-                                   nested_keys_column, offset, next_offset, bufferList);
+                                   nested_keys_column, offset, next_offset, buffer_list);
                     _write_one_col(type_descriptor.children[1], cur_batch->elements.get(),
-                                   nested_values_column, offset, next_offset, bufferList);
+                                   nested_values_column, offset, next_offset, buffer_list);
                 }
                 cur_batch->offsets[row_id + 1] = next_offset;
             }
@@ -708,9 +708,9 @@ Status VOrcTransformer::_write_one_col(const TypeDescriptor type_descriptor,
                 size_t next_offset = offsets[row_id];
 
                 _write_one_col(type_descriptor.children[0], cur_batch->keys.get(),
-                               nested_keys_column, offset, next_offset, bufferList);
+                               nested_keys_column, offset, next_offset, buffer_list);
                 _write_one_col(type_descriptor.children[1], cur_batch->elements.get(),
-                               nested_values_column, offset, next_offset, bufferList);
+                               nested_values_column, offset, next_offset, buffer_list);
 
                 cur_batch->offsets[row_id + 1] = next_offset;
             }
@@ -743,7 +743,7 @@ Status VOrcTransformer::_write_one_col(const TypeDescriptor type_descriptor,
                 } else {
                     cur_batch->notNull[row_id] = 1;
                     _write_one_col(type_descriptor.children[0], cur_batch->elements.get(),
-                                   nested_column, offset, next_offset, bufferList);
+                                   nested_column, offset, next_offset, buffer_list);
                 }
 
                 cur_batch->offsets[row_id + 1] = next_offset;
@@ -758,7 +758,7 @@ Status VOrcTransformer::_write_one_col(const TypeDescriptor type_descriptor,
                 size_t offset = offsets[row_id - 1];
                 size_t next_offset = offsets[row_id];
                 _write_one_col(type_descriptor.children[0], cur_batch->elements.get(),
-                               nested_column, offset, next_offset, bufferList);
+                               nested_column, offset, next_offset, buffer_list);
 
                 cur_batch->offsets[row_id + 1] = next_offset;
             }
