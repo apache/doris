@@ -49,6 +49,7 @@ Status SpecialDir::update_capacity() {
 }
 
 void SpecialDir::health_check() {
+    _is_used = true;
     // check disk
     Status res = _read_and_write_test_file();
     if (!res) {
