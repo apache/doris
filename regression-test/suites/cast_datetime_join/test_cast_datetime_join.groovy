@@ -50,7 +50,7 @@ suite("test_cast_datetime_join") {
     qt_select3 """
         select * from test_datetime1 t1
         inner join test_datetime2 t2
-        on t1.work_date = t2.work_date;
+        on t1.work_date = t2.work_date order by t2.data;
     """
 
 
