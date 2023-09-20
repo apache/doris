@@ -77,13 +77,14 @@ struct TDisk {
     1: required string root_path
     2: required Types.TSize disk_total_capacity
     // local used capacity
-    3: optional Types.TSize data_used_capacity
+    3: required Types.TSize data_used_capacity
     4: required bool used
     5: optional Types.TSize disk_available_capacity
     6: optional i64 path_hash
     7: optional Types.TStorageMedium storage_medium
     8: optional Types.TSize remote_used_capacity
     9: optional Types.TSize trash_used_capacity
+    10: optional string dir_type
 }
 
 struct TPluginInfo {

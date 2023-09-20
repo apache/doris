@@ -62,7 +62,7 @@ struct DataDirInfo {
     TStorageMedium::type storage_medium = TStorageMedium::HDD; // Storage medium type: SSD|HDD
 };
 
-struct LogDirInfo {
+struct SpecialDirInfo {
     std::string path;
     int64_t capacity = 1;  // actual disk capacity
     int64_t available = 0; // available space, in bytes unit

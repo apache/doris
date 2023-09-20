@@ -25,22 +25,21 @@
 
 namespace doris {
 
-class LogDir {
+class SpecialDir {
 public:
-    LogDir(const std::string& path);
-    ~LogDir();
+    SpecialDir(const std::string& path);
+    ~SpecialDir();
 
     const std::string& path() const { return _path; }
 
     const io::FileSystemSPtr& fs() const { return _fs; }
 
-    LogDirInfo get_dir_info() {
-        LogDirInfo info;
-        info.path = _path;
-        info.capacity = _capacity_bytes;
-        info.available = _available_bytes;
-        info.is_used = _is_used;
-        return info;
+    void get_dir_info(SpecialDirInfo* special_dir_info) {
+        special_dir_info->path = _path;
+        special_dir_info->capacity = _capacity_bytes;
+        special_dir_info->available = _available_bytes;
+        special_dir_info->is_used = _is_used;
+        return;
     }
 
     Status update_capacity();

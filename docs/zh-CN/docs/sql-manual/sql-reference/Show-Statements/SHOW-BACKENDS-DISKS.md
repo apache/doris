@@ -42,21 +42,23 @@ SHOW BACKENDS DISKS;
 1. Name 表示该 BE 节点的 ID。
 2. Host 表示该 BE 节点的 IP。
 3. RootPath 表示该 BE 节点的数据目录。
-4. DiskState 表示磁盘状态。
-5. TotalCapacity 表示数据目录对应磁盘的总容量。
-6. UsedCapacity 表示磁盘的已使用空间。
-7. AvailableCapacity 表示磁盘的可使用空间。
-8. UsedPct 表示磁盘的使用百分比。
+4. DirType 表示目录类型
+5. DiskState 表示磁盘状态。
+6. TotalCapacity 表示数据目录对应磁盘的总容量。
+7. UsedCapacity 表示磁盘的已使用空间。
+8. AvailableCapacity 表示磁盘的可使用空间。
+9. UsedPct 表示磁盘的使用百分比。
 
 ### Example
 `
 mysql> show backends disks; 
-+-----------+-------------+-------------------------------+-----------+---------------+--------------+-------------------+---------+
-| BackendId | Host        | RootPath                      | DiskState | TotalCapacity | UsedCapacity | AvailableCapacity | UsedPct |
-+-----------+-------------+-------------------------------+-----------+---------------+--------------+-------------------+---------+
-| 10004     | 10.xx.xx.90 | /home/disk5/output/be/storage | ONLINE    | 7.049 TB      | 2.471 TB     | 4.578 TB          | 35.06 % |
-| 10004     | 10.xx.xx.90 | /home/disk5/output/be/log     | ONLINE    | 7.049 TB      | 2.471 TB     | 4.578 TB          | 35.06 % |
-+-----------+-------------+-------------------------------+-----------+---------------+--------------+-------------------+---------+
++-----------+-------------+------------------------------+---------+----------+---------------+-------------+-------------------+---------+ 
+| BackendId | Host        | RootPath                     | DirType | DiskState| TotalCapacity | UsedCapacity| AvailableCapacity | UsedPct |
++-----------+-------------+------------------------------+---------+----------+---------------+-------------+-------------------+---------+
+| 10002     | 10.xx.xx.90 | /home/work/output/be/storage | STORAGE | ONLINE   | 7.049 TB      | 2.478 TB    | 4.571 TB          | 35.16 % |
+| 10002     | 10.xx.xx.90 | /home/work/output/be         | DEPLOY  | ONLINE   | 7.049 TB      | 2.478 TB    | 4.571 TB          | 35.16 % |
+| 10002     | 10.xx.xx.90 | /home/work/output/be/log     | LOG     | ONLINE   | 7.049 TB      | 2.478 TB    | 4.571 TB          | 35.16 % |
++-----------+-------------+------------------------------+---------+----------+---------------+-------------+-------------------+---------+
 2 rows in set (0.00 sec)
 `
 ### Keywords

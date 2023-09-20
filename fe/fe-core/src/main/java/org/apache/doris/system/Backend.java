@@ -374,22 +374,44 @@ public class Backend implements Writable {
     }
 
     public ImmutableMap<String, DiskInfo> getDisks() {
+        Map<String, DiskInfo> disks = Maps.newHashMap();
+        for (Map.Entry<String, DiskInfo> entry : disksRef.entrySet()) {
+            if (entry.getValue().getDirType().equals("STORAGE")) {
+                disks.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return ImmutableMap.copyOf(disks);
+    }
+
+    public ImmutableMap<String, DiskInfo> getAllDisks() {
         return this.disksRef;
     }
 
     public boolean hasPathHash() {
-        return disksRef.values().stream().allMatch(DiskInfo::hasPathHash);
+        Map<String, DiskInfo> disks = Maps.newHashMap();
+        for (Map.Entry<String, DiskInfo> entry : disksRef.entrySet()) {
+            if (entry.getValue().getDirType().equals("STORAGE")) {
+                disks.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return disks.values().stream().allMatch(DiskInfo::hasPathHash);
     }
 
     public boolean hasSpecifiedStorageMedium(TStorageMedium storageMedium) {
-        return disksRef.values().stream().anyMatch(d -> d.isStorageMediumMatch(storageMedium));
+        Map<String, DiskInfo> disks = Maps.newHashMap();
+        for (Map.Entry<String, DiskInfo> entry : disksRef.entrySet()) {
+            if (entry.getValue().getDirType().equals("STORAGE")) {
+                disks.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return disks.values().stream().anyMatch(d -> d.isStorageMediumMatch(storageMedium));
     }
 
     public long getTotalCapacityB() {
         ImmutableMap<String, DiskInfo> disks = disksRef;
         long totalCapacityB = 0L;
         for (DiskInfo diskInfo : disks.values()) {
-            if (diskInfo.getState() == DiskState.ONLINE) {
+            if (diskInfo.getState() == DiskState.ONLINE && diskInfo.getDirType().equals("STORAGE")) {
                 totalCapacityB += diskInfo.getTotalCapacityB();
             }
         }
@@ -401,7 +423,7 @@ public class Backend implements Writable {
         ImmutableMap<String, DiskInfo> disks = disksRef;
         long availableCapacityB = 1L;
         for (DiskInfo diskInfo : disks.values()) {
-            if (diskInfo.getState() == DiskState.ONLINE) {
+            if (diskInfo.getState() == DiskState.ONLINE && diskInfo.getDirType().equals("STORAGE")) {
                 availableCapacityB += diskInfo.getAvailableCapacityB();
             }
         }
@@ -412,7 +434,7 @@ public class Backend implements Writable {
         ImmutableMap<String, DiskInfo> disks = disksRef;
         long dataUsedCapacityB = 0L;
         for (DiskInfo diskInfo : disks.values()) {
-            if (diskInfo.getState() == DiskState.ONLINE) {
+            if (diskInfo.getState() == DiskState.ONLINE && diskInfo.getDirType().equals("STORAGE")) {
                 dataUsedCapacityB += diskInfo.getDataUsedCapacityB();
             }
         }
@@ -423,7 +445,7 @@ public class Backend implements Writable {
         ImmutableMap<String, DiskInfo> disks = disksRef;
         long trashUsedCapacityB = 0L;
         for (DiskInfo diskInfo : disks.values()) {
-            if (diskInfo.getState() == DiskState.ONLINE) {
+            if (diskInfo.getState() == DiskState.ONLINE && diskInfo.getDirType().equals("STORAGE")) {
                 trashUsedCapacityB += diskInfo.getTrashUsedCapacityB();
             }
         }
@@ -434,7 +456,7 @@ public class Backend implements Writable {
         ImmutableMap<String, DiskInfo> disks = disksRef;
         long totalRemoteUsedCapacityB = 0L;
         for (DiskInfo diskInfo : disks.values()) {
-            if (diskInfo.getState() == DiskState.ONLINE) {
+            if (diskInfo.getState() == DiskState.ONLINE && diskInfo.getDirType().equals("STORAGE")) {
                 totalRemoteUsedCapacityB += diskInfo.getRemoteUsedCapacity();
             }
         }
@@ -445,7 +467,7 @@ public class Backend implements Writable {
         ImmutableMap<String, DiskInfo> disks = disksRef;
         double maxPct = 0.0;
         for (DiskInfo diskInfo : disks.values()) {
-            if (diskInfo.getState() == DiskState.ONLINE) {
+            if (diskInfo.getState() == DiskState.ONLINE && diskInfo.getDirType().equals("STORAGE")) {
                 double percent = diskInfo.getUsedPct();
                 if (percent > maxPct) {
                     maxPct = percent;
@@ -463,7 +485,7 @@ public class Backend implements Writable {
         boolean exceedLimit = true;
         for (DiskInfo diskInfo : diskInfos.values()) {
             if (diskInfo.getState() == DiskState.ONLINE && diskInfo.getStorageMedium()
-                    == storageMedium && !diskInfo.exceedLimit(true)) {
+                    == storageMedium && !diskInfo.exceedLimit(true) && diskInfo.getDirType().equals("STORAGE")) {
                 exceedLimit = false;
                 break;
             }
@@ -478,7 +500,8 @@ public class Backend implements Writable {
         ImmutableMap<String, DiskInfo> diskInfos = disksRef;
         boolean exceedLimit = true;
         for (DiskInfo diskInfo : diskInfos.values()) {
-            if (diskInfo.getState() == DiskState.ONLINE && !diskInfo.exceedLimit(true)) {
+            if (diskInfo.getState() == DiskState.ONLINE  && diskInfo.getDirType().equals("STORAGE")
+                    && !diskInfo.exceedLimit(true)) {
                 exceedLimit = false;
                 break;
             }
@@ -492,7 +515,7 @@ public class Backend implements Writable {
         if (!initPathInfo) {
             boolean allPathHashUpdated = true;
             for (DiskInfo diskInfo : disks.values()) {
-                if (diskInfo.getPathHash() == 0) {
+                if (diskInfo.getDirType().equals("STORAGE") && diskInfo.getPathHash() == 0) {
                     allPathHashUpdated = false;
                     break;
                 }
@@ -519,6 +542,7 @@ public class Backend implements Writable {
             long trashUsedCapacityB = tDisk.getTrashUsedCapacity();
             long diskAvailableCapacityB = tDisk.getDiskAvailableCapacity();
             boolean isUsed = tDisk.isUsed();
+            String dirType = tDisk.getDirType();
             DiskInfo diskInfo = disks.get(rootPath);
             if (diskInfo == null) {
                 diskInfo = new DiskInfo(rootPath);
@@ -532,6 +556,8 @@ public class Backend implements Writable {
             diskInfo.setDataUsedCapacityB(dataUsedCapacityB);
             diskInfo.setTrashUsedCapacityB(trashUsedCapacityB);
             diskInfo.setAvailableCapacityB(diskAvailableCapacityB);
+            diskInfo.setDirType(dirType);
+
             if (tDisk.isSetRemoteUsedCapacity()) {
                 diskInfo.setRemoteUsedCapacity(tDisk.getRemoteUsedCapacity());
             }
@@ -553,6 +579,7 @@ public class Backend implements Writable {
                     isChanged = true;
                 }
             }
+
             LOG.debug("update disk info. backendId: {}, diskInfo: {}", id, diskInfo.toString());
         }
 

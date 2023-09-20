@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/log_dir.h"
+#include "olap/special_dir.h"
 
 #include <string>
 
@@ -30,16 +30,16 @@ using namespace ErrorCode;
 
 static const char* const kTestFilePath = ".testfile";
 
-LogDir::LogDir(const std::string& path)
-        : _path(path),
-          _fs(io::LocalFileSystem::create(path)),
-          _available_bytes(0),
-          _capacity_bytes(0),
-          _is_used(true) {}
+SpecialDir::SpecialDir(const std::string& path)
+            : _path(path),
+            _fs(io::LocalFileSystem::create(path)),
+            _available_bytes(0),
+            _capacity_bytes(0),
+            _is_used(true) {}
 
-LogDir::~LogDir() {}
+SpecialDir::~SpecialDir() {}
 
-Status LogDir::update_capacity() {
+Status SpecialDir::update_capacity() {
     RETURN_IF_ERROR(io::global_local_filesystem()->get_space_info(_path, &_capacity_bytes,
                                                                   &_available_bytes));
     LOG(INFO) << "path: " << _path << " total capacity: " << _capacity_bytes
@@ -48,7 +48,7 @@ Status LogDir::update_capacity() {
     return Status::OK();
 }
 
-void LogDir::health_check() {
+void SpecialDir::health_check() {
     // check disk
     Status res = _read_and_write_test_file();
     if (!res) {
@@ -58,7 +58,7 @@ void LogDir::health_check() {
     }
 }
 
-Status LogDir::_read_and_write_test_file() {
+Status SpecialDir::_read_and_write_test_file() {
     auto test_file = fmt::format("{}/{}", _path, kTestFilePath);
     return read_write_test_file(test_file);
 }

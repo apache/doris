@@ -85,6 +85,8 @@ public:
 
     enum ReportType { TASK, DISK, TABLET };
 
+    enum DiskType { LOG, DEPLOY };
+
     enum class ThreadModel {
         SINGLE_THREAD, // Only 1 thread allowed in the pool
         MULTI_THREADS  // 1 or more threads allowed in the pool
@@ -162,6 +164,17 @@ public:
         }
     }
 
+    const std::string TYPE_STRING(DiskType type) {
+        switch (type) {
+        case LOG:
+            return "LOG";
+        case DEPLOY:
+            return "DEPLOY";
+        default:
+            return "Unknown";
+        }
+    }
+
     TaskWorkerPool(const TaskWorkerType task_worker_type, ExecEnv* env,
                    const TMasterInfo& master_info, ThreadModel thread_model);
     virtual ~TaskWorkerPool();
@@ -211,6 +224,7 @@ protected:
                                TFinishTaskRequest* finish_task_request);
 
     void _handle_report(const TReportRequest& request, ReportType type);
+    void _set_disk_infos(TReportRequest& request, DiskType type);
 
     Status _get_tablet_info(const TTabletId tablet_id, const TSchemaHash schema_hash,
                             int64_t signature, TTabletInfo* tablet_info);

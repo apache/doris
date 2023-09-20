@@ -126,7 +126,8 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _default_rowset_type(BETA_ROWSET),
           _heartbeat_flags(nullptr),
           _stream_load_recorder(nullptr),
-          _log_dir(new LogDir(config::sys_log_dir)) {
+          _log_dir(new SpecialDir(config::sys_log_dir)),
+          _deploy_dir(new SpecialDir(std::string(std::getenv("DORIS_HOME")))) {
     REGISTER_HOOK_METRIC(unused_rowsets_count, [this]() {
         // std::lock_guard<std::mutex> lock(_gc_mutex);
         return _unused_rowsets.size();
@@ -361,14 +362,33 @@ Status StorageEngine::get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_i
     return res;
 }
 
-Status StorageEngine::get_log_dir_info(LogDirInfo* log_dir_infos) {
+Status StorageEngine::get_special_dir_info(SpecialDirInfo* special_dir_infos, TaskWorkerPool::DiskType type) {
     Status res = Status::OK();
-    _log_dir->health_check();
-    _log_dir->update_capacity();
-    LogDirInfo dir_info = _log_dir->get_dir_info();
-    *log_dir_infos = dir_info;
+    switch (type) {
+    case TaskWorkerPool::DiskType::LOG:
+        _log_dir->health_check();
+        _log_dir->update_capacity();
+        _log_dir->get_dir_info(special_dir_infos);
+        break;
+    case TaskWorkerPool::DiskType::DEPLOY:
+        _deploy_dir->health_check();
+        _deploy_dir->update_capacity();
+        _deploy_dir->get_dir_info(special_dir_infos);
+        break;
+    default:
+        break;
+    }
     return res;
 }
+
+// Status StorageEngine::get_deploy_dir_info(SpecialDirInfo* deploy_dir_infos) {
+//     Status res = Status::OK();
+//     _deploy_dir->health_check();
+//     _deploy_dir->update_capacity();
+//     SpecialDirInfo dir_info = _deploy_dir->get_dir_info();
+//     *deploy_dir_infos = dir_info;
+//     return res;
+// }
 
 int64_t StorageEngine::get_file_or_directory_size(const std::string& file_path) {
     if (!std::filesystem::exists(file_path)) {

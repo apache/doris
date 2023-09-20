@@ -42,21 +42,23 @@ SHOW BACKENDS DISKS;
 1. Name indicates id of BE node.
 2. Host indicates ip of BE node.
 3. RootPath indicates data directory of BE node.
-4. DiskState indicates state of disk.
-5. TotalCapacity indicates total capacity of the disk.
-6. UsedCapacity indicates used space of the disk.
-7. AvailableCapacity indicates available space of the disk.
-8. UsedPct indicates percentage of the disk used.
+4. DirType indicates the type of directory
+5. DiskState indicates state of disk.
+6. TotalCapacity indicates total capacity of the disk.
+7. UsedCapacity indicates used space of the disk.
+8. AvailableCapacity indicates available space of the disk.
+9. UsedPct indicates percentage of the disk used.
 
 ### Example
 `
 mysql> show backends disks; 
-+-----------+-------------+-------------------------------+-----------+---------------+--------------+-------------------+---------+
-| BackendId | Host        | RootPath                      | DiskState | TotalCapacity | UsedCapacity | AvailableCapacity | UsedPct |
-+-----------+-------------+-------------------------------+-----------+---------------+--------------+-------------------+---------+
-| 10004     | 10.xx.xx.90 | /home/disk5/output/be/storage | ONLINE    | 7.049 TB      | 2.471 TB     | 4.578 TB          | 35.06 % |
-| 10004     | 10.xx.xx.90 | /home/disk5/output/be/log     | ONLINE    | 7.049 TB      | 2.471 TB     | 4.578 TB          | 35.06 % |
-+-----------+-------------+-------------------------------+-----------+---------------+--------------+-------------------+---------+
++-----------+-------------+------------------------------+---------+----------+---------------+-------------+-------------------+---------+ 
+| BackendId | Host        | RootPath                     | DirType | DiskState| TotalCapacity | UsedCapacity| AvailableCapacity | UsedPct |
++-----------+-------------+------------------------------+---------+----------+---------------+-------------+-------------------+---------+
+| 10002     | 10.xx.xx.90 | /home/work/output/be/storage | STORAGE | ONLINE   | 7.049 TB      | 2.478 TB    | 4.571 TB          | 35.16 % |
+| 10002     | 10.xx.xx.90 | /home/work/output/be         | DEPLOY  | ONLINE   | 7.049 TB      | 2.478 TB    | 4.571 TB          | 35.16 % |
+| 10002     | 10.xx.xx.90 | /home/work/output/be/log     | LOG     | ONLINE   | 7.049 TB      | 2.478 TB    | 4.571 TB          | 35.16 % |
++-----------+-------------+------------------------------+---------+----------+---------------+-------------+-------------------+---------+
 2 rows in set (0.00 sec)
 `
 ### Keywords

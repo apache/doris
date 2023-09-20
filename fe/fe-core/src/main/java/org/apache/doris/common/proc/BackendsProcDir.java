@@ -54,8 +54,8 @@ public class BackendsProcDir implements ProcDirInterface {
             .build();
 
     public static final ImmutableList<String> DISK_TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("BackendId").add("Host").add("RootPath").add("DiskState").add("TotalCapacity")
-            .add("UsedCapacity").add("AvailableCapacity").add("UsedPct")
+            .add("BackendId").add("Host").add("RootPath").add("DirType").add("DiskState")
+            .add("TotalCapacity").add("UsedCapacity").add("AvailableCapacity").add("UsedPct")
             .build();
 
     public static final int HOSTNAME_INDEX = 3;
@@ -223,13 +223,14 @@ public class BackendsProcDir implements ProcDirInterface {
                 continue;
             }
 
-            ImmutableMap<String, DiskInfo> disksRef = backend.getDisks();
+            ImmutableMap<String, DiskInfo> disksRef = backend.getAllDisks();
             for (DiskInfo disk : disksRef.values()) {
                 List<Comparable> backendsDiskInfo = Lists.newArrayList();
                 backendsDiskInfo.add(String.valueOf(backendId));
                 backendsDiskInfo.add(backend.getHost());
                 // add disk info to backendsDiskInfo
                 backendsDiskInfo.add(disk.getRootPath());
+                backendsDiskInfo.add(disk.getDirType());
                 backendsDiskInfo.add(disk.getState());
                 long totalCapacityB = disk.getTotalCapacityB();
                 Pair<Double, String> totalCapacity = DebugUtil.getByteUint(totalCapacityB);
