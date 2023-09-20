@@ -464,6 +464,7 @@ insert into doris_sink select id,name from cdc_mysql_source;
      mysql-sync-database\
      --database test_db \
      --mysql-conf hostname=127.0.0.1 \
+     --mysql-conf port=3306 \
      --mysql-conf username=root \
      --mysql-conf password=123456 \
      --mysql-conf database-name=mysql_db \
