@@ -15,6 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_md5") {
-    qt_select "select md5(k6) from test_query_db.test order by k6"
+suite("test_digest") {
+    qt_md5 "select md5(k6) from test_query_db.test order by k6"
+    qt_sha1_1 "select sha1(\"123\")"
+    qt_sha1_2 "select sha(k7), sha1(k7) from test_query_db.test order by k7"
+    qt_sha1_3 "select sha1(\"\")"
+    qt_sha1_4 "select sha1(NULL)"
+    qt_sha2_1 "select sha2(k7, 256) from test_query_db.test order by k7"
+    qt_sha2_2 "select sha2(k7, 512) from test_query_db.test order by k7"
+    qt_sha2_3 "select sha2('abc', 224)"
+    qt_sha2_4 "select sha2('abc', 384)"
+    qt_sha2_5 "select sha2(NULL, 384)"
+
+    try {
+        result = sql """ select sha2("123", 255) """
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("only support 224/256/384/512"))
+    }
 }

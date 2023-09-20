@@ -1743,6 +1743,19 @@ public class FunctionCallExpr extends Expr {
             }
         }
 
+        if (fn.getFunctionName().getFunction().equals("sha2")) {
+            if ((children.size() != 2) || (getChild(1).isConstant() == false)
+                    || !(getChild(1) instanceof IntLiteral)) {
+                throw new AnalysisException(
+                        fnName.getFunction() + " needs two params, and the second is must be a integer constant: "
+                                + this.toSql());
+            }
+            final Integer constParam = (int) ((IntLiteral) getChild(1)).getValue();
+            if (!Lists.newArrayList(224, 256, 384, 512).contains(constParam)) {
+                throw new AnalysisException("sha2 functions only support digest length of 224/256/384/512");
+            }
+        }
+
         if (isAggregateFunction()) {
             final String functionName = fnName.getFunction();
             // subexprs must not contain aggregates
