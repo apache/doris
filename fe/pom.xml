@@ -313,6 +313,7 @@ under the License.
         <!-- paimon -->
         <paimon.version>0.4.0-incubating</paimon.version>
         <disruptor.version>3.4.4</disruptor.version>
+        <cassandra-driver.version>4.14.1</cassandra-driver.version>
     </properties>
     <profiles>
         <profile>
