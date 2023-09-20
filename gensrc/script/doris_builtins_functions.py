@@ -935,8 +935,6 @@ visible_functions = {
         [['minutes_sub'], 'DATETIME', ['DATETIME', 'INT'], 'ALWAYS_NULLABLE'],
         [['seconds_add'], 'DATETIME', ['DATETIME', 'INT'], 'ALWAYS_NULLABLE'],
         [['seconds_sub'], 'DATETIME', ['DATETIME', 'INT'], 'ALWAYS_NULLABLE'],
-        [['microseconds_add'], 'DATETIME', ['DATETIME', 'INT'], ''],
-        [['microseconds_sub'], 'DATETIME', ['DATETIME', 'INT'], ''],
 
         [['datediff'], 'INT', ['DATETIME', 'DATETIME'], 'ALWAYS_NULLABLE'],
         [['timediff'], 'TIME', ['DATETIME', 'DATETIME'], 'ALWAYS_NULLABLE'],
@@ -1072,6 +1070,8 @@ visible_functions = {
         [['seconds_sub'], 'DATETIMEV2', ['DATETIMEV2', 'INT'], ''],
         [['microseconds_add'], 'DATETIMEV2', ['DATETIMEV2', 'INT'], ''],
         [['microseconds_sub'], 'DATETIMEV2', ['DATETIMEV2', 'INT'], ''],
+        [['milliseconds_add'], 'DATETIMEV2', ['DATETIMEV2', 'INT'], ''],
+        [['milliseconds_sub'], 'DATETIMEV2', ['DATETIMEV2', 'INT'], ''],
 
         [['years_add'], 'DATEV2', ['DATEV2', 'INT'], ''],
         [['years_sub'], 'DATEV2', ['DATEV2', 'INT'], ''],
@@ -1089,6 +1089,8 @@ visible_functions = {
         [['seconds_sub'], 'DATETIMEV2', ['DATEV2', 'INT'], ''],
         [['microseconds_add'], 'DATETIMEV2', ['DATEV2', 'INT'], ''],
         [['microseconds_sub'], 'DATETIMEV2', ['DATEV2', 'INT'], ''],
+        [['milliseconds_add'], 'DATETIMEV2', ['DATEV2', 'INT'], ''],
+        [['milliseconds_sub'], 'DATETIMEV2', ['DATEV2', 'INT'], ''],
 
         [['datediff'], 'INT', ['DATETIMEV2', 'DATETIMEV2'], ''],
         [['timediff'], 'TIMEV2', ['DATETIMEV2', 'DATETIMEV2'], ''],
@@ -1121,6 +1123,8 @@ visible_functions = {
         [['hours_diff'], 'BIGINT', ['DATETIMEV2', 'DATETIMEV2'], ''],
         [['minutes_diff'], 'BIGINT', ['DATETIMEV2', 'DATETIMEV2'], ''],
         [['seconds_diff'], 'BIGINT', ['DATETIMEV2', 'DATETIMEV2'], ''],
+        [['microseconds_diff'], 'BIGINT', ['DATETIMEV2', 'DATETIMEV2'], ''],
+        [['milliseconds_diff'], 'BIGINT', ['DATETIMEV2', 'DATETIMEV2'], ''],
 
         [['years_diff'], 'BIGINT', ['DATEV2', 'DATETIMEV2'], ''],
         [['months_diff'], 'BIGINT', ['DATEV2', 'DATETIMEV2'], ''],
@@ -1129,6 +1133,8 @@ visible_functions = {
         [['hours_diff'], 'BIGINT', ['DATEV2', 'DATETIMEV2'], ''],
         [['minutes_diff'], 'BIGINT', ['DATEV2', 'DATETIMEV2'], ''],
         [['seconds_diff'], 'BIGINT', ['DATEV2', 'DATETIMEV2'], ''],
+        [['microseconds_diff'], 'BIGINT', ['DATEV2', 'DATETIMEV2'], ''],
+        [['milliseconds_diff'], 'BIGINT', ['DATEV2', 'DATETIMEV2'], ''],
 
         [['years_diff'], 'BIGINT', ['DATETIMEV2', 'DATEV2'], ''],
         [['months_diff'], 'BIGINT', ['DATETIMEV2', 'DATEV2'], ''],
@@ -1137,6 +1143,8 @@ visible_functions = {
         [['hours_diff'], 'BIGINT', ['DATETIMEV2', 'DATEV2'], ''],
         [['minutes_diff'], 'BIGINT', ['DATETIMEV2', 'DATEV2'], ''],
         [['seconds_diff'], 'BIGINT', ['DATETIMEV2', 'DATEV2'], ''],
+        [['microseconds_diff'], 'BIGINT', ['DATETIMEV2', 'DATEV2'], ''],
+        [['milliseconds_diff'], 'BIGINT', ['DATETIMEV2', 'DATEV2'], ''],
 
         [['years_diff'], 'BIGINT', ['DATEV2', 'DATEV2'], ''],
         [['months_diff'], 'BIGINT', ['DATEV2', 'DATEV2'], ''],
@@ -1145,6 +1153,8 @@ visible_functions = {
         [['hours_diff'], 'BIGINT', ['DATEV2', 'DATEV2'], ''],
         [['minutes_diff'], 'BIGINT', ['DATEV2', 'DATEV2'], ''],
         [['seconds_diff'], 'BIGINT', ['DATEV2', 'DATEV2'], ''],
+        [['microseconds_diff'], 'BIGINT', ['DATEV2', 'DATEV2'], ''],
+        [['milliseconds_diff'], 'BIGINT', ['DATEV2', 'DATEV2'], ''],
 
         [['year_floor'], 'DATETIMEV2', ['DATETIMEV2'], 'ALWAYS_NULLABLE'],
         [['year_floor'], 'DATETIMEV2', ['DATETIMEV2', 'DATETIMEV2'], 'ALWAYS_NULLABLE'],
