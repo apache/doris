@@ -143,7 +143,7 @@ public class BindExpression implements AnalysisRuleFactory {
                     boundProjections = boundProjections.stream()
                             .map(expr -> bindFunction(expr, ctx.root, ctx.cascadesContext))
                             .collect(ImmutableList.toImmutableList());
-                    return new LogicalProject<>(boundProjections, project.isDistinct(), project.child());
+                    return project.withProjects(boundProjections);
                 })
             ),
             RuleType.BINDING_FILTER_SLOT.build(
