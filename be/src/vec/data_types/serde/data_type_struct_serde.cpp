@@ -39,16 +39,16 @@ std::optional<size_t> DataTypeStructSerDe::try_get_position_by_name(const String
     return std::nullopt;
 }
 
-void DataTypeStructSerDe::serialize_column_to_json(const IColumn& column, int start_idx,
-                                                   int end_idx, BufferWritable& bw,
-                                                   FormatOptions& options,
-                                                   int nesting_level) const {
-    SERIALIZE_COLUMN_TO_JSON()
+Status DataTypeStructSerDe::serialize_column_to_json(const IColumn& column, int start_idx,
+                                                     int end_idx, BufferWritable& bw,
+                                                     FormatOptions& options,
+                                                     int nesting_level) const {
+    SERIALIZE_COLUMN_TO_JSON();
 }
 
-void DataTypeStructSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
-                                                     BufferWritable& bw, FormatOptions& options,
-                                                     int nesting_level) const {
+Status DataTypeStructSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+                                                       BufferWritable& bw, FormatOptions& options,
+                                                       int nesting_level) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -64,6 +64,7 @@ void DataTypeStructSerDe::serialize_one_cell_to_json(const IColumn& column, int 
                                                       options, nesting_level + 1);
     }
     bw.write('}');
+    return Status::OK();
 }
 
 Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,

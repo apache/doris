@@ -97,12 +97,8 @@ Status VCSVTransformer::write(const Block& block) {
             if (col_id != 0) {
                 buffer_writer.write(_column_separator.data(), _column_separator.size());
             }
-            try {
-                _serdes[col_id]->serialize_one_cell_to_json(*(block.get_by_position(col_id).column),
-                                                            i, buffer_writer, _options);
-            } catch (std::exception e) {
-                return Status::InternalError("error when write to csv: {}", e.what());
-            }
+            RETURN_IF_ERROR(_serdes[col_id]->serialize_one_cell_to_json(
+                    *(block.get_by_position(col_id).column), i, buffer_writer, _options));
         }
         buffer_writer.write(_line_delimiter.data(), _line_delimiter.size());
         buffer_writer.commit();

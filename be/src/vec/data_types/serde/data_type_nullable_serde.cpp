@@ -39,16 +39,16 @@ namespace doris {
 namespace vectorized {
 class Arena;
 
-void DataTypeNullableSerDe::serialize_column_to_json(const IColumn& column, int start_idx,
-                                                     int end_idx, BufferWritable& bw,
-                                                     FormatOptions& options,
-                                                     int nesting_level) const {
-    SERIALIZE_COLUMN_TO_JSON()
+Status DataTypeNullableSerDe::serialize_column_to_json(const IColumn& column, int start_idx,
+                                                       int end_idx, BufferWritable& bw,
+                                                       FormatOptions& options,
+                                                       int nesting_level) const {
+    SERIALIZE_COLUMN_TO_JSON();
 }
 
-void DataTypeNullableSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
-                                                       BufferWritable& bw, FormatOptions& options,
-                                                       int nesting_level) const {
+Status DataTypeNullableSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+                                                         BufferWritable& bw, FormatOptions& options,
+                                                         int nesting_level) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -64,6 +64,7 @@ void DataTypeNullableSerDe::serialize_one_cell_to_json(const IColumn& column, in
         nested_serde->serialize_one_cell_to_json(col_null.get_nested_column(), row_num, bw, options,
                                                  nesting_level);
     }
+    return Status::OK();
 }
 
 Status DataTypeNullableSerDe::deserialize_column_from_json_vector(IColumn& column,

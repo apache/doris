@@ -37,15 +37,15 @@ namespace doris {
 namespace vectorized {
 class IColumn;
 
-void DataTypeHLLSerDe::serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
-                                                BufferWritable& bw, FormatOptions& options,
-                                                int nesting_level) const {
-    SERIALIZE_COLUMN_TO_JSON()
-}
-
-void DataTypeHLLSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+Status DataTypeHLLSerDe::serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
                                                   BufferWritable& bw, FormatOptions& options,
                                                   int nesting_level) const {
+    SERIALIZE_COLUMN_TO_JSON();
+}
+
+Status DataTypeHLLSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+                                                    BufferWritable& bw, FormatOptions& options,
+                                                    int nesting_level) const {
     auto col_row = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = col_row.first;
     row_num = col_row.second;
@@ -53,6 +53,7 @@ void DataTypeHLLSerDe::serialize_one_cell_to_json(const IColumn& column, int row
     std::unique_ptr<char[]> buf = std::make_unique<char[]>(data.max_serialized_size());
     size_t size = data.serialize((uint8*)buf.get());
     bw.write(buf.get(), size);
+    return Status::OK();
 }
 
 Status DataTypeHLLSerDe::deserialize_column_from_json_vector(IColumn& column,

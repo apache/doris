@@ -29,15 +29,15 @@ namespace doris {
 namespace vectorized {
 class Arena;
 
-void DataTypeMapSerDe::serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
-                                                BufferWritable& bw, FormatOptions& options,
-                                                int nesting_level) const {
-    SERIALIZE_COLUMN_TO_JSON()
-}
-
-void DataTypeMapSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+Status DataTypeMapSerDe::serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
                                                   BufferWritable& bw, FormatOptions& options,
                                                   int nesting_level) const {
+    SERIALIZE_COLUMN_TO_JSON();
+}
+
+Status DataTypeMapSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+                                                    BufferWritable& bw, FormatOptions& options,
+                                                    int nesting_level) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -63,6 +63,7 @@ void DataTypeMapSerDe::serialize_one_cell_to_json(const IColumn& column, int row
                                                 nesting_level + 1);
     }
     bw.write("}", 1);
+    return Status::OK();
 }
 
 Status DataTypeMapSerDe::deserialize_one_cell_from_hive_text(IColumn& column, Slice& slice,

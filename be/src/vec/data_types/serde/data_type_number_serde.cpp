@@ -137,17 +137,18 @@ Status DataTypeNumberSerDe<T>::deserialize_one_cell_from_json(IColumn& column, S
 }
 
 template <typename T>
-void DataTypeNumberSerDe<T>::serialize_column_to_json(const IColumn& column, int start_idx,
-                                                      int end_idx, BufferWritable& bw,
-                                                      FormatOptions& options,
-                                                      int nesting_level) const {
-    SERIALIZE_COLUMN_TO_JSON()
+Status DataTypeNumberSerDe<T>::serialize_column_to_json(const IColumn& column, int start_idx,
+                                                        int end_idx, BufferWritable& bw,
+                                                        FormatOptions& options,
+                                                        int nesting_level) const {
+    SERIALIZE_COLUMN_TO_JSON();
 }
 
 template <typename T>
-void DataTypeNumberSerDe<T>::serialize_one_cell_to_json(const IColumn& column, int row_num,
-                                                        BufferWritable& bw, FormatOptions& options,
-                                                        int nesting_level) const {
+Status DataTypeNumberSerDe<T>::serialize_one_cell_to_json(const IColumn& column, int row_num,
+                                                          BufferWritable& bw,
+                                                          FormatOptions& options,
+                                                          int nesting_level) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -163,6 +164,7 @@ void DataTypeNumberSerDe<T>::serialize_one_cell_to_json(const IColumn& column, i
     } else if constexpr (std::is_integral<T>::value || std::numeric_limits<T>::is_iec559) {
         bw.write_number(data);
     }
+    return Status::OK();
 }
 
 template <typename T>
