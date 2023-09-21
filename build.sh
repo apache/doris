@@ -31,7 +31,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
 export DORIS_HOME="${ROOT}"
 
-. "${DORIS_HOME}/env.sh"
+. ${DORIS_HOME}/env.sh
 
 # Check args
 usage() {
