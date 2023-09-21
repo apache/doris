@@ -67,6 +67,9 @@ public enum ExpressionFunctions {
                 || constExpr instanceof FunctionCallExpr
                 || constExpr instanceof TimestampArithmeticExpr) {
             Function fn = constExpr.getFn();
+            if (fn == null) {
+                return constExpr;
+            }
 
             Preconditions.checkNotNull(fn, "Expr's fn can't be null.");
 
