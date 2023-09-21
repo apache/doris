@@ -444,14 +444,14 @@ public class QueryProfileAction extends RestBaseController {
             try {
                 JSONObject json;
                 if (Strings.isNullOrEmpty(fragmentId) || Strings.isNullOrEmpty(instanceId)) {
-                    ProfileTreeNode treeRoot = ProfileManager.getInstance().getFragmentProfileTree(queryId, queryId);
-                    json = ProfileTreePrinter.printFragmentTreeInJson(treeRoot, ProfileTreePrinter.PrintLevel.FRAGMENT);
+                    String brief = ProfileManager.getInstance().getProfileBrief(queryId);
+                    graph.put("profile", brief);
                 } else {
                     ProfileTreeNode treeRoot = ProfileManager.getInstance()
                             .getInstanceProfileTree(queryId, queryId, fragmentId, instanceId);
                     json = ProfileTreePrinter.printFragmentTreeInJson(treeRoot, ProfileTreePrinter.PrintLevel.INSTANCE);
+                    graph.put("profile", json.toJSONString());
                 }
-                graph.put("profile", json.toJSONString());
             } catch (Exception e) {
                 LOG.warn("get profile graph error, queryId:{}, fragementId:{}, instanceId:{}", queryId, fragmentId,
                         instanceId, e);
