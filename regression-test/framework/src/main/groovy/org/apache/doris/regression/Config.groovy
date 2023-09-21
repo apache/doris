@@ -62,6 +62,7 @@ class Config {
     public String sslCertificatePath
     public String dorisComposePath
     public String image
+    public boolean dockerEndDeleteFiles
 
     public String testGroups
     public String excludeGroups
@@ -308,6 +309,7 @@ class Config {
         )
 
         config.image = configToString(obj.image)
+        config.dockerEndDeleteFiles = configToBoolean(obj.dockerEndDeleteFiles)
 
         def declareFileNames = config.getClass()
                 .getDeclaredFields()
@@ -329,7 +331,7 @@ class Config {
         }
 
         if (config.jdbcUrl == null) {
-            //jdbcUrl needs parameter here. Refer to function: buildUrl(String dbName)
+            //jdbcUrl needs parameter here. Refer to function: buildUrlWithDb(String jdbcUrl, String dbName)
             config.jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
             log.info("Set jdbcUrl to '${config.jdbcUrl}' because not specify.".toString())
         }
@@ -513,7 +515,7 @@ class Config {
     }
 
     Connection getConnectionByDbName(String dbName) {
-        String dbUrl = buildUrl(dbName)
+        String dbUrl = buildUrlWithDb(jdbcUrl, dbName)
         tryCreateDbIfNotExist(dbName)
         log.info("connect to ${dbUrl}".toString())
         return DriverManager.getConnection(dbUrl, jdbcUser, jdbcPassword)
@@ -567,12 +569,12 @@ class Config {
         }
     }
 
-    private void buildUrlWithDefaultDb() {
-        this.jdbcUrl = buildUrl(defaultDb)
+    public void buildUrlWithDefaultDb() {
+        this.jdbcUrl = buildUrlWithDb(jdbcUrl, defaultDb)
         log.info("Reset jdbcUrl to ${jdbcUrl}".toString())
     }
 
-    private String buildUrl(String dbName) {
+    public static String buildUrlWithDb(String jdbcUrl, String dbName) {
         String urlWithDb = jdbcUrl
         String urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)
         if (urlWithoutSchema.indexOf("/") >= 0) {
@@ -595,7 +597,7 @@ class Config {
         return urlWithDb
     }
 
-    private String addSslUrl(String url) {
+    private static String addSslUrl(String url) {
         if (url.contains("TLS")) {
             return url
         }
@@ -617,7 +619,7 @@ class Config {
         }
     }
 
-    private String addTimeoutUrl(String url) {
+    private static String addTimeoutUrl(String url) {
         if (url.contains("connectTimeout=") || url.contains("socketTimeout="))
         {
             return url

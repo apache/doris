@@ -155,6 +155,18 @@ class UpCommand(Command):
             "--add-be-num",
             type=int,
             help="Specify add be num, default 3 for a new cluster.")
+        group1.add_argument("--fe-config",
+                            nargs="*",
+                            type=str,
+                            help="Specify fe configs.")
+        group1.add_argument("--be-config",
+                            nargs="*",
+                            type=str,
+                            help="Specify be configs.")
+        group1.add_argument("--be-disk-num",
+                            default=None,
+                            type=int,
+                            help="Specify be disk num, default is 1.")
 
         self._add_parser_ids_args(parser)
 
@@ -190,7 +202,9 @@ class UpCommand(Command):
                 args.be_id = None
                 LOG.warning(
                     utils.render_yellow("Ignore --be-id for new cluster"))
-            cluster = CLUSTER.Cluster.new(args.NAME, args.IMAGE)
+            cluster = CLUSTER.Cluster.new(args.NAME, args.IMAGE,
+                                          args.fe_config, args.be_config,
+                                          args.be_disk_num)
             LOG.info("Create new cluster {} succ, cluster path is {}".format(
                 args.NAME, cluster.get_path()))
             if not args.add_fe_num:
@@ -200,20 +214,20 @@ class UpCommand(Command):
 
         _, related_nodes, _ = get_ids_related_nodes(cluster, args.fe_id,
                                                     args.be_id)
-        add_backends = []
-        add_frontends = []
+        add_be_ids = []
+        add_fe_ids = []
         if not related_nodes:
             related_nodes = []
         if args.add_fe_num:
             for i in range(args.add_fe_num):
                 fe = cluster.add(CLUSTER.Node.TYPE_FE)
                 related_nodes.append(fe)
-                add_frontends.append(fe)
+                add_fe_ids.append(fe.id)
         if args.add_be_num:
             for i in range(args.add_be_num):
                 be = cluster.add(CLUSTER.Node.TYPE_BE)
                 related_nodes.append(be)
-                add_backends.append(be)
+                add_be_ids.append(be.id)
         if args.IMAGE:
             for node in related_nodes:
                 node.set_image(args.IMAGE)
@@ -249,15 +263,15 @@ class UpCommand(Command):
                 while True:
                     db_mgr = database.get_db_mgr(args.NAME, False)
                     dead_frontends = []
-                    for fe in add_frontends:
-                        fe_state = db_mgr.get_fe(fe.id)
+                    for id in add_fe_ids:
+                        fe_state = db_mgr.get_fe(id)
                         if not fe_state or not fe_state.alive:
-                            dead_frontends.append(fe.id)
+                            dead_frontends.append(id)
                     dead_backends = []
-                    for be in add_backends:
-                        be_state = db_mgr.get_be(be.id)
+                    for id in add_be_ids:
+                        be_state = db_mgr.get_be(id)
                         if not be_state or not be_state.alive:
-                            dead_backends.append(be.id)
+                            dead_backends.append(id)
                     if not dead_frontends and not dead_backends:
                         break
                     if time.time() >= expire_ts:
@@ -276,10 +290,10 @@ class UpCommand(Command):
         db_mgr = database.get_db_mgr(args.NAME, False)
         return {
             "fe": {
-                "add": [node.info(db_mgr) for node in add_frontends]
+                "add_list": add_fe_ids,
             },
             "be": {
-                "add": [node.info(db_mgr) for node in add_backends]
+                "add_list": add_be_ids,
             },
         }
 
@@ -377,6 +391,7 @@ class ListNode(object):
     def __init__(self):
         self.node_type = ""
         self.id = 0
+        self.backend_id = ""
         self.cluster_name = ""
         self.ip = ""
         self.status = ""
@@ -390,11 +405,18 @@ class ListNode(object):
         self.last_heartbeat = ""
         self.err_msg = ""
 
-    def info(self):
-        return (self.cluster_name, "{}-{}".format(self.node_type, self.id),
-                self.ip, self.status, self.container_id, self.image,
-                self.created, self.alive, self.is_master, self.query_port,
-                self.tablet_num, self.last_heartbeat, self.err_msg)
+    def info(self, detail):
+        result = [
+            self.cluster_name, "{}-{}".format(self.node_type, self.id),
+            self.ip, self.status, self.container_id, self.image, self.created,
+            self.alive, self.is_master, self.query_port, self.backend_id,
+            self.tablet_num, self.last_heartbeat, self.err_msg
+        ]
+        if detail:
+            result += [
+                CLUSTER.FE_QUERY_PORT,
+            ]
+        return result
 
     def update_db_info(self, db_mgr):
         if self.node_type == CLUSTER.Node.TYPE_FE:
@@ -406,9 +428,11 @@ class ListNode(object):
                 self.last_heartbeat = fe.last_heartbeat
                 self.err_msg = fe.err_msg
         elif self.node_type == CLUSTER.Node.TYPE_BE:
+            self.backend_id = -1
             be = db_mgr.get_be(self.id)
             if be:
                 self.alive = str(be.alive).lower()
+                self.backend_id = be.backend_id
                 self.tablet_num = be.tablet_num
                 self.last_heartbeat = be.last_heartbeat
                 self.err_msg = be.err_msg
@@ -432,8 +456,12 @@ class ListCommand(Command):
             default=False,
             action=self._get_parser_bool_action(True),
             help="Show all stopped and bad doris compose projects")
+        parser.add_argument("--detail",
+                            default=False,
+                            action=self._get_parser_bool_action(True),
+                            help="Print more detail fields.")
 
-    def handle_data(self, header, datas):
+    def _handle_data(self, header, datas):
         if utils.is_enable_log():
             table = prettytable.PrettyTable(
                 [utils.render_green(field) for field in header])
@@ -527,11 +555,18 @@ class ListCommand(Command):
                 rows.append(
                     (name, show_status, "{}{}".format(compose_file,
                                                       cluster_info["status"])))
-            return self.handle_data(header, rows)
+            return self._handle_data(header, rows)
 
-        header = ("CLUSTER", "NAME", "IP", "STATUS", "CONTAINER ID", "IMAGE",
-                  "CREATED", "alive", "is_master", "query_port", "tablet_num",
-                  "last_heartbeat", "err_msg")
+        header = [
+            "CLUSTER", "NAME", "IP", "STATUS", "CONTAINER ID", "IMAGE",
+            "CREATED", "alive", "is_master", "query_port", "backend_id",
+            "tablet_num", "last_heartbeat", "err_msg"
+        ]
+        if args.detail:
+            header += [
+                "query_port",
+            ]
+
         rows = []
         for cluster_name in sorted(clusters.keys()):
             fe_ids = {}
@@ -601,9 +636,9 @@ class ListCommand(Command):
                 return key
 
             for node in sorted(nodes, key=get_key):
-                rows.append(node.info())
+                rows.append(node.info(args.detail))
 
-        return self.handle_data(header, rows)
+        return self._handle_data(header, rows)
 
 
 ALL_COMMANDS = [

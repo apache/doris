@@ -31,36 +31,35 @@ def parse_args():
     return ap.parse_args(), ap.format_help()
 
 
-def run(args, help):
+def run(args, disable_log, help):
     for cmd in command.ALL_COMMANDS:
         if args.command == cmd.name:
             timer = utils.Timer()
             result = cmd.run(args)
-            if utils.is_enable_log():
+            if not disable_log:
                 timer.show()
             return result
     print(help)
     return ""
 
 
-def main():
-    args, help = parse_args()
-    if getattr(args, "output_json", False):
-        utils.set_enable_log(False)
-    return run(args, help)
-
-
 if __name__ == '__main__':
+    args, help = parse_args()
+    disable_log = getattr(args, "output_json", False)
+    if disable_log:
+        utils.set_enable_log(False)
+
+    code = None
     try:
-        data = main()
-        if not utils.is_enable_log():
+        data = run(args, disable_log, help)
+        if disable_log:
             print(utils.pretty_json({"code": 0, "data": data}))
+        code = 0
     except:
-        if not utils.is_enable_log():
-            print(utils.pretty_json({
-                "code": 1,
-                "err": traceback.format_exc()
-            }))
+        err = traceback.format_exc()
+        if disable_log:
+            print(utils.pretty_json({"code": 1, "err": err}))
         else:
-            traceback.print_exception(*sys.exc_info())
-        sys.exit(1)
+            print(err)
+        code = 1
+    sys.exit(code)
