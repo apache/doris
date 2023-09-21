@@ -143,7 +143,9 @@ protected:
                                                      const SegmentsOverlapPB& overlap,
                                                      uint32_t max_rows_per_segment,
                                                      Version version) {
-        static int64_t inc_id = 1000;
+        // FIXME(plat1ko): If `inc_id` set to 1000, and run `VerticalCompactionTest` before `TestRowIdConversion`,
+        //  will `TestRowIdConversion` will fail. There may be some strange global states here.
+        static int64_t inc_id = 0;
         RowsetWriterContext rowset_writer_context;
         RowsetId rowset_id;
         rowset_id.init(inc_id);
@@ -217,33 +219,20 @@ protected:
         return rowset;
     }
 
-    void init_rs_meta(RowsetMetaSharedPtr& pb1, int64_t start, int64_t end) {
+    void init_rs_meta(RowsetMetaSharedPtr& rs_meta, int64_t start, int64_t end) {
         std::string json_rowset_meta = R"({
             "rowset_id": 540081,
             "tablet_id": 15673,
-            "txn_id": 4042,
             "tablet_schema_hash": 567997577,
             "rowset_type": "BETA_ROWSET",
             "rowset_state": "VISIBLE",
-            "start_version": 2,
-            "end_version": 2,
-            "num_rows": 3929,
-            "total_disk_size": 84699,
-            "data_disk_size": 84464,
-            "index_disk_size": 235,
-            "empty": false,
-            "load_id": {
-                "hi": -5350970832824939812,
-                "lo": -6717994719194512122
-            },
-            "creation_time": 1553765670
+            "empty": false
         })";
         RowsetMetaPB rowset_meta_pb;
         json2pb::JsonToProtoMessage(json_rowset_meta, &rowset_meta_pb);
         rowset_meta_pb.set_start_version(start);
         rowset_meta_pb.set_end_version(end);
-        rowset_meta_pb.set_creation_time(10000);
-        pb1->init_from_pb(rowset_meta_pb);
+        rs_meta->init_from_pb(rowset_meta_pb);
     }
 
     RowsetSharedPtr create_delete_predicate(const TabletSchemaSPtr& schema,
@@ -251,7 +240,7 @@ protected:
         RowsetMetaSharedPtr rsm(new RowsetMeta());
         init_rs_meta(rsm, version, version);
         RowsetId id;
-        id.init(version * 1000);
+        id.init(version);
         rsm->set_rowset_id(id);
         rsm->set_delete_predicate(std::move(del_pred));
         rsm->set_tablet_schema(schema);
@@ -315,19 +304,23 @@ protected:
             RowsetSharedPtr rowset = create_rowset(tablet_schema, new_overlap, input_data[i], i);
             input_rowsets.push_back(rowset);
         }
-        // delete data with key < 1000
-        std::vector<TCondition> conditions;
-        TCondition condition;
-        condition.column_name = tablet_schema->column(0).name();
-        condition.condition_op = "<";
-        condition.condition_values.clear();
-        condition.condition_values.push_back("1000");
-        conditions.push_back(condition);
+        if (has_delete_handler) {
+            // delete data with key < 1000
+            std::vector<TCondition> conditions;
+            TCondition condition;
+            condition.column_name = tablet_schema->column(0).name();
+            condition.condition_op = "<";
+            condition.condition_values.clear();
+            condition.condition_values.push_back("1000");
+            conditions.push_back(condition);
 
-        DeletePredicatePB del_pred;
-        Status st = DeleteHandler::generate_delete_predicate(*tablet_schema, conditions, &del_pred);
-        ASSERT_TRUE(st.ok()) << st;
-        input_rowsets.push_back(create_delete_predicate(tablet_schema, del_pred, num_input_rowset));
+            DeletePredicatePB del_pred;
+            Status st =
+                    DeleteHandler::generate_delete_predicate(*tablet_schema, conditions, &del_pred);
+            ASSERT_TRUE(st.ok()) << st;
+            input_rowsets.push_back(
+                    create_delete_predicate(tablet_schema, del_pred, num_input_rowset));
+        }
 
         // create output rowset writer
         auto writer_context = create_rowset_writer_context(
@@ -386,8 +379,8 @@ protected:
                 output_data.emplace_back(columns[0].column->get_int(i),
                                          columns[1].column->get_int(i));
             }
-        } while (s == Status::OK());
-        EXPECT_EQ(Status::Error<END_OF_FILE>(""), s);
+        } while (s.ok());
+        EXPECT_TRUE(s.is<END_OF_FILE>()) << s;
         EXPECT_EQ(out_rowset->rowset_meta()->num_rows(), output_data.size());
         std::vector<uint32_t> segment_num_rows;
         EXPECT_TRUE(output_rs_reader->get_segment_num_rows(&segment_num_rows).ok());
@@ -575,7 +568,6 @@ TEST_P(TestRowIdConversion, Conversion) {
         {
             uint32_t num_segments = 1;
             SegmentsOverlapPB overlap = NONOVERLAPPING;
-            std::vector<std::vector<std::vector<std::tuple<int64_t, int64_t>>>> input_data;
             check_rowid_conversion(keys_type, enable_unique_key_merge_on_write, num_input_rowset,
                                    num_segments, rows_per_segment, overlap, has_delete_handler,
                                    is_vertical_merger);
@@ -584,7 +576,6 @@ TEST_P(TestRowIdConversion, Conversion) {
         {
             uint32_t num_segments = 2;
             SegmentsOverlapPB overlap = OVERLAPPING;
-            std::vector<std::vector<std::vector<std::tuple<int64_t, int64_t>>>> input_data;
             check_rowid_conversion(keys_type, enable_unique_key_merge_on_write, num_input_rowset,
                                    num_segments, rows_per_segment, overlap, has_delete_handler,
                                    is_vertical_merger);
@@ -593,7 +584,6 @@ TEST_P(TestRowIdConversion, Conversion) {
         {
             uint32_t num_segments = 2;
             SegmentsOverlapPB overlap = NONOVERLAPPING;
-            std::vector<std::vector<std::vector<std::tuple<int64_t, int64_t>>>> input_data;
             check_rowid_conversion(keys_type, enable_unique_key_merge_on_write, num_input_rowset,
                                    num_segments, rows_per_segment, overlap, has_delete_handler,
                                    is_vertical_merger);
@@ -602,7 +592,6 @@ TEST_P(TestRowIdConversion, Conversion) {
         {
             uint32_t num_segments = 2;
             SegmentsOverlapPB overlap = OVERLAP_UNKNOWN;
-            std::vector<std::vector<std::vector<std::tuple<int64_t, int64_t>>>> input_data;
             check_rowid_conversion(keys_type, enable_unique_key_merge_on_write, num_input_rowset,
                                    num_segments, rows_per_segment, overlap, has_delete_handler,
                                    is_vertical_merger);

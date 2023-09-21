@@ -269,33 +269,21 @@ protected:
         return rowset;
     }
 
-    void init_rs_meta(RowsetMetaSharedPtr& pb1, int64_t start, int64_t end) {
+    void init_rs_meta(RowsetMetaSharedPtr& rs_meta, int64_t start, int64_t end) {
         std::string json_rowset_meta = R"({
-            "rowset_id": 540085,
-            "tablet_id": 15674,
-            "txn_id": 4045,
-            "tablet_schema_hash": 567997588,
+            "rowset_id": 540081,
+            "tablet_id": 15673,
+            "tablet_schema_hash": 567997577,
             "rowset_type": "BETA_ROWSET",
             "rowset_state": "VISIBLE",
-            "start_version": 2,
-            "end_version": 2,
-            "num_rows": 3929,
-            "total_disk_size": 84699,
-            "data_disk_size": 84464,
-            "index_disk_size": 235,
-            "empty": false,
-            "load_id": {
-                "hi": -5350970832824939812,
-                "lo": -6717994719194512122
-            },
-            "creation_time": 1553765670
+            "empty": false
         })";
         RowsetMetaPB rowset_meta_pb;
         json2pb::JsonToProtoMessage(json_rowset_meta, &rowset_meta_pb);
         rowset_meta_pb.set_start_version(start);
         rowset_meta_pb.set_end_version(end);
         rowset_meta_pb.set_creation_time(10000);
-        pb1->init_from_pb(rowset_meta_pb);
+        rs_meta->init_from_pb(rowset_meta_pb);
     }
 
     RowsetSharedPtr create_delete_predicate(const TabletSchemaSPtr& schema,
