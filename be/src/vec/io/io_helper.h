@@ -462,7 +462,6 @@ bool try_read_date_v2_text(T& x, ReadBuffer& in, const cctz::time_zone& local_ti
 template <typename T>
 bool try_read_datetime_v2_text(T& x, ReadBuffer& in, const cctz::time_zone& local_time_zone,
                                UInt32 scale) {
-    return read_datetime_v2_text_impl<T>(x, in, local_time_zone,
-                                         scale);
+    return read_datetime_v2_text_impl<T>(x, in, local_time_zone, scale);
 }
 } // namespace doris::vectorized
