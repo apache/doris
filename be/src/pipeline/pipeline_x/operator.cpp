@@ -19,6 +19,7 @@
 
 #include <string>
 
+#include "common/logging.h"
 #include "pipeline/exec/aggregation_sink_operator.h"
 #include "pipeline/exec/aggregation_source_operator.h"
 #include "pipeline/exec/analytic_sink_operator.h"
@@ -289,10 +290,7 @@ void DataSinkOperatorX<LocalStateType>::get_dependency(vector<DependencySPtr>& d
             dependency.push_back(std::make_shared<DependencyType>(dest_id));
         }
     } else {
-        auto& dests = dests_id();
-        for ([[maybe_unused]] auto& dest_id : dests) {
-            dependency.push_back(nullptr);
-        }
+        dependency.push_back(nullptr);
     }
 }
 
@@ -301,6 +299,35 @@ Status OperatorX<LocalStateType>::setup_local_state(RuntimeState* state, LocalSt
     auto local_state = LocalStateType::create_shared(state, this);
     state->emplace_local_state(id(), local_state);
     return local_state->init(state, info);
+}
+
+template <typename LocalStateType>
+Status OperatorX<LocalStateType>::setup_local_states(RuntimeState* state,
+                                                     std::vector<LocalStateInfo>& infos) {
+    if (infos.size() > 1) {
+        LOG_WARNING("herr");
+    }
+    DCHECK(infos.size() == 1) << infos.size();
+    for (auto& info : infos) {
+        RETURN_IF_ERROR(setup_local_state(state, info));
+    }
+    return Status::OK();
+}
+
+template <>
+Status OperatorX<UnionSourceLocalState>::setup_local_states(RuntimeState* state,
+                                                            std::vector<LocalStateInfo>& infos) {
+    std::shared_ptr<DataQueue> data_queue;
+    for (auto& info : infos) {
+        auto local_state = UnionSourceLocalState::create_shared(state, this);
+        state->emplace_local_state(id(), local_state);
+        RETURN_IF_ERROR(local_state->init(state, info));
+        if (!data_queue) {
+            data_queue = local_state->data_queue();
+        }
+        local_state->_shared_state->data_queue = data_queue;
+    }
+    return Status::OK();
 }
 
 template <typename LocalStateType>

@@ -63,24 +63,32 @@ Status PipelineXTask::prepare(RuntimeState* state, const TPipelineInstanceParams
     SCOPED_CPU_TIMER(_task_cpu_timer);
     SCOPED_TIMER(_prepare_timer);
 
-    auto& deps = get_downstream_dependency();
-    std::vector<LocalSinkStateInfo> infos;
-    for (auto& dep : deps) {
-        infos.push_back(LocalSinkStateInfo {_pipeline->pipeline_profile(), local_params.sender_id,
-                                            dep.get()});
+    {
+        // set sink local state
+        auto& deps = get_downstream_dependency();
+        std::vector<LocalSinkStateInfo> infos;
+        for (auto& dep : deps) {
+            infos.push_back(LocalSinkStateInfo {_pipeline->pipeline_profile(),
+                                                local_params.sender_id, dep.get()});
+        }
+        RETURN_IF_ERROR(_sink->setup_local_states(state, infos));
     }
-    RETURN_IF_ERROR(_sink->setup_local_states(state, infos));
 
     std::vector<TScanRangeParams> no_scan_ranges;
     auto scan_ranges = find_with_default(local_params.per_node_scan_ranges,
                                          _operators.front()->id(), no_scan_ranges);
     for (int op_idx = _operators.size() - 1; op_idx >= 0; op_idx--) {
-        LocalStateInfo info {
-                op_idx == _operators.size() - 1
-                        ? _parent_profile
-                        : state->get_local_state(_operators[op_idx + 1]->id())->profile(),
-                scan_ranges, get_upstream_dependency(_operators[op_idx]->id())};
-        RETURN_IF_ERROR(_operators[op_idx]->setup_local_state(state, info));
+        auto& deps = get_upstream_dependency(_operators[op_idx]->id());
+        std::vector<LocalStateInfo> infos;
+        for (auto& dep : deps) {
+            LocalStateInfo info {
+                    op_idx == _operators.size() - 1
+                            ? _pipeline->pipeline_profile()
+                            : state->get_local_state(_operators[op_idx + 1]->id())->profile(),
+                    scan_ranges, dep.get()};
+            infos.push_back(info);
+        }
+        RETURN_IF_ERROR(_operators[op_idx]->setup_local_states(state, infos));
     }
 
     _block = doris::vectorized::Block::create_unique();

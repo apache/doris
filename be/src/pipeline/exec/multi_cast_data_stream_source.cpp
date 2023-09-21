@@ -127,6 +127,7 @@ RuntimeProfile* MultiCastDataStreamerSourceOperator::get_runtime_profile() const
 
 Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
+    SCOPED_TIMER(profile()->total_time_counter());
     auto& p = _parent->cast<Parent>();
     if (p._t_data_stream_sink.__isset.output_exprs) {
         _output_expr_contexts.resize(p._output_expr_contexts.size());
@@ -141,6 +142,7 @@ Status MultiCastDataStreamerSourceOperatorX::get_block(RuntimeState* state,
                                                        vectorized::Block* block,
                                                        SourceState& source_state) {
     auto& local_state = state->get_local_state(id())->cast<MultiCastDataStreamSourceLocalState>();
+    SCOPED_TIMER(local_state.profile()->total_time_counter());
     bool eos = false;
     vectorized::Block tmp_block;
     vectorized::Block* output_block = block;

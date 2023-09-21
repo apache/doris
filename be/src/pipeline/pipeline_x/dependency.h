@@ -425,6 +425,13 @@ public:
     MultiCastDependency(int id) : WriteDependency(id, "MultiCastDependency") {}
     ~MultiCastDependency() override = default;
     void* shared_state() override { return (void*)&_multi_cast_state; };
+    MultiCastDependency* can_read(const int consumer_id) {
+        if (_multi_cast_state._multi_cast_data_streamer->can_read(consumer_id)) {
+            return nullptr;
+        } else {
+            return this;
+        }
+    }
 
 private:
     MultiCastSharedState _multi_cast_state;

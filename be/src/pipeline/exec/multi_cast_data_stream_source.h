@@ -104,6 +104,8 @@ public:
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     friend class MultiCastDataStreamerSourceOperatorX;
+
+private:
     vectorized::VExprContextSPtrs _output_expr_contexts;
 };
 class MultiCastDataStreamerSourceOperatorX final
@@ -121,11 +123,7 @@ public:
     Dependency* wait_for_dependency(RuntimeState* state) override {
         auto& local_state =
                 state->get_local_state(id())->cast<MultiCastDataStreamSourceLocalState>();
-        if (local_state._shared_state->_multi_cast_data_streamer->can_read(_consumer_id)) {
-            return nullptr;
-        } else {
-            return local_state._dependency;
-        }
+        return local_state._dependency->can_read(_consumer_id);
     }
 
     Status prepare(RuntimeState* state) override {
@@ -186,6 +184,7 @@ class MultiCastDataStreamSinkLocalState final
     using Base = PipelineXSinkLocalState<MultiCastDependency>;
     using Parent = MultiCastDataStreamSinkOperatorX;
 };
+
 class MultiCastDataStreamSinkOperatorX final
         : public DataSinkOperatorX<MultiCastDataStreamSinkLocalState> {
     using Base = DataSinkOperatorX<MultiCastDataStreamSinkLocalState>;
@@ -211,6 +210,7 @@ public:
                 SourceState source_state) override {
         auto& local_state =
                 state->get_sink_local_state(id())->cast<MultiCastDataStreamSinkLocalState>();
+        SCOPED_TIMER(local_state.profile()->total_time_counter());
         if (in_block->rows() > 0 || source_state == SourceState::FINISHED) {
             auto st = local_state._shared_state->_multi_cast_data_streamer->push(
                     state, in_block, source_state == SourceState::FINISHED);

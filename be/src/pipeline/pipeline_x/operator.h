@@ -215,6 +215,8 @@ public:
 
     virtual Status setup_local_state(RuntimeState* state, LocalStateInfo& info) = 0;
 
+    virtual Status setup_local_states(RuntimeState* state, std::vector<LocalStateInfo>& infos) = 0;
+
     template <class TARGET>
     TARGET& cast() {
         DCHECK(dynamic_cast<TARGET*>(this))
@@ -285,6 +287,7 @@ public:
     virtual ~OperatorX() = default;
 
     Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override;
+    Status setup_local_states(RuntimeState* state, std::vector<LocalStateInfo>& info) override;
 };
 
 template <typename DependencyType = FakeDependency>

@@ -378,7 +378,7 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
             if (_dag.find(_pipelines[pip_idx]->id()) != _dag.end()) {
                 auto& deps = _dag[_pipelines[pip_idx]->id()];
                 for (auto& dep : deps) {
-                    task->set_multi_upstream_dependency(
+                    task->set_upstream_dependency(
                             pipeline_id_to_task[dep]->get_downstream_dependency());
                 }
             }
