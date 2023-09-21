@@ -14,6 +14,9 @@ PhysicalResultSink
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[catalog_sales]
 ----------------------PhysicalDistribute
+------------------------PhysicalProject
+--------------------------PhysicalOlapScan[catalog_sales]
+----------------------PhysicalDistribute
 ------------------------hashJoin[INNER_JOIN](store.s_store_sk = store_sales.ss_store_sk)
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN](item.i_item_sk = store_sales.ss_item_sk)
