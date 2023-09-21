@@ -34,6 +34,7 @@ using ::testing::SetArgPointee;
 using std::string;
 
 namespace doris {
+using namespace config;
 
 class StorageEngineTest : public testing::Test {
 public:
@@ -49,13 +50,15 @@ public:
 };
 
 TEST_F(StorageEngineTest, TestBrokenDisk) {
+    DEFINE_mString(broken_storage_path, "");
     std::string path = config::custom_config_dir + "/be_custom.conf";
+
     std::error_code ec;
     {
         _storage_engine->add_broken_path("broken_path1");
         EXPECT_EQ(std::filesystem::exists(path, ec), true);
         EXPECT_EQ(_storage_engine->get_broken_paths().count("broken_path1"), 1);
-        EXPECT_EQ(config::broken_storage_path, "broken_path1;");
+        EXPECT_EQ(broken_storage_path, "broken_path1;");
     }
 
     {
@@ -63,7 +66,7 @@ TEST_F(StorageEngineTest, TestBrokenDisk) {
         EXPECT_EQ(std::filesystem::exists(path, ec), true);
         EXPECT_EQ(_storage_engine->get_broken_paths().count("broken_path1"), 1);
         EXPECT_EQ(_storage_engine->get_broken_paths().count("broken_path2"), 1);
-        EXPECT_EQ(config::broken_storage_path, "broken_path1;broken_path2;");
+        EXPECT_EQ(broken_storage_path, "broken_path1;broken_path2;");
     }
 
     {
@@ -71,7 +74,7 @@ TEST_F(StorageEngineTest, TestBrokenDisk) {
         EXPECT_EQ(std::filesystem::exists(path, ec), true);
         EXPECT_EQ(_storage_engine->get_broken_paths().count("broken_path1"), 1);
         EXPECT_EQ(_storage_engine->get_broken_paths().count("broken_path2"), 1);
-        EXPECT_EQ(config::broken_storage_path, "broken_path1;broken_path2;");
+        EXPECT_EQ(broken_storage_path, "broken_path1;broken_path2;");
     }
 
     {
@@ -79,7 +82,7 @@ TEST_F(StorageEngineTest, TestBrokenDisk) {
         EXPECT_EQ(std::filesystem::exists(path, ec), true);
         EXPECT_EQ(_storage_engine->get_broken_paths().count("broken_path1"), 1);
         EXPECT_EQ(_storage_engine->get_broken_paths().count("broken_path2"), 0);
-        EXPECT_EQ(config::broken_storage_path, "broken_path1;");
+        EXPECT_EQ(broken_storage_path, "broken_path1;");
     }
 }
 

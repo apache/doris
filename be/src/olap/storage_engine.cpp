@@ -1407,7 +1407,7 @@ Status StorageEngine::_persist_broken_paths() {
 
     if (config_value.length() > 0) {
         auto st = config::set_config("broken_storage_path", config_value, true);
-        LOG(INFO) << "persist broken_store_path " << config_value << st;
+        LOG(INFO) << "persist broken_storae_path " << config_value << st;
         return st;
     }
 
