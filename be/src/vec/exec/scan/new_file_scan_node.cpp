@@ -39,6 +39,7 @@ namespace doris::vectorized {
 NewFileScanNode::NewFileScanNode(ObjectPool* pool, const TPlanNode& tnode,
                                  const DescriptorTbl& descs)
         : VScanNode(pool, tnode, descs) {
+    LOG(INFO)<<"NewFileScanNode consturctor";
     _output_tuple_id = tnode.file_scan_node.tuple_id;
     _table_name = tnode.file_scan_node.__isset.table_name ? tnode.file_scan_node.table_name : "";
 }

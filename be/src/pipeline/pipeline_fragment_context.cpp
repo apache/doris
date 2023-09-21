@@ -266,7 +266,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
             typeid(*node) == typeid(vectorized::NewEsScanNode) ||
             typeid(*node) == typeid(vectorized::VMetaScanNode) ||
             typeid(*node) == typeid(vectorized::NewJdbcScanNode)) {
-            if (typeid(*node) == typeid(vectorized::NewOlapScanNode) ){
+            if (typeid(*node) == typeid(vectorized::NewFileScanNode) ){
                 LOG(INFO)<<"FileScanNode"<<i;
             }
             auto* scan_node = static_cast<vectorized::VScanNode*>(scan_nodes[i]);

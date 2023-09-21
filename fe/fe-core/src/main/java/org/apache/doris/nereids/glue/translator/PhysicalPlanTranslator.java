@@ -413,6 +413,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         // TODO(cmy): determine the needCheckColumnPriv param
         ScanNode scanNode;
+        LOG.warn("PhysicalPlan");
         if (table instanceof HMSExternalTable) {
             switch (((HMSExternalTable) table).getDlaType()) {
                 case HUDI:
@@ -424,6 +425,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 case HIVE:
                     scanNode = new HiveScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
                     ((HiveScanNode) scanNode).setSelectedPartitions(fileScan.getSelectedPartitions());
+                    LOG.warn("Hive");
                     break;
                 default:
                     throw new RuntimeException("do not support DLA type " + ((HMSExternalTable) table).getDlaType());
@@ -433,6 +435,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         } else if (table instanceof PaimonExternalTable) {
             scanNode = new PaimonScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
         } else if (table instanceof DeltaLakeExternalTable) {
+            LOG.warn("PhysicalPlanTranslator DeltaLakeExternalTable");
             scanNode = new DeltaLakeScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
         } else if (table instanceof MaxComputeExternalTable) {
             scanNode = new MaxComputeScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
