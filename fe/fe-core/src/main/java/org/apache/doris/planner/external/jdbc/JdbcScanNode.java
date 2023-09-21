@@ -201,7 +201,8 @@ public class JdbcScanNode extends ExternalScanNode {
                 || jdbcType == TOdbcTableType.SAP_HANA
                 || jdbcType == TOdbcTableType.TRINO
                 || jdbcType == TOdbcTableType.PRESTO
-                || jdbcType == TOdbcTableType.OCEANBASE)) {
+                || jdbcType == TOdbcTableType.OCEANBASE
+                || jdbcType == TOdbcTableType.DRUID)) {
             sql.append(" LIMIT ").append(limit);
         }
 
