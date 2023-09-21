@@ -480,6 +480,5 @@ suite("test_routine_load","p0,external,external_docker,external_docker_routine_l
                 sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
             }
         }
->>>>>>> c12a3bd367 (access the kafka regression framework)
     }
 }
