@@ -1069,6 +1069,15 @@ DEFINE_mString(user_files_secure_path, "${DORIS_HOME}");
 
 DEFINE_Int16(bitmap_serialize_version, "1");
 
+// the count of thread to group commit insert
+DEFINE_Int32(group_commit_insert_threads, "10");
+
+DEFINE_mInt32(scan_thread_nice_value, "0");
+DEFINE_mInt32(tablet_schema_cache_recycle_interval, "86400");
+
+DEFINE_Bool(exit_on_exception, "false")
+
+// clang-format off
 #ifdef BE_TEST
 // test s3
 DEFINE_String(test_s3_resource, "resource");

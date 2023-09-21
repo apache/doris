@@ -1122,6 +1122,20 @@ DECLARE_mString(user_files_secure_path);
 // BitmapValue serialize version.
 DECLARE_Int16(bitmap_serialize_version);
 
+// This config can be set to limit thread number in group commit insert thread pool.
+DECLARE_mInt32(group_commit_insert_threads);
+
+// The configuration item is used to lower the priority of the scanner thread,
+// typically employed to ensure CPU scheduling for write operations.
+// Default is 0, which is default value of thread nice value, increase this value
+// to lower the priority of scan threads
+DECLARE_Int32(scan_thread_nice_value);
+// Used to modify the recycle interval of tablet schema cache
+DECLARE_mInt32(tablet_schema_cache_recycle_interval);
+
+// Use `LOG(FATAL)` to replace `throw` when true
+DECLARE_mBool(exit_on_exception);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
