@@ -81,6 +81,7 @@ insert into doris_test.test_clob values (10010, 'liantong');
 insert into doris_test."AA/D" values (1, 'alice', 20, 99.5);
 insert into doris_test.aaad values (1, 'alice');
 
+
 INSERT INTO doris_test.test_numerical_type
 VALUES
 (
@@ -191,6 +192,12 @@ INSERT INTO doris_test.nation_read_and_write VALUES (6,'FRANCE',3,'refully final
 INSERT INTO doris_test.nation_read_and_write VALUES (7,'GERMANY',3,'l platelets. regular accounts x-ray: unusual, regular acco');
 INSERT INTO doris_test.nation_read_and_write VALUES (8,'INDIA',2,'ss excuses cajole slyly across the packages. deposits print aroun');
 INSERT INTO doris_test.nation_read_and_write VALUES (9,'INDONESIA',2, 'slyly express asymptotes. regular deposits haggle slyly. carefully ironic hockey players sleep blithely. carefull');
+
+insert into doris_test.student2 values (1, 'alice', 20, 99.5);
+insert into doris_test.student2 values (2, 'bob', 21, 90.5);
+insert into doris_test.student2 values (3, 'jerry', 23, 88.0);
+insert into doris_test.student2 values (4, 'andy', 21, 93);
+
 
 commit;
 

@@ -128,6 +128,7 @@ create table doris_test.aaad (
      name varchar2(20)
 );
 
+
 CREATE TABLE doris_test.test_numerical_type (
     real_01 REAL,
     real_02 REAL,
@@ -413,3 +414,11 @@ CREATE TABLE doris_test.nation_read_and_write (
 CREATE  VIEW  doris_test.nation_read_and_write_view AS
 SELECT n_nationkey,n_name,n_regionkey,n_comment
 FROM DORIS_TEST.NATION_READ_AND_WRITE;
+
+create table doris_test.student2 (
+id number(5),
+name varchar2(20),
+age number(2),
+score number(3,1)
+);
+

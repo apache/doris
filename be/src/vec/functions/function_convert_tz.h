@@ -139,7 +139,7 @@ struct ConvertTZImpl {
             std::unique_lock<std::shared_mutex> lock_(cache_lock);
             //TODO: the lock upgrade could be done in find_... function only when we push value into the hashmap
             if (!TimezoneUtils::find_cctz_time_zone(from_tz, time_zone_cache[from_tz])) {
-                time_zone_cache.erase(to_tz);
+                time_zone_cache.erase(from_tz);
                 result_null_map[index_now] = true;
                 result_column->insert_default();
                 return;

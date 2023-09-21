@@ -252,7 +252,7 @@ public class SparkRepository {
 
     public String getMd5String(String filePath) throws LoadException {
         File file = new File(filePath);
-        String md5sum = null;
+        String md5sum;
         try (FileInputStream fis = new FileInputStream(file)) {
             md5sum = DigestUtils.md5Hex(fis);
             Preconditions.checkNotNull(md5sum);

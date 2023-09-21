@@ -6,6 +6,7 @@ PLAN FRAGMENT 0
   PARTITION: HASH_PARTITIONED: `default_cluster:regression_test_performance_p0`.`redundant_conjuncts`.`k1`
 
   VRESULT SINK
+     MYSQL_PROTOCAL
 
   0:VOlapScanNode
      TABLE: default_cluster:regression_test_performance_p0.redundant_conjuncts(redundant_conjuncts), PREAGGREGATION: OFF. Reason: No AggregateInfo
@@ -21,6 +22,7 @@ PLAN FRAGMENT 0
   PARTITION: HASH_PARTITIONED: `default_cluster:regression_test_performance_p0`.`redundant_conjuncts`.`k1`
 
   VRESULT SINK
+     MYSQL_PROTOCAL
 
   0:VOlapScanNode
      TABLE: default_cluster:regression_test_performance_p0.redundant_conjuncts(redundant_conjuncts), PREAGGREGATION: OFF. Reason: No AggregateInfo
