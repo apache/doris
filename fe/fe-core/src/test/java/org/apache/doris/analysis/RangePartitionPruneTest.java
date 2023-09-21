@@ -17,11 +17,28 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.FeConstants;
+import java.util.ArrayList;
+import java.util.List;
 
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.service.ExecuteEnv;
+import org.apache.doris.service.FrontendServiceImpl;
+import org.apache.doris.thrift.TCreatePartitionRequest;
+import org.apache.doris.thrift.TCreatePartitionResult;
+import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TStringLiteral;
+import org.junit.Assert;
 import org.junit.jupiter.api.Test;
 
+import mockit.Mocked;
+
 public class RangePartitionPruneTest extends PartitionPruneTestBase {
+    @Mocked
+    ExecuteEnv exeEnv;
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -104,10 +121,22 @@ public class RangePartitionPruneTest extends PartitionPruneTestBase {
                         + "DISTRIBUTED BY HASH(`k1`) BUCKETS 10\n"
                         + "PROPERTIES ('replication_num' = '1');";
 
+        String autoCreatePartitionTable = new String("CREATE TABLE test.partition_range(\n"
+                        + "    event_day DATETIME,\n"
+                        + "    site_id INT DEFAULT '10',\n"
+                        + "    city_code VARCHAR(100)\n"
+                        + ")\n"
+                        + "DUPLICATE KEY(event_day, site_id, city_code)\n"
+                        + "AUTO PARTITION BY range date_trunc( event_day,'day') (\n"
+                        + "\n"
+                        + ")\n"
+                        + "DISTRIBUTED BY HASH(event_day, site_id) BUCKETS 2\n"
+                        + "PROPERTIES(\"replication_num\" = \"1\");");
         createTables(singleColumnPartitionTable,
                 notNullSingleColumnPartitionTable,
                 multipleColumnsPartitionTable,
-                notNullMultipleColumnsPartitionTable);
+                notNullMultipleColumnsPartitionTable,
+                autoCreatePartitionTable);
     }
 
     private void initTestCases() {
@@ -194,6 +223,42 @@ public class RangePartitionPruneTest extends PartitionPruneTestBase {
         addCase("select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.t1 where (dt between 20211121 and 20211122) or dt is null or (dt between 20211123 and 20211125)",
                 "partitions=6/8");
 
+    }
+
+    @Test
+    public void createPartition() throws Exception {
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("default_cluster:test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("partition_range");
+
+        List<List<TStringLiteral>> partitionValues = new ArrayList<>();
+
+        List<TStringLiteral> first = new ArrayList<>();
+        TStringLiteral firstLiteral = new TStringLiteral();
+        firstLiteral.setValue("2023-08-07 11:00:00");
+        first.add(firstLiteral);
+        partitionValues.add(first);
+
+        List<TStringLiteral> second = new ArrayList<>();
+        TStringLiteral secondLiteral = new TStringLiteral();
+        secondLiteral.setValue("2002-01-06 12:00:00");
+        second.add(secondLiteral);
+
+        partitionValues.add(second);
+
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+        TCreatePartitionRequest request = new TCreatePartitionRequest();
+        request.setDbId(db.getId());
+        request.setTableId(table.getId());
+        request.setPartitionValues(partitionValues);
+        TCreatePartitionResult partition = impl.createPartition(request);
+
+        Assert.assertEquals(partition.getStatus().getStatusCode(), TStatusCode.OK);
+        ArrayList<Partition> partitions = (ArrayList<Partition>) table.getAllPartitions();
+        Assert.assertEquals(partitions.size(), 2);
+
+        addCase("select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.partition_range where event_day= \"2023-08-07 11:00:00\" ", "partitions=1/2");
+        addCase("select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.partition_range where date_trunc(event_day, \"day\")= \"2023-08-07 11:00:00\" ", "partitions=1/2");
+        doTest();
     }
 
     @Test

@@ -398,7 +398,6 @@ public class PartitionInfo implements Writable {
         out.writeInt(size);
         for (int i = 0; i < size; ++i) {
             Expr e = this.partitionExprs.get(i);
-            LOG.info("this.partitionExprs.get(i): " + e.debugString());
             Expr.writeTo(e, out);
         }
         out.writeBoolean(isAutoCreatePartitions);
