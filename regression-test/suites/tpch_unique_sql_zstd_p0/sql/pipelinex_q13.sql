@@ -1,5 +1,5 @@
 -- tables: customer
-SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=true) */
+SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=false) */
   c_count,
   count(*) AS custdist
 FROM (

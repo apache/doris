@@ -1,5 +1,5 @@
 -- tables: orders,customer
-SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=true) */
+SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=false) */
   cntrycode,
   count(*)       AS numcust,
   sum(c_acctbal) AS totacctbal

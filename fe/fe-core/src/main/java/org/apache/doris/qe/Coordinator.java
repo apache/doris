@@ -19,6 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DescriptorTable;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
@@ -129,6 +130,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 import org.jetbrains.annotations.NotNull;
 
+import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -137,6 +139,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
@@ -154,7 +157,7 @@ public class Coordinator implements CoordInterface {
     private static final String localIP = FrontendOptions.getLocalHostAddress();
 
     // Random is used to shuffle instances of partitioned
-    private static final Random instanceRandom = new Random();
+    private static final Random instanceRandom = new SecureRandom();
 
     // Overall status of the entire query; set to the first reported fragment error
     // status or to CANCELLED, if Cancel() is called.
@@ -207,6 +210,11 @@ public class Coordinator implements CoordInterface {
     private final List<BackendExecState> needCheckBackendExecStates = Lists.newArrayList();
     private final List<PipelineExecContext> needCheckPipelineExecContexts = Lists.newArrayList();
     private ResultReceiver receiver;
+    private TNetworkAddress resultFlightServerAddr;
+    private TNetworkAddress resultInternalServiceAddr;
+    private ArrayList<Expr> resultOutputExprs;
+
+    private TUniqueId finstId;
     private final List<ScanNode> scanNodes;
     private int scanRangeNum = 0;
     // number of instances of this query, equals to
@@ -272,6 +280,22 @@ public class Coordinator implements CoordInterface {
 
     public ExecutionProfile getExecutionProfile() {
         return executionProfile;
+    }
+
+    public TNetworkAddress getResultFlightServerAddr() {
+        return resultFlightServerAddr;
+    }
+
+    public TNetworkAddress getResultInternalServiceAddr() {
+        return resultInternalServiceAddr;
+    }
+
+    public ArrayList<Expr> getResultOutputExprs() {
+        return resultOutputExprs;
+    }
+
+    public TUniqueId getFinstId() {
+        return finstId;
     }
 
     // True if all scan node are ExternalScanNode.
@@ -598,6 +622,10 @@ public class Coordinator implements CoordInterface {
             TNetworkAddress execBeAddr = topParams.instanceExecParams.get(0).host;
             receiver = new ResultReceiver(queryId, topParams.instanceExecParams.get(0).instanceId,
                     addressToBackendID.get(execBeAddr), toBrpcHost(execBeAddr), this.timeoutDeadline);
+            finstId = topParams.instanceExecParams.get(0).instanceId;
+            resultFlightServerAddr = toArrowFlightHost(execBeAddr);
+            resultInternalServiceAddr = toBrpcHost(execBeAddr);
+            resultOutputExprs = fragments.get(0).getOutputExprs();
             if (LOG.isDebugEnabled()) {
                 LOG.debug("dispatch query job: {} to {}", DebugUtil.printId(queryId),
                         topParams.instanceExecParams.get(0).host);
@@ -1154,6 +1182,38 @@ public class Coordinator implements CoordInterface {
         }
     }
 
+    private void updateStatus(Status status, long backendId) {
+        lock.lock();
+        try {
+            // The query is done and we are just waiting for remote fragments to clean up.
+            // Ignore their cancelled updates.
+            if (returnedAllResults && status.isCancelled()) {
+                return;
+            }
+            // nothing to update
+            if (status.ok()) {
+                return;
+            }
+
+            // don't override an error status; also, cancellation has already started
+            if (!queryStatus.ok()) {
+                return;
+            }
+
+            queryStatus.setStatus(status);
+            LOG.warn("one instance report fail throw updateStatus(), need cancel. job id: {},"
+                            + " query id: {}, error message: {}",
+                    jobId, DebugUtil.printId(queryId), status.getErrorMsg());
+            if (status.getErrorCode() == TStatusCode.TIMEOUT) {
+                cancelInternal(Types.PPlanFragmentCancelReason.TIMEOUT, backendId);
+            } else {
+                cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR, backendId);
+            }
+        } finally {
+            lock.unlock();
+        }
+    }
+
     @Override
     public RowBatch getNext() throws Exception {
         if (receiver == null) {
@@ -1317,6 +1377,18 @@ public class Coordinator implements CoordInterface {
         executionProfile.onCancel();
     }
 
+    private void cancelInternal(Types.PPlanFragmentCancelReason cancelReason, long backendId) {
+        if (null != receiver) {
+            receiver.cancel();
+        }
+        if (null != pointExec) {
+            pointExec.cancel();
+            return;
+        }
+        cancelRemoteFragmentsAsync(cancelReason, backendId);
+        executionProfile.onCancel();
+    }
+
     private void cancelRemoteFragmentsAsync(Types.PPlanFragmentCancelReason cancelReason) {
         if (enablePipelineEngine) {
             for (PipelineExecContext ctx : pipelineExecContexts.values()) {
@@ -1325,6 +1397,15 @@ public class Coordinator implements CoordInterface {
         } else {
             for (BackendExecState backendExecState : backendExecStates) {
                 backendExecState.cancelFragmentInstance(cancelReason);
+            }
+        }
+    }
+
+    private void cancelRemoteFragmentsAsync(Types.PPlanFragmentCancelReason cancelReason, long backendId) {
+        Preconditions.checkArgument(enablePipelineXEngine);
+        for (PipelineExecContext ctx : pipelineExecContexts.values()) {
+            if (!Objects.equals(idToBackend.get(backendId), ctx.backend)) {
+                ctx.cancelFragmentInstance(cancelReason);
             }
         }
     }
@@ -1593,6 +1674,18 @@ public class Coordinator implements CoordInterface {
             return null;
         }
         return new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
+    }
+
+    private TNetworkAddress toArrowFlightHost(TNetworkAddress host) throws Exception {
+        Backend backend = Env.getCurrentSystemInfo().getBackendWithBePort(
+                host.getHostname(), host.getPort());
+        if (backend == null) {
+            throw new UserException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG);
+        }
+        if (backend.getArrowFlightSqlPort() < 0) {
+            return null;
+        }
+        return new TNetworkAddress(backend.getHost(), backend.getArrowFlightSqlPort());
     }
 
     // estimate if this fragment contains UnionNode
@@ -2287,12 +2380,29 @@ public class Coordinator implements CoordInterface {
                 LOG.warn("one instance report fail, query_id={} instance_id={}, error message: {}",
                         DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()),
                         status.getErrorMsg());
-                updateStatus(status, params.getFragmentInstanceId());
+                updateStatus(status, params.backend_id);
+            }
+            if (params.isSetDeltaUrls()) {
+                updateDeltas(params.getDeltaUrls());
+            }
+            if (params.isSetLoadCounters()) {
+                updateLoadCounters(params.getLoadCounters());
+            }
+            if (params.isSetTrackingUrl()) {
+                trackingUrl = params.getTrackingUrl();
+            }
+            if (params.isSetExportFiles()) {
+                updateExportFiles(params.getExportFiles());
+            }
+            if (params.isSetCommitInfos()) {
+                updateCommitInfos(params.getCommitInfos());
+            }
+            if (params.isSetErrorTabletInfos()) {
+                updateErrorTabletInfos(params.getErrorTabletInfos());
             }
             Preconditions.checkArgument(params.isSetDetailedReport());
             for (TDetailedReportParams param : params.detailed_report) {
                 if (ctx.fragmentInstancesMap.get(param.fragment_instance_id).getIsDone()) {
-                    // TODO
                     executionProfile.markOneInstanceDone(param.getFragmentInstanceId());
                 }
             }
@@ -2941,9 +3051,9 @@ public class Coordinator implements CoordInterface {
                         profile.setIsDone(true);
                         profileReportProgress++;
                     }
-                    if (profileReportProgress == numInstances) {
-                        this.done = true;
-                    }
+                }
+                if (profileReportProgress == numInstances) {
+                    this.done = true;
                 }
                 return true;
             } else {

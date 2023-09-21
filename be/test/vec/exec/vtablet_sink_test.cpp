@@ -55,7 +55,7 @@ class RpcController;
 namespace doris {
 class PFunctionService_Stub;
 
-namespace stream_load {
+namespace vectorized {
 
 Status k_add_batch_status;
 
@@ -416,7 +416,8 @@ public:
         std::set<std::string> output_set;
         service->_output_set = &output_set;
 
-        VOlapTableSink sink(&obj_pool, row_desc, {}, &st);
+        std::vector<TExpr> exprs;
+        VOlapTableSink sink(&obj_pool, row_desc, exprs, false);
         ASSERT_TRUE(st.ok());
 
         // init
@@ -556,7 +557,7 @@ TEST_F(VOlapTableSinkTest, convert) {
     exprs[2].nodes[0].slot_ref.slot_id = 2;
     exprs[2].nodes[0].slot_ref.tuple_id = 1;
 
-    VOlapTableSink sink(&obj_pool, row_desc, exprs, &st);
+    VOlapTableSink sink(&obj_pool, row_desc, exprs, false);
     ASSERT_TRUE(st.ok());
 
     // set output tuple_id
@@ -683,7 +684,7 @@ TEST_F(VOlapTableSinkTest, add_block_failed) {
     exprs[2].nodes[0].slot_ref.slot_id = 2;
     exprs[2].nodes[0].slot_ref.tuple_id = 1;
 
-    VOlapTableSink sink(&obj_pool, row_desc, exprs, &st);
+    VOlapTableSink sink(&obj_pool, row_desc, exprs, false);
     ASSERT_TRUE(st.ok());
 
     // set output tuple_id
@@ -777,7 +778,8 @@ TEST_F(VOlapTableSinkTest, decimal) {
     std::set<std::string> output_set;
     service->_output_set = &output_set;
 
-    VOlapTableSink sink(&obj_pool, row_desc, {}, &st);
+    std::vector<TExpr> exprs;
+    VOlapTableSink sink(&obj_pool, row_desc, exprs, false);
     ASSERT_TRUE(st.ok());
 
     // init
@@ -833,5 +835,5 @@ TEST_F(VOlapTableSinkTest, decimal) {
     ASSERT_TRUE(output_set.count("(12, 12.300000000)") > 0);
     ASSERT_TRUE(output_set.count("(13, 123.120000000)") > 0);
 }
-} // namespace stream_load
+} // namespace vectorized
 } // namespace doris

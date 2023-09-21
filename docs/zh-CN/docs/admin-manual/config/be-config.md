@@ -123,6 +123,12 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 * 描述：BE 上的 brpc 的端口，用于 BE 之间通讯
 * 默认值：8060
 
+#### `arrow_flight_sql_port`
+
+* 类型：int32
+* 描述：FE 上的 Arrow Flight SQL server 的端口，用于从 Arrow Flight Client 和 BE 之间通讯
+* 默认值：-1
+
 #### `enable_https`
 
 * 类型：bool
