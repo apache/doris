@@ -296,8 +296,9 @@ public class JdbcMySQLClient extends JdbcClient {
                 } else {
                     return ScalarType.createStringType();
                 }
+            // For Json Type in Doris 2.0,
+            // we need to use a String mapping because the new optimizer doesn't support Json
             case "JSON":
-                return ScalarType.createJsonbType();
             case "TIME":
             case "TINYTEXT":
             case "TEXT":
@@ -415,9 +416,10 @@ public class JdbcMySQLClient extends JdbcClient {
             }
             case "STRING":
             case "TEXT":
-                return ScalarType.createStringType();
+            // For Json Type in Doris 2.0,
+            // we need to use a String mapping because the new optimizer doesn't support Json
             case "JSON":
-                return ScalarType.createJsonbType();
+                return ScalarType.createStringType();
             case "HLL":
                 return ScalarType.createHllType();
             case "BITMAP":
