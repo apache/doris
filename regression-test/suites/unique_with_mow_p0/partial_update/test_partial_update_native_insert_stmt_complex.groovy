@@ -111,7 +111,7 @@ suite("test_partial_update_native_insert_stmt_complex", "p0") {
     sql "DROP TABLE IF EXISTS ${tbName3}"
 
     sql "set enable_unique_key_partial_update=false;"
-    sql "set enable_insert_strict = false;"
+    sql "set enable_insert_strict = true;"
     sql "set experimental_enable_nereids_planner=true;"
     sql "sync;"
 }
