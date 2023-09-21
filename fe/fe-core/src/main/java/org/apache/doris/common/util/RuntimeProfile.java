@@ -385,6 +385,7 @@ public class RuntimeProfile {
                 counter.addValue(othCounter);
             }
         }
+        counter.divValue(1 + rhs.size());
     }
 
     private static void removePipelineContext(RuntimeProfile src) {
