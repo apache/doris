@@ -24,11 +24,21 @@ jobs:
     name: ShellCheck
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout ${{ github.ref }} ( ${{ github.sha }} )
-        if: ${{ github.event_name != 'pull_request_target' }}
-        uses: actions/checkout@v3
-        with:
-          submodules: recursive
+      - name: testcreate
+        run : |
+            git remote add upstream git@github.com:apache/doris.git
+
+            # 拉取上游仓库的最新更改
+            git fetch upstream
+            
+            # 切换到你想要基于的分支
+            git checkout master
+            
+            # 创建一个新的分支并切换到该分支
+            git checkout -b testcalvin
+            
+            # 推送新的分支到上游仓库
+            git push upstream testcalvin
 
       - name: Checkout ${{ github.ref }} ( ${{ github.event.pull_request.head.sha }} )
         if: ${{ github.event_name == 'pull_request_target' }}
@@ -36,12 +46,6 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           submodules: recursive
-
-      - name: Patch
-        run: |
-          pushd .github/actions/action-sh-checker >/dev/null
-          git apply ../patches/action-sh-checker.patch
-          popd >/dev/null
 
       - name: Run ShellCheck
         uses: ./.github/actions/action-sh-checker
