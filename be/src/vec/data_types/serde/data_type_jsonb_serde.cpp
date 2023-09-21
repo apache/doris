@@ -56,14 +56,14 @@ Status DataTypeJsonbSerDe::write_column_to_mysql(const IColumn& column,
 }
 
 void DataTypeJsonbSerDe::serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
-                                                  BufferWritable& bw,
-                                                  FormatOptions& options) const {
+                                                  BufferWritable& bw, FormatOptions& options,
+                                                  int nesting_level) const {
     SERIALIZE_COLUMN_TO_JSON()
 }
 
 void DataTypeJsonbSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
-                                                    BufferWritable& bw,
-                                                    FormatOptions& options) const {
+                                                    BufferWritable& bw, FormatOptions& options,
+                                                    int nesting_level) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;

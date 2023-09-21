@@ -37,13 +37,14 @@ class Arena;
 class DataTypeFixedLengthObjectSerDe : public DataTypeSerDe {
 public:
     void serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
-                                    FormatOptions& options) const override {
+                                    FormatOptions& options, int nesting_level = 1) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "serialize_one_cell_to_text with type " + column.get_name());
     }
 
     void serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
-                                  BufferWritable& bw, FormatOptions& options) const override {
+                                  BufferWritable& bw, FormatOptions& options,
+                                  int nesting_level = 1) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "serialize_column_to_text with type " + column.get_name());
     }

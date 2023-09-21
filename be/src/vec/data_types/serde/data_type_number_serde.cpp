@@ -63,7 +63,7 @@ using DORIS_NUMERIC_ARROW_BUILDER =
                 arrow::Int64Builder, UInt128, arrow::FixedSizeBinaryBuilder, Int128,
                 arrow::FixedSizeBinaryBuilder, Float32, arrow::FloatBuilder, Float64,
                 arrow::DoubleBuilder, void,
-                void // 添加这一行来表示TypeMap的末端
+                void // Add this line to represent the end of the TypeMap
                 >;
 
 template <typename T>
@@ -139,14 +139,15 @@ Status DataTypeNumberSerDe<T>::deserialize_one_cell_from_json(IColumn& column, S
 template <typename T>
 void DataTypeNumberSerDe<T>::serialize_column_to_json(const IColumn& column, int start_idx,
                                                       int end_idx, BufferWritable& bw,
-                                                      FormatOptions& options) const {
+                                                      FormatOptions& options,
+                                                      int nesting_level) const {
     SERIALIZE_COLUMN_TO_JSON()
 }
 
 template <typename T>
 void DataTypeNumberSerDe<T>::serialize_one_cell_to_json(const IColumn& column, int row_num,
-                                                        BufferWritable& bw,
-                                                        FormatOptions& options) const {
+                                                        BufferWritable& bw, FormatOptions& options,
+                                                        int nesting_level) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;

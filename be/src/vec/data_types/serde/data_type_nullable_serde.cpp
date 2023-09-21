@@ -41,23 +41,28 @@ class Arena;
 
 void DataTypeNullableSerDe::serialize_column_to_json(const IColumn& column, int start_idx,
                                                      int end_idx, BufferWritable& bw,
-                                                     FormatOptions& options) const {
+                                                     FormatOptions& options,
+                                                     int nesting_level) const {
     SERIALIZE_COLUMN_TO_JSON()
 }
 
 void DataTypeNullableSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
-                                                       BufferWritable& bw,
-                                                       FormatOptions& options) const {
+                                                       BufferWritable& bw, FormatOptions& options,
+                                                       int nesting_level) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
     const auto& col_null = assert_cast<const ColumnNullable&>(*ptr);
     if (col_null.is_null_at(row_num)) {
-        bw.write("NULL", 4);
+        if (nesting_level >= 2) {
+            bw.write("null", 4);
+        } else {
+            bw.write("\\N", 2);
+        }
     } else {
-        nested_serde->serialize_one_cell_to_json(col_null.get_nested_column(), row_num, bw,
-                                                 options);
+        nested_serde->serialize_one_cell_to_json(col_null.get_nested_column(), row_num, bw, options,
+                                                 nesting_level);
     }
 }
 

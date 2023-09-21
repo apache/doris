@@ -32,14 +32,14 @@ namespace vectorized {
 class Arena;
 
 void DataTypeArraySerDe::serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
-                                                  BufferWritable& bw,
-                                                  FormatOptions& options) const {
+                                                  BufferWritable& bw, FormatOptions& options,
+                                                  int nesting_level) const {
     SERIALIZE_COLUMN_TO_JSON()
 }
 
 void DataTypeArraySerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
-                                                    BufferWritable& bw,
-                                                    FormatOptions& options) const {
+                                                    BufferWritable& bw, FormatOptions& options,
+                                                    int nesting_level) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -57,7 +57,8 @@ void DataTypeArraySerDe::serialize_one_cell_to_json(const IColumn& column, int r
     //  add ' ' to keep same with origin format with array
     options.field_delim = options.collection_delim;
     options.field_delim += " ";
-    nested_serde->serialize_column_to_json(nested_column, offset, next_offset, bw, options);
+    nested_serde->serialize_column_to_json(nested_column, offset, next_offset, bw, options,
+                                           nesting_level + 1);
     bw.write("]", 1);
 }
 
