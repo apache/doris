@@ -700,7 +700,6 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
         List<AggRewriteResult> candidatesWithRewriting = indexesGroupByIsBaseOrNot
                 .getOrDefault(false, ImmutableList.of()).stream()
                 .filter(index -> !candidatesWithoutRewriting.contains(index))
-                .filter(index -> (new CheckContext(scan, index.getId()).getMeta().haveDefineExpr()))
                 .map(index -> rewriteAgg(index, scan, nonVirtualRequiredScanOutput, predicates, aggregateFunctions,
                         groupingExprs))
                 .filter(aggRewriteResult -> checkPreAggStatus(scan, aggRewriteResult.index.getId(), predicates,
