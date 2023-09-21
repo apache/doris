@@ -31,7 +31,7 @@
 #include "runtime/descriptors.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
-#include "vec/runtime/vfile_writer_wrapper.h"
+#include "vec/runtime/vfile_format_transformer.h"
 #include "vec/sink/writer/async_result_writer.h"
 
 namespace doris {
