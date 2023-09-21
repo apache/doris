@@ -60,16 +60,20 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
     TabletReader::ReaderParams reader_params;
     reader_params.tablet = tablet;
     reader_params.reader_type = reader_type;
-    reader_params.rs_splits.reserve(src_rowset_readers.size());
+
+    TabletReader::ReadSource read_source;
+    read_source.rs_splits.reserve(src_rowset_readers.size());
     for (const RowsetReaderSharedPtr& rs_reader : src_rowset_readers) {
-        reader_params.rs_splits.emplace_back(RowSetSplits(rs_reader));
+        read_source.rs_splits.emplace_back(RowSetSplits(rs_reader));
     }
+    read_source.fill_delete_predicates();
+    reader_params.set_read_source(std::move(read_source));
+
     reader_params.version = dst_rowset_writer->version();
 
     TabletSchemaSPtr merge_tablet_schema = std::make_shared<TabletSchema>();
     merge_tablet_schema->copy_from(*cur_tablet_schema);
 
-    reader_params.fill_delete_predicates_with_rs_splits();
     // Merge the columns in delete predicate that not in latest schema in to current tablet schema
     for (auto& del_pred_rs : reader_params.delete_predicates) {
         merge_tablet_schema->merge_dropped_columns(*del_pred_rs->tablet_schema());
@@ -191,12 +195,16 @@ Status Merger::vertical_compact_one_group(
     reader_params.is_key_column_group = is_key;
     reader_params.tablet = tablet;
     reader_params.reader_type = reader_type;
-    reader_params.rs_splits.reserve(src_rowset_readers.size());
+
+    TabletReader::ReadSource read_source;
+    read_source.rs_splits.reserve(src_rowset_readers.size());
     for (const RowsetReaderSharedPtr& rs_reader : src_rowset_readers) {
-        reader_params.rs_splits.emplace_back(RowSetSplits(rs_reader));
+        read_source.rs_splits.emplace_back(RowSetSplits(rs_reader));
     }
+    read_source.fill_delete_predicates();
+    reader_params.set_read_source(std::move(read_source));
+
     reader_params.version = dst_rowset_writer->version();
-    reader_params.fill_delete_predicates_with_rs_splits();
 
     TabletSchemaSPtr merge_tablet_schema = std::make_shared<TabletSchema>();
     merge_tablet_schema->copy_from(*tablet_schema);

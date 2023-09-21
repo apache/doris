@@ -98,8 +98,8 @@ std::string TabletReader::KeysParam::to_string() const {
     return ss.str();
 }
 
-void TabletReader::ReaderParams::fill_delete_predicates_with_rs_splits() {
-    delete_predicates.clear();
+void TabletReader::ReadSource::fill_delete_predicates() {
+    DCHECK_EQ(delete_predicates.size(), 0);
     for (auto&& split : rs_splits) {
         auto& rs_meta = split.rs_reader->rowset()->rowset_meta();
         if (rs_meta->has_delete_predicate()) {
@@ -648,12 +648,14 @@ Status TabletReader::init_reader_params_and_create_block(
     reader_params->version =
             Version(input_rowsets.front()->start_version(), input_rowsets.back()->end_version());
 
+    ReadSource read_source;
     for (auto& rowset : input_rowsets) {
         RowsetReaderSharedPtr rs_reader;
         RETURN_IF_ERROR(rowset->create_reader(&rs_reader));
-        reader_params->rs_splits.push_back(RowSetSplits(std::move(rs_reader)));
+        read_source.rs_splits.push_back(RowSetSplits(std::move(rs_reader)));
     }
-    reader_params->fill_delete_predicates_with_rs_splits();
+    read_source.fill_delete_predicates();
+    reader_params->set_read_source(std::move(read_source));
 
     std::vector<RowsetMetaSharedPtr> rowset_metas(input_rowsets.size());
     std::transform(input_rowsets.begin(), input_rowsets.end(), rowset_metas.begin(),
