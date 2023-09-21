@@ -82,6 +82,10 @@ public:
     virtual ~BroadcastDependency() = default;
 
     [[nodiscard]] WriteDependency* write_blocked_by() override {
+        if (_available_block == 0 &&
+            _write_dependency_watcher.elapsed_time() > 10 * 1000L * 1000L * 1000L) {
+            LOG(WARNING) << "========debug5 " << name() << " " << id();
+        }
         return _available_block > 0 ? nullptr : this;
     }
 

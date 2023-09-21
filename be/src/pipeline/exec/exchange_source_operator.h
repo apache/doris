@@ -57,6 +57,10 @@ public:
             : Dependency(id, "DataDependency"), _sender_queue(sender_queue), _always_done(false) {}
     void* shared_state() override { return nullptr; }
     [[nodiscard]] Dependency* read_blocked_by() override {
+        if (_sender_queue->should_wait() &&
+            _read_dependency_watcher.elapsed_time() > 10 * 1000L * 1000L * 1000L) {
+            LOG(WARNING) << "========debug4 " << name() << " " << id();
+        }
         return _sender_queue->should_wait() ? this : nullptr;
     }
 

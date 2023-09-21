@@ -101,6 +101,10 @@ public:
         if (_scanner_ctx->get_num_running_scanners() == 0 && _scanner_ctx->should_be_scheduled()) {
             _scanner_ctx->reschedule_scanner_ctx();
         }
+        if (!_ready_for_read &&
+            _read_dependency_watcher.elapsed_time() > 10 * 1000L * 1000L * 1000L) {
+            LOG(WARNING) << "========debug3 " << name() << " " << id();
+        }
         return _ready_for_read ? nullptr : this;
     }
 

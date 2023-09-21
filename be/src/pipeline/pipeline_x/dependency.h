@@ -60,7 +60,7 @@ public:
     [[nodiscard]] virtual Dependency* read_blocked_by() {
         if (!_ready_for_read &&
             _read_dependency_watcher.elapsed_time() > 10 * 1000L * 1000L * 1000L) {
-            LOG(WARNING) << "========debug " << name() << " " << id();
+            LOG(WARNING) << "========debug1 " << name() << " " << id();
         }
         return _ready_for_read ? nullptr : this;
     }
@@ -126,7 +126,7 @@ public:
     [[nodiscard]] virtual WriteDependency* write_blocked_by() {
         if (!_ready_for_write &&
             _write_dependency_watcher.elapsed_time() > 10 * 1000L * 1000L * 1000L) {
-            LOG(WARNING) << "========debug " << name() << " " << id();
+            LOG(WARNING) << "========debug2 " << name() << " " << id();
         }
         return _ready_for_write ? nullptr : this;
     }
