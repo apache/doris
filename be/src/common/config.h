@@ -1165,6 +1165,9 @@ DECLARE_mInt32(group_commit_insert_threads);
 // to lower the priority of scan threads
 DECLARE_Int32(scan_thread_nice_value);
 
+// Use `LOG(FATAL)` to replace `throw` when true
+DECLARE_mBool(exit_on_exception);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
