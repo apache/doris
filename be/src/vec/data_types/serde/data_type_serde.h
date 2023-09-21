@@ -24,6 +24,7 @@
 
 #include "arrow/status.h"
 #include "common/status.h"
+#include <orc/OrcFile.hh>
 #include "util/jsonb_writer.h"
 #include "util/mysql_row_buffer.h"
 #include "vec/columns/column_nullable.h"
@@ -40,6 +41,9 @@ class Array;
 namespace cctz {
 class time_zone;
 } // namespace cctz
+namespace orc {
+    struct ColumnVectorBatch;
+} // namespace orc
 
 #define SERIALIZE_COLUMN_TO_JSON()                                            \
     for (size_t i = start_idx; i < end_idx; ++i) {                            \
@@ -215,8 +219,6 @@ public:
                                          int row_idx, bool col_const) const = 0;
     // Thrift serializer and deserializer
 
-    // ORC serializer and deserializer
-
     // CSV serializer and deserializer
 
     // JSON serializer and deserializer
@@ -227,6 +229,12 @@ public:
                                        int end) const = 0;
     virtual void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
                                         int end, const cctz::time_zone& ctz) const = 0;
+
+    // ORC serializer
+    virtual Status write_column_to_orc(const IColumn& column, const NullMap* null_map,
+                                     orc::ColumnVectorBatch* orc_col_batch, int start,
+                                     int end, std::vector<StringRef>& bufferList) const = 0;
+    // ORC deserializer
 
     virtual void set_return_object_as_string(bool value) { _return_object_as_string = value; }
 

@@ -231,5 +231,11 @@ Status DataTypeStringSerDe::write_column_to_mysql(const IColumn& column,
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
 }
 
+Status DataTypeStringSerDe::write_column_to_orc(const IColumn& column, const NullMap* null_map,
+                           orc::ColumnVectorBatch* orc_col_batch, int start,
+                           int end, std::vector<StringRef>& bufferList) const {
+    return Status::NotSupported("write_column_to_orc with type [{}]", column.get_name());
+}
+
 } // namespace vectorized
 } // namespace doris

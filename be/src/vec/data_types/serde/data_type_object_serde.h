@@ -99,6 +99,10 @@ public:
                                  int row_idx, bool col_const) const override {
         return Status::NotSupported("write_column_to_mysql with type " + column.get_name());
     }
+
+    Status write_column_to_orc(const IColumn& column, const NullMap* null_map,
+                               orc::ColumnVectorBatch* orc_col_batch, int start,
+                               int end, std::vector<StringRef>& bufferList) const override;
 };
 } // namespace vectorized
 } // namespace doris

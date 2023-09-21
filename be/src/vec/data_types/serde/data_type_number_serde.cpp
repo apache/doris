@@ -239,6 +239,20 @@ Status DataTypeNumberSerDe<T>::write_column_to_mysql(const IColumn& column,
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
 }
 
+template <typename T>
+Status DataTypeNumberSerDe<T>::write_column_to_orc(const IColumn& column, const NullMap* null_map,
+                           orc::ColumnVectorBatch* orc_col_batch, int start,
+                           int end, std::vector<StringRef>& bufferList) const {
+    orc::LongVectorBatch* cur_batch = dynamic_cast<orc::LongVectorBatch*>(orc_col_batch);
+    auto& col_data = assert_cast<const ColumnType&>(column).get_data();
+
+    for (size_t row_id = start; row_id < end; row_id++) {
+        cur_batch->data[row_id] = col_data[row_id];
+    }
+    cur_batch->numElements = end - start;
+    return Status::OK();
+}
+
 /// Explicit template instantiations - to avoid code bloat in headers.
 template class DataTypeNumberSerDe<UInt8>;
 template class DataTypeNumberSerDe<UInt16>;

@@ -121,6 +121,10 @@ public:
         return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
     }
 
+    Status write_column_to_orc(const IColumn& column, const NullMap* null_map,
+                               orc::ColumnVectorBatch* orc_col_batch, int start,
+                               int end, std::vector<StringRef>& bufferList) const override;
+
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,

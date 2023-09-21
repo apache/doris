@@ -237,6 +237,13 @@ Status DataTypeDecimalSerDe<T>::write_column_to_mysql(const IColumn& column,
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
 }
 
+template <typename T>
+Status DataTypeDecimalSerDe<T>::write_column_to_orc(const IColumn& column, const NullMap* null_map,
+                           orc::ColumnVectorBatch* orc_col_batch, int start,
+                           int end, std::vector<StringRef>& bufferList) const {
+    return Status::NotSupported("write_column_to_orc with type [{}]", column.get_name());
+}
+
 template class DataTypeDecimalSerDe<Decimal32>;
 template class DataTypeDecimalSerDe<Decimal64>;
 template class DataTypeDecimalSerDe<Decimal128>;
