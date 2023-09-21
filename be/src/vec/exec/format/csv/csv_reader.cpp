@@ -353,6 +353,17 @@ Status CsvReader::init_reader(bool is_load) {
     } else {
         _options.map_key_delim = _params.file_attributes.text_params.mapkv_delimiter[0];
     }
+    if (is_load) {
+        _use_nullable_string_opt.resize(_file_slot_descs.size());
+        for (int i = 0; i < _file_slot_descs.size(); ++i) {
+            auto data_type_ptr = _file_slot_descs[i]->get_data_type_ptr();
+            if (data_type_ptr.get()->get_type_id() == TypeIndex::Nullable &&
+                ((DataTypeNullable*)data_type_ptr.get())->get_nested_type()->get_type_id() ==
+                        TypeIndex::String) {
+                _use_nullable_string_opt[i] = 1;
+            }
+        }
+    }
 
     if (_params.file_attributes.__isset.trim_double_quotes) {
         _trim_double_quotes = _params.file_attributes.trim_double_quotes;
@@ -626,28 +637,37 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
                 col_idx < _split_values.size() ? _split_values[col_idx] : _s_null_slice;
         Slice slice {value.data, value.size};
 
+        IColumn* col_ptr = columns[i];
         if (!_is_load) {
-            IColumn* col_ptr = const_cast<IColumn*>(
+            col_ptr = const_cast<IColumn*>(
                     block->get_by_position(_file_slot_idx_map[i]).column.get());
+        }
 
+        if (_use_nullable_string_opt[i]) {
+            _options.use_nullable_string_serde = true;
+            static DataTypeNullableSerDe nullableSerde(nullptr);
+            // For load task, we always read "string" from file.
+            // So serdes[i] here must be DataTypeNullableSerDe, and DataTypeNullableSerDe -> nested_serde must be DataTypeStringSerDe.
+            // So we use nullableSerde and stringSerDe to reduce virtual function calls.
+            switch (_text_serde_type) {
+            case TTextSerdeType::JSON_TEXT_SERDE:
+                nullableSerde.deserialize_one_cell_from_json(*col_ptr, slice, _options);
+                break;
+            case TTextSerdeType::HIVE_TEXT_SERDE:
+                nullableSerde.deserialize_one_cell_from_hive_text(*col_ptr, slice, _options);
+                break;
+            default:
+                break;
+            }
+        } else {
+            //Prevent behavior changes from fe, that is, not reading according to string.
+            _options.use_nullable_string_serde = false;
             switch (_text_serde_type) {
             case TTextSerdeType::JSON_TEXT_SERDE:
                 _serdes[i]->deserialize_one_cell_from_json(*col_ptr, slice, _options);
                 break;
             case TTextSerdeType::HIVE_TEXT_SERDE:
                 _serdes[i]->deserialize_one_cell_from_hive_text(*col_ptr, slice, _options);
-                break;
-            default:
-                break;
-            }
-        } else {
-            // For load task, we always read "string" from file.
-            switch (_text_serde_type) {
-            case TTextSerdeType::JSON_TEXT_SERDE:
-                _serdes[i]->deserialize_one_cell_from_json(*columns[i], slice, _options);
-                break;
-            case TTextSerdeType::HIVE_TEXT_SERDE:
-                _serdes[i]->deserialize_one_cell_from_hive_text(*columns[i], slice, _options);
                 break;
             default:
                 break;

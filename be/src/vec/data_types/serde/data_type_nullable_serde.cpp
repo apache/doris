@@ -24,6 +24,7 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <memory>
 
+#include "data_type_string_serde.h"
 #include "util/jsonb_document.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
@@ -95,8 +96,15 @@ Status DataTypeNullableSerDe::deserialize_one_cell_from_hive_text(IColumn& colum
         return Status::OK();
     }
 
-    auto st = nested_serde->deserialize_one_cell_from_hive_text(null_column.get_nested_column(),
-                                                                slice, options, nesting_level);
+    Status st = Status::OK();
+    if (options.use_nullable_string_serde) {
+        static DataTypeStringSerDe stringSerDe;
+        st = stringSerDe.deserialize_one_cell_from_json(null_column.get_nested_column(), slice,
+                                                        options, nesting_level);
+    } else {
+        st = nested_serde->deserialize_one_cell_from_hive_text(null_column.get_nested_column(),
+                                                               slice, options, nesting_level);
+    }
     if (!st.ok()) {
         // fill null if fail
         null_column.insert_data(nullptr, 0); // 0 is meaningless here
@@ -121,6 +129,25 @@ Status DataTypeNullableSerDe::deserialize_one_cell_from_json(IColumn& column, Sl
                                                              const FormatOptions& options,
                                                              int nesting_level) const {
     auto& null_column = assert_cast<ColumnNullable&>(column);
+    if (options.use_nullable_string_serde) {
+        if (!(options.converted_from_string && slice.trim_quote())) {
+            if (slice.size == 2 && slice[0] == '\\' && slice[1] == 'N') {
+                null_column.insert_data(nullptr, 0);
+                return Status::OK();
+            }
+        }
+        static DataTypeStringSerDe stringSerDe;
+        auto st = stringSerDe.deserialize_one_cell_from_json(null_column.get_nested_column(), slice,
+                                                             options, nesting_level);
+        if (!st.ok()) {
+            // fill null if fail
+            null_column.insert_data(nullptr, 0); // 0 is meaningless here
+            return Status::OK();
+        }
+        // fill not null if success
+        null_column.get_null_map_data().push_back(0);
+        return Status::OK();
+    }
     // TODO(Amory) make null literal configurable
 
     // only slice trim quote return true make sure slice is quoted and converted_from_string make

@@ -117,6 +117,7 @@ public:
         bool converted_from_string = false;
 
         char escape_char = 0;
+        bool use_nullable_string_serde = false;
 
         [[nodiscard]] char get_collection_delimiter(int nesting_level) const {
             CHECK(0 <= nesting_level && nesting_level <= 153);

@@ -286,6 +286,7 @@ private:
     std::vector<Slice> _split_values;
     std::unique_ptr<LineFieldSplitterIf> _fields_splitter;
     TTextSerdeType::type _text_serde_type;
+    std::vector<int> _use_nullable_string_opt;
 };
 } // namespace vectorized
 } // namespace doris
