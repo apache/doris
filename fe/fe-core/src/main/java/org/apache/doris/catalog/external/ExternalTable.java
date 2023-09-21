@@ -35,7 +35,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.TableStats;
+import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.collect.Sets;
@@ -383,7 +383,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     }
 
     @Override
-    public boolean needReAnalyzeTable(TableStats tblStats) {
+    public boolean needReAnalyzeTable(TableStatsMeta tblStats) {
         // TODO: Find a way to decide if this external table need to be reanalyzed.
         // For now, simply return true for all external tables.
         return true;
