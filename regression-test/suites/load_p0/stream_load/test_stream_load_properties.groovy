@@ -105,6 +105,11 @@ suite("test_stream_load_properties", "p0") {
 
     def maxFilterRatio = [0.4,0.4,0.4,0.4,0.6,0.6,0.6]
 
+    InetSocketAddress address = context.config.feHttpInetSocketAddress
+    String user = context.config.feHttpUser
+    String password = context.config.feHttpPassword
+    String db = context.config.getDbNameByFile(context.file)
+
     // exec_mem_limit
     def i = 0
     try {
@@ -341,6 +346,182 @@ suite("test_stream_load_properties", "p0") {
         sql new File("""${context.file.parent}/ddl/dup_tbl_basic_drop_random_bucket.sql""").text
     }
 
+    // sequence
+    try {
+            sql new File("""${context.file.parent}/ddl/uniq_tbl_basic_drop_sequence.sql""").text
+            sql new File("""${context.file.parent}/ddl/uniq_tbl_basic_create_sequence.sql""").text
+
+            streamLoad {
+                table 'stream_load_uniq_tbl_basic_sequence'
+                set 'column_separator', '|'
+                set 'columns', columns[0]
+                file files[0]
+                time 10000 // limit inflight 10s
+
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    log.info("Stream load result: ${result}".toString())
+                    def json = parseJson(result)
+                    assertEquals("success", json.Status.toLowerCase())
+                    assertEquals(20, json.NumberTotalRows)
+                    assertEquals(20, json.NumberLoadedRows)
+                    assertEquals(0, json.NumberFilteredRows)
+                    assertEquals(0, json.NumberUnselectedRows)
+                }
+            }
+            qt_sql_squence "select * from stream_load_uniq_tbl_basic_sequence order by k00,k01"
+    } finally {
+        sql new File("""${context.file.parent}/ddl/uniq_tbl_basic_drop_sequence.sql""").text
+    }
+
+    // merge type
+    i = 0
+    try {
+        def tableName = "mow_tbl_basic"
+        sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+        sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
+
+        streamLoad {
+            table "stream_load_" + tableName
+            set 'column_separator', '|'
+            set 'columns', columns[i]
+            file files[i]
+            time 10000 // limit inflight 10s
+
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(20, json.NumberTotalRows)
+                assertEquals(20, json.NumberLoadedRows)
+                assertEquals(0, json.NumberFilteredRows)
+                assertEquals(0, json.NumberUnselectedRows)
+            }
+        }
+
+        streamLoad {
+            table "stream_load_" + tableName
+            set 'column_separator', '|'
+            set 'columns', columns[i]
+            set 'merge_type', 'DELETE'
+            file files[i]
+            time 10000 // limit inflight 10s
+
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(20, json.NumberTotalRows)
+                assertEquals(20, json.NumberLoadedRows)
+                assertEquals(0, json.NumberFilteredRows)
+                assertEquals(0, json.NumberUnselectedRows)
+            }
+        }
+        def tableName1 = "stream_load_" + tableName
+        qt_sql_merge_type "select * from ${tableName1} order by k00,k01"                  
+    } finally {
+        sql new File("""${context.file.parent}/ddl/mow_tbl_basic_drop.sql""").text
+    }
+
+    // two_phase_commit
+    i = 0
+    try {
+        for (String tableName in tables) {
+            sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+            sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
+
+            String txnId
+            streamLoad {
+                table "stream_load_" + tableName
+                set 'column_separator', '|'
+                set 'columns', columns[i]
+                set 'two_phase_commit', 'true'
+                file files[i]
+                time 10000 // limit inflight 10s
+
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    log.info("Stream load result: ${result}".toString())
+                    def json = parseJson(result)
+                    txnId = json.TxnId
+                    assertEquals("success", json.Status.toLowerCase())
+                    assertEquals(20, json.NumberTotalRows)
+                    assertEquals(20, json.NumberLoadedRows)
+                    assertEquals(0, json.NumberFilteredRows)
+                    assertEquals(0, json.NumberUnselectedRows)
+                }
+            }
+
+            //sql """curl -X PUT --location-trusted -u ${user}:${password}  -H "txn_id:${txnId}" -H "txn_operation:abort"  http://${address.hostString}:${address.port}/api/${db}/${tableName}/_stream_load_2pc"""
+            def tableName1 =  "stream_load_" + tableName
+            if (i <= 3) {
+                qt_sql_2pc "select * from ${tableName1} order by k00,k01"
+            } else {
+                qt_sql_2pc "select * from ${tableName1} order by k00"
+            }
+            i++
+        }
+    } finally {
+        for (String tableName in tables) {
+            sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+        }
+    }
+
+    i = 0
+    try {
+        for (String tableName in tables) {
+            sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+            sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
+
+            String txnId
+            streamLoad {
+                table "stream_load_" + tableName
+                set 'column_separator', '|'
+                set 'columns', columns[i]
+                set 'two_phase_commit', 'true'
+                file files[i]
+                time 10000 // limit inflight 10s
+
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    log.info("Stream load result: ${result}".toString())
+                    def json = parseJson(result)
+                    txnId = json.TxnId
+                    assertEquals("success", json.Status.toLowerCase())
+                    assertEquals(20, json.NumberTotalRows)
+                    assertEquals(20, json.NumberLoadedRows)
+                    assertEquals(0, json.NumberFilteredRows)
+                    assertEquals(0, json.NumberUnselectedRows)
+                }
+            }
+
+            //sql """curl -X PUT --location-trusted -u ${user}:${password}  -H "txn_id:${txnId}" -H "txn_operation:commit"  http://${address.hostString}:${address.port}/api/${db}/${tableName}/_stream_load_2pc"""
+            def tableName1 =  "stream_load_" + tableName
+            if (i <= 3) {
+                qt_sql_2pc "select * from ${tableName1} order by k00,k01"
+            } else {
+                qt_sql_2pc "select * from ${tableName1} order by k00"
+            }
+            i++
+        }
+    } finally {
+        for (String tableName in tables) {
+            sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+        }
+    }
+
     // compress_type 
     // gz/bz2/lz4
     // todo lzo/deflate
@@ -503,5 +684,4 @@ suite("test_stream_load_properties", "p0") {
             sql new File("""${context.file.parent}/ddl/${table}_drop.sql""").text
         }
     }
-
 }
