@@ -173,9 +173,9 @@ DECLARE_mBool(enable_query_memory_overcommit);
 // default gc strategy is conservative, if you want to exclude the interference of gc, let it be true
 DECLARE_mBool(disable_memory_gc);
 
-// malloc or new large memory larger than large_memory_check_bytes and Doris Allocator is not used,
+// malloc or new large memory larger than large_memory_check_bytes, default 2G,
 // will print a warning containing the stacktrace, but not prevent memory alloc.
-// large memory alloc looking forward to using Allocator.
+// If is -1, disable large memory check.
 DECLARE_mInt64(large_memory_check_bytes);
 
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
@@ -1164,6 +1164,9 @@ DECLARE_mInt32(group_commit_insert_threads);
 // Default is 0, which is default value of thread nice value, increase this value
 // to lower the priority of scan threads
 DECLARE_Int32(scan_thread_nice_value);
+
+// Use `LOG(FATAL)` to replace `throw` when true
+DECLARE_mBool(exit_on_exception);
 
 #ifdef BE_TEST
 // test s3

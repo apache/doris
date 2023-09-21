@@ -131,7 +131,7 @@ DEFINE_mBool(enable_query_memory_overcommit, "true");
 
 DEFINE_mBool(disable_memory_gc, "false");
 
-DEFINE_mInt64(large_memory_check_bytes, "1073741824");
+DEFINE_mInt64(large_memory_check_bytes, "2147483648");
 
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
 DEFINE_mInt32(thread_wait_gc_max_milliseconds, "1000");
@@ -281,7 +281,7 @@ DEFINE_String(storage_root_path, "${DORIS_HOME}/storage");
 DEFINE_Bool(storage_strict_check_incompatible_old_format, "true");
 
 // BE process will exit if the percentage of error disk reach this value.
-DEFINE_mInt32(max_percentage_of_error_disk, "0");
+DEFINE_mInt32(max_percentage_of_error_disk, "100");
 DEFINE_mInt32(default_num_rows_per_column_file_block, "1024");
 // pending data policy
 DEFINE_mInt32(pending_data_expire_time_sec, "1800");
@@ -1090,6 +1090,9 @@ DEFINE_Int32(group_commit_insert_threads, "10");
 
 DEFINE_mInt32(scan_thread_nice_value, "0");
 
+DEFINE_Bool(exit_on_exception, "false")
+
+// clang-format off
 #ifdef BE_TEST
 // test s3
 DEFINE_String(test_s3_resource, "resource");
@@ -1100,6 +1103,7 @@ DEFINE_String(test_s3_region, "region");
 DEFINE_String(test_s3_bucket, "bucket");
 DEFINE_String(test_s3_prefix, "prefix");
 #endif
+// clang-format on
 
 std::map<std::string, Register::Field>* Register::_s_field_map = nullptr;
 std::map<std::string, std::function<bool()>>* RegisterConfValidator::_s_field_validator = nullptr;

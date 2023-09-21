@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -32,8 +33,11 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.stream.Collectors;
 
 public class PushdownFilterThroughSortTest implements MemoPatternMatchSupported {
@@ -53,12 +57,54 @@ public class PushdownFilterThroughSortTest implements MemoPatternMatchSupported 
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .applyTopDown(new PushdownFilterThroughSort())
-                .matches(
+                .matchesFromRoot(
                     logicalSort(
                         logicalFilter(
                             logicalOlapScan()
                         )
                     )
                 );
+    }
+
+    @Test
+    void testFilterOneConstant() {
+        Slot gender = scan.getOutput().get(1);
+        Expression filterPredicate = new EqualTo(gender, Literal.of(1));
+
+        LogicalPlan plan = new LogicalPlanBuilder(scan)
+                .sort(Lists.newArrayList(new OrderKey(gender, true, true)))
+                .filter(filterPredicate)
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new PushdownFilterThroughSort())
+                .matchesFromRoot(logicalFilter(logicalOlapScan()));
+    }
+
+    @Test
+    void testFilterTwoConstant() {
+        Slot gender = scan.getOutput().get(1);
+        Slot id = scan.getOutput().get(0);
+
+        Expression filterPredicate = new EqualTo(gender, Literal.of(1));
+        List<OrderKey> orderKeys = Lists.newArrayList(new OrderKey(gender, true, true),
+                new OrderKey(id, true, true));
+
+        LogicalPlan plan = new LogicalPlanBuilder(scan)
+                .sort(orderKeys)
+                .filter(filterPredicate)
+                .build();
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new PushdownFilterThroughSort())
+                .matchesFromRoot(logicalSort(logicalFilter(logicalOlapScan())));
+
+        Expression filterPredicate2 = new EqualTo(id, Literal.of(1));
+        plan = new LogicalPlanBuilder(scan)
+                .sort(orderKeys)
+                .filter(Sets.newHashSet(filterPredicate2, filterPredicate))
+                .build();
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new PushdownFilterThroughSort())
+                .matchesFromRoot(logicalFilter(logicalOlapScan()));
     }
 }
