@@ -296,10 +296,8 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
         for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
             auto task = std::make_unique<PipelineXTask>(_pipelines[pip_idx], _total_tasks++,
                                                         _runtime_states[i].get(), this,
-                                                        _pipelines[pip_idx]->pipeline_profile());
+                                                        _runtime_states[i]->runtime_profile());
             pipeline_id_to_task.insert({_pipelines[pip_idx]->id(), task.get()});
-            _runtime_states[i]->runtime_profile()->add_child(
-                    _pipelines[pip_idx]->pipeline_profile(), true, nullptr);
             _tasks[i].emplace_back(std::move(task));
         }
 
