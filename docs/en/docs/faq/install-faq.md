@@ -316,3 +316,12 @@ This may be due to the CPU not supporting AVX2, check the backend logs with `doc
 If the CPU does not support AVX2, the `apache/doris:1.2.2-be-x86_64-noavx2` image must be used,
 instead of `apache/doris:1.2.2-be-x86_64`.
 Note that the image version number will change over time, check [Dockerhub](https://registry.hub.docker.com/r/apache/doris/tags?page=1&name=avx2) for the most recent version.
+### Q18. Add BE fails, "java.net.NoRouteToHostException" in fe.log
+
+There are usually three reasons for this problem:
+
+1. Host Unreachable: This exception is thrown when we try to connect to an unreachable host, possibly due to a network failure, host downtime, or network configuration problem.
+2. Routing table problem: The routing table is a table that determines how packets are sent. When there is no route to the destination host in the routing table, NoRouteToHostException is thrown.
+3. Firewall blocking: A firewall is a device used to protect network security, it may block access to certain hosts or ports, if the target host is blocked by the firewall, it will throw a NoRouteToHostException.
+
+this problem are generally caused by network reasons, if encountered, you can check according to the above reasons.
