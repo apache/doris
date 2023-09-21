@@ -353,15 +353,13 @@ Status CsvReader::init_reader(bool is_load) {
     } else {
         _options.map_key_delim = _params.file_attributes.text_params.mapkv_delimiter[0];
     }
-    if (is_load) {
-        _use_nullable_string_opt.resize(_file_slot_descs.size());
-        for (int i = 0; i < _file_slot_descs.size(); ++i) {
-            auto data_type_ptr = _file_slot_descs[i]->get_data_type_ptr();
-            if (data_type_ptr.get()->get_type_id() == TypeIndex::Nullable &&
-                ((DataTypeNullable*)data_type_ptr.get())->get_nested_type()->get_type_id() ==
-                        TypeIndex::String) {
-                _use_nullable_string_opt[i] = 1;
-            }
+    _use_nullable_string_opt.resize(_file_slot_descs.size());
+    for (int i = 0; i < _file_slot_descs.size(); ++i) {
+        auto data_type_ptr = _file_slot_descs[i]->get_data_type_ptr();
+        if (data_type_ptr.get()->get_type_id() == TypeIndex::Nullable &&
+            ((DataTypeNullable*)data_type_ptr.get())->get_nested_type()->get_type_id() ==
+                    TypeIndex::String) {
+            _use_nullable_string_opt[i] = 1;
         }
     }
 
