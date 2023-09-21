@@ -26,19 +26,9 @@ jobs:
     steps:
       - name: testcreate
         run : |
-            git remote add upstream git@github.com:apache/doris.git
-
-            # 拉取上游仓库的最新更改
-            git fetch upstream
-            
-            # 切换到你想要基于的分支
-            git checkout master
-            
-            # 创建一个新的分支并切换到该分支
-            git checkout -b testcalvin
-            
-            # 推送新的分支到上游仓库
-            git push upstream testcalvin
+           current_branch=$(git rev-parse --abbrev-ref HEAD)
+             git_path=$(git show-ref --heads -s "$current_branch")
+               echo "$git_path"
 
       - name: Checkout ${{ github.ref }} ( ${{ github.event.pull_request.head.sha }} )
         if: ${{ github.event_name == 'pull_request_target' }}
