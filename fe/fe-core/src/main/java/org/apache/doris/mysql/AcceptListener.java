@@ -48,6 +48,7 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
         try {
             StreamConnection connection = channel.accept();
             if (connection == null) {
+                LOG.info("channel can not connect to port because connection is null");
                 return;
             }
             connection.setOption(Options.KEEP_ALIVE, true);
