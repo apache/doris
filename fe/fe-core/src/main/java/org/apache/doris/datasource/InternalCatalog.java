@@ -1624,7 +1624,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                         } else {
                             for (int i = 0; i < oldSchema.size(); ++i) {
                                 if (!oldSchema.get(i).equals(newSchema.get(i))) {
-                                    LOG.warn("schema diff, old schema {}, new schema {}", oldSchema.get(i), newSchema.get(i));
+                                    LOG.warn("schema diff, old schema {}, new schema {}",
+                                            oldSchema.get(i), newSchema.get(i));
                                     metaChanged = true;
                                     break;
                                 }
