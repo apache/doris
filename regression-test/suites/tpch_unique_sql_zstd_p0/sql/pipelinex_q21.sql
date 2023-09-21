@@ -1,5 +1,5 @@
 -- tables: supplier,lineitem,orders,nation
-SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=false) */
+SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=true) */
   s_name,
   count(*) AS numwait
 FROM
