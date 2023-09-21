@@ -101,11 +101,10 @@ public class JdbcPostgreSQLClient extends JdbcClient {
             case "varbit":
             case "uuid":
             case "bytea":
-            // For Json Type in Doris 2.0,
-            // we need to use a String mapping because the new optimizer doesn't support Json
+                return ScalarType.createStringType();
             case "json":
             case "jsonb":
-                return ScalarType.createStringType();
+                return ScalarType.createJsonbType();
             default:
                 return Type.UNSUPPORTED;
         }
