@@ -27,4 +27,6 @@ public interface CatalogRelation extends Relation {
     TableIf getTable();
 
     DatabaseIf getDatabase() throws AnalysisException;
+
+    boolean canPushDownRuntimeFilter();
 }

@@ -38,11 +38,11 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
@@ -84,7 +84,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
     );
 
     private static final Set<Class<? extends PhysicalPlan>> SPJ_PLAN = ImmutableSet.of(
-            PhysicalOlapScan.class,
+            PhysicalCatalogRelation.class,
             PhysicalProject.class,
             PhysicalFilter.class,
             PhysicalDistribute.class,
@@ -103,7 +103,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
      * second step: if encounter project, collect the association of its child and it for pushing down through
      * the project node.
      * plan translation:
-     * third step: generate nereids runtime filter target at olap scan node fragment.
+     * third step: generate nereids runtime filter target at scan node fragment.
      * forth step: generate legacy runtime filter target and runtime filter at hash join node fragment.
      * NOTICE: bottom-up travel the plan tree!!!
      */
@@ -183,14 +183,14 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                 if (!checkPushDownPreconditions(join, ctx, targetSlot)) {
                     continue;
                 }
-                Slot olapScanSlot = aliasTransferMap.get(targetSlot).second;
+                Slot scanSlot = aliasTransferMap.get(targetSlot).second;
                 RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
-                        bitmapContains.child(0), ImmutableList.of(olapScanSlot),
+                        bitmapContains.child(0), ImmutableList.of(scanSlot),
                         ImmutableList.of(bitmapContains.child(1)), type, i, join, isNot, -1L);
-                ctx.addJoinToTargetMap(join, olapScanSlot.getExprId());
-                ctx.setTargetExprIdToFilter(olapScanSlot.getExprId(), filter);
+                ctx.addJoinToTargetMap(join, scanSlot.getExprId());
+                ctx.setTargetExprIdToFilter(scanSlot.getExprId(), filter);
                 ctx.setTargetsOnScanNode(aliasTransferMap.get(targetSlot).first.getRelationId(),
-                        olapScanSlot);
+                        scanSlot);
                 join.addBitmapRuntimeFilterCondition(bitmapRuntimeFilterCondition);
             }
         }
@@ -467,7 +467,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         Map<NamedExpression, Pair<PhysicalRelation, Slot>> aliasTransferMap = ctx.getAliasTransferMap();
         PhysicalPlan inputPlanNode = (PhysicalPlan) cteProducer.child(0);
         Slot unwrappedSlot = checkTargetChild(equalTo.left());
-        // aliasTransMap doesn't contain the key, means that the path from the olap scan to the join
+        // aliasTransMap doesn't contain the key, means that the path from the scan to the join
         // contains join with denied join type. for example: a left join b on a.id = b.id
         if (!checkPushDownPreconditions(join, ctx, unwrappedSlot)) {
             return;
@@ -492,13 +492,13 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             } else if (!checkCanPushDownIntoBasicTable(project)) {
                 return;
             } else {
-                Map<Slot, PhysicalOlapScan> pushDownBasicTableInfos = getPushDownBasicTablesInfos(project,
+                Map<Slot, PhysicalCatalogRelation> pushDownBasicTableInfos = getPushDownBasicTablesInfos(project,
                         (SlotReference) targetExpr, aliasTransferMap);
                 if (!pushDownBasicTableInfos.isEmpty()) {
                     List<Slot> targetList = new ArrayList<>();
-                    for (Map.Entry<Slot, PhysicalOlapScan> entry : pushDownBasicTableInfos.entrySet()) {
+                    for (Map.Entry<Slot, PhysicalCatalogRelation> entry : pushDownBasicTableInfos.entrySet()) {
                         Slot targetSlot = entry.getKey();
-                        PhysicalOlapScan scan = entry.getValue();
+                        PhysicalCatalogRelation scan = entry.getValue();
                         targetList.add(targetSlot);
                         ctx.addJoinToTargetMap(join, targetSlot.getExprId());
                         ctx.setTargetsOnScanNode(scan.getRelationId(), targetSlot);
@@ -558,13 +558,17 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         return plans.stream().allMatch(p -> SPJ_PLAN.stream().anyMatch(c -> c.isInstance(p)));
     }
 
-    private Map<Slot, PhysicalOlapScan> getPushDownBasicTablesInfos(PhysicalPlan root, SlotReference slot,
+    private Map<Slot, PhysicalCatalogRelation> getPushDownBasicTablesInfos(PhysicalPlan root, SlotReference slot,
             Map<NamedExpression, Pair<PhysicalRelation, Slot>> aliasTransferMap) {
-        Map<Slot, PhysicalOlapScan> basicTableInfos = new HashMap<>();
+        Map<Slot, PhysicalCatalogRelation> basicTableInfos = new HashMap<>();
         Set<PhysicalHashJoin> joins = new HashSet<>();
         ExprId exprId = slot.getExprId();
-        if (aliasTransferMap.get(slot) != null && aliasTransferMap.get(slot).first instanceof PhysicalOlapScan) {
-            basicTableInfos.put(slot, (PhysicalOlapScan) aliasTransferMap.get(slot).first);
+        if (aliasTransferMap.get(slot) != null && aliasTransferMap.get(slot).first instanceof PhysicalCatalogRelation) {
+            PhysicalCatalogRelation physicalCatalogRelation
+                    = (PhysicalCatalogRelation) aliasTransferMap.get(slot).first;
+            if (physicalCatalogRelation.canPushDownRuntimeFilter()) {
+                basicTableInfos.put(slot, physicalCatalogRelation);
+            }
         }
         // try to find propagation condition from join
         getAllJoinInfo(root, joins);
@@ -575,13 +579,15 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                     SlotReference leftSlot = (SlotReference) ((EqualTo) equalTo).left();
                     SlotReference rightSlot = (SlotReference) ((EqualTo) equalTo).right();
                     if (leftSlot.getExprId() == exprId && aliasTransferMap.get(rightSlot) != null) {
-                        PhysicalOlapScan rightTable = (PhysicalOlapScan) aliasTransferMap.get(rightSlot).first;
-                        if (rightTable != null) {
+                        PhysicalCatalogRelation rightTable =
+                                (PhysicalCatalogRelation) aliasTransferMap.get(rightSlot).first;
+                        if (rightTable != null && rightTable.canPushDownRuntimeFilter()) {
                             basicTableInfos.put(rightSlot, rightTable);
                         }
                     } else if (rightSlot.getExprId() == exprId && aliasTransferMap.get(leftSlot) != null) {
-                        PhysicalOlapScan leftTable = (PhysicalOlapScan) aliasTransferMap.get(leftSlot).first;
-                        if (leftTable != null) {
+                        PhysicalCatalogRelation leftTable =
+                                (PhysicalCatalogRelation) aliasTransferMap.get(leftSlot).first;
+                        if (leftTable != null && leftTable.canPushDownRuntimeFilter()) {
                             basicTableInfos.put(leftSlot, leftTable);
                         }
                     }

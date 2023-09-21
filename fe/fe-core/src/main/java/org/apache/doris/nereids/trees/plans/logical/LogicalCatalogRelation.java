@@ -113,4 +113,9 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
         }
         return Utils.qualifiedName(qualifier, table.getName());
     }
+
+    @Override
+    public boolean canPushDownRuntimeFilter() {
+        return false;
+    }
 }

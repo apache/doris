@@ -78,6 +78,14 @@ public class PhysicalSchemaScan extends PhysicalCatalogRelation {
                 groupExpression, getLogicalProperties(), physicalProperties, statistics);
     }
 
+    /**
+     * Currently the be side does not support.
+     */
+    @Override
+    public boolean canPushDownRuntimeFilter() {
+        return false;
+    }
+
     @Override
     public String toString() {
         return Utils.toSqlString("PhysicalSchemaScan");
