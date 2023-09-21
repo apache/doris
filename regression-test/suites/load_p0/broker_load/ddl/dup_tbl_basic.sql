@@ -1,4 +1,4 @@
-CREATE TABLE uniq_tbl_basic
+CREATE TABLE dup_tbl_basic
 (
     k00 INT             NOT NULL,
     k01 DATE            NOT NULL,
@@ -10,8 +10,8 @@ CREATE TABLE uniq_tbl_basic
     k07 LARGEINT        NULL,
     k08 FLOAT           NULL,
     k09 DOUBLE          NULL,
-    k10 DECIMAL(9,1)         NULL,
-    k11 DECIMALV3(9,1)       NULL,
+    k10 DECIMAL(9,1)           NULL,
+    k11 DECIMALV3(9,1)         NULL,
     k12 DATETIME        NULL,
     k13 DATEV2          NULL,
     k14 DATETIMEV2      NULL,
@@ -38,13 +38,20 @@ CREATE TABLE uniq_tbl_basic
     kd17 STRING          NOT NULL DEFAULT "我能吞下玻璃而不伤身体",
     kd18 JSON            NULL,
 
+    INDEX idx_inverted_k104 (`k05`) USING INVERTED,
+    INDEX idx_inverted_k110 (`k11`) USING INVERTED,
+    INDEX idx_inverted_k113 (`k13`) USING INVERTED,
+    INDEX idx_inverted_k114 (`k14`) USING INVERTED,
+    INDEX idx_inverted_k117 (`k17`) USING INVERTED PROPERTIES("parser" = "english"),
+    INDEX idx_ngrambf_k115 (`k15`) USING NGRAM_BF PROPERTIES("gram_size"="3", "bf_size"="256"),
+    INDEX idx_ngrambf_k116 (`k16`) USING NGRAM_BF PROPERTIES("gram_size"="3", "bf_size"="256"),
+    INDEX idx_ngrambf_k117 (`k17`) USING NGRAM_BF PROPERTIES("gram_size"="3", "bf_size"="256"),
+
     INDEX idx_bitmap_k104 (`k02`) USING BITMAP,
     INDEX idx_bitmap_k110 (`kd01`) USING BITMAP,
-    INDEX idx_bitmap_k113 (`k13`) USING BITMAP,
-    INDEX idx_bitmap_k114 (`k14`) USING BITMAP,
-    INDEX idx_bitmap_k117 (`k17`) USING BITMAP
+
 )
-UNIQUE KEY(k00,k01)
+    DUPLICATE KEY(k00)
 PARTITION BY RANGE(k01)
 (
     PARTITION p1 VALUES [('2023-08-01'), ('2023-08-11')),
@@ -53,6 +60,6 @@ PARTITION BY RANGE(k01)
 )
 DISTRIBUTED BY HASH(k00) BUCKETS 32
 PROPERTIES (
-    "function_column.sequence_col" = "k12",
+    "bloom_filter_columns"="k05",
     "replication_num" = "1"
 );
