@@ -204,11 +204,7 @@ TEST(VTimestampFunctionsTest, timediff_test) {
 TEST(VTimestampFunctionsTest, convert_tz_test) {
     std::string func_name = "convert_tz";
 
-    ExecEnv* exec_env = ExecEnv::GetInstance();
-    exec_env->_global_zone_cache = std::make_unique<vectorized::ZoneList>();
-    auto test_state = RuntimeState::create_unique();
-    test_state->set_exec_env(exec_env);
-    TimezoneUtils::clear_timezone_names();
+    TimezoneUtils::clear_timezone_caches();
 
     InputTypeSet input_types = {TypeIndex::DateTimeV2, TypeIndex::String, TypeIndex::String};
 
@@ -216,8 +212,7 @@ TEST(VTimestampFunctionsTest, convert_tz_test) {
         DataSet data_set = {{{std::string {"2019-08-01 02:18:27"}, std::string {"Asia/SHANGHAI"},
                               std::string {"america/Los_angeles"}},
                              Null()}};
-        check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set, false,
-                                                 test_state.get());
+        check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set, false);
     }
 
     {
@@ -233,8 +228,7 @@ TEST(VTimestampFunctionsTest, convert_tz_test) {
                             {{std::string {"2019-08-01 02:18:27"}, std::string {"Asia/SHANGHAI"},
                               std::string {"america/Los_angeles"}},
                              Null()}};
-        check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set, false,
-                                                 test_state.get());
+        check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set, false);
     }
 
     {
@@ -251,9 +245,8 @@ TEST(VTimestampFunctionsTest, convert_tz_test) {
                               std::string {"america/Los_angeles"}},
                              str_to_datetime_v2("2019-07-31 11:18:27", "%Y-%m-%d %H:%i:%s.%f")}};
         TimezoneUtils::load_timezone_names();
-        TimezoneUtils::load_timezones_to_cache(*exec_env->_global_zone_cache);
-        check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set, false,
-                                                 test_state.get());
+        TimezoneUtils::load_timezones_to_cache();
+        check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set, false);
     }
 }
 
