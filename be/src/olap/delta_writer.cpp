@@ -511,7 +511,9 @@ Status DeltaWriter::wait_calc_delete_bitmap() {
 Status DeltaWriter::commit_txn(const PSlaveTabletNodes& slave_tablet_nodes,
                                const bool write_single_replica) {
     if (_tablet->enable_unique_key_merge_on_write() &&
-        config::enable_merge_on_write_correctness_check && _cur_rowset->num_rows() != 0) {
+        config::enable_merge_on_write_correctness_check && _cur_rowset->num_rows() != 0 &&
+        !(_tablet->tablet_state() == TABLET_NOTREADY &&
+          SchemaChangeHandler::tablet_in_converting(_tablet->tablet_id()))) {
         auto st = _tablet->check_delete_bitmap_correctness(
                 _delete_bitmap, _cur_rowset->end_version() - 1, _req.txn_id, _rowset_ids);
         if (!st.ok()) {
