@@ -170,6 +170,9 @@ public abstract class BaseAnalysisTask {
                 doExecute();
                 break;
             } catch (Throwable t) {
+                if (killed) {
+                    throw new RuntimeException(t);
+                }
                 LOG.warn("Failed to execute analysis task, retried times: {}", retriedTimes++, t);
                 if (retriedTimes > StatisticConstants.ANALYZE_TASK_RETRY_TIMES) {
                     throw new RuntimeException(t);
