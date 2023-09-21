@@ -116,6 +116,40 @@ DorisSource<List<?>> dorisSource = DorisSourceBuilder.<List<?>>builder()
 env.fromSource(dorisSource, WatermarkStrategy.noWatermarks(), "doris source").print();
 ```
 
+#### sql filter
+
+```java
+        final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        env.setParallelism(1);
+
+        final StreamTableEnvironment tEnv = StreamTableEnvironment.create(env);
+
+        // register a table in the catalog
+        tEnv.executeSql(
+                "CREATE TABLE doris_source (" +
+                        "id INT," +
+                        "name STRING," +
+                        "age INT" +
+                        ") " +
+                        "WITH (\n" +
+                        "  'connector' = 'doris',\n" +
+                        "  'fenodes' = 'FE_IP:HTTP_PORT',\n" +
+                        "  'table.identifier' = 'database.table',\n" +
+                        "  'doris.filter.query' = 'name=''doris''',\n" +
+                        "  'username' = 'root',\n" +
+                        "  'password' = 'password'\n" +
+                        ")");
+
+
+        // define a dynamic aggregating query
+        final Table result = tEnv.sqlQuery("SELECT * from doris_source");
+
+        // print the result to the console
+        tEnv.toDataStream(result).print();
+        env.execute();
+
+```
+
 ### 写入
 
 #### SQL
