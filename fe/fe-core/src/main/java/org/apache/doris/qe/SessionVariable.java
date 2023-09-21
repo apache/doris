@@ -904,7 +904,7 @@ public class SessionVariable implements Serializable, Writable {
     private double broadcastHashtableMemLimitPercentage = 0.2;
 
     @VariableMgr.VarAttr(name = ENABLE_RUNTIME_FILTER_PRUNE, needForward = true)
-    public boolean enableRuntimeFilterPrune = false;
+    public boolean enableRuntimeFilterPrune = true;
 
     /**
      * The client can pass some special information by setting this session variable in the format: "k1:v1;k2:v2".
