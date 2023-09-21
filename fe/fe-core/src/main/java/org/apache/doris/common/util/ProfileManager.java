@@ -31,6 +31,8 @@ import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -96,6 +98,11 @@ public class ProfileManager {
                 }
             }
             return profileContent;
+        }
+
+        public String getProfileBrief() {
+            Gson gson = new GsonBuilder().setPrettyPrinting().create();
+            return gson.toJson(profile.toBrief());
         }
 
         public double getError() {
@@ -233,6 +240,19 @@ public class ProfileManager {
                 return null;
             }
             return element.getProfileContent();
+        } finally {
+            readLock.unlock();
+        }
+    }
+
+    public String getProfileBrief(String queryID) {
+        readLock.lock();
+        try {
+            ProfileElement element = queryIdToProfileMap.get(queryID);
+            if (element == null) {
+                return null;
+            }
+            return element.getProfileBrief();
         } finally {
             readLock.unlock();
         }

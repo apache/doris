@@ -16,6 +16,8 @@
 // under the License.
 
 #pragma once
+#include <concurrentqueue.h>
+
 #include <condition_variable>
 #include <queue>
 
@@ -48,9 +50,7 @@ class AsyncResultWriter : public ResultWriter {
 public:
     AsyncResultWriter(const VExprContextSPtrs& output_expr_ctxs);
 
-    Status close() override { return Status::OK(); }
-
-    void force_close();
+    void force_close(Status s);
 
     virtual bool in_transaction() { return false; }
 
@@ -62,7 +62,7 @@ public:
 
     virtual Status open(RuntimeState* state, RuntimeProfile* profile) = 0;
 
-    Status write(std::unique_ptr<Block> block) { return append_block(*block); }
+    Status write(std::unique_ptr<Block>& block) { return append_block(*block); }
 
     bool can_write() {
         std::lock_guard l(_m);
@@ -85,6 +85,10 @@ protected:
     Status _projection_block(Block& input_block, Block* output_block);
     const VExprContextSPtrs& _vec_output_expr_ctxs;
 
+    std::unique_ptr<Block> _get_free_block(Block*, int rows);
+
+    void _return_free_block(std::unique_ptr<Block>);
+
 private:
     static constexpr auto QUEUE_SIZE = 3;
     std::mutex _m;
@@ -92,9 +96,10 @@ private:
     std::deque<std::unique_ptr<Block>> _data_queue;
     Status _writer_status = Status::OK();
     bool _eos = false;
-    bool _force_close = false;
     bool _need_normal_close = true;
     bool _writer_thread_closed = false;
+
+    moodycamel::ConcurrentQueue<std::unique_ptr<Block>> _free_blocks;
 };
 
 } // namespace vectorized

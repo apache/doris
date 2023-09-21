@@ -390,6 +390,9 @@ public class Config extends ConfigBase {
     @ConfField(description = {"FE MySQL server 的端口号", "The port of FE MySQL server"})
     public static int query_port = 9030;
 
+    @ConfField(description = {"FE Arrow-Flight-SQL server 的端口号", "The port of FE Arrow-Flight-SQ server"})
+    public static int arrow_flight_sql_port = -1;
+
     @ConfField(description = {"MySQL 服务的 IO 线程数", "The number of IO threads in MySQL service"})
     public static int mysql_service_io_threads_num = 4;
 
@@ -698,10 +701,6 @@ public class Config extends ConfigBase {
     @ConfField(description = {"单个 FE 的 MySQL Server 的最大连接数。",
             "Maximal number of connections of MySQL server per FE."})
     public static int qe_max_connection = 1024;
-
-    @ConfField(description = {"MySQL 连接调度线程池的最大线程数。",
-            "Maximal number of thread in MySQL connection-scheduler-pool."})
-    public static int max_connection_scheduler_threads_num = 4096;
 
     @ConfField(mutable = true, description = {"Colocate join 每个 instance 的内存 penalty 系数。"
             + "计算方式：`exec_mem_limit / min (query_colocate_join_memory_limit_penalty_factor, instance_num)`",

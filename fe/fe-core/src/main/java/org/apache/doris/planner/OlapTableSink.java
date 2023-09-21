@@ -78,6 +78,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -458,7 +459,7 @@ public class OlapTableSink extends DataSink {
 
                     if (singleReplicaLoad) {
                         Long[] nodes = bePathsMap.keySet().toArray(new Long[0]);
-                        Random random = new Random();
+                        Random random = new SecureRandom();
                         Long masterNode = nodes[random.nextInt(nodes.length)];
                         Multimap<Long, Long> slaveBePathsMap = bePathsMap;
                         slaveBePathsMap.removeAll(masterNode);

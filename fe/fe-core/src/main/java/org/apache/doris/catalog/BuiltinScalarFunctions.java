@@ -36,9 +36,11 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayEnumerat
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayExcept;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayExists;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayFilter;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayFirst;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayFirstIndex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayJoin;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayLast;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayLastIndex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMax;
@@ -294,6 +296,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondTimesta
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Sha1;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Sha2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sign;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sleep;
@@ -411,9 +415,11 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ArrayExcept.class, "array_except"),
             scalar(ArrayExists.class, "array_exists"),
             scalar(ArrayFilter.class, "array_filter"),
+            scalar(ArrayFirst.class, "array_first"),
             scalar(ArrayFirstIndex.class, "array_first_index"),
             scalar(ArrayIntersect.class, "array_intersect"),
             scalar(ArrayJoin.class, "array_join"),
+            scalar(ArrayLast.class, "array_last"),
             scalar(ArrayLastIndex.class, "array_last_index"),
             scalar(ArrayMap.class, "array_map"),
             scalar(ArrayMax.class, "array_max"),
@@ -690,6 +696,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(SecondTimestamp.class, "second_timestamp"),
             scalar(MilliSecondTimestamp.class, "millisecond_timestamp"),
             scalar(MicroSecondTimestamp.class, "microsecond_timestamp"),
+            scalar(Sha1.class, "sha1", "sha"),
+            scalar(Sha2.class, "sha2"),
             scalar(Sign.class, "sign"),
             scalar(Sin.class, "sin"),
             scalar(Sleep.class, "sleep"),
