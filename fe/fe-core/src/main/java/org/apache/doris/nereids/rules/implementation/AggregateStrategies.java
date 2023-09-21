@@ -17,8 +17,11 @@
 
 package org.apache.doris.nereids.rules.implementation;
 
+import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MaterializedIndexMeta;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
@@ -101,7 +104,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             RuleType.COUNT_ON_INDEX_WITHOUT_PROJECT.build(
                 logicalAggregate(
                     logicalFilter(
-                        logicalOlapScan().when(this::isDupOrMowKeyTable)
+                        logicalOlapScan().when(this::isDupOrMowKeyTable).when(this::isInvertedIndexEnabledOnTable)
                     ).when(filter -> filter.getConjuncts().size() > 0))
                     .when(agg -> enablePushDownCountOnIndex())
                     .when(agg -> agg.getGroupByExpressions().size() == 0)
@@ -121,7 +124,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 logicalAggregate(
                     logicalProject(
                         logicalFilter(
-                            logicalOlapScan().when(this::isDupOrMowKeyTable)
+                            logicalOlapScan().when(this::isDupOrMowKeyTable).when(this::isInvertedIndexEnabledOnTable)
                         ).when(filter -> filter.getConjuncts().size() > 0)))
                     .when(agg -> enablePushDownCountOnIndex())
                     .when(agg -> agg.getGroupByExpressions().size() == 0)
@@ -240,6 +243,20 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     || (keysType == KeysType.UNIQUE_KEYS && logicalScan.getTable().getEnableUniqueKeyMergeOnWrite());
         }
         return false;
+    }
+
+    private boolean isInvertedIndexEnabledOnTable(LogicalOlapScan logicalScan) {
+        if (logicalScan == null) {
+            return false;
+        }
+
+        OlapTable olapTable = logicalScan.getTable();
+        Map<Long, MaterializedIndexMeta> indexIdToMeta = olapTable.getIndexIdToMeta();
+
+        return indexIdToMeta.values().stream()
+                .anyMatch(indexMeta -> indexMeta.getIndexes().stream()
+                        .anyMatch(index -> index.getIndexType() == IndexType.INVERTED
+                                || index.getIndexType() == IndexType.BITMAP));
     }
 
     /**
