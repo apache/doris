@@ -1090,6 +1090,9 @@ DEFINE_Int32(group_commit_insert_threads, "10");
 
 DEFINE_mInt32(scan_thread_nice_value, "0");
 
+DEFINE_Bool(exit_on_exception, "false")
+
+// clang-format off
 #ifdef BE_TEST
 // test s3
 DEFINE_String(test_s3_resource, "resource");
@@ -1100,6 +1103,7 @@ DEFINE_String(test_s3_region, "region");
 DEFINE_String(test_s3_bucket, "bucket");
 DEFINE_String(test_s3_prefix, "prefix");
 #endif
+// clang-format on
 
 std::map<std::string, Register::Field>* Register::_s_field_map = nullptr;
 std::map<std::string, std::function<bool()>>* RegisterConfValidator::_s_field_validator = nullptr;
