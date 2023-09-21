@@ -18,6 +18,7 @@
 package org.apache.doris.planner.external.iceberg;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
@@ -132,7 +133,8 @@ public class IcebergMetadataCache {
         if (cacheTable != null) {
             return cacheTable;
         }
-        Table table = catalog.loadTable(TableIdentifier.of(dbName, tbName));
+        Table table = HiveMetaStoreClientHelper.ugiDoAs(catalogId,
+                () -> catalog.loadTable(TableIdentifier.of(dbName, tbName)));
         initIcebergTableFileIO(table);
 
         tableCache.put(key, table);
@@ -200,7 +202,7 @@ public class IcebergMetadataCache {
         catalogProperties.put("uri", uri);
         hiveCatalog.initialize("hive", catalogProperties);
 
-        Table table = hiveCatalog.loadTable(TableIdentifier.of(db, tbl));
+        Table table = HiveMetaStoreClientHelper.ugiDoAs(conf, () -> hiveCatalog.loadTable(TableIdentifier.of(db, tbl)));
 
         initIcebergTableFileIO(table);
 

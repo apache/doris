@@ -31,25 +31,26 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-public class SelectExceptTest implements MemoPatternMatchSupported {
+class SelectExceptTest implements MemoPatternMatchSupported {
     @Test
-    public void testExcept() {
+    void testExcept() {
         LogicalOlapScan olapScan = PlanConstructor.newLogicalOlapScan(0, "t1", 1);
         LogicalProject<LogicalOlapScan> project = new LogicalProject<>(
                 ImmutableList.of(new UnboundStar(ImmutableList.of("db", "t1"))),
                 ImmutableList.of(new UnboundSlot("db", "t1", "id")),
+                false,
                 olapScan);
         PlanChecker.from(MemoTestUtils.createConnectContext())
                 .analyze(project)
                 .matches(
                         logicalProject(
                                 logicalOlapScan()
-                        ).when(proj -> proj.getExcepts().isEmpty() && proj.getProjects().size() == 1)
+                        ).when(proj -> proj.getExcepts().size() == 1 && proj.getProjects().size() == 1)
                 );
     }
 
     @Test
-    public void testParse() {
+    void testParse() {
         String sql1 = "select * except(v1, v2) from t1";
         PlanChecker.from(MemoTestUtils.createConnectContext())
                 .checkParse(sql1, (checker) -> checker.matches(

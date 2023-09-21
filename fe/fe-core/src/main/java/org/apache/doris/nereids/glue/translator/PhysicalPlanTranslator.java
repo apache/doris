@@ -173,6 +173,7 @@ import org.apache.doris.planner.external.iceberg.IcebergScanNode;
 import org.apache.doris.planner.external.jdbc.JdbcScanNode;
 import org.apache.doris.planner.external.paimon.PaimonScanNode;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TFetchOption;
 import org.apache.doris.thrift.TPartitionType;
@@ -332,7 +333,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalResultSink(PhysicalResultSink<? extends Plan> physicalResultSink,
             PlanTranslatorContext context) {
         PlanFragment planFragment = physicalResultSink.child().accept(this, context);
-        planFragment.setSink(new ResultSink(planFragment.getPlanRoot().getId()));
+        planFragment.setSink(new ResultSink(planFragment.getPlanRoot().getId(),
+                ConnectContext.get().getResultSinkType()));
         return planFragment;
     }
 
@@ -352,29 +354,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanFragment rootFragment = olapTableSink.child().accept(this, context);
         rootFragment.setOutputPartition(DataPartition.UNPARTITIONED);
 
-        TupleDescriptor olapTuple = context.generateTupleDesc();
-        List<Column> targetTableColumns = olapTableSink.getTargetTable().getFullSchema();
-        for (Column column : targetTableColumns) {
-            SlotDescriptor slotDesc = context.addSlotDesc(olapTuple);
-            slotDesc.setIsMaterialized(true);
-            slotDesc.setType(column.getType());
-            slotDesc.setColumn(column);
-            slotDesc.setIsNullable(column.isAllowNull());
-        }
-        OlapTableSink sink = new OlapTableSink(
-                olapTableSink.getTargetTable(),
-                olapTuple,
-                olapTableSink.getPartitionIds().isEmpty() ? null : olapTableSink.getPartitionIds(),
-                olapTableSink.isSingleReplicaLoad()
-        );
-        if (olapTableSink.isPartialUpdate() || (olapTableSink.isFromNativeInsertStmt()
-                && ConnectContext.get().getSessionVariable().isEnableUniqueKeyPartialUpdate())) {
+        HashSet<String> partialUpdateCols = new HashSet<>();
+        boolean isPartialUpdate = olapTableSink.isPartialUpdate();
+        if (isPartialUpdate) {
             OlapTable olapTable = (OlapTable) olapTableSink.getTargetTable();
             if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
                 throw new AnalysisException("Partial update is only allowed in"
                         + "unique table with merge-on-write enabled.");
             }
-            HashSet<String> partialUpdateCols = new HashSet<>();
             for (Column col : olapTable.getFullSchema()) {
                 boolean exists = false;
                 for (Column insertCol : olapTableSink.getCols()) {
@@ -395,8 +382,26 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         && partialUpdateCols.contains(olapTable.getSequenceMapCol())) {
                 partialUpdateCols.add(Column.SEQUENCE_COL);
             }
-            sink.setPartialUpdateInputColumns(true, partialUpdateCols);
         }
+        TupleDescriptor olapTuple = context.generateTupleDesc();
+        List<Column> targetTableColumns = olapTableSink.getTargetTable().getFullSchema();
+        for (Column column : targetTableColumns) {
+            if (isPartialUpdate && !partialUpdateCols.contains(column.getName())) {
+                continue;
+            }
+            SlotDescriptor slotDesc = context.addSlotDesc(olapTuple);
+            slotDesc.setIsMaterialized(true);
+            slotDesc.setType(column.getType());
+            slotDesc.setColumn(column);
+            slotDesc.setIsNullable(column.isAllowNull());
+        }
+        OlapTableSink sink = new OlapTableSink(
+                olapTableSink.getTargetTable(),
+                olapTuple,
+                olapTableSink.getPartitionIds().isEmpty() ? null : olapTableSink.getPartitionIds(),
+                olapTableSink.isSingleReplicaLoad()
+        );
+        sink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateCols);
         rootFragment.setSink(sink);
 
         return rootFragment;
@@ -581,7 +586,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 for (int i = 0; i < slots.size(); i++) {
                     Slot slot = slots.get(i);
                     if (olapScan.getStats().findColumnStatistics(slot).isUnKnown()
-                            && !isComplexDataType(slot.getDataType())) {
+                            && !isComplexDataType(slot.getDataType())
+                            && !StatisticConstants.isSystemTable(olapTable)) {
                         context.addUnknownStatsColumn(olapScanNode, tupleDescriptor.getSlots().get(i).getId());
                     }
                 }
@@ -2043,7 +2049,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             scanNode.getTupleDesc().getSlots().add(smallest);
         }
         try {
-            if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().forbidUnknownColStats) {
+            if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().forbidUnknownColStats
+                    && !StatisticConstants.isSystemTable(scanNode.getTupleDesc().getTable())) {
                 for (SlotId slotId : requiredByProjectSlotIdSet) {
                     if (context.isColumnStatsUnknown(scanNode, slotId)) {
                         throw new AnalysisException("meet unknown column stats on table " + scanNode);

@@ -25,6 +25,7 @@
 
 namespace doris {
 class DataSink;
+class PipBufferControlBlock;
 
 namespace pipeline {
 
@@ -40,6 +41,33 @@ public:
     ResultSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink);
 
     bool can_write() override;
+};
+
+class ResultBufferDependency : public WriteDependency {
+public:
+    ENABLE_FACTORY_CREATOR(ResultBufferDependency);
+    ResultBufferDependency(int id) : WriteDependency(id, "ResultBufferDependency") {}
+    ~ResultBufferDependency() = default;
+
+    void* shared_state() override { return nullptr; }
+};
+
+class ResultQueueDependency : public WriteDependency {
+public:
+    ENABLE_FACTORY_CREATOR(ResultQueueDependency);
+    ResultQueueDependency(int id) : WriteDependency(id, "ResultQueueDependency") {}
+    ~ResultQueueDependency() = default;
+
+    void* shared_state() override { return nullptr; }
+};
+
+class CancelDependency : public WriteDependency {
+public:
+    ENABLE_FACTORY_CREATOR(CancelDependency);
+    CancelDependency(int id) : WriteDependency(id, "CancelDependency") { _ready_for_write = false; }
+    ~CancelDependency() = default;
+
+    void* shared_state() override { return nullptr; }
 };
 
 class ResultSinkLocalState final : public PipelineXSinkLocalState<> {
@@ -60,6 +88,15 @@ private:
 
     std::shared_ptr<BufferControlBlock> _sender;
     std::shared_ptr<ResultWriter> _writer;
+    std::shared_ptr<OrDependency> _result_sink_dependency;
+    std::shared_ptr<pipeline::ResultBufferDependency> _buffer_dependency;
+    std::shared_ptr<pipeline::ResultQueueDependency> _queue_dependency;
+    std::shared_ptr<pipeline::CancelDependency> _cancel_dependency;
+
+    RuntimeProfile::Counter* _wait_for_queue_timer = nullptr;
+    RuntimeProfile::Counter* _wait_for_buffer_timer = nullptr;
+    // time of prefilter input block from scanner
+    RuntimeProfile::Counter* _wait_for_cancel_timer = nullptr;
 };
 
 class ResultSinkOperatorX final : public DataSinkOperatorX<ResultSinkLocalState> {
@@ -72,7 +109,7 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
 
-    bool can_write(RuntimeState* state) override;
+    WriteDependency* wait_for_dependency(RuntimeState* state) override;
 
 private:
     friend class ResultSinkLocalState;
