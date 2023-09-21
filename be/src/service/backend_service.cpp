@@ -29,6 +29,7 @@
 #include <gen_cpp/Types_types.h>
 #include <sys/types.h>
 #include <thrift/concurrency/ThreadFactory.h>
+#include <thrift/protocol/TDebugProtocol.h>
 #include <time.h>
 
 #include <map>
@@ -390,9 +391,15 @@ void BackendService::check_storage_format(TCheckStorageFormatResult& result) {
 
 void BackendService::ingest_binlog(TIngestBinlogResult& result,
                                    const TIngestBinlogRequest& request) {
+    LOG(INFO) << "ingest binlog. request: " << apache::thrift::ThriftDebugString(request);
+
     constexpr uint64_t kMaxTimeoutMs = 1000;
+
     TStatus tstatus;
-    Defer defer {[&result, &tstatus]() { result.__set_status(tstatus); }};
+    Defer defer {[&result, &tstatus]() {
+        result.__set_status(tstatus);
+        LOG(INFO) << "ingest binlog. result: " << apache::thrift::ThriftDebugString(result);
+    }};
 
     auto set_tstatus = [&tstatus](TStatusCode::type code, std::string error_msg) {
         tstatus.__set_status_code(code);
@@ -401,9 +408,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     };
 
     if (!config::enable_feature_binlog) {
-        auto error_msg = "enable feature binlog is false";
-        LOG(WARNING) << error_msg;
-        set_tstatus(TStatusCode::RUNTIME_ERROR, error_msg);
+        set_tstatus(TStatusCode::RUNTIME_ERROR, "enable feature binlog is false");
         return;
     }
 
@@ -545,6 +550,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     }
     RowsetId new_rowset_id = StorageEngine::instance()->next_rowset_id();
     rowset_meta->set_rowset_id(new_rowset_id);
+    rowset_meta->set_tablet_uid(local_tablet->tablet_uid());
 
     // Step 5: get all segment files
     // Step 5.1: get all segment files size

@@ -43,17 +43,19 @@ Paimon Catalog 当前支持两种类型的Metastore创建Catalog:
 
 ### 基于FileSystem创建Catalog
 
+> 2.0.1 及之前版本，请使用后面的 `基于Hive Metastore创建Catalog`。
+
 #### HDFS
 ```sql
 CREATE CATALOG `paimon_hdfs` PROPERTIES (
     "type" = "paimon",
     "warehouse" = "hdfs://HDFS8000871/user/paimon",
-    "dfs.nameservices"="HDFS8000871",
-    "dfs.ha.namenodes.HDFS8000871"="nn1,nn2",
-    "dfs.namenode.rpc-address.HDFS8000871.nn1"="172.21.0.1:4007",
-    "dfs.namenode.rpc-address.HDFS8000871.nn2"="172.21.0.2:4007",
-    "dfs.client.failover.proxy.provider.HDFS8000871"="org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider",
-    "hadoop.username"="hadoop"
+    "dfs.nameservices" = "HDFS8000871",
+    "dfs.ha.namenodes.HDFS8000871" = "nn1,nn2",
+    "dfs.namenode.rpc-address.HDFS8000871.nn1" = "172.21.0.1:4007",
+    "dfs.namenode.rpc-address.HDFS8000871.nn2" = "172.21.0.2:4007",
+    "dfs.client.failover.proxy.provider.HDFS8000871" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider",
+    "hadoop.username" = "hadoop"
 );
 
 ```
@@ -72,9 +74,9 @@ CREATE CATALOG `paimon_hdfs` PROPERTIES (
 CREATE CATALOG `paimon_s3` PROPERTIES (
     "type" = "paimon",
     "warehouse" = "s3://paimon-1308700295.cos.ap-beijing.myqcloud.com/paimoncos",
-    "s3.endpoint"="cos.ap-beijing.myqcloud.com",
-    "s3.access_key"="ak",
-    "s3.secret_key"="sk"
+    "s3.endpoint" = "cos.ap-beijing.myqcloud.com",
+    "s3.access_key" = "ak",
+    "s3.secret_key" = "sk"
 );
 
 ```
@@ -90,9 +92,9 @@ CREATE CATALOG `paimon_s3` PROPERTIES (
 CREATE CATALOG `paimon_oss` PROPERTIES (
     "type" = "paimon",
     "warehouse" = "oss://paimon-zd/paimonoss",
-    "oss.endpoint"="oss-cn-beijing.aliyuncs.com",
-    "oss.access_key"="ak",
-    "oss.secret_key"="sk"
+    "oss.endpoint" = "oss-cn-beijing.aliyuncs.com",
+    "oss.access_key" = "ak",
+    "oss.secret_key" = "sk"
 );
 
 ```
@@ -102,15 +104,15 @@ CREATE CATALOG `paimon_oss` PROPERTIES (
 ```sql
 CREATE CATALOG `paimon_hms` PROPERTIES (
     "type" = "paimon",
-    "paimon.catalog.type"="hms",
+    "paimon.catalog.type" = "hms",
     "warehouse" = "hdfs://HDFS8000871/user/zhangdong/paimon2",
     "hive.metastore.uris" = "thrift://172.21.0.44:7004",
-    "dfs.nameservices'='HDFS8000871",
-    "dfs.ha.namenodes.HDFS8000871'='nn1,nn2",
-    "dfs.namenode.rpc-address.HDFS8000871.nn1"="172.21.0.1:4007",
-    "dfs.namenode.rpc-address.HDFS8000871.nn2"="172.21.0.2:4007",
-    "dfs.client.failover.proxy.provider.HDFS8000871"="org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider",
-    "hadoop.username"="hadoop"
+    "dfs.nameservices" = "HDFS8000871",
+    "dfs.ha.namenodes.HDFS8000871" = "nn1,nn2",
+    "dfs.namenode.rpc-address.HDFS8000871.nn1" = "172.21.0.1:4007",
+    "dfs.namenode.rpc-address.HDFS8000871.nn2" = "172.21.0.2:4007",
+    "dfs.client.failover.proxy.provider.HDFS8000871" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider",
+    "hadoop.username" = "hadoop"
 );
 
 ```

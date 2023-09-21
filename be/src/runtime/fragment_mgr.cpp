@@ -139,7 +139,7 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
     CHECK(s.ok()) << s.to_string();
 }
 
-FragmentMgr::~FragmentMgr() {}
+FragmentMgr::~FragmentMgr() = default;
 
 void FragmentMgr::stop() {
     DEREGISTER_HOOK_METRIC(plan_fragment_count);
@@ -185,9 +185,9 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     if (!coord_status.ok()) {
         std::stringstream ss;
         UniqueId uid(req.query_id.hi, req.query_id.lo);
-        ss << "couldn't get a client for " << req.coord_addr << ", reason: " << coord_status;
-        LOG(WARNING) << "query_id: " << uid << ", " << ss.str();
-        req.update_fn(Status::InternalError(ss.str()));
+        req.update_fn(Status::InternalError(
+                "query_id: {}, couldn't get a client for {}, reason is {}", uid.to_string(),
+                PrintThriftNetworkAddress(req.coord_addr), coord_status.to_string()));
         return;
     }
 
@@ -243,6 +243,13 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             for (auto& it : req.runtime_state->output_files()) {
                 params.delta_urls.push_back(to_http_path(it));
             }
+        } else if (!req.runtime_states.empty()) {
+            params.__isset.delta_urls = true;
+            for (auto* rs : req.runtime_states) {
+                for (auto& it : rs->output_files()) {
+                    params.delta_urls.push_back(to_http_path(it));
+                }
+            }
         }
         if (req.runtime_state->num_rows_load_total() > 0 ||
             req.runtime_state->num_rows_load_filtered() > 0) {
@@ -260,14 +267,50 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             params.load_counters.emplace(
                     s_unselected_rows,
                     std::to_string(req.runtime_state->num_rows_load_unselected()));
+        } else if (!req.runtime_states.empty()) {
+            static std::string s_dpp_normal_all = "dpp.norm.ALL";
+            static std::string s_dpp_abnormal_all = "dpp.abnorm.ALL";
+            static std::string s_unselected_rows = "unselected.rows";
+            int64_t num_rows_load_success = 0;
+            int64_t num_rows_load_filtered = 0;
+            int64_t num_rows_load_unselected = 0;
+            for (auto* rs : req.runtime_states) {
+                if (rs->num_rows_load_total() > 0 || rs->num_rows_load_filtered() > 0) {
+                    params.__isset.load_counters = true;
+                    num_rows_load_success += rs->num_rows_load_success();
+                    num_rows_load_filtered += rs->num_rows_load_filtered();
+                    num_rows_load_unselected += rs->num_rows_load_unselected();
+                }
+            }
+            params.load_counters.emplace(s_dpp_normal_all, std::to_string(num_rows_load_success));
+            params.load_counters.emplace(s_dpp_abnormal_all,
+                                         std::to_string(num_rows_load_filtered));
+            params.load_counters.emplace(s_unselected_rows,
+                                         std::to_string(num_rows_load_unselected));
         }
         if (!req.runtime_state->get_error_log_file_path().empty()) {
             params.__set_tracking_url(
                     to_load_error_http_path(req.runtime_state->get_error_log_file_path()));
+        } else if (!req.runtime_states.empty()) {
+            for (auto* rs : req.runtime_states) {
+                if (!rs->get_error_log_file_path().empty()) {
+                    params.__set_tracking_url(
+                            to_load_error_http_path(rs->get_error_log_file_path()));
+                }
+            }
         }
         if (!req.runtime_state->export_output_files().empty()) {
             params.__isset.export_files = true;
             params.export_files = req.runtime_state->export_output_files();
+        } else if (!req.runtime_states.empty()) {
+            for (auto* rs : req.runtime_states) {
+                if (!rs->export_output_files().empty()) {
+                    params.__isset.export_files = true;
+                    params.export_files.insert(params.export_files.end(),
+                                               rs->export_output_files().begin(),
+                                               rs->export_output_files().end());
+                }
+            }
         }
         if (!req.runtime_state->tablet_commit_infos().empty()) {
             params.__isset.commitInfos = true;
@@ -275,12 +318,30 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             for (auto& info : req.runtime_state->tablet_commit_infos()) {
                 params.commitInfos.push_back(info);
             }
+        } else if (!req.runtime_states.empty()) {
+            for (auto* rs : req.runtime_states) {
+                if (!rs->tablet_commit_infos().empty()) {
+                    params.__isset.commitInfos = true;
+                    params.commitInfos.insert(params.commitInfos.end(),
+                                              rs->tablet_commit_infos().begin(),
+                                              rs->tablet_commit_infos().end());
+                }
+            }
         }
         if (!req.runtime_state->error_tablet_infos().empty()) {
             params.__isset.errorTabletInfos = true;
             params.errorTabletInfos.reserve(req.runtime_state->error_tablet_infos().size());
             for (auto& info : req.runtime_state->error_tablet_infos()) {
                 params.errorTabletInfos.push_back(info);
+            }
+        } else if (!req.runtime_states.empty()) {
+            for (auto* rs : req.runtime_states) {
+                if (!rs->error_tablet_infos().empty()) {
+                    params.__isset.errorTabletInfos = true;
+                    params.errorTabletInfos.insert(params.errorTabletInfos.end(),
+                                                   rs->error_tablet_infos().begin(),
+                                                   rs->error_tablet_infos().end());
+                }
             }
         }
 
@@ -322,12 +383,10 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             coord->reportExecStatus(res, params);
         }
 
-        rpc_status = Status(Status::create(res.status));
+        rpc_status = Status::create<false>(res.status);
     } catch (TException& e) {
-        std::stringstream msg;
-        msg << "ReportExecStatus() to " << req.coord_addr << " failed:\n" << e.what();
-        LOG(WARNING) << msg.str();
-        rpc_status = Status::InternalError(msg.str());
+        rpc_status = Status::InternalError("ReportExecStatus() to {} failed: {}",
+                                           PrintThriftNetworkAddress(req.coord_addr), e.what());
     }
 
     if (!rpc_status.ok()) {
@@ -1232,7 +1291,7 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
         std::shared_ptr<pipeline::PipelineFragmentContext> pip_context;
 
         RuntimeFilterMgr* runtime_filter_mgr = nullptr;
-        ObjectPool* pool;
+        ObjectPool* pool = nullptr;
         if (is_pipeline) {
             std::unique_lock<std::mutex> lock(_lock);
             auto iter = _pipeline_map.find(tfragment_instance_id);

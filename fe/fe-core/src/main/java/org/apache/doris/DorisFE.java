@@ -193,7 +193,8 @@ public class DorisFE {
             }
 
             if (options.enableQeService) {
-                QeService qeService = new QeService(Config.query_port, ExecuteEnv.getInstance().getScheduler());
+                QeService qeService = new QeService(Config.query_port, Config.arrow_flight_sql_port,
+                                                    ExecuteEnv.getInstance().getScheduler());
                 qeService.start();
             }
 
@@ -230,6 +231,11 @@ public class DorisFE {
         if (!NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.rpc_port,
                 "Rpc port", NetUtils.RPC_PORT_SUGGESTION)) {
             throw new IOException("port " + Config.rpc_port + " already in use");
+        }
+        if (Config.arrow_flight_sql_port != -1
+                && !NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.arrow_flight_sql_port,
+                "Arrow Flight SQL port", NetUtils.ARROW_FLIGHT_SQL_SUGGESTION)) {
+            throw new IOException("port " + Config.arrow_flight_sql_port + " already in use");
         }
     }
 
