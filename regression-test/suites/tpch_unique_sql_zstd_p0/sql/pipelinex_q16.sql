@@ -1,5 +1,5 @@
 -- tables: partsupp,part,supplier
-SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=true) */
+SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=false) */
   p_brand,
   p_type,
   p_size,
