@@ -23,6 +23,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/types.h"
 #include "vec/core/types.h"
+#include "vec/core/block.h"
 
 namespace doris {
 class RuntimeProfile;
@@ -44,6 +45,7 @@ DeltaLakeJniReader::DeltaLakeJniReader(const std::vector<SlotDescriptor*>& file_
         std::string field = desc->col_name();
         column_names.emplace_back(field);
     }
+    LOG(INFO) << "Create Deltalake Jniscanner";
     std::map<String, String> params;
     params["db_name"] = range.table_format_params.delta_lake_params.db_name;
     params["table_name"] = range.table_format_params.delta_lake_params.table_name;
@@ -57,6 +59,7 @@ DeltaLakeJniReader::DeltaLakeJniReader(const std::vector<SlotDescriptor*>& file_
 
 Status DeltaLakeJniReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     RETURN_IF_ERROR(_jni_connector->get_nex_block(block, read_rows, eof));
+    LOG(INFO) << block->dump_data();
     if (*eof) {
         RETURN_IF_ERROR(_jni_connector->close());
     }

@@ -64,6 +64,7 @@
 #include "vec/exec/format/table/iceberg_reader.h"
 #include "vec/exec/format/table/max_compute_jni_reader.h"
 #include "vec/exec/format/table/paimon_reader.h"
+#include "vec/exec/format/table/deltalake_reader.h"
 #include "vec/exec/format/table/transactional_hive_reader.h"
 #include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/exec/scan/vscan_node.h"
@@ -96,6 +97,7 @@ VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t
           _cur_reader_eof(false),
           _kv_cache(kv_cache),
           _strict_mode(false) {
+    LOG(INFO) << "VFileScanner constructor";
     if (scan_range.params.__isset.strict_mode) {
         _strict_mode = scan_range.params.strict_mode;
     }
@@ -620,6 +622,7 @@ void VFileScanner::_truncate_char_or_varchar_column(Block* block, int idx, int l
 
 Status VFileScanner::_get_next_reader() {
     while (true) {
+        LOG(INFO) << "VFileScanner";
         if (_cur_reader) {
             _cur_reader->close();
         }
@@ -650,6 +653,7 @@ Status VFileScanner::_get_next_reader() {
                 format_type = TFileFormatType::FORMAT_PARQUET;
             }
         }
+
         bool need_to_get_parsed_schema = false;
         switch (format_type) {
         case TFileFormatType::FORMAT_JNI: {
@@ -676,6 +680,13 @@ Status VFileScanner::_get_next_reader() {
                 init_status =
                         ((HudiJniReader*)_cur_reader.get())->init_reader(_colname_to_value_range);
             }
+            else if (range.__isset.table_format_params &&
+                     range.table_format_params.table_format_type == "deltalake") {
+                _cur_reader = DeltaLakeJniReader::create_unique(_file_slot_descs, _state, _profile,range);
+                init_status =
+                        ((DeltaLakeJniReader*)_cur_reader.get())->init_reader(_colname_to_value_range);
+            }
+            LOG(INFO) << "FORMAT_JNI";
             break;
         }
         case TFileFormatType::FORMAT_PARQUET: {
@@ -720,6 +731,7 @@ Status VFileScanner::_get_next_reader() {
                 _cur_reader = std::move(parquet_reader);
             }
             need_to_get_parsed_schema = true;
+            LOG(INFO) << "FORMAT_PARQUET";
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
@@ -753,6 +765,7 @@ Status VFileScanner::_get_next_reader() {
                 _cur_reader = std::move(orc_reader);
             }
             need_to_get_parsed_schema = true;
+            LOG(INFO) << "FORMAT_ORC";
             break;
         }
         case TFileFormatType::FORMAT_CSV_PLAIN:
@@ -833,6 +846,7 @@ Status VFileScanner::_get_next_reader() {
         _cur_reader_eof = false;
         break;
     }
+
     return Status::OK();
 }
 

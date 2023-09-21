@@ -256,7 +256,6 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     VLOG_CRITICAL << "scan_nodes.size()=" << scan_nodes.size();
     VLOG_CRITICAL << "params.per_node_scan_ranges.size()="
                   << local_params.per_node_scan_ranges.size();
-
     // set scan range in ScanNode
     for (int i = 0; i < scan_nodes.size(); ++i) {
         // TODO(cmy): this "if...else" should be removed once all ScanNode are derived from VScanNode.
@@ -267,6 +266,9 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
             typeid(*node) == typeid(vectorized::NewEsScanNode) ||
             typeid(*node) == typeid(vectorized::VMetaScanNode) ||
             typeid(*node) == typeid(vectorized::NewJdbcScanNode)) {
+            if (typeid(*node) == typeid(vectorized::NewOlapScanNode) ){
+                LOG(INFO)<<"FileScanNode"<<i;
+            }
             auto* scan_node = static_cast<vectorized::VScanNode*>(scan_nodes[i]);
             auto scan_ranges = find_with_default(local_params.per_node_scan_ranges, scan_node->id(),
                                                  no_scan_ranges);
@@ -274,6 +276,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
                     find_with_default(local_params.per_node_shared_scans, scan_node->id(), false);
             scan_node->set_scan_ranges(scan_ranges);
             scan_node->set_shared_scan(_runtime_state.get(), shared_scan);
+
         } else {
             ScanNode* scan_node = static_cast<ScanNode*>(node);
             auto scan_ranges = find_with_default(local_params.per_node_scan_ranges, scan_node->id(),

@@ -109,7 +109,7 @@ import java.util.stream.Collectors;
  * such as local aggregations that are important for distributed execution.
  * The single-node plan needs to be wrapped in a plan fragment for it to be executable.
  */
-public class SingleNodePlanner {
+public class reSingleNodePlanner {
     private static final Logger LOG = LogManager.getLogger(SingleNodePlanner.class);
 
     private final PlannerContext ctx;

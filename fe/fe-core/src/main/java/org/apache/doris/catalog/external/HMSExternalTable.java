@@ -102,6 +102,13 @@ public class HMSExternalTable extends ExternalTable {
         SUPPORTED_HUDI_FILE_FORMATS.add("com.uber.hoodie.hadoop.realtime.HoodieRealtimeInputFormat");
     }
 
+    private static final Set<String> SUPPORTED_DELTALAKE_FILE_FORMATS;
+
+    static {
+        SUPPORTED_DELTALAKE_FILE_FORMATS = Sets.newHashSet();
+        SUPPORTED_HUDI_FILE_FORMATS.add("io.delta.hive.HiveInputFormat");
+    }
+
     protected volatile org.apache.hadoop.hive.metastore.api.Table remoteTable = null;
     protected List<Column> partitionColumns;
 
@@ -148,6 +155,8 @@ public class HMSExternalTable extends ExternalTable {
                     dlaType = DLAType.HUDI;
                 } else if (supportedHiveTable()) {
                     dlaType = DLAType.HIVE;
+                } else if (supportedDeltaLakeTable()) {
+                    dlaType = DLAType.DELTALAKE;
                 } else {
                     dlaType = DLAType.UNKNOWN;
                 }
@@ -196,6 +205,14 @@ public class HMSExternalTable extends ExternalTable {
         boolean supportedFileFormat = inputFileFormat != null && SUPPORTED_HIVE_FILE_FORMATS.contains(inputFileFormat);
         LOG.debug("hms table {} is {} with file format: {}", name, remoteTable.getTableType(), inputFileFormat);
         return supportedFileFormat;
+    }
+
+    private boolean supportedDeltaLakeTable() {
+        if (remoteTable.getSd() == null) {
+            return false;
+        }
+        String inputFormatName = remoteTable.getSd().getInputFormat();
+        return inputFormatName != null && SUPPORTED_DELTALAKE_FILE_FORMATS.contains(inputFormatName);
     }
 
     /**
@@ -500,7 +517,7 @@ public class HMSExternalTable extends ExternalTable {
                 return getHiveColumnStats(colName);
             case ICEBERG:
                 return StatisticsUtil.getIcebergColumnStats(colName,
-                    Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache().getIcebergTable(this));
+                        Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache().getIcebergTable(this));
             default:
                 LOG.warn("get column stats for dlaType {} is not supported.", dlaType);
         }

@@ -41,6 +41,8 @@ import io.delta.standalone.data.CloseableIterator;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.jetbrains.annotations.NotNull;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -53,6 +55,7 @@ import java.util.stream.Collectors;
 
 public class DeltaLakeScanNode extends HiveScanNode {
     private static DeltaLakeSource source = null;
+    private static final Logger LOG = LoggerFactory.getLogger(DeltaLakeScanNode.class);
     private static final Base64.Encoder BASE64_ENCODER =
             java.util.Base64.getUrlEncoder().withoutPadding();
 
@@ -65,8 +68,8 @@ public class DeltaLakeScanNode extends HiveScanNode {
         DeltaLakeExternalTable table = (DeltaLakeExternalTable) desc.getTable();
         if (table.isView()) {
             throw new AnalysisException(
-                    String.format("Querying external view '%s.%s' is not supported", table.getDbName(),
-                            table.getName()));
+                String.format("Querying external view '%s.%s' is not supported", table.getDbName(),
+                    table.getName()));
         }
         computeColumnFilter();
         initBackendPolicy();
@@ -81,6 +84,7 @@ public class DeltaLakeScanNode extends HiveScanNode {
         TDeltaLakeFileDesc fileDesc = new TDeltaLakeFileDesc();
         fileDesc.setDbName(source.getDeltalakeExtTable().getDbName());
         fileDesc.setTableName(source.getDeltalakeExtTable().getName());
+        LOG.debug("params:{}", deltaLakeSplit.getPath().toString());
         fileDesc.setPath(deltaLakeSplit.getPath().toString());
         fileDesc.setConf(encodeConfToString(
                 HiveMetaStoreClientHelper.getConfiguration(source.getDeltalakeExtTable())));
@@ -124,7 +128,7 @@ public class DeltaLakeScanNode extends HiveScanNode {
             }
         }
         DeltaLakeSplit deltaLakeSplit = new DeltaLakeSplit(new Path(addFile.getPath()),
-                0, addFile.getSize(), addFile.getSize(), null, partitionValues, configuration);
+                    0, addFile.getSize(), addFile.getSize(), null, partitionValues, configuration);
         deltaLakeSplit.setTableFormatType(TableFormatType.DELTALAKE);
         return deltaLakeSplit;
     }
@@ -148,6 +152,5 @@ public class DeltaLakeScanNode extends HiveScanNode {
             throw new RuntimeException(e);
         }
     }
-
 
 }
