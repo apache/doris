@@ -122,6 +122,9 @@ void PipelineTask::_init_profile() {
     _schedule_counts = ADD_COUNTER(_task_profile, "NumScheduleTimes", TUnit::UNIT);
     _yield_counts = ADD_COUNTER(_task_profile, "NumYieldTimes", TUnit::UNIT);
     _core_change_times = ADD_COUNTER(_task_profile, "CoreChangeTimes", TUnit::UNIT);
+    _wait_bf_counts = ADD_COUNTER(_task_profile, "WaitBfTimes", TUnit::UNIT);
+    _wait_dependency_counts = ADD_COUNTER(_task_profile, "WaitDenpendencyTimes", TUnit::UNIT);
+    _pending_finish_counts = ADD_COUNTER(_task_profile, "PendingFinishTimes", TUnit::UNIT);
 
     _begin_execute_timer = ADD_TIMER(_task_profile, "Task1BeginExecuteTime");
     _eos_timer = ADD_TIMER(_task_profile, "Task2EosTime");
@@ -385,6 +388,11 @@ void PipelineTask::set_state(PipelineTaskState state) {
             COUNTER_UPDATE(_block_by_sink_counts, 1);
         } else if (state == PipelineTaskState::BLOCKED_FOR_RF) {
             _wait_bf_watcher.start();
+            COUNTER_UPDATE(_wait_bf_counts, 1);
+        } else if (state == PipelineTaskState::BLOCKED_FOR_DEPENDENCY) {
+            COUNTER_UPDATE(_wait_dependency_counts, 1);
+        } else if (state == PipelineTaskState::PENDING_FINISH) {
+            COUNTER_UPDATE(_pending_finish_counts, 1);
         }
     }
 

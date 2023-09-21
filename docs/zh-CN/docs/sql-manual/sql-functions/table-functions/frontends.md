@@ -55,6 +55,7 @@ mysql> desc function frontends();
 | HttpPort          | TEXT | No   | false | NULL    | NONE  |
 | QueryPort         | TEXT | No   | false | NULL    | NONE  |
 | RpcPort           | TEXT | No   | false | NULL    | NONE  |
+| ArrowFlightSqlPort| TEXT | No   | false | NULL    | NONE  |
 | Role              | TEXT | No   | false | NULL    | NONE  |
 | IsMaster          | TEXT | No   | false | NULL    | NONE  |
 | ClusterId         | TEXT | No   | false | NULL    | NONE  |
@@ -84,6 +85,7 @@ mysql> select * from frontends()\G
          HttpPort: 8034
         QueryPort: 9033
           RpcPort: 9023
+ArrowFlightSqlPort: 9040
              Role: FOLLOWER
          IsMaster: true
         ClusterId: 1258341841

@@ -576,7 +576,9 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("days_diff")
                 || fnName.getFunction().equalsIgnoreCase("hours_diff")
                 || fnName.getFunction().equalsIgnoreCase("minutes_diff")
-                || fnName.getFunction().equalsIgnoreCase("seconds_diff")) {
+                || fnName.getFunction().equalsIgnoreCase("seconds_diff")
+                || fnName.getFunction().equalsIgnoreCase("milliseconds_diff")
+                || fnName.getFunction().equalsIgnoreCase("microseconds_diff")) {
             sb.append(children.get(0).toSql()).append(", ");
             sb.append(children.get(1).toSql()).append(")");
             return sb.toString();
@@ -1581,7 +1583,8 @@ public class FunctionCallExpr extends Expr {
         }
 
         if (fnName.getFunction().equalsIgnoreCase("from_unixtime")
-                || fnName.getFunction().equalsIgnoreCase("date_format")) {
+                || fnName.getFunction().equalsIgnoreCase("date_format")
+                || fnName.getFunction().equalsIgnoreCase("unix_timestamp")) {
             // if has only one child, it has default time format: yyyy-MM-dd HH:mm:ss.SSSSSS
             if (children.size() > 1) {
                 final StringLiteral fmtLiteral = (StringLiteral) children.get(1);
@@ -1698,6 +1701,19 @@ public class FunctionCallExpr extends Expr {
                     throw new AnalysisException(
                             "struct_element only allows constant int or string second parameter: " + this.toSql());
                 }
+            }
+        }
+
+        if (fn.getFunctionName().getFunction().equals("sha2")) {
+            if ((children.size() != 2) || (getChild(1).isConstant() == false)
+                    || !(getChild(1) instanceof IntLiteral)) {
+                throw new AnalysisException(
+                        fnName.getFunction() + " needs two params, and the second is must be a integer constant: "
+                                + this.toSql());
+            }
+            final Integer constParam = (int) ((IntLiteral) getChild(1)).getValue();
+            if (!Lists.newArrayList(224, 256, 384, 512).contains(constParam)) {
+                throw new AnalysisException("sha2 functions only support digest length of 224/256/384/512");
             }
         }
 
