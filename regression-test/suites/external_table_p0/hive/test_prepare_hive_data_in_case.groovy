@@ -24,12 +24,10 @@ suite("test_prepare_hive_data_in_case", "p0,external,hive,external_docker,extern
             String hms_port = context.config.otherConfigs.get("hms_port")
 
             hive_docker """show databases;"""
-            hive_docker """create database if not exists test_prepare_hive_data_in_case;"""
-            hive_docker """use test_prepare_hive_data_in_case;"""
-            hive_docker """drop table if exists t1;"""
-            hive_docker """create table t1 (k1 String, k2 String);"""
-            hive_docker """insert into t1 values ('aaa','bbb'),('ccc','ddd'),('eee','fff')"""
-            def values = hive_docker """select count(*) from t1;"""
+            hive_docker """drop table if exists default.test_prepare_hive_data_in_case;"""
+            hive_docker """create table default.test_prepare_hive_data_in_case (k1 String, k2 String);"""
+            hive_docker """insert into default.test_prepare_hive_data_in_case values ('aaa','bbb'),('ccc','ddd'),('eee','fff')"""
+            def values = hive_docker """select count(*) from default.test_prepare_hive_data_in_case;"""
             log.info(values.toString())
 
             sql """drop catalog if exists test_prepare_hive_data_in_case;"""
@@ -37,7 +35,7 @@ suite("test_prepare_hive_data_in_case", "p0,external,hive,external_docker,extern
                 'type'='hms',
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
             );"""
-            def values2 = sql """select count(*) from test_prepare_hive_data_in_case.test_prepare_hive_data_in_case.t1;"""
+            def values2 = sql """select count(*) from test_prepare_hive_data_in_case.default.test_prepare_hive_data_in_case;"""
             log.info(values2.toString())
             assertEquals(values[0][0],values2[0][0])
 
