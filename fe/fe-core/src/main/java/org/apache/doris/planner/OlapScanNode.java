@@ -537,6 +537,10 @@ public class OlapScanNode extends ScanNode {
         // lazy evaluation, since stmt is a prepared statment
         isFromPrepareStmt = analyzer.getPrepareStmt() != null;
         if (!isFromPrepareStmt) {
+            if (olapTable.getPartitionInfo().enableAutomaticPartition()) {
+                partitionsInfo = olapTable.getPartitionInfo();
+                analyzerPartitionExpr(analyzer, partitionsInfo);
+            }
             computeColumnsFilter();
             computePartitionInfo();
         }
@@ -1117,7 +1121,7 @@ public class OlapScanNode extends ScanNode {
         // Lazy evaluation
         selectedIndexId = olapTable.getBaseIndexId();
         // Only key columns
-        computeColumnsFilter(olapTable.getBaseSchemaKeyColumns());
+        computeColumnsFilter(olapTable.getBaseSchemaKeyColumns(), olapTable.getPartitionInfo());
         computePartitionInfo();
         scanBackendIds.clear();
         scanTabletIds.clear();
@@ -1434,6 +1438,13 @@ public class OlapScanNode extends ScanNode {
         }
     }
 
+    private void analyzerPartitionExpr(Analyzer analyzer, PartitionInfo partitionInfo) throws AnalysisException {
+        ArrayList<Expr> exprs = partitionInfo.getPartitionExprs();
+        for (Expr e : exprs) {
+            e.analyze(analyzer);
+        }
+    }
+
     public TupleId getTupleId() {
         Preconditions.checkNotNull(desc);
         return desc.getId();
@@ -1630,4 +1641,5 @@ public class OlapScanNode extends ScanNode {
         return true;
     }
 }
+
 
