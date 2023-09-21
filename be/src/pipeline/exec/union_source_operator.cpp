@@ -103,8 +103,8 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     SCOPED_TIMER(profile()->total_time_counter());
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<Parent>();
-    // std::shared_ptr<DataQueue> data_queue = std::make_shared<DataQueue>(p._child_size, _dependency);
-    // _shared_state->data_queue.swap(data_queue);
+    // Const exprs materialized by this node. These exprs don't refer to any children.
+    // Only materialized by the first fragment instance to avoid duplication.
     if (state->per_fragment_instance_idx() == 0) {
         auto clone_expr_list = [&](vectorized::VExprContextSPtrs& cur_expr_list,
                                    vectorized::VExprContextSPtrs& other_expr_list) {

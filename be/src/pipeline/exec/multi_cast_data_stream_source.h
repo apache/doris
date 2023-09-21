@@ -212,6 +212,7 @@ public:
                 state->get_sink_local_state(id())->cast<MultiCastDataStreamSinkLocalState>();
         SCOPED_TIMER(local_state.profile()->total_time_counter());
         if (in_block->rows() > 0 || source_state == SourceState::FINISHED) {
+            COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
             auto st = local_state._shared_state->_multi_cast_data_streamer->push(
                     state, in_block, source_state == SourceState::FINISHED);
             // TODO: improvement: if sink returned END_OF_FILE, pipeline task can be finished

@@ -128,6 +128,7 @@ RuntimeProfile* MultiCastDataStreamerSourceOperator::get_runtime_profile() const
 Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<Parent>();
     if (p._t_data_stream_sink.__isset.output_exprs) {
         _output_expr_contexts.resize(p._output_expr_contexts.size());
