@@ -32,7 +32,7 @@ import java.util.Map;
 public class PaimonHMSExternalCatalog extends PaimonExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(PaimonHMSExternalCatalog.class);
     private static final List<String> REQUIRED_PROPERTIES = ImmutableList.of(
-            PaimonProperties.HIVE_METASTORE_URIS
+            HMSProperties.HIVE_METASTORE_URIS
     );
 
     public PaimonHMSExternalCatalog(long catalogId, String name, String resource,
