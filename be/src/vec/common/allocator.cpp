@@ -107,9 +107,11 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::sys_memory_check(size_t 
             }
             // else, enough memory is available, the query continues execute.
         } else if (doris::enable_thread_catch_bad_alloc) {
-            LOG(INFO) << fmt::format("throw exception, {}.", err_msg);
+            LOG(INFO) << fmt::format("sys memory check failed, throw exception, {}.", err_msg);
             doris::MemTrackerLimiter::print_log_process_usage();
             throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
+        } else {
+            LOG(INFO) << fmt::format("sys memory check failed, no throw exception, {}.", err_msg);
         }
     }
 }
@@ -137,9 +139,12 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::memory_tracker_check(siz
                                          print_id(doris::thread_context()->task_id()), err_msg);
                 throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
             }
-        } else {
-            LOG(INFO) << fmt::format("throw exception, {}.", err_msg);
+        } else if (doris::enable_thread_catch_bad_alloc) {
+            LOG(INFO) << fmt::format("memory tracker check failed, throw exception, {}.", err_msg);
             throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
+        } else {
+            LOG(INFO) << fmt::format("memory tracker check failed, no throw exception, {}.",
+                                     err_msg);
         }
     }
 }
