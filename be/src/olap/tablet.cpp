@@ -3771,7 +3771,7 @@ Status Tablet::check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, in
             missing_rowsets_arr.PushBack(miss_value, missing_rowsets_arr.GetAllocator());
         }
 
-        root.AddMember("requied_rowsets", required_rowsets_arr, root.GetAllocator());
+        root.AddMember("required_rowsets", required_rowsets_arr, root.GetAllocator());
         root.AddMember("missing_rowsets", missing_rowsets_arr, root.GetAllocator());
         rapidjson::StringBuffer strbuf;
         rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(strbuf);
