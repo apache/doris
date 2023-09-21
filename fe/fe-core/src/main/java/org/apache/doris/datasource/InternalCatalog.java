@@ -2223,7 +2223,10 @@ public class InternalCatalog implements CatalogIf<Database> {
         // set dynamic schema
         boolean isDynamicSchema = PropertyAnalyzer.analyzeBooleanProp(properties,
                 PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA, false);
-        olapTable.setIsDynamicSchema(isDynamicSchema);
+        if (isDynamicSchema) {
+            throw new AnalysisException(
+                    "Deprecated dynamic schema");
+        }
 
         boolean isMutable = PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_MUTABLE, true);
 
