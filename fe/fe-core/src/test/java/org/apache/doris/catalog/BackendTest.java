@@ -92,8 +92,11 @@ public class BackendTest {
         Map<String, TDisk> diskInfos = new HashMap<String, TDisk>();
 
         TDisk disk1 = new TDisk("/data1/", 1000, 800, true);
+        disk1.setDirType("STORAGE");
         TDisk disk2 = new TDisk("/data2/", 2000, 700, true);
+        disk2.setDirType("STORAGE");
         TDisk disk3 = new TDisk("/data3/", 3000, 600, false);
+        disk3.setDirType("STORAGE");
 
         diskInfos.put(disk1.getRootPath(), disk1);
         diskInfos.put(disk2.getRootPath(), disk2);

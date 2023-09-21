@@ -100,6 +100,7 @@ public class DemoMultiBackendsTest {
             tDisk1.setDiskAvailableCapacity(tDisk1.disk_total_capacity - tDisk1.data_used_capacity);
             tDisk1.setPathHash(random.nextLong());
             tDisk1.setStorageMedium(TStorageMedium.HDD);
+            tDisk1.setDirType("STORAGE");
             backendDisks.put(tDisk1.getRootPath(), tDisk1);
 
             TDisk tDisk2 = new TDisk();
@@ -110,6 +111,7 @@ public class DemoMultiBackendsTest {
             tDisk2.setDiskAvailableCapacity(tDisk2.disk_total_capacity - tDisk2.data_used_capacity);
             tDisk2.setPathHash(random.nextLong());
             tDisk2.setStorageMedium(TStorageMedium.SSD);
+            tDisk2.setDirType("STORAGE");
             backendDisks.put(tDisk2.getRootPath(), tDisk2);
 
             be.updateDisks(backendDisks);

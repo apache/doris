@@ -95,6 +95,7 @@ public class AutoBucketUtilsTest {
             disk.setDiskAvailableCapacity(disk.disk_total_capacity - disk.data_used_capacity);
             disk.setPathHash(random.nextLong());
             disk.setStorageMedium(TStorageMedium.HDD);
+            disk.setDirType("STORAGE");
             backendDisks.put(disk.getRootPath(), disk);
         }
         be.updateDisks(backendDisks);
