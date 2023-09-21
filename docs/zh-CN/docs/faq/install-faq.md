@@ -314,3 +314,12 @@ Caused by: java.lang.ClassNotFoundException: org.apache.doris.udf.JniUtil
 Failed to initialize JNI: Failed to find the library libjvm.so.
 ```
 需要在系统设置 `JAVA_HOME` 环境变量，或者在 be.conf 中设置 `JAVA_HOME` 变量，然后重新启动 BE 节点。
+### Q17. 新增BE失败，fe.log中提示"java.net.NoRouteToHostException"
+
+这种问题通常有三种原因：
+
+1. 主机不可达：当我们尝试连接一个不可达的主机时，就会抛出这个异常，可能是由于网络故障、主机宕机或网络配置问题引起的。
+2. 路由表问题：路由表是一个用来决定数据包如何发送的表格，当路由表中没有到达目标主机的路由时，会抛出NoRouteToHostException异常。
+3. 防火墙屏蔽：防火墙是用来保护网络安全的设备，它可能会屏蔽某些主机或端口的访问，如果目标主机被防火墙屏蔽，会抛出NoRouteToHostException异常。
+
+这类问题一般是由于网络原因导致，如果遇到可以根据以上几种原因去排查。
