@@ -192,6 +192,11 @@ However, in certain scenarios, such as a query plan that requires scanning too m
 * If the Export job fails, the temporary files and directory generated in the remote storage will not be deleted, requiring the user to delete them manually.
 * Export jobs scan data and occupy IO resources, which may affect the query latency of the system.
 * The Export job can export data from  `Doris Base tables`, `View`, and `External tables`, but not from `Rollup Index`.
+* When using the EXPORT command, please ensure that the target path exists, otherwise the export may fail.
+* When concurrent export is enabled, please configure the thread count and parallelism appropriately to fully utilize system resources and avoid performance bottlenecks.
+* When exporting to a local file, pay attention to file permissions and the path, ensure that you have sufficient permissions to write, and follow the appropriate file system path.
+* It is possible to monitor progress and performance metrics in real-time during the export process to identify issues promptly and make optimal adjustments.
+* It is recommended to verify the integrity and accuracy of the exported data after the export operation is completed to ensure the quality and integrity of the data.
 
 ## Relevant configuration
 
