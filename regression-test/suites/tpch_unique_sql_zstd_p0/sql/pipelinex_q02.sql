@@ -1,5 +1,5 @@
 -- tables: part,supplier,partsupp,nation,region
-SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=false) */
+SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=true) */
   s_acctbal,
   s_name,
   n_name,
