@@ -77,7 +77,7 @@ Status PipelineXTask::prepare(RuntimeState* state, const TPipelineInstanceParams
     for (int op_idx = _operators.size() - 1; op_idx >= 0; op_idx--) {
         LocalStateInfo info {
                 op_idx == _operators.size() - 1
-                        ? _pipeline->pipeline_profile()
+                        ? _parent_profile
                         : state->get_local_state(_operators[op_idx + 1]->id())->profile(),
                 scan_ranges, get_upstream_dependency(_operators[op_idx]->id())};
         RETURN_IF_ERROR(_operators[op_idx]->setup_local_state(state, info));

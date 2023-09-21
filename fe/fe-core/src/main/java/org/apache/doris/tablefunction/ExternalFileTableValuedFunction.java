@@ -103,7 +103,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     protected static final String FUZZY_PARSE = "fuzzy_parse";
     protected static final String TRIM_DOUBLE_QUOTES = "trim_double_quotes";
     protected static final String SKIP_LINES = "skip_lines";
-    protected static final String CSV_SCHEMA = "csv_schema";
+    public static final String CSV_SCHEMA = "csv_schema";
     protected static final String COMPRESS_TYPE = "compress_type";
     public static final String PATH_PARTITION_KEYS = "path_partition_keys";
     // decimal(p,s)
@@ -380,11 +380,15 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     @Override
     public List<Column> getTableColumns() throws AnalysisException {
-        if (FeConstants.runningUnitTest) {
-            return Lists.newArrayList();
-        }
         if (!csvSchema.isEmpty()) {
             return csvSchema;
+        }
+        if (FeConstants.runningUnitTest) {
+            Object mockedUtObj = FeConstants.unitTestConstant;
+            if (mockedUtObj instanceof List) {
+                return ((List<Column>) mockedUtObj);
+            }
+            return new ArrayList<>();
         }
         if (this.columns != null) {
             return columns;
