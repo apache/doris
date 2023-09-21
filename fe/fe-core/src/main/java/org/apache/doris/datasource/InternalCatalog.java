@@ -1592,8 +1592,29 @@ public class InternalCatalog implements CatalogIf<Database> {
                             metaChanged = true;
                             break;
                         }
+
+                        List<Column> oldSchema = indexIdToMeta.get(indexId).getSchema();
+                        List<Column> newSchema = entry.getValue().getSchema();
+                        oldSchema.sort((Column a, Column b) -> a.getUniqueId() - b.getUniqueId());
+                        newSchema.sort((Column a, Column b) -> a.getUniqueId() - b.getUniqueId());
+                        if (oldSchema.size() != newSchema.size()) {
+                            LOG.warn("schema column size diff, old schema {}, new schema {}", oldSchema, newSchema);
+                            metaChanged = true;
+                            break;
+                        } else {
+                            for (int i = 0; i < oldSchema.size(); ++i) {
+                                if (!oldSchema.get(i).equals(newSchema.get(i))) {
+                                    LOG.warn("schema diff, old schema {}, new schema {}",
+                                            oldSchema.get(i), newSchema.get(i));
+                                    metaChanged = true;
+                                    break;
+                                }
+                            }
+                        }
                     }
                 }
+
+
 
                 if (metaChanged) {
                     throw new DdlException("Table[" + tableName + "]'s meta has been changed. try again.");
@@ -2943,6 +2964,23 @@ public class InternalCatalog implements CatalogIf<Database> {
                     if (!copiedIndexIdToSchemaHash.get(indexId).equals(entry.getValue())) {
                         metaChanged = true;
                         break;
+                    }
+                }
+
+                List<Column> oldSchema = copiedTbl.getFullSchema();
+                List<Column> newSchema = olapTable.getFullSchema();
+                oldSchema.sort((Column a, Column b) -> a.getUniqueId() - b.getUniqueId());
+                newSchema.sort((Column a, Column b) -> a.getUniqueId() - b.getUniqueId());
+                if (oldSchema.size() != newSchema.size()) {
+                    LOG.warn("schema column size diff, old schema {}, new schema {}", oldSchema, newSchema);
+                    metaChanged = true;
+                } else {
+                    for (int i = 0; i < oldSchema.size(); ++i) {
+                        if (!oldSchema.get(i).equals(newSchema.get(i))) {
+                            LOG.warn("schema diff, old schema {}, new schema {}", oldSchema.get(i), newSchema.get(i));
+                            metaChanged = true;
+                            break;
+                        }
                     }
                 }
             }
