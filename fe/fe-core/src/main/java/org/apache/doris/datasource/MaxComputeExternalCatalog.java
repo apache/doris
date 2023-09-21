@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource;
 
+
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.credentials.CloudCredential;
 import org.apache.doris.datasource.property.constants.MCProperties;
@@ -28,7 +29,7 @@ import com.aliyun.odps.account.AliyunAccount;
 import com.aliyun.odps.tunnel.TableTunnel;
 import com.aliyun.odps.tunnel.TunnelException;
 import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
+import com.google.common.collect.ImmutableList;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.ArrayList;
@@ -47,7 +48,7 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     private boolean enablePublicAccess;
     private static final String odpsUrlTemplate = "http://service.{}.maxcompute.aliyun-inc.com/api";
     private static final String tunnelUrlTemplate = "http://dt.{}.maxcompute.aliyun-inc.com";
-    private static final List<String> REQUIRED_PROPERTIES = Lists.newArrayList(
+    private static final List<String> REQUIRED_PROPERTIES = ImmutableList.of(
             MCProperties.REGION,
             MCProperties.PROJECT
     );

@@ -23,7 +23,7 @@ import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.property.constants.PaimonProperties;
 
-import com.google.common.collect.Lists;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -45,7 +45,7 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
     protected String catalogType;
     protected Catalog catalog;
 
-    private static final List<String> REQUIRED_PROPERTIES = Lists.newArrayList(
+    private static final List<String> REQUIRED_PROPERTIES = ImmutableList.of(
             PaimonProperties.WAREHOUSE
     );
 

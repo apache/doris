@@ -22,7 +22,7 @@ import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.datasource.property.constants.PaimonProperties;
 
-import com.google.common.collect.Lists;
+import com.google.common.collect.ImmutableList;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -31,7 +31,7 @@ import java.util.Map;
 
 public class PaimonHMSExternalCatalog extends PaimonExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(PaimonHMSExternalCatalog.class);
-    private static final List<String> REQUIRED_PROPERTIES = Lists.newArrayList(
+    private static final List<String> REQUIRED_PROPERTIES = ImmutableList.of(
             PaimonProperties.HIVE_METASTORE_URIS
     );
 
