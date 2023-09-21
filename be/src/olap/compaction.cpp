@@ -402,7 +402,11 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     if (_input_row_num > 0 && stats.rowid_conversion && config::inverted_index_compaction_enable) {
         OlapStopWatch inverted_watch;
         // translation vec
-        // <<dest_idx_num, desc_docId>>
+        // <<dest_idx_num, dest_docId>>
+        // the first level vector: index indicates src segment.
+        // the second level vector: index indicates row id of source segment,
+        // value indicates row id of destination segment.
+        // <UINT32_MAX, UINT32_MAX> indicates current row not exist.
         std::vector<std::vector<std::pair<uint32_t, uint32_t>>> trans_vec =
                 stats.rowid_conversion->get_rowid_conversion_map();
 
