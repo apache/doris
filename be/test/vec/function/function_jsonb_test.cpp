@@ -1492,7 +1492,7 @@ TEST(FunctionJsonbTEST, GetJSONSTRINGTest) {
     std::string func_name = "get_json_string";
     InputTypeSet input_types = {TypeIndex::JSONB, TypeIndex::String};
 
-    // json_extract root
+    // get json from root
     DataSet data_set = {
             {{Null(), STRING("$")}, Null()},
             {{STRING("null"), STRING("$")}, STRING("null")},
@@ -1519,7 +1519,7 @@ TEST(FunctionJsonbTEST, GetJSONSTRINGTest) {
 
     check_function<DataTypeString, true>(func_name, input_types, data_set);
 
-    // json_extract obejct
+    // get json from obejct
     data_set = {
             {{Null(), STRING("$.k1")}, Null()},
             {{STRING("null"), STRING("$.k1")}, Null()},
@@ -1544,7 +1544,7 @@ TEST(FunctionJsonbTEST, GetJSONSTRINGTest) {
 
     check_function<DataTypeString, true>(func_name, input_types, data_set);
 
-    // json_extract array
+    // get json from array
     data_set = {
             {{Null(), STRING("$[0]")}, Null()},
             {{STRING("null"), STRING("$[0]")}, Null()},
@@ -1606,7 +1606,7 @@ TEST(FunctionJsonbTEST, GetJSONSTRINGTest) {
 
     check_function<DataTypeString, true>(func_name, input_types, data_set);
 
-    // json_extract $[0].k1
+    // get json with path $[0].k1
     data_set = {
             {{Null(), STRING("$[0].k1")}, Null()},
             {{STRING("null"), STRING("$[0].k1")}, Null()},
