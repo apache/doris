@@ -43,26 +43,6 @@ under the License.
 3. 根据`parallelism`参数，生成相同个数的`ExportTaskExecutor`，每一个`ExportTaskExecutor`由一个线程负责，线程由FE的Job 调度框架去调度执行。
 4. FE的Job调度器会去调度`ExportTaskExecutor`并执行，每一个`ExportTaskExecutor`会串行地去执行由它负责的若干个`SELECT INTO OUTFILE`查询计划。
 
-### 查询计划拆分
-
-Export 作业会生成多个查询计划，每个查询计划负责扫描一部分 Tablet。每个查询计划扫描的 Tablet 个数由 FE 配置参数 `export_tablet_num_per_task` 指定，默认为 5。即假设一共 100 个 Tablet，则会生成 20 个查询计划。用户也可以在提交作业时，通过作业属性 `tablet_num_per_task` 指定这个数值。
-
-一个作业的多个查询计划顺序执行。
-
-### 查询计划执行
-
-一个查询计划扫描多个分片，将读取的数据以行的形式组织，每 1024 行为一个 batch，调用 Broker 写入到远端存储上。
-
-查询计划遇到错误会整体自动重试 3 次。如果一个查询计划重试 3 次依然失败，则整个作业失败。
-
-Doris 会首先在指定的远端存储的路径中，建立一个名为 `__doris_export_tmp_12345` 的临时目录（其中 `12345` 为作业 id）。导出的数据首先会写入这个临时目录。每个查询计划会生成一个文件，文件名示例：
-
-`export-data-c69fcf2b6db5420f-a96b94c1ff8bccef-1561453713822`
-
-其中 `c69fcf2b6db5420f-a96b94c1ff8bccef` 为查询计划的 query id。`1561453713822` 为文件生成的时间戳。
-
-当所有数据都导出后，Doris 会将这些文件 rename 到用户指定的路径中。
-
 ## 开始导出
 
 Export 的详细用法可参考 [EXPORT](../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/EXPORT.md) 。
