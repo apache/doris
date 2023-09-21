@@ -90,7 +90,7 @@ JdbcConnector::~JdbcConnector() {
 
 #define DELETE_BASIC_JAVA_CLAZZ_REF(CPP_TYPE) env->DeleteGlobalRef(_executor_##CPP_TYPE##_clazz);
 
-Status JdbcConnector::close() {
+Status JdbcConnector::close(Status) {
     SCOPED_RAW_TIMER(&_jdbc_statistic._connector_close_timer);
     _closed = true;
     if (!_is_open) {
@@ -958,7 +958,7 @@ Status JdbcConnector::_cast_string_to_json(const SlotDescriptor* slot_desc, Bloc
     DataTypePtr _target_data_type = slot_desc->get_data_type_ptr();
     std::string _target_data_type_name = _target_data_type->get_name();
     DataTypePtr _cast_param_data_type = _target_data_type;
-    ColumnPtr _cast_param = _cast_param_data_type->create_column_const_with_default_value(1);
+    ColumnPtr _cast_param = _cast_param_data_type->create_column_const(1, "{}");
 
     ColumnsWithTypeAndName argument_template;
     argument_template.reserve(2);

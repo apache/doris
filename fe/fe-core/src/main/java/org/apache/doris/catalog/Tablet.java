@@ -563,7 +563,7 @@ public class Tablet extends MetaObject implements Writable {
 
         // 3. replica is under relocating
         if (stable < replicationNum) {
-            List<Long> replicaBeIds = replicas.stream().map(Replica::getBackendId).collect(Collectors.toList());
+            Set<Long> replicaBeIds = replicas.stream().map(Replica::getBackendId).collect(Collectors.toSet());
             List<Long> availableBeIds = aliveBeIds.stream().filter(systemInfoService::checkBackendScheduleAvailable)
                     .collect(Collectors.toList());
             if (replicaBeIds.containsAll(availableBeIds)

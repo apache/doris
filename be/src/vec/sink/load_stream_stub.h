@@ -26,6 +26,7 @@
 #include <gen_cpp/types.pb.h>
 #include <glog/logging.h>
 #include <google/protobuf/stubs/callback.h>
+#include <parallel_hashmap/phmap.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -71,8 +72,14 @@ class LoadStreamStub;
 
 struct SegmentStatistics;
 
-using IndexToTabletSchema = std::unordered_map<int64_t, std::shared_ptr<TabletSchema>>;
-using IndexToEnableMoW = std::unordered_map<int64_t, bool>;
+using IndexToTabletSchema = phmap::parallel_flat_hash_map<
+        int64_t, std::shared_ptr<TabletSchema>, std::hash<int64_t>, std::equal_to<int64_t>,
+        std::allocator<phmap::Pair<const int64_t, std::shared_ptr<TabletSchema>>>, 4, std::mutex>;
+
+using IndexToEnableMoW =
+        phmap::parallel_flat_hash_map<int64_t, bool, std::hash<int64_t>, std::equal_to<int64_t>,
+                                      std::allocator<phmap::Pair<const int64_t, bool>>, 4,
+                                      std::mutex>;
 
 class LoadStreamStub {
 private:
@@ -175,7 +182,10 @@ protected:
     bthread::Mutex _mutex;
     bthread::ConditionVariable _close_cv;
 
-    bthread::Mutex _buffer_mutex;
+    std::atomic<int> _num_open;
+
+    std::mutex _buffer_mutex;
+    std::mutex _send_mutex;
     butil::IOBuf _buffer;
 
     PUniqueId _load_id;

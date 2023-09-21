@@ -4,13 +4,13 @@ PhysicalResultSink
 --PhysicalQuickSort
 ----PhysicalDistribute
 ------PhysicalQuickSort
---------PhysicalProject
-----------hashAgg[GLOBAL]
-------------PhysicalDistribute
---------------hashAgg[LOCAL]
-----------------PhysicalProject
-------------------hashJoin[INNER_JOIN](tmp.time_sk = time_dim.t_time_sk)
---------------------PhysicalDistribute
+--------hashAgg[GLOBAL]
+----------PhysicalDistribute
+------------hashAgg[LOCAL]
+--------------PhysicalProject
+----------------hashJoin[INNER_JOIN](tmp.time_sk = time_dim.t_time_sk)
+------------------PhysicalDistribute
+--------------------PhysicalProject
 ----------------------hashJoin[INNER_JOIN](tmp.sold_item_sk = item.i_item_sk)
 ------------------------PhysicalDistribute
 --------------------------PhysicalUnion
@@ -45,8 +45,8 @@ PhysicalResultSink
 --------------------------PhysicalProject
 ----------------------------filter((item.i_manager_id = 1))
 ------------------------------PhysicalOlapScan[item]
---------------------PhysicalDistribute
-----------------------PhysicalProject
-------------------------filter(((cast(t_meal_time as VARCHAR(*)) = 'breakfast') OR (cast(t_meal_time as VARCHAR(*)) = 'dinner')))
---------------------------PhysicalOlapScan[time_dim]
+------------------PhysicalDistribute
+--------------------PhysicalProject
+----------------------filter(((cast(t_meal_time as VARCHAR(*)) = 'breakfast') OR (cast(t_meal_time as VARCHAR(*)) = 'dinner')))
+------------------------PhysicalOlapScan[time_dim]
 

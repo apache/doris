@@ -40,7 +40,17 @@ statement
         AS type=(RESTRICTIVE | PERMISSIVE)
         TO (user=userIdentify | ROLE roleName=identifier)
         USING LEFT_PAREN booleanExpression RIGHT_PAREN                 #createRowPolicy
-    | explain? INSERT INTO tableName=multipartIdentifier
+    | CREATE TABLE (IF NOT EXISTS)? name=multipartIdentifier
+        ((ctasCols=identifierList)? | (LEFT_PAREN columnDefs indexDefs? RIGHT_PAREN))
+        (ENGINE EQ engine=identifier)?
+        ((AGGREGATE | UNIQUE | DUPLICATE) KEY keys=identifierList)?
+        (COMMENT STRING_LITERAL)?
+        (PARTITION BY (RANGE | LIST) partitionKeys=identifierList LEFT_PAREN partitions=partitionsDef RIGHT_PAREN)?
+        (DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM) (BUCKETS INTEGER_VALUE | AUTO)?)?
+        (ROLLUP LEFT_PAREN rollupDefs RIGHT_PAREN)?
+        propertyClause?
+        (AS query)?                                                    #createTable
+    | explain? INSERT (INTO | OVERWRITE TABLE) tableName=multipartIdentifier
         (PARTITION partition=identifierList)?  // partition define
         (WITH LABEL labelName=identifier)? cols=identifierList?  // label and columns define
         (LEFT_BRACKET hints=identifierSeq RIGHT_BRACKET)?  // hint define
@@ -53,15 +63,50 @@ statement
         (PARTITION partition=identifierList)?
         (USING relation (COMMA relation)*)
         whereClause                                                    #delete
+    | LOAD LABEL lableName=identifier
+        LEFT_PAREN dataDescs+=dataDesc (COMMA dataDescs+=dataDesc)* RIGHT_PAREN
+        (withRemoteStorageSystem)?
+        (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
+        (commentSpec)?                                                 #load
+    | LOAD LABEL lableName=identifier
+        LEFT_PAREN dataDescs+=dataDesc (COMMA dataDescs+=dataDesc)* RIGHT_PAREN
+        resourceDesc
+        (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
+        (commentSpec)?                                                 #resourceLoad
+    | LOAD mysqlDataDesc
+        (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
+        (commentSpec)?                                                 #mysqlLoad
     | EXPORT TABLE tableName=multipartIdentifier
         (PARTITION partition=identifierList)?
         (whereClause)?
-        TO filePath=constant
+        TO filePath=STRING_LITERAL
         (propertyClause)?
         (withRemoteStorageSystem)?                                     #export
     ;
 
-
+dataDesc
+    : ((WITH)? mergeType)? DATA INFILE LEFT_PAREN filePaths+=STRING_LITERAL (COMMA filePath+=STRING_LITERAL)* RIGHT_PAREN
+        INTO TABLE tableName=multipartIdentifier
+        (PARTITION partition=identifierList)?
+        (COLUMNS TERMINATED BY comma=STRING_LITERAL)?
+        (LINES TERMINATED BY separator=STRING_LITERAL)?
+        (FORMAT AS format=identifier)?
+        (columns=identifierList)?
+        (columnsFromPath=colFromPath)?
+        (columnMapping=colMappingList)?
+        (preFilter=preFilterClause)?
+        (where=whereClause)?
+        (deleteOn=deleteOnClause)?
+        (sequenceColumn=sequenceColClause)?
+        (propertyClause)?
+    | ((WITH)? mergeType)? DATA FROM TABLE tableName=multipartIdentifier
+        INTO TABLE tableName=multipartIdentifier
+        (PARTITION partition=identifierList)?
+        (columnMapping=colMappingList)?
+        (where=whereClause)?
+        (deleteOn=deleteOnClause)?
+        (propertyClause)?
+    ;
 
 // -----------------Command accessories-----------------
 
@@ -91,6 +136,36 @@ planType
     | ALL // default type
     ;
 
+mergeType
+    : APPEND
+    | DELETE
+    | MERGE
+    ;
+
+preFilterClause
+    : PRECEDING FILTER expression
+    ;
+
+deleteOnClause
+    : DELETE ON expression
+    ;
+
+sequenceColClause
+    : ORDER BY identifier
+    ;
+
+colFromPath
+    : COLUMNS FROM PATH AS identifierList
+    ;
+
+colMappingList
+    : SET LEFT_PAREN mappingSet+=mappingExpr (COMMA mappingSet+=mappingExpr)* RIGHT_PAREN
+    ;
+
+mappingExpr
+    : (mappingCol=identifier EQ expression)
+    ;
+
 withRemoteStorageSystem
     : WITH S3 LEFT_PAREN
         brokerProperties=propertyItemList
@@ -106,6 +181,25 @@ withRemoteStorageSystem
         brokerProperties=propertyItemList
         RIGHT_PAREN)?
     ;
+
+resourceDesc
+    : WITH RESOURCE resourceName=identifierOrText (LEFT_PAREN propertyItemList RIGHT_PAREN)?
+    ;
+
+mysqlDataDesc
+    : DATA (LOCAL booleanValue)?
+        INFILE filePath=STRING_LITERAL
+        INTO TABLE tableName=multipartIdentifier
+        (PARTITION partition=identifierList)?
+        (COLUMNS TERMINATED BY comma=STRING_LITERAL)?
+        (LINES TERMINATED BY separator=STRING_LITERAL)?
+        (skipLines)?
+        (columns=identifierList)?
+        (colMappingList)?
+        (propertyClause)?
+    ;
+
+skipLines : IGNORE lines=INTEGER_VALUE LINES | IGNORE lines=INTEGER_VALUE ROWS ;
 
 //  -----------------Query-----------------
 // add queryOrganization for parse (q1) union (q2) union (q3) order by keys, otherwise 'order' will be recognized to be
@@ -135,6 +229,7 @@ setQuantifier
 queryPrimary
     : querySpecification                                                   #queryPrimaryDefault
     | LEFT_PAREN query RIGHT_PAREN                                         #subquery
+    | inlineTable                                                          #valuesTable
     ;
 
 querySpecification
@@ -315,9 +410,81 @@ tableAlias
 multipartIdentifier
     : parts+=errorCapturingIdentifier (DOT parts+=errorCapturingIdentifier)*
     ;
+    
+// ----------------Create Table Fields----------
+    
+columnDefs
+    : cols+=columnDef (COMMA cols+=columnDef)*
+    ;
+    
+columnDef
+    : colName=identifier type=dataType
+        KEY? (aggType=aggTypeDef)? ((NOT NULL) | NULL)?
+        (DEFAULT (nullValue=NULL | INTEGER_VALUE | stringValue=STRING_LITERAL
+            | CURRENT_TIMESTAMP (LEFT_PAREN precision=number RIGHT_PAREN)?))?
+        (COMMENT comment=STRING_LITERAL)?
+    ;
+    
+indexDefs
+    : indexes+=indexDef (COMMA indexes+=indexDef)*
+    ;
+    
+indexDef
+    : INDEX indexName=identifier cols=identifierList (USING BITMAP)? (comment=STRING_LITERAL)?
+    ;
+    
+partitionsDef
+    : partitions+=partitionDef (COMMA partitions+=partitionDef)*
+    ;
+    
+partitionDef
+    : (lessThanPartitionDef | fixedPartitionDef | stepPartitionDef | inPartitionDef) properties=propertyClause?
+    ;
+    
+lessThanPartitionDef
+    : PARTITION (IF NOT EXISTS)? partitionName=identifier VALUES LESS THAN (MAXVALUE | constantSeq)
+    ;
+    
+fixedPartitionDef
+    : PARTITION (IF NOT EXISTS)? partitionName=identifier VALUES LEFT_BRACKET lower=constantSeq COMMA upper=constantSeq RIGHT_PAREN
+    ;
+
+stepPartitionDef
+    : FROM from=constantSeq TO to=constantSeq INTERVAL unitsAmount=INTEGER_VALUE unit=datetimeUnit?
+    ;
+
+inPartitionDef
+    : PARTITION (IF NOT EXISTS)? partitionName=identifier VALUES IN ((LEFT_PAREN constantSeqs+=constantSeq
+        (COMMA constantSeqs+=constantSeq)* RIGHT_PAREN) | constants=constantSeq)
+    ;
+    
+constantSeq
+    : LEFT_PAREN values+=partitionValueDef (COMMA values+=partitionValueDef)* RIGHT_PAREN
+    ;
+    
+partitionValueDef
+    : INTEGER_VALUE | STRING_LITERAL | MAXVALUE
+    ;
+    
+rollupDefs
+    : rollups+=rollupDef (COMMA rollups+=rollupDef)*
+    ;
+    
+rollupDef
+    : rollupName=identifier rollupCols=identifierList (DUPLICATE KEY dupKeys=identifierList)? properties=propertyClause?
+    ;
+
+aggTypeDef
+    : MAX | MIN | SUM | REPLACE | REPLACE_IF_NOT_NULL | HLL_UNION | BITMAP_UNION | QUANTILE_UNION
+    ;
 
 tabletList
     : TABLET LEFT_PAREN tabletIdList+=INTEGER_VALUE (COMMA tabletIdList+=INTEGER_VALUE)*  RIGHT_PAREN
+    ;
+    
+
+inlineTable
+    : VALUES rowConstructor (COMMA rowConstructor)*
     ;
 
 // -----------------Expression-----------------
@@ -331,6 +498,15 @@ namedExpressionSeq
 
 expression
     : booleanExpression
+    | lambdaExpression
+    ;
+
+lambdaExpression
+    : args+=errorCapturingIdentifier ARROW body=booleanExpression
+    | LEFT_PAREN
+        args+=errorCapturingIdentifier (COMMA args+=errorCapturingIdentifier)+
+      RIGHT_PAREN
+        ARROW body=booleanExpression
     ;
 
 booleanExpression
@@ -344,7 +520,9 @@ booleanExpression
     | left=booleanExpression operator=DOUBLEPIPES right=booleanExpression           #doublePipes
     ;
 
-
+rowConstructor
+    : LEFT_PAREN namedExpression (COMMA namedExpression)+ RIGHT_PAREN
+    ;
 
 predicate
     : NOT? kind=BETWEEN lower=valueExpression AND upper=valueExpression
@@ -780,6 +958,7 @@ nonReserved
     | NEXT
     | NGRAM_BF
     | NO
+    | NON_NULLABLE
     | NULLS
     | OF
     | OFFSET
@@ -788,7 +967,6 @@ nonReserved
     | OPTIMIZED
     | PARAMETER
     | PARSED
-    | PARTITIONS
     | PASSWORD
     | PASSWORD_EXPIRE
     | PASSWORD_HISTORY

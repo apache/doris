@@ -401,9 +401,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     };
 
     if (!config::enable_feature_binlog) {
-        auto error_msg = "enable feature binlog is false";
-        LOG(WARNING) << error_msg;
-        set_tstatus(TStatusCode::RUNTIME_ERROR, error_msg);
+        set_tstatus(TStatusCode::RUNTIME_ERROR, "enable feature binlog is false");
         return;
     }
 
@@ -564,6 +562,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
             RETURN_IF_ERROR(client->head());
             return client->get_content_length(&segment_file_size);
         };
+
         status = HttpClient::execute_with_retry(max_retry, 1, get_segment_file_size_cb);
         if (!status.ok()) {
             LOG(WARNING) << "failed to get segment file size from " << get_segment_file_size_url
@@ -571,6 +570,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
             status.to_thrift(&tstatus);
             return;
         }
+
         segment_file_sizes.push_back(segment_file_size);
         segment_file_urls.push_back(std::move(get_segment_file_size_url));
     }
@@ -596,9 +596,8 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
             estimate_timeout = config::download_low_speed_time;
         }
 
-        std::string local_segment_path =
-                fmt::format("{}/{}_{}.dat", local_tablet->tablet_path(),
-                            rowset_meta->rowset_id().to_string(), segment_index);
+        auto local_segment_path = BetaRowset::segment_file_path(
+                local_tablet->tablet_path(), rowset_meta->rowset_id(), segment_index);
         LOG(INFO) << fmt::format("download segment file from {} to {}", get_segment_file_url,
                                  local_segment_path);
         auto get_segment_file_cb = [&get_segment_file_url, &local_segment_path, segment_file_size,
@@ -692,7 +691,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     Status commit_txn_status = StorageEngine::instance()->txn_manager()->commit_txn(
             local_tablet->data_dir()->get_meta(), rowset_meta->partition_id(),
             rowset_meta->txn_id(), rowset_meta->tablet_id(), local_tablet->tablet_uid(),
-            rowset_meta->load_id(), rowset, true);
+            rowset_meta->load_id(), rowset, false);
     if (!commit_txn_status && !commit_txn_status.is<ErrorCode::PUSH_TRANSACTION_ALREADY_EXIST>()) {
         auto err_msg = fmt::format(
                 "failed to commit txn for remote tablet. rowset_id: {}, remote_tablet_id={}, "

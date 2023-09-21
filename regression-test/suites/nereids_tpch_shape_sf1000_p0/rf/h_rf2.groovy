@@ -32,23 +32,6 @@ suite("h_rf2") {
 
     String stmt = '''
     explain physical plan
-    -- Licensed to the Apache Software Foundation (ASF) under one
--- or more contributor license agreements.  See the NOTICE file
--- distributed with this work for additional information
--- regarding copyright ownership.  The ASF licenses this file
--- to you under the Apache License, Version 2.0 (the
--- "License"); you may not use this file except in compliance
--- with the License.  You may obtain a copy of the License at
---
---   http://www.apache.org/licenses/LICENSE-2.0
---
--- Unless required by applicable law or agreed to in writing,
--- software distributed under the License is distributed on an
--- "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
--- KIND, either express or implied.  See the License for the
--- specific language governing permissions and limitations
--- under the License.
-
 select
     s_acctbal,
     s_name,
@@ -95,6 +78,7 @@ order by
 limit 100;
     '''
     String plan = sql "${stmt}"
+    log.info(plan)
     def getRuntimeFilters = { plantree ->
         {
             def lst = []
@@ -110,5 +94,5 @@ limit 100;
     // def outFile = "regression-test/suites/nereids_tpch_shape_sf1000_p0/ddl/rf/rf.2"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
-    assertEquals("RF3[ps_suppkey->[s_suppkey],RF2[n_nationkey->[s_nationkey],RF1[r_regionkey->[n_regionkey],RF0[p_partkey->[ps_partkey]", getRuntimeFilters(plan))
+    assertEquals("RF3[s_suppkey->[ps_suppkey],RF2[p_partkey->[ps_partkey],RF1[n_nationkey->[s_nationkey],RF0[r_regionkey->[n_regionkey]", getRuntimeFilters(plan))
 }

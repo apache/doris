@@ -82,6 +82,23 @@ TEST(function_bitmap_test, function_bitmap_to_string_test) {
     check_function<DataTypeString, true>(func_name, input_types, data_set);
 }
 
+TEST(function_bitmap_test, function_bitmap_remove) {
+    std::string func_name = "bitmap_remove";
+    InputTypeSet input_types = {TypeIndex::BitMap, TypeIndex::Int64};
+
+    BitmapValue bitmap1({1, 3});
+    BitmapValue bitmap2({1, 3, 5});
+
+    BitmapValue bitmap1_res(1);
+    BitmapValue bitmap2_res({1, 3, 5});
+    {
+        DataSet data_set = {{{&bitmap1, (int64_t)3}, bitmap1_res},
+                            {{&bitmap2, (int64_t)6}, bitmap2_res},
+                            {{&bitmap1, Null()}, Null()}};
+
+        check_function<DataTypeBitMap, true>(func_name, input_types, data_set);
+    }
+}
 namespace doris {
 namespace config {
 DECLARE_Bool(enable_set_in_bitmap_value);
@@ -92,6 +109,11 @@ TEST(function_bitmap_test, function_bitmap_to_base64) {
                                   &config::enable_set_in_bitmap_value, "false", false);
     config::Register::_s_field_map->insert(
             std::make_pair(std::string("enable_set_in_bitmap_value"), field));
+
+    config::Register::Field field_ser_ver("int16_t", "bitmap_serialize_version",
+                                          &config::bitmap_serialize_version, "1", false);
+    config::Register::_s_field_map->insert(
+            std::make_pair(std::string("bitmap_serialize_version"), field_ser_ver));
 
     std::string func_name = "bitmap_to_base64";
     InputTypeSet input_types = {TypeIndex::BitMap};
@@ -123,19 +145,21 @@ TEST(function_bitmap_test, function_bitmap_to_base64) {
     EXPECT_EQ(bitmap64_2.get_type_code(), BitmapTypeCode::BITMAP64);
     EXPECT_EQ(bitmap64_3.get_type_code(), BitmapTypeCode::BITMAP64);
 
-    DataSet data_set = {
-            {{&bitmap32_1}, std::string("AQEAAAA=")},
-            {{&bitmap32_2}, std::string("AjowAAACAAAAAAAAAJgAAAAYAAAAGgAAAAEAf5Y=")},
-            {{&bitmap32_3}, std::string("AjswAAABAAAgAAEAAAAgAA==")},
-            {{&bitmap64_1}, std::string("AwAAAAABAAAA")},
-            {{&bitmap64_2},
-             std::string("BAIAAAAAOjAAAAEAAAAAAAAAEAAAAAEAAQAAADowAAABAAAAAAAAABAAAAAAAA==")},
-            {{&bitmap64_3},
-             std::string("BAIAAAAAOzAAAAEAAB8AAQAAAB8AAQAAADowAAABAAAAAAAAABAAAAAAAA==")},
-            {{&empty_bitmap}, std::string("AA==")},
-            {{Null()}, Null()}};
+    {
+        DataSet data_set = {
+                {{&bitmap32_1}, std::string("AQEAAAA=")},
+                {{&bitmap32_2}, std::string("AjowAAACAAAAAAAAAJgAAAAYAAAAGgAAAAEAf5Y=")},
+                {{&bitmap32_3}, std::string("AjswAAABAAAgAAEAAAAgAA==")},
+                {{&bitmap64_1}, std::string("AwAAAAABAAAA")},
+                {{&bitmap64_2},
+                 std::string("BAIAAAAAOjAAAAEAAAAAAAAAEAAAAAEAAQAAADowAAABAAAAAAAAABAAAAAAAA==")},
+                {{&bitmap64_3},
+                 std::string("BAIAAAAAOzAAAAEAAB8AAQAAAB8AAQAAADowAAABAAAAAAAAABAAAAAAAA==")},
+                {{&empty_bitmap}, std::string("AA==")},
+                {{Null()}, Null()}};
 
-    check_function<DataTypeString, true>(func_name, input_types, data_set);
+        check_function<DataTypeString, true>(func_name, input_types, data_set);
+    }
 
     EXPECT_TRUE(config::set_config("enable_set_in_bitmap_value", "true", false, true).ok());
     bitmap32_1 = BitmapValue(1);            // single
@@ -154,18 +178,46 @@ TEST(function_bitmap_test, function_bitmap_to_base64) {
     EXPECT_EQ(bitmap64_2.get_type_code(), BitmapTypeCode::SET);
     EXPECT_EQ(bitmap64_3.get_type_code(), BitmapTypeCode::BITMAP64);
 
-    DataSet data_set2 = {
-            {{&bitmap32_1}, std::string("AQEAAAA=")},
-            {{&bitmap32_2}, std::string("BQIBAAAAAAAAAH+WmAAAAAAA")},
-            {{&bitmap32_3}, std::string("AjswAAABAAAgAAEAAAAgAA==")},
-            {{&bitmap64_1}, std::string("AwAAAAABAAAA")},
-            {{&bitmap64_2}, std::string("BQIAAAAAAQAAAAEAAAAAAAAA")},
-            {{&bitmap64_3},
-             std::string("BAIAAAAAOzAAAAEAAB8AAQAAAB8AAQAAADowAAABAAAAAAAAABAAAAAAAA==")},
-            {{&empty_bitmap}, std::string("AA==")},
-            {{Null()}, Null()}};
+    {
+        DataSet data_set = {
+                {{&bitmap32_1}, std::string("AQEAAAA=")},
+                {{&bitmap32_2}, std::string("BQIBAAAAAAAAAH+WmAAAAAAA")},
+                {{&bitmap32_3}, std::string("AjswAAABAAAgAAEAAAAgAA==")},
+                {{&bitmap64_1}, std::string("AwAAAAABAAAA")},
+                {{&bitmap64_2}, std::string("BQIAAAAAAQAAAAEAAAAAAAAA")},
+                {{&bitmap64_3},
+                 std::string("BAIAAAAAOzAAAAEAAB8AAQAAAB8AAQAAADowAAABAAAAAAAAABAAAAAAAA==")},
+                {{&empty_bitmap}, std::string("AA==")},
+                {{Null()}, Null()}};
 
-    check_function<DataTypeString, true>(func_name, input_types, data_set2);
+        check_function<DataTypeString, true>(func_name, input_types, data_set);
+    }
+
+    {
+        std::string base64("BQQAAAAAAAAAAAEAAAAAAAAAAgAAAAAAAAADAAAAAAAAAA==");
+        BitmapValue bitmap;
+        bitmap.add(0);
+        bitmap.add(1);
+        bitmap.add(2);
+        bitmap.add(3);
+        DataSet data_set = {{{&bitmap}, base64}};
+        check_function<DataTypeString, true>(func_name, input_types, data_set);
+    }
+
+    // test bitmap serialize version2
+    EXPECT_TRUE(config::set_config("bitmap_serialize_version", "2", false, true).ok());
+    bitmap32_3 = BitmapValue(bits32); // bitmap32
+    bitmap64_3 = BitmapValue(bits64); // bitmap64
+    EXPECT_EQ(bitmap32_3.get_type_code(), BitmapTypeCode::BITMAP32_V2);
+    EXPECT_EQ(bitmap64_3.get_type_code(), BitmapTypeCode::BITMAP64_V2);
+
+    {
+        DataSet data_set = {
+                {{&bitmap32_3}, std::string("DAI7MAAAAQAAIAABAAAAIAA=")},
+                {{&bitmap64_3}, std::string("DQIAAAAAAjswAAABAAAfAAEAAAAfAAEAAAABAQAAAAAAAAA=")}};
+
+        check_function<DataTypeString, true>(func_name, input_types, data_set);
+    }
 }
 
 TEST(function_bitmap_test, function_bitmap_from_base64) {
@@ -173,6 +225,11 @@ TEST(function_bitmap_test, function_bitmap_from_base64) {
                                   &config::enable_set_in_bitmap_value, "false", false);
     config::Register::_s_field_map->insert(
             std::make_pair(std::string("enable_set_in_bitmap_value"), field));
+
+    config::Register::Field field_ser_ver("int16_t", "bitmap_serialize_version",
+                                          &config::bitmap_serialize_version, "1", false);
+    config::Register::_s_field_map->insert(
+            std::make_pair(std::string("bitmap_serialize_version"), field_ser_ver));
 
     std::string func_name = "bitmap_from_base64";
     InputTypeSet input_types = {TypeIndex::String};
@@ -205,47 +262,65 @@ TEST(function_bitmap_test, function_bitmap_from_base64) {
     BitmapValue bitmap64_3(bits64);                    // bitmap
 
     BitmapValue empty_bitmap;
-    DataSet data_set = {{{bitmap32_base64_1}, bitmap32_1}, {{bitmap32_base64_2}, bitmap32_2},
-                        {{bitmap32_base64_3}, bitmap32_3}, {{bitmap64_base64_1}, bitmap64_1},
-                        {{bitmap64_base64_2}, bitmap64_2}, {{bitmap64_base64_3}, bitmap64_3},
-                        {{base64_empty}, empty_bitmap},    {{Null()}, Null()}};
+    {
+        DataSet data_set = {{{bitmap32_base64_1}, bitmap32_1}, {{bitmap32_base64_2}, bitmap32_2},
+                            {{bitmap32_base64_3}, bitmap32_3}, {{bitmap64_base64_1}, bitmap64_1},
+                            {{bitmap64_base64_2}, bitmap64_2}, {{bitmap64_base64_3}, bitmap64_3},
+                            {{base64_empty}, empty_bitmap},    {{Null()}, Null()}};
 
-    check_function<DataTypeBitMap, true>(func_name, input_types, data_set);
+        check_function<DataTypeBitMap, true>(func_name, input_types, data_set);
+    }
 
     EXPECT_TRUE(config::set_config("enable_set_in_bitmap_value", "true", false, true).ok());
     bitmap32_base64_1 = ("AQEAAAA=");
-    bitmap32_base64_2 = ("BQIBAAAAAAAAAH");
+    bitmap32_base64_2 = ("BQIBAAAAAAAAAH+WmAAAAAAA");
     bitmap32_base64_3 = ("AjswAAABAAAgAAEAAAAgAA==");
 
     bitmap64_base64_1 = ("AwAAAAABAAAA");
     bitmap64_base64_2 = ("BQIAAAAAAQAAAAEAAAAAAAAA");
     bitmap64_base64_3 = ("BAIAAAAAOzAAAAEAAB8AAQAAAB8AAQAAADowAAABAAAAAAAAABAAAAAAAA==");
 
-    check_function<DataTypeBitMap, true>(func_name, input_types, data_set);
+    {
+        DataSet data_set = {{{bitmap32_base64_1}, bitmap32_1}, {{bitmap32_base64_2}, bitmap32_2},
+                            {{bitmap32_base64_3}, bitmap32_3}, {{bitmap64_base64_1}, bitmap64_1},
+                            {{bitmap64_base64_2}, bitmap64_2}, {{bitmap64_base64_3}, bitmap64_3},
+                            {{base64_empty}, empty_bitmap},    {{Null()}, Null()}};
 
-    /* sr
-    mysql [(none)]>select bitmap_to_base64(bitmap_from_string("0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32"));
-    +----------------------------------------------------------------------------------------------------------------------------------+
-    | bitmap_to_base64(bitmap_from_string('0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32')) |
-    +----------------------------------------------------------------------------------------------------------------------------------+
-    | AjowAAABAAAAAAAgABAAAAAAAAEAAgADAAQABQAGAAcACAAJAAoACwAMAA0ADgAPABAAEQASABMAFAAVABYAFwAYABkAGgAbABwAHQAeAB8AIAA=                 |
-    +----------------------------------------------------------------------------------------------------------------------------------+
+        check_function<DataTypeBitMap, true>(func_name, input_types, data_set);
+    }
 
-    mysql [(none)]>select bitmap_to_base64(bitmap_from_string("0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,4294967296"));
-    +--------------------------------------------------------------------------------------------------------------------------------------------------+
-    | bitmap_to_base64(bitmap_from_string('0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,4294967296'))         |
-    +--------------------------------------------------------------------------------------------------------------------------------------------------+
-    | BAIAAAAAOjAAAAEAAAAAAB8AEAAAAAAAAQACAAMABAAFAAYABwAIAAkACgALAAwADQAOAA8AEAARABIAEwAUABUAFgAXABgAGQAaABsAHAAdAB4AHwABAAAAOjAAAAEAAAAAAAAAEAAAAAAA |
-    +--------------------------------------------------------------------------------------------------------------------------------------------------+
-    */
-    bitmap32_base64_3 =
-            ("AjowAAABAAAAAAAgABAAAAAAAAEAAgADAAQABQAGAAcACAAJAAoACwAMAA0ADgAPABAAEQASABMAFAAVABYAF"
-             "wAYABkAGgAbABwAHQAeAB8AIAA=");
-    bitmap64_base64_3 =
-            ("BAIAAAAAOjAAAAEAAAAAAB8AEAAAAAAAAQACAAMABAAFAAYABwAIAAkACgALAAwADQAOAA8AEAARABIAEwAUA"
-             "BUAFgAXABgAGQAaABsAHAAdAB4AHwABAAAAOjAAAAEAAAAAAAAAEAAAAAAA");
-    data_set = {{{bitmap32_base64_3}, bitmap32_3}, {{bitmap64_base64_3}, bitmap64_3}};
-    check_function<DataTypeBitMap, true>(func_name, input_types, data_set);
+    {
+        std::string base64("CgIAAAAAAAAAAAAAAAEAAAAAAAAA");
+        BitmapValue bitmap;
+        bitmap.add(0);
+        bitmap.add(1);
+        DataSet data_set = {{{base64}, bitmap}};
+        check_function<DataTypeBitMap, true>(func_name, input_types, data_set);
+    }
+    {
+        EXPECT_TRUE(config::set_config("bitmap_serialize_version", "1", false, true).ok());
+
+        std::string base64_32_v1(
+                "AjowAAABAAAAAAAgABAAAAAAAAEAAgADAAQABQAGAAcACAAJAAoACwAMAA0ADgAPABAAEQASABMAFAAVAB"
+                "YAFwAYABkAGgAbABwAHQAeAB8AIAA=");
+        std::string base64_64_v1(
+                "BAIAAAAAOjAAAAEAAAAAAB8AEAAAAAAAAQACAAMABAAFAAYABwAIAAkACgALAAwADQAOAA8AEAARABIAEw"
+                "AUABUAFgAXABgAGQAaABsAHAAdAB4AHwABAAAAOjAAAAEAAAAAAAAAEAAAAAAA");
+        DataSet data_set = {{{base64_32_v1}, bitmap32_3}, {{base64_64_v1}, bitmap64_3}};
+        check_function<DataTypeBitMap, true>(func_name, input_types, data_set);
+    }
+    {
+        EXPECT_TRUE(config::set_config("bitmap_serialize_version", "2", false, true).ok());
+
+        std::string base64_32_v2(
+                "DAI6MAAAAQAAAAAAIAAQAAAAAAABAAIAAwAEAAUABgAHAAgACQAKAAsADAANAA4ADwAQABEAEgATABQAFQ"
+                "AWABcAGAAZABoAGwAcAB0AHgAfACAA");
+        std::string base64_64_v2(
+                "DQIAAAAAAjowAAABAAAAAAAfABAAAAAAAAEAAgADAAQABQAGAAcACAAJAAoACwAMAA0ADgAPABAAEQASAB"
+                "MAFAAVABYAFwAYABkAGgAbABwAHQAeAB8AAQAAAAEBAAAAAAAAAA==");
+        DataSet data_set = {{{base64_32_v2}, bitmap32_3}, {{base64_64_v2}, bitmap64_3}};
+        check_function<DataTypeBitMap, true>(func_name, input_types, data_set);
+    }
 }
 
 TEST(function_bitmap_test, function_bitmap_and_count) {

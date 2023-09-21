@@ -90,12 +90,18 @@ PROPERTIES (
 
 表中的列按照是否设置了 `AggregationType`，分为 Key (维度列) 和 Value（指标列）。没有设置 `AggregationType` 的，如 `user_id`、`date`、`age` ... 等称为 **Key**，而设置了 `AggregationType` 的称为 **Value**。
 
-当我们导入数据时，对于 Key 列相同的行会聚合成一行，而 Value 列会按照设置的 `AggregationType` 进行聚合。 `AggregationType` 目前有以下四种聚合方式：
+当我们导入数据时，对于 Key 列相同的行会聚合成一行，而 Value 列会按照设置的 `AggregationType` 进行聚合。 `AggregationType` 目前有以下几种聚合方式和agg_state：
 
 1. SUM：求和，多行的 Value 进行累加。
 2. REPLACE：替代，下一批数据中的 Value 会替换之前导入过的行中的 Value。
 3. MAX：保留最大值。
 4. MIN：保留最小值。
+5. REPLACE_IF_NOT_NULL：非空值替换。和 REPLACE 的区别在于对于null值，不做替换。
+6. HLL_UNION：HLL 类型的列的聚合方式，通过 HyperLogLog 算法聚合。
+7. BITMAP_UNION：BIMTAP 类型的列的聚合方式，进行位图的并集聚合。
+
+如果这几种聚合方式无法满足需求，则可以选择使用agg_state类型。
+
 
 假设我们有以下导入数据（原始数据）：
 
@@ -268,6 +274,108 @@ insert into example_db.example_tbl values
 3. 数据查询阶段。在数据查询时，对于查询涉及到的数据，会进行对应的聚合。
 
 数据在不同时间，可能聚合的程度不一致。比如一批数据刚导入时，可能还未与之前已存在的数据进行聚合。但是对于用户而言，用户**只能查询到**聚合后的数据。即不同的聚合程度对于用户查询而言是透明的。用户需始终认为数据以**最终的完成的聚合程度**存在，而**不应假设某些聚合还未发生**。（可参阅**聚合模型的局限性**一节获得更多详情。）
+
+### agg_state
+
+    AGG_STATE不能作为key列使用，建表时需要同时声明聚合函数的签名。
+    用户不需要指定长度和默认值。实际存储的数据大小与函数实现有关。
+
+建表
+```sql
+set enable_agg_state=true;
+create table aggstate(
+    k1 int null,
+    k2 agg_state sum(int),
+    k3 agg_state group_concat(string)
+)
+aggregate key (k1)
+distributed BY hash(k1) buckets 3
+properties("replication_num" = "1");
+```
+
+其中agg_state用于声明数据类型为agg_state，max_by/group_concat为聚合函数的签名。
+注意agg_state是一种数据类型，同int/array/string
+
+agg_state只能配合[state](../sql-manual/sql-functions/combinators/state.md)
+    /[merge](../sql-manual/sql-functions/combinators/merge.md)/[union](../sql-manual/sql-functions/combinators/union.md)函数组合器使用。
+
+agg_state是聚合函数的中间结果，例如，聚合函数sum ， 则agg_state可以表示sum(1,2,3,4,5)的这个中间状态，而不是最终的结果。
+
+agg_state类型需要使用state函数来生成，对于当前的这个表，则为`sum_state`,`group_concat_state`。
+
+```sql
+insert into aggstate values(1,sum_state(1),group_concat_state('a'));
+insert into aggstate values(1,sum_state(2),group_concat_state('b'));
+insert into aggstate values(1,sum_state(3),group_concat_state('c'));
+```
+此时表只有一行 ( 注意，下面的表只是示意图，不是真的可以select显示出来)
+| k1      | k2        | k3 |               
+| --------------- | ----------- | --------------- | 
+| 1         | sum(1,2,3)    |   group_concat_state(a,b,c)              | 
+
+再插入一条数据
+
+```sql
+insert into aggstate values(2,sum_state(4),group_concat_state('d'));
+```
+此时表的结构为
+| k1      | k2        | k3 |               
+| --------------- | ----------- | --------------- | 
+| 1         | sum(1,2,3)    |   group_concat_state(a,b,c)              | 
+| 2         | sum(4)    |   group_concat_state(d)              |
+
+我们可以通过merge操作来合并多个state，并且返回最终聚合函数计算的结果
+
+```
+mysql> select sum_merge(k2) from aggstate;
++---------------+
+| sum_merge(k2) |
++---------------+
+|            10 |
++---------------+
+```
+`sum_merge` 会先把sum(1,2,3) 和 sum(4) 合并成 sum(1,2,3,4) ，并返回计算的结果。
+
+因为group_concat对于顺序有要求，所以结果是不稳定的。
+```
+mysql> select group_concat_merge(k3) from aggstate;
++------------------------+
+| group_concat_merge(k3) |
++------------------------+
+| c,b,a,d                |
++------------------------+
+```
+
+如果不想要聚合的最终结果，可以使用union来合并多个聚合的中间结果，生成一个新的中间结果。
+```sql
+insert into aggstate select 3,sum_union(k2),group_concat_union(k3) from aggstate ;
+```
+此时的表结构为
+| k1      | k2        | k3 |               
+| --------------- | ----------- | --------------- | 
+| 1         | sum(1,2,3)    |   group_concat_state(a,b,c)              | 
+| 2         | sum(4)    |   group_concat_state(d)              |
+| 3         | sum(1,2,3,4)    |   group_concat_state(a,b,c,d)              |
+
+可以通过查询
+```
+mysql> select sum_merge(k2) , group_concat_merge(k3)from aggstate;
++---------------+------------------------+
+| sum_merge(k2) | group_concat_merge(k3) |
++---------------+------------------------+
+|            20 | c,b,a,d,c,b,a,d        |
++---------------+------------------------+
+
+mysql> select sum_merge(k2) , group_concat_merge(k3)from aggstate where k1 != 2;
++---------------+------------------------+
+| sum_merge(k2) | group_concat_merge(k3) |
++---------------+------------------------+
+|            16 | c,b,a,d,c,b,a          |
++---------------+------------------------+
+```
+用户可以通过agg_state做出跟细致的聚合函数操作。
+
+注意 agg_state 存在一定的性能开销
 
 ## Unique 模型
 
