@@ -26,6 +26,11 @@
 #include "vec/exprs/vexpr.h"
 #include "vec/functions/function.h"
 
+namespace lucene {
+namespace analysis {
+class Analyzer;
+}
+} // namespace lucene
 namespace doris {
 class RowDescriptor;
 class RuntimeState;
@@ -61,5 +66,6 @@ private:
     std::string _expr_name;
     std::string _function_name;
     InvertedIndexCtxSPtr _inverted_index_ctx;
+    std::unique_ptr<lucene::analysis::Analyzer> _analyzer;
 };
 } // namespace doris::vectorized
