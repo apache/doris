@@ -204,8 +204,7 @@ TEST(VTimestampFunctionsTest, timediff_test) {
 TEST(VTimestampFunctionsTest, convert_tz_test) {
     std::string func_name = "convert_tz";
 
-    TimezoneUtils::clear_timezone_names();
-    TimezoneUtils::init_timezone_cache();
+    TimezoneUtils::clear_timezone_caches();
 
     InputTypeSet input_types = {TypeIndex::DateTimeV2, TypeIndex::String, TypeIndex::String};
 

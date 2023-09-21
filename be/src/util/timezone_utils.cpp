@@ -46,23 +46,20 @@ using ZoneList = std::unordered_map<std::string, cctz::time_zone>;
 }
 
 RE2 TimezoneUtils::time_zone_offset_format_reg("^[+-]{1}\\d{2}\\:\\d{2}$");
+
 std::unordered_map<std::string, std::string> TimezoneUtils::timezone_names_map_;
 bool TimezoneUtils::inited_ = false;
-std::unique_ptr<vectorized::ZoneList> zone_cache;
+// for ut, make it never nullptr.
+std::unique_ptr<vectorized::ZoneList> zone_cache = std::make_unique<vectorized::ZoneList>();
 std::shared_mutex zone_cache_rw_lock;
 
 const std::string TimezoneUtils::default_time_zone = "+08:00";
 static const char* tzdir = "/usr/share/zoneinfo"; // default value, may change by TZDIR env var
 
-void TimezoneUtils::clear_timezone_names() {
+void TimezoneUtils::clear_timezone_caches() {
+    zone_cache->clear();
     timezone_names_map_.clear();
     inited_ = false;
-}
-
-void TimezoneUtils::init_timezone_cache() {
-    if (zone_cache == nullptr) {
-        zone_cache.reset(new vectorized::ZoneList);
-    }
 }
 
 void TimezoneUtils::load_timezone_names() {
@@ -227,7 +224,6 @@ bool parse_load_timezone(vectorized::ZoneList& zone_list, int8_t* data, int len,
 } // namespace
 
 void TimezoneUtils::load_timezones_to_cache() {
-    init_timezone_cache(); // make this function idempotent
     (*zone_cache)["CST"] = cctz::fixed_time_zone(cctz::seconds(8 * 3600));
 
     std::string base_str;

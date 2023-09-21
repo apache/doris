@@ -37,13 +37,12 @@ public:
     // when use this, timezone will be saved in cache.
     static bool find_cctz_time_zone(const std::string& timezone, cctz::time_zone& ctz);
 
-    // for ut only
-    static void clear_timezone_names();
-
     static const std::string default_time_zone;
 
 private:
-    static void init_timezone_cache(); // sometimes for ut
+    // for ut only
+    static void clear_timezone_caches();
+
     static bool find_cctz_time_zone_impl(const std::string& timezone, cctz::time_zone& ctz);
 
     static bool inited_;
