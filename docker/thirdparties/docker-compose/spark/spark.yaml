@@ -1,0 +1,18 @@
+version: '3.3'
+
+services:
+  spark-master:
+    image: bitnami/spark:3.2.0
+    container_name: spark-master
+    ports:
+      - "8080:8080"
+      - "7077:7077"
+    environment:
+      - SPARK_MASTER_HOST=spark-master
+
+  spark-worker-1:
+    image: bitnami/spark:3.2.0
+    container_name: spark-worker-1
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER=spark://spark-master:7077
