@@ -83,6 +83,7 @@ pg_14_port=7121
 // See `docker/thirdparties/start-thirdparties-docker.sh`
 enableHiveTest=false
 hms_port=7141
+hiveServerPort=10000
 
 enableEsTest=false
 es_6_port=19200
