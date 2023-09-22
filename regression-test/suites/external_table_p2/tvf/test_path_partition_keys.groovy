@@ -74,7 +74,7 @@ suite("test_path_partition_keys", "p2,external,tvf,external_remote,external_remo
     List<List<Object>> backends =  sql """ show backends """
     assertTrue(backends.size() > 0)
     def be_id = backends[0][0]
-    def dataFilePath = context.config.dataPath + "/external_table_p2/test_path_partition_keys/"
+    def dataFilePath = context.config.dataPath + "/external_table_p2/tvf/test_path_partition_keys/"
 
     def outFilePath="/test_path_partition_keys"
 
