@@ -73,8 +73,6 @@ bool parse_basic_auth(const HttpRequest& req, std::string* user, std::string* pa
 
 bool parse_basic_auth(const HttpRequest& req, AuthInfo* auth) {
     auto& token = req.header("token");
-//    auto& auth_code_uuid = req.header(HTTP_AUTH_CODE_UUID);
-//    LOG(INFO) << "auth_code_uuid:" << auth_code_uuid;
     auto& auth_code = req.header(HTTP_AUTH_CODE);
     if (!token.empty()) {
         auth->token = token;
