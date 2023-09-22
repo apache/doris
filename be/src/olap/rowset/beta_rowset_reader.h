@@ -84,8 +84,6 @@ public:
     RowsetReaderSharedPtr clone() override;
 
 private:
-    [[nodiscard]] Status _init_iterator_once();
-    [[nodiscard]] Status _init_iterator();
     bool _should_push_down_value_predicates() const;
 
     SchemaSPtr _input_schema;
