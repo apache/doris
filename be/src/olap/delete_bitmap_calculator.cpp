@@ -131,8 +131,7 @@ bool MergeIndexDeleteBitmapCalculatorContext::Comparator::is_key_same(Slice cons
 
 Status MergeIndexDeleteBitmapCalculator::init(RowsetId rowset_id,
                                               std::vector<SegmentSharedPtr> const& segments,
-                                              size_t seq_col_length,
-                                              size_t rowdid_length,
+                                              size_t seq_col_length, size_t rowdid_length,
                                               size_t max_batch_size) {
     _rowset_id = rowset_id;
     _seq_col_length = seq_col_length;
