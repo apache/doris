@@ -66,7 +66,7 @@ struct NullPresence {
 };
 
 template <typename T>
-concept HasGetImpl = requires(T t) {
+concept HasGetVariadicArgumentTypesImpl = requires(T t) {
     { t.get_variadic_argument_types_impl() } -> std::same_as<DataTypes>;
 };
 

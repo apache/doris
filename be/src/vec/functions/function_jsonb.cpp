@@ -354,7 +354,7 @@ public:
         return make_nullable(std::make_shared<typename Impl::ReturnType>());
     }
     DataTypes get_variadic_argument_types_impl() const override {
-        if constexpr (vectorized::HasGetImpl<Impl>) {
+        if constexpr (vectorized::HasGetVariadicArgumentTypesImpl<Impl>) {
             return Impl::get_variadic_argument_types_impl();
         } else {
             return {};
