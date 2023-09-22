@@ -273,6 +273,10 @@ struct GetJsonNumberType {
     using ColumnType = typename NumberType::ColumnType;
     using Container = typename ColumnType::Container;
 
+    static DataTypes get_variadic_argument_types_impl() {
+        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>()};
+    }
+
     static void get_json_impl(rapidjson::Value*& root, const std::string_view& json_string,
                               const std::string_view& path_string, rapidjson::Document& document,
                               typename NumberType::T& res, UInt8& null_map) {
@@ -430,7 +434,6 @@ struct GetJsonBigInt : public GetJsonNumberType<JsonNumberTypeBigInt> {
     using ColumnType = typename JsonNumberTypeBigInt::ColumnType;
 };
 
-template <typename ArgName1, typename ArgName2>
 struct GetJsonString {
     static constexpr auto name = "get_json_string";
     using ReturnType = DataTypeString;
@@ -528,11 +531,7 @@ struct GetJsonString {
         }
     }
     static DataTypes get_variadic_argument_types_impl() {
-        if (std::is_same_v<ArgName1, DataTypeString>) {
-            return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>()};
-        } else {
-            return {};
-        }
+        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>()};
     }
 };
 
@@ -884,8 +883,7 @@ public:
 using FunctionGetJsonDouble = FunctionBinaryStringOperateToNullType<GetJsonDouble>;
 using FunctionGetJsonInt = FunctionBinaryStringOperateToNullType<GetJsonInt>;
 using FunctionGetJsonBigInt = FunctionBinaryStringOperateToNullType<GetJsonBigInt>;
-using FunctionGetJsonStringImpl =
-        FunctionBinaryStringOperateToNullType<GetJsonString<DataTypeString, DataTypeString>>;
+using FunctionGetJsonString = FunctionBinaryStringOperateToNullType<GetJsonString>;
 
 class FunctionJsonValid : public IFunction {
 public:
@@ -1149,7 +1147,7 @@ void register_function_json(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionGetJsonInt>();
     factory.register_function<FunctionGetJsonBigInt>();
     factory.register_function<FunctionGetJsonDouble>();
-    factory.register_function<FunctionGetJsonStringImpl>();
+    factory.register_function<FunctionGetJsonString>();
     factory.register_function<FunctionJsonUnquote>();
 
     factory.register_function<FunctionJsonAlwaysNotNullable<FunctionJsonArrayImpl>>();

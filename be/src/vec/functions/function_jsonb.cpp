@@ -966,11 +966,19 @@ struct JsonbExtractBool : public JsonbExtractImpl<JsonbTypeBool> {
 struct JsonbExtractInt : public JsonbExtractImpl<JsonbTypeInt> {
     static constexpr auto name = "json_extract_int";
     static constexpr auto alias = "jsonb_extract_int";
+    static constexpr auto name2 = "get_json_int";
+    static DataTypes get_variadic_argument_types_impl() {
+        return {std::make_shared<DataTypeJsonb>(), std::make_shared<DataTypeString>()};
+    }
 };
 
 struct JsonbExtractBigInt : public JsonbExtractImpl<JsonbTypeInt64> {
     static constexpr auto name = "json_extract_bigint";
     static constexpr auto alias = "jsonb_extract_bigint";
+    static constexpr auto name2 = "get_json_bigint";
+    static DataTypes get_variadic_argument_types_impl() {
+        return {std::make_shared<DataTypeJsonb>(), std::make_shared<DataTypeString>()};
+    }
 };
 
 struct JsonbExtractLargeInt : public JsonbExtractImpl<JsonbTypeInt128> {
@@ -981,6 +989,10 @@ struct JsonbExtractLargeInt : public JsonbExtractImpl<JsonbTypeInt128> {
 struct JsonbExtractDouble : public JsonbExtractImpl<JsonbTypeDouble> {
     static constexpr auto name = "json_extract_double";
     static constexpr auto alias = "jsonb_extract_double";
+    static constexpr auto name2 = "get_json_double";
+    static DataTypes get_variadic_argument_types_impl() {
+        return {std::make_shared<DataTypeJsonb>(), std::make_shared<DataTypeString>()};
+    }
 };
 
 struct JsonbExtractString : public JsonbExtractStringImpl<JsonbTypeString> {
@@ -1322,12 +1334,15 @@ void register_function_jsonb(SimpleFunctionFactory& factory) {
     factory.register_alias(FunctionJsonbExtractBool::name, FunctionJsonbExtractBool::alias);
     factory.register_function<FunctionJsonbExtractInt>();
     factory.register_alias(FunctionJsonbExtractInt::name, FunctionJsonbExtractInt::alias);
+    factory.register_function<FunctionJsonbExtractInt>(JsonbExtractInt::name2);
     factory.register_function<FunctionJsonbExtractBigInt>();
     factory.register_alias(FunctionJsonbExtractBigInt::name, FunctionJsonbExtractBigInt::alias);
+    factory.register_function<FunctionJsonbExtractBigInt>(JsonbExtractBigInt::name2);
     factory.register_function<FunctionJsonbExtractLargeInt>();
     factory.register_alias(FunctionJsonbExtractLargeInt::name, FunctionJsonbExtractLargeInt::alias);
     factory.register_function<FunctionJsonbExtractDouble>();
     factory.register_alias(FunctionJsonbExtractDouble::name, FunctionJsonbExtractDouble::alias);
+    factory.register_function<FunctionJsonbExtractDouble>(JsonbExtractDouble::name2);
     factory.register_function<FunctionJsonbExtractString>();
     factory.register_alias(FunctionJsonbExtractString::name, FunctionJsonbExtractString::alias);
     factory.register_function<FunctionJsonbExtractString>(JsonbExtractString::name2);
