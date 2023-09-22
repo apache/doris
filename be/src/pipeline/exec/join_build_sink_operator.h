@@ -31,7 +31,7 @@ class JoinBuildSinkOperatorX;
 template <typename DependencyType, typename Derived>
 class JoinBuildSinkLocalState : public PipelineXSinkLocalState<DependencyType> {
 public:
-    virtual Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
 protected:
     JoinBuildSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
@@ -42,7 +42,6 @@ protected:
 
     bool _short_circuit_for_null_in_probe_side = false;
 
-    RuntimeProfile* _build_phase_profile;
     RuntimeProfile::Counter* _build_timer;
     RuntimeProfile::Counter* _build_get_next_timer;
     RuntimeProfile::Counter* _build_rows_counter;

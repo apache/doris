@@ -86,10 +86,11 @@ public class MockedBackendFactory {
     public static final int BE_DEFAULT_THRIFT_PORT = 9060;
     public static final int BE_DEFAULT_BRPC_PORT = 8060;
     public static final int BE_DEFAULT_HTTP_PORT = 8040;
+    public static final int BE_DEFAULT_ARROW_FLIGHT_SQL_PORT = 8070;
 
     // create a mocked backend with customize parameters
     public static MockedBackend createBackend(String host, int heartbeatPort, int thriftPort, int brpcPort,
-                                              int httpPort,
+                                              int httpPort, int arrowFlightSqlPort,
                                               HeartbeatService.Iface hbService, BeThriftService beThriftService,
                                               PBackendServiceGrpc.PBackendServiceImplBase pBackendService)
             throws IOException {
@@ -105,16 +106,20 @@ public class MockedBackendFactory {
         private int beHttpPort;
         private int beBrpcPort;
 
-        public DefaultHeartbeatServiceImpl(int beThriftPort, int beHttpPort, int beBrpcPort) {
+        private int beArrowFlightSqlPort;
+
+        public DefaultHeartbeatServiceImpl(int beThriftPort, int beHttpPort, int beBrpcPort, int beArrowFlightSqlPort) {
             this.beThriftPort = beThriftPort;
             this.beHttpPort = beHttpPort;
             this.beBrpcPort = beBrpcPort;
+            this.beArrowFlightSqlPort = beArrowFlightSqlPort;
         }
 
         @Override
         public THeartbeatResult heartbeat(TMasterInfo masterInfo) throws TException {
             TBackendInfo backendInfo = new TBackendInfo(beThriftPort, beHttpPort);
             backendInfo.setBrpcPort(beBrpcPort);
+            backendInfo.setArrowFlightSqlPort(beArrowFlightSqlPort);
             THeartbeatResult result = new THeartbeatResult(new TStatus(TStatusCode.OK), backendInfo);
             return result;
         }

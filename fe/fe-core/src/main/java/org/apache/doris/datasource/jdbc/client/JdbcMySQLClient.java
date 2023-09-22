@@ -39,8 +39,8 @@ import java.util.function.Consumer;
 
 public class JdbcMySQLClient extends JdbcClient {
 
-    private static boolean convertDateToNull = false;
-    private static boolean isDoris = false;
+    private boolean convertDateToNull = false;
+    private boolean isDoris = false;
 
     protected JdbcMySQLClient(JdbcClientConfig jdbcClientConfig) {
         super(jdbcClientConfig);

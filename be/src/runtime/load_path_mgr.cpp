@@ -56,7 +56,7 @@ LoadPathMgr::LoadPathMgr(ExecEnv* exec_env)
           _error_path_next_shard(0),
           _stop_background_threads_latch(1) {}
 
-LoadPathMgr::~LoadPathMgr() {
+void LoadPathMgr::stop() {
     _stop_background_threads_latch.count_down();
     if (_clean_thread) {
         _clean_thread->join();

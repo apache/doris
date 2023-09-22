@@ -47,6 +47,8 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
@@ -508,9 +510,30 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                     for (Slot slot : targetList) {
                         ctx.setTargetExprIdToFilter(slot.getExprId(), filter);
                     }
+                    ctx.setRuntimeFilterIdentityToFilter(equalTo.right(), type, join, filter);
                 }
             }
         }
+    }
+
+    @Override
+    public PhysicalPlan visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, CascadesContext context) {
+        topN.child().accept(this, context);
+        PhysicalPlan child = (PhysicalPlan) topN.child();
+        for (Slot slot : child.getOutput()) {
+            context.getRuntimeFilterContext().getAliasTransferMap().remove(slot);
+        }
+        return topN;
+    }
+
+    @Override
+    public PhysicalPlan visitPhysicalWindow(PhysicalWindow<? extends Plan> window, CascadesContext context) {
+        window.child().accept(this, context);
+        Set<SlotReference> commonPartitionKeys = window.getCommonPartitionKeyFromWindowExpressions();
+        window.child().getOutput().stream().filter(slot -> !commonPartitionKeys.contains(slot)).forEach(
+                slot -> context.getRuntimeFilterContext().getAliasTransferMap().remove(slot)
+        );
+        return window;
     }
 
     /**

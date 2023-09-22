@@ -174,25 +174,31 @@ suite("test_sql_block_rule") {
         "enable"="true");
     """
 
-    test {
-        sql("""SELECT * FROM a_partitioned_table_for_sql_block_rule;""", false)
-
-        exception """sql hits sql block rule"""
-
+    try {
+        test {
+            sql("""SELECT * FROM a_partitioned_table_for_sql_block_rule;""", false)
+            exception """sql hits sql block rule"""
+        }
+    } finally {
+        sql """
+            drop SQL_BLOCK_RULE if exists test_rule_partition;
+        """
     }
 
     sql """
         CREATE SQL_BLOCK_RULE if not exists test_rule_tablet PROPERTIES ( "tablet_num" = "3", "global" = "true",
         "enable"="true");
     """
-
-    test {
-        sql("""SELECT * FROM a_partitioned_table_for_sql_block_rule;""", false)
-
-        exception """sql hits sql block rule"""
-
+    try {
+        test {
+            sql("""SELECT * FROM a_partitioned_table_for_sql_block_rule;""", false)
+            exception """sql hits sql block rule"""
+        }
+    } finally {
+        sql """
+            drop SQL_BLOCK_RULE if exists test_rule_tablet;
+        """
     }
-
 
 
 }

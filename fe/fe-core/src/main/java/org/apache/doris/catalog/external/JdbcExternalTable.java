@@ -88,6 +88,9 @@ public class JdbcExternalTable extends ExternalTable {
         String fullDbName = this.dbName + "." + this.name;
         JdbcTable jdbcTable = new JdbcTable(this.id, fullDbName, schema, TableType.JDBC_EXTERNAL_TABLE);
         jdbcTable.setExternalTableName(fullDbName);
+        jdbcTable.setRealDatabaseName(((JdbcExternalCatalog) catalog).getJdbcClient().getRealDatabaseName(this.dbName));
+        jdbcTable.setRealTableName(
+                ((JdbcExternalCatalog) catalog).getJdbcClient().getRealTableName(this.dbName, this.name));
         jdbcTable.setJdbcTypeName(jdbcCatalog.getDatabaseTypeName());
         jdbcTable.setJdbcUrl(jdbcCatalog.getJdbcUrl());
         jdbcTable.setJdbcUser(jdbcCatalog.getJdbcUser());

@@ -58,26 +58,31 @@ void DataTypeDecimalSerDe<T>::serialize_one_cell_to_json(const IColumn& column, 
 }
 
 template <typename T>
-Status DataTypeDecimalSerDe<T>::deserialize_column_from_json_vector(
-        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
-        const FormatOptions& options) const {
-    DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
+Status DataTypeDecimalSerDe<T>::deserialize_column_from_json_vector(IColumn& column,
+                                                                    std::vector<Slice>& slices,
+                                                                    int* num_deserialized,
+                                                                    const FormatOptions& options,
+                                                                    int nesting_level) const {
+    DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
     return Status::OK();
 }
 
 template <typename T>
 Status DataTypeDecimalSerDe<T>::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                                               const FormatOptions& options) const {
+                                                               const FormatOptions& options,
+                                                               int nesting_level) const {
     auto& column_data = assert_cast<ColumnDecimal<T>&>(column).get_data();
     T val = {};
-    if (ReadBuffer rb(slice.data, slice.size);
-        !read_decimal_text_impl<get_primitive_type(), T>(val, rb, precision, scale)) {
-        return Status::InvalidArgument("parse decimal fail, string: '{}', primitive type: '{}'",
-                                       std::string(rb.position(), rb.count()).c_str(),
-                                       get_primitive_type());
+    ReadBuffer rb(slice.data, slice.size);
+    StringParser::ParseResult res =
+            read_decimal_text_impl<get_primitive_type(), T>(val, rb, precision, scale);
+    if (res == StringParser::PARSE_SUCCESS || res == StringParser::PARSE_UNDERFLOW) {
+        column_data.emplace_back(val);
+        return Status::OK();
     }
-    column_data.emplace_back(val);
-    return Status::OK();
+    return Status::InvalidArgument("parse decimal fail, string: '{}', primitive type: '{}'",
+                                   std::string(rb.position(), rb.count()).c_str(),
+                                   get_primitive_type());
 }
 
 template <typename T>

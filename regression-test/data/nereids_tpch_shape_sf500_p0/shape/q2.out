@@ -11,18 +11,6 @@ PhysicalResultSink
 ----------------PhysicalDistribute
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN](supplier.s_suppkey = partsupp.ps_suppkey)
-----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN](supplier.s_nationkey = nation.n_nationkey)
---------------------------PhysicalOlapScan[supplier]
---------------------------PhysicalDistribute
-----------------------------hashJoin[INNER_JOIN](nation.n_regionkey = region.r_regionkey)
-------------------------------PhysicalDistribute
---------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[nation]
-------------------------------PhysicalDistribute
---------------------------------PhysicalProject
-----------------------------------filter((region.r_name = 'EUROPE'))
-------------------------------------PhysicalOlapScan[region]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN](part.p_partkey = partsupp.ps_partkey)
@@ -31,4 +19,17 @@ PhysicalResultSink
 ----------------------------PhysicalProject
 ------------------------------filter((part.p_size = 15)(p_type like '%BRASS'))
 --------------------------------PhysicalOlapScan[part]
+----------------------PhysicalDistribute
+------------------------PhysicalProject
+--------------------------hashJoin[INNER_JOIN](supplier.s_nationkey = nation.n_nationkey)
+----------------------------PhysicalOlapScan[supplier]
+----------------------------PhysicalDistribute
+------------------------------hashJoin[INNER_JOIN](nation.n_regionkey = region.r_regionkey)
+--------------------------------PhysicalDistribute
+----------------------------------PhysicalProject
+------------------------------------PhysicalOlapScan[nation]
+--------------------------------PhysicalDistribute
+----------------------------------PhysicalProject
+------------------------------------filter((region.r_name = 'EUROPE'))
+--------------------------------------PhysicalOlapScan[region]
 

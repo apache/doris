@@ -90,7 +90,7 @@ services:
       /usr/bin/mc rm -r --force minio/warehouse;
       /usr/bin/mc mb minio/warehouse;
       /usr/bin/mc policy set public minio/warehouse;
-      exit 0;
+      tail -f /dev/null
       "
 networks:
   doris--iceberg:
