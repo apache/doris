@@ -221,6 +221,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv6String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonDepth;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtract;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonInsert;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonLength;
@@ -1413,6 +1414,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitJsonLength(JsonLength jsonLength, C context) {
         return visitScalarFunction(jsonLength, context);
+    }
+
+    default R visitJsonDepth(JsonDepth jsonDepth, C context) {
+        return visitScalarFunction(jsonDepth, context);
     }
 
     default R visitJsonContains(JsonContains jsonContains, C context) {
