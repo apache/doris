@@ -382,7 +382,8 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
                             pipeline_id_to_task[dep]->get_downstream_dependency());
                 }
             }
-            RETURN_IF_ERROR(task->prepare(_runtime_states[i].get(), local_params));
+            RETURN_IF_ERROR(task->prepare(_runtime_states[i].get(), local_params,
+                                          request.fragment.output_sink));
         }
 
         {
@@ -790,7 +791,7 @@ void PipelineXFragmentContext::close_if_prepare_failed() {
     for (auto& task : _tasks) {
         for (auto& t : task) {
             DCHECK(!t->is_pending_finish());
-            WARN_IF_ERROR(t->close(), "close_if_prepare_failed failed: ");
+            WARN_IF_ERROR(t->close(Status::OK()), "close_if_prepare_failed failed: ");
             close_a_pipeline();
         }
     }
