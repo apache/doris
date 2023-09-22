@@ -146,7 +146,7 @@ INSERT INTO flink_doris_sink select name,age,price,sale from flink_doris_source
 
 #### DataStream
 
-DorisSink是通过StreamLoad想Doris写入数据，DataStream写入时，支持不同的序列化方法
+DorisSink是通过StreamLoad向Doris写入数据，DataStream写入时，支持不同的序列化方法
 
 **String 数据流(SimpleStringSerializer)**
 

@@ -85,7 +85,14 @@ public:
         return _source->runtime_filters_are_ready_or_timeout(_state);
     }
 
-    bool sink_can_write() override { return _sink->can_write(_state); }
+    bool sink_can_write() override {
+        auto dep = _sink->wait_for_dependency(_state);
+        if (dep != nullptr) {
+            dep->start_write_watcher();
+            return false;
+        }
+        return true;
+    }
 
     Status finalize() override;
 

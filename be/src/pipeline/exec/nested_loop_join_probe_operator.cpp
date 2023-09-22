@@ -51,6 +51,8 @@ NestedLoopJoinProbeLocalState::NestedLoopJoinProbeLocalState(RuntimeState* state
 
 Status NestedLoopJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(JoinProbeLocalState::init(state, info));
+    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<NestedLoopJoinProbeOperatorX>();
     _join_conjuncts.resize(p._join_conjuncts.size());
     for (size_t i = 0; i < _join_conjuncts.size(); i++) {
@@ -61,6 +63,11 @@ Status NestedLoopJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& 
 }
 
 Status NestedLoopJoinProbeLocalState::close(RuntimeState* state) {
+    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(_close_timer);
+    if (_closed) {
+        return Status::OK();
+    }
     _child_block->clear();
 
     vectorized::Blocks tmp_build_blocks;
@@ -489,7 +496,7 @@ bool NestedLoopJoinProbeOperatorX::need_more_input_data(RuntimeState* state) con
 
 Status NestedLoopJoinProbeOperatorX::push(doris::RuntimeState* state, vectorized::Block* block,
                                           SourceState source_state) const {
-    auto& local_state = state->get_local_state(id())->cast<NestedLoopJoinProbeLocalState>();
+    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
     COUNTER_UPDATE(local_state._probe_rows_counter, block->rows());
     local_state._cur_probe_row_visited_flags.resize(block->rows());
     std::fill(local_state._cur_probe_row_visited_flags.begin(),
@@ -515,7 +522,7 @@ Status NestedLoopJoinProbeOperatorX::push(doris::RuntimeState* state, vectorized
 
 Status NestedLoopJoinProbeOperatorX::pull(RuntimeState* state, vectorized::Block* block,
                                           SourceState& source_state) const {
-    auto& local_state = state->get_local_state(id())->cast<NestedLoopJoinProbeLocalState>();
+    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
     if (_is_output_left_side_only) {
         RETURN_IF_ERROR(local_state._build_output_block(local_state._child_block.get(), block));
         source_state =
@@ -567,7 +574,7 @@ Status NestedLoopJoinProbeOperatorX::pull(RuntimeState* state, vectorized::Block
 }
 
 Dependency* NestedLoopJoinProbeOperatorX::wait_for_dependency(RuntimeState* state) {
-    auto& local_state = state->get_local_state(id())->cast<NestedLoopJoinProbeLocalState>();
+    CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
     return local_state._dependency->read_blocked_by();
 }
 

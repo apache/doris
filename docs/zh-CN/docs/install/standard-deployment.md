@@ -119,6 +119,7 @@ Doris 各个实例直接通过网络进行通讯。以下表格展示了所有�
 | FE | http_port  | 8030 | FE <--> FE，用户 <--> FE |FE 上的 http server 端口 |
 | FE | rpc_port | 9020 | BE --> FE, FE <--> FE | FE 上的 thrift server 端口，每个fe的配置需要保持一致|
 | FE | query_port | 9030 | 用户 <--> FE | FE 上的 mysql server 端口 |
+| FE | arrow_flight_sql_port | 9040 | 用户 <--> FE | FE 上的 Arrow Flight SQL server 端口 |
 | FE | edit\_log_port | 9010 | FE <--> FE | FE 上的 bdbje 之间通信用的端口 |
 | Broker | broker\_ipc_port | 8000 | FE --> Broker, BE --> Broker | Broker 上的 thrift server，用于接收请求 |
 

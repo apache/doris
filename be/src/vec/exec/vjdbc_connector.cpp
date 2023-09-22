@@ -90,7 +90,7 @@ JdbcConnector::~JdbcConnector() {
 
 #define DELETE_BASIC_JAVA_CLAZZ_REF(CPP_TYPE) env->DeleteGlobalRef(_executor_##CPP_TYPE##_clazz);
 
-Status JdbcConnector::close() {
+Status JdbcConnector::close(Status) {
     SCOPED_RAW_TIMER(&_jdbc_statistic._connector_close_timer);
     _closed = true;
     if (!_is_open) {

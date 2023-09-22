@@ -199,6 +199,7 @@ Status TaskScheduler::start() {
             .set_min_threads(cores)
             .set_max_threads(cores)
             .set_max_queue_size(0)
+            .set_cgroup_cpu_ctl(_cgroup_cpu_ctl)
             .build(&_fix_thread_pool);
     _markers.reserve(cores);
     for (size_t i = 0; i < cores; ++i) {

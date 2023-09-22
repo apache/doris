@@ -67,6 +67,5 @@ message POlapTableSchemaParam {
     optional bool partial_update = 7;
     repeated string partial_update_input_columns = 8;
     optional bool is_strict_mode = 9 [default = false];
-    optional bool is_unique_key_ignore_mode = 10 [default = false];
 };
 

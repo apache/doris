@@ -209,6 +209,14 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.io_ctx.file_cache_stats = &_stats->file_cache_stats;
     _read_options.runtime_state = _read_context->runtime_state;
     _read_options.output_columns = _read_context->output_columns;
+    _read_options.io_ctx.reader_type = _read_context->reader_type;
+    _read_options.io_ctx.file_cache_stats = &_stats->file_cache_stats;
+    _read_options.io_ctx.is_disposable = _read_context->reader_type != ReaderType::READER_QUERY;
+    if (_read_context->runtime_state != nullptr) {
+        _read_options.io_ctx.query_id = &_read_context->runtime_state->query_id();
+        _read_options.io_ctx.read_file_cache =
+                _read_context->runtime_state->query_options().enable_file_cache;
+    }
 
     // load segments
     bool should_use_cache = use_cache || _read_context->reader_type == ReaderType::READER_QUERY;
@@ -288,7 +296,7 @@ Status BetaRowsetReader::_init_iterator() {
 
 Status BetaRowsetReader::next_block(vectorized::Block* block) {
     SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
-    _init_iterator_once();
+    RETURN_IF_ERROR(_init_iterator_once());
     if (_empty) {
         return Status::Error<END_OF_FILE>("BetaRowsetReader is empty");
     }
@@ -308,7 +316,7 @@ Status BetaRowsetReader::next_block(vectorized::Block* block) {
 
 Status BetaRowsetReader::next_block_view(vectorized::BlockView* block_view) {
     SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
-    _init_iterator_once();
+    RETURN_IF_ERROR(_init_iterator_once());
     do {
         auto s = _iterator->next_block_view(block_view);
         if (!s.ok()) {

@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.mysql.MysqlServer;
+import org.apache.doris.service.arrowflight.FlightSqlService;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -33,13 +34,18 @@ public class QeService {
     // MySQL protocol service
     private MysqlServer mysqlServer;
 
+    private int arrowFlightSQLPort;
+    private FlightSqlService flightSqlService;
+
     @Deprecated
-    public QeService(int port) {
+    public QeService(int port, int arrowFlightSQLPort) {
         this.port = port;
+        this.arrowFlightSQLPort = arrowFlightSQLPort;
     }
 
-    public QeService(int port, ConnectScheduler scheduler) {
+    public QeService(int port, int arrowFlightSQLPort, ConnectScheduler scheduler) {
         this.port = port;
+        this.arrowFlightSQLPort = arrowFlightSQLPort;
         this.mysqlServer = new MysqlServer(port, scheduler);
     }
 
@@ -55,6 +61,14 @@ public class QeService {
         if (!mysqlServer.start()) {
             LOG.error("mysql server start failed");
             System.exit(-1);
+        }
+        if (arrowFlightSQLPort != -1) {
+            this.flightSqlService = new FlightSqlService(arrowFlightSQLPort);
+            if (!flightSqlService.start()) {
+                System.exit(-1);
+            }
+        } else {
+            LOG.info("No Arrow Flight SQL service that needs to be started.");
         }
         LOG.info("QE service start.");
     }

@@ -20,9 +20,7 @@
 
 #include "olap/delta_writer_v2.h"
 
-namespace doris {
-
-namespace stream_load {
+namespace doris::vectorized {
 
 class DeltaWriterV2PoolTest : public testing::Test {
 public:
@@ -83,5 +81,4 @@ TEST_F(DeltaWriterV2PoolTest, test_map) {
     EXPECT_EQ(0, pool.size());
 }
 
-} // namespace stream_load
-} // namespace doris
+} // namespace doris::vectorized
