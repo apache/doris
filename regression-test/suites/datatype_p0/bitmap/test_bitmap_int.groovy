@@ -73,6 +73,8 @@ suite("test_bitmap_int") {
 
     qt_sql64_4 """SELECT id_bitmap  FROM test_bitmap  WHERE id_bitmap is null LIMIT 20;"""
 
+    qt_sql64_5 """select case when 1 = 0 then bitmap_from_string('0') else bitmap_from_string('0') end as new_bitmap;"""
+
     sql "DROP TABLE IF EXISTS test_bitmap"
 
 }
