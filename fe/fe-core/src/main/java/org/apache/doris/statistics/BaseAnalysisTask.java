@@ -170,6 +170,9 @@ public abstract class BaseAnalysisTask {
                 doExecute();
                 break;
             } catch (Throwable t) {
+                if (killed) {
+                    throw new RuntimeException(t);
+                }
                 LOG.warn("Failed to execute analysis task, retried times: {}", retriedTimes++, t);
                 if (retriedTimes > StatisticConstants.ANALYZE_TASK_RETRY_TIMES) {
                     throw new RuntimeException(t);
@@ -225,7 +228,8 @@ public abstract class BaseAnalysisTask {
         }
         int sampleRows = info.sampleRows;
         if (info.analysisMethod == AnalysisMethod.FULL) {
-            if (Config.enable_auto_sample && tbl.getDataSize() > Config.huge_table_lower_bound_size_in_bytes) {
+            if (Config.enable_auto_sample
+                    && tbl.getDataSize(true) > Config.huge_table_lower_bound_size_in_bytes) {
                 sampleRows = Config.huge_table_default_sample_rows;
             } else {
                 return "";

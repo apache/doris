@@ -151,7 +151,7 @@ private:
 
     Status materialize_block(RuntimeState* state, vectorized::Block* src_block, int child_idx,
                              vectorized::Block* res_block) {
-        auto& local_state = state->get_sink_local_state(id())->cast<UnionSinkLocalState>();
+        CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
         const auto& child_exprs = local_state._child_expr;
         vectorized::ColumnsWithTypeAndName colunms;
         for (size_t i = 0; i < child_exprs.size(); ++i) {

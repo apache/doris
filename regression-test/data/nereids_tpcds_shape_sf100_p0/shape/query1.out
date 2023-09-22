@@ -30,7 +30,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
---------------------------filter((cast(s_state as VARCHAR(*)) = 'SD'))
+--------------------------filter((store.s_state = 'SD'))
 ----------------------------PhysicalOlapScan[store]
 ------------------hashAgg[GLOBAL]
 --------------------PhysicalDistribute

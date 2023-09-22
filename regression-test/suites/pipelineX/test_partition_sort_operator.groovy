@@ -64,7 +64,7 @@ suite("test_partition_sort_operator") {
         ORDER BY 1, 2,3;
     """
     
-    sql"""set experimental_enable_pipeline_x_engine=false;    """
+    sql"""set experimental_enable_pipeline_x_engine=true;    """
 
     qt_pipelineX_1 """
         select * from (select k6,k2,row_number() over(partition by k6 order by k2) as num from baseall) as res where num < 5
