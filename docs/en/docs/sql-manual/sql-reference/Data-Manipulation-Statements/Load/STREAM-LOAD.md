@@ -156,8 +156,6 @@ separated by commas.
 
 28. comment: <version since="1.2.3" type="inline"> String type, the default value is "". </version>
 
-29. ignore_mode: <version since="dev" type="inline"> Ignore mode, only effective when the target table is a unique table with merge-on-write enabled. When insert ignore mode is enabled, for the inserted rows, if the key of the row does not exist in the table, the row will be inserted. If the key already exists in the table, the row will be discarded. When sequence columns exists in the target table, the ignore mode can't be enabled in stream load.</version>
-
 ### Example
 
 1. Import the data in the local file 'testData' into the table 'testTbl' in the database 'testDb', and use Label for deduplication. Specify a timeout of 100 seconds

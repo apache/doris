@@ -195,10 +195,7 @@ public class StatisticRange {
         double overlapPercentOfRight = other.overlapPercentWith(this);
         double overlapDistinctValuesLeft = overlapPercentOfLeft * distinctValues;
         double overlapDistinctValuesRight = overlapPercentOfRight * other.distinctValues;
-        double minInputDistinctValues = minExcludeNaN(this.distinctValues, other.distinctValues);
-
-        return minExcludeNaN(minInputDistinctValues,
-                maxExcludeNaN(overlapDistinctValuesLeft, overlapDistinctValuesRight));
+        return minExcludeNaN(overlapDistinctValuesLeft, overlapDistinctValuesRight);
     }
 
     public static double minExcludeNaN(double v1, double v2) {
