@@ -678,7 +678,6 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
                 break;
             }
         } else {
-            //Prevent behavior changes from fe, that is, not reading according to string.
             switch (_text_serde_type) {
             case TTextSerdeType::JSON_TEXT_SERDE:
                 _serdes[i]->deserialize_one_cell_from_json(*col_ptr, slice, _options);
