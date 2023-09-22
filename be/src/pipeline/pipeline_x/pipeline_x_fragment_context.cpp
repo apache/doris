@@ -62,6 +62,7 @@
 #include "pipeline/exec/partition_sort_sink_operator.h"
 #include "pipeline/exec/partition_sort_source_operator.h"
 #include "pipeline/exec/repeat_operator.h"
+#include "pipeline/exec/result_file_sink_operator.h"
 #include "pipeline/exec/result_sink_operator.h"
 #include "pipeline/exec/scan_operator.h"
 #include "pipeline/exec/select_operator.h"
@@ -204,14 +205,15 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
             _runtime_state->obj_pool(), request, *_query_ctx->desc_tbl, &_root_op, root_pipeline));
 
     // 3. Create sink operator
-    if (request.fragment.__isset.output_sink) {
-        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_create_data_sink(
-                _runtime_state->obj_pool(), request.fragment.output_sink,
-                request.fragment.output_exprs, request, root_pipeline->output_row_desc(),
-                _runtime_state.get(), *desc_tbl, root_pipeline->id()));
-        RETURN_IF_ERROR(_sink->init(request.fragment.output_sink));
-        root_pipeline->set_sink(_sink);
+    if (!request.fragment.__isset.output_sink) {
+        return Status::InternalError("No output sink in this fragment!");
     }
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_create_data_sink(
+            _runtime_state->obj_pool(), request.fragment.output_sink, request.fragment.output_exprs,
+            request, root_pipeline->output_row_desc(), _runtime_state.get(), *desc_tbl,
+            root_pipeline->id()));
+    RETURN_IF_ERROR(_sink->init(request.fragment.output_sink));
+    root_pipeline->set_sink(_sink);
 
     // 4. Initialize global states in pipelines.
     for (PipelinePtr& pipeline : _pipelines) {
@@ -253,6 +255,26 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
 
         // TODO: figure out good buffer size based on size of output row
         _sink.reset(new ResultSinkOperatorX(row_desc, output_exprs, thrift_sink.result_sink));
+        break;
+    }
+    case TDataSinkType::RESULT_FILE_SINK: {
+        if (!thrift_sink.__isset.result_file_sink) {
+            return Status::InternalError("Missing result file sink.");
+        }
+
+        // TODO: figure out good buffer size based on size of output row
+        bool send_query_statistics_with_every_batch =
+                params.__isset.send_query_statistics_with_every_batch
+                        ? params.send_query_statistics_with_every_batch
+                        : false;
+        // Result file sink is not the top sink
+        if (params.__isset.destinations && params.destinations.size() > 0) {
+            _sink.reset(new ResultFileSinkOperatorX(
+                    row_desc, thrift_sink.result_file_sink, params.destinations,
+                    send_query_statistics_with_every_batch, output_exprs, desc_tbl));
+        } else {
+            _sink.reset(new ResultFileSinkOperatorX(row_desc, output_exprs));
+        }
         break;
     }
     case TDataSinkType::MULTI_CAST_DATA_STREAM_SINK: {

@@ -59,8 +59,8 @@ ResultFileSinkOperatorX::ResultFileSinkOperatorX(const RowDescriptor& row_desc,
           _is_top_sink(true) {}
 
 ResultFileSinkOperatorX::ResultFileSinkOperatorX(
-        RuntimeState* state, ObjectPool* pool, int sender_id, const RowDescriptor& row_desc,
-        const TResultFileSink& sink, const std::vector<TPlanFragmentDestination>& destinations,
+        const RowDescriptor& row_desc, const TResultFileSink& sink,
+        const std::vector<TPlanFragmentDestination>& destinations,
         bool send_query_statistics_with_every_batch, const std::vector<TExpr>& t_output_expr,
         DescriptorTbl& descs)
         : DataSinkOperatorX(0),

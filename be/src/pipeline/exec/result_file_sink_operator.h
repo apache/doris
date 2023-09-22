@@ -55,7 +55,7 @@ public:
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
 
-    int sender_id() { return _sender_id; }
+    int sender_id() const { return _sender_id; }
 
     RuntimeProfile::Counter* brpc_wait_timer() { return _brpc_wait_timer; }
 
@@ -80,8 +80,7 @@ private:
 class ResultFileSinkOperatorX final : public DataSinkOperatorX<ResultFileSinkLocalState> {
 public:
     ResultFileSinkOperatorX(const RowDescriptor& row_desc, const std::vector<TExpr>& t_output_expr);
-    ResultFileSinkOperatorX(RuntimeState* state, ObjectPool* pool, int sender_id,
-                            const RowDescriptor& row_desc, const TResultFileSink& sink,
+    ResultFileSinkOperatorX(const RowDescriptor& row_desc, const TResultFileSink& sink,
                             const std::vector<TPlanFragmentDestination>& destinations,
                             bool send_query_statistics_with_every_batch,
                             const std::vector<TExpr>& t_output_expr, DescriptorTbl& descs);
