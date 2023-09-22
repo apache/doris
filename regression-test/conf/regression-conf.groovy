@@ -46,11 +46,11 @@ dataPath = "${DORIS_HOME}/regression-test/data"
 pluginPath = "${DORIS_HOME}/regression-test/plugins"
 realDataPath = "${DORIS_HOME}/regression-test/realdata"
 sslCertificatePath = "${DORIS_HOME}/regression-test/ssl_default_certificate"
-dorisComposePath = "${DORIS_HOME}/docker/runtime/doris-compose/doris-compose.py"
 
 // docker image
 image = ""
-dockerEndDeleteFiles=true
+dockerEndDeleteFiles = false
+dorisComposePath = "${DORIS_HOME}/docker/runtime/doris-compose/doris-compose.py"
 
 // will test <group>/<suite>.groovy
 // empty group will test all group
@@ -58,7 +58,7 @@ testGroups = ""
 // empty suite will test all suite
 testSuites = ""
 // empty directories will test all directories
-testDirectories = ""
+testDirectories = "chaos"
 
 // this groups will not be executed
 excludeGroups = ""
