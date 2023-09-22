@@ -56,7 +56,6 @@ import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
 
-import com.amazonaws.services.paymentcryptographydata.model.SessionKeyVisa;
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
