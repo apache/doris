@@ -108,4 +108,58 @@ select k1,bitmap_union(uuid) from hive_bitmap_table group by k1
 
 ## Hive Bitmap import into Doris
 
+<version since="2.0.2">
+
+### Method 1：Catalog (recommended)
+
+</version>
+
+When create a Hive table in the format specified as TEXT, for Binary type, Hive will be saved as a bash64 encoded string. Therefore, the binary data can be directly saved as Bitmap through bitmap_from_base64 function by using  Doris's Hive Catalog.
+
+Here is a full example:
+
+1. Creating Hive Tables in Hive
+
+```sql
+CREATE TABLE IF NOT EXISTS `test`.`hive_bitmap_table`(
+`k1`   int       COMMENT '',
+`k2`   String    COMMENT '',
+`k3`   String    COMMENT '',
+`uuid` binary    COMMENT 'bitmap'
+) stored as textfile 
+```
+
+2. [Creating a Catalog in Doris](../lakehouse/multi-catalog/hive)
+
+```sql
+CREATE CATALOG hive PROPERTIES (
+    'type'='hms',
+    'hive.metastore.uris' = 'thrift://127.0.0.1:9083'
+);
+```
+
+3. Create Doris internal table
+
+```sql
+CREATE TABLE IF NOT EXISTS `test`.`doris_bitmap_table`(
+    `k1`   int                   COMMENT '',
+    `k2`   String                COMMENT '',
+    `k3`   String                COMMENT '',
+    `uuid` BITMAP  BITMAP_UNION  COMMENT 'bitmap'
+)
+AGGREGATE KEY(k1, k2, k3)
+DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
+PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1"
+);
+```
+
+4. Inserting data from Hive into Doris
+
+```sql
+insert into doris_bitmap_table select k1, k2, k3, bitmap_from_base64(uuid) from hive.test.hive_bitmap_table;
+```
+
+### Method 2：Spark Load
+
  see details: [Spark Load](../data-operate/import/import-way/spark-load-manual.md) -> Basic operation -> Create load(Example 3: when the upstream data source is hive binary type table)
