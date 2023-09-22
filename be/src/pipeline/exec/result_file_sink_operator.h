@@ -44,10 +44,10 @@ public:
 };
 
 class ResultFileSinkOperatorX;
-class ResultSinkLocalState;
-class ResultFileSinkLocalState final : public AsyncWriterSink<vectorized::VFileResultWriter> {
+class ResultFileSinkLocalState final
+        : public AsyncWriterSink<vectorized::VFileResultWriter, ResultFileSinkOperatorX> {
 public:
-    using Base = AsyncWriterSink<vectorized::VFileResultWriter>;
+    using Base = AsyncWriterSink<vectorized::VFileResultWriter, ResultFileSinkOperatorX>;
     ENABLE_FACTORY_CREATOR(ResultFileSinkLocalState);
     ResultFileSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
 
@@ -86,6 +86,9 @@ public:
                             const std::vector<TExpr>& t_output_expr, DescriptorTbl& descs);
     Status init(const TDataSink& thrift_sink) override;
 
+    Status prepare(RuntimeState* state) override;
+    Status open(RuntimeState* state) override;
+
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
 
@@ -95,6 +98,8 @@ public:
 
 private:
     friend class ResultFileSinkLocalState;
+    template <typename Writer, typename Parent>
+    friend class AsyncWriterSink;
 
     const RowDescriptor& _row_desc;
     const std::vector<TExpr>& _t_output_expr;
@@ -112,6 +117,8 @@ private:
     bool _is_top_sink = true;
     std::string _header;
     std::string _header_type;
+
+    vectorized::VExprContextSPtrs _output_vexpr_ctxs;
 };
 
 } // namespace pipeline

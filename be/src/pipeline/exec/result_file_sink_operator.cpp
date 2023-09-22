@@ -46,9 +46,7 @@ ResultFileSinkOperator::ResultFileSinkOperator(OperatorBuilderBase* operator_bui
 
 ResultFileSinkLocalState::ResultFileSinkLocalState(DataSinkOperatorXBase* parent,
                                                    RuntimeState* state)
-        : AsyncWriterSink<vectorized::VFileResultWriter>(
-                  parent, state, parent->cast<ResultFileSinkOperatorX>()._row_desc,
-                  parent->cast<ResultFileSinkOperatorX>()._t_output_expr),
+        : AsyncWriterSink<vectorized::VFileResultWriter, ResultFileSinkOperatorX>(parent, state),
           _serializer(this) {}
 
 ResultFileSinkOperatorX::ResultFileSinkOperatorX(const RowDescriptor& row_desc,
@@ -84,7 +82,20 @@ Status ResultFileSinkOperatorX::init(const TDataSink& tsink) {
     _header_type = sink.header_type;
     _header = sink.header;
 
+    // From the thrift expressions create the real exprs.
+    RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));
+
     return Status::OK();
+}
+
+Status ResultFileSinkOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<ResultFileSinkLocalState>::prepare(state));
+    return vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc);
+}
+
+Status ResultFileSinkOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<ResultFileSinkLocalState>::open(state));
+    return vectorized::VExpr::open(_output_vexpr_ctxs, state);
 }
 
 Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
@@ -95,7 +106,6 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
 
     _brpc_wait_timer = ADD_TIMER(_profile, "BrpcSendTime.Wait");
     auto& p = _parent->cast<ResultFileSinkOperatorX>();
-    RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));
     CHECK(p._file_opts.get() != nullptr);
     if (p._is_top_sink) {
         // create sender
@@ -136,6 +146,7 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
         }
         _only_local_exchange = local_size == _channels.size();
     }
+    _writer->set_dependency(_async_writer_dependency.get());
     _writer->set_header_info(p._header_type, p._header);
     return Status::OK();
 }

@@ -552,7 +552,7 @@ public:
     virtual bool should_dry_run(RuntimeState* state) { return false; }
 
 protected:
-    template <typename Writer>
+    template <typename Writer, typename Parent>
     friend class AsyncWriterSink;
 
     const int _id;
@@ -678,20 +678,20 @@ public:
     [[nodiscard]] virtual bool need_more_input_data(RuntimeState* state) const = 0;
 };
 
-template <typename Writer>
+template <typename Writer, typename Parent>
 class AsyncWriterSink : public PipelineXSinkLocalState<> {
 public:
-    AsyncWriterSink(DataSinkOperatorXBase* parent, RuntimeState* state,
-                    const RowDescriptor& row_desc, const std::vector<TExpr>& t_exprs)
-            : PipelineXSinkLocalState<>(parent, state),
-              _t_output_expr(t_exprs),
-              _row_desc(row_desc) {}
+    AsyncWriterSink(DataSinkOperatorXBase* parent, RuntimeState* state)
+            : PipelineXSinkLocalState<>(parent, state), _async_writer_dependency(nullptr) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override {
         RETURN_IF_ERROR(PipelineXSinkLocalState<>::init(state, info));
-        // From the thrift expressions create the real exprs.
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));
-        RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
+        _output_vexpr_ctxs.resize(_parent->cast<Parent>()._output_vexpr_ctxs.size());
+        for (size_t i = 0; i < _output_vexpr_ctxs.size(); i++) {
+            RETURN_IF_ERROR(_parent->cast<Parent>()._output_vexpr_ctxs[i]->clone(
+                    state, _output_vexpr_ctxs[i]));
+        }
+
         _writer.reset(new Writer(info.tsink, _output_vexpr_ctxs));
         _async_writer_dependency = AsyncWriterDependency::create_shared(_parent->id());
         _writer->set_dependency(_async_writer_dependency.get());
@@ -700,8 +700,6 @@ public:
 
     Status open(RuntimeState* state) override {
         RETURN_IF_ERROR(PipelineXSinkLocalState<>::open(state));
-        // Prepare the exprs to run.
-        RETURN_IF_ERROR(vectorized::VExpr::open(_output_vexpr_ctxs, state));
         _writer->start_writer(state, _profile);
         return Status::OK();
     }
@@ -735,10 +733,8 @@ public:
     bool is_pending_finish() { return _writer->is_pending_finish(); }
 
 protected:
-    const std::vector<TExpr>& _t_output_expr;
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
     std::unique_ptr<Writer> _writer;
-    const RowDescriptor& _row_desc;
 
     std::shared_ptr<AsyncWriterDependency> _async_writer_dependency;
 };

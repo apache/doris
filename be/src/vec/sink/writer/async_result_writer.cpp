@@ -33,7 +33,7 @@ class TExpr;
 namespace vectorized {
 
 AsyncResultWriter::AsyncResultWriter(const doris::vectorized::VExprContextSPtrs& output_expr_ctxs)
-        : _vec_output_expr_ctxs(output_expr_ctxs) {};
+        : _vec_output_expr_ctxs(output_expr_ctxs), _dependency(nullptr) {};
 
 Status AsyncResultWriter::sink(Block* block, bool eos) {
     auto rows = block->rows();
@@ -163,6 +163,7 @@ std::unique_ptr<Block> AsyncResultWriter::_get_free_block(doris::vectorized::Blo
 
 pipeline::WriteDependency* AsyncResultWriter::write_blocked_by() {
     std::lock_guard l(_m);
+    DCHECK(_dependency != nullptr);
     return _dependency->write_blocked_by();
 }
 
