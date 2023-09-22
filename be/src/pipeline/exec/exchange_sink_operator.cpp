@@ -340,7 +340,6 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         } else {
             vectorized::BroadcastPBlockHolder* block_holder = nullptr;
             RETURN_IF_ERROR(local_state.get_next_available_buffer(&block_holder));
-            local_state._broadcast_dependency->take_available_block();
             {
                 SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
                 bool serialized = false;
@@ -356,17 +355,21 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                         block_holder->get_block()->Clear();
                     }
                     Status status;
+                    bool sent = false;
                     for (auto channel : local_state.channels) {
                         if (!channel->is_receiver_eof()) {
                             if (channel->is_local()) {
                                 status = channel->send_local_block(&cur_block);
                             } else {
                                 SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-                                status = channel->send_block(block_holder,
+                                status = channel->send_block(block_holder, &sent,
                                                              source_state == SourceState::FINISHED);
                             }
                             HANDLE_CHANNEL_STATUS(state, channel, status);
                         }
+                    }
+                    if (sent) {
+                        local_state._broadcast_dependency->take_available_block();
                     }
                     cur_block.clear_column_data();
                     local_state._serializer.get_block()->set_muatable_columns(
