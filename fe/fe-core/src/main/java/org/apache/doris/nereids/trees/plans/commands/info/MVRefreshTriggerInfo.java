@@ -28,13 +28,14 @@ import java.util.Objects;
  * refresh trigger info in mtmv
  */
 public class MVRefreshTriggerInfo {
-    @SerializedName("refreshTrigger")
+    @SerializedName("rt")
     private RefreshTrigger refreshTrigger;
-    @SerializedName("intervalTrigger")
+    @SerializedName("it")
     private MVRefreshSchedule intervalTrigger;
 
     // For deserialization
-    public MVRefreshTriggerInfo() {}
+    public MVRefreshTriggerInfo() {
+    }
 
     public MVRefreshTriggerInfo(RefreshTrigger trigger) {
         this(trigger, null);
@@ -47,6 +48,7 @@ public class MVRefreshTriggerInfo {
 
     /**
      * getRefreshTrigger
+     *
      * @return RefreshTrigger
      */
     public RefreshTrigger getRefreshTrigger() {
@@ -55,6 +57,7 @@ public class MVRefreshTriggerInfo {
 
     /**
      * getIntervalTrigger
+     *
      * @return MVRefreshSchedule
      */
     public MVRefreshSchedule getIntervalTrigger() {
@@ -71,5 +74,15 @@ public class MVRefreshTriggerInfo {
             }
             intervalTrigger.validate();
         }
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder builder = new StringBuilder("ON ");
+        builder.append(refreshTrigger);
+        if (intervalTrigger != null) {
+            builder.append(intervalTrigger);
+        }
+        return builder.toString();
     }
 }

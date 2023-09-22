@@ -28,9 +28,9 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshInfo.BuildMode;
 import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshInfo.RefreshTrigger;
 import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshSchedule;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.scheduler.constants.JobCategory;
-import org.apache.doris.scheduler.executor.SqlJobExecutor;
 import org.apache.doris.scheduler.job.Job;
 
 import org.apache.commons.lang3.StringUtils;
@@ -40,9 +40,10 @@ import java.util.UUID;
 
 public class MTMVJobManager {
 
-    public static void refreshMTMV(String dbName, String mvName) throws DdlException, MetaNotFoundException {
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
-        MaterializedView mv = (MaterializedView) db.getTableOrMetaException(mvName, TableType.MATERIALIZED_VIEW);
+    public static void refreshMTMV(TableNameInfo mvName) throws DdlException, MetaNotFoundException {
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(mvName.getDb());
+        MaterializedView mv = (MaterializedView) db
+                .getTableOrMetaException(mvName.getTbl(), TableType.MATERIALIZED_VIEW);
         createOnceJob(mv);
     }
 
@@ -56,14 +57,13 @@ public class MTMVJobManager {
     }
 
     private static void createOnceJob(MaterializedView materializedView) throws DdlException {
-        SqlJobExecutor sqlJobExecutor = new SqlJobExecutor(generateSql(materializedView));
         String uid = UUID.randomUUID().toString().replace("-", "_");
         Job job = new Job();
         job.setCycleJob(false);
         job.setBaseName(materializedView.getName());
         job.setDbName(ConnectContext.get().getDatabase());
         job.setJobName(materializedView.getName() + "_" + uid);
-        job.setExecutor(sqlJobExecutor);
+        job.setExecutor(generateJobExecutor(materializedView));
         job.setImmediatelyStart(true);
         job.setUser(ConnectContext.get().getQualifiedUser());
         job.setComment("mvName:" + materializedView.getName());
@@ -72,14 +72,13 @@ public class MTMVJobManager {
     }
 
     private static void createCycleJob(MaterializedView materializedView) throws DdlException {
-        SqlJobExecutor sqlJobExecutor = new SqlJobExecutor(generateSql(materializedView));
         String uid = UUID.randomUUID().toString().replace("-", "_");
         Job job = new Job();
         job.setCycleJob(true);
         job.setBaseName(materializedView.getName());
         job.setDbName(ConnectContext.get().getDatabase());
         job.setJobName(materializedView.getName() + "_" + uid);
-        job.setExecutor(sqlJobExecutor);
+        job.setExecutor(generateJobExecutor(materializedView));
         MVRefreshSchedule intervalTrigger = materializedView.getRefreshTriggerInfo().getIntervalTrigger();
         job.setIntervalUnit(intervalTrigger.getTimeUnit());
         job.setOriginInterval(intervalTrigger.getInterval());
@@ -117,5 +116,15 @@ public class MTMVJobManager {
         builder.append(" ");
         builder.append(materializedView.getQuerySql());
         return builder.toString();
+    }
+
+    private static MTMVJobExecutor generateJobExecutor(MaterializedView materializedView) {
+        return new MTMVJobExecutor(materializedView.getQualifiedDbName(), materializedView.getName(),
+                generateSql(materializedView));
+    }
+
+    public static void alterMTMV(MaterializedView materializedView) throws DdlException {
+        dropMTMV(materializedView);
+        createMTMV(materializedView);
     }
 }

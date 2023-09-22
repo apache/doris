@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.OlapTableFactory.MaterializedViewParams;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshInfo.BuildMode;
 import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshInfo.RefreshMethod;
 import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshTriggerInfo;
@@ -34,18 +35,20 @@ import java.util.List;
 
 
 public class MaterializedView extends OlapTable {
-    @SerializedName("buildMode")
+    @SerializedName("bm")
     private BuildMode buildMode;
-    @SerializedName("refreshMethod")
+    @SerializedName("rm")
     private RefreshMethod refreshMethod;
-    @SerializedName("refreshTriggerInfo")
+    @SerializedName("rti")
     private MVRefreshTriggerInfo refreshTriggerInfo;
-    @SerializedName("querySql")
+    @SerializedName("qs")
     private String querySql;
-    @SerializedName("originSql")
-    private String originSql;
-    @SerializedName("baseTables")
+    @SerializedName("bt")
     private List<BaseTableInfo> baseTables = Lists.newArrayList();
+    @SerializedName("s")
+    private MTMVStatus status;
+    @SerializedName("a")
+    private boolean active;
 
     // For deserialization
     public MaterializedView() {
@@ -66,7 +69,6 @@ public class MaterializedView extends OlapTable {
         refreshMethod = params.refreshMethod;
         querySql = params.querySql;
         refreshTriggerInfo = params.refreshTriggerInfo;
-        originSql = params.originSql;
         for (TableIf tableIf : params.baseTables) {
             baseTables.add(transferTableIfToBaseTableInfo(tableIf));
         }
@@ -93,12 +95,52 @@ public class MaterializedView extends OlapTable {
         return querySql;
     }
 
-    public String getOriginSql() {
-        return originSql;
-    }
-
     public List<BaseTableInfo> getBaseTables() {
         return baseTables;
+    }
+
+    public void setBuildMode(BuildMode buildMode) {
+        this.buildMode = buildMode;
+    }
+
+    public void setRefreshMethod(RefreshMethod refreshMethod) {
+        this.refreshMethod = refreshMethod;
+    }
+
+    public void setRefreshTriggerInfo(MVRefreshTriggerInfo refreshTriggerInfo) {
+        this.refreshTriggerInfo = refreshTriggerInfo;
+    }
+
+    public MTMVStatus getStatus() {
+        return status;
+    }
+
+    public void setStatus(MTMVStatus status) {
+        this.status = status;
+    }
+
+    public boolean isActive() {
+        return active;
+    }
+
+    public void setActive(boolean active) {
+        this.active = active;
+    }
+
+    public String toSql() {
+        // TODO: 2023/9/21 more info
+        StringBuilder builder = new StringBuilder();
+        builder.append("CREATE MATERIALIZED VIEW ");
+        builder.append(name);
+        builder.append(" ");
+        builder.append(buildMode);
+        builder.append(" REFRESH");
+        builder.append(refreshMethod);
+        builder.append(" ");
+        builder.append(refreshTriggerInfo);
+        builder.append(" AS ");
+        builder.append(querySql);
+        return querySql;
     }
 
     @Override
@@ -115,8 +157,9 @@ public class MaterializedView extends OlapTable {
         refreshMethod = materializedView.refreshMethod;
         refreshTriggerInfo = materializedView.refreshTriggerInfo;
         querySql = materializedView.querySql;
-        originSql = materializedView.originSql;
         baseTables = materializedView.baseTables;
+        status = materializedView.status;
+        active = materializedView.active;
     }
 
 }

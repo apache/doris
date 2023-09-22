@@ -26,6 +26,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -62,13 +63,13 @@ public class CreateMTMVInfo {
 
     private final LogicalPlan logicalQuery;
     private final String querySql;
-    private final String originSql;
 
     private final BuildMode buildMode;
     private final RefreshMethod refreshMethod;
     private final MVRefreshTriggerInfo refreshTriggerInfo;
     private final List<TableIf> baseTables = Lists.newArrayList();
     private final List<ColumnDefinition> columns = Lists.newArrayList();
+    private final List<SimpleColumnDefinition> simpleColumnDefinitions;
 
     /**
      * constructor for create MTMV
@@ -76,9 +77,10 @@ public class CreateMTMVInfo {
     public CreateMTMVInfo(boolean ifNotExists, String dbName, String tableName,
             List<String> keys, String comment,
             DistributionDescriptor distribution, Map<String, String> properties,
-            LogicalPlan logicalQuery, String querySql, String originSql,
+            LogicalPlan logicalQuery, String querySql,
             BuildMode buildMode, RefreshMethod refreshMethod,
-            MVRefreshTriggerInfo refreshTriggerInfo) {
+            MVRefreshTriggerInfo refreshTriggerInfo,
+            List<SimpleColumnDefinition> simpleColumnDefinitions) {
         this.ifNotExists = Objects.requireNonNull(ifNotExists, "require ifNotExists object");
         this.dbName = dbName;
         this.tableName = Objects.requireNonNull(tableName, "require tableName object");
@@ -88,21 +90,28 @@ public class CreateMTMVInfo {
         this.properties = properties;
         this.logicalQuery = Objects.requireNonNull(logicalQuery, "require logicalQuery object");
         this.querySql = Objects.requireNonNull(querySql, "require querySql object");
-        this.originSql = Objects.requireNonNull(originSql, "require originSql object");
         this.buildMode = Objects.requireNonNull(buildMode, "require buildMode object");
         this.refreshMethod = Objects.requireNonNull(refreshMethod, "require refreshMethod object");
         this.refreshTriggerInfo = Objects.requireNonNull(refreshTriggerInfo, "require refreshTriggerInfo object");
+        this.simpleColumnDefinitions = simpleColumnDefinitions;
     }
 
     /**
      * analyze create table info
      */
     public void analyze(ConnectContext ctx) {
-        analyzeQuery(ctx);
-        // pre-block in some cases.
-        if (columns.isEmpty()) {
-            throw new AnalysisException("table should contain at least one column");
+        // analyze table name
+        if (dbName == null) {
+            dbName = ClusterNamespace.getFullName(ctx.getClusterName(), ctx.getDatabase());
+        } else {
+            dbName = ClusterNamespace.getFullName(ctx.getClusterName(), dbName);
         }
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), dbName,
+                tableName, PrivPredicate.CREATE)) {
+            throw new AnalysisException("Access denied");
+        }
+
+        analyzeQuery(ctx);
         // analyze column
         final boolean finalEnableMergeOnWrite = false;
         Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
@@ -117,12 +126,6 @@ public class CreateMTMVInfo {
             properties = Maps.newHashMap();
         }
 
-        // analyze table name
-        if (dbName == null) {
-            dbName = ClusterNamespace.getFullName(ctx.getClusterName(), ctx.getDatabase());
-        } else {
-            dbName = ClusterNamespace.getFullName(ctx.getClusterName(), dbName);
-        }
         // analyze distribute
         Map<String, ColumnDefinition> columnMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         columns.forEach(c -> columnMap.put(c.getName(), c));
@@ -147,20 +150,31 @@ public class CreateMTMVInfo {
     }
 
     private void getColumns(NereidsPlanner planner) {
-        Set<String> colNames = Sets.newHashSet();
         List<Slot> slots = planner.getOptimizedPlan().getOutput();
-        for (Slot slot : slots) {
+        // pre-block in some cases.
+        if (columns.isEmpty()) {
+            throw new AnalysisException("table should contain at least one column");
+        }
+        if (simpleColumnDefinitions != null && simpleColumnDefinitions.size() != slots.size()) {
+            throw new AnalysisException("simpleColumnDefinitions size is not equal to the query's");
+        }
+        Set<String> colNames = Sets.newHashSet();
+        for (int i = 0; i < slots.size(); i++) {
+            String colName = simpleColumnDefinitions == null ? slots.get(i).getName()
+                    : simpleColumnDefinitions.get(i).getName();
             try {
-                FeNameFormat.checkColumnName(slot.getName());
+                FeNameFormat.checkColumnName(colName);
             } catch (org.apache.doris.common.AnalysisException e) {
-                throw new AnalysisException(e.getMessage() + ", please use alis.");
+                throw new AnalysisException(e.getMessage());
             }
-            if (colNames.contains(slot.getName())) {
-                throw new AnalysisException("repeat cols:" + slot.getName());
+            if (colNames.contains(colName)) {
+                throw new AnalysisException("repeat cols:" + colName);
             } else {
-                colNames.add(slot.getName());
+                colNames.add(colName);
             }
-            columns.add(new ColumnDefinition(slot.getName(), slot.getDataType(), true));
+            columns.add(new ColumnDefinition(
+                    colName, slots.get(i).getDataType(), true,
+                    simpleColumnDefinitions == null ? null : simpleColumnDefinitions.get(i).getComment()));
         }
     }
 
@@ -177,6 +191,6 @@ public class CreateMTMVInfo {
                 refreshMethod,
                 keysDesc,
                 distribution.translateToCatalogStyle(), properties, querySql, refreshTriggerInfo, baseTables,
-                originSql, comment);
+                comment);
     }
 }

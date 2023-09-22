@@ -69,7 +69,6 @@ import org.apache.doris.analysis.PartitionRenameClause;
 import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
-import org.apache.doris.analysis.RefreshMaterializedViewStmt;
 import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.RollupRenameClause;
@@ -171,9 +170,13 @@ import org.apache.doris.master.MetaHelper;
 import org.apache.doris.master.PartitionInMemoryInfoCollector;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
+import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.AutoIncrementIdUpdateLog;
 import org.apache.doris.persist.BackendReplicasInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
@@ -2934,7 +2937,7 @@ public class Env {
 
         if (table.getType() == TableType.MATERIALIZED_VIEW) {
             MaterializedView materializedView = (MaterializedView) table;
-            createTableStmt.add(materializedView.getOriginSql() + ";");
+            createTableStmt.add(materializedView.toSql() + ";");
             return;
         }
 
@@ -4017,8 +4020,19 @@ public class Env {
         this.alter.processDropMaterializedView(stmt);
     }
 
-    public void refreshMaterializedView(RefreshMaterializedViewStmt stmt) throws DdlException, MetaNotFoundException {
-        this.alter.processRefreshMaterializedView(stmt);
+    public void refreshMTMV(RefreshMTMVInfo info) throws DdlException, MetaNotFoundException {
+        this.alter.processRefreshMaterializedView(info);
+    }
+
+    public void alterMTMV(AlterMTMVInfo info) throws UserException {
+        AlterMTMV alter = new AlterMTMV(info.getMvName(), info.getBuildMode(), info.getRefreshMethod(),
+                info.getRefreshTriggerInfo());
+        this.alter.processAlterMTMV(alter, false);
+    }
+
+    public void alterMTMVStatus(MTMVStatus status) throws UserException {
+        AlterMTMV alter = new AlterMTMV(status);
+        this.alter.processAlterMTMV(alter, false);
     }
 
     /*

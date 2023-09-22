@@ -31,6 +31,7 @@ import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.AggClauseContext;
 import org.apache.doris.nereids.DorisParser.AliasQueryContext;
 import org.apache.doris.nereids.DorisParser.AliasedQueryContext;
+import org.apache.doris.nereids.DorisParser.AlterMTMVContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticBinaryContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticUnaryContext;
 import org.apache.doris.nereids.DorisParser.ArrayLiteralContext;
@@ -119,6 +120,7 @@ import org.apache.doris.nereids.DorisParser.QualifiedNameContext;
 import org.apache.doris.nereids.DorisParser.QueryContext;
 import org.apache.doris.nereids.DorisParser.QueryOrganizationContext;
 import org.apache.doris.nereids.DorisParser.QueryTermContext;
+import org.apache.doris.nereids.DorisParser.RefreshMTMVContext;
 import org.apache.doris.nereids.DorisParser.RefreshMethodContext;
 import org.apache.doris.nereids.DorisParser.RefreshScheduleContext;
 import org.apache.doris.nereids.DorisParser.RefreshTriggerContext;
@@ -131,6 +133,8 @@ import org.apache.doris.nereids.DorisParser.SelectClauseContext;
 import org.apache.doris.nereids.DorisParser.SelectColumnClauseContext;
 import org.apache.doris.nereids.DorisParser.SelectHintContext;
 import org.apache.doris.nereids.DorisParser.SetOperationContext;
+import org.apache.doris.nereids.DorisParser.SimpleColumnDefContext;
+import org.apache.doris.nereids.DorisParser.SimpleColumnDefsContext;
 import org.apache.doris.nereids.DorisParser.SingleStatementContext;
 import org.apache.doris.nereids.DorisParser.SortClauseContext;
 import org.apache.doris.nereids.DorisParser.SortItemContext;
@@ -289,6 +293,7 @@ import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
+import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
@@ -298,7 +303,9 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
@@ -315,8 +322,11 @@ import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshSchedule;
 import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshTriggerInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionDefinition.MaxValue;
+import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RollupDefinition;
+import org.apache.doris.nereids.trees.plans.commands.info.SimpleColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.StepPartition;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
@@ -453,7 +463,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         MVRefreshTriggerInfo refreshTriggerInfo = visitRefreshTrigger(ctx.refreshTrigger());
         LogicalPlan logicalPlan = visitQuery(ctx.query());
         String querySql = getOriginSql(ctx.query());
-        String originSql = getOriginSql(ctx);
 
         boolean isHash = ctx.HASH() != null || ctx.RANDOM() == null;
         int bucketNum = FeConstants.default_bucket_num;
@@ -468,9 +477,25 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return new CreateMTMVCommand(new CreateMTMVInfo(ctx.EXISTS() != null, dbName, tableName,
                 ctx.keys != null ? visitIdentifierList(ctx.keys) : ImmutableList.of(),
                 ctx.STRING_LITERAL() != null ? ctx.STRING_LITERAL().getText() : null,
-                desc, properties, logicalPlan, querySql, originSql, buildMode, refreshMethod,
-                refreshTriggerInfo
+                desc, properties, logicalPlan, querySql, buildMode, refreshMethod,
+                refreshTriggerInfo, visitSimpleColumnDefs(ctx.cols)
         ));
+    }
+
+    @Override
+    public List<SimpleColumnDefinition> visitSimpleColumnDefs(SimpleColumnDefsContext ctx) {
+        if (ctx == null) {
+            return null;
+        }
+        return ctx.cols.stream()
+                .map(this::visitSimpleColumnDef)
+                .collect(ImmutableList.toImmutableList());
+    }
+
+    @Override
+    public SimpleColumnDefinition visitSimpleColumnDef(SimpleColumnDefContext ctx) {
+        return new SimpleColumnDefinition(ctx.colName.getText().toLowerCase(),
+                ctx.STRING_LITERAL() != null ? ctx.STRING_LITERAL().getText() : null);
     }
 
     /**
@@ -524,6 +549,24 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return BuildMode.IMMEDIATE;
         }
         throw new ParseException("not support", ctx);
+    }
+
+    @Override
+    public RefreshMTMVCommand visitRefreshMTMV(RefreshMTMVContext ctx) {
+        List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
+        return new RefreshMTMVCommand(new RefreshMTMVInfo(new TableNameInfo(nameParts)));
+    }
+
+    @Override
+    public AlterMTMVCommand visitAlterMTMV(AlterMTMVContext ctx) {
+        List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
+
+        BuildMode buildMode = visitBuildMode(ctx.buildMode());
+        RefreshMethod refreshMethod = visitRefreshMethod(ctx.refreshMethod());
+        MVRefreshTriggerInfo refreshTriggerInfo = visitRefreshTrigger(ctx.refreshTrigger());
+        //todo originSql
+        return new AlterMTMVCommand(
+                new AlterMTMVInfo(new TableNameInfo(nameParts), buildMode, refreshMethod, refreshTriggerInfo));
     }
 
     @Override

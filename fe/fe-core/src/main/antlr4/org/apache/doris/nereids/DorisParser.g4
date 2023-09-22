@@ -69,13 +69,17 @@ statement
         TO filePath=STRING_LITERAL
         (propertyClause)?
         (withRemoteStorageSystem)?                                     #export
-    | CREATE MATERIALIZED VIEW (IF NOT EXISTS)? mvName=multipartIdentifier buildMode
+    | CREATE MATERIALIZED VIEW (IF NOT EXISTS)? mvName=multipartIdentifier
+        (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)? buildMode
         REFRESH refreshMethod refreshTrigger
         (KEY keys=identifierList)?
         (COMMENT STRING_LITERAL)?
         (DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM) (BUCKETS INTEGER_VALUE | AUTO)?)?
         propertyClause?
         AS query                                                        #createMTMV
+    | REFRESH MATERIALIZED VIEW mvName=multipartIdentifier              #refreshMTMV
+    | ALTER MATERIALIZED VIEW mvName=multipartIdentifier buildMode
+      REFRESH refreshMethod refreshTrigger                              #alterMTMV
     ;
 
 
@@ -355,7 +359,14 @@ multipartIdentifier
     ;
     
 // ----------------Create Table Fields----------
-    
+simpleColumnDefs
+    : cols+=simpleColumnDef (COMMA cols+=simpleColumnDef)*
+    ;
+
+simpleColumnDef
+    : colName=identifier (COMMENT comment=STRING_LITERAL)?
+    ;
+
 columnDefs
     : cols+=columnDef (COMMA cols+=columnDef)*
     ;

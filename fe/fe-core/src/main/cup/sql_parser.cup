@@ -50,7 +50,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Version;
 import org.apache.doris.mysql.MysqlPassword;
-import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshInfo;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.policy.PolicyTypeEnum;
 
@@ -1217,14 +1216,6 @@ refresh_stmt ::=
     | KW_REFRESH KW_DATABASE ident:ctl DOT ident:db opt_properties:properties
     {:
         RESULT = new RefreshDbStmt(ctl, db, properties);
-    :}
-    | KW_REFRESH KW_MATERIALIZED KW_VIEW table_name:mv
-    {:
-        RESULT = new RefreshMaterializedViewStmt(mv, MVRefreshInfo.RefreshMethod.COMPLETE);
-    :}
-    | KW_REFRESH KW_MATERIALIZED KW_VIEW table_name:mv KW_COMPLETE
-    {:
-        RESULT = new RefreshMaterializedViewStmt(mv, MVRefreshInfo.RefreshMethod.COMPLETE);
     :}
     | KW_REFRESH KW_CATALOG ident:catalogName opt_properties:properties
     {:

@@ -36,7 +36,6 @@ import java.util.UUID;
 
 /**
  * we use this executor to execute sql job
- *
  */
 @Slf4j
 public class SqlJobExecutor implements JobExecutor {
@@ -52,6 +51,7 @@ public class SqlJobExecutor implements JobExecutor {
 
     @Override
     public ExecutorResult<String> execute(Job job) throws JobException {
+        long taskStartTime = System.currentTimeMillis();
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setCluster(ClusterNamespace.getClusterNameFromFullName(job.getDbName()));
@@ -66,17 +66,20 @@ public class SqlJobExecutor implements JobExecutor {
         UUID taskId = UUID.fromString(taskIdString);
         TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
         ctx.setQueryId(queryId);
+        ExecutorResult executorResult;
         try {
             StmtExecutor executor = new StmtExecutor(ctx, sql);
             executor.execute(queryId);
             String result = convertExecuteResult(ctx, taskIdString);
 
-            return new ExecutorResult<>(result, true, null, sql);
+            executorResult = new ExecutorResult<>(result, true, null, sql);
         } catch (Exception e) {
             log.warn("execute sql job failed, sql: {}, error: {}", sql, e.getMessage());
-            return new ExecutorResult<>(null, false, e.getMessage(), sql);
+            executorResult = new ExecutorResult<>(null, false, e.getMessage(), sql);
         }
-
+        long taskEndTime = System.currentTimeMillis();
+        afterExecute(executorResult, taskStartTime, taskEndTime, job.getJobId());
+        return executorResult;
     }
 
     private String convertExecuteResult(ConnectContext ctx, String queryId) throws JobException {
@@ -90,5 +93,8 @@ public class SqlJobExecutor implements JobExecutor {
 
         return "queryId:" + queryId + ",affectedRows : " + ctx.getState().getAffectedRows() + ", warningRows: "
                 + ctx.getState().getWarningRows() + ",infoMsg" + ctx.getState().getInfoMessage();
+    }
+
+    protected void afterExecute(ExecutorResult result, long taskStartTime, long taskEndTime, long jobId) {
     }
 }

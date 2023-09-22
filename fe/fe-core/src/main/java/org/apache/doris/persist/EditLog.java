@@ -1079,6 +1079,11 @@ public class EditLog {
                     env.getAnalysisManager().replayPersistSysJob((AnalysisInfo) journal.getData());
                     break;
                 }
+                case OperationType.OP_ALTER_MTMV: {
+                    final AlterMTMV alterMtmv = (AlterMTMV) journal.getData();
+                    env.getAlterInstance().processAlterMTMV(alterMtmv, true);
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1899,6 +1904,10 @@ public class EditLog {
 
     public void logAutoJob(AnalysisInfo analysisInfo) {
         logEdit(OperationType.OP_PERSIST_AUTO_JOB, analysisInfo);
+    }
+
+    public void logAlterMTMV(AlterMTMV log) {
+        logEdit(OperationType.OP_ALTER_MTMV, log);
     }
 
 }

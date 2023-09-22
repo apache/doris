@@ -50,7 +50,6 @@ public class OlapTableFactory {
         public RefreshMethod refreshMethod;
         public MVRefreshTriggerInfo refreshTriggerInfo;
         public String querySql;
-        public String originSql;
         public List<TableIf> baseTables;
     }
 
@@ -141,14 +140,6 @@ public class OlapTableFactory {
         return this;
     }
 
-    public OlapTableFactory withOriginSql(String originSql) {
-        Preconditions.checkState(params instanceof MaterializedViewParams, "Invalid argument for "
-                + params.getClass().getSimpleName());
-        MaterializedViewParams materializedViewParams = (MaterializedViewParams) params;
-        materializedViewParams.originSql = originSql;
-        return this;
-    }
-
     private OlapTableFactory withBuildMode(BuildMode buildMode) {
         MaterializedViewParams materializedViewParams = (MaterializedViewParams) params;
         materializedViewParams.buildMode = buildMode;
@@ -189,7 +180,6 @@ public class OlapTableFactory {
             return withBuildMode(createMVStmt.getBuildMode())
                     .withRefreshMethod(createMVStmt.getRefreshMethod())
                     .withQuerySql(createMVStmt.getQuerySql())
-                    .withOriginSql(createMVStmt.getOriginSql())
                     .withMVRefreshTriggerInfo(createMVStmt.getRefreshTriggerInfo())
                     .withBaseTables(createMVStmt.getBaseTables());
         }

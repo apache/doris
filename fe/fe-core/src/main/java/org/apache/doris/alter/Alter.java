@@ -37,7 +37,6 @@ import org.apache.doris.analysis.ModifyPartitionClause;
 import org.apache.doris.analysis.ModifyTableCommentClause;
 import org.apache.doris.analysis.ModifyTablePropertiesClause;
 import org.apache.doris.analysis.PartitionRenameClause;
-import org.apache.doris.analysis.RefreshMaterializedViewStmt;
 import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.ReplaceTableClause;
 import org.apache.doris.analysis.RollupRenameClause;
@@ -47,6 +46,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MaterializedView;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
@@ -65,7 +65,9 @@ import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.mtmv.MTMVJobManager;
-import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshInfo.RefreshMethod;
+import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
+import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
 import org.apache.doris.persist.ModifyCommentOperationLog;
@@ -151,14 +153,9 @@ public class Alter {
         }
     }
 
-    public void processRefreshMaterializedView(RefreshMaterializedViewStmt stmt)
+    public void processRefreshMaterializedView(RefreshMTMVInfo info)
             throws DdlException, MetaNotFoundException {
-        if (stmt.getRefreshMethod() != RefreshMethod.COMPLETE) {
-            throw new DdlException("Now only support REFRESH COMPLETE.");
-        }
-        String db = stmt.getMvName().getDb();
-        String tbl = stmt.getMvName().getTbl();
-        MTMVJobManager.refreshMTMV(db, tbl);
+        MTMVJobManager.refreshMTMV(info.getMvName());
     }
 
     private boolean processAlterOlapTable(AlterTableStmt stmt, OlapTable olapTable, List<AlterClause> alterClauses,
@@ -856,5 +853,40 @@ public class Alter {
 
     public AlterHandler getClusterHandler() {
         return clusterHandler;
+    }
+
+    public void processAlterMTMV(AlterMTMV alterMTMV, boolean isReplay)
+            throws UserException {
+        TableNameInfo tbl = alterMTMV.getMvName();
+        MaterializedView mtmv = null;
+        try {
+            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(tbl.getDb());
+            mtmv = (MaterializedView) db.getTableOrMetaException(tbl.getTbl(), TableType.MATERIALIZED_VIEW);
+
+            mtmv.writeLock();
+            if (alterMTMV.getBuildMode() != null) {
+                mtmv.setBuildMode(alterMTMV.getBuildMode());
+            }
+            if (alterMTMV.getRefreshMethod() != null) {
+                mtmv.setRefreshMethod(alterMTMV.getRefreshMethod());
+            }
+            if (alterMTMV.getRefreshTriggerInfo() != null) {
+                mtmv.setRefreshTriggerInfo(alterMTMV.getRefreshTriggerInfo());
+            }
+            if (alterMTMV.getStatus() != null) {
+                mtmv.setStatus(alterMTMV.getStatus());
+            }
+            // 4. log it and replay it in the follower
+            if (!isReplay) {
+                if (alterMTMV.isNeedRebuildJob()) {
+                    MTMVJobManager.alterMTMV(mtmv);
+                }
+                Env.getCurrentEnv().getEditLog().logAlterMTMV(alterMTMV);
+            }
+        } finally {
+            if (mtmv != null) {
+                mtmv.writeUnlock();
+            }
+        }
     }
 }

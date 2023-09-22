@@ -867,6 +867,7 @@ struct TMetadataTableRequestParams {
   4: optional list<string> columns_name
   5: optional PlanNodes.TFrontendsMetadataParams frontends_metadata_params
   6: optional Types.TUserIdentity current_user_ident
+  7: optional PlanNodes.TMaterializedViewsMetadataParams materialized_views_metadata_params
 }
 
 struct TFetchSchemaTableDataRequest {

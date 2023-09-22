@@ -15,23 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog;
+package org.apache.doris.nereids.trees.plans.commands.info;
 
-import com.google.gson.annotations.SerializedName;
-import lombok.Data;
+/**
+ * column def for mv
+ */
+public class SimpleColumnDefinition {
+    private final String name;
+    private final String comment;
 
-@Data
-public class BaseTableInfo {
-    @SerializedName("t")
-    private long tableId;
-    @SerializedName("d")
-    private long dbId;
-    @SerializedName("c")
-    private long ctlId;
+    /**
+     * constructor
+     */
+    public SimpleColumnDefinition(String name, String comment) {
+        this.name = name;
+        this.comment = comment;
+    }
 
-    public BaseTableInfo(long tableId, long dbId, long ctlId) {
-        this.tableId = tableId;
-        this.dbId = dbId;
-        this.ctlId = ctlId;
+    public String getName() {
+        return name;
+    }
+
+    public String getComment() {
+        return comment;
     }
 }

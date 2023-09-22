@@ -33,14 +33,13 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
     private final RefreshMethod refreshMethod;
     private final MVRefreshTriggerInfo refreshTriggerInfo;
     private final String querySql;
-    private final String originSql;
     private final List<TableIf> baseTables;
 
     public CreateMultiTableMaterializedViewStmt(boolean ifNotExists, TableName mvName, List<Column> columns,
             BuildMode buildMode,
             RefreshMethod refreshMethod, KeysDesc keyDesc, DistributionDesc distributionDesc,
             Map<String, String> properties, String querySql, MVRefreshTriggerInfo refreshTriggerInfo,
-            List<TableIf> baseTables, String originSql, String comment) {
+            List<TableIf> baseTables, String comment) {
         super(ifNotExists, false, mvName, columns, new ArrayList<Index>(), DEFAULT_ENGINE_NAME, keyDesc, null,
                 distributionDesc, properties, null, comment, null, null);
         this.buildMode = buildMode;
@@ -48,7 +47,6 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
         this.refreshTriggerInfo = refreshTriggerInfo;
         this.refreshMethod = refreshMethod;
         this.baseTables = baseTables;
-        this.originSql = originSql;
     }
 
     public BuildMode getBuildMode() {
@@ -65,10 +63,6 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
 
     public String getQuerySql() {
         return querySql;
-    }
-
-    public String getOriginSql() {
-        return originSql;
     }
 
     public List<TableIf> getBaseTables() {

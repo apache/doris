@@ -18,6 +18,8 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MaterializedView;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
@@ -25,8 +27,12 @@ import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.HMSExternalCatalog;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.constants.HMSProperties;
+import org.apache.doris.mtmv.MTMVStatus;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.external.iceberg.IcebergMetadataCache;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TBackendsMetadataParams;
@@ -35,6 +41,7 @@ import org.apache.doris.thrift.TFetchSchemaTableDataRequest;
 import org.apache.doris.thrift.TFetchSchemaTableDataResult;
 import org.apache.doris.thrift.TIcebergMetadataParams;
 import org.apache.doris.thrift.TIcebergQueryType;
+import org.apache.doris.thrift.TMaterializedViewsMetadataParams;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMetadataType;
 import org.apache.doris.thrift.TRow;
@@ -91,6 +98,9 @@ public class MetadataGenerator {
                 break;
             case CATALOGS:
                 result = catalogsMetadataResult(params);
+                break;
+            case MATERIALIZED_VIEWS:
+                result = mtmvMetadataResult(params);
                 break;
             default:
                 return errorResult("Metadata table params is not set.");
@@ -390,6 +400,72 @@ public class MetadataGenerator {
             int year, int month, int day, int hour, int minute, int second, int microsecond) {
         return (long) microsecond | (long) second << 20 | (long) minute << 26 | (long) hour << 32
                 | (long) day << 37 | (long) month << 42 | (long) year << 46;
+    }
+
+    private static TFetchSchemaTableDataResult mtmvMetadataResult(TMetadataTableRequestParams params) {
+        if (!params.isSetMaterializedViewsMetadataParams()) {
+            return errorResult("MaterializedViews metadata params is not set.");
+        }
+
+        TMaterializedViewsMetadataParams mtmvMetadataParams = params.getMaterializedViewsMetadataParams();
+        String dbName = mtmvMetadataParams.getDatabase();
+        List<TRow> dataBatch = Lists.newArrayList();
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<Table> tables;
+        try {
+            tables = Env.getCurrentEnv().getCatalogMgr()
+                    .getCatalogOrAnalysisException(InternalCatalog.INTERNAL_CATALOG_NAME)
+                    .getDbOrAnalysisException(dbName).getTables();
+        } catch (AnalysisException e) {
+            return errorResult(e.getMessage());
+        }
+
+        for (Table table : tables) {
+            if (table instanceof MaterializedView) {
+                // check tbl privs
+                if (!Env.getCurrentEnv().getAccessManager()
+                        .checkTblPriv(ConnectContext.get(), dbName, table.getName(), PrivPredicate.SHOW)) {
+                    continue;
+                }
+                MaterializedView mv = (MaterializedView) table;
+                MTMVStatus status = mv.getStatus();
+                TRow trow = new TRow();
+                trow.addToColumnValue(new TCell().setLongVal(mv.getId()));
+                trow.addToColumnValue(new TCell().setStringVal(mv.getName()));
+                trow.addToColumnValue(new TCell().setBoolVal(mv.isActive()));
+                if (status != null) {
+                    trow.addToColumnValue(
+                            new TCell().setStringVal(TimeUtils.longToTimeString(status.getLastRefreshStartTime())));
+                    trow.addToColumnValue(
+                            new TCell().setStringVal(TimeUtils.longToTimeString(status.getLastRefreshFinishedTime())));
+                    trow.addToColumnValue(
+                            new TCell().setLongVal(
+                                    status.getLastRefreshFinishedTime() - status.getLastRefreshStartTime()));
+                    trow.addToColumnValue(
+                            new TCell().setStringVal(status.isLastRefreshState() ? "success" : "fail"));
+                    trow.addToColumnValue(
+                            new TCell().setStringVal(status.getLastRefreshErrorMsg()));
+                    trow.addToColumnValue(
+                            new TCell().setStringVal(status.getLastExecutorSql()));
+                    trow.addToColumnValue(new TCell().setLongVal(status.getLastRefreshJobId()));
+                    trow.addToColumnValue(
+                            new TCell().setStringVal(mv.toSql()));
+                } else {
+                    trow.addToColumnValue(new TCell().setStringVal("NULL"));
+                    trow.addToColumnValue(new TCell().setStringVal("NULL"));
+                    trow.addToColumnValue(new TCell().setLongVal(0L));
+                    trow.addToColumnValue(new TCell().setStringVal("NULL"));
+                    trow.addToColumnValue(new TCell().setStringVal("NULL"));
+                    trow.addToColumnValue(new TCell().setStringVal("NULL"));
+                    trow.addToColumnValue(new TCell().setLongVal(0L));
+                    trow.addToColumnValue(new TCell().setStringVal("NULL"));
+                }
+                dataBatch.add(trow);
+            }
+        }
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
     }
 }
 

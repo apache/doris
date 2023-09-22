@@ -30,11 +30,11 @@ import java.util.Objects;
  * refresh schedule in mtmv
  */
 public class MVRefreshSchedule {
-    @SerializedName("startTime")
+    @SerializedName("st")
     private String startTime;
-    @SerializedName("interval")
+    @SerializedName("i")
     private long interval;
-    @SerializedName("timeUnit")
+    @SerializedName("tu")
     private IntervalUnit timeUnit;
 
     // For deserialization
@@ -84,5 +84,18 @@ public class MVRefreshSchedule {
                 throw new AnalysisException("starts time must be greater than current time");
             }
         }
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder builder = new StringBuilder("EVERY ");
+        builder.append(interval);
+        builder.append(" ");
+        builder.append(timeUnit);
+        if (!StringUtils.isEmpty(startTime)) {
+            builder.append(" STARTS ");
+            builder.append(startTime);
+        }
+        return builder.toString();
     }
 }
