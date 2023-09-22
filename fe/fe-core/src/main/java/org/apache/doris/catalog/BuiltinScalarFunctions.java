@@ -56,7 +56,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAnd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNot;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNotAlias;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNotCount;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNotCountAlias;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapEmpty;
@@ -404,7 +406,9 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(BitmapAnd.class, "bitmap_and"),
             scalar(BitmapAndCount.class, "bitmap_and_count"),
             scalar(BitmapAndNot.class, "bitmap_and_not"),
+            scalar(BitmapAndNotAlias.class, "bitmap_andnot"),
             scalar(BitmapAndNotCount.class, "bitmap_and_not_count"),
+            scalar(BitmapAndNotCountAlias.class, "bitmap_andnot_count"),
             scalar(BitmapContains.class, "bitmap_contains"),
             scalar(BitmapCount.class, "bitmap_count"),
             scalar(BitmapEmpty.class, "bitmap_empty"),

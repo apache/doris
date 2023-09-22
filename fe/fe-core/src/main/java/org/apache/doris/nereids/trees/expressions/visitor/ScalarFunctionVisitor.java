@@ -60,7 +60,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAnd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNot;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNotAlias;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNotCount;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNotCountAlias;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapEmpty;
@@ -514,6 +516,14 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitBitmapAndNotCount(BitmapAndNotCount bitmapAndNotCount, C context) {
         return visitScalarFunction(bitmapAndNotCount, context);
+    }
+
+    default R visitBitmapAndNotAlias(BitmapAndNotAlias bitmapAndNotAlias, C context) {
+        return visitScalarFunction(bitmapAndNotAlias, context);
+    }
+
+    default R visitBitmapAndNotCountAlias(BitmapAndNotCountAlias bitmapAndNotCountAlias, C context) {
+        return visitScalarFunction(bitmapAndNotCountAlias, context);
     }
 
     default R visitBitmapContains(BitmapContains bitmapContains, C context) {
