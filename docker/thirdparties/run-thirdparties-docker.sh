@@ -131,6 +131,8 @@ RUN_ICEBERG=0
 RUN_HUDI=0
 RUN_TRINO=0
 RUN_KAFKA=0
+RUN_SPARK=0
+
 
 for element in "${COMPONENTS_ARR[@]}"; do
     if [[ "${element}"x == "mysql"x ]]; then
@@ -155,6 +157,8 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_HUDI=1
     elif [[ "${element}"x == "trino"x ]];then
         RUN_TRINO=1
+    elif [[ "${element}"x == "spark"x ]];then
+        RUN_SPARK=1
     else
         echo "Invalid component: ${element}"
         usage
@@ -282,6 +286,13 @@ if [[ "${RUN_HIVE}" -eq 1 ]]; then
     sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env down
     if [[ "${STOP}" -ne 1 ]]; then
         sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env up --build --remove-orphans -d
+    fi
+fi
+
+if [[ "${RUN_SPARK}" -eq 1 ]]; then
+    sudo docker compose -f "${ROOT}"/docker-compose/spark/spark.yaml down
+    if [[ "${STOP}" -ne 1 ]]; then
+        sudo docker compose -f "${ROOT}"/docker-compose/spark/spark.yaml up --build --remove-orphans -d
     fi
 fi
 
