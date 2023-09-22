@@ -26,11 +26,8 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
-
-import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Optional;
@@ -38,49 +35,26 @@ import java.util.Optional;
 /**
  * PushdownTopNThroughWindow push down the TopN through the Window and generate the PartitionTopN.
  */
-public class PushdownTopNThroughWindow implements RewriteRuleFactory {
+public class PushdownTopNThroughWindow extends OneRewriteRuleFactory {
     @Override
-    public List<Rule> buildRules() {
-        return ImmutableList.of(
-            // topn -> window
-            logicalTopN(logicalWindow()).then(topn -> {
-                LogicalWindow<Plan> window = topn.child();
-                ExprId windowExprId = getExprID4WindowFunc(window);
-                if (windowExprId == null) {
-                    return topn;
-                }
+    public Rule build() {
+        return logicalTopN(logicalWindow()).then(topn -> {
+            LogicalWindow<Plan> window = topn.child();
+            ExprId windowExprId = getExprID4WindowFunc(window);
+            if (windowExprId == null) {
+                return topn;
+            }
 
-                if (!checkTopNForPartitionLimitPushDown(topn, windowExprId)) {
-                    return topn;
-                }
-                long partitionLimit = topn.getLimit() + topn.getOffset();
-                Optional<Plan> newWindow = window.pushPartitionLimitThroughWindow(partitionLimit, true);
-                if (!newWindow.isPresent()) {
-                    return topn;
-                }
-                return topn.withChildren(newWindow.get());
-            }).toRule(RuleType.PUSHDOWN_TOP_N_THROUGH_WINDOW),
-
-            // topn -> projection -> window
-            logicalTopN(logicalProject(logicalWindow())).then(topn -> {
-                LogicalProject<LogicalWindow<Plan>> project = topn.child();
-                LogicalWindow<Plan> window = project.child();
-                ExprId windowExprId = getExprID4WindowFunc(window);
-                if (windowExprId == null) {
-                    return topn;
-                }
-
-                if (!checkTopNForPartitionLimitPushDown(topn, windowExprId)) {
-                    return topn;
-                }
-                long partitionLimit = topn.getLimit() + topn.getOffset();
-                Optional<Plan> newWindow = window.pushPartitionLimitThroughWindow(partitionLimit, true);
-                if (!newWindow.isPresent()) {
-                    return topn;
-                }
-                return topn.withChildren(project.withChildren(newWindow.get()));
-            }).toRule(RuleType.PUSHDOWN_TOP_N_THROUGH_PROJECTION_WINDOW)
-        );
+            if (!checkTopNForPartitionLimitPushDown(topn, windowExprId)) {
+                return topn;
+            }
+            long partitionLimit = topn.getLimit() + topn.getOffset();
+            Optional<Plan> newWindow = window.pushPartitionLimitThroughWindow(partitionLimit, true);
+            if (!newWindow.isPresent()) {
+                return topn;
+            }
+            return topn.withChildren(newWindow.get());
+        }).toRule(RuleType.PUSH_TOP_N_THROUGH_WINDOW);
     }
 
     private ExprId getExprID4WindowFunc(LogicalWindow<?> window) {

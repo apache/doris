@@ -17,42 +17,33 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
+import org.apache.doris.nereids.util.ExpressionUtils;
+
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
 
 /**
- * <pre>
- * Before:
- *          project
- *             │
- *             ▼
- *           limit
- *             │
- *             ▼
- *          plan node
- *
- * After:
- *
- *           limit
- *             │
- *             ▼
- *          project
- *             │
- *             ▼
- *          plan node
- * </pre>
+ * PushdownTopNThroughProject.
  */
-public class PushdownProjectThroughLimit extends OneRewriteRuleFactory {
-
+public class PushdownTopNThroughProject extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalProject(logicalLimit()).thenApply(ctx -> {
-            LogicalProject<LogicalLimit<Plan>> logicalProject = ctx.root;
-            LogicalLimit<Plan> logicalLimit = logicalProject.child();
-            return logicalLimit.withChildren(logicalProject.withChildren(logicalLimit.child()));
-        }).toRule(RuleType.PUSHDOWN_PROJECT_THROUGH_LIMIT);
+        return logicalTopN(logicalProject())
+                .then(topN -> {
+                    LogicalProject<Plan> project = topN.child();
+                    List<OrderKey> newOrderKeys = topN.getOrderKeys().stream()
+                            .map(orderKey -> orderKey.withExpression(
+                                    ExpressionUtils.replace(orderKey.getExpr(), project.getAliasToProducer()))).collect(
+                                    ImmutableList.toImmutableList());
+                    return project.withChildren(
+                            new LogicalTopN<>(newOrderKeys, topN.getLimit(), topN.getOffset(), project.child()));
+                }).toRule(RuleType.PUSH_TOP_N_THROUGH_PROJECT);
     }
 }

@@ -38,7 +38,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
-class PushdowFilterThroughProjectTest implements MemoPatternMatchSupported {
+class PushdownFilterThroughProjectTest implements MemoPatternMatchSupported {
     private final LogicalOlapScan scan = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(),
             PlanConstructor.student,
             ImmutableList.of(""));
