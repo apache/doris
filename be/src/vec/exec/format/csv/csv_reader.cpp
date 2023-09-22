@@ -618,6 +618,28 @@ Status CsvReader::_create_decompressor() {
     return Status::OK();
 }
 
+template <bool from_json>
+Status CsvReader::deserialize_nullable_string(IColumn& column, Slice& slice) {
+    auto& null_column = assert_cast<ColumnNullable&>(column);
+    if (!(from_json && _options.converted_from_string && slice.trim_quote())) {
+        if (slice.size == 2 && slice[0] == '\\' && slice[1] == 'N') {
+            null_column.insert_data(nullptr, 0);
+            return Status::OK();
+        }
+    }
+    static DataTypeStringSerDe stringSerDe;
+    auto st = stringSerDe.deserialize_one_cell_from_json(null_column.get_nested_column(), slice,
+                                                         _options, 1);
+    if (!st.ok()) {
+        // fill null if fail
+        null_column.insert_data(nullptr, 0); // 0 is meaningless here
+        return Status::OK();
+    }
+    // fill not null if success
+    null_column.get_null_map_data().push_back(0);
+    return Status::OK();
+}
+
 Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
                                      std::vector<MutableColumnPtr>& columns, size_t* rows) {
     bool is_success = false;
@@ -642,24 +664,21 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
         }
 
         if (_use_nullable_string_opt[i]) {
-            _options.use_nullable_string_serde = true;
-            static DataTypeNullableSerDe nullableSerde(nullptr);
             // For load task, we always read "string" from file.
             // So serdes[i] here must be DataTypeNullableSerDe, and DataTypeNullableSerDe -> nested_serde must be DataTypeStringSerDe.
-            // So we use nullableSerde and stringSerDe to reduce virtual function calls.
+            // So we use deserialize_nullable_string and stringSerDe to reduce virtual function calls.
             switch (_text_serde_type) {
             case TTextSerdeType::JSON_TEXT_SERDE:
-                nullableSerde.deserialize_one_cell_from_json(*col_ptr, slice, _options);
+                deserialize_nullable_string<true>(*col_ptr, slice);
                 break;
             case TTextSerdeType::HIVE_TEXT_SERDE:
-                nullableSerde.deserialize_one_cell_from_hive_text(*col_ptr, slice, _options);
+                deserialize_nullable_string<false>(*col_ptr, slice);
                 break;
             default:
                 break;
             }
         } else {
             //Prevent behavior changes from fe, that is, not reading according to string.
-            _options.use_nullable_string_serde = false;
             switch (_text_serde_type) {
             case TTextSerdeType::JSON_TEXT_SERDE:
                 _serdes[i]->deserialize_one_cell_from_json(*col_ptr, slice, _options);
