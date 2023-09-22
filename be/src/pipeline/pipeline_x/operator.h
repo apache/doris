@@ -164,6 +164,7 @@ public:
         }
     }
 
+    OperatorXBase(ObjectPool* pool, int id) : OperatorBase(nullptr), _id(id), _pool(pool) {};
     virtual Status init(const TPlanNode& tnode, RuntimeState* state);
     Status init(const TDataSink& tsink) override {
         LOG(FATAL) << "should not reach here!";
@@ -234,6 +235,8 @@ public:
 
     virtual Status setup_local_state(RuntimeState* state, LocalStateInfo& info) = 0;
 
+    virtual Status setup_local_states(RuntimeState* state, std::vector<LocalStateInfo>& infos) = 0;
+
     template <class TARGET>
     TARGET& cast() {
         DCHECK(dynamic_cast<TARGET*>(this))
@@ -300,9 +303,11 @@ class OperatorX : public OperatorXBase {
 public:
     OperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
             : OperatorXBase(pool, tnode, descs) {}
+    OperatorX(ObjectPool* pool, int id) : OperatorXBase(pool, id) {};
     virtual ~OperatorX() = default;
 
     Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override;
+    Status setup_local_states(RuntimeState* state, std::vector<LocalStateInfo>& info) override;
     using LocalState = LocalStateType;
 };
 
@@ -443,10 +448,13 @@ protected:
 
 class DataSinkOperatorXBase : public OperatorBase {
 public:
-    DataSinkOperatorXBase(const int id) : OperatorBase(nullptr), _id(id), _dest_id(id) {}
+    DataSinkOperatorXBase(const int id) : OperatorBase(nullptr), _id(id), _dests_id({id}) {}
 
     DataSinkOperatorXBase(const int id, const int dest_id)
-            : OperatorBase(nullptr), _id(id), _dest_id(dest_id) {}
+            : OperatorBase(nullptr), _id(id), _dests_id({dest_id}) {}
+
+    DataSinkOperatorXBase(const int id, std::vector<int>& sources)
+            : OperatorBase(nullptr), _id(id), _dests_id(sources) {}
 
     virtual ~DataSinkOperatorXBase() override = default;
 
@@ -456,6 +464,9 @@ public:
     virtual Status init(const TDataSink& tsink) override;
 
     virtual Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) = 0;
+
+    virtual Status setup_local_states(RuntimeState* state,
+                                      std::vector<LocalSinkStateInfo>& infos) = 0;
 
     template <class TARGET>
     TARGET& cast() {
@@ -472,7 +483,7 @@ public:
         return reinterpret_cast<const TARGET&>(*this);
     }
 
-    virtual void get_dependency(DependencySPtr& dependency) = 0;
+    virtual void get_dependency(std::vector<DependencySPtr>& dependency) = 0;
 
     virtual Status close(RuntimeState* state) override {
         return state->get_sink_local_state(id())->close(state);
@@ -517,7 +528,7 @@ public:
 
     [[nodiscard]] int id() const override { return _id; }
 
-    [[nodiscard]] int dest_id() const { return _dest_id; }
+    [[nodiscard]] const std::vector<int>& dests_id() const { return _dests_id; }
 
     [[nodiscard]] std::string get_name() const override { return _name; }
 
@@ -527,7 +538,8 @@ public:
 
 protected:
     const int _id;
-    const int _dest_id;
+
+    std::vector<int> _dests_id;
     std::string _name;
 
     // Maybe this will be transferred to BufferControlBlock.
@@ -542,11 +554,17 @@ public:
     DataSinkOperatorX(const int id) : DataSinkOperatorXBase(id) {}
 
     DataSinkOperatorX(const int id, const int source_id) : DataSinkOperatorXBase(id, source_id) {}
+
+    DataSinkOperatorX(const int id, std::vector<int> sources)
+            : DataSinkOperatorXBase(id, sources) {}
     ~DataSinkOperatorX() override = default;
 
     Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override;
 
-    void get_dependency(DependencySPtr& dependency) override;
+    Status setup_local_states(RuntimeState* state, std::vector<LocalSinkStateInfo>& infos) override;
+    void get_dependency(std::vector<DependencySPtr>& dependency) override;
+
+    void get_dependency(DependencySPtr& dependency);
 
     using LocalState = LocalStateType;
 };
@@ -593,6 +611,7 @@ public:
     }
 
     std::string debug_string(int indentation_level) const override;
+    typename DependencyType::SharedState*& get_shared_state() { return _shared_state; }
 
 protected:
     DependencyType* _dependency = nullptr;

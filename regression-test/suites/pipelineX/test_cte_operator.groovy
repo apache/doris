@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_union_operator") {
-    sql """ DROP TABLE IF EXISTS UNIONNODE """
+suite("test_cte_operator") {
+    sql """ DROP TABLE IF EXISTS CTENNODE """
     sql """
-       CREATE TABLE IF NOT EXISTS UNIONNODE (
+       CREATE TABLE IF NOT EXISTS CTENNODE (
               `k1` INT(11) NULL COMMENT "",
               `k2` INT(11) NULL COMMENT "",
               `k3` INT(11) NULL COMMENT ""
@@ -32,7 +32,7 @@ suite("test_union_operator") {
     """
     sql """ set forbid_unknown_col_stats = false """
     sql """
-    INSERT INTO UNIONNODE (k1, k2, k3) VALUES
+    INSERT INTO CTENNODE (k1, k2, k3) VALUES
     (5, 10, 15),
     (8, 12, 6),
     (3, 7, 11),
@@ -57,76 +57,33 @@ suite("test_union_operator") {
 
     sql"""set enable_pipeline_engine = true,parallel_pipeline_task_num = 8; """
 
-
-
     qt_pipeline """
-        SELECT count(*)
-        FROM (
-            SELECT k1 FROM UNIONNODE
-            UNION 
-            SELECT k2 FROM UNIONNODE
-        ) AS merged_result;
+       with ctedb1 as ( select CTENNODE.k1 + 1  as k1 from CTENNODE),
+        ctedb2 as ( select CTENNODE.k2 + 1  as k1 from CTENNODE)
+        select kk from (
+        select ctedb1.k1 as kk from ctedb1 where ctedb1.k1 > 5
+        union all
+        select ctedb1.k1 as kk from ctedb1 where ctedb1.k1 < 2
+        union all
+        select ctedb2.k1 as kk from ctedb2 where ctedb2.k1 < 3
+        union all
+        select ctedb2.k1 as kk from ctedb2 where ctedb2.k1 > 7
+        ) AS merged_result  order by kk ;
     """
-    qt_pipeline """
-        SELECT count(*)
-        FROM (
-            SELECT k1 FROM UNIONNODE
-            UNION 
-            SELECT k2 FROM UNIONNODE
-            UNION 
-            SELECT k3 FROM UNIONNODE
-        ) AS merged_result;
-    """
-
-    qt_pipeline """
-        SELECT count(*)
-        FROM (
-            SELECT k1 FROM UNIONNODE
-            UNION 
-            SELECT k2 FROM UNIONNODE
-            UNION 
-            SELECT k3 FROM UNIONNODE
-            UNION
-            SELECT 114
-            UNION
-            SELECT 514
-        ) AS merged_result;
-    """
-
-    
+   
     sql"""set experimental_enable_pipeline_x_engine=true,parallel_pipeline_task_num = 8;;    """
-    qt_pipelineX """
-        SELECT count(*)
-        FROM (
-            SELECT k1 FROM UNIONNODE
-            UNION 
-            SELECT k2 FROM UNIONNODE
-        ) AS merged_result;
-    """
-    qt_pipelineX """
-        SELECT count(*)
-        FROM (
-            SELECT k1 FROM UNIONNODE
-            UNION 
-            SELECT k2 FROM UNIONNODE
-            UNION 
-            SELECT k3 FROM UNIONNODE
-        ) AS merged_result;
-    """
 
     qt_pipelineX """
-        SELECT count(*)
-        FROM (
-            SELECT k1 FROM UNIONNODE
-            UNION 
-            SELECT k2 FROM UNIONNODE
-            UNION 
-            SELECT k3 FROM UNIONNODE
-            UNION
-            SELECT 114
-            UNION
-            SELECT 514
-        ) AS merged_result;
+       with ctedb1 as ( select CTENNODE.k1 + 1  as k1 from CTENNODE),
+        ctedb2 as ( select CTENNODE.k2 + 1  as k1 from CTENNODE)
+        select kk from (
+        select ctedb1.k1 as kk from ctedb1 where ctedb1.k1 > 5
+        union all
+        select ctedb1.k1 as kk from ctedb1 where ctedb1.k1 < 2
+        union all
+        select ctedb2.k1 as kk from ctedb2 where ctedb2.k1 < 3
+        union all
+        select ctedb2.k1 as kk from ctedb2 where ctedb2.k1 > 7
+        ) AS merged_result  order by kk ;
     """
-
 }

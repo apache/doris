@@ -17,9 +17,12 @@
 
 #pragma once
 
+#include <sqltypes.h>
+
 #include <mutex>
 
 #include "pipeline/exec/data_queue.h"
+#include "pipeline/exec/multi_cast_data_streamer.h"
 #include "vec/common/sort/partition_sorter.h"
 #include "vec/common/sort/sorter.h"
 #include "vec/exec/join/process_hash_table_probe.h"
@@ -423,6 +426,29 @@ public:
 
 private:
     UnionSharedState _union_state;
+};
+
+struct MultiCastSharedState {
+public:
+    std::shared_ptr<pipeline::MultiCastDataStreamer> _multi_cast_data_streamer;
+};
+
+class MultiCastDependency final : public WriteDependency {
+public:
+    using SharedState = MultiCastSharedState;
+    MultiCastDependency(int id) : WriteDependency(id, "MultiCastDependency") {}
+    ~MultiCastDependency() override = default;
+    void* shared_state() override { return (void*)&_multi_cast_state; };
+    MultiCastDependency* can_read(const int consumer_id) {
+        if (_multi_cast_state._multi_cast_data_streamer->can_read(consumer_id)) {
+            return nullptr;
+        } else {
+            return this;
+        }
+    }
+
+private:
+    MultiCastSharedState _multi_cast_state;
 };
 
 struct AnalyticSharedState {
