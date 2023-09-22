@@ -38,6 +38,7 @@
 #include "pipeline/exec/partition_sort_sink_operator.h"
 #include "pipeline/exec/partition_sort_source_operator.h"
 #include "pipeline/exec/repeat_operator.h"
+#include "pipeline/exec/result_file_sink_operator.h"
 #include "pipeline/exec/result_sink_operator.h"
 #include "pipeline/exec/select_operator.h"
 #include "pipeline/exec/sort_sink_operator.h"
@@ -373,6 +374,7 @@ Status StatefulOperatorX<LocalStateType>::get_block(RuntimeState* state, vectori
 #define DECLARE_OPERATOR_X(LOCAL_STATE) template class DataSinkOperatorX<LOCAL_STATE>;
 DECLARE_OPERATOR_X(HashJoinBuildSinkLocalState)
 DECLARE_OPERATOR_X(ResultSinkLocalState)
+DECLARE_OPERATOR_X(ResultFileSinkLocalState)
 DECLARE_OPERATOR_X(AnalyticSinkLocalState)
 DECLARE_OPERATOR_X(SortSinkLocalState)
 DECLARE_OPERATOR_X(BlockingAggSinkLocalState)

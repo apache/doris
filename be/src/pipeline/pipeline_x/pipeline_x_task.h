@@ -57,16 +57,17 @@ public:
         return Status::InternalError("Should not reach here!");
     }
 
-    Status prepare(RuntimeState* state, const TPipelineInstanceParams& local_params);
+    Status prepare(RuntimeState* state, const TPipelineInstanceParams& local_params,
+                   const TDataSink& tsink);
 
     Status execute(bool* eos) override;
 
     // Try to close this pipeline task. If there are still some resources need to be released after `try_close`,
     // this task will enter the `PENDING_FINISH` state.
-    Status try_close() override;
+    Status try_close(Status exec_status) override;
     // if the pipeline create a bunch of pipeline task
     // must be call after all pipeline task is finish to release resource
-    Status close() override;
+    Status close(Status exec_status) override;
 
     bool source_can_read() override {
         if (_dry_run) {

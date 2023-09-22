@@ -598,5 +598,13 @@ private:
     PartitionSortNodeSharedState _partition_sort_state;
 };
 
+class AsyncWriterDependency final : public WriteDependency {
+public:
+    ENABLE_FACTORY_CREATOR(AsyncWriterDependency);
+    AsyncWriterDependency(int id) : WriteDependency(id, "AsyncWriterDependency") {}
+    ~AsyncWriterDependency() override = default;
+    void* shared_state() override { return nullptr; }
+};
+
 } // namespace pipeline
 } // namespace doris

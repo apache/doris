@@ -55,7 +55,8 @@ PipelineXTask::PipelineXTask(PipelinePtr& pipeline, uint32_t index, RuntimeState
     _sink->get_dependency(_downstream_dependency);
 }
 
-Status PipelineXTask::prepare(RuntimeState* state, const TPipelineInstanceParams& local_params) {
+Status PipelineXTask::prepare(RuntimeState* state, const TPipelineInstanceParams& local_params,
+                              const TDataSink& tsink) {
     DCHECK(_sink);
     DCHECK(_cur_state == PipelineTaskState::NOT_READY) << get_state_name(_cur_state);
     _init_profile();
@@ -69,7 +70,7 @@ Status PipelineXTask::prepare(RuntimeState* state, const TPipelineInstanceParams
         std::vector<LocalSinkStateInfo> infos;
         for (auto& dep : deps) {
             infos.push_back(LocalSinkStateInfo {_pipeline->pipeline_profile(),
-                                                local_params.sender_id, dep.get()});
+                                                local_params.sender_id, dep.get(), tsink});
         }
         RETURN_IF_ERROR(_sink->setup_local_states(state, infos));
     }
@@ -249,17 +250,17 @@ Status PipelineXTask::finalize() {
     return _sink->finalize(_state);
 }
 
-Status PipelineXTask::try_close() {
+Status PipelineXTask::try_close(Status exec_status) {
     if (_try_close_flag) {
         return Status::OK();
     }
     _try_close_flag = true;
-    Status status1 = _sink->try_close(_state);
+    Status status1 = _sink->try_close(_state, exec_status);
     Status status2 = _source->try_close(_state);
     return status1.ok() ? status2 : status1;
 }
 
-Status PipelineXTask::close() {
+Status PipelineXTask::close(Status exec_status) {
     int64_t close_ns = 0;
     Defer defer {[&]() {
         if (_task_queue) {
@@ -269,7 +270,7 @@ Status PipelineXTask::close() {
     Status s;
     {
         SCOPED_RAW_TIMER(&close_ns);
-        s = _sink->close(_state);
+        s = _sink->close(_state, exec_status);
         for (auto& op : _operators) {
             auto tem = op->close(_state);
             if (!tem.ok() && s.ok()) {

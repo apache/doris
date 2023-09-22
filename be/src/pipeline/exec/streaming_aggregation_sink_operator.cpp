@@ -374,7 +374,7 @@ Status StreamingAggSinkOperatorX::sink(RuntimeState* state, vectorized::Block* i
     return Status::OK();
 }
 
-Status StreamingAggSinkLocalState::close(RuntimeState* state) {
+Status StreamingAggSinkLocalState::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return Status::OK();
     }
@@ -387,7 +387,7 @@ Status StreamingAggSinkLocalState::close(RuntimeState* state) {
         COUNTER_SET(_queue_byte_size_counter, _shared_state->data_queue->max_bytes_in_queue());
     }
     _preagg_block.clear();
-    return Base::close(state);
+    return Base::close(state, exec_status);
 }
 
 } // namespace doris::pipeline
