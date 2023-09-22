@@ -15,7 +15,7 @@
 -- specific language governing permissions and limitations
 -- under the License.
 --Q4.3
-SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=false) */ (LO_ORDERDATE DIV 10000) AS YEAR,
+SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=true) */ (LO_ORDERDATE DIV 10000) AS YEAR,
     S_CITY,
     P_BRAND,
     SUM(LO_REVENUE - LO_SUPPLYCOST) AS profit

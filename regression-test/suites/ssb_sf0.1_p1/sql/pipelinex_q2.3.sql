@@ -15,7 +15,7 @@
 -- specific language governing permissions and limitations
 -- under the License.
 
-SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=false) */ SUM(lo_revenue), d_year, p_brand
+SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=true) */ SUM(lo_revenue), d_year, p_brand
 FROM lineorder, date, part, supplier
 WHERE  lo_orderdate = d_datekey
 AND lo_partkey = p_partkey
