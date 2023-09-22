@@ -164,6 +164,7 @@ public class SelectStmt extends QueryStmt {
         this.id = other.id;
         selectList = other.selectList.clone();
         fromClause = other.fromClause.clone();
+        originSelectList = other.originSelectList != null ? other.originSelectList.clone() : null;
         whereClause = (other.whereClause != null) ? other.whereClause.clone() : null;
         groupByClause = (other.groupByClause != null) ? other.groupByClause.clone() : null;
         havingClause = (other.havingClause != null) ? other.havingClause.clone() : null;
