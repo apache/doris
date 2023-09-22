@@ -158,7 +158,7 @@ public class PublishVersionDaemon extends MasterDaemon {
                     });
             boolean hasBackendAliveAndUnfinishedTask = publishVersionTaskStream
                     .anyMatch(task -> !task.isFinished() && infoService.checkBackendAlive(task.getBackendId()));
-
+            transactionState.setTableIdToNumDeltaRows(tableIdToNumDeltaRows);
             boolean shouldFinishTxn = !hasBackendAliveAndUnfinishedTask || transactionState.isPublishTimeout();
             if (shouldFinishTxn) {
                 try {
