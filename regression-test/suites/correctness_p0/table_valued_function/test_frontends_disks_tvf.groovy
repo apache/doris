@@ -19,7 +19,7 @@
 suite("test_frontends_disks_tvf") {
     List<List<Object>> table =  sql """ select * from `frontends_disks`(); """
     assertTrue(table.size() > 0)
-    assertTrue(table[0].size == 11)
+    assertTrue(table[0].size == 10)
 
     // filter columns
     table = sql """ select Name from `frontends_disks`();"""
@@ -27,22 +27,22 @@ suite("test_frontends_disks_tvf") {
     assertTrue(table[0].size == 1)
 
     // case insensitive
-    table = sql """ select name, host, editlogport, dirtype, dir from frontends_disks() order by dirtype;"""
-    assertTrue(table.size() > 0)
-    assertTrue(table[0].size == 5)
-    assertEquals("audit-log", table[0][3])
-
-    // test aliase columns
-    table = sql """ select name as n, host as h, dirtype as a, editlogport as e from frontends_disks() order by dirtype; """
+    table = sql """ select name, host, dirtype, dir from frontends_disks() order by dirtype;"""
     assertTrue(table.size() > 0)
     assertTrue(table[0].size == 4)
+    assertEquals("audit-log", table[0][2])
+
+    // test aliase columns
+    table = sql """ select name as n, host as h, dirtype as a from frontends_disks() order by dirtype; """
+    assertTrue(table.size() > 0)
+    assertTrue(table[0].size == 3)
     assertEquals("audit-log", table[0][2])
 
     // test changing position of columns
     def res = sql """ select count(*) from frontends_disks() where dirtype = 'audit-log'; """
     assertTrue(res[0][0] > 0)
 
-    sql """ select Name, Host, EditLogPort,
+    sql """ select Name, Host,
             DirType, Dir, Filesystem, Capacity, Used
             Available, UseRate, MountOn from frontends_disks();
     """

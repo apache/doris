@@ -58,7 +58,7 @@ enum CacheType {
 
 struct CacheContext {
     CacheContext(const IOContext* io_ctx) {
-        if (io_ctx->read_segment_index) {
+        if (io_ctx->is_index_data) {
             cache_type = CacheType::INDEX;
         } else if (io_ctx->is_disposable) {
             cache_type = CacheType::DISPOSABLE;
@@ -303,8 +303,12 @@ private:
             s_file_name_to_reader;
     static inline std::mutex s_file_reader_cache_mtx;
     static inline std::atomic_bool s_read_only {false};
+    static inline uint64_t _max_file_reader_cache_size = 65533;
 
 public:
+    // should be call when BE start
+    static void init();
+
     static void set_read_only(bool read_only);
 
     static bool read_only() { return s_read_only; }

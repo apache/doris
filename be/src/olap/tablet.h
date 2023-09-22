@@ -62,6 +62,7 @@ class Tablet;
 class CumulativeCompactionPolicy;
 class CumulativeCompaction;
 class BaseCompaction;
+class FullCompaction;
 class SingleReplicaCompaction;
 class RowsetWriter;
 struct TabletTxnInfo;
@@ -532,7 +533,13 @@ public:
     void gc_binlogs(int64_t version);
     Status ingest_binlog_metas(RowsetBinlogMetasPB* metas_pb);
 
-    inline void increase_io_error_times() { ++_io_error_times; }
+    inline void report_error(const Status& st) {
+        if (st.is<ErrorCode::IO_ERROR>()) {
+            ++_io_error_times;
+        } else if (st.is<ErrorCode::CORRUPTION>()) {
+            _io_error_times = config::max_tablet_io_errors + 1;
+        }
+    }
 
     inline int64_t get_io_error_times() const { return _io_error_times; }
 
@@ -549,8 +556,15 @@ public:
     int64_t binlog_max_bytes() const { return _tablet_meta->binlog_config().max_bytes(); }
 
     void set_binlog_config(BinlogConfig binlog_config);
-    void add_sentinel_mark_to_delete_bitmap(DeleteBitmapPtr delete_bitmap,
+    void add_sentinel_mark_to_delete_bitmap(DeleteBitmap* delete_bitmap,
                                             const RowsetIdUnorderedSet& rowsetids);
+    Status check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, int64_t max_version,
+                                           int64_t txn_id, const RowsetIdUnorderedSet& rowset_ids,
+                                           std::vector<RowsetSharedPtr>* rowsets = nullptr);
+    Status _get_segment_column_iterator(
+            const BetaRowsetSharedPtr& rowset, uint32_t segid, const TabletColumn& target_column,
+            std::unique_ptr<segment_v2::ColumnIterator>* column_iterator,
+            OlapReaderStatistics* stats);
 
 private:
     Status _init_once_action();
@@ -579,10 +593,6 @@ private:
     bool _reconstruct_version_tracker_if_necessary();
     void _init_context_common_fields(RowsetWriterContext& context);
 
-    Status _check_pk_in_pre_segments(RowsetId rowset_id,
-                                     const std::vector<segment_v2::SegmentSharedPtr>& pre_segments,
-                                     const Slice& key, DeleteBitmapPtr delete_bitmap,
-                                     RowLocation* loc);
     void _rowset_ids_difference(const RowsetIdUnorderedSet& cur, const RowsetIdUnorderedSet& pre,
                                 RowsetIdUnorderedSet* to_add, RowsetIdUnorderedSet* to_del);
     Status _load_rowset_segments(const RowsetSharedPtr& rowset,
@@ -600,8 +610,7 @@ private:
     ////////////////////////////////////////////////////////////////////////////
 
     void _remove_sentinel_mark_from_delete_bitmap(DeleteBitmapPtr delete_bitmap);
-    Status _check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, int64_t max_version,
-                                            const RowsetIdUnorderedSet& rowset_ids) const;
+    std::string _get_rowset_info_str(RowsetSharedPtr rowset, bool delete_flag);
 
 public:
     static const int64_t K_INVALID_CUMULATIVE_POINT = -1;
@@ -663,6 +672,7 @@ private:
 
     std::shared_ptr<CumulativeCompaction> _cumulative_compaction;
     std::shared_ptr<BaseCompaction> _base_compaction;
+    std::shared_ptr<FullCompaction> _full_compaction;
     std::shared_ptr<SingleReplicaCompaction> _single_replica_compaction;
 
     // whether clone task occurred during the tablet is in thread pool queue to wait for compaction

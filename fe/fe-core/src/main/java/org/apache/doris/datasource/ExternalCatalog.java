@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
+import org.apache.doris.catalog.external.DeltaLakeExternalDataBase;
 import org.apache.doris.catalog.external.EsExternalDatabase;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.ExternalTable;
@@ -48,6 +49,8 @@ import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -62,6 +65,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * The abstract class for all types of external catalogs.
@@ -70,6 +74,8 @@ import java.util.Optional;
 public abstract class ExternalCatalog
             implements CatalogIf<ExternalDatabase<? extends ExternalTable>>, Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(ExternalCatalog.class);
+
+    public static final String ENABLE_AUTO_ANALYZE = "enable.auto.analyze";
 
     // Unique id of this catalog, will be assigned after catalog is loaded.
     @SerializedName(value = "id")
@@ -104,12 +110,21 @@ public abstract class ExternalCatalog
         this.comment = com.google.common.base.Strings.nullToEmpty(comment);
     }
 
+    public Configuration getConfiguration() {
+        Configuration conf = new HdfsConfiguration();
+        Map<String, String> catalogProperties = catalogProperty.getHadoopProperties();
+        for (Map.Entry<String, String> entry : catalogProperties.entrySet()) {
+            conf.set(entry.getKey(), entry.getValue());
+        }
+        return conf;
+    }
+
     protected List<String> listDatabaseNames() {
         throw new UnsupportedOperationException("Unsupported operation: "
                 + "listDatabaseNames from remote client when init catalog with " + logType.name());
     }
 
-    public void setDefaultProps() {
+    public void setDefaultPropsWhenCreating(boolean isReplay) throws DdlException {
         // set some default properties when creating catalog
     }
 
@@ -202,8 +217,10 @@ public abstract class ExternalCatalog
      * "access_controller.properties.prop1" = "xxx",
      * "access_controller.properties.prop2" = "yyy",
      * )
+     * <p>
+     * isDryRun: if true, it will try to create the custom access controller, but will not add it to the access manager.
      */
-    public void initAccessController() {
+    public void initAccessController(boolean isDryRun) {
         Map<String, String> properties = getCatalogProperty().getProperties();
         // 1. get access controller class name
         String className = properties.getOrDefault(CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP, "");
@@ -223,7 +240,7 @@ public abstract class ExternalCatalog
         }
 
         // 3. create access controller
-        Env.getCurrentEnv().getAccessManager().createAccessController(name, className, acProperties);
+        Env.getCurrentEnv().getAccessManager().createAccessController(name, className, acProperties, isDryRun);
     }
 
     // init schema related objects
@@ -350,6 +367,9 @@ public abstract class ExternalCatalog
     @Nullable
     @Override
     public ExternalDatabase<? extends ExternalTable> getDbNullable(String dbName) {
+        if (StringUtils.isEmpty(dbName)) {
+            return null;
+        }
         try {
             makeSureInitialized();
         } catch (Exception e) {
@@ -480,6 +500,8 @@ public abstract class ExternalCatalog
                 return new TestExternalDatabase(this, dbId, dbName);
             case PAIMON:
                 return new PaimonExternalDatabase(this, dbId, dbName);
+            case DELTALAKE:
+                return new DeltaLakeExternalDataBase(this, dbId, dbName);
             default:
                 break;
         }
@@ -579,6 +601,25 @@ public abstract class ExternalCatalog
 
     @Override
     public Collection<DatabaseIf> getAllDbs() {
+        makeSureInitialized();
         return new HashSet<>(idToDb.values());
+    }
+
+    @Override
+    public boolean enableAutoAnalyze() {
+        // By default, external catalog disables auto analyze, uses could set catalog property to enable it:
+        // "enable.auto.analyze" = true
+        Map<String, String> properties = catalogProperty.getProperties();
+        boolean ret = false;
+        if (properties.containsKey(ENABLE_AUTO_ANALYZE)
+                && properties.get(ENABLE_AUTO_ANALYZE).equalsIgnoreCase("true")) {
+            ret = true;
+        }
+        return ret;
+    }
+
+    @Override
+    public ConcurrentHashMap<Long, DatabaseIf> getIdToDb() {
+        return new ConcurrentHashMap<>(idToDb);
     }
 }

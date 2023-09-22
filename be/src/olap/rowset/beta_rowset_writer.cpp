@@ -33,7 +33,6 @@
 #include "common/logging.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/file_reader.h"
-#include "io/fs/file_reader_options.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "olap/olap_define.h"
@@ -84,10 +83,9 @@ BetaRowsetWriter::~BetaRowsetWriter() {
     if (!_already_built) {        // abnormal exit, remove all files generated
         _segment_creator.close(); // ensure all files are closed
         auto fs = _rowset_meta->fs();
-        if (!fs) {
+        if (fs->type() != io::FileSystemType::LOCAL) { // Remote fs will delete them asynchronously
             return;
         }
-        DCHECK_LE(_segment_start_id + _num_segment, _segment_creator.next_segment_id());
         for (int i = _segment_start_id; i < _segment_creator.next_segment_id(); ++i) {
             std::string seg_path =
                     BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, i);
@@ -165,15 +163,17 @@ Status BetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
 
 Status BetaRowsetWriter::_load_noncompacted_segment(segment_v2::SegmentSharedPtr& segment,
                                                     int32_t segment_id) {
+    DCHECK(_rowset_meta->is_local());
     auto fs = _rowset_meta->fs();
     if (!fs) {
         return Status::Error<INIT_FAILED>(
                 "BetaRowsetWriter::_load_noncompacted_segment _rowset_meta->fs get failed");
     }
     auto path = BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, segment_id);
-    auto type = config::enable_file_cache ? config::file_cache_type : "";
-    io::FileReaderOptions reader_options(io::cache_type_from_string(type),
-                                         io::SegmentCachePathPolicy());
+    io::FileReaderOptions reader_options {
+            .cache_type = config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
+                                                    : io::FileCachePolicy::NO_CACHE,
+            .is_doris_table = true};
     auto s = segment_v2::Segment::open(fs, path, segment_id, rowset_id(), _context.tablet_schema,
                                        reader_options, &segment);
     if (!s.ok()) {
@@ -283,7 +283,6 @@ Status BetaRowsetWriter::_rename_compacted_segment_plain(uint64_t seg_id) {
         return Status::OK();
     }
 
-    int ret;
     auto src_seg_path =
             BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, seg_id);
     auto dst_seg_path = BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id,
@@ -299,7 +298,7 @@ Status BetaRowsetWriter::_rename_compacted_segment_plain(uint64_t seg_id) {
         _segid_statistics_map.emplace(_num_segcompacted, org);
         _clear_statistics_for_deleting_segments_unsafe(seg_id, seg_id);
     }
-    ret = rename(src_seg_path.c_str(), dst_seg_path.c_str());
+    int ret = rename(src_seg_path.c_str(), dst_seg_path.c_str());
     if (ret) {
         return Status::Error<ROWSET_RENAME_FILE_FAILED>(
                 "failed to rename {} to {}. ret:{}, errno:{}", src_seg_path, dst_seg_path, ret,
@@ -355,7 +354,7 @@ bool BetaRowsetWriter::_check_and_set_is_doing_segcompaction() {
 
 Status BetaRowsetWriter::_segcompaction_if_necessary() {
     Status status = Status::OK();
-    if (!config::enable_segcompaction || _context.tablet_schema->is_dynamic_schema() ||
+    if (!config::enable_segcompaction || !_context.enable_segcompaction ||
         !_check_and_set_is_doing_segcompaction()) {
         return status;
     }
@@ -438,17 +437,11 @@ Status BetaRowsetWriter::flush_memtable(vectorized::Block* block, int32_t segmen
     }
 
     TabletSchemaSPtr flush_schema;
-    if (_context.tablet_schema->is_dynamic_schema()) {
-        // Unfold variant column
-        RETURN_IF_ERROR(_unfold_variant_column(*block, flush_schema));
-    }
     {
         SCOPED_RAW_TIMER(&_segment_writer_ns);
         RETURN_IF_ERROR(
                 _segment_creator.flush_single_block(block, segment_id, flush_size, flush_schema));
     }
-    RETURN_IF_ERROR(_generate_delete_bitmap(segment_id));
-    RETURN_IF_ERROR(_segcompaction_if_necessary());
     return Status::OK();
 }
 
@@ -534,23 +527,6 @@ RowsetSharedPtr BetaRowsetWriter::build() {
 
     if (_rowset_meta->newest_write_timestamp() == -1) {
         _rowset_meta->set_newest_write_timestamp(UnixSeconds());
-    }
-
-    // schema changed during this load
-    if (_context.schema_change_recorder->has_extended_columns()) {
-        DCHECK(_context.tablet_schema->is_dynamic_schema())
-                << "Load can change local schema only in dynamic table";
-        TabletSchemaSPtr new_schema = std::make_shared<TabletSchema>();
-        new_schema->copy_from(*_context.tablet_schema);
-        for (auto const& [_, col] : _context.schema_change_recorder->copy_extended_columns()) {
-            new_schema->append_column(col);
-        }
-        new_schema->set_schema_version(_context.schema_change_recorder->schema_version());
-        if (_context.schema_change_recorder->schema_version() >
-            _context.tablet_schema->schema_version()) {
-            _context.tablet->update_max_version_schema(new_schema);
-        }
-        _rowset_meta->set_tablet_schema(new_schema);
     }
 
     RowsetSharedPtr rowset;
@@ -660,7 +636,15 @@ Status BetaRowsetWriter::_create_file_writer(std::string path, io::FileWriterPtr
     if (!fs) {
         return Status::Error<INIT_FAILED>("get fs failed");
     }
-    Status st = fs->create_file(path, &file_writer);
+    io::FileWriterOptions opts {
+            .write_file_cache = _context.write_file_cache,
+            .is_cold_data = _context.is_hot_data,
+            .file_cache_expiration =
+                    _context.file_cache_ttl_sec > 0 && _context.newest_write_timestamp > 0
+                            ? _context.newest_write_timestamp + _context.file_cache_ttl_sec
+                            : 0,
+    };
+    Status st = fs->create_file(path, &file_writer, &opts);
     if (!st.ok()) {
         LOG(WARNING) << "failed to create writable file. path=" << path << ", err: " << st;
         return st;
@@ -715,18 +699,18 @@ Status BetaRowsetWriter::_check_segment_number_limit() {
     return Status::OK();
 }
 
-Status BetaRowsetWriter::add_segment(uint32_t segid, SegmentStatistics& segstat) {
-    uint32_t segid_offset = segid - _segment_start_id;
+Status BetaRowsetWriter::add_segment(uint32_t segment_id, SegmentStatistics& segstat) {
+    uint32_t segid_offset = segment_id - _segment_start_id;
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
-        CHECK_EQ(_segid_statistics_map.find(segid) == _segid_statistics_map.end(), true);
-        _segid_statistics_map.emplace(segid, segstat);
-        if (segid >= _segment_num_rows.size()) {
-            _segment_num_rows.resize(segid + 1);
+        CHECK_EQ(_segid_statistics_map.find(segment_id) == _segid_statistics_map.end(), true);
+        _segid_statistics_map.emplace(segment_id, segstat);
+        if (segment_id >= _segment_num_rows.size()) {
+            _segment_num_rows.resize(segment_id + 1);
         }
         _segment_num_rows[segid_offset] = segstat.row_num;
     }
-    VLOG_DEBUG << "_segid_statistics_map add new record. segid:" << segid
+    VLOG_DEBUG << "_segid_statistics_map add new record. segment_id:" << segment_id
                << " row_num:" << segstat.row_num << " data_size:" << segstat.data_size
                << " index_size:" << segstat.index_size;
 
@@ -737,6 +721,10 @@ Status BetaRowsetWriter::add_segment(uint32_t segid, SegmentStatistics& segstat)
             _num_segment++;
         }
     }
+    if (_context.mow_context != nullptr) {
+        RETURN_IF_ERROR(_generate_delete_bitmap(segment_id));
+    }
+    RETURN_IF_ERROR(_segcompaction_if_necessary());
     return Status::OK();
 }
 

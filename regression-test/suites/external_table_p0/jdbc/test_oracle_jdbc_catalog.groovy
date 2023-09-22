@@ -74,6 +74,12 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
         order_qt_filter1  """ select * from TEST_CHAR where ID = 1 order by ID; """
         order_qt_filter2  """ select * from TEST_CHAR where 1 = 1 order by ID; """
         order_qt_filter3  """ select * from TEST_CHAR where ID = 1 and 1 = 1  order by ID; """
+        order_qt_date1  """ select * from TEST_DATE where T1 > '2022-01-21 00:00:00' or T1 < '2022-01-22 00:00:00'; """
+        order_qt_date2  """ select * from TEST_DATE where T1 > '2022-01-21 00:00:00' and T1 < '2022-01-22 00:00:00'; """
+        order_qt_date3  """ select * from TEST_DATE where (T1 > '2022-01-21 00:00:00' and T1 < '2022-01-22 00:00:00') or T1 > '2022-01-20 00:00:00'; """
+        order_qt_date4  """ select * from TEST_DATE where (T1 > '2022-01-21 00:00:00' and T1 < '2022-01-22 00:00:00') or (T1 > '2022-01-20 00:00:00' and T1 < '2022-01-23 00:00:00'); """
+        order_qt_date5  """ select * from TEST_DATE where T1 < '2022-01-22 00:00:00' or T1 = '2022-01-21 05:23:01'; """
+        order_qt_date6  """ select * from TEST_DATE where (T1 < '2022-01-22 00:00:00' or T1 > '2022-01-20 00:00:00') and (T1 < '2022-01-23 00:00:00' or T1 > '2022-01-19 00:00:00'); """
 
         // The result of TEST_RAW will change
         // So instead of qt, we're using sql here.
@@ -141,6 +147,9 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
         qt_lower_case_table_names2  """ select * from test_char order by ID; """
         qt_lower_case_table_names3  """ select * from test_int order by ID; """
 
+        // test lower case name
+        order_qt_lower_case_table_names4  """ select * from student2 order by id; """
+
         sql """drop catalog if exists ${catalog_name} """
 
         // test for clob type
@@ -155,6 +164,20 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
         );"""
         sql """ switch ${catalog_name} """
         qt_query_clob """ select * from doris_test.test_clob order by id; """
+
+        // test for `AA/D`
+        sql """create catalog if not exists ${catalog_name} properties(
+                    "type"="jdbc",
+                    "user"="doris_test",
+                    "password"="123456",
+                    "jdbc_url" = "jdbc:oracle:thin:@${externalEnvIp}:${oracle_port}:${SID}",
+                    "driver_url" = "${driver_url}",
+                    "driver_class" = "oracle.jdbc.driver.OracleDriver",
+                    "lower_case_table_names" = "true"
+        );"""
+        sql """ switch ${catalog_name} """
+        qt_query_ad1 """ select * from doris_test.`aa/d` order by id; """
+        qt_query_ad2 """ select * from doris_test.aaad order by id; """
 
     }
 }

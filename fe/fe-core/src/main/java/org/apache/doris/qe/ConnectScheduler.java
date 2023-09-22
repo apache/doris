@@ -18,7 +18,6 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -32,7 +31,6 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Map;
 import java.util.TimerTask;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -47,8 +45,6 @@ public class ConnectScheduler {
     private final AtomicInteger nextConnectionId;
     private final Map<Integer, ConnectContext> connectionMap = Maps.newConcurrentMap();
     private final Map<String, AtomicInteger> connByUser = Maps.newConcurrentMap();
-    private final ExecutorService executor = ThreadPoolManager.newDaemonCacheThreadPool(
-            Config.max_connection_scheduler_threads_num, "connect-scheduler-pool", true);
 
     // valid trace id -> query id
     private final Map<String, TUniqueId> traceId2QueryId = Maps.newConcurrentMap();

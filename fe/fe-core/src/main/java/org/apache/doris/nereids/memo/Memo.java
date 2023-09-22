@@ -138,8 +138,8 @@ public class Memo {
 
     private Plan skipProject(Plan plan, Group targetGroup) {
         // Some top project can't be eliminated
-        if (plan instanceof LogicalProject && ((LogicalProject<?>) plan).canEliminate()) {
-            LogicalProject<Plan> logicalProject = (LogicalProject<Plan>) plan;
+        if (plan instanceof LogicalProject) {
+            LogicalProject<?> logicalProject = (LogicalProject<?>) plan;
             if (targetGroup != root) {
                 if (logicalProject.getOutputSet().equals(logicalProject.child().getOutputSet())) {
                     return skipProject(logicalProject.child(), targetGroup);
@@ -155,7 +155,7 @@ public class Memo {
 
     private Plan skipProjectGetChild(Plan plan) {
         if (plan instanceof LogicalProject) {
-            LogicalProject<Plan> logicalProject = (LogicalProject<Plan>) plan;
+            LogicalProject<?> logicalProject = (LogicalProject<?>) plan;
             Plan child = logicalProject.child();
             if (logicalProject.getOutputSet().equals(child.getOutputSet())) {
                 return skipProjectGetChild(child);
@@ -779,23 +779,7 @@ public class Memo {
         StringBuilder builder = new StringBuilder();
         builder.append("root:").append(getRoot()).append("\n");
         for (Group group : groups.values()) {
-            builder.append("\n\n").append(group);
-            builder.append("  stats").append("\n");
-            builder.append(group.getStatistics().detail("    "));
-            builder.append("  lowest Plan(cost, properties, plan, childrenRequires)");
-            group.getAllProperties().forEach(
-                    prop -> {
-                        Optional<Pair<Cost, GroupExpression>> costAndGroupExpression = group.getLowestCostPlan(prop);
-                        if (costAndGroupExpression.isPresent()) {
-                            Cost cost = costAndGroupExpression.get().first;
-                            GroupExpression child = costAndGroupExpression.get().second;
-                            builder.append("\n\n    " + cost.getValue() + " " + prop)
-                                    .append("\n     ").append(child)
-                                    .append("\n     " + child.getInputPropertiesListOrEmpty(prop));
-                        }
-                    }
-            );
-            builder.append("\n");
+            builder.append("\n\n").append(group).append("\n");
         }
         return builder.toString();
     }
@@ -931,7 +915,7 @@ public class Memo {
         int prefix = 0;
         for (GroupExpression groupExpression : extractGroupExpressionContainsProp(group, prop)) {
             List<Pair<Long, Double>> possiblePlans = rankGroupExpression(groupExpression, prop);
-            if (possiblePlans.size() != 0 && rank - prefix <= possiblePlans.get(possiblePlans.size() - 1).first) {
+            if (!possiblePlans.isEmpty() && rank - prefix <= possiblePlans.get(possiblePlans.size() - 1).first) {
                 return unrankGroupExpression(groupExpression, prop, rank - prefix);
             }
             prefix += possiblePlans.size();
@@ -960,10 +944,9 @@ public class Memo {
             childrenPlan.add(unrankGroup(groupExpression.child(i), properties.get(i), childrenRanks.get(i)));
         }
         Plan plan = groupExpression.getPlan().withChildren(childrenPlan);
-        PhysicalPlan physicalPlan = ((PhysicalPlan) plan).withPhysicalPropertiesAndStats(
+        return ((PhysicalPlan) plan).withPhysicalPropertiesAndStats(
                 groupExpression.getOutputProperties(prop),
                 groupExpression.getOwnerGroup().getStatistics());
-        return physicalPlan;
     }
 
     /**
@@ -973,7 +956,7 @@ public class Memo {
      * 2: [2%1, 2%(1*2)]
      */
     private List<Long> extractChildRanks(long rank, List<List<Pair<Long, Double>>> children) {
-        Preconditions.checkArgument(children.size() > 0);
+        Preconditions.checkArgument(!children.isEmpty(), "children should not empty in extractChildRanks");
         int factor = children.get(0).size();
         List<Long> indices = new ArrayList<>();
         for (int i = 0; i < children.size() - 1; i++) {

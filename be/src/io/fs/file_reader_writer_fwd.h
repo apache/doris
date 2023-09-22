@@ -14,9 +14,6 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/Interpreters/Cache/FileCache_fwd.h
-// and modified by Doris
 
 #pragma once
 
@@ -30,6 +27,9 @@ class FileWriter;
 
 using FileReaderSPtr = std::shared_ptr<FileReader>;
 using FileWriterPtr = std::unique_ptr<FileWriter>;
+
+struct FileReaderOptions;
+struct FileWriterOptions;
 
 } // namespace io
 } // namespace doris

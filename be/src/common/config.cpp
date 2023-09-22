@@ -39,7 +39,6 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 
@@ -59,6 +58,8 @@ DEFINE_Int32(be_port, "9060");
 
 // port for brpc
 DEFINE_Int32(brpc_port, "8060");
+
+DEFINE_Int32(arrow_flight_sql_port, "-1");
 
 // the number of bthreads for brpc, the default value is set to -1,
 // which means the number of bthreads is #cpu-cores
@@ -130,7 +131,7 @@ DEFINE_mBool(enable_query_memory_overcommit, "true");
 
 DEFINE_mBool(disable_memory_gc, "false");
 
-DEFINE_mInt64(large_memory_check_bytes, "1073741824");
+DEFINE_mInt64(large_memory_check_bytes, "2147483648");
 
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
 DEFINE_mInt32(thread_wait_gc_max_milliseconds, "1000");
@@ -273,6 +274,7 @@ DEFINE_mInt32(tablet_lookup_cache_clean_interval, "30");
 DEFINE_mInt32(disk_stat_monitor_interval, "5");
 DEFINE_mInt32(unused_rowset_monitor_interval, "30");
 DEFINE_String(storage_root_path, "${DORIS_HOME}/storage");
+DEFINE_mString(broken_storage_path, "");
 
 // Config is used to check incompatible old format hdr_ format
 // whether doris uses strict way. When config is true, process will log fatal
@@ -280,12 +282,15 @@ DEFINE_String(storage_root_path, "${DORIS_HOME}/storage");
 DEFINE_Bool(storage_strict_check_incompatible_old_format, "true");
 
 // BE process will exit if the percentage of error disk reach this value.
-DEFINE_mInt32(max_percentage_of_error_disk, "0");
+DEFINE_mInt32(max_percentage_of_error_disk, "100");
 DEFINE_mInt32(default_num_rows_per_column_file_block, "1024");
 // pending data policy
 DEFINE_mInt32(pending_data_expire_time_sec, "1800");
 // inc_rowset snapshot rs sweep time interval
 DEFINE_mInt32(tablet_rowset_stale_sweep_time_sec, "300");
+// tablet stale rowset sweep by threshold size
+DEFINE_Bool(tablet_rowset_stale_sweep_by_size, "false");
+DEFINE_mInt32(tablet_rowset_stale_sweep_threshold_size, "100");
 // garbage sweep policy
 DEFINE_Int32(max_garbage_sweep_interval, "3600");
 DEFINE_Int32(min_garbage_sweep_interval, "180");
@@ -297,6 +302,7 @@ DEFINE_mInt32(trash_file_expire_time_sec, "259200");
 // minimum file descriptor number
 // modify them upon necessity
 DEFINE_Int32(min_file_descriptor_number, "60000");
+DEFINE_mBool(disable_segment_cache, "false");
 DEFINE_Int64(index_stream_cache_capacity, "10737418240");
 DEFINE_String(row_cache_mem_limit, "20%");
 
@@ -483,6 +489,8 @@ DEFINE_mInt32(stream_load_record_batch_size, "50");
 DEFINE_Int32(stream_load_record_expire_time_secs, "28800");
 // time interval to clean expired stream load records
 DEFINE_mInt64(clean_stream_load_record_interval_secs, "1800");
+// The buffer size to store stream table function schema info
+DEFINE_Int64(stream_tvf_buffer_size, "1048576"); // 1MB
 
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
 // You may need to lower the speed when the sink receiver bes are too busy.
@@ -574,7 +582,7 @@ DEFINE_mInt32(result_buffer_cancelled_interval_time, "300");
 DEFINE_mInt32(priority_queue_remaining_tasks_increased_frequency, "512");
 
 // sync tablet_meta when modifying meta
-DEFINE_mBool(sync_tablet_meta, "false");
+DEFINE_mBool(sync_tablet_meta, "true");
 
 // default thrift rpc timeout ms
 DEFINE_mInt32(thrift_rpc_timeout_ms, "60000");
@@ -723,6 +731,15 @@ DEFINE_mInt32(mem_tracker_consume_min_size_bytes, "1048576");
 // In most cases, it does not need to be modified.
 DEFINE_mDouble(tablet_version_graph_orphan_vertex_ratio, "0.1");
 
+// share brpc streams when memtable_on_sink_node = true
+DEFINE_Bool(share_load_streams, "true");
+// share delta writers when memtable_on_sink_node = true
+DEFINE_Bool(share_delta_writers, "true");
+// number of brpc stream per OlapTableSinkV2 (per load if share_load_streams = true)
+DEFINE_Int32(num_streams_per_sink, "5");
+// timeout for open stream sink rpc in ms
+DEFINE_Int64(open_stream_sink_timeout_ms, "500");
+
 // max send batch parallelism for OlapTableSink
 // The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
 // if exceed, the value of send_batch_parallelism would be max_send_batch_parallelism_per_job
@@ -765,6 +782,7 @@ DEFINE_mInt32(max_remote_storage_count, "10");
 // and the valid values are: 0.9.0.x, 0.8.x.y.
 DEFINE_String(kafka_api_version_request, "true");
 DEFINE_String(kafka_broker_version_fallback, "0.10.0");
+DEFINE_String(kafka_debug, "disable");
 
 // The number of pool siz of routine load consumer.
 // If you meet the error describe in https://github.com/edenhill/librdkafka/issues/3608
@@ -839,6 +857,9 @@ DEFINE_Validator(jsonb_type_length_soft_limit_bytes,
 // is greater than object_pool_buffer_size, release the object in the unused_object_pool.
 DEFINE_Int32(object_pool_buffer_size, "100");
 
+// Threshold of reading a small file into memory
+DEFINE_mInt32(in_memory_file_size, "1048576"); // 1MB
+
 // ParquetReaderWrap prefetch buffer size
 DEFINE_Int32(parquet_reader_max_buffer_size, "50");
 // Max size of parquet page header in bytes
@@ -865,20 +886,14 @@ DEFINE_mInt32(remove_unused_remote_files_interval_sec, "21600"); // 6h
 DEFINE_mInt32(confirm_unused_remote_files_interval_sec, "60");
 DEFINE_Int32(cold_data_compaction_thread_num, "2");
 DEFINE_mInt32(cold_data_compaction_interval_sec, "1800");
-DEFINE_mInt64(generate_cache_cleaner_task_interval_sec, "43200"); // 12 h
 DEFINE_Int32(concurrency_per_dir, "2");
-DEFINE_mInt64(cooldown_lag_time_sec, "10800");       // 3h
-DEFINE_mInt64(max_sub_cache_file_size, "104857600"); // 100MB
-DEFINE_mInt64(file_cache_alive_time_sec, "604800");  // 1 week
 // file_cache_type is used to set the type of file cache for remote files.
 // "": no cache, "sub_file_cache": split sub files from remote file.
 // "whole_file_cache": the whole file.
 DEFINE_mString(file_cache_type, "file_block_cache");
-DEFINE_Validator(file_cache_type, [](const std::string config) -> bool {
-    return config == "sub_file_cache" || config == "whole_file_cache" || config == "" ||
-           config == "file_block_cache";
+DEFINE_Validator(file_cache_type, [](std::string_view config) -> bool {
+    return config == "" || config == "file_block_cache";
 });
-DEFINE_mInt64(file_cache_max_size_per_disk, "0"); // zero for no limit
 
 DEFINE_Int32(s3_transfer_executor_pool_size, "2");
 
@@ -893,6 +908,9 @@ DEFINE_Int32(doris_remote_scanner_thread_pool_queue_size, "102400");
 
 // limit the queue of pending batches which will be sent by a single nodechannel
 DEFINE_mInt64(nodechannel_pending_queue_max_bytes, "67108864");
+
+// The batch size for sending data by brpc streaming client
+DEFINE_mInt64(brpc_streaming_client_batch_bytes, "262144");
 
 // Max waiting time to wait the "plan fragment start" rpc.
 // If timeout, the fragment will be cancelled.
@@ -960,6 +978,7 @@ DEFINE_Validator(file_cache_min_file_segment_size, [](const int64_t config) -> b
 });
 DEFINE_Bool(clear_file_cache, "false");
 DEFINE_Bool(enable_file_cache_query_limit, "false");
+DEFINE_mInt32(file_cache_wait_sec_after_fail, "0"); // // zero for no waiting and retrying
 
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
@@ -1013,6 +1032,9 @@ DEFINE_Bool(enable_shrink_memory, "false");
 DEFINE_mInt32(schema_cache_capacity, "1024");
 DEFINE_mInt32(schema_cache_sweep_time_sec, "100");
 
+// max number of segment cache, default -1 for backward compatibility fd_number*2/5
+DEFINE_mInt32(segment_cache_capacity, "-1");
+
 // enable feature binlog, default false
 DEFINE_Bool(enable_feature_binlog, "false");
 
@@ -1047,9 +1069,6 @@ DEFINE_mInt64(lookup_connection_cache_bytes_limit, "4294967296");
 // level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
 DEFINE_mInt64(LZ4_HC_compression_level, "9");
 
-// enable window_funnel_function with different modes
-DEFINE_mBool(enable_window_funnel_function_v2, "false");
-
 DEFINE_Bool(enable_hdfs_hedged_read, "false");
 DEFINE_Int32(hdfs_hedged_read_thread_num, "128");
 DEFINE_Int32(hdfs_hedged_read_threshold_time, "500");
@@ -1059,6 +1078,26 @@ DEFINE_mBool(enable_merge_on_write_correctness_check, "true");
 // The secure path with user files, used in the `local` table function.
 DEFINE_mString(user_files_secure_path, "${DORIS_HOME}");
 
+DEFINE_Int32(partition_topn_partition_threshold, "1024");
+
+DEFINE_Int32(fe_expire_duration_seconds, "60");
+
+DEFINE_Int32(grace_shutdown_wait_seconds, "120");
+
+DEFINE_Int16(bitmap_serialize_version, "1");
+
+// the count of thread to group commit insert
+DEFINE_Int32(group_commit_insert_threads, "10");
+
+DEFINE_mInt32(scan_thread_nice_value, "0");
+DEFINE_mInt32(tablet_schema_cache_recycle_interval, "86400");
+
+DEFINE_Bool(exit_on_exception, "false");
+
+// cgroup
+DEFINE_String(doris_cgroup_cpu_path, "");
+
+// clang-format off
 #ifdef BE_TEST
 // test s3
 DEFINE_String(test_s3_resource, "resource");
@@ -1069,6 +1108,7 @@ DEFINE_String(test_s3_region, "region");
 DEFINE_String(test_s3_bucket, "bucket");
 DEFINE_String(test_s3_prefix, "prefix");
 #endif
+// clang-format on
 
 std::map<std::string, Register::Field>* Register::_s_field_map = nullptr;
 std::map<std::string, std::function<bool()>>* RegisterConfValidator::_s_field_validator = nullptr;
@@ -1297,9 +1337,9 @@ void Properties::set_force(const std::string& key, const std::string& val) {
 }
 
 Status Properties::dump(const std::string& conffile) {
-    RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(conffile));
+    std::string conffile_tmp = conffile + ".tmp";
     io::FileWriterPtr file_writer;
-    RETURN_IF_ERROR(io::global_local_filesystem()->create_file(conffile, &file_writer));
+    RETURN_IF_ERROR(io::global_local_filesystem()->create_file(conffile_tmp, &file_writer));
     RETURN_IF_ERROR(file_writer->append("# THIS IS AN AUTO GENERATED CONFIG FILE.\n"));
     RETURN_IF_ERROR(file_writer->append(
             "# You can modify this file manually, and the configurations in this file\n"));
@@ -1312,7 +1352,9 @@ Status Properties::dump(const std::string& conffile) {
         RETURN_IF_ERROR(file_writer->append("\n"));
     }
 
-    return file_writer->close();
+    RETURN_IF_ERROR(file_writer->close());
+
+    return io::global_local_filesystem()->rename(conffile_tmp, conffile);
 }
 
 template <typename T>
@@ -1391,32 +1433,34 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
     return true;
 }
 
-#define UPDATE_FIELD(FIELD, VALUE, TYPE, PERSIST)                                                 \
-    if (strcmp((FIELD).type, #TYPE) == 0) {                                                       \
-        TYPE new_value;                                                                           \
-        if (!convert((VALUE), new_value)) {                                                       \
-            return Status::InvalidArgument("convert '{}' as {} failed", VALUE, #TYPE);            \
-        }                                                                                         \
-        TYPE& ref_conf_value = *reinterpret_cast<TYPE*>((FIELD).storage);                         \
-        TYPE old_value = ref_conf_value;                                                          \
-        if (RegisterConfValidator::_s_field_validator != nullptr) {                               \
-            auto validator = RegisterConfValidator::_s_field_validator->find((FIELD).name);       \
-            if (validator != RegisterConfValidator::_s_field_validator->end() &&                  \
-                !(validator->second)()) {                                                         \
-                ref_conf_value = old_value;                                                       \
-                return Status::InvalidArgument("validate {}={} failed", (FIELD).name, new_value); \
-            }                                                                                     \
-        }                                                                                         \
-        ref_conf_value = new_value;                                                               \
-        if (full_conf_map != nullptr) {                                                           \
-            std::ostringstream oss;                                                               \
-            oss << new_value;                                                                     \
-            (*full_conf_map)[(FIELD).name] = oss.str();                                           \
-        }                                                                                         \
-        if (PERSIST) {                                                                            \
-            RETURN_IF_ERROR(persist_config(std::string((FIELD).name), VALUE));                    \
-        }                                                                                         \
-        return Status::OK();                                                                      \
+#define UPDATE_FIELD(FIELD, VALUE, TYPE, PERSIST)                                                  \
+    if (strcmp((FIELD).type, #TYPE) == 0) {                                                        \
+        TYPE new_value;                                                                            \
+        if (!convert((VALUE), new_value)) {                                                        \
+            return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("convert '{}' as {} failed",  \
+                                                                     VALUE, #TYPE);                \
+        }                                                                                          \
+        TYPE& ref_conf_value = *reinterpret_cast<TYPE*>((FIELD).storage);                          \
+        TYPE old_value = ref_conf_value;                                                           \
+        if (RegisterConfValidator::_s_field_validator != nullptr) {                                \
+            auto validator = RegisterConfValidator::_s_field_validator->find((FIELD).name);        \
+            if (validator != RegisterConfValidator::_s_field_validator->end() &&                   \
+                !(validator->second)()) {                                                          \
+                ref_conf_value = old_value;                                                        \
+                return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("validate {}={} failed",  \
+                                                                         (FIELD).name, new_value); \
+            }                                                                                      \
+        }                                                                                          \
+        ref_conf_value = new_value;                                                                \
+        if (full_conf_map != nullptr) {                                                            \
+            std::ostringstream oss;                                                                \
+            oss << new_value;                                                                      \
+            (*full_conf_map)[(FIELD).name] = oss.str();                                            \
+        }                                                                                          \
+        if (PERSIST) {                                                                             \
+            RETURN_IF_ERROR(persist_config(std::string((FIELD).name), VALUE));                     \
+        }                                                                                          \
+        return Status::OK();                                                                       \
     }
 
 // write config to be_custom.conf
@@ -1441,11 +1485,12 @@ Status set_config(const std::string& field, const std::string& value, bool need_
                   bool force) {
     auto it = Register::_s_field_map->find(field);
     if (it == Register::_s_field_map->end()) {
-        return Status::NotFound("'{}' is not found", field);
+        return Status::Error<ErrorCode::NOT_FOUND, false>("'{}' is not found", field);
     }
 
     if (!force && !it->second.valmutable) {
-        return Status::NotSupported("'{}' is not support to modify", field);
+        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR, false>(
+                "'{}' is not support to modify", field);
     }
 
     UPDATE_FIELD(it->second, value, bool, need_persist);
@@ -1460,8 +1505,8 @@ Status set_config(const std::string& field, const std::string& value, bool need_
     }
 
     // The other types are not thread safe to change dynamically.
-    return Status::NotSupported("'{}' is type of '{}' which is not support to modify", field,
-                                it->second.type);
+    return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR, false>(
+            "'{}' is type of '{}' which is not support to modify", field, it->second.type);
 }
 
 Status set_fuzzy_config(const std::string& field, const std::string& value) {
@@ -1496,7 +1541,11 @@ std::vector<std::vector<std::string>> get_config_info() {
         _config.push_back(it.first);
 
         _config.push_back(field_it->second.type);
-        _config.push_back(it.second);
+        if (0 == strcmp(field_it->second.type, "bool")) {
+            _config.push_back(it.second == "1" ? "true" : "false");
+        } else {
+            _config.push_back(it.second);
+        }
         _config.push_back(field_it->second.valmutable ? "true" : "false");
 
         configs.push_back(_config);

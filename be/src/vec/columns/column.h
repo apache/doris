@@ -98,7 +98,6 @@ protected:
     using Offsets64 = PaddedPODArray<Offset64>;
 
 public:
-    static constexpr int PREFETCH_STEP = 64;
     // 32bit offsets for string
     using Offset = UInt32;
     using Offsets = PaddedPODArray<Offset>;
@@ -488,9 +487,7 @@ public:
       * If `begin` and `count_sz` specified, it means elements in range [`begin`, `begin` + `count_sz`) will be replicated.
       * If `count_sz` is -1, `begin` must be 0.
       */
-    virtual void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const {
-        LOG(FATAL) << "not support";
-    }
+    virtual void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const = 0;
 
     /// Appends one field multiple times. Can be optimized in inherited classes.
     virtual void insert_many(const Field& field, size_t length) {
@@ -674,7 +671,6 @@ public:
     virtual bool is_column_map() const { return false; }
 
     /// If the only value column can contain is NULL.
-    /// Does not imply type of object, because it can be ColumnNullable(ColumnNothing) or ColumnConst(ColumnNullable(ColumnNothing))
     virtual bool only_null() const { return false; }
 
     /// Can be inside ColumnNullable.

@@ -290,7 +290,6 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                                 tbl.getTimeSeriesCompactionFileCountThreshold(),
                                 tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
                                 tbl.storeRowColumn(),
-                                tbl.isDynamicSchema(),
                                 binlogConfig);
                         createReplicaTask.setBaseTablet(tabletIdMap.get(rollupTabletId), baseSchemaHash);
                         if (this.storageFormat != null) {
@@ -640,8 +639,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         jobState = JobState.CANCELLED;
         this.errMsg = errMsg;
         this.finishedTimeMs = System.currentTimeMillis();
-        LOG.info("cancel {} job {}, err: {}", this.type, jobId, errMsg);
         Env.getCurrentEnv().getEditLog().logAlterJob(this);
+        LOG.info("cancel {} job {}, err: {}", this.type, jobId, errMsg);
         return true;
     }
 

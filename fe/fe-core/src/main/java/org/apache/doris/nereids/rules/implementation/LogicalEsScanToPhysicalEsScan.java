@@ -37,7 +37,8 @@ public class LogicalEsScanToPhysicalEsScan extends OneImplementationRuleFactory 
                 esScan.getQualifier(),
                 DistributionSpecAny.INSTANCE,
                 Optional.empty(),
-                esScan.getLogicalProperties())
+                esScan.getLogicalProperties(),
+                esScan.getConjuncts())
         ).toRule(RuleType.LOGICAL_ES_SCAN_TO_PHYSICAL_ES_SCAN_RULE);
     }
 }

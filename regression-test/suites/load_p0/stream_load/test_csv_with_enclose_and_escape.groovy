@@ -110,6 +110,7 @@ suite("test_csv_with_enclose_and_escape", "p0") {
         file "enclose_not_trim_quotes.csv"
     }
 
+    sql "sync"
     qt_select """
         SELECT * FROM ${tableName} ORDER BY k1, k2 
     """

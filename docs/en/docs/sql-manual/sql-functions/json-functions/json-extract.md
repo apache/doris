@@ -39,9 +39,9 @@ BOOLEAN json_extract_isnull(JSON j, VARCHAR json_path)
 BOOLEAN json_extract_bool(JSON j, VARCHAR json_path)
 INT json_extract_int(JSON j, VARCHAR json_path)
 BIGINT json_extract_bigint(JSON j, VARCHAR json_path)
+LARGEINT json_extract_largeint(JSON j, VARCHAR json_path)
 DOUBLE json_extract_double(JSON j, VARCHAR json_path)
 STRING json_extract_string(JSON j, VARCHAR json_path)
-VARCHAR json_str->json_path
 ```
 
 json_extract functions extract field specified by json_path from JSON. A series of functions are provided for different datatype.
@@ -51,6 +51,7 @@ json_extract functions extract field specified by json_path from JSON. A series 
 - json_extract_bool extract and return BOOLEAN datatype
 - json_extract_int extract and return INT datatype
 - json_extract_bigint extract and return BIGINT datatype
+- json_extract_largeint extract and return LARGEINT datatype
 - json_extract_double extract and return DOUBLE datatype
 - json_extract_STRING extract and return STRING datatype
 
@@ -79,13 +80,14 @@ STRING json_type(JSON j, VARCHAR json_path)
 
 There are two extra functions to check field existence and type
 - json_exists_path check the existence of the field specified by json_path, return TRUE or FALS
-- json_exists_path get the type as follows of the field specified by json_path, return NULL if it does not exist
+- json_type get the type as follows of the field specified by json_path, return NULL if it does not exist
   - object
   - array
   - null
   - bool
   - int
   - bigint
+  - largeint
   - double
   - string
 
@@ -125,24 +127,8 @@ mysql> SELECT json_extract('{"id": 123, "name": "doris"}', '$.aaa', '$.name');
 | [null,"doris"]                                                  |
 +-----------------------------------------------------------------+
 1 row in set (0.01 sec)
-
-mysql> SELECT '{"id": 123, "name": "doris"}'->'$.name';
-+--------------------------------------------------------+
-| json_extract('{"id": 123, "name": "doris"}', '$.name') |
-+--------------------------------------------------------+
-| "doris"                                                |
-+--------------------------------------------------------+
-1 row in set (0.01 sec)
-
-mysql> SELECT '{"k1": "v1", "k2": { "k21": 6.6, "k22": [1, 2, 3] } }'->'$.k2.k22[2]';
-+--------------------------------------------------------------------------------------+
-| json_extract('{"k1": "v1", "k2": { "k21": 6.6, "k22": [1, 2, 3] } }', '$.k2.k22[2]') |
-+--------------------------------------------------------------------------------------+
-| 3                                                                                    |
-+--------------------------------------------------------------------------------------+
-1 row in set (0.00 sec)
 ```
 
 
 ### keywords
-JSONB, JSON, json_extract, json_extract_isnull, json_extract_bool, json_extract_int, json_extract_bigint, json_extract_double, json_extract_string, json_exists_path, json_type
+JSONB, JSON, json_extract, json_extract_isnull, json_extract_bool, json_extract_int, json_extract_bigint, json_extract_largeint,json_extract_double, json_extract_string, json_exists_path, json_type

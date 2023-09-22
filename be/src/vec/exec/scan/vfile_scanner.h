@@ -154,9 +154,6 @@ protected:
     Block _src_block;
 
     VExprContextSPtrs _push_down_conjuncts;
-    bool _is_dynamic_schema = false;
-    // for tracing dynamic schema
-    std::unique_ptr<vectorized::schema_util::FullBaseSchemaView> _full_base_schema_view;
 
     std::unique_ptr<io::FileCacheStatistics> _file_cache_statistics;
     std::unique_ptr<io::IOContext> _io_ctx;

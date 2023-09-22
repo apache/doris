@@ -16,7 +16,37 @@
 // under the License.
 
 suite('test_default_limit') {
-    sql 'use test_query_db'
+    sql 'drop table if exists baseall'
+    sql 'drop table if exists bigtable'
+
+    sql '''
+        create table baseall (
+            k0 int,
+            k1 int,
+            k2 int,
+        )
+        distributed by hash(k0) buckets 16
+        properties(
+            'replication_num'='1'
+        )
+    '''
+
+    sql '''
+        create table bigtable (
+            k0 int,
+            k1 int,
+            k2 int,
+        )
+        distributed by hash(k0) buckets 16
+        properties(
+            'replication_num'='1'
+        )
+    '''
+
+    def values = (1..15).collect { "(${(int) (it / 8)}, $it, ${it + 1})" }.join(', ')
+    sql "insert into baseall values $values"
+    sql "insert into baseall values (null, null, null)"
+    sql "insert into bigtable select * from baseall"
 
     for (int i = 0; i < 2; ++i) {
         if (i == 0) {

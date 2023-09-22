@@ -86,13 +86,6 @@ public class ColumnTypeTest {
         Assert.assertNotEquals(type.getType(), type4.getType());
     }
 
-    @Test(expected = AnalysisException.class)
-    public void testCharInvalid() throws AnalysisException {
-        TypeDef type = TypeDef.createVarchar(-1);
-        type.analyze(null);
-        Assert.fail("No Exception throws");
-    }
-
     @Test
     public void testDecimal() throws AnalysisException {
         TypeDef type = TypeDef.createDecimal(12, 5);

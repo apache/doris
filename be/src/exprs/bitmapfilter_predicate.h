@@ -19,6 +19,7 @@
 
 #include <algorithm>
 
+#include "exprs/runtime_filter.h"
 #include "gutil/integral_types.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
@@ -27,7 +28,7 @@
 namespace doris {
 
 // only used in Runtime Filter
-class BitmapFilterFuncBase {
+class BitmapFilterFuncBase : public FilterFuncBase {
 public:
     virtual void insert(const void* data) = 0;
     virtual void insert_many(const std::vector<const BitmapValue*> bitmaps) = 0;
@@ -43,13 +44,9 @@ public:
     void set_not_in(bool not_in) { _not_in = not_in; }
     virtual ~BitmapFilterFuncBase() = default;
 
-    void set_filter_id(int filter_id) { _filter_id = filter_id; }
-    int get_filter_id() const { return _filter_id; }
-
 protected:
     // true -> not in bitmap, false -> in bitmap
     bool _not_in {false};
-    int _filter_id = -1;
 };
 
 template <PrimitiveType type>

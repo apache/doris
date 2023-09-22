@@ -85,7 +85,7 @@ public class Log4jConfig extends XmlConfiguration {
             + "        <TimeBasedTriggeringPolicy/>\n"
             + "        <SizeBasedTriggeringPolicy size=\"${audit_roll_maxsize}MB\"/>\n"
             + "      </Policies>\n"
-            + "      <DefaultRolloverStrategy max=\"${sys_roll_num}\" fileIndex=\"min\">\n"
+            + "      <DefaultRolloverStrategy max=\"${audit_roll_num}\" fileIndex=\"min\">\n"
             + "        <Delete basePath=\"${audit_log_dir}/\" maxDepth=\"1\">\n"
             + "          <IfFileName glob=\"fe.audit.log.*\" />\n"
             + "          <IfLastModified age=\"${audit_log_delete_age}\" />\n"

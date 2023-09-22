@@ -349,7 +349,7 @@ Status SingleReplicaCompaction::_fetch_rowset(const TReplicaInfo& addr, const st
         // change all rowset ids because they maybe its id same with local rowset
         auto olap_st = SnapshotManager::instance()->convert_rowset_ids(
                 local_path, _tablet->tablet_id(), _tablet->replica_id(), _tablet->schema_hash());
-        if (olap_st != Status::OK()) {
+        if (!olap_st.ok()) {
             LOG(WARNING) << "fail to convert rowset ids, path=" << local_path
                          << ", tablet_id=" << _tablet->tablet_id() << ", error=" << olap_st;
             status = Status::InternalError("Failed to convert rowset ids");

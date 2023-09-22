@@ -43,43 +43,58 @@ Paimon Catalog 当前支持两种类型的Metastore创建Catalog:
 
 ### 基于FileSystem创建Catalog
 
+> 2.0.1 及之前版本，请使用后面的 `基于Hive Metastore创建Catalog`。
+
 #### HDFS
 ```sql
 CREATE CATALOG `paimon_hdfs` PROPERTIES (
     "type" = "paimon",
     "warehouse" = "hdfs://HDFS8000871/user/paimon",
-    "dfs.nameservices"="HDFS8000871",
-    "dfs.ha.namenodes.HDFS8000871"="nn1,nn2",
-    "dfs.namenode.rpc-address.HDFS8000871.nn1"="172.21.0.1:4007",
-    "dfs.namenode.rpc-address.HDFS8000871.nn2"="172.21.0.2:4007",
-    "dfs.client.failover.proxy.provider.HDFS8000871"="org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider",
-    "hadoop.username"="hadoop"
+    "dfs.nameservices" = "HDFS8000871",
+    "dfs.ha.namenodes.HDFS8000871" = "nn1,nn2",
+    "dfs.namenode.rpc-address.HDFS8000871.nn1" = "172.21.0.1:4007",
+    "dfs.namenode.rpc-address.HDFS8000871.nn2" = "172.21.0.2:4007",
+    "dfs.client.failover.proxy.provider.HDFS8000871" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider",
+    "hadoop.username" = "hadoop"
 );
 
 ```
 
 #### S3
 
+> 注意：
+>
+> 用户需要手动下载[paimon-s3-0.4.0-incubating.jar](https://repo.maven.apache.org/maven2/org/apache/paimon/paimon-s3/0.4.0-incubating/paimon-s3-0.4.0-incubating.jar)
+
+> 放在${DORIS_HOME}/be/lib/java_extensions/preload-extensions目录下并重启be。
+>
+> 从 2.0.2 版本起，可以将这个文件放置在BE的 `custom_lib/` 目录下（如不存在，手动创建即可），以防止升级集群时因为 lib 目录被替换而导致文件丢失。
+
 ```sql
 CREATE CATALOG `paimon_s3` PROPERTIES (
     "type" = "paimon",
     "warehouse" = "s3://paimon-1308700295.cos.ap-beijing.myqcloud.com/paimoncos",
-    "s3.endpoint"="cos.ap-beijing.myqcloud.com",
-    "s3.access_key"="ak",
-    "s3.secret_key"="sk"
+    "s3.endpoint" = "cos.ap-beijing.myqcloud.com",
+    "s3.access_key" = "ak",
+    "s3.secret_key" = "sk"
 );
 
 ```
 
 #### OSS
 
+>注意：
+>
+> 用户需要手动下载[paimon-oss-0.4.0-incubating.jar](https://repo.maven.apache.org/maven2/org/apache/paimon/paimon-oss/0.4.0-incubating/paimon-oss-0.4.0-incubating.jar)
+> 放在${DORIS_HOME}/be/lib/java_extensions/preload-extensions目录下并重启be
+
 ```sql
 CREATE CATALOG `paimon_oss` PROPERTIES (
     "type" = "paimon",
     "warehouse" = "oss://paimon-zd/paimonoss",
-    "oss.endpoint"="oss-cn-beijing.aliyuncs.com",
-    "oss.access_key"="ak",
-    "oss.secret_key"="sk"
+    "oss.endpoint" = "oss-cn-beijing.aliyuncs.com",
+    "oss.access_key" = "ak",
+    "oss.secret_key" = "sk"
 );
 
 ```
@@ -89,15 +104,15 @@ CREATE CATALOG `paimon_oss` PROPERTIES (
 ```sql
 CREATE CATALOG `paimon_hms` PROPERTIES (
     "type" = "paimon",
-    "paimon.catalog.type"="hms",
+    "paimon.catalog.type" = "hms",
     "warehouse" = "hdfs://HDFS8000871/user/zhangdong/paimon2",
     "hive.metastore.uris" = "thrift://172.21.0.44:7004",
-    "dfs.nameservices'='HDFS8000871",
-    "dfs.ha.namenodes.HDFS8000871'='nn1,nn2",
-    "dfs.namenode.rpc-address.HDFS8000871.nn1"="172.21.0.1:4007",
-    "dfs.namenode.rpc-address.HDFS8000871.nn2"="172.21.0.2:4007",
-    "dfs.client.failover.proxy.provider.HDFS8000871"="org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider",
-    "hadoop.username"="hadoop"
+    "dfs.nameservices" = "HDFS8000871",
+    "dfs.ha.namenodes.HDFS8000871" = "nn1,nn2",
+    "dfs.namenode.rpc-address.HDFS8000871.nn1" = "172.21.0.1:4007",
+    "dfs.namenode.rpc-address.HDFS8000871.nn2" = "172.21.0.2:4007",
+    "dfs.client.failover.proxy.provider.HDFS8000871" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider",
+    "hadoop.username" = "hadoop"
 );
 
 ```

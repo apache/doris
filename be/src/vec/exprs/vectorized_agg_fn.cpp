@@ -318,4 +318,27 @@ Status AggFnEvaluator::_calc_argument_columns(Block* block) {
     return Status::OK();
 }
 
+AggFnEvaluator* AggFnEvaluator::clone(RuntimeState* state, ObjectPool* pool) {
+    return pool->add(AggFnEvaluator::create_unique(*this, state).release());
+}
+
+AggFnEvaluator::AggFnEvaluator(AggFnEvaluator& evaluator, RuntimeState* state)
+        : _fn(evaluator._fn),
+          _is_merge(evaluator._is_merge),
+          _argument_types_with_sort(evaluator._argument_types_with_sort),
+          _real_argument_types(evaluator._real_argument_types),
+          _return_type(evaluator._return_type),
+          _intermediate_slot_desc(evaluator._intermediate_slot_desc),
+          _output_slot_desc(evaluator._output_slot_desc),
+          _sort_description(evaluator._sort_description),
+          _data_type(evaluator._data_type),
+          _function(evaluator._function),
+          _expr_name(evaluator._expr_name),
+          _agg_columns(evaluator._agg_columns) {
+    _input_exprs_ctxs.resize(evaluator._input_exprs_ctxs.size());
+    for (size_t i = 0; i < _input_exprs_ctxs.size(); i++) {
+        WARN_IF_ERROR(evaluator._input_exprs_ctxs[i]->clone(state, _input_exprs_ctxs[i]), "");
+    }
+}
+
 } // namespace doris::vectorized

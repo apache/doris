@@ -80,7 +80,7 @@ void get_bitmap_reader_iter(const std::string& file_name, const ColumnIndexMetaP
                             BitmapIndexReader** reader, BitmapIndexIterator** iter) {
     io::FileReaderSPtr file_reader;
     ASSERT_EQ(io::global_local_filesystem()->open_file(file_name, &file_reader), Status::OK());
-    *reader = new BitmapIndexReader(std::move(file_reader), &meta.bitmap_index());
+    *reader = new BitmapIndexReader(std::move(file_reader), meta.bitmap_index());
     auto st = (*reader)->load(true, false);
     EXPECT_TRUE(st.ok());
 

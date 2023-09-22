@@ -83,14 +83,15 @@ struct HashTableBuild {
         }
 
         for (size_t k = 0; k < _rows; ++k) {
-            if (k % 65536 == 0) {
+            if (k % CHECK_FRECUENCY == 0) {
                 RETURN_IF_CANCELLED(_state);
             }
             auto emplace_result = key_getter.emplace_key(hash_table_ctx.hash_table, k,
                                                          *(_operation_node->_arena));
 
             if (k + 1 < _rows) {
-                key_getter.prefetch(hash_table_ctx.hash_table, k + 1, *(_operation_node->_arena));
+                key_getter.prefetch_by_key(hash_table_ctx.hash_table, k + 1,
+                                           *(_operation_node->_arena));
             }
 
             if (emplace_result.is_inserted()) { //only inserted once as the same key, others skip
@@ -682,7 +683,7 @@ void VSetOperationNode<is_intersect>::refresh_hash_table() {
                         HashTableCtxType tmp_hash_table;
                         bool is_need_shrink =
                                 arg.hash_table.should_be_shrink(_valid_element_in_hash_tbl);
-                        if (is_need_shrink) {
+                        if (is_intersect || is_need_shrink) {
                             tmp_hash_table.hash_table.init_buf_size(
                                     _valid_element_in_hash_tbl / arg.hash_table.get_factor() + 1);
                         }
@@ -690,39 +691,33 @@ void VSetOperationNode<is_intersect>::refresh_hash_table() {
                         arg.init_once();
                         auto& iter = arg.iter;
                         auto iter_end = arg.hash_table.end();
-                        while (iter != iter_end) {
-                            auto& mapped = iter->get_second();
-                            auto it = mapped.begin();
+                        std::visit(
+                                [&](auto is_need_shrink_const) {
+                                    while (iter != iter_end) {
+                                        auto& mapped = iter->get_second();
+                                        auto it = mapped.begin();
 
-                            if constexpr (is_intersect) { //intersected
-                                if (it->visited) {
-                                    it->visited = false;
-                                    if (is_need_shrink) {
-                                        tmp_hash_table.hash_table.insert(iter->get_value());
+                                        if constexpr (is_intersect) { //intersected
+                                            if (it->visited) {
+                                                it->visited = false;
+                                                tmp_hash_table.hash_table.insert(iter->get_value());
+                                            }
+                                            ++iter;
+                                        } else { //except
+                                            if constexpr (is_need_shrink_const) {
+                                                if (!it->visited) {
+                                                    tmp_hash_table.hash_table.insert(
+                                                            iter->get_value());
+                                                }
+                                            }
+                                            ++iter;
+                                        }
                                     }
-                                    ++iter;
-                                } else {
-                                    if (!is_need_shrink) {
-                                        arg.hash_table.delete_zero_key(iter->get_first());
-                                        // the ++iter would check if the current key is zero. if it does, the iterator will be moved to the container's head.
-                                        // so we do ++iter before set_zero to make the iterator move to next valid key correctly.
-                                        auto iter_prev = iter;
-                                        ++iter;
-                                        iter_prev->set_zero();
-                                    } else {
-                                        ++iter;
-                                    }
-                                }
-                            } else { //except
-                                if (!it->visited && is_need_shrink) {
-                                    tmp_hash_table.hash_table.insert(iter->get_value());
-                                }
-                                ++iter;
-                            }
-                        }
+                                },
+                                make_bool_variant(is_need_shrink));
 
                         arg.inited = false;
-                        if (is_need_shrink) {
+                        if (is_intersect || is_need_shrink) {
                             arg.hash_table = std::move(tmp_hash_table.hash_table);
                         }
                     } else {
@@ -760,7 +755,7 @@ Status VSetOperationNode<is_intersected>::get_data_in_hashtable(HashTableContext
             }
         }
     } else {
-        LOG(FATAL) << "Invalid RowRefListType!";
+        return Status::InternalError("Invalid RowRefListType!");
     }
 
     *eos = iter == hash_table_ctx.hash_table.end();

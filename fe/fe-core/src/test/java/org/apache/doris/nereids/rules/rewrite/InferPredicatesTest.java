@@ -17,13 +17,32 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.Sets;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Optional;
+import java.util.Set;
+
 public class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchSupported {
+
+    private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+
+    private final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
+
+    private final PredicatePropagation propagation = new PredicatePropagation();
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -604,5 +623,39 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
                     )
                 );
     }
-}
 
+    /**
+     * in this case, filter on relation s1 should not contain s1.id = 1.
+     */
+    @Test
+    public void innerJoinShouldNotInferUnderLeftJoinOnClausePredicates() {
+        String sql = "select * from student s1"
+                + " left join (select sid as id1, sid as id2, grade from score) s2 on s1.id = s2.id1 and s1.id = 1"
+                + " join (select sid as id1, sid as id2, grade from score) s3 on s1.id = s3.id1 where s1.id = 2";
+        PlanChecker.from(connectContext).analyze(sql).rewrite().printlnTree();
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(
+                        logicalJoin(
+                                logicalFilter(
+                                        logicalOlapScan()
+                                ).when(filter -> filter.getConjuncts().size() == 1
+                                        && filter.getPredicate().toSql().contains("id = 2")),
+                                any()
+                        ).when(join -> join.getJoinType() == JoinType.LEFT_OUTER_JOIN)
+                );
+    }
+
+    @Test
+    void testInfer() {
+        EqualTo equalTo = new EqualTo(new Cast(scan1.getOutput().get(0), BigIntType.INSTANCE), Literal.of(1));
+        EqualTo equalTo2 = new EqualTo(scan2.getOutput().get(0), scan1.getOutput().get(0));
+        Set<Expression> predicates = Sets.newHashSet();
+        predicates.add(equalTo2);
+        predicates.add(equalTo);
+        Set<Expression> newPredicates = propagation.infer(predicates);
+        Optional<Expression> newPredicate = newPredicates.stream().findFirst();
+        Assertions.assertTrue(newPredicate.get().equals(new EqualTo(new Cast(scan2.getOutput().get(0), BigIntType.INSTANCE), Literal.of(1))));
+    }
+}

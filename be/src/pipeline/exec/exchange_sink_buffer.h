@@ -42,7 +42,14 @@ class TUniqueId;
 
 using InstanceLoId = int64_t;
 
+namespace pipeline {
+class BroadcastDependency;
+class ExchangeSinkQueueDependency;
+} // namespace pipeline
+
 namespace vectorized {
+class VDataStreamSender;
+template <typename>
 class PipChannel;
 
 template <typename T>
@@ -63,13 +70,11 @@ struct AtomicWrapper {
 // PBlock is available for next serialization.
 class BroadcastPBlockHolder {
 public:
-    BroadcastPBlockHolder() : _ref_count(0) {}
+    BroadcastPBlockHolder() : _ref_count(0), _dep(nullptr) {}
+    BroadcastPBlockHolder(pipeline::BroadcastDependency* dep) : _ref_count(0), _dep(dep) {}
     ~BroadcastPBlockHolder() noexcept = default;
 
-    void unref() noexcept {
-        DCHECK_GT(_ref_count._value, 0);
-        _ref_count._value.fetch_sub(1);
-    }
+    void unref() noexcept;
     void ref() noexcept { _ref_count._value.fetch_add(1); }
 
     bool available() { return _ref_count._value == 0; }
@@ -79,23 +84,24 @@ public:
 private:
     AtomicWrapper<uint32_t> _ref_count;
     PBlock pblock;
+    pipeline::BroadcastDependency* _dep;
 };
 } // namespace vectorized
 
 namespace pipeline {
+template <typename Parent>
 struct TransmitInfo {
-    vectorized::PipChannel* channel;
+    vectorized::PipChannel<Parent>* channel;
     std::unique_ptr<PBlock> block;
     bool eos;
 };
 
+template <typename Parent>
 struct BroadcastTransmitInfo {
-    vectorized::PipChannel* channel;
+    vectorized::PipChannel<Parent>* channel;
     vectorized::BroadcastPBlockHolder* block_holder;
     bool eos;
 };
-
-class PipelineFragmentContext;
 
 template <typename T>
 class SelfDeleteClosure : public google::protobuf::Closure {
@@ -160,28 +166,35 @@ struct ExchangeRpcContext {
 };
 
 // Each ExchangeSinkOperator have one ExchangeSinkBuffer
+template <typename Parent>
 class ExchangeSinkBuffer {
 public:
-    ExchangeSinkBuffer(PUniqueId, int, PlanNodeId, int, PipelineFragmentContext*);
+    ExchangeSinkBuffer(PUniqueId, int, PlanNodeId, int, QueryContext*);
     ~ExchangeSinkBuffer();
     void register_sink(TUniqueId);
-    Status add_block(TransmitInfo&& request);
-    Status add_block(BroadcastTransmitInfo&& request);
+
+    Status add_block(TransmitInfo<Parent>&& request);
+    Status add_block(BroadcastTransmitInfo<Parent>&& request);
     bool can_write() const;
     bool is_pending_finish();
     void close();
     void set_rpc_time(InstanceLoId id, int64_t start_rpc_time, int64_t receive_rpc_time);
     void update_profile(RuntimeProfile* profile);
 
+    void set_queue_dependency(std::shared_ptr<ExchangeSinkQueueDependency> queue_dependency) {
+        _queue_dependency = queue_dependency;
+    }
+
 private:
     phmap::flat_hash_map<InstanceLoId, std::unique_ptr<std::mutex>>
             _instance_to_package_queue_mutex;
     // store data in non-broadcast shuffle
-    phmap::flat_hash_map<InstanceLoId, std::queue<TransmitInfo, std::list<TransmitInfo>>>
+    phmap::flat_hash_map<InstanceLoId,
+                         std::queue<TransmitInfo<Parent>, std::list<TransmitInfo<Parent>>>>
             _instance_to_package_queue;
     // store data in broadcast shuffle
-    phmap::flat_hash_map<InstanceLoId,
-                         std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>>
+    phmap::flat_hash_map<InstanceLoId, std::queue<BroadcastTransmitInfo<Parent>,
+                                                  std::list<BroadcastTransmitInfo<Parent>>>>
             _instance_to_broadcast_package_queue;
     using PackageSeq = int64_t;
     // must init zero
@@ -200,7 +213,7 @@ private:
     int _sender_id;
     int _be_number;
     std::atomic<int64_t> _rpc_count = 0;
-    PipelineFragmentContext* _context;
+    QueryContext* _context;
 
     Status _send_rpc(InstanceLoId);
     // must hold the _instance_to_package_queue_mutex[id] mutex to opera
@@ -211,6 +224,11 @@ private:
     inline bool _is_receiver_eof(InstanceLoId id);
     void get_max_min_rpc_time(int64_t* max_time, int64_t* min_time);
     int64_t get_sum_rpc_time();
+
+    std::atomic<int> _total_queue_size = 0;
+    static constexpr int QUEUE_CAPACITY_FACTOR = 64;
+    int _queue_capacity = 0;
+    std::shared_ptr<ExchangeSinkQueueDependency> _queue_dependency = nullptr;
 };
 
 } // namespace pipeline

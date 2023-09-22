@@ -146,7 +146,15 @@ Status TypedZoneMapIndexWriter<Type>::finish(io::FileWriter* file_writer,
 }
 
 Status ZoneMapIndexReader::load(bool use_page_cache, bool kept_in_memory) {
-    IndexedColumnReader reader(_file_reader, _index_meta->page_zone_maps());
+    // TODO yyq: implement a new once flag to avoid status construct.
+    return _load_once.call([this, use_page_cache, kept_in_memory] {
+        return _load(use_page_cache, kept_in_memory, std::move(_page_zone_maps_meta));
+    });
+}
+
+Status ZoneMapIndexReader::_load(bool use_page_cache, bool kept_in_memory,
+                                 std::unique_ptr<IndexedColumnMetaPB> page_zone_maps_meta) {
+    IndexedColumnReader reader(_file_reader, *page_zone_maps_meta);
     RETURN_IF_ERROR(reader.load(use_page_cache, kept_in_memory));
     IndexedColumnIterator iter(&reader);
 

@@ -52,14 +52,14 @@ github:
           - Clang Formatter
           - CheckStyle
           - P0 Regression (Doris Regression)
+          - P1 Regression (Doris Regression)
+          - External Regression (Doris External Regression)
           - FE UT (Doris FE UT)
           - BE UT (Doris BE UT)
           - Build Broker
           - Build Documents
-          - BE UT (Clang)
           - ShellCheck
           - clickbench-new (clickbench)
-          - BE UT (macOS)
           - Build Third Party Libraries (Linux)
           - Build Third Party Libraries (macOS)
           - COMPILE (DORIS_COMPILE)
@@ -80,15 +80,15 @@ github:
         required_approving_review_count: 1
   collaborators:
     - LemonLiTree
-    - zy-kkk
     - Yukang-Lian
-    - xiaokang
     - TangSiyang2001
     - platoneko
     - Lchangliang
     - freemandealer
     - nanfeng1999
     - gitccl
+    - shuke987
+    - wm1581066
 
 notifications:
     pullrequests_status:  commits@doris.apache.org

@@ -103,8 +103,7 @@ Status EngineStorageMigrationTask::_check_running_txns() {
     std::set<int64_t> transaction_ids;
     // check if this tablet has related running txns. if yes, can not do migration.
     StorageEngine::instance()->txn_manager()->get_tablet_related_txns(
-            _tablet->tablet_id(), _tablet->schema_hash(), _tablet->tablet_uid(), &partition_id,
-            &transaction_ids);
+            _tablet->tablet_id(), _tablet->tablet_uid(), &partition_id, &transaction_ids);
     if (transaction_ids.size() > 0) {
         return Status::InternalError("tablet {} has unfinished txns", _tablet->tablet_id());
     }

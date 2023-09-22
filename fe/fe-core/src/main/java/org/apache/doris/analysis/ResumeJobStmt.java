@@ -18,11 +18,9 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 
@@ -49,9 +47,9 @@ public class ResumeJobStmt extends DdlStmt {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
-        checkAuth();
+        CreateJobStmt.checkAuth();
         if (labelName != null) {
             labelName.analyze(analyzer);
             db = labelName.getDbName();
@@ -60,13 +58,6 @@ public class ResumeJobStmt extends DdlStmt {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
             db = ClusterNamespace.getFullName(analyzer.getClusterName(), analyzer.getDefaultDb());
-        }
-    }
-
-    private void checkAuth() throws AnalysisException {
-        UserIdentity userIdentity = ConnectContext.get().getCurrentUserIdentity();
-        if (!userIdentity.isRootUser()) {
-            throw new AnalysisException("only root user can operate");
         }
     }
 }

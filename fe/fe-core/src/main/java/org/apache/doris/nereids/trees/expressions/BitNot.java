@@ -21,7 +21,6 @@ import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.NumericType;
 
 import com.google.common.base.Preconditions;
@@ -59,7 +58,7 @@ public class BitNot extends UnaryArithmetic {
     }
 
     @Override
-    public AbstractDataType inputType() {
+    public DataType inputType() {
         return NumericType.INSTANCE;
     }
 }

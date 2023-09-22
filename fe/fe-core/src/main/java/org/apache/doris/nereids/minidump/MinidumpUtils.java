@@ -436,7 +436,7 @@ public class MinidumpUtils {
         jsonObj.put("Sql", ConnectContext.get().getStatementContext().getOriginStatement().originStmt);
         // add session variable
         int beNumber = ConnectContext.get().getEnv().getClusterInfo().getBackendsNumber(true);
-        ConnectContext.get().getSessionVariable().setBeNumber(beNumber);
+        ConnectContext.get().getSessionVariable().setBeNumberForTest(beNumber);
         jsonObj.put("SessionVariable", serializeChangedSessionVariable(ConnectContext.get().getSessionVariable()));
         // add tables
         jsonObj.put("DbName", ConnectContext.get().getDatabase());

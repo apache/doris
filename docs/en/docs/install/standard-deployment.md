@@ -123,6 +123,7 @@ Doris instances communicate directly over the network. The following table shows
 | FE | http_port | 8030 | FE <--> FE, user <--> FE | HTTP server port on FE |
 | FE | rpc_port | 9020 | BE --> FE, FE <--> FE | Thrift server port on FE; The configurations of each FE should be consistent. |
 | FE | query_port | 9030 | user <--> FE | MySQL server port on FE |
+| FE | arrow_flight_sql_port | 9040 | user <--> FE | Arrow Flight SQL server port on FE |
 | FE | edit\_log_port | 9010 | FE <--> FE | Port on FE for BDBJE communication |
 | Broker | broker ipc_port | 8000 | FE --> Broker, BE --> Broker | Thrift server port on Broker for receiving requests |
 
@@ -177,7 +178,7 @@ See the `lower_case_table_names` section in [Variables](../advanced/variables.md
 
      **Note: For production environments, it is better not to put the directory under the Doris installation directory but in a separate disk (SSD would be the best); for test and development environments, you may use the default configuration.**
 
-  2. The default maximum Java heap memory of JAVA_OPTS in fe.conf is 4GB. For production environments, we recommend that it be adjusted to more than 8G.
+  2. The default maximum Java heap memory of JAVA_OPTS in fe.conf is 8GB.
 
 * Start FE
 

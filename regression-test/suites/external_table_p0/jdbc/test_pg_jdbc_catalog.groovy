@@ -82,6 +82,16 @@ suite("test_pg_jdbc_catalog", "p0,external,pg,external_docker,external_docker_pg
         order_qt_filter1  """ select * from test10 where 1 = 1  order by id; """
         order_qt_filter2  """ select * from test10 where id = 1 order by id; """
         order_qt_filter3  """ select * from test10 where 1 = 1 and id = 1 order by id; """
+        order_qt_partition_1_0 "select * from person_r;"
+        order_qt_partition_1_1 "select * from person_r1;"
+        order_qt_partition_1_2 "select * from person_r2;"
+        order_qt_partition_1_3 "select * from person_r3;"
+        order_qt_partition_1_4 "select * from person_r4;"
+        order_qt_partition_2_0 "select * from tb_test_alarm;"
+        order_qt_partition_2_1 "select * from tb_test_alarm_2020_09;"
+        order_qt_partition_2_2 "select * from tb_test_alarm_2020_10;"
+        order_qt_partition_2_3 "select * from tb_test_alarm_2020_11;"
+        order_qt_partition_2_4 "select * from tb_test_alarm_2020_12;"
 
         // test insert
         String uuid1 = UUID.randomUUID().toString();

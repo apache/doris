@@ -174,7 +174,8 @@ public class MapType extends Type {
 
     @Override
     public String toString() {
-        return  toSql(0).toUpperCase();
+        return String.format("MAP<%s,%s>",
+                keyType.toString(), valueType.toString());
     }
 
     @Override

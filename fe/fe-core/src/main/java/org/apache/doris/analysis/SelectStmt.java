@@ -24,6 +24,7 @@ import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
@@ -44,6 +45,7 @@ import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.ToSqlContext;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
@@ -392,6 +394,13 @@ public class SelectStmt extends QueryStmt {
                     View view = (View) table;
                     view.getQueryStmt().getTables(analyzer, expandView, tableMap, parentViewNameSet);
                 } else {
+                    // check auth
+                    if (!Env.getCurrentEnv().getAccessManager()
+                            .checkTblPriv(ConnectContext.get(), tblRef.getName(), PrivPredicate.SELECT)) {
+                        ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
+                                ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                                dbName + "." + tableName);
+                    }
                     tableMap.put(table.getId(), table);
                 }
             }
@@ -580,7 +589,7 @@ public class SelectStmt extends QueryStmt {
                 } else {
                     resultExprs.add(rewriteQueryExprByMvColumnExpr(expr, analyzer));
                 }
-                colLabels.add(expr.toColumnLabel());
+                colLabels.add("col_" + colLabels.size());
             }
         }
         // analyze valueList if exists
@@ -1259,6 +1268,9 @@ public class SelectStmt extends QueryStmt {
                             excludeAliasSMap.removeByLhsExpr(expr);
                         } catch (AnalysisException ex) {
                             // according to case3, column name do not exist, keep alias name inside alias map
+                            if (ConnectContext.get() != null) {
+                                ConnectContext.get().getState().reset();
+                            }
                         }
                     }
                     havingClauseAfterAnalyzed = havingClause.substitute(excludeAliasSMap, analyzer, false);
@@ -1802,10 +1814,12 @@ public class SelectStmt extends QueryStmt {
             whereClause.collect(Subquery.class, subqueryExprs);
 
         }
-        if (havingClause != null) {
-            havingClause = rewriter.rewrite(havingClause, analyzer);
+
+        if (havingClauseAfterAnalyzed != null) {
+            havingClauseAfterAnalyzed = rewriter.rewrite(havingClauseAfterAnalyzed, analyzer);
             havingClauseAfterAnalyzed.collect(Subquery.class, subqueryExprs);
         }
+
         for (Subquery subquery : subqueryExprs) {
             subquery.getStatement().rewriteExprs(rewriter);
         }
@@ -1827,6 +1841,9 @@ public class SelectStmt extends QueryStmt {
                     }
                 } catch (AnalysisException ex) {
                     //ignore any exception
+                    if (ConnectContext.get() != null) {
+                        ConnectContext.get().getState().reset();
+                    }
                 }
                 rewriter.rewriteList(oriGroupingExprs, analyzer);
                 // after rewrite, need reset the analyze status for later re-analyze
@@ -1848,6 +1865,9 @@ public class SelectStmt extends QueryStmt {
                     }
                 } catch (AnalysisException ex) {
                     //ignore any exception
+                    if (ConnectContext.get() != null) {
+                        ConnectContext.get().getState().reset();
+                    }
                 }
                 orderByElem.setExpr(rewriter.rewrite(orderByElem.getExpr(), analyzer));
                 // after rewrite, need reset the analyze status for later re-analyze

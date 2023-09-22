@@ -61,6 +61,8 @@ import org.apache.doris.journal.local.LocalJournal;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.DeleteInfo;
 import org.apache.doris.load.ExportJob;
+import org.apache.doris.load.ExportJobState;
+import org.apache.doris.load.ExportJobStateTransfer;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.StreamLoadRecordMgr.FetchStreamLoadRecord;
@@ -84,6 +86,8 @@ import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 import org.apache.doris.scheduler.job.Job;
 import org.apache.doris.scheduler.job.JobTask;
 import org.apache.doris.statistics.AnalysisInfo;
+import org.apache.doris.statistics.AnalysisManager;
+import org.apache.doris.statistics.TableStats;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -92,7 +96,6 @@ import org.apache.doris.transaction.TransactionStatus;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.File;
 import java.io.IOException;
 import java.util.List;
 
@@ -258,7 +261,9 @@ public class EditLog {
                     ModifyPartitionInfo info = (ModifyPartitionInfo) journal.getData();
                     LOG.info("Begin to unprotect modify partition. db = " + info.getDbId() + " table = "
                             + info.getTableId() + " partitionId = " + info.getPartitionId());
+                    BatchModifyPartitionsInfo infos = new BatchModifyPartitionsInfo(info);
                     env.getAlterInstance().replayModifyPartition(info);
+                    env.getBinlogManager().addModifyPartitions(infos, logId);
                     break;
                 }
                 case OperationType.OP_BATCH_MODIFY_PARTITION: {
@@ -266,6 +271,7 @@ public class EditLog {
                     for (ModifyPartitionInfo modifyPartitionInfo : info.getModifyPartitionInfos()) {
                         env.getAlterInstance().replayModifyPartition(modifyPartitionInfo);
                     }
+                    env.getBinlogManager().addModifyPartitions(info, logId);
                     break;
                 }
                 case OperationType.OP_ERASE_TABLE: {
@@ -361,11 +367,12 @@ public class EditLog {
                 case OperationType.OP_EXPORT_CREATE: {
                     ExportJob job = (ExportJob) journal.getData();
                     ExportMgr exportMgr = env.getExportMgr();
+                    job.cancelReplayedExportJob();
                     exportMgr.replayCreateExportJob(job);
                     break;
                 }
                 case OperationType.OP_EXPORT_UPDATE_STATE: {
-                    ExportJob.StateTransfer op = (ExportJob.StateTransfer) journal.getData();
+                    ExportJobStateTransfer op = (ExportJobStateTransfer) journal.getData();
                     ExportMgr exportMgr = env.getExportMgr();
                     exportMgr.replayUpdateJobState(op);
                     break;
@@ -550,6 +557,11 @@ public class EditLog {
                     final BatchRemoveTransactionsOperationV2 operation =
                             (BatchRemoveTransactionsOperationV2) journal.getData();
                     Env.getCurrentGlobalTransactionMgr().replayBatchRemoveTransactionV2(operation);
+                    break;
+                }
+                case OperationType.OP_SET_TABLE_STATUS: {
+                    final SetTableStatusOperationLog log = (SetTableStatusOperationLog) journal.getData();
+                    env.replaySetTableStatus(log);
                     break;
                 }
                 case OperationType.OP_CREATE_REPOSITORY: {
@@ -791,6 +803,7 @@ public class EditLog {
                     ReplacePartitionOperationLog replaceTempPartitionLog =
                             (ReplacePartitionOperationLog) journal.getData();
                     env.replayReplaceTempPartition(replaceTempPartitionLog);
+                    env.getBinlogManager().addReplacePartitions(replaceTempPartitionLog, logId);
                     break;
                 }
                 case OperationType.OP_INSTALL_PLUGIN: {
@@ -806,6 +819,11 @@ public class EditLog {
                 case OperationType.OP_SET_REPLICA_STATUS: {
                     SetReplicaStatusOperationLog log = (SetReplicaStatusOperationLog) journal.getData();
                     env.replaySetReplicaStatus(log);
+                    break;
+                }
+                case OperationType.OP_SET_REPLICA_VERSION: {
+                    SetReplicaVersionOperationLog log = (SetReplicaVersionOperationLog) journal.getData();
+                    env.replaySetReplicaVersion(log);
                     break;
                 }
                 case OperationType.OP_REMOVE_ALTER_JOB_V2: {
@@ -825,6 +843,11 @@ public class EditLog {
                 case OperationType.OP_MODIFY_COMMENT: {
                     ModifyCommentOperationLog operation = (ModifyCommentOperationLog) journal.getData();
                     env.getAlterInstance().replayModifyComment(operation);
+                    break;
+                }
+                case OperationType.OP_SET_PARTITION_VERSION: {
+                    SetPartitionVersionOperationLog log = (SetPartitionVersionOperationLog) journal.getData();
+                    env.replaySetPartitionVersion(log);
                     break;
                 }
                 case OperationType.OP_ALTER_ROUTINE_LOAD_JOB: {
@@ -1048,11 +1071,19 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_CREATE_ANALYSIS_JOB: {
-                    env.getAnalysisManager().replayCreateAnalysisJob((AnalysisInfo) journal.getData());
+                    AnalysisInfo info = (AnalysisInfo) journal.getData();
+                    if (AnalysisManager.needAbandon(info)) {
+                        break;
+                    }
+                    env.getAnalysisManager().replayCreateAnalysisJob(info);
                     break;
                 }
                 case OperationType.OP_CREATE_ANALYSIS_TASK: {
-                    env.getAnalysisManager().replayCreateAnalysisTask((AnalysisInfo) journal.getData());
+                    AnalysisInfo info = (AnalysisInfo) journal.getData();
+                    if (AnalysisManager.needAbandon(info)) {
+                        break;
+                    }
+                    env.getAnalysisManager().replayCreateAnalysisTask(info);
                     break;
                 }
                 case OperationType.OP_DELETE_ANALYSIS_JOB: {
@@ -1084,6 +1115,14 @@ public class EditLog {
                 }
                 case OperationType.OP_UPDATE_AUTO_INCREMENT_ID: {
                     env.replayAutoIncrementIdUpdateLog((AutoIncrementIdUpdateLog) journal.getData());
+                    break;
+                }
+                case OperationType.OP_UPDATE_TABLE_STATS: {
+                    env.getAnalysisManager().replayUpdateTableStatsStatus((TableStats) journal.getData());
+                    break;
+                }
+                case OperationType.OP_PERSIST_AUTO_JOB: {
+                    env.getAnalysisManager().replayPersistSysJob((AnalysisInfo) journal.getData());
                     break;
                 }
                 default: {
@@ -1124,12 +1163,6 @@ public class EditLog {
      */
     public synchronized void close() throws IOException {
         journal.close();
-    }
-
-    public synchronized void createEditLogFile(File name) throws IOException {
-        EditLogOutputStream editLogOutputStream = new EditLogFileOutputStream(name);
-        editLogOutputStream.create();
-        editLogOutputStream.close();
     }
 
     public void open() {
@@ -1272,11 +1305,16 @@ public class EditLog {
     }
 
     public void logModifyPartition(ModifyPartitionInfo info) {
-        logEdit(OperationType.OP_MODIFY_PARTITION, info);
+        long logId = logEdit(OperationType.OP_MODIFY_PARTITION, info);
+        BatchModifyPartitionsInfo infos = new BatchModifyPartitionsInfo(info);
+        LOG.info("log modify partition, logId:{}, infos: {}", logId, infos.toJson());
+        Env.getCurrentEnv().getBinlogManager().addModifyPartitions(infos, logId);
     }
 
     public void logBatchModifyPartition(BatchModifyPartitionsInfo info) {
-        logEdit(OperationType.OP_BATCH_MODIFY_PARTITION, info);
+        long logId = logEdit(OperationType.OP_BATCH_MODIFY_PARTITION, info);
+        LOG.info("log modify partition, logId:{}, infos: {}", logId, info.toJson());
+        Env.getCurrentEnv().getBinlogManager().addModifyPartitions(info, logId);
     }
 
     public void logDropTable(DropInfo info) {
@@ -1461,17 +1499,25 @@ public class EditLog {
         logEdit(OperationType.OP_EXPORT_CREATE, job);
     }
 
-    public void logExportUpdateState(long jobId, ExportJob.JobState newState) {
-        ExportJob.StateTransfer transfer = new ExportJob.StateTransfer(jobId, newState);
+    public void logExportUpdateState(long jobId, ExportJobState newState) {
+        ExportJobStateTransfer transfer = new ExportJobStateTransfer(jobId, newState);
         logEdit(OperationType.OP_EXPORT_UPDATE_STATE, transfer);
     }
 
     // for TransactionState
     public void logInsertTransactionState(TransactionState transactionState) {
+        long start = System.currentTimeMillis();
         long logId = logEdit(OperationType.OP_UPSERT_TRANSACTION_STATE, transactionState);
+        long logEditEnd = System.currentTimeMillis();
+        long end = logEditEnd;
         if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
             UpsertRecord record = new UpsertRecord(logId, transactionState);
             Env.getCurrentEnv().getBinlogManager().addUpsertRecord(record);
+            end = System.currentTimeMillis();
+        }
+        if (end - start > Config.lock_reporting_threshold_ms) {
+            LOG.warn("edit log insert transaction take a lot time, write bdb {} ms, write binlog {} ms",
+                    logEditEnd - start, end - logEditEnd);
         }
     }
 
@@ -1704,7 +1750,9 @@ public class EditLog {
     }
 
     public void logReplaceTempPartition(ReplacePartitionOperationLog info) {
-        logEdit(OperationType.OP_REPLACE_TEMP_PARTITION, info);
+        long logId = logEdit(OperationType.OP_REPLACE_TEMP_PARTITION, info);
+        LOG.info("log replace temp partition, logId: {}, info: {}", logId, info.toJson());
+        Env.getCurrentEnv().getBinlogManager().addReplacePartitions(info, logId);
     }
 
     public void logInstallPlugin(PluginInfo plugin) {
@@ -1719,12 +1767,20 @@ public class EditLog {
         logEdit(OperationType.OP_SET_REPLICA_STATUS, log);
     }
 
+    public void logSetReplicaVersion(SetReplicaVersionOperationLog log) {
+        logEdit(OperationType.OP_SET_REPLICA_VERSION, log);
+    }
+
     public void logRemoveExpiredAlterJobV2(RemoveAlterJobV2OperationLog log) {
         logEdit(OperationType.OP_REMOVE_ALTER_JOB_V2, log);
     }
 
     public void logAlterRoutineLoadJob(AlterRoutineLoadJobOperationLog log) {
         logEdit(OperationType.OP_ALTER_ROUTINE_LOAD_JOB, log);
+    }
+
+    public void logSetPartitionVersion(SetPartitionVersionOperationLog log) {
+        logEdit(OperationType.OP_SET_PARTITION_VERSION, log);
     }
 
     public void logGlobalVariableV2(GlobalVarPersistInfo info) {
@@ -1737,6 +1793,10 @@ public class EditLog {
 
     public void logBatchRemoveTransactions(BatchRemoveTransactionsOperationV2 op) {
         logEdit(OperationType.OP_BATCH_REMOVE_TXNS_V2, op);
+    }
+
+    public void logSetTableStatus(SetTableStatusOperationLog log) {
+        logEdit(OperationType.OP_SET_TABLE_STATUS, log);
     }
 
     public void logModifyComment(ModifyCommentOperationLog op) {
@@ -1904,4 +1964,13 @@ public class EditLog {
     public void logUpdateAutoIncrementId(AutoIncrementIdUpdateLog log) {
         logEdit(OperationType.OP_UPDATE_AUTO_INCREMENT_ID, log);
     }
+
+    public void logCreateTableStats(TableStats tableStats) {
+        logEdit(OperationType.OP_UPDATE_TABLE_STATS, tableStats);
+    }
+
+    public void logAutoJob(AnalysisInfo analysisInfo) {
+        logEdit(OperationType.OP_PERSIST_AUTO_JOB, analysisInfo);
+    }
+
 }

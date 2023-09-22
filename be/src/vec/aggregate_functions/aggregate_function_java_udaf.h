@@ -546,7 +546,7 @@ public:
         Status st = this->data(_exec_place)
                             .add(places_address, true, columns, row_num, row_num + 1,
                                  argument_types, 0);
-        if (UNLIKELY(st != Status::OK())) {
+        if (UNLIKELY(!st.ok())) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR, st.to_string());
         }
     }
@@ -557,7 +557,7 @@ public:
         Status st = this->data(_exec_place)
                             .add(places_address, false, columns, 0, batch_size, argument_types,
                                  place_offset);
-        if (UNLIKELY(st != Status::OK())) {
+        if (UNLIKELY(!st.ok())) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR, st.to_string());
         }
     }
@@ -567,7 +567,7 @@ public:
         int64_t places_address = reinterpret_cast<int64_t>(place);
         Status st = this->data(_exec_place)
                             .add(places_address, true, columns, 0, batch_size, argument_types, 0);
-        if (UNLIKELY(st != Status::OK())) {
+        if (UNLIKELY(!st.ok())) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR, st.to_string());
         }
     }
@@ -581,14 +581,14 @@ public:
         Status st = this->data(_exec_place)
                             .add(places_address, true, columns, frame_start, frame_end,
                                  argument_types, 0);
-        if (UNLIKELY(st != Status::OK())) {
+        if (UNLIKELY(!st.ok())) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR, st.to_string());
         }
     }
 
     void reset(AggregateDataPtr place) const override {
         Status st = this->data(_exec_place).reset(reinterpret_cast<int64_t>(place));
-        if (UNLIKELY(st != Status::OK())) {
+        if (UNLIKELY(!st.ok())) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR, st.to_string());
         }
     }
@@ -597,7 +597,7 @@ public:
                Arena*) const override {
         Status st =
                 this->data(_exec_place).merge(this->data(rhs), reinterpret_cast<int64_t>(place));
-        if (UNLIKELY(st != Status::OK())) {
+        if (UNLIKELY(!st.ok())) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR, st.to_string());
         }
     }
@@ -605,7 +605,7 @@ public:
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
         Status st = this->data(const_cast<AggregateDataPtr&>(_exec_place))
                             .write(buf, reinterpret_cast<int64_t>(place));
-        if (UNLIKELY(st != Status::OK())) {
+        if (UNLIKELY(!st.ok())) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR, st.to_string());
         }
     }
@@ -623,7 +623,7 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         Status st = this->data(_exec_place).get(to, _return_type, reinterpret_cast<int64_t>(place));
-        if (UNLIKELY(st != Status::OK())) {
+        if (UNLIKELY(!st.ok())) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR, st.to_string());
         }
     }

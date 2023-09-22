@@ -73,7 +73,8 @@ public class SimplifyArithmeticComparisonRule extends AbstractExpressionRewriteR
             }
         }
         if (left != predicate.left() || right != predicate.right()) {
-            return TypeCoercionUtils.processComparisonPredicate(predicate, left, right);
+            predicate = (ComparisonPredicate) predicate.withChildren(left, right);
+            return TypeCoercionUtils.processComparisonPredicate(predicate);
         } else {
             return predicate;
         }

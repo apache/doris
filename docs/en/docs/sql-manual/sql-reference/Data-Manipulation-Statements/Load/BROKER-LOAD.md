@@ -67,6 +67,7 @@ WITH BROKER broker_name
   [COLUMNS TERMINATED BY "column_separator"]
   [LINES TERMINATED BY "line_delimiter"]
   [FORMAT AS "file_type"]
+  [COMPRESS_TYPE AS "compress_type"]
   [(column_list)]
   [COLUMNS FROM PATH AS (c1, c2, ...)]
   [SET (column_mapping)]
@@ -104,6 +105,9 @@ WITH BROKER broker_name
   - `FORMAT AS`
 
     Specifies the file type, CSV, PARQUET and ORC formats are supported. Default is CSV.
+
+  - `COMPRESS_TYPE AS`
+    Specifies the file compress type, GZ/LZO/BZ2/LZ4FRAME/DEFLATE/LZOP
 
   - `column list`
 
@@ -175,6 +179,10 @@ WITH BROKER broker_name
 
     Whether to impose strict restrictions on data. Defaults to false.
 
+  - `partial_columns`
+
+    Boolean type, True means that use partial column update, the default value is false, this parameter is only allowed to be set when the table model is Unique and Merge on Write is used.
+
   - `timezone`
 
     Specify the time zone for some functions that are affected by time zones, such as `strftime/alignment_timestamp/from_unixtime`, etc. Please refer to the [timezone](../../../../advanced/time-zone.md) documentation for details. If not specified, the "Asia/Shanghai" timezone is used
@@ -190,7 +198,7 @@ WITH BROKER broker_name
     
   - `load_to_single_tablet`
   
-    Boolean type, True means that one task can only load data to one tablet in the corresponding partition at a time. The default value is false. The number of tasks for the job depends on the overall concurrency. This parameter can only be set when loading data into the OLAP table with random partition.
+    Boolean type, True means that one task can only load data to one tablet in the corresponding partition at a time. The default value is false. The number of tasks for the job depends on the overall concurrency. This parameter can only be set when loading data into the OLAP table with random bucketing.
     
   - <version since="dev" type="inline"> priority </version>
     
@@ -261,6 +269,7 @@ WITH BROKER broker_name
    (
        "username" = "",
        "password" = "",
+       "fs.defaultFS" = "hdfs://my_ha",
        "dfs.nameservices" = "my_ha",
        "dfs.ha.namenodes.my_ha" = "my_namenode1, my_namenode2",
        "dfs.namenode.rpc-address.my_ha.my_namenode1" = "nn1_host:rpc_port",
@@ -422,7 +431,7 @@ WITH BROKER broker_name
     )
     ````
 
-   `my_table` must be an Unqiue Key model table with Sequence Col specified. The data will be ordered according to the value of the `source_sequence` column in the source data.
+   `my_table` must be an Unique Key model table with Sequence Col specified. The data will be ordered according to the value of the `source_sequence` column in the source data.
 
 10. Import a batch of data from HDFS, specify the file format as `json`, and specify parameters of `json_root` and `jsonpaths`.
 

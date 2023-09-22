@@ -124,6 +124,23 @@ echo 'ulimit -n 65536' >>~/.zshrc
 cd $DORIS_HOME
 sh build.sh
 ```
+## Compilation Error with Higher Version of Node.js
+
+During the compilation process, errors may occur due to a higher version of Node.js.
+
+- opensslErrorStack: [ 'error:03000086:digital envelope routines::initialization error' ]
+  - library: 'digital envelope routines'
+  - reason: 'unsupported'
+  - code: 'ERR_OSSL_EVP_UNSUPPORTED'
+
+For more information and a possible solution, you can refer to this [Stack Overflow post](https://stackoverflow.com/questions/74726224/opensslerrorstack-error03000086digital-envelope-routinesinitialization-e).
+
+
+```shell
+## Instruct Node.js to use an older version of the OpenSSL provider.
+export NODE_OPTIONS=--openssl-legacy-provider
+```
+
 
 ## Configure Debug environment
 

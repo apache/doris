@@ -253,7 +253,7 @@ bool TextConverter::_write_data(const TypeDescriptor& type_desc,
     }
     case TYPE_DECIMAL32: {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-        int32_t value = StringParser::string_to_decimal<TYPE_DECIMAL32, int32_t>(
+        int32_t value = StringParser::string_to_decimal<TYPE_DECIMAL32>(
                 data, len, type_desc.precision, type_desc.scale, &result);
         if (result != StringParser::PARSE_SUCCESS) {
             parse_result = StringParser::PARSE_FAILURE;
@@ -266,7 +266,7 @@ bool TextConverter::_write_data(const TypeDescriptor& type_desc,
     }
     case TYPE_DECIMAL64: {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-        int64_t value = StringParser::string_to_decimal<TYPE_DECIMAL64, int64_t>(
+        int64_t value = StringParser::string_to_decimal<TYPE_DECIMAL64>(
                 data, len, type_desc.precision, type_desc.scale, &result);
         if (result != StringParser::PARSE_SUCCESS) {
             parse_result = StringParser::PARSE_FAILURE;
@@ -279,9 +279,8 @@ bool TextConverter::_write_data(const TypeDescriptor& type_desc,
     }
     case TYPE_DECIMAL128I: {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-        vectorized::Int128 value =
-                StringParser::string_to_decimal<TYPE_DECIMAL128I, vectorized::Int128>(
-                        data, len, type_desc.precision, type_desc.scale, &result);
+        vectorized::Int128 value = StringParser::string_to_decimal<TYPE_DECIMAL128I>(
+                data, len, type_desc.precision, type_desc.scale, &result);
         if (result != StringParser::PARSE_SUCCESS) {
             parse_result = StringParser::PARSE_FAILURE;
             break;
@@ -331,9 +330,10 @@ bool TextConverter::_write_data(const TypeDescriptor& type_desc,
                 kv = i;
                 continue;
             }
-            if (i == len || data[i] == _collection_delimiter) {
+            if ((i == len || data[i] == _collection_delimiter) && i >= kv + 1) {
                 ranges.push_back({from, kv, i - 1});
                 from = i + 1;
+                kv = from;
             }
         }
 

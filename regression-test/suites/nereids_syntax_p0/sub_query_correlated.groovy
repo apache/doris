@@ -39,6 +39,18 @@ suite ("sub_query_correlated") {
     """
 
     sql """
+        DROP TABLE IF EXISTS `sub_query_correlated_subquery5`
+    """
+
+    sql """
+        DROP TABLE IF EXISTS `sub_query_correlated_subquery6`
+    """
+
+    sql """
+        DROP TABLE IF EXISTS `sub_query_correlated_subquery7`
+    """
+
+    sql """
         create table if not exists sub_query_correlated_subquery1
         (k1 bigint, k2 bigint)
         duplicate key(k1)
@@ -79,6 +91,21 @@ suite ("sub_query_correlated") {
     """
 
     sql """
+        create table if not exists sub_query_correlated_subquery6
+        (k1 bigint, k2 bigint)
+        duplicate key(k1)
+        distributed by hash(k2) buckets 1
+        properties('replication_num' = '1')
+    """
+
+    sql """
+        create table if not exists sub_query_correlated_subquery7
+            (k1 int, k2 varchar(128), k3 bigint, v1 bigint, v2 bigint)
+            distributed by hash(k2) buckets 1
+            properties('replication_num' = '1');
+    """
+
+    sql """
         insert into sub_query_correlated_subquery1 values (1,2), (1,3), (2,4), (2,5), (3,3), (3,4), (20,2), (22,3), (24,4)
     """
 
@@ -97,6 +124,15 @@ suite ("sub_query_correlated") {
 
     sql """
         insert into sub_query_correlated_subquery5 values (5,4), (5,2), (8,3), (5,4), (6,7), (8,9)
+    """
+
+     sql """
+        insert into sub_query_correlated_subquery6 values (1,null),(null,1),(1,2), (null,2),(1,3), (2,4), (2,5), (3,3), (3,4), (20,2), (22,3), (24,4),(null,null);
+    """
+
+    sql """
+        insert into sub_query_correlated_subquery7 values (1,"abc",2,3,4), (1,"abcd",3,3,4), (2,"xyz",2,4,2),
+            (2,"uvw",3,4,2), (2,"uvw",3,4,2), (3,"abc",4,5,3), (3,"abc",4,5,3), (null,null,null,null,null);
     """
 
     sql "SET enable_fallback_to_original_planner=false"
@@ -257,6 +293,10 @@ suite ("sub_query_correlated") {
         select * from sub_query_correlated_subquery1 where sub_query_correlated_subquery1.k1 not in (select sub_query_correlated_subquery3.k3 from sub_query_correlated_subquery3 where sub_query_correlated_subquery3.v2 = sub_query_correlated_subquery1.k2 order by k2);
     """
 
+    order_qt_in_subquery_mark_with_order """
+        select * from sub_query_correlated_subquery6 where sub_query_correlated_subquery6.k1 not in (select sub_query_correlated_subquery7.k3 from sub_query_correlated_subquery7 )  or k1 < 10;
+    """
+
     order_qt_exists_subquery_with_order """
         select * from sub_query_correlated_subquery1 where exists (select sub_query_correlated_subquery3.k3 from sub_query_correlated_subquery3 where sub_query_correlated_subquery3.v2 = sub_query_correlated_subquery1.k2 order by k2);
     """
@@ -403,7 +443,7 @@ suite ("sub_query_correlated") {
     """
 
     qt_cast_subquery_in_with_disconjunct """
-        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 < (cast('1.2' as decimal(2,1)) * (SELECT sum(k1) FROM sub_query_correlated_subquery3 WHERE sub_query_correlated_subquery1.k1 = sub_query_correlated_subquery3.k1)) or k1 > 10 order by k1, k2;
+        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 < (cast('1.2' as decimal(2,1)) * (SELECT sum(k1) FROM sub_query_correlated_subquery3 WHERE sub_query_correlated_subquery1.k1 = sub_query_correlated_subquery3.k1)) or k1 > 100 order by k1, k2;
     """
 
     qt_imitate_tpcds_10 """
@@ -411,4 +451,19 @@ suite ("sub_query_correlated") {
                                         and (exists (SELECT * FROM sub_query_correlated_subquery3, sub_query_correlated_subquery4 WHERE sub_query_correlated_subquery1.k1 = sub_query_correlated_subquery3.k1 and sub_query_correlated_subquery3.v1 = sub_query_correlated_subquery4.k1)
                                              OR exists (SELECT * FROM sub_query_correlated_subquery3, sub_query_correlated_subquery5 WHERE sub_query_correlated_subquery1.k2 = sub_query_correlated_subquery3.v1 and sub_query_correlated_subquery3.v1 = sub_query_correlated_subquery5.k1))
     """
+
+    qt_doris_6937 """
+    SELECT *
+        FROM sub_query_correlated_subquery1
+        WHERE EXISTS 
+            (SELECT k1
+            FROM sub_query_correlated_subquery3
+            WHERE sub_query_correlated_subquery1.k1 > sub_query_correlated_subquery3.v1)
+                OR k1 < 10
+        order by k1, k2;
+    """
+
+    // order_qt_doris_6937_2 """
+    //     select * from sub_query_correlated_subquery1 where sub_query_correlated_subquery1.k1 not in (select sub_query_correlated_subquery3.k3 from sub_query_correlated_subquery3 where sub_query_correlated_subquery3.v2 > sub_query_correlated_subquery1.k2) or k1 < 10 order by k1, k2;
+    // """
 }

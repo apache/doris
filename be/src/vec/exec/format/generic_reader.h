@@ -36,6 +36,7 @@ public:
     void set_push_down_agg_type(TPushAggOp::type push_down_agg_type) {
         _push_down_agg_type = push_down_agg_type;
     }
+
     virtual Status get_next_block(Block* block, size_t* read_rows, bool* eof) = 0;
 
     virtual std::unordered_map<std::string, TypeDescriptor> get_name_to_type() {

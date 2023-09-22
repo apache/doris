@@ -60,11 +60,14 @@ public class JoinUtils {
         return !(join.getJoinType().isRightJoin() || join.getJoinType().isFullOuterJoin());
     }
 
-    private static final class JoinSlotCoverageChecker {
+    /**
+     * for a given equation, judge if it can be used as hash join condition
+     */
+    public static final class JoinSlotCoverageChecker {
         Set<ExprId> leftExprIds;
         Set<ExprId> rightExprIds;
 
-        JoinSlotCoverageChecker(List<Slot> left, List<Slot> right) {
+        public JoinSlotCoverageChecker(List<Slot> left, List<Slot> right) {
             leftExprIds = left.stream().map(Slot::getExprId).collect(Collectors.toSet());
             rightExprIds = right.stream().map(Slot::getExprId).collect(Collectors.toSet());
         }
@@ -96,7 +99,7 @@ public class JoinUtils {
          * @param equalTo a conjunct in on clause condition
          * @return true if the equal can be used as hash join condition
          */
-        boolean isHashJoinCondition(EqualTo equalTo) {
+        public boolean isHashJoinCondition(EqualTo equalTo) {
             Set<Slot> equalLeft = equalTo.left().collect(Slot.class::isInstance);
             if (equalLeft.isEmpty()) {
                 return false;
@@ -225,21 +228,14 @@ public class JoinUtils {
                 || ConnectContext.get().getSessionVariable().isDisableColocatePlan()) {
             return false;
         }
-        // TODO: not rely on physical properties?
-        DistributionSpec joinDistributionSpec = join.getPhysicalProperties().getDistributionSpec();
         DistributionSpec leftDistributionSpec = join.left().getPhysicalProperties().getDistributionSpec();
         DistributionSpec rightDistributionSpec = join.right().getPhysicalProperties().getDistributionSpec();
         if (!(leftDistributionSpec instanceof DistributionSpecHash)
-                || !(rightDistributionSpec instanceof DistributionSpecHash)
-                || !(joinDistributionSpec instanceof DistributionSpecHash)) {
+                || !(rightDistributionSpec instanceof DistributionSpecHash)) {
             return false;
         }
-        DistributionSpecHash leftHash = (DistributionSpecHash) leftDistributionSpec;
-        DistributionSpecHash rightHash = (DistributionSpecHash) rightDistributionSpec;
-        DistributionSpecHash joinHash = (DistributionSpecHash) joinDistributionSpec;
-        return leftHash.getShuffleType() == ShuffleType.NATURAL
-                && rightHash.getShuffleType() == ShuffleType.NATURAL
-                && joinHash.getShuffleType() == ShuffleType.NATURAL;
+        return couldColocateJoin((DistributionSpecHash) leftDistributionSpec,
+                (DistributionSpecHash) rightDistributionSpec);
     }
 
     /**
@@ -254,6 +250,7 @@ public class JoinUtils {
                 || rightHashSpec.getShuffleType() != ShuffleType.NATURAL) {
             return false;
         }
+
         final long leftTableId = leftHashSpec.getTableId();
         final long rightTableId = rightHashSpec.getTableId();
         final Set<Long> leftTablePartitions = leftHashSpec.getPartitionIds();

@@ -37,9 +37,14 @@ namespace doris {
 namespace vectorized {
 class IColumn;
 
-void DataTypeHLLSerDe::serialize_one_cell_to_text(const IColumn& column, int row_num,
+void DataTypeHLLSerDe::serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
+                                                BufferWritable& bw, FormatOptions& options) const {
+    SERIALIZE_COLUMN_TO_JSON()
+}
+
+void DataTypeHLLSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
                                                   BufferWritable& bw,
-                                                  const FormatOptions& options) const {
+                                                  FormatOptions& options) const {
     auto col_row = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = col_row.first;
     row_num = col_row.second;
@@ -47,14 +52,23 @@ void DataTypeHLLSerDe::serialize_one_cell_to_text(const IColumn& column, int row
     std::unique_ptr<char[]> buf = std::make_unique<char[]>(data.max_serialized_size());
     size_t size = data.serialize((uint8*)buf.get());
     bw.write(buf.get(), size);
-    bw.commit();
 }
 
-Status DataTypeHLLSerDe::deserialize_one_cell_from_text(IColumn& column, ReadBuffer& rb,
-                                                        const FormatOptions& options) const {
+Status DataTypeHLLSerDe::deserialize_column_from_json_vector(IColumn& column,
+                                                             std::vector<Slice>& slices,
+                                                             int* num_deserialized,
+                                                             const FormatOptions& options,
+                                                             int nesting_level) const {
+    DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
+    return Status::OK();
+}
+
+Status DataTypeHLLSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
+                                                        const FormatOptions& options,
+                                                        int nesting_level) const {
     auto& data_column = assert_cast<ColumnHLL&>(column);
 
-    HyperLogLog hyper_log_log(Slice(rb.to_string()));
+    HyperLogLog hyper_log_log(slice);
     data_column.insert_value(hyper_log_log);
     return Status::OK();
 }

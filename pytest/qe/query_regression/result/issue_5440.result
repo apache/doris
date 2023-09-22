@@ -1,0 +1,2 @@
+select bitmap_to_string(bitmap_not(bitmap_from_string('1'), bitmap_from_string('2,1')));
+([''],)
