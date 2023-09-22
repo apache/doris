@@ -51,9 +51,9 @@ Doris支持用户通过提交ANALYZE语句来触发统计信息的收集和更�
 
 ```SQL
 ANALYZE < TABLE | DATABASE table_name | db_name > 
-    [ PARTITIONS [(*) | (partition_name [, ...]) | WITH RECENT COUNT] ]
+    [ PARTITIONS [(*) | (partition_name [, ...]) | WITH RECENT COUNT ] ]
     [ (column_name [, ...]) ]
-    [ [ WITH SYNC ] [ WITH SAMPLE PERCENT | ROWS ]]
+    [ [ WITH SYNC ] [ WITH SAMPLE PERCENT | ROWS ] [ WITH SQL ] ]
     [ PROPERTIES ("key" = "value", ...) ];
 ```
 
@@ -64,6 +64,7 @@ ANALYZE < TABLE | DATABASE table_name | db_name >
 - column_name: 指定的目标列。必须是  `table_name`  中存在的列，多个列名称用逗号分隔。
 - sync：同步收集统计信息。收集完后返回。若不指定则异步执行并返回任务 ID。
 - sample percent | rows：抽样收集统计信息。可以指定抽样比例或者抽样行数。
+- sql：执行sql来收集外表分区列统计信息。默认从元数据收集分区列信息，这样效率比较高但是行数和数据量大小可能不准。用户可以指定使用sql来收集，这样可以收集到准确的分区列信息。
 
 
 ### 自动收集

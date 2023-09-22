@@ -577,6 +577,7 @@ terminal String
     KW_SNAPSHOT,
     KW_SONAME,
     KW_SPLIT,
+    KW_SQL,
     KW_SQL_BLOCK_RULE,
     KW_START,
     KW_STARTS,    
@@ -6139,6 +6140,12 @@ with_analysis_properties ::=
     {:
         RESULT = new HashMap<String, String>() {{
              put(AnalyzeProperties.PROPERTY_FORCE_FULL, "true");
+        }};
+    :}
+    | KW_SQL
+    {:
+        RESULT = new HashMap<String, String>() {{
+             put(AnalyzeProperties.PROPERTY_PARTITION_COLUMN_FROM_SQL, "true");
         }};
     :}
 
