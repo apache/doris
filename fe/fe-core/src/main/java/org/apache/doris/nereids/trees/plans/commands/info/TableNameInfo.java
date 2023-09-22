@@ -74,6 +74,11 @@ public class TableNameInfo implements Writable {
         }
     }
 
+    /**
+     * TableNameInfo
+     * @param db dbName
+     * @param tbl tblName
+     */
     public TableNameInfo(String db, String tbl) {
         Objects.requireNonNull(tbl, "require tbl object");
         Objects.requireNonNull(db, "require db object");
