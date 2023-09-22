@@ -56,6 +56,8 @@ VMatchPredicate::VMatchPredicate(const TExprNode& node) : VExpr(node) {
     _inverted_index_ctx->analyzer = _analyzer.get();
 }
 
+VMatchPredicate::~VMatchPredicate() = default;
+
 Status VMatchPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
                                 VExprContext* context) {
     RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
