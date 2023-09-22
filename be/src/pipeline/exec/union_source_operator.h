@@ -89,7 +89,7 @@ public:
             : Base(pool, tnode, descs), _child_size(tnode.num_children) {};
     ~UnionSourceOperatorX() override = default;
     Dependency* wait_for_dependency(RuntimeState* state) override {
-        auto& local_state = state->get_local_state(id())->cast<UnionSourceLocalState>();
+        CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
         return local_state._dependency->read_blocked_by();
     }
 
@@ -101,7 +101,7 @@ public:
 private:
     bool _has_data(RuntimeState* state) {
         auto& local_state = state->get_local_state(id())->cast<UnionSourceLocalState>();
-        return local_state._shared_state->_data_queue->remaining_has_data();
+        return local_state._shared_state->data_queue->remaining_has_data();
     }
     bool has_more_const(const RuntimeState* state) const {
         return state->per_fragment_instance_idx() == 0;

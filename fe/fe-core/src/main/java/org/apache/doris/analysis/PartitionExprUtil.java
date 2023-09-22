@@ -129,13 +129,15 @@ public class PartitionExprUtil {
                 partitionKeyDesc = createPartitionKeyDescWithRange(beginDateTime, endDateTime, partitionColumnType);
             } else if (partitionType == PartitionType.LIST) {
                 List<List<PartitionValue>> listValues = new ArrayList<>();
-                // TODO: need to support any type
                 String pointValue = value;
                 PartitionValue lowerValue = new PartitionValue(pointValue);
                 listValues.add(Collections.singletonList(lowerValue));
                 partitionKeyDesc = PartitionKeyDesc.createIn(
                         listValues);
-                partitionName += lowerValue.getStringValue();
+                partitionName += getFormatPartitionValue(lowerValue.getStringValue());
+                if (partitionColumnType.isStringType()) {
+                    partitionName += "_" + System.currentTimeMillis();
+                }
             } else {
                 throw new AnalysisException("now only support range and list partition");
             }
@@ -179,6 +181,27 @@ public class PartitionExprUtil {
         return PartitionKeyDesc.createFixed(
                 Collections.singletonList(lowerValue),
                 Collections.singletonList(upperValue));
+    }
+
+    public static String getFormatPartitionValue(String value) {
+        StringBuilder sb = new StringBuilder();
+        // When the value is negative
+        if (value.length() > 0 && value.charAt(0) == '-') {
+            sb.append("_");
+        }
+        for (int i = 0; i < value.length(); i++) {
+            char ch = value.charAt(i);
+            if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9')) {
+                sb.append(ch);
+            } else if (ch == '-' || ch == ':' || ch == ' ' || ch == '*') {
+                // Main user remove characters in time
+            } else {
+                int unicodeValue = value.codePointAt(i);
+                String unicodeString = Integer.toHexString(unicodeValue);
+                sb.append(unicodeString);
+            }
+        }
+        return sb.toString();
     }
 
     public class FunctionIntervalInfo {

@@ -27,6 +27,7 @@
 #include <string>
 
 #include "common/logging.h"
+#include "pipeline/exec/exchange_sink_operator.h"
 #include "pipeline/exec/exchange_source_operator.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
@@ -95,6 +96,9 @@ Status VDataStreamRecvr::SenderQueue::_inner_get_batch_without_lock(Block* block
     auto [next_block, block_byte_size] = std::move(_block_queue.front());
     _recvr->update_blocks_memory_usage(-block_byte_size);
     _block_queue.pop_front();
+    if (_channel_dependency) {
+        _channel_dependency->try_set_ready_for_write();
+    }
     if (_block_queue.size() == 0 && _dependency) {
         _dependency->block_reading();
     }
@@ -168,6 +172,9 @@ Status VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_num
 
     if (!empty) {
         _block_queue.emplace_back(std::move(block), block_byte_size);
+        if (_channel_dependency) {
+            _channel_dependency->try_block_writing();
+        }
         if (_dependency) {
             _dependency->set_ready_for_read();
         }
@@ -224,6 +231,9 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
 
     if (!empty) {
         _block_queue.emplace_back(std::move(nblock), block_mem_size);
+        if (_channel_dependency) {
+            _channel_dependency->try_block_writing();
+        }
         if (_dependency) {
             _dependency->set_ready_for_read();
         }
@@ -417,6 +427,13 @@ bool VDataStreamRecvr::sender_queue_empty(int sender_id) {
     return _sender_queues[use_sender_id]->queue_empty();
 }
 
+void VDataStreamRecvr::set_dependency(std::shared_ptr<pipeline::ChannelDependency> dependency) {
+    _dependency = dependency;
+    for (auto& queue : _sender_queues) {
+        queue->set_channel_dependency(dependency);
+    }
+}
+
 bool VDataStreamRecvr::ready_to_read() {
     for (const auto& queue : _sender_queues) {
         if (queue->should_wait()) {
@@ -447,11 +464,24 @@ void VDataStreamRecvr::cancel_stream() {
     }
 }
 
+void VDataStreamRecvr::update_blocks_memory_usage(int64_t size) {
+    _blocks_memory_usage->add(size);
+    _blocks_memory_usage_current_value = _blocks_memory_usage->current_value();
+    if (_dependency && _blocks_memory_usage_current_value > config::exchg_node_buffer_size_bytes) {
+        _dependency->try_block_writing();
+    } else if (_dependency) {
+        _dependency->try_set_ready_for_write();
+    }
+}
+
 void VDataStreamRecvr::close() {
     if (_is_closed) {
         return;
     }
     _is_closed = true;
+    if (_dependency) {
+        _dependency->try_set_ready_for_write();
+    }
     for (int i = 0; i < _sender_queues.size(); ++i) {
         _sender_queues[i]->close();
     }
@@ -497,6 +527,9 @@ void VDataStreamRecvr::PipSenderQueue::add_block(Block* block, bool use_move) {
             return;
         }
         _block_queue.emplace_back(std::move(nblock), block_mem_size);
+        if (_channel_dependency) {
+            _channel_dependency->try_block_writing();
+        }
         if (_dependency) {
             _dependency->set_ready_for_read();
         }

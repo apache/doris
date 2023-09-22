@@ -272,6 +272,9 @@ Status NewOlapScanner::open(RuntimeState* state) {
         return Status::InternalError(ss.str());
     }
 
+    // Do not hold rs_splits any more to release memory.
+    _tablet_reader_params.rs_splits.clear();
+
     return Status::OK();
 }
 
@@ -478,6 +481,12 @@ Status NewOlapScanner::_init_return_columns() {
         _return_columns.push_back(index);
         if (slot->is_nullable() && !_tablet_schema->column(index).is_nullable()) {
             _tablet_columns_convert_to_null_set.emplace(index);
+        } else if (!slot->is_nullable() && _tablet_schema->column(index).is_nullable()) {
+            return Status::Error<ErrorCode::INVALID_SCHEMA>(
+                    "slot(id: {}, name: {})'s nullable does not match "
+                    "column(tablet id: {}, index: {}, name: {}) ",
+                    slot->id(), slot->col_name(), _tablet_schema->table_id(), index,
+                    _tablet_schema->column(index).name());
         }
     }
 
@@ -530,7 +539,8 @@ Status NewOlapScanner::close(RuntimeState* state) {
     // so that it will core
     _tablet_reader_params.rs_splits.clear();
     _tablet_reader.reset();
-
+    auto tablet_id = _scan_range.tablet_id;
+    LOG(INFO) << "close_tablet_id" << tablet_id;
     RETURN_IF_ERROR(VScanner::close(state));
     return Status::OK();
 }
