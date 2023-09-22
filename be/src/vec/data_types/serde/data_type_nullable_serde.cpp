@@ -24,6 +24,7 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <memory>
 
+#include "data_type_string_serde.h"
 #include "util/jsonb_document.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
@@ -95,8 +96,9 @@ Status DataTypeNullableSerDe::deserialize_one_cell_from_hive_text(IColumn& colum
         return Status::OK();
     }
 
-    auto st = nested_serde->deserialize_one_cell_from_hive_text(null_column.get_nested_column(),
-                                                                slice, options, nesting_level);
+    Status st = nested_serde->deserialize_one_cell_from_hive_text(null_column.get_nested_column(),
+                                                                  slice, options, nesting_level);
+
     if (!st.ok()) {
         // fill null if fail
         null_column.insert_data(nullptr, 0); // 0 is meaningless here
