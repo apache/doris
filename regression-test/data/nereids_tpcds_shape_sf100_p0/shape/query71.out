@@ -47,6 +47,6 @@ PhysicalResultSink
 ------------------------------PhysicalOlapScan[item]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
-----------------------filter(((cast(t_meal_time as VARCHAR(*)) = 'breakfast') OR (cast(t_meal_time as VARCHAR(*)) = 'dinner')))
+----------------------filter(t_meal_time IN ('breakfast', 'dinner'))
 ------------------------PhysicalOlapScan[time_dim]
 

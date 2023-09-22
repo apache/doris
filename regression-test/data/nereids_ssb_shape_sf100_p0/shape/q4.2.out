@@ -32,6 +32,6 @@ PhysicalResultSink
 ------------------------------PhysicalOlapScan[customer]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
-----------------------filter(p_mfgr IN ('MFGR#2', 'MFGR#1'))
+----------------------filter(p_mfgr IN ('MFGR#1', 'MFGR#2'))
 ------------------------PhysicalOlapScan[part]
 

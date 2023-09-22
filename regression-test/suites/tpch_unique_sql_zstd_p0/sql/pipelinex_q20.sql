@@ -1,5 +1,5 @@
 -- tables: supplier,nation,partsupp,lineitem,part
-SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=false) */
+SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=true) */
   s_name,
   s_address
 FROM
