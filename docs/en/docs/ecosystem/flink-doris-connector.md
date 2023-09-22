@@ -114,40 +114,6 @@ DorisSource<List<?>> dorisSource = DorisSourceBuilder.<List<?>>builder()
 env.fromSource(dorisSource, WatermarkStrategy.noWatermarks(), "doris source").print();
 ```
 
-####SQL FILTER
-
-```java
-        final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-        env.setParallelism(1);
-
-        final StreamTableEnvironment tEnv = StreamTableEnvironment.create(env);
-
-        // register a table in the catalog
-        tEnv.executeSql(
-                "CREATE TABLE doris_source (" +
-                        "id INT," +
-                        "name STRING," +
-                        "age INT" +
-                        ") " +
-                        "WITH (\n" +
-                        "  'connector' = 'doris',\n" +
-                        "  'fenodes' = 'FE_IP:HTTP_PORT',\n" +
-                        "  'table.identifier' = 'database.table',\n" +
-                        "  'doris.filter.query' = 'name=''doris''',\n" +
-                        "  'username' = 'root',\n" +
-                        "  'password' = 'password'\n" +
-                        ")");
-
-
-        // define a dynamic aggregating query
-        final Table result = tEnv.sqlQuery("SELECT * from doris_source");
-
-        // print the result to the console
-        tEnv.toDataStream(result).print();
-        env.execute();
-
-```
-
 ### write
 
 ####SQL
@@ -722,3 +688,7 @@ This is due to concurrency bugs in the Thrift. It is recommended that you use th
 13. **DorisRuntimeException: Fail to abort transaction 26153 with url http://192.168.0.1:8040/api/table_name/_stream_load_2pc**
 
 You can search for the log `abort transaction response` in TaskManager and determine whether it is a client issue or a server issue based on the HTTP return code.
+
+14. **org.apache.flink.table.api.SqlParserException when using doris.filter.query: SQL parsing failed. "xx" encountered at row x, column xx**
+
+This problem is mainly caused by the conditional varchar/string type, which needs to be quoted. The correct way to write it is xxx = ''xxx''. In this way, the Flink SQL parser will interpret two consecutive single quotes as one single quote character instead of The end of the string, and the concatenated string is used as the value of the attribute.

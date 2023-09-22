@@ -116,40 +116,6 @@ DorisSource<List<?>> dorisSource = DorisSourceBuilder.<List<?>>builder()
 env.fromSource(dorisSource, WatermarkStrategy.noWatermarks(), "doris source").print();
 ```
 
-#### sql filter
-
-```java
-        final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-        env.setParallelism(1);
-
-        final StreamTableEnvironment tEnv = StreamTableEnvironment.create(env);
-
-        // register a table in the catalog
-        tEnv.executeSql(
-                "CREATE TABLE doris_source (" +
-                        "id INT," +
-                        "name STRING," +
-                        "age INT" +
-                        ") " +
-                        "WITH (\n" +
-                        "  'connector' = 'doris',\n" +
-                        "  'fenodes' = 'FE_IP:HTTP_PORT',\n" +
-                        "  'table.identifier' = 'database.table',\n" +
-                        "  'doris.filter.query' = 'name=''doris''',\n" +
-                        "  'username' = 'root',\n" +
-                        "  'password' = 'password'\n" +
-                        ")");
-
-
-        // define a dynamic aggregating query
-        final Table result = tEnv.sqlQuery("SELECT * from doris_source");
-
-        // print the result to the console
-        tEnv.toDataStream(result).print();
-        env.execute();
-
-```
-
 ### 写入
 
 #### SQL
@@ -724,3 +690,7 @@ Flink在数据导入时，如果有脏数据，比如字段格式、长度等问
 13. **DorisRuntimeException: Fail to abort transaction 26153 with url http://192.168.0.1:8040/api/table_name/_stream_load_2pc**
 
 你可以在 TaskManager 中搜索日志 `abort transaction response`，根据 http 返回码确定是 client 的问题还是 server 的问题。
+
+14. **使用doris.filter.query出现org.apache.flink.table.api.SqlParserException: SQL parse failed. Encountered "xx" at line x, column xx**
+
+出现这个问题主要是条件varchar/string类型，需要加引号导致的，正确写法是 xxx = ''xxx'',这样Flink SQL 解析器会将两个连续的单引号解释为一个单引号字符,而不是字符串的结束，并将拼接后的字符串作为属性的值。
