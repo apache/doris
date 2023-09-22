@@ -37,7 +37,7 @@ PhysicalResultSink
 ------------------------------------------------------------PhysicalOlapScan[catalog_sales]
 ----------------------------------------------------------PhysicalDistribute
 ------------------------------------------------------------PhysicalProject
---------------------------------------------------------------filter((cast(hd_buy_potential as VARCHAR(*)) = '501-1000'))
+--------------------------------------------------------------filter((household_demographics.hd_buy_potential = '501-1000'))
 ----------------------------------------------------------------PhysicalOlapScan[household_demographics]
 --------------------------------------------------------PhysicalDistribute
 ----------------------------------------------------------PhysicalProject
@@ -45,7 +45,7 @@ PhysicalResultSink
 --------------------------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------------------------------PhysicalDistribute
 ------------------------------------------------------PhysicalProject
---------------------------------------------------------filter((cast(cd_marital_status as VARCHAR(*)) = 'W'))
+--------------------------------------------------------filter((customer_demographics.cd_marital_status = 'W'))
 ----------------------------------------------------------PhysicalOlapScan[customer_demographics]
 ------------------------------------------------PhysicalDistribute
 --------------------------------------------------PhysicalProject

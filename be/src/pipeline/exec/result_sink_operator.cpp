@@ -138,7 +138,7 @@ Status ResultSinkOperatorX::open(RuntimeState* state) {
 
 Status ResultSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block,
                                  SourceState source_state) {
-    auto& local_state = state->get_sink_local_state(id())->cast<ResultSinkLocalState>();
+    CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     if (_fetch_option.use_two_phase_fetch && block->rows() > 0) {
         RETURN_IF_ERROR(_second_phase_fetch_data(state, block));
@@ -167,7 +167,7 @@ Status ResultSinkOperatorX::_second_phase_fetch_data(RuntimeState* state,
     return Status::OK();
 }
 
-Status ResultSinkLocalState::close(RuntimeState* state) {
+Status ResultSinkLocalState::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return Status::OK();
     }
@@ -202,14 +202,13 @@ Status ResultSinkLocalState::close(RuntimeState* state) {
     state->exec_env()->result_mgr()->cancel_at_time(
             time(nullptr) + config::result_buffer_cancelled_interval_time,
             state->fragment_instance_id());
-    RETURN_IF_ERROR(PipelineXSinkLocalState<>::close(state));
+    RETURN_IF_ERROR(PipelineXSinkLocalState<>::close(state, exec_status));
     return final_status;
 }
 
 WriteDependency* ResultSinkOperatorX::wait_for_dependency(RuntimeState* state) {
-    return state->get_sink_local_state(id())
-            ->cast<ResultSinkLocalState>()
-            ._result_sink_dependency->write_blocked_by();
+    CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
+    return local_state._result_sink_dependency->write_blocked_by();
 }
 
 } // namespace doris::pipeline

@@ -83,7 +83,7 @@ public:
     StreamingAggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
-    Status close(RuntimeState* state) override;
+    Status close(RuntimeState* state, Status exec_status) override;
     Status do_pre_agg(vectorized::Block* input_block, vectorized::Block* output_block);
 
 private:
@@ -113,7 +113,8 @@ public:
                 SourceState source_state) override;
 
     WriteDependency* wait_for_dependency(RuntimeState* state) override {
-        return state->get_local_state(id())->cast<AggLocalState>()._dependency->write_blocked_by();
+        CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
+        return local_state._dependency->write_blocked_by();
     }
 };
 

@@ -26,7 +26,6 @@ import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.Index;
-import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
@@ -106,8 +105,6 @@ public class OlapTableSink extends DataSink {
 
     private boolean isStrictMode = false;
 
-    private boolean isUniqueKeyIgnoreMode = false;
-
     public OlapTableSink(OlapTable dstTable, TupleDescriptor tupleDescriptor, List<Long> partitionIds,
             boolean singleReplicaLoad) {
         this.dstTable = dstTable;
@@ -117,7 +114,7 @@ public class OlapTableSink extends DataSink {
     }
 
     public void init(TUniqueId loadId, long txnId, long dbId, long loadChannelTimeoutS, int sendBatchParallelism,
-            boolean loadToSingleTablet, boolean isStrictMode, boolean isUniqueKeyIgnoreMode) throws AnalysisException {
+            boolean loadToSingleTablet, boolean isStrictMode) throws AnalysisException {
         TOlapTableSink tSink = new TOlapTableSink();
         tSink.setLoadId(loadId);
         tSink.setTxnId(txnId);
@@ -125,7 +122,6 @@ public class OlapTableSink extends DataSink {
         tSink.setLoadChannelTimeoutS(loadChannelTimeoutS);
         tSink.setSendBatchParallelism(sendBatchParallelism);
         this.isStrictMode = isStrictMode;
-        this.isUniqueKeyIgnoreMode = isUniqueKeyIgnoreMode;
         if (loadToSingleTablet && !(dstTable.getDefaultDistributionInfo() instanceof RandomDistributionInfo)) {
             throw new AnalysisException(
                     "if load_to_single_tablet set to true," + " the olap table must be with random distribution");
@@ -191,17 +187,6 @@ public class OlapTableSink extends DataSink {
         }
         tSink.setWriteSingleReplica(singleReplicaLoad);
         tSink.setNodesInfo(createPaloNodesInfo());
-        if (isUniqueKeyIgnoreMode) {
-            if (dstTable.getKeysType() != KeysType.UNIQUE_KEYS || !dstTable.getEnableUniqueKeyMergeOnWrite()) {
-                throw new UserException("ignore mode can only be enabled if the target table is "
-                        + "a unique table with merge-on-write enabled.");
-            } else if (isPartialUpdate) {
-                throw new UserException("ignore mode can't be used in partial update.");
-            } else if (dstTable.hasSequenceCol()) {
-                throw new UserException("ignore mode can't be used if the target table has sequence column, "
-                        + "but table[" + dstTable.getName() + "] has sequnce column.");
-            }
-        }
     }
 
     @Override
@@ -237,7 +222,6 @@ public class OlapTableSink extends DataSink {
         schemaParam.setTableId(table.getId());
         schemaParam.setVersion(table.getIndexMetaByIndexId(table.getBaseIndexId()).getSchemaVersion());
         schemaParam.setIsStrictMode(isStrictMode);
-        schemaParam.setIsUniqueKeyIgnoreMode(isUniqueKeyIgnoreMode);
 
         schemaParam.tuple_desc = tupleDescriptor.toThrift();
         for (SlotDescriptor slotDesc : tupleDescriptor.getSlots()) {

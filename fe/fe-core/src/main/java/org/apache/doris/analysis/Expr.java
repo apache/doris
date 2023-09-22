@@ -2075,6 +2075,8 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             output.writeInt(ExprSerCode.INT_LITERAL.getCode());
         } else if (expr instanceof LargeIntLiteral) {
             output.writeInt(ExprSerCode.LARGE_INT_LITERAL.getCode());
+        } else if (expr instanceof DateLiteral) {
+            output.writeInt(ExprSerCode.DATE_LITERAL.getCode());
         } else if (expr instanceof FloatLiteral) {
             output.writeInt(ExprSerCode.FLOAT_LITERAL.getCode());
         } else if (expr instanceof DecimalLiteral) {
@@ -2126,6 +2128,8 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 return BoolLiteral.read(in);
             case INT_LITERAL:
                 return IntLiteral.read(in);
+            case DATE_LITERAL:
+                return DateLiteral.read(in);
             case LARGE_INT_LITERAL:
                 return LargeIntLiteral.read(in);
             case FLOAT_LITERAL:

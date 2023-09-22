@@ -257,11 +257,6 @@ public class GroupExpression {
         this.requestPropertiesMap.put(requiredProperties, outputProperties);
     }
 
-    public void putOutputPropertiesMapIfAbsent(PhysicalProperties outputProperties,
-            PhysicalProperties requiredProperties) {
-        this.requestPropertiesMap.putIfAbsent(requiredProperties, outputProperties);
-    }
-
     /**
      * Merge GroupExpression.
      */

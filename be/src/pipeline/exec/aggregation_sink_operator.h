@@ -56,7 +56,7 @@ public:
 
     virtual Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
-    virtual Status close(RuntimeState* state) override;
+    Status close(RuntimeState* state, Status exec_status) override;
 
     Status try_spill_disk(bool eos = false);
 
@@ -349,6 +349,7 @@ public:
     using DataSinkOperatorX<LocalStateType>::id;
 
 protected:
+    using LocalState = LocalStateType;
     template <typename DependencyType, typename Derived>
     friend class AggSinkLocalState;
     friend class StreamingAggSinkLocalState;

@@ -529,4 +529,155 @@ suite("load") {
         PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true");
         """
 
+    // agg table
+    // define agg key table with nested table types with one nested scala
+    def nested_table_agg = "tbl_array_nested_types_agg"
+    sql "DROP TABLE IF EXISTS ${nested_table_agg}"
+    sql """
+        CREATE TABLE IF NOT EXISTS ${nested_table_agg} (
+            `k1` bigint(11) NULL,
+            `c_bool` array<boolean> REPLACE,
+            `c_tinyint` array<tinyint(4)> REPLACE,
+            `c_smallint` array<smallint(6)> REPLACE,
+            `c_int` array<int(11)> REPLACE,
+            `c_bigint` array<bigint(20)> REPLACE,
+            `c_largeint` array<largeint(40)> REPLACE,
+            `c_float` array<float> REPLACE,
+            `c_double` array<double> REPLACE,
+            `c_decimal` array<decimal(20, 3)> REPLACE,
+            `c_decimalv3` array<decimalv3(20, 3)> REPLACE,
+            `c_date` array<date> REPLACE,
+            `c_datetime` array<datetime> REPLACE,
+            `c_datev2` array<datev2> REPLACE,
+            `c_datetimev2` array<datetimev2(0)> REPLACE,
+            `c_char` array<char(15)> REPLACE,
+            `c_varchar` array<varchar(100)> REPLACE,
+            `c_string` array<text> REPLACE
+        ) ENGINE=OLAP
+        AGGREGATE KEY(`k1`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 10
+        PROPERTIES("replication_num" = "1");
+        """
+
+    // define agg key table with nested table types with two nested scala
+    def nested_table_agg2 = "tbl_array_nested_types_agg2"
+    sql "DROP TABLE IF EXISTS ${nested_table_agg2}"
+    sql """
+        CREATE TABLE IF NOT EXISTS ${nested_table_agg2} (
+            `k1` bigint(11) NULL,
+            `c_bool` array<array<boolean>> REPLACE,
+            `c_tinyint` array<array<tinyint(4)>> REPLACE,
+            `c_smallint` array<array<smallint(6)>> REPLACE,
+            `c_int` array<array<int(11)>> REPLACE,
+            `c_bigint` array<array<bigint(20)>> REPLACE,
+            `c_largeint` array<array<largeint(40)>> REPLACE,
+            `c_float` array<array<float>> REPLACE,
+            `c_double` array<array<double>> REPLACE,
+            `c_decimal` array<array<decimal(20, 3)>> REPLACE,
+            `c_decimalv3` array<array<decimalv3(20, 3)>> REPLACE,
+            `c_date` array<array<date>> REPLACE,
+            `c_datetime` array<array<datetime>> REPLACE,
+            `c_datev2` array<array<datev2>> REPLACE,
+            `c_datetimev2` array<array<datetimev2(0)>> REPLACE,
+            `c_char` array<array<char(15)>> REPLACE,
+            `c_varchar` array<array<varchar(100)>> REPLACE,
+            `c_string` array<array<text>> REPLACE
+        ) ENGINE=OLAP
+        AGGREGATE KEY(`k1`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 10
+        PROPERTIES("replication_num" = "1");
+        """
+
+    // define mor key table with map types with one nested scala
+    def nested_table_map_agg = "tbl_map_types_agg"
+    sql "DROP TABLE IF EXISTS ${nested_table_map_agg}"
+    sql """
+        CREATE TABLE IF NOT EXISTS ${nested_table_map_agg} (
+            `k1` bigint(11) NULL,
+            `c_bool` map<boolean, boolean> REPLACE,
+            `c_tinyint` map<tinyint(4), tinyint(4)> REPLACE,
+            `c_smallint` map<smallint(6), smallint(6)> REPLACE,
+            `c_int` map<int(11), int(11)> REPLACE,
+            `c_bigint` map<bigint(20), bigint(20)> REPLACE,
+            `c_largeint` map<largeint(40), largeint(40)> REPLACE,
+            `c_float` map<float, float> REPLACE,
+            `c_double` map<double, double> REPLACE,
+            `c_decimal` map<decimal(20, 3), decimal(20, 3)> REPLACE,
+            `c_decimalv3` map<decimalv3(20, 3), decimalv3(20, 3)> REPLACE,
+            `c_date` map<date, date> REPLACE,
+            `c_datetime` map<datetime, datetime> REPLACE,
+            `c_datev2` map<datev2, datev2> REPLACE,
+            `c_datetimev2` map<datetimev2(0), datetimev2(0)> REPLACE,
+            `c_char` map<char(15), char(15)> REPLACE,
+            `c_varchar` map<varchar(100), varchar(100)> REPLACE,
+            `c_string` map<text, text> REPLACE
+        ) ENGINE=OLAP
+        AGGREGATE KEY(`k1`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 10
+        PROPERTIES("replication_num" = "1");
+        """
+
+
+    // define agg key table with array nested map table types with one nested scala
+    def nested_table_array_map_agg = "tbl_array_map_types_agg"
+    sql "DROP TABLE IF EXISTS ${nested_table_array_map_agg}"
+    sql """
+        CREATE TABLE IF NOT EXISTS ${nested_table_array_map_agg} (
+            `k1` bigint(11) NULL,
+            `c_bool` array<map<boolean, boolean>> REPLACE,
+            `c_tinyint` array<map<tinyint(4), tinyint(4)>> REPLACE,
+            `c_smallint` array<map<smallint(6), smallint(6)>> REPLACE,
+            `c_int` array<map<int(11), int(11)>> REPLACE,
+            `c_bigint` array<map<bigint(20), bigint(20)>> REPLACE,
+            `c_largeint` array<map<largeint(40), largeint(40)>> REPLACE,
+            `c_float` array<map<float, float>> REPLACE,
+            `c_double` array<map<double, double>> REPLACE,
+            `c_decimal` array<map<decimal(20, 3), decimal(20, 3)>> REPLACE,
+            `c_decimalv3` array<map<decimalv3(20, 3), decimalv3(20, 3)>> REPLACE,
+            `c_date` array<map<date, date>> REPLACE,
+            `c_datetime` array<map<datetime, datetime>> REPLACE,
+            `c_datev2` array<map<datev2, datev2>> REPLACE,
+            `c_datetimev2` array<map<datetimev2(0), datetimev2(0)>> REPLACE,
+            `c_char` array<map<char(15), char(15)>> REPLACE,
+            `c_varchar` array<map<varchar(100), varchar(100)>> REPLACE,
+            `c_string` array<map<text, text>> REPLACE
+        ) ENGINE=OLAP
+        AGGREGATE KEY(`k1`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 10
+        PROPERTIES("replication_num" = "1");
+        """
+
+    // define agg key table with map nested value array table types with one nested scala
+    def nested_table_map_array_agg = "tbl_map_array_types_agg"
+    sql "DROP TABLE IF EXISTS ${nested_table_map_array_agg}"
+    sql """
+        CREATE TABLE IF NOT EXISTS ${nested_table_map_array_agg} (
+            `k1` bigint(11) NULL,
+            `c_bool` map<boolean, array<boolean>> REPLACE,
+            `c_tinyint` map<tinyint(4), array<tinyint(4)>> REPLACE,
+            `c_smallint` map<smallint(6), array<smallint(6)>> REPLACE,
+            `c_int` map<int(11), array<int(11)>> REPLACE,
+            `c_bigint` map<bigint(20), array<bigint(20)>> REPLACE,
+            `c_largeint` map<largeint(40), array<largeint(40)>> REPLACE,
+            `c_float` map<float, array<float>> REPLACE,
+            `c_double` map<double, array<double>> REPLACE,
+            `c_decimal` map<decimal(20, 3), array<decimal(20, 3)>> REPLACE,
+            `c_decimalv3` map<decimalv3(20, 3), array<decimalv3(20, 3)>> REPLACE,
+            `c_date` map<date, array<date>> REPLACE,
+            `c_datetime` map<datetime, array<datetime>> REPLACE,
+            `c_datev2` map<datev2, array<datev2>> REPLACE,
+            `c_datetimev2` map<datetimev2(0), array<datetimev2(0)>> REPLACE,
+            `c_char` map<char(15), array<char(15)>> REPLACE,
+            `c_varchar` map<varchar(100), array<varchar(100)>> REPLACE,
+            `c_string` map<text, array<text>> REPLACE
+        ) ENGINE=OLAP
+        AGGREGATE KEY(`k1`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 10
+        PROPERTIES("replication_num" = "1");
+        """
 }
