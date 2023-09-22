@@ -2766,7 +2766,12 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
                                  .length() +
                          1;
     }
-    Slice key_without_seq = Slice(encoded_key.get_data(), encoded_key.get_size() - seq_col_length);
+    size_t rowid_length = 0;
+    if (!_schema->cluster_key_idxes().empty()) {
+        rowid_length = sizeof(uint32_t) + 1;
+    }
+    Slice key_without_seq =
+            Slice(encoded_key.get_data(), encoded_key.get_size() - seq_col_length - rowid_length);
     RowLocation loc;
 
     for (size_t i = 0; i < specified_rowsets.size(); i++) {
@@ -2776,9 +2781,12 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
         DCHECK_EQ(segments_key_bounds.size(), num_segments);
         std::vector<uint32_t> picked_segments;
         for (int i = num_segments - 1; i >= 0; i--) {
-            if (key_without_seq.compare(segments_key_bounds[i].max_key()) > 0 ||
-                key_without_seq.compare(segments_key_bounds[i].min_key()) < 0) {
-                continue;
+            if (rowid_length > 0) {
+                // TODO min max key is sort key, not primary key
+                if (key_without_seq.compare(segments_key_bounds[i].max_key()) > 0 ||
+                    key_without_seq.compare(segments_key_bounds[i].min_key()) < 0) {
+                    continue;
+                }
             }
             picked_segments.emplace_back(i);
         }
@@ -2940,6 +2948,23 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
         for (size_t i = 0; i < num_read; i++, row_id++) {
             Slice key = Slice(index_column->get_data_at(i).data, index_column->get_data_at(i).size);
             RowLocation loc;
+            // calculate row id
+            if (!_schema->cluster_key_idxes().empty()) {
+                size_t seq_col_length = 0;
+                if (_schema->has_sequence_col()) {
+                    seq_col_length = _schema->column(_schema->sequence_col_idx()).length() + 1;
+                }
+                size_t rowid_length = sizeof(uint32_t) + 1;
+                Slice key_without_seq =
+                        Slice(key.get_data(), key.get_size() - seq_col_length - rowid_length);
+                Slice rowid_slice =
+                        Slice(key.get_data() + key_without_seq.get_size() + seq_col_length + 1,
+                              rowid_length - 1);
+                // decode rowid
+                const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT>();
+                auto rowid_coder = get_key_coder(type_info->type());
+                rowid_coder->decode_ascending(&rowid_slice, rowid_length, (uint8_t*)&row_id);
+            }
             // same row in segments should be filtered
             if (delete_bitmap->contains({rowset_id, seg->id(), DeleteBitmap::TEMP_VERSION_COMMON},
                                         row_id)) {
@@ -3008,7 +3033,7 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
         }
         remaining -= num_read;
     }
-    DCHECK_EQ(total, row_id) << "segment total rows: " << total << " row_id:" << row_id;
+    // DCHECK_EQ(total, row_id) << "segment total rows: " << total << " row_id:" << row_id;
 
     if (config::enable_merge_on_write_correctness_check) {
         RowsetIdUnorderedSet rowsetids;
@@ -3699,9 +3724,13 @@ Status Tablet::calc_delete_bitmap_between_segments(
         auto seq_col_idx = _tablet_meta->tablet_schema()->sequence_col_idx();
         seq_col_length = _tablet_meta->tablet_schema()->column(seq_col_idx).length();
     }
+    size_t rowid_length = 0;
+    if (!_schema->cluster_key_idxes().empty()) {
+        rowid_length = sizeof(uint32_t);
+    }
 
     MergeIndexDeleteBitmapCalculator calculator;
-    RETURN_IF_ERROR(calculator.init(rowset_id, segments, seq_col_length));
+    RETURN_IF_ERROR(calculator.init(rowset_id, segments, seq_col_length, rowid_length));
 
     RETURN_IF_ERROR(calculator.calculate_all(delete_bitmap));
 

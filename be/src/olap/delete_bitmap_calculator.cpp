@@ -92,24 +92,26 @@ bool MergeIndexDeleteBitmapCalculatorContext::Comparator::operator()(
     Slice key1, key2;
     RETURN_IF_ERROR(lhs->get_current_key(key1));
     RETURN_IF_ERROR(rhs->get_current_key(key2));
-    if (_sequence_length == 0) {
+    if (_sequence_length == 0 && _rowid_length == 0) {
         auto cmp_result = key1.compare(key2);
         // when key1 is the same as key2,
         // we want the one with greater segment id to be popped first
         return cmp_result ? (cmp_result > 0) : (lhs->segment_id() < rhs->segment_id());
     }
     // smaller key popped first
-    auto key1_without_seq = Slice(key1.get_data(), key1.get_size() - _sequence_length);
-    auto key2_without_seq = Slice(key2.get_data(), key2.get_size() - _sequence_length);
+    auto key1_without_seq =
+            Slice(key1.get_data(), key1.get_size() - _sequence_length - _rowid_length);
+    auto key2_without_seq =
+            Slice(key2.get_data(), key2.get_size() - _sequence_length - _rowid_length);
     auto cmp_result = key1_without_seq.compare(key2_without_seq);
     if (cmp_result != 0) {
         return cmp_result > 0;
     }
     // greater sequence value popped first
-    auto key1_sequence_val =
-            Slice(key1.get_data() + key1.get_size() - _sequence_length, _sequence_length);
-    auto key2_sequence_val =
-            Slice(key2.get_data() + key2.get_size() - _sequence_length, _sequence_length);
+    auto key1_sequence_val = Slice(
+            key1.get_data() + key1.get_size() - _sequence_length - _rowid_length, _sequence_length);
+    auto key2_sequence_val = Slice(
+            key2.get_data() + key2.get_size() - _sequence_length - _rowid_length, _sequence_length);
     cmp_result = key1_sequence_val.compare(key2_sequence_val);
     if (cmp_result != 0) {
         return cmp_result < 0;
@@ -120,19 +122,23 @@ bool MergeIndexDeleteBitmapCalculatorContext::Comparator::operator()(
 
 bool MergeIndexDeleteBitmapCalculatorContext::Comparator::is_key_same(Slice const& lhs,
                                                                       Slice const& rhs) const {
-    DCHECK(lhs.get_size() >= _sequence_length);
-    DCHECK(rhs.get_size() >= _sequence_length);
-    auto lhs_without_seq = Slice(lhs.get_data(), lhs.get_size() - _sequence_length);
-    auto rhs_without_seq = Slice(rhs.get_data(), rhs.get_size() - _sequence_length);
+    DCHECK(lhs.get_size() >= _sequence_length + _rowid_length);
+    DCHECK(rhs.get_size() >= _sequence_length + _rowid_length);
+    auto lhs_without_seq = Slice(lhs.get_data(), lhs.get_size() - _sequence_length - _rowid_length);
+    auto rhs_without_seq = Slice(rhs.get_data(), rhs.get_size() - _sequence_length - _rowid_length);
     return lhs_without_seq.compare(rhs_without_seq) == 0;
 }
 
 Status MergeIndexDeleteBitmapCalculator::init(RowsetId rowset_id,
                                               std::vector<SegmentSharedPtr> const& segments,
-                                              size_t seq_col_length, size_t max_batch_size) {
+                                              size_t seq_col_length,
+                                              size_t rowdid_length,
+                                              size_t max_batch_size) {
     _rowset_id = rowset_id;
     _seq_col_length = seq_col_length;
-    _comparator = MergeIndexDeleteBitmapCalculatorContext::Comparator(seq_col_length);
+    _rowid_length = rowdid_length;
+    _comparator =
+            MergeIndexDeleteBitmapCalculatorContext::Comparator(seq_col_length, _rowid_length);
     _contexts.reserve(segments.size());
     _heap = std::make_unique<Heap>(_comparator);
 

@@ -849,6 +849,8 @@ nonterminal DistributionDesc opt_distribution;
 nonterminal Integer opt_distribution_number;
 nonterminal Long opt_field_length;
 nonterminal KeysDesc opt_keys;
+nonterminal KeysDesc opt_mv_keys;
+nonterminal List<String> opt_cluster_keys;
 nonterminal Long opt_id;
 
 nonterminal PartitionKeyDesc partition_key_desc;
@@ -3185,13 +3187,25 @@ opt_keys ::=
     :}
     /* unique_keys */
     | KW_UNIQUE KW_KEY LPAREN ident_list:keys RPAREN
+    opt_cluster_keys:cluster_keys
     {:
-        RESULT = new KeysDesc(KeysType.UNIQUE_KEYS, keys);
+        RESULT = new KeysDesc(KeysType.UNIQUE_KEYS, keys, cluster_keys);
     :}
     /* agg_keys */
     | KW_AGGREGATE KW_KEY LPAREN ident_list:keys RPAREN
     {:
         RESULT = new KeysDesc(KeysType.AGG_KEYS, keys);
+    :}
+    ;
+
+opt_cluster_keys ::=
+    /* Empty */
+    {:
+        RESULT = null;
+    :}
+    | KW_CLUSTER KW_BY LPAREN ident_list:keys RPAREN
+    {:
+        RESULT = keys;
     :}
     ;
 

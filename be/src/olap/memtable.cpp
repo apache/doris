@@ -290,6 +290,56 @@ size_t MemTable::_sort() {
     return same_keys_num;
 }
 
+void MemTable::_sort_by_cluster_keys() {
+    SCOPED_RAW_TIMER(&_stat.sort_ns);
+    _stat.sort_times++;
+    // sort all rows
+    vectorized::Block in_block = _output_mutable_block.to_block();
+    auto cloneBlock = in_block.clone_without_columns();
+    _output_mutable_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
+    vectorized::MutableBlock mutable_block =
+            vectorized::MutableBlock::build_mutable_block(&in_block);
+
+    std::vector<RowInBlock*> row_in_blocks;
+    std::unique_ptr<int, std::function<void(int*)>> row_in_blocks_deleter((int*)0x01, [&](int*) {
+        std::for_each(row_in_blocks.begin(), row_in_blocks.end(),
+                      std::default_delete<RowInBlock>());
+    });
+    row_in_blocks.reserve(mutable_block.rows());
+    for (size_t i = 0; i < mutable_block.rows(); i++) {
+        row_in_blocks.emplace_back(new RowInBlock {i});
+    }
+    Tie tie = Tie(0, mutable_block.rows());
+
+    for (auto i : _tablet_schema->cluster_key_idxes()) {
+        auto cmp = [&](const RowInBlock* lhs, const RowInBlock* rhs) -> int {
+            return mutable_block.compare_one_column(lhs->_row_pos, rhs->_row_pos, i, -1);
+        };
+        _sort_one_column(row_in_blocks, tie, cmp);
+    }
+
+    // sort extra round by _row_pos to make the sort stable
+    auto iter = tie.iter();
+    while (iter.next()) {
+        pdqsort(std::next(row_in_blocks.begin(), iter.left()),
+                std::next(row_in_blocks.begin(), iter.right()),
+                [](const RowInBlock* lhs, const RowInBlock* rhs) -> bool {
+                    return lhs->_row_pos < rhs->_row_pos;
+                });
+    }
+
+    in_block = mutable_block.to_block();
+    SCOPED_RAW_TIMER(&_stat.put_into_output_ns);
+    std::vector<int> row_pos_vec;
+    DCHECK(in_block.rows() <= std::numeric_limits<int>::max());
+    row_pos_vec.reserve(in_block.rows());
+    for (int i = 0; i < row_in_blocks.size(); i++) {
+        row_pos_vec.emplace_back(row_in_blocks[i]->_row_pos);
+    }
+    _output_mutable_block.add_rows(&in_block, row_pos_vec.data(),
+                                   row_pos_vec.data() + in_block.rows());
+}
+
 void MemTable::_sort_one_column(std::vector<RowInBlock*>& row_in_blocks, Tie& tie,
                                 std::function<int(const RowInBlock*, const RowInBlock*)> cmp) {
     auto iter = tie.iter();
@@ -447,6 +497,10 @@ std::unique_ptr<vectorized::Block> MemTable::to_block() {
         }
     } else {
         _aggregate<true>();
+    }
+    if (_keys_type == KeysType::UNIQUE_KEYS && _enable_unique_key_mow &&
+        !_tablet_schema->cluster_key_idxes().empty()) {
+        _sort_by_cluster_keys();
     }
     return vectorized::Block::create_unique(_output_mutable_block.to_block());
 }

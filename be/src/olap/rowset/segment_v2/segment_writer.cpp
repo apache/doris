@@ -87,17 +87,40 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
     CHECK_NOTNULL(file_writer);
     _num_key_columns = _tablet_schema->num_key_columns();
     _num_short_key_columns = _tablet_schema->num_short_key_columns();
-    DCHECK(_num_key_columns >= _num_short_key_columns);
+    if (_tablet_schema->cluster_key_idxes().empty()) {
+        DCHECK(_num_key_columns >= _num_short_key_columns)
+                << ", table_id=" << _tablet_schema->table_id()
+                << ", num_key_columns=" << _num_key_columns
+                << ", num_short_key_columns=" << _num_short_key_columns
+                << ", cluster_key_columns=" << _tablet_schema->cluster_key_idxes().size();
+    }
     for (size_t cid = 0; cid < _num_key_columns; ++cid) {
         const auto& column = _tablet_schema->column(cid);
         _key_coders.push_back(get_key_coder(column.type()));
         _key_index_size.push_back(column.index_length());
     }
-    // encode the sequence id into the primary key index
-    if (_tablet_schema->has_sequence_col() && _tablet_schema->keys_type() == UNIQUE_KEYS &&
-        _opts.enable_unique_key_merge_on_write) {
-        const auto& column = _tablet_schema->column(_tablet_schema->sequence_col_idx());
-        _seq_coder = get_key_coder(column.type());
+    if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
+        // encode the sequence id into the primary key index
+        if (_tablet_schema->has_sequence_col()) {
+            const auto& column = _tablet_schema->column(_tablet_schema->sequence_col_idx());
+            _seq_coder = get_key_coder(column.type());
+        }
+        // encode the rowid into the primary key index
+        if (!_tablet_schema->cluster_key_idxes().empty()) {
+            const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT>();
+            _rowid_coder = get_key_coder(type_info->type());
+            // primary keys
+            _primary_key_coders.swap(_key_coders);
+            // cluster keys
+            _key_coders.clear();
+            _key_index_size.clear();
+            _num_key_columns = _tablet_schema->cluster_key_idxes().size();
+            for (auto cid : _tablet_schema->cluster_key_idxes()) {
+                const auto& column = _tablet_schema->column(cid);
+                _key_coders.push_back(get_key_coder(column.type()));
+                _key_index_size.push_back(column.index_length());
+            }
+        }
     }
 }
 
@@ -227,8 +250,14 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
                 seq_col_length =
                         _tablet_schema->column(_tablet_schema->sequence_col_idx()).length() + 1;
             }
+            size_t rowid_length = 0;
+            if (!_tablet_schema->cluster_key_idxes().empty()) {
+                rowid_length = sizeof(uint32_t) + 1;
+                _short_key_index_builder.reset(
+                        new ShortKeyIndexBuilder(_segment_id, _opts.num_rows_per_block));
+            }
             _primary_key_index_builder.reset(
-                    new PrimaryKeyIndexBuilder(_file_writer, seq_col_length));
+                    new PrimaryKeyIndexBuilder(_file_writer, seq_col_length, rowid_length));
             RETURN_IF_ERROR(_primary_key_index_builder->init());
         } else {
             _short_key_index_builder.reset(
@@ -681,7 +710,7 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
             return converted_result.first;
         }
         auto cid = _column_ids[id];
-        if (_has_key && cid < _num_key_columns) {
+        if (_has_key && cid < _tablet_schema->num_key_columns()) {
             key_columns.push_back(converted_result.second);
         } else if (_has_key && _tablet_schema->has_sequence_col() &&
                    cid == _tablet_schema->sequence_col_idx()) {
@@ -691,22 +720,82 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
                                                     converted_result.second->get_data(), num_rows));
     }
     if (_has_key) {
-        if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
+        bool need_primary_key_indexes = (_tablet_schema->keys_type() == UNIQUE_KEYS &&
+                                         _opts.enable_unique_key_merge_on_write);
+        bool need_short_key_indexes =
+                !need_primary_key_indexes ||
+                (need_primary_key_indexes && _tablet_schema->cluster_key_idxes().size() > 0);
+        if (need_primary_key_indexes) {
             // create primary indexes
-            std::string last_key;
-            for (size_t pos = 0; pos < num_rows; pos++) {
-                std::string key = _full_encode_keys(key_columns, pos);
-                _maybe_invalid_row_cache(key);
-                if (_tablet_schema->has_sequence_col()) {
-                    _encode_seq_column(seq_column, pos, &key);
+            if (!need_short_key_indexes) {
+                std::string last_key;
+                for (size_t pos = 0; pos < num_rows; pos++) {
+                    std::string key = _full_encode_keys(key_columns, pos);
+                    if (_tablet_schema->has_sequence_col()) {
+                        _encode_seq_column(seq_column, pos, &key);
+                    }
+                    DCHECK(key.compare(last_key) > 0)
+                            << "found duplicate key or key is not sorted! current key: " << key
+                            << ", last key" << last_key;
+                    RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
+                    _maybe_invalid_row_cache(key);
+                    last_key = std::move(key);
                 }
-                DCHECK(key.compare(last_key) > 0)
-                        << "found duplicate key or key is not sorted! current key: " << key
-                        << ", last key" << last_key;
-                RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
-                last_key = std::move(key);
+            } else {
+                std::vector<vectorized::IOlapColumnDataAccessor*> primary_key_columns;
+                primary_key_columns.swap(key_columns);
+                key_columns.clear();
+                for (const auto& cid : _tablet_schema->cluster_key_idxes()) {
+                    for (size_t id = 0; id < _column_writers.size(); ++id) {
+                        // olap data convertor alway start from id = 0
+                        auto converted_result = _olap_data_convertor->convert_column_data(id);
+                        if (cid == _column_ids[id]) {
+                            key_columns.push_back(converted_result.second);
+                            break;
+                        }
+                    }
+                }
+                std::vector<std::string> primary_keys;
+                // keep primary keys in memory
+                for (uint32_t pos = 0; pos < num_rows; pos++) {
+                    std::string key =
+                            _full_encode_keys(_primary_key_coders, primary_key_columns, pos);
+                    Slice slice(key);
+                    if (_tablet_schema->has_sequence_col()) {
+                        _encode_seq_column(seq_column, pos, &key);
+                    }
+                    _encode_rowid(pos, &key);
+                    primary_keys.emplace_back(std::move(key));
+                }
+                // sort primary keys
+                std::sort(primary_keys.begin(), primary_keys.end());
+                // write primary keys
+                std::string last_key;
+                for (const auto& key : primary_keys) {
+                    DCHECK(key.compare(last_key) > 0)
+                            << "found duplicate key or key is not sorted! current key: " << key
+                            << ", last key" << last_key;
+                    RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
+                }
             }
-        } else {
+        }
+        if (need_short_key_indexes) {
+            if (need_primary_key_indexes) {
+                // short key is cluster key, key columns should be cluster key + min_max key
+                key_columns.clear();
+                for (auto cid : _tablet_schema->cluster_key_idxes()) {
+                    /*auto converted_result = _olap_data_convertor->convert_column_data(cid);
+                    key_columns.push_back(converted_result.second);*/
+                    for (size_t id = 0; id < _column_writers.size(); ++id) {
+                        // olap data convertor alway start from id = 0
+                        auto converted_result = _olap_data_convertor->convert_column_data(id);
+                        if (cid == _column_ids[id]) {
+                            key_columns.push_back(converted_result.second);
+                        }
+                    }
+                }
+            }
+            // TODO use cluster keys
             // create short key indexes'
             // for min_max key
             set_min_key(_full_encode_keys(key_columns, 0));
@@ -757,6 +846,33 @@ std::string SegmentWriter::_full_encode_keys(
     return encoded_keys;
 }
 
+std::string SegmentWriter::_full_encode_keys(
+        std::vector<const KeyCoder*>& key_coders,
+        const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos,
+        bool null_first) {
+    assert(key_columns.size() == key_coders.size());
+
+    std::string encoded_keys;
+    size_t cid = 0;
+    for (const auto& column : key_columns) {
+        auto field = column->get_data_at(pos);
+        if (UNLIKELY(!field)) {
+            if (null_first) {
+                encoded_keys.push_back(KEY_NULL_FIRST_MARKER);
+            } else {
+                encoded_keys.push_back(KEY_NULL_LAST_MARKER);
+            }
+            ++cid;
+            continue;
+        }
+        encoded_keys.push_back(KEY_NORMAL_MARKER);
+        DCHECK(key_coders[cid] != nullptr);
+        key_coders[cid]->full_encode_ascending(field, &encoded_keys);
+        ++cid;
+    }
+    return encoded_keys;
+}
+
 void SegmentWriter::_encode_seq_column(const vectorized::IOlapColumnDataAccessor* seq_column,
                                        size_t pos, string* encoded_keys) {
     auto field = seq_column->get_data_at(pos);
@@ -771,6 +887,11 @@ void SegmentWriter::_encode_seq_column(const vectorized::IOlapColumnDataAccessor
     }
     encoded_keys->push_back(KEY_NORMAL_MARKER);
     _seq_coder->full_encode_ascending(field, encoded_keys);
+}
+
+void SegmentWriter::_encode_rowid(const uint32_t rowid, string* encoded_keys) {
+    encoded_keys->push_back(KEY_NORMAL_MARKER);
+    _rowid_coder->full_encode_ascending(&rowid, encoded_keys);
 }
 
 std::string SegmentWriter::_encode_keys(
