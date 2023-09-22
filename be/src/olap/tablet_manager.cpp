@@ -590,41 +590,6 @@ Status TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, TReplicaId repl
     return Status::OK();
 }
 
-Status TabletManager::drop_tablets_on_error_root_path(
-        const std::vector<TabletInfo>& tablet_info_vec) {
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
-    Status res = Status::OK();
-    if (tablet_info_vec.empty()) { // This is a high probability event
-        return res;
-    }
-    std::vector<std::set<size_t>> local_tmp_vector(_tablets_shards_size);
-    for (size_t idx = 0; idx < tablet_info_vec.size(); ++idx) {
-        local_tmp_vector[tablet_info_vec[idx].tablet_id & _tablets_shards_mask].insert(idx);
-    }
-    for (int32 i = 0; i < _tablets_shards_size; ++i) {
-        if (local_tmp_vector[i].empty()) {
-            continue;
-        }
-        std::lock_guard<std::shared_mutex> wrlock(_tablets_shards[i].lock);
-        for (size_t idx : local_tmp_vector[i]) {
-            const TabletInfo& tablet_info = tablet_info_vec[idx];
-            TTabletId tablet_id = tablet_info.tablet_id;
-            VLOG_NOTICE << "drop_tablet begin. tablet_id=" << tablet_id;
-            TabletSharedPtr dropped_tablet = _get_tablet_unlocked(tablet_id);
-            if (dropped_tablet == nullptr) {
-                LOG(WARNING) << "dropping tablet not exist, "
-                             << " tablet=" << tablet_id;
-                continue;
-            } else {
-                _remove_tablet_from_partition(dropped_tablet);
-                tablet_map_t& tablet_map = _get_tablet_map(tablet_id);
-                tablet_map.erase(tablet_id);
-            }
-        }
-    }
-    return res;
-}
-
 TabletSharedPtr TabletManager::get_tablet(TTabletId tablet_id, bool include_deleted, string* err) {
     std::shared_lock rdlock(_get_tablets_shard_lock(tablet_id));
     return _get_tablet_unlocked(tablet_id, include_deleted, err);

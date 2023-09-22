@@ -353,9 +353,20 @@ int main(int argc, char** argv) {
         LOG(FATAL) << "parse config storage path failed, path=" << doris::config::storage_root_path;
         exit(-1);
     }
+    std::set<std::string> broken_paths;
+    doris::parse_conf_broken_store_paths(doris::config::broken_storage_path, &broken_paths);
+
     auto it = paths.begin();
     for (; it != paths.end();) {
-        if (!doris::check_datapath_rw(it->path)) {
+        if (broken_paths.count(it->path) > 0) {
+            if (doris::config::ignore_broken_disk) {
+                LOG(WARNING) << "ignore broken disk, path = " << it->path;
+                it = paths.erase(it);
+            } else {
+                LOG(FATAL) << "a broken disk is found " << it->path;
+                exit(-1);
+            }
+        } else if (!doris::check_datapath_rw(it->path)) {
             if (doris::config::ignore_broken_disk) {
                 LOG(WARNING) << "read write test file failed, path=" << it->path;
                 it = paths.erase(it);
@@ -462,6 +473,7 @@ int main(int argc, char** argv) {
     // init and open storage engine
     doris::EngineOptions options;
     options.store_paths = paths;
+    options.broken_paths = broken_paths;
     options.backend_uid = doris::UniqueId::gen_uid();
     doris::StorageEngine* engine = nullptr;
     auto st = doris::StorageEngine::open(options, &engine);

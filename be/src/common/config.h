@@ -319,6 +319,7 @@ DECLARE_mInt32(tablet_lookup_cache_clean_interval);
 DECLARE_mInt32(disk_stat_monitor_interval);
 DECLARE_mInt32(unused_rowset_monitor_interval);
 DECLARE_String(storage_root_path);
+DECLARE_mString(broken_storage_path);
 
 // Config is used to check incompatible old format hdr_ format
 // whether doris uses strict way. When config is true, process will log fatal

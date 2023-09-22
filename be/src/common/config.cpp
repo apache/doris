@@ -274,6 +274,7 @@ DEFINE_mInt32(tablet_lookup_cache_clean_interval, "30");
 DEFINE_mInt32(disk_stat_monitor_interval, "5");
 DEFINE_mInt32(unused_rowset_monitor_interval, "30");
 DEFINE_String(storage_root_path, "${DORIS_HOME}/storage");
+DEFINE_mString(broken_storage_path, "");
 
 // Config is used to check incompatible old format hdr_ format
 // whether doris uses strict way. When config is true, process will log fatal
@@ -1316,9 +1317,9 @@ void Properties::set_force(const std::string& key, const std::string& val) {
 }
 
 Status Properties::dump(const std::string& conffile) {
-    RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(conffile));
+    std::string conffile_tmp = conffile + ".tmp";
     io::FileWriterPtr file_writer;
-    RETURN_IF_ERROR(io::global_local_filesystem()->create_file(conffile, &file_writer));
+    RETURN_IF_ERROR(io::global_local_filesystem()->create_file(conffile_tmp, &file_writer));
     RETURN_IF_ERROR(file_writer->append("# THIS IS AN AUTO GENERATED CONFIG FILE.\n"));
     RETURN_IF_ERROR(file_writer->append(
             "# You can modify this file manually, and the configurations in this file\n"));
@@ -1331,7 +1332,9 @@ Status Properties::dump(const std::string& conffile) {
         RETURN_IF_ERROR(file_writer->append("\n"));
     }
 
-    return file_writer->close();
+    RETURN_IF_ERROR(file_writer->close());
+
+    return io::global_local_filesystem()->rename(conffile_tmp, conffile);
 }
 
 template <typename T>
