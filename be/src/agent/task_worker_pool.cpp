@@ -1536,6 +1536,7 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
         while (retry_time < PUBLISH_VERSION_MAX_RETRY) {
             succ_tablets.clear();
             error_tablet_ids.clear();
+            table_id_to_num_delta_rows.clear();
             EnginePublishVersionTask engine_task(publish_version_req, &error_tablet_ids,
                                                  &succ_tablets, &discontinuous_version_tablets,
                                                  &table_id_to_num_delta_rows);

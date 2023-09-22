@@ -28,6 +28,7 @@
 #include <set>
 #include <shared_mutex>
 #include <string>
+#include <unordered_map>
 #include <utility>
 
 #include "common/logging.h"
@@ -92,7 +93,7 @@ Status EnginePublishVersionTask::finish() {
     std::unique_ptr<ThreadPoolToken> token =
             StorageEngine::instance()->tablet_publish_txn_thread_pool()->new_token(
                     ThreadPool::ExecutionMode::CONCURRENT);
-
+    std::unordered_map<int64_t, int64_t> tablet_id_to_num_delta_rows;
     // each partition
     for (auto& par_ver_info : _publish_version_req.partition_version_infos) {
         int64_t partition_id = par_ver_info.partition_id;
@@ -188,12 +189,11 @@ Status EnginePublishVersionTask::finish() {
                     continue;
                 }
             }
+
             auto rowset_meta_ptr = rowset->rowset_meta();
-            auto table_id = StorageEngine::instance()
-                                    ->tablet_manager()
-                                    ->get_tablet(rowset_meta_ptr->tablet_id())
-                                    ->get_table_id();
-            (*_table_id_to_num_delta_rows)[table_id] += rowset_meta_ptr->num_rows();
+            tablet_id_to_num_delta_rows.insert(
+                    {rowset_meta_ptr->tablet_id(), rowset_meta_ptr->num_rows()});
+
             auto tablet_publish_txn_ptr = std::make_shared<TabletPublishTxnTask>(
                     this, tablet, rowset, partition_id, transaction_id, version, tablet_info);
             auto submit_st = token->submit_func([=]() { tablet_publish_txn_ptr->handle(); });
@@ -210,7 +210,6 @@ Status EnginePublishVersionTask::finish() {
         std::set<TabletInfo> partition_related_tablet_infos;
         StorageEngine::instance()->tablet_manager()->get_partition_related_tablets(
                 partition_id, &partition_related_tablet_infos);
-
         Version version(par_ver_info.version, par_ver_info.version);
         for (auto& tablet_info : partition_related_tablet_infos) {
             TabletSharedPtr tablet =
@@ -247,6 +246,7 @@ Status EnginePublishVersionTask::finish() {
             }
         }
     }
+    _calculate_tbl_num_delta_rows(tablet_id_to_num_delta_rows);
 
     if (!res.is<PUBLISH_VERSION_NOT_CONTINUOUS>()) {
         LOG(INFO) << "finish to publish version on transaction."
@@ -256,6 +256,15 @@ Status EnginePublishVersionTask::finish() {
                   << ", res=" << res.to_string();
     }
     return res;
+}
+
+void EnginePublishVersionTask::_calculate_tbl_num_delta_rows(
+        const std::unordered_map<int64_t, int64_t>& tablet_id_to_num_delta_rows) {
+    for (const auto& kv : tablet_id_to_num_delta_rows) {
+        auto table_id =
+                StorageEngine::instance()->tablet_manager()->get_tablet(kv.first)->get_table_id();
+        (*_table_id_to_num_delta_rows)[table_id] += kv.second;
+    }
 }
 
 TabletPublishTxnTask::TabletPublishTxnTask(EnginePublishVersionTask* engine_task,
