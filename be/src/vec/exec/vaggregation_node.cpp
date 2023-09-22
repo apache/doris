@@ -473,7 +473,7 @@ Status AggregationNode::alloc_resource(doris::RuntimeState* state) {
     // this could cause unable to get JVM
     if (_probe_expr_ctxs.empty()) {
         // _create_agg_status may acquire a lot of memory, may allocate failed when memory is very few
-        RETURN_IF_CATCH_EXCEPTION(_create_agg_status(_agg_data->without_key));
+        RETURN_IF_CATCH_EXCEPTION(static_cast<void>(_create_agg_status(_agg_data->without_key)));
         _agg_data_created_without_key = true;
     }
 
@@ -502,7 +502,7 @@ Status AggregationNode::open(RuntimeState* state) {
                           std::placeholders::_3)));
         RETURN_IF_ERROR(sink(state, &block, eos));
     }
-    _children[0]->close(state);
+    static_cast<void>(_children[0]->close(state));
 
     return Status::OK();
 }
@@ -564,7 +564,7 @@ Status AggregationNode::sink(doris::RuntimeState* state, vectorized::Block* in_b
     }
     if (eos) {
         if (_spill_context.has_data) {
-            _try_spill_disk(true);
+            RETURN_IF_ERROR(_try_spill_disk(true));
             RETURN_IF_ERROR(_spill_context.prepare_for_reading());
         }
         _can_read = true;
@@ -757,7 +757,7 @@ void AggregationNode::_close_without_key() {
     //but finally call close to destory agg data, if agg data has bitmapValue
     //will be core dump, it's not initialized
     if (_agg_data_created_without_key) {
-        _destroy_agg_status(_agg_data->without_key);
+        static_cast<void>(_destroy_agg_status(_agg_data->without_key));
         _agg_data_created_without_key = false;
     }
     release_tracker();
@@ -869,7 +869,7 @@ Status AggregationNode::_reset_hash_table() {
 
                 hash_table.for_each_mapped([&](auto& mapped) {
                     if (mapped) {
-                        _destroy_agg_status(mapped);
+                        static_cast<void>(_destroy_agg_status(mapped));
                         mapped = nullptr;
                     }
                 });
@@ -911,11 +911,11 @@ void AggregationNode::_emplace_into_hash_table(AggregateDataPtr* places, ColumnR
                         ArenaKeyHolder key_holder {string_ref, *_agg_arena_pool};
                         key_holder_persist_key(key_holder);
                         auto mapped = _aggregate_data_container->append_data(key_holder.key);
-                        _create_agg_status(mapped);
+                        static_cast<void>(_create_agg_status(mapped));
                         ctor(key, mapped);
                     } else {
                         auto mapped = _aggregate_data_container->append_data(key);
-                        _create_agg_status(mapped);
+                        static_cast<void>(_create_agg_status(mapped));
                         ctor(key, mapped);
                     }
                 };
@@ -923,7 +923,7 @@ void AggregationNode::_emplace_into_hash_table(AggregateDataPtr* places, ColumnR
                 auto creator_for_null_key = [this](auto& mapped) {
                     mapped = _agg_arena_pool->aligned_alloc(_total_size_of_aggregate_states,
                                                             _align_aggregate_states);
-                    _create_agg_status(mapped);
+                    static_cast<void>(_create_agg_status(mapped));
                 };
 
                 if constexpr (HashTableTraits<HashTableType>::is_phmap) {
@@ -1223,7 +1223,7 @@ Status AggregationNode::_spill_hash_table(HashTableCtxType& agg_method, HashTabl
             std::numeric_limits<int32_t>::max(), writer, _spill_context.runtime_profile));
     Defer defer {[&]() {
         // redundant call is ok
-        writer->close();
+        static_cast<void>(writer->close());
     }};
     _spill_context.stream_ids.emplace_back(writer->get_id());
 
@@ -1250,7 +1250,7 @@ Status AggregationNode::_spill_hash_table(HashTableCtxType& agg_method, HashTabl
         if (blocks_rows[i] == 0) {
             /// Here write one empty block to ensure there are enough blocks in the file,
             /// blocks' count should be equal with partition_count.
-            writer->write(block_to_write);
+            RETURN_IF_ERROR(writer->write(block_to_write));
             continue;
         }
 
@@ -1641,12 +1641,12 @@ void AggregationNode::_close_with_serialized_key() {
                 auto& data = agg_method.data;
                 data.for_each_mapped([&](auto& mapped) {
                     if (mapped) {
-                        _destroy_agg_status(mapped);
+                        static_cast<void>(_destroy_agg_status(mapped));
                         mapped = nullptr;
                     }
                 });
                 if (data.has_null_key_data()) {
-                    _destroy_agg_status(data.get_null_key_data());
+                    static_cast<void>(_destroy_agg_status(data.get_null_key_data()));
                 }
             },
             _agg_data->method_variant);

@@ -22,6 +22,7 @@
 
 #include <functional>
 
+#include "common/status.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/typeid_cast.h"
 
@@ -267,7 +268,7 @@ Status ColumnStruct::filter_by_selector(const uint16_t* sel, size_t sel_size, IC
     const size_t tuple_size = columns.size();
     DCHECK_EQ(to->tuple_size(), tuple_size);
     for (size_t i = 0; i < tuple_size; ++i) {
-        columns[i]->filter_by_selector(sel, sel_size, &to->get_column(i));
+        RETURN_IF_ERROR(columns[i]->filter_by_selector(sel, sel_size, &to->get_column(i)));
     }
     return Status::OK();
 }

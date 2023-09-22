@@ -480,7 +480,6 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
             RETURN_IF_ERROR(_validate_line(Slice(ptr, size), &success));
             ++rows;
         }
-
         for (auto& col : block->mutate_columns()) {
             col->resize(rows);
         }
@@ -669,10 +668,10 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
             // So we use deserialize_nullable_string and stringSerDe to reduce virtual function calls.
             switch (_text_serde_type) {
             case TTextSerdeType::JSON_TEXT_SERDE:
-                deserialize_nullable_string<true>(*col_ptr, slice);
+                RETURN_IF_ERROR(deserialize_nullable_string<true>(*col_ptr, slice));
                 break;
             case TTextSerdeType::HIVE_TEXT_SERDE:
-                deserialize_nullable_string<false>(*col_ptr, slice);
+                RETURN_IF_ERROR(deserialize_nullable_string<false>(*col_ptr, slice));
                 break;
             default:
                 break;
@@ -680,10 +679,12 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
         } else {
             switch (_text_serde_type) {
             case TTextSerdeType::JSON_TEXT_SERDE:
-                _serdes[i]->deserialize_one_cell_from_json(*col_ptr, slice, _options);
+                RETURN_IF_ERROR(
+                        _serdes[i]->deserialize_one_cell_from_json(*col_ptr, slice, _options));
                 break;
             case TTextSerdeType::HIVE_TEXT_SERDE:
-                _serdes[i]->deserialize_one_cell_from_hive_text(*col_ptr, slice, _options);
+                RETURN_IF_ERROR(
+                        _serdes[i]->deserialize_one_cell_from_hive_text(*col_ptr, slice, _options));
                 break;
             default:
                 break;
@@ -957,7 +958,7 @@ void CsvReader::close() {
     }
 
     if (_file_reader) {
-        _file_reader->close();
+        static_cast<void>(_file_reader->close());
     }
 }
 

@@ -120,7 +120,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
         for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
             datas[i - fill_idx_begin] = &src;
         }
-        fill_dest_column_for_range(block, 0, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 0, datas));
     }
     // ROWSET_ID
     {
@@ -133,7 +133,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
                                                  rowset_ids[i - fill_idx_begin].size());
             datas[i - fill_idx_begin] = strs + i - fill_idx_begin;
         }
-        fill_dest_column_for_range(block, 1, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 1, datas));
     }
     // TABLET_ID
     {
@@ -143,7 +143,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
             srcs[i - fill_idx_begin] = rowset->rowset_meta()->tablet_id();
             datas[i - fill_idx_begin] = srcs + i - fill_idx_begin;
         }
-        fill_dest_column_for_range(block, 2, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 2, datas));
     }
     // ROWSET_NUM_ROWS
     {
@@ -153,7 +153,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
             srcs[i - fill_idx_begin] = rowset->num_rows();
             datas[i - fill_idx_begin] = srcs + i - fill_idx_begin;
         }
-        fill_dest_column_for_range(block, 3, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 3, datas));
     }
     // TXN_ID
     {
@@ -163,7 +163,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
             srcs[i - fill_idx_begin] = rowset->txn_id();
             datas[i - fill_idx_begin] = srcs + i - fill_idx_begin;
         }
-        fill_dest_column_for_range(block, 4, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 4, datas));
     }
     // NUM_SEGMENTS
     {
@@ -173,7 +173,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
             srcs[i - fill_idx_begin] = rowset->num_segments();
             datas[i - fill_idx_begin] = srcs + i - fill_idx_begin;
         }
-        fill_dest_column_for_range(block, 5, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 5, datas));
     }
     // START_VERSION
     {
@@ -183,7 +183,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
             srcs[i - fill_idx_begin] = rowset->start_version();
             datas[i - fill_idx_begin] = srcs + i - fill_idx_begin;
         }
-        fill_dest_column_for_range(block, 6, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 6, datas));
     }
     // END_VERSION
     {
@@ -193,7 +193,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
             srcs[i - fill_idx_begin] = rowset->end_version();
             datas[i - fill_idx_begin] = srcs + i - fill_idx_begin;
         }
-        fill_dest_column_for_range(block, 7, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 7, datas));
     }
     // INDEX_DISK_SIZE
     {
@@ -203,7 +203,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
             srcs[i - fill_idx_begin] = rowset->index_disk_size();
             datas[i - fill_idx_begin] = srcs + i - fill_idx_begin;
         }
-        fill_dest_column_for_range(block, 8, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 8, datas));
     }
     // DATA_DISK_SIZE
     {
@@ -213,7 +213,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
             srcs[i - fill_idx_begin] = rowset->data_disk_size();
             datas[i - fill_idx_begin] = srcs + i - fill_idx_begin;
         }
-        fill_dest_column_for_range(block, 9, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 9, datas));
     }
     // CREATION_TIME
     {
@@ -223,7 +223,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
             srcs[i - fill_idx_begin] = rowset->creation_time();
             datas[i - fill_idx_begin] = srcs + i - fill_idx_begin;
         }
-        fill_dest_column_for_range(block, 10, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 10, datas));
     }
     // NEWEST_WRITE_TIMESTAMP
     {
@@ -233,7 +233,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
             srcs[i - fill_idx_begin] = rowset->newest_write_timestamp();
             datas[i - fill_idx_begin] = srcs + i - fill_idx_begin;
         }
-        fill_dest_column_for_range(block, 11, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 11, datas));
     }
     _rowsets_idx += fill_rowsets_num;
     return Status::OK();

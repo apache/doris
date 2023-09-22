@@ -67,7 +67,7 @@ public:
     virtual size_t seek_forward(size_t n) {
         size_t step = std::min(n, count() - current_index());
         DCHECK_GE(step, 0);
-        seek_to_position_in_page(current_index() + step);
+        static_cast<void>(seek_to_position_in_page(current_index() + step));
         return step;
     }
 

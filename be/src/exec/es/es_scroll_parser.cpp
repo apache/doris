@@ -526,39 +526,44 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
         }
 
         case TYPE_TINYINT: {
-            insert_int_value<int8_t>(col, type, col_ptr, pure_doc_value, slot_desc->is_nullable());
+            RETURN_IF_ERROR(insert_int_value<int8_t>(col, type, col_ptr, pure_doc_value,
+                                                     slot_desc->is_nullable()));
             break;
         }
 
         case TYPE_SMALLINT: {
-            insert_int_value<int16_t>(col, type, col_ptr, pure_doc_value, slot_desc->is_nullable());
+            RETURN_IF_ERROR(insert_int_value<int16_t>(col, type, col_ptr, pure_doc_value,
+                                                      slot_desc->is_nullable()));
             break;
         }
 
         case TYPE_INT: {
-            insert_int_value<int32>(col, type, col_ptr, pure_doc_value, slot_desc->is_nullable());
+            RETURN_IF_ERROR(insert_int_value<int32>(col, type, col_ptr, pure_doc_value,
+                                                    slot_desc->is_nullable()));
             break;
         }
 
         case TYPE_BIGINT: {
-            insert_int_value<int64_t>(col, type, col_ptr, pure_doc_value, slot_desc->is_nullable());
+            RETURN_IF_ERROR(insert_int_value<int64_t>(col, type, col_ptr, pure_doc_value,
+                                                      slot_desc->is_nullable()));
             break;
         }
 
         case TYPE_LARGEINT: {
-            insert_int_value<__int128>(col, type, col_ptr, pure_doc_value,
-                                       slot_desc->is_nullable());
+            RETURN_IF_ERROR(insert_int_value<__int128>(col, type, col_ptr, pure_doc_value,
+                                                       slot_desc->is_nullable()));
             break;
         }
 
         case TYPE_DOUBLE: {
-            insert_float_value<double>(col, type, col_ptr, pure_doc_value,
-                                       slot_desc->is_nullable());
+            RETURN_IF_ERROR(insert_float_value<double>(col, type, col_ptr, pure_doc_value,
+                                                       slot_desc->is_nullable()));
             break;
         }
 
         case TYPE_FLOAT: {
-            insert_float_value<float>(col, type, col_ptr, pure_doc_value, slot_desc->is_nullable());
+            RETURN_IF_ERROR(insert_float_value<float>(col, type, col_ptr, pure_doc_value,
+                                                      slot_desc->is_nullable()));
             break;
         }
 

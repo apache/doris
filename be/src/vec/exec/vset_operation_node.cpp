@@ -463,9 +463,9 @@ Status VSetOperationNode<is_intersect>::hash_table_build(RuntimeState* state) {
                           _children[0], std::placeholders::_1, std::placeholders::_2,
                           std::placeholders::_3)));
         if (eos) {
-            child(0)->close(state);
+            static_cast<void>(child(0)->close(state));
         }
-        sink(state, &block, eos);
+        RETURN_IF_ERROR(sink(state, &block, eos));
     }
 
     return Status::OK();
@@ -489,7 +489,7 @@ Status VSetOperationNode<is_intersect>::process_build_block(Block& block, uint8_
                 if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
                     HashTableBuild<HashTableCtxType, is_intersect> hash_table_build_process(
                             rows, raw_ptrs, this, offset, state);
-                    hash_table_build_process(arg);
+                    static_cast<void>(hash_table_build_process(arg));
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";
                 }

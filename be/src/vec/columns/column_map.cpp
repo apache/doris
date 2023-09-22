@@ -28,6 +28,7 @@
 #include <memory>
 #include <vector>
 
+#include "common/status.h"
 #include "vec/common/arena.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/common/unaligned.h"
@@ -432,8 +433,10 @@ Status ColumnMap::filter_by_selector(const uint16_t* sel, size_t sel_size, IColu
     }
 
     if (nested_sel_size > 0) {
-        keys_column->filter_by_selector(nested_sel.get(), nested_sel_size, &to->get_keys());
-        values_column->filter_by_selector(nested_sel.get(), nested_sel_size, &to->get_values());
+        RETURN_IF_ERROR(keys_column->filter_by_selector(nested_sel.get(), nested_sel_size,
+                                                        &to->get_keys()));
+        RETURN_IF_ERROR(values_column->filter_by_selector(nested_sel.get(), nested_sel_size,
+                                                          &to->get_values()));
     }
     return Status::OK();
 }

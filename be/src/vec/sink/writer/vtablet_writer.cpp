@@ -1494,7 +1494,7 @@ Status VTabletWriter::close(Status exec_status) {
     SCOPED_TIMER(_close_timer);
     SCOPED_TIMER(_profile->total_time_counter());
 
-    try_close(_state, exec_status);
+    static_cast<void>(try_close(_state, exec_status));
 
     // If _close_status is not ok, all nodes have been canceled in try_close.
     if (_close_status.ok()) {
@@ -1632,7 +1632,7 @@ Status VTabletWriter::close(Status exec_status) {
     }
 
     if (_wal_writer.get() != nullptr) {
-        _wal_writer->finalize();
+        static_cast<void>(_wal_writer->finalize());
     }
     return _close_status;
 }
@@ -1686,7 +1686,7 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
         int result_idx;
         if (_vpartition->is_projection_partition()) {
             // calc the start value of missing partition ranges.
-            part_func->execute(part_ctx.get(), block.get(), &result_idx);
+            RETURN_IF_ERROR(part_func->execute(part_ctx.get(), block.get(), &result_idx));
             VLOG_DEBUG << "Partition-calculated block:" << block->dump_data();
             // change the column to compare to transformed.
             _vpartition->set_transformed_slots({(uint16_t)result_idx});
@@ -1860,7 +1860,8 @@ void VTabletWriter::_group_commit_block(vectorized::Block* input_block, int64_t 
                                         vectorized::Block* block,
                                         OlapTableBlockConvertor* block_convertor,
                                         OlapTabletFinder* tablet_finder) {
-    write_wal(block_convertor, tablet_finder, block, state, num_rows, filter_rows);
+    static_cast<void>(
+            write_wal(block_convertor, tablet_finder, block, state, num_rows, filter_rows));
 #ifndef BE_TEST
     auto* future_block = assert_cast<FutureBlock*>(input_block);
     std::unique_lock<doris::Mutex> l(*(future_block->lock));

@@ -32,7 +32,6 @@
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "vec/core/block.h"
-#include "vec/sink/vresult_sink.h"
 
 namespace doris {
 class QueryContext;

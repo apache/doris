@@ -170,7 +170,8 @@ Status AggSinkLocalState<DependencyType, Derived>::open(RuntimeState* state) {
     // this could cause unable to get JVM
     if (Base::_shared_state->probe_expr_ctxs.empty()) {
         // _create_agg_status may acquire a lot of memory, may allocate failed when memory is very few
-        RETURN_IF_CATCH_EXCEPTION(Base::_dependency->create_agg_status(_agg_data->without_key));
+        RETURN_IF_CATCH_EXCEPTION(
+                static_cast<void>(Base::_dependency->create_agg_status(_agg_data->without_key)));
     }
     return Status::OK();
 }
@@ -524,12 +525,12 @@ void AggSinkLocalState<DependencyType, Derived>::_emplace_into_hash_table(
                         key_holder_persist_key(key_holder);
                         auto mapped = Base::_shared_state->aggregate_data_container->append_data(
                                 key_holder.key);
-                        Base::_dependency->create_agg_status(mapped);
+                        static_cast<void>(Base::_dependency->create_agg_status(mapped));
                         ctor(key, mapped);
                     } else {
                         auto mapped =
                                 Base::_shared_state->aggregate_data_container->append_data(key);
-                        Base::_dependency->create_agg_status(mapped);
+                        static_cast<void>(Base::_dependency->create_agg_status(mapped));
                         ctor(key, mapped);
                     }
                 };
@@ -540,7 +541,7 @@ void AggSinkLocalState<DependencyType, Derived>::_emplace_into_hash_table(
                                     ._total_size_of_aggregate_states,
                             Base::_parent->template cast<typename Derived::Parent>()
                                     ._align_aggregate_states);
-                    Base::_dependency->create_agg_status(mapped);
+                    static_cast<void>(Base::_dependency->create_agg_status(mapped));
                 };
 
                 if constexpr (HashTableTraits<HashTableType>::is_phmap) {
@@ -912,7 +913,7 @@ Status AggSinkOperatorX<LocalStateType>::sink(doris::RuntimeState* state,
     }
     if (source_state == SourceState::FINISHED) {
         if (local_state._shared_state->spill_context.has_data) {
-            local_state.try_spill_disk(true);
+            RETURN_IF_ERROR(local_state.try_spill_disk(true));
             RETURN_IF_ERROR(local_state._shared_state->spill_context.prepare_for_reading());
         }
         local_state._dependency->set_ready_for_read();

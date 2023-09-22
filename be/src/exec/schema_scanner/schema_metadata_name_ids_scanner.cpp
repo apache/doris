@@ -145,9 +145,9 @@ Status SchemaMetadataNameIdsScanner::_fill_block_impl(vectorized::Block* block) 
                 srcs[i] = id;
                 datas[i] = srcs + i;
             }
-            fill_dest_column_for_range(block, 0, datas);
+            RETURN_IF_ERROR(fill_dest_column_for_range(block, 0, datas));
         } else {
-            fill_dest_column_for_range(block, 0, null_datas);
+            RETURN_IF_ERROR(fill_dest_column_for_range(block, 0, null_datas));
         }
     }
 
@@ -159,9 +159,9 @@ Status SchemaMetadataNameIdsScanner::_fill_block_impl(vectorized::Block* block) 
             for (int i = 0; i < table_num; ++i) {
                 datas[i] = &str_slot;
             }
-            fill_dest_column_for_range(block, 1, datas);
+            RETURN_IF_ERROR(fill_dest_column_for_range(block, 1, datas));
         } else {
-            fill_dest_column_for_range(block, 1, null_datas);
+            RETURN_IF_ERROR(fill_dest_column_for_range(block, 1, null_datas));
         }
     }
 
@@ -174,9 +174,9 @@ Status SchemaMetadataNameIdsScanner::_fill_block_impl(vectorized::Block* block) 
                 srcs[i] = id;
                 datas[i] = srcs + i;
             }
-            fill_dest_column_for_range(block, 2, datas);
+            RETURN_IF_ERROR(fill_dest_column_for_range(block, 2, datas));
         } else {
-            fill_dest_column_for_range(block, 2, null_datas);
+            RETURN_IF_ERROR(fill_dest_column_for_range(block, 2, null_datas));
         }
     }
 
@@ -188,9 +188,9 @@ Status SchemaMetadataNameIdsScanner::_fill_block_impl(vectorized::Block* block) 
             for (int i = 0; i < table_num; ++i) {
                 datas[i] = &str_slot;
             }
-            fill_dest_column_for_range(block, 3, datas);
+            RETURN_IF_ERROR(fill_dest_column_for_range(block, 3, datas));
         } else {
-            fill_dest_column_for_range(block, 3, null_datas);
+            RETURN_IF_ERROR(fill_dest_column_for_range(block, 3, null_datas));
         }
     }
     //     table_id
@@ -204,7 +204,7 @@ Status SchemaMetadataNameIdsScanner::_fill_block_impl(vectorized::Block* block) 
                 datas[i] = nullptr;
             }
         }
-        fill_dest_column_for_range(block, 4, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 4, datas));
     }
 
     //table_name
@@ -219,7 +219,7 @@ Status SchemaMetadataNameIdsScanner::_fill_block_impl(vectorized::Block* block) 
                 datas[i] = nullptr;
             }
         }
-        fill_dest_column_for_range(block, 5, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 5, datas));
     }
 
     return Status::OK();

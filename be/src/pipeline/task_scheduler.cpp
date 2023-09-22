@@ -185,7 +185,7 @@ void BlockedTaskScheduler::_make_task_run(std::list<PipelineTask*>& local_tasks,
     auto task = *task_itr;
     task->set_state(t_state);
     local_tasks.erase(task_itr++);
-    _task_queue->push_back(task);
+    static_cast<void>(_task_queue->push_back(task));
 }
 
 TaskScheduler::~TaskScheduler() {
@@ -195,12 +195,12 @@ TaskScheduler::~TaskScheduler() {
 Status TaskScheduler::start() {
     int cores = _task_queue->cores();
     // Must be mutil number of cpu cores
-    ThreadPoolBuilder(_name)
-            .set_min_threads(cores)
-            .set_max_threads(cores)
-            .set_max_queue_size(0)
-            .set_cgroup_cpu_ctl(_cgroup_cpu_ctl)
-            .build(&_fix_thread_pool);
+    RETURN_IF_ERROR(ThreadPoolBuilder(_name)
+                            .set_min_threads(cores)
+                            .set_max_threads(cores)
+                            .set_max_queue_size(0)
+                            .set_cgroup_cpu_ctl(_cgroup_cpu_ctl)
+                            .build(&_fix_thread_pool));
     _markers.reserve(cores);
     for (size_t i = 0; i < cores; ++i) {
         _markers.push_back(std::make_unique<std::atomic<bool>>(true));
@@ -308,10 +308,10 @@ void TaskScheduler::_do_work(size_t index) {
         case PipelineTaskState::BLOCKED_FOR_SINK:
         case PipelineTaskState::BLOCKED_FOR_RF:
         case PipelineTaskState::BLOCKED_FOR_DEPENDENCY:
-            _blocked_task_scheduler->add_blocked_task(task);
+            static_cast<void>(_blocked_task_scheduler->add_blocked_task(task));
             break;
         case PipelineTaskState::RUNNABLE:
-            _task_queue->push_back(task, index);
+            static_cast<void>(_task_queue->push_back(task, index));
             break;
         default:
             DCHECK(false) << "error state after run task, " << get_state_name(pipeline_state);
@@ -325,13 +325,13 @@ void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state,
     auto status = task->try_close(exec_status);
     if (!status.ok() && state != PipelineTaskState::CANCELED) {
         // Call `close` if `try_close` failed to make sure allocated resources are released
-        task->close(exec_status);
+        static_cast<void>(task->close(exec_status));
         task->query_context()->cancel(true, status.to_string(),
                                       Status::Cancelled(status.to_string()));
         state = PipelineTaskState::CANCELED;
     } else if (task->is_pending_finish()) {
         task->set_state(PipelineTaskState::PENDING_FINISH);
-        _blocked_task_scheduler->add_blocked_task(task);
+        static_cast<void>(_blocked_task_scheduler->add_blocked_task(task));
         return;
     } else {
         status = task->close(exec_status);

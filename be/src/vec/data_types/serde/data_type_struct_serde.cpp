@@ -351,9 +351,9 @@ Status DataTypeStructSerDe::write_column_to_orc(const IColumn& column, const Nul
     for (size_t row_id = start; row_id < end; row_id++) {
         if (cur_batch->notNull[row_id] == 1) {
             for (int i = 0; i < struct_col.tuple_size(); ++i) {
-                elemSerDeSPtrs[i]->write_column_to_orc(struct_col.get_column(i), nullptr,
-                                                       cur_batch->fields[i], row_id, row_id + 1,
-                                                       buffer_list);
+                RETURN_IF_ERROR(elemSerDeSPtrs[i]->write_column_to_orc(
+                        struct_col.get_column(i), nullptr, cur_batch->fields[i], row_id, row_id + 1,
+                        buffer_list));
             }
         } else {
             // This else is necessary

@@ -304,7 +304,7 @@ Status VFileResultWriter::_send_result() {
     row_buffer.push_bigint(_written_rows_counter->value()); // total rows
     row_buffer.push_bigint(_written_data_bytes->value());   // file size
     std::string file_url;
-    _get_file_url(&file_url);
+    static_cast<void>(_get_file_url(&file_url));
     row_buffer.push_string(file_url.c_str(), file_url.length()); // url
 
     std::unique_ptr<TFetchDataResult> result = std::make_unique<TFetchDataResult>();
@@ -341,7 +341,7 @@ Status VFileResultWriter::_fill_result_block() {
         column->insert_data(reinterpret_cast<const char*>(&written_data_bytes), 0); \
     } else if (i == 3) {                                                            \
         std::string file_url;                                                       \
-        _get_file_url(&file_url);                                                   \
+        static_cast<void>(_get_file_url(&file_url));                                \
         column->insert_data(file_url.c_str(), file_url.size());                     \
     }                                                                               \
     _output_block->replace_by_position(i, std::move(column));
@@ -393,8 +393,7 @@ Status VFileResultWriter::_delete_dir() {
     case TStorageBackendType::HDFS: {
         THdfsParams hdfs_params = parse_properties(_file_opts->broker_properties);
         std::shared_ptr<io::HdfsFileSystem> hdfs_fs = nullptr;
-        RETURN_IF_ERROR(
-                io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name, nullptr, &hdfs_fs));
+        RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", nullptr, &hdfs_fs));
         file_system = hdfs_fs;
         break;
     }

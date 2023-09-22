@@ -368,7 +368,7 @@ public:
             const auto& str_column = static_cast<const ColumnString&>(*argument_column);
             const ColumnString::Chars& data = str_column.get_chars();
             const ColumnString::Offsets& offsets = str_column.get_offsets();
-            Impl::vector(data, offsets, res, null_map, input_rows_count);
+            static_cast<void>(Impl::vector(data, offsets, res, null_map, input_rows_count));
         } else if constexpr (std::is_same_v<typename Impl::ArgumentType, DataTypeArray>) {
             auto argument_type = remove_nullable(
                     assert_cast<const DataTypeArray&>(*block.get_by_position(arguments[0]).type)
@@ -380,20 +380,20 @@ public:
             const auto& nested_column = nested_nullable_column.get_nested_column();
             const auto& nested_null_map = nested_nullable_column.get_null_map_column().get_data();
             if (check_column<ColumnInt8>(nested_column)) {
-                Impl::template vector<ColumnInt8>(offset_column_data, nested_column,
-                                                  nested_null_map, res, null_map);
+                static_cast<void>(Impl::template vector<ColumnInt8>(
+                        offset_column_data, nested_column, nested_null_map, res, null_map));
             } else if (check_column<ColumnUInt8>(nested_column)) {
-                Impl::template vector<ColumnUInt8>(offset_column_data, nested_column,
-                                                   nested_null_map, res, null_map);
+                static_cast<void>(Impl::template vector<ColumnUInt8>(
+                        offset_column_data, nested_column, nested_null_map, res, null_map));
             } else if (check_column<ColumnInt16>(nested_column)) {
-                Impl::template vector<ColumnInt16>(offset_column_data, nested_column,
-                                                   nested_null_map, res, null_map);
+                static_cast<void>(Impl::template vector<ColumnInt16>(
+                        offset_column_data, nested_column, nested_null_map, res, null_map));
             } else if (check_column<ColumnInt32>(nested_column)) {
-                Impl::template vector<ColumnInt32>(offset_column_data, nested_column,
-                                                   nested_null_map, res, null_map);
+                static_cast<void>(Impl::template vector<ColumnInt32>(
+                        offset_column_data, nested_column, nested_null_map, res, null_map));
             } else if (check_column<ColumnInt64>(nested_column)) {
-                Impl::template vector<ColumnInt64>(offset_column_data, nested_column,
-                                                   nested_null_map, res, null_map);
+                static_cast<void>(Impl::template vector<ColumnInt64>(
+                        offset_column_data, nested_column, nested_null_map, res, null_map));
             } else {
                 return Status::RuntimeError("Illegal column {} of argument of function {}",
                                             block.get_by_position(arguments[0]).column->get_name(),

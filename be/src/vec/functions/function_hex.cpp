@@ -77,7 +77,8 @@ public:
         auto& result_data = result_data_column->get_chars();
         auto& result_offset = result_data_column->get_offsets();
 
-        Impl::vector(argument_column, input_rows_count, result_data, result_offset);
+        static_cast<void>(
+                Impl::vector(argument_column, input_rows_count, result_data, result_offset));
         block.replace_by_position(result, std::move(result_data_column));
         return Status::OK();
     }

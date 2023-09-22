@@ -338,8 +338,9 @@ Status DataTypeArraySerDe::write_column_to_orc(const IColumn& column, const Null
         size_t next_offset = offsets[row_id];
 
         if (cur_batch->notNull[row_id] == 1) {
-            nested_serde->write_column_to_orc(nested_column, nullptr, cur_batch->elements.get(),
-                                              offset, next_offset, buffer_list);
+            RETURN_IF_ERROR(nested_serde->write_column_to_orc(nested_column, nullptr,
+                                                              cur_batch->elements.get(), offset,
+                                                              next_offset, buffer_list));
         }
 
         cur_batch->offsets[row_id + 1] = next_offset;

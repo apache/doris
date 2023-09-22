@@ -860,7 +860,7 @@ Status VFileScanner::_get_next_reader() {
 
         _name_to_col_type.clear();
         _missing_cols.clear();
-        _cur_reader->get_columns(&_name_to_col_type, &_missing_cols);
+        static_cast<void>(_cur_reader->get_columns(&_name_to_col_type, &_missing_cols));
         _cur_reader->set_push_down_agg_type(_get_push_down_agg_type());
         RETURN_IF_ERROR(_generate_fill_columns());
         if (VLOG_NOTICE_IS_ON && !_missing_cols.empty() && _is_load) {
@@ -1058,7 +1058,7 @@ Status VFileScanner::_init_expr_ctxes() {
     }
     // TODO: It should can move to scan node to process.
     if (!_conjuncts.empty()) {
-        _process_conjuncts_for_dict_filter();
+        static_cast<void>(_process_conjuncts_for_dict_filter());
     }
     return Status::OK();
 }
