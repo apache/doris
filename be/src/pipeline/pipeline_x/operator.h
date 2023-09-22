@@ -564,10 +564,9 @@ public:
     Status setup_local_states(RuntimeState* state, std::vector<LocalSinkStateInfo>& infos) override;
     void get_dependency(std::vector<DependencySPtr>& dependency) override;
 
-    void get_dependency(DependencySPtr& dependency) ;
+    void get_dependency(DependencySPtr& dependency);
 
     using LocalState = LocalStateType;
-
 };
 
 template <typename DependencyType = FakeDependency>
