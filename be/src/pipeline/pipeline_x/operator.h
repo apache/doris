@@ -21,6 +21,26 @@
 
 namespace doris::pipeline {
 
+#define CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state)                                 \
+    auto _sptr = state->get_local_state(id());                                          \
+    if (!_sptr) return Status::InternalError("could not find local state id {}", id()); \
+    auto& local_state = _sptr->template cast<LocalState>();
+
+#define CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state)                            \
+    auto _sptr = state->get_sink_local_state(id());                                     \
+    if (!_sptr) return Status::InternalError("could not find local state id {}", id()); \
+    auto& local_state = _sptr->template cast<LocalState>();
+
+#define CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state) \
+    auto _sptr = state->get_local_state(id());               \
+    if (!_sptr) return nullptr;                              \
+    auto& local_state = _sptr->template cast<LocalState>();
+
+#define CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state) \
+    auto _sptr = state->get_sink_local_state(id());               \
+    if (!_sptr) return nullptr;                                   \
+    auto& local_state = _sptr->template cast<LocalState>();
+
 // This struct is used only for initializing local state.
 struct LocalStateInfo {
     RuntimeProfile* parent_profile;
@@ -283,6 +303,7 @@ public:
     virtual ~OperatorX() = default;
 
     Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override;
+    using LocalState = LocalStateType;
 };
 
 template <typename DependencyType = FakeDependency>
@@ -417,6 +438,7 @@ protected:
     RuntimeProfile::Counter* _rows_input_counter;
     RuntimeProfile::Counter* _open_timer = nullptr;
     RuntimeProfile::Counter* _close_timer = nullptr;
+    RuntimeProfile::Counter* _wait_for_dependency_timer;
 };
 
 class DataSinkOperatorXBase : public OperatorBase {
@@ -471,7 +493,7 @@ public:
         return false;
     }
 
-    virtual bool can_write(RuntimeState* state) { return false; }
+    virtual WriteDependency* wait_for_dependency(RuntimeState* state) { return nullptr; }
 
     virtual bool is_pending_finish(RuntimeState* state) const { return false; }
 
@@ -525,6 +547,8 @@ public:
     Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override;
 
     void get_dependency(DependencySPtr& dependency) override;
+
+    using LocalState = LocalStateType;
 };
 
 template <typename DependencyType = FakeDependency>
@@ -536,15 +560,17 @@ public:
     ~PipelineXSinkLocalState() override = default;
 
     virtual Status init(RuntimeState* state, LocalSinkStateInfo& info) override {
+        // create profile
+        _profile = state->obj_pool()->add(new RuntimeProfile(
+                _parent->get_name() + " (id=" + std::to_string(_parent->id()) + ")"));
         if constexpr (!std::is_same_v<FakeDependency, Dependency>) {
             _dependency = (DependencyType*)info.dependency;
             if (_dependency) {
                 _shared_state = (typename DependencyType::SharedState*)_dependency->shared_state();
+                _wait_for_dependency_timer =
+                        ADD_TIMER(_profile, "WaitForDependency[" + _dependency->name() + "]Time");
             }
         }
-        // create profile
-        _profile = state->obj_pool()->add(new RuntimeProfile(
-                _parent->get_name() + " (id=" + std::to_string(_parent->id()) + ")"));
         _rows_input_counter = ADD_COUNTER(_profile, "InputRows", TUnit::UNIT);
         _open_timer = ADD_TIMER(_profile, "OpenTime");
         _close_timer = ADD_TIMER(_profile, "CloseTime");
@@ -559,6 +585,9 @@ public:
         if (_closed) {
             return Status::OK();
         }
+        if (_dependency) {
+            COUNTER_SET(_wait_for_dependency_timer, _dependency->write_watcher_elapse_time());
+        }
         _closed = true;
         return Status::OK();
     }
@@ -566,7 +595,7 @@ public:
     std::string debug_string(int indentation_level) const override;
 
 protected:
-    DependencyType* _dependency;
+    DependencyType* _dependency = nullptr;
     typename DependencyType::SharedState* _shared_state;
 };
 

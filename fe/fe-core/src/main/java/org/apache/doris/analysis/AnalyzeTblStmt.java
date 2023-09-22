@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -41,6 +42,7 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -166,11 +168,9 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
         analyzeProperties.check();
 
         // TODO support external table
-        if (analyzeProperties.isSample()) {
-            if (!(table instanceof OlapTable)) {
-                throw new AnalysisException("Sampling statistics "
-                        + "collection of external tables is not supported");
-            }
+        if (analyzeProperties.isSampleRows() && !(table instanceof OlapTable)) {
+            throw new AnalysisException("Sampling statistics "
+                    + "collection of external tables is not supported with rows, use percent instead.");
         }
         if (analyzeProperties.isSync()
                 && (analyzeProperties.isAutomatic() || analyzeProperties.getPeriodTimeInMs() != 0)) {
@@ -241,16 +241,15 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
 
     public Set<String> getPartitionNames() {
         if (partitionNames == null || partitionNames.getPartitionNames() == null) {
-            return null;
+            if (table instanceof ExternalTable) {
+                // External table couldn't return all partitions when partitionNames is not set.
+                // Because Analyze Table command for external table could specify partition names.
+                return Collections.emptySet();
+            }
+            return table.getPartitionNames();
         }
         Set<String> partitions = Sets.newHashSet();
         partitions.addAll(partitionNames.getPartitionNames());
-        /*
-            if (isSamplingPartition()) {
-                int partNum = ConnectContext.get().getSessionVariable().getExternalTableAnalyzePartNum();
-                partitions = partitions.stream().limit(partNum).collect(Collectors.toSet());
-            }
-        */
         return partitions;
     }
 

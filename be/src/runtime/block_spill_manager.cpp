@@ -70,6 +70,11 @@ void BlockSpillManager::gc(int64_t max_file_count) {
     for (const auto& path : _store_paths) {
         std::string gc_root_dir = fmt::format("{}/{}", path.path, BLOCK_SPILL_GC_DIR);
 
+        std::error_code ec;
+        exists = std::filesystem::exists(gc_root_dir, ec);
+        if (ec || !exists) {
+            continue;
+        }
         std::vector<io::FileInfo> dirs;
         auto st = io::global_local_filesystem()->list(gc_root_dir, false, &dirs, &exists);
         if (!st.ok()) {

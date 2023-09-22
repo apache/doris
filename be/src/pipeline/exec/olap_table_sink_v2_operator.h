@@ -25,7 +25,7 @@ namespace doris {
 namespace pipeline {
 
 class OlapTableSinkV2OperatorBuilder final
-        : public DataSinkOperatorBuilder<stream_load::VOlapTableSinkV2> {
+        : public DataSinkOperatorBuilder<vectorized::VOlapTableSinkV2> {
 public:
     OlapTableSinkV2OperatorBuilder(int32_t id, DataSink* sink)
             : DataSinkOperatorBuilder(id, "OlapTableSinkV2Operator", sink) {}
