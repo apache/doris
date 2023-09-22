@@ -223,12 +223,14 @@ void HttpStreamAction::on_chunk_data(HttpRequest* req) {
     if (ctx == nullptr || !ctx->status.ok()) {
         return;
     }
-
+    if (!req->header(HTTP_WAL_ID_KY).empty()) {
+        ctx->wal_id = std::stoll(req->header(HTTP_WAL_ID_KY));
+        LOG(INFO) << "wal_id:" << ctx->wal_id;
+    }
     struct evhttp_request* ev_req = req->get_evhttp_request();
     auto evbuf = evhttp_request_get_input_buffer(ev_req);
 
     int64_t start_read_data_time = MonotonicNanos();
-
     while (evbuffer_get_length(evbuf) > 0) {
         auto bb = ByteBuffer::allocate(128 * 1024);
         auto remove_bytes = evbuffer_remove(evbuf, bb->ptr, bb->capacity);
@@ -306,6 +308,8 @@ Status HttpStreamAction::_process_put(HttpRequest* http_req,
     ctx->db = ctx->put_result.params.db_name;
     ctx->table = ctx->put_result.params.table_name;
     ctx->txn_id = ctx->put_result.params.txn_conf.txn_id;
+//    ctx->put_result.params.__set_import_label(ctx->label);
+    ctx->put_result.params.__set_wal_id(ctx->wal_id);
     return _exec_env->stream_load_executor()->execute_plan_fragment(ctx);
 }
 

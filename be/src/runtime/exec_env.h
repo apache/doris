@@ -99,6 +99,7 @@ class SegmentLoader;
 class LookupConnectionCache;
 class RowCache;
 class CacheManager;
+class WalManager;
 
 inline bool k_doris_exit = false;
 
@@ -209,6 +210,7 @@ public:
     doris::vectorized::ScannerScheduler* scanner_scheduler() { return _scanner_scheduler; }
     FileMetaCache* file_meta_cache() { return _file_meta_cache; }
     MemTableMemoryLimiter* memtable_memory_limiter() { return _memtable_memory_limiter.get(); }
+    WalManager* wal_mgr() { return _wal_manager.get(); }
 #ifdef BE_TEST
     void set_ready() { this->_s_ready = true; }
     void set_not_ready() { this->_s_ready = false; }
@@ -344,6 +346,7 @@ private:
     std::unique_ptr<MemTableMemoryLimiter> _memtable_memory_limiter;
     std::unique_ptr<stream_load::LoadStreamStubPool> _load_stream_stub_pool;
     std::unique_ptr<vectorized::DeltaWriterV2Pool> _delta_writer_v2_pool;
+    std::shared_ptr<WalManager> _wal_manager;
 
     std::mutex _frontends_lock;
     std::map<TNetworkAddress, FrontendInfo> _frontends;

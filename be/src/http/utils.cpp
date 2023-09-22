@@ -30,6 +30,7 @@
 #include "common/status.h"
 #include "common/utils.h"
 #include "http/http_channel.h"
+#include "http/http_common.h"
 #include "http/http_headers.h"
 #include "http/http_method.h"
 #include "http/http_request.h"
@@ -72,7 +73,14 @@ bool parse_basic_auth(const HttpRequest& req, std::string* user, std::string* pa
 
 bool parse_basic_auth(const HttpRequest& req, AuthInfo* auth) {
     auto& token = req.header("token");
-    if (token.empty()) {
+//    auto& auth_code_uuid = req.header(HTTP_AUTH_CODE_UUID);
+//    LOG(INFO) << "auth_code_uuid:" << auth_code_uuid;
+    auto& auth_code = req.header(HTTP_AUTH_CODE);
+    if (!token.empty()) {
+        auth->token = token;
+    } else if (!auth_code.empty()) {
+        auth->auth_code = std::stoll(auth_code);
+    } else {
         std::string full_user;
         if (!parse_basic_auth(req, &full_user, &auth->passwd)) {
             return false;
@@ -84,8 +92,6 @@ bool parse_basic_auth(const HttpRequest& req, AuthInfo* auth) {
         } else {
             auth->user = full_user;
         }
-    } else {
-        auth->token = token;
     }
 
     // set user ip
