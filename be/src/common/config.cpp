@@ -1092,7 +1092,10 @@ DEFINE_Int32(group_commit_insert_threads, "10");
 DEFINE_mInt32(scan_thread_nice_value, "0");
 DEFINE_mInt32(tablet_schema_cache_recycle_interval, "86400");
 
-DEFINE_Bool(exit_on_exception, "false")
+DEFINE_Bool(exit_on_exception, "false");
+
+// cgroup
+DEFINE_String(doris_cgroup_cpu_path, "");
 
 // clang-format off
 #ifdef BE_TEST
