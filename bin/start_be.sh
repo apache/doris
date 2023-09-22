@@ -142,7 +142,7 @@ jdk_version() {
     local result
     local IFS=$'\n'
 
-    if ! command -v "${java_cmd}"; then
+    if ! command -v "${java_cmd}" >/dev/null; then
         echo "ERROR: invalid java_cmd ${java_cmd}" >>"${LOG_DIR}/be.out"
         result=no_java
         return 1

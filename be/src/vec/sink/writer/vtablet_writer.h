@@ -71,7 +71,7 @@
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_fwd.h"
-#include "vec/runtime/vfile_writer_wrapper.h"
+#include "vec/runtime/vfile_format_transformer.h"
 #include "vec/sink/vtablet_block_convertor.h"
 #include "vec/sink/vtablet_finder.h"
 #include "vec/sink/writer/async_result_writer.h"
