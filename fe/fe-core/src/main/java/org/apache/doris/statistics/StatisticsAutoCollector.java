@@ -157,7 +157,7 @@ public class StatisticsAutoCollector extends StatisticsCollector {
         AnalysisManager analysisManager = Env.getServingEnv().getAnalysisManager();
         TableStats tblStats = analysisManager.findTableStatsStatus(table.getId());
 
-        if (!(tblStats == null || table.needReAnalyzeTable(tblStats))) {
+        if (!table.needReAnalyzeTable(tblStats)) {
             return null;
         }
 
