@@ -85,19 +85,16 @@ bool VecDateTimeValue::check_date(uint32_t year, uint32_t month, uint32_t day) {
 // YYYY-MM-DD HH-MM-DD.FFFFFF AM in default format
 // 0    1  2  3  4  5  6      7
 bool VecDateTimeValue::from_date_str(const char* date_str, int len) {
-    return from_date_str_base(date_str, len, nullptr, nullptr, nullptr);
+    return from_date_str_base(date_str, len, nullptr);
 }
 //parse timezone to get offset
 bool VecDateTimeValue::from_date_str(const char* date_str, int len,
-                                     const cctz::time_zone& local_time_zone,
-                                     ZoneList& time_zone_cache, std::shared_mutex* cache_lock) {
-    return from_date_str_base(date_str, len, &local_time_zone, &time_zone_cache, cache_lock);
+                                     const cctz::time_zone& local_time_zone) {
+    return from_date_str_base(date_str, len, &local_time_zone);
 }
 
 bool VecDateTimeValue::from_date_str_base(const char* date_str, int len,
-                                          const cctz::time_zone* local_time_zone,
-                                          ZoneList* time_zone_cache,
-                                          std::shared_mutex* cache_lock) {
+                                          const cctz::time_zone* local_time_zone) {
     const char* ptr = date_str;
     const char* end = date_str + len;
     // ONLY 2, 6 can follow by a space
@@ -162,24 +159,16 @@ bool VecDateTimeValue::from_date_str_base(const char* date_str, int len,
         if (UNLIKELY((field_idx > 2 ||
                       !has_bar) /*dont treat xxxx-xx-xx:xx:xx as xxxx-xx(-xx:xx:xx)*/
                      && time_zone_begins(ptr, end))) {
-            if (local_time_zone == nullptr || time_zone_cache == nullptr) {
+            if (local_time_zone == nullptr) {
                 return false;
             }
             auto get_tz_offset = [&](const std::string& str_tz,
                                      const cctz::time_zone* local_time_zone) -> long {
-                cache_lock->lock_shared();
-                if (time_zone_cache->find(str_tz) == time_zone_cache->end()) { // not found
-                    cache_lock->unlock_shared();
-                    std::unique_lock<std::shared_mutex> lock_(*cache_lock);
-                    //TODO: the lock upgrade could be done in find_... function only when we push value into the hashmap
-                    if (!TimezoneUtils::find_cctz_time_zone(str_tz, (*time_zone_cache)[str_tz])) {
-                        time_zone_cache->erase(str_tz);
-                        throw Exception {ErrorCode::INVALID_ARGUMENT, ""};
-                    }
-                } else {
-                    cache_lock->unlock_shared();
+                cctz::time_zone given_tz {};
+                if (!TimezoneUtils::find_cctz_time_zone(str_tz, given_tz)) {
+                    throw Exception {ErrorCode::INVALID_ARGUMENT, ""};
                 }
-                auto given = cctz::convert(cctz::civil_second {}, (*time_zone_cache)[str_tz]);
+                auto given = cctz::convert(cctz::civil_second {}, given_tz);
                 auto local = cctz::convert(cctz::civil_second {}, *local_time_zone);
                 // these two values is absolute time. so they are negative. need to use (-local) - (-given)
                 return std::chrono::duration_cast<std::chrono::seconds>(given - local).count();
@@ -1965,20 +1954,17 @@ void DateV2Value<T>::format_datetime(uint32_t* date_val, bool* carry_bits) const
 // 0    1  2  3  4  5  6      7
 template <typename T>
 bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale /* = -1*/) {
-    return from_date_str_base(date_str, len, scale, nullptr, nullptr, nullptr);
+    return from_date_str_base(date_str, len, scale, nullptr);
 }
 // when we parse
 template <typename T>
 bool DateV2Value<T>::from_date_str(const char* date_str, int len,
-                                   const cctz::time_zone& local_time_zone,
-                                   ZoneList& time_zone_cache, std::shared_mutex* cache_lock,
-                                   int scale /* = -1*/) {
-    return from_date_str_base(date_str, len, scale, &local_time_zone, &time_zone_cache, cache_lock);
+                                   const cctz::time_zone& local_time_zone, int scale /* = -1*/) {
+    return from_date_str_base(date_str, len, scale, &local_time_zone);
 }
 template <typename T>
 bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale,
-                                        const cctz::time_zone* local_time_zone,
-                                        ZoneList* time_zone_cache, std::shared_mutex* cache_lock) {
+                                        const cctz::time_zone* local_time_zone) {
     const char* ptr = date_str;
     const char* end = date_str + len;
     // ONLY 2, 6 can follow by a space
@@ -2070,24 +2056,16 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
         if (UNLIKELY((field_idx > 2 ||
                       !has_bar) /*dont treat xxxx-xx-xx:xx:xx as xxxx-xx(-xx:xx:xx)*/
                      && time_zone_begins(ptr, end))) {
-            if (local_time_zone == nullptr || time_zone_cache == nullptr) {
+            if (local_time_zone == nullptr) {
                 return false;
             }
             auto get_tz_offset = [&](const std::string& str_tz,
                                      const cctz::time_zone* local_time_zone) -> long {
-                cache_lock->lock_shared();
-                if (time_zone_cache->find(str_tz) == time_zone_cache->end()) { // not found
-                    cache_lock->unlock_shared();
-                    std::unique_lock<std::shared_mutex> lock_(*cache_lock);
-                    //TODO: the lock upgrade could be done in find_... function only when we push value into the hashmap
-                    if (!TimezoneUtils::find_cctz_time_zone(str_tz, (*time_zone_cache)[str_tz])) {
-                        time_zone_cache->erase(str_tz);
-                        throw Exception {ErrorCode::INVALID_ARGUMENT, ""};
-                    }
-                } else {
-                    cache_lock->unlock_shared();
+                cctz::time_zone given_tz {};
+                if (!TimezoneUtils::find_cctz_time_zone(str_tz, given_tz)) {
+                    throw Exception {ErrorCode::INVALID_ARGUMENT, ""};
                 }
-                auto given = cctz::convert(cctz::civil_second {}, (*time_zone_cache)[str_tz]);
+                auto given = cctz::convert(cctz::civil_second {}, given_tz);
                 auto local = cctz::convert(cctz::civil_second {}, *local_time_zone);
                 // these two values is absolute time. so they are negative. need to use (-local) - (-given)
                 return std::chrono::duration_cast<std::chrono::seconds>(given - local).count();

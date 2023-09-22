@@ -34,7 +34,7 @@ public class OlapAnalysisTaskTest {
     public void testAutoSample(@Mocked CatalogIf catalogIf, @Mocked DatabaseIf databaseIf, @Mocked TableIf tableIf) {
         new Expectations() {
             {
-                tableIf.getDataSize();
+                tableIf.getDataSize(true);
                 result = 60_0000_0000L;
             }
         };
@@ -46,11 +46,11 @@ public class OlapAnalysisTaskTest {
         olapAnalysisTask.tbl = tableIf;
         Config.enable_auto_sample = true;
         String sampleExpr = olapAnalysisTask.getSampleExpression();
-        Assertions.assertEquals("TABLESAMPLE(200000 ROWS)", sampleExpr);
+        Assertions.assertEquals("TABLESAMPLE(4194304 ROWS)", sampleExpr);
 
         new Expectations() {
             {
-                tableIf.getDataSize();
+                tableIf.getDataSize(true);
                 result = 1_0000_0000L;
             }
         };

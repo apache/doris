@@ -29,8 +29,7 @@ class FunctionUtils {
 public:
     FunctionUtils();
     FunctionUtils(const doris::TypeDescriptor& return_type,
-                  const std::vector<doris::TypeDescriptor>& arg_types, int varargs_buffer_size,
-                  RuntimeState*);
+                  const std::vector<doris::TypeDescriptor>& arg_types, int varargs_buffer_size);
     ~FunctionUtils();
 
     doris::FunctionContext* get_fn_ctx() { return _fn_ctx.get(); }

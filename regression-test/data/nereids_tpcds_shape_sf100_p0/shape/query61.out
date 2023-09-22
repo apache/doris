@@ -11,7 +11,7 @@ PhysicalResultSink
 ----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN](store_sales.ss_item_sk = item.i_item_sk)
 --------------------PhysicalProject
-----------------------filter((cast(i_category as VARCHAR(*)) = 'Jewelry'))
+----------------------filter((item.i_category = 'Jewelry'))
 ------------------------PhysicalOlapScan[item]
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
@@ -40,7 +40,7 @@ PhysicalResultSink
 ----------------------------------------------------PhysicalOlapScan[store]
 ------------------------------------------PhysicalDistribute
 --------------------------------------------PhysicalProject
-----------------------------------------------filter((((cast(p_channel_dmail as VARCHAR(*)) = 'Y') OR (cast(p_channel_email as VARCHAR(*)) = 'Y')) OR (cast(p_channel_tv as VARCHAR(*)) = 'Y')))
+----------------------------------------------filter((((promotion.p_channel_dmail = 'Y') OR (promotion.p_channel_email = 'Y')) OR (promotion.p_channel_tv = 'Y')))
 ------------------------------------------------PhysicalOlapScan[promotion]
 --------------------------------------PhysicalDistribute
 ----------------------------------------PhysicalProject
@@ -53,7 +53,7 @@ PhysicalResultSink
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN](store_sales.ss_item_sk = item.i_item_sk)
 ----------------------PhysicalProject
-------------------------filter((cast(i_category as VARCHAR(*)) = 'Jewelry'))
+------------------------filter((item.i_category = 'Jewelry'))
 --------------------------PhysicalOlapScan[item]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject

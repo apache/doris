@@ -98,7 +98,7 @@ public class GroupExpressionMatching implements Iterable<Plan> {
                 if (pattern.matchPredicates(root)) {
                     // if no children pattern, we treat all children as GROUP. e.g. Pattern.ANY.
                     // leaf plan will enter this branch too, e.g. logicalRelation().
-                    results.add(root.withGroupExpression(Optional.of(groupExpression)));
+                    results.add(root);
                 }
             } else if (childrenGroupArity > 0) {
                 // matching children group, one List<Plan> per child

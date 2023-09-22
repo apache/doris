@@ -94,7 +94,7 @@ void ScannerScheduler::stop() {
     LOG(INFO) << "ScannerScheduler stopped";
 }
 
-Status ScannerScheduler::init() {
+Status ScannerScheduler::init(ExecEnv* env) {
     // 1. scheduling thread pool and scheduling queues
     ThreadPoolBuilder("SchedulingThreadPool")
             .set_min_threads(QUEUE_NUM)
@@ -134,6 +134,7 @@ Status ScannerScheduler::init() {
     ThreadPoolBuilder("local_scan_group")
             .set_min_threads(config::doris_scanner_thread_pool_thread_num)
             .set_max_threads(config::doris_scanner_thread_pool_thread_num)
+            .set_cgroup_cpu_ctl(env->get_cgroup_cpu_ctl())
             .build(&_group_local_scan_thread_pool);
     for (int i = 0; i < config::doris_scanner_thread_pool_thread_num; i++) {
         _group_local_scan_thread_pool->submit_func([this] {

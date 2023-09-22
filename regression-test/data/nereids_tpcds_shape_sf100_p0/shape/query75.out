@@ -19,7 +19,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------------PhysicalOlapScan[catalog_sales]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
-------------------------------filter((cast(i_category as VARCHAR(*)) = 'Home'))
+------------------------------filter((item.i_category = 'Home'))
 --------------------------------PhysicalOlapScan[item]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
@@ -37,7 +37,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------------PhysicalOlapScan[store_sales]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
-------------------------------filter((cast(i_category as VARCHAR(*)) = 'Home'))
+------------------------------filter((item.i_category = 'Home'))
 --------------------------------PhysicalOlapScan[item]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
@@ -55,7 +55,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------------PhysicalOlapScan[web_sales]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
-------------------------------filter((cast(i_category as VARCHAR(*)) = 'Home'))
+------------------------------filter((item.i_category = 'Home'))
 --------------------------------PhysicalOlapScan[item]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
