@@ -144,7 +144,6 @@ Status BufferControlBlock::add_batch(std::unique_ptr<TFetchDataResult>& result) 
             _fe_result_batch_queue.push_back(std::move(result));
         }
         _buffer_rows += num_rows;
-        _data_arrival.notify_one();
     } else {
         auto ctx = _waiting_rpc.front();
         _waiting_rpc.pop_front();
