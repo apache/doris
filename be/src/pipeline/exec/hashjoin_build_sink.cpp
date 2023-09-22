@@ -412,14 +412,6 @@ Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
         const auto vexpr = _build_expr_ctxs.back()->root();
         const auto& data_type = vexpr->data_type();
 
-        if (!data_type->have_maximum_size_of_value()) {
-            break;
-        }
-
-        auto is_null = data_type->is_nullable();
-        _build_key_sz.push_back(data_type->get_maximum_size_of_value_in_memory() -
-                                (is_null ? 1 : 0));
-
         bool null_aware = eq_join_conjunct.__isset.opcode &&
                           eq_join_conjunct.opcode == TExprOpcode::EQ_FOR_NULL;
 
@@ -429,6 +421,14 @@ Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
         _store_null_in_hash_table.emplace_back(
                 null_aware ||
                 (_build_expr_ctxs.back()->root()->is_nullable() && build_stores_null));
+
+        if (!data_type->have_maximum_size_of_value()) {
+            break;
+        }
+
+        auto is_null = data_type->is_nullable();
+        _build_key_sz.push_back(data_type->get_maximum_size_of_value_in_memory() -
+                                (is_null ? 1 : 0));
     }
 
     return Status::OK();

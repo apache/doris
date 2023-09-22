@@ -308,7 +308,7 @@ private:
 
     std::unique_ptr<MemTracker> _mem_tracker;
     // Identifier of the destination plan node.
-    PlanNodeId _dest_node_id;
+    const PlanNodeId _dest_node_id;
 
     // User can change this config at runtime, avoid it being modified during query or loading process.
     bool _transfer_large_data_by_brpc = false;
