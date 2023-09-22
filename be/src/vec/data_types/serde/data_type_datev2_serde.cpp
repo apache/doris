@@ -73,8 +73,8 @@ Status DataTypeDateV2SerDe::deserialize_one_cell_from_json(IColumn& column, Slic
             val = doris::vectorized::MIN_DATE_V2;
         }
     } else if (ReadBuffer rb(slice.data, slice.size); !read_date_v2_text_impl<UInt32>(val, rb)) {
-        return Status::InvalidArgument("parse date fail, string: '{}'",
-                                       std::string(rb.position(), rb.count()).c_str());
+        return Status::InvalidDataFormat("parse date fail, string: '{}'",
+                                         std::string(rb.position(), rb.count()).c_str());
     }
     column_data.insert_value(val);
     return Status::OK();

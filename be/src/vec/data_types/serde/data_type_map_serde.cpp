@@ -186,12 +186,13 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& 
     if (slice[0] != '{') {
         std::stringstream ss;
         ss << slice[0] << '\'';
-        return Status::InvalidArgument("Map does not start with '{' character, found '" + ss.str());
+        return Status::InvalidDataFormat("Map does not start with '{' character, found '" +
+                                         ss.str());
     }
     if (slice[slice.size - 1] != '}') {
         std::stringstream ss;
         ss << slice[slice.size - 1] << '\'';
-        return Status::InvalidArgument("Map does not end with '}' character, found '" + ss.str());
+        return Status::InvalidDataFormat("Map does not end with '}' character, found '" + ss.str());
     }
     // empty map
     if (slice.size == 2) {

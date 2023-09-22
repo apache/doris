@@ -50,14 +50,14 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
     if (slice[0] != '{') {
         std::stringstream ss;
         ss << slice[0] << '\'';
-        return Status::InvalidArgument("Struct does not start with '{' character, found '" +
-                                       ss.str());
+        return Status::InvalidDataFormat("Struct does not start with '{' character, found '" +
+                                         ss.str());
     }
     if (slice[slice.size - 1] != '}') {
         std::stringstream ss;
         ss << slice[slice.size - 1] << '\'';
-        return Status::InvalidArgument("Struct does not end with '}' character, found '" +
-                                       ss.str());
+        return Status::InvalidDataFormat("Struct does not end with '}' character, found '" +
+                                         ss.str());
     }
 
     // here need handle the empty struct '{}'

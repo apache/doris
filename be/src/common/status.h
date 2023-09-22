@@ -37,6 +37,7 @@ TStatusError(PUBLISH_TIMEOUT);
 TStatusError(MEM_ALLOC_FAILED);
 TStatusError(BUFFER_ALLOCATION_FAILED);
 TStatusError(INVALID_ARGUMENT);
+TStatusError(INVALID_DATA_FORMAT);
 TStatusError(MINIMUM_RESERVATION_UNAVAILABLE);
 TStatusError(CORRUPTION);
 TStatusError(IO_ERROR);
@@ -318,7 +319,8 @@ constexpr bool capture_stacktrace(int code) {
         && code != ErrorCode::CANCELLED
         && code != ErrorCode::UNINITIALIZED
         && code != ErrorCode::PIP_WAIT_FOR_RF
-        && code != ErrorCode::PIP_WAIT_FOR_SC;
+        && code != ErrorCode::PIP_WAIT_FOR_SC
+        && code != ErrorCode::INVALID_DATA_FORMAT;
 }
 // clang-format on
 
@@ -396,6 +398,7 @@ public:
     ERROR_CTOR(MemoryAllocFailed, MEM_ALLOC_FAILED)
     ERROR_CTOR(BufferAllocFailed, BUFFER_ALLOCATION_FAILED)
     ERROR_CTOR(InvalidArgument, INVALID_ARGUMENT)
+    ERROR_CTOR(InvalidDataFormat, INVALID_DATA_FORMAT)
     ERROR_CTOR(MinimumReservationUnavailable, MINIMUM_RESERVATION_UNAVAILABLE)
     ERROR_CTOR(Corruption, CORRUPTION)
     ERROR_CTOR(IOError, IO_ERROR)
@@ -435,6 +438,7 @@ public:
     }
 
     bool is_invalid_argument() const { return ErrorCode::INVALID_ARGUMENT == _code; }
+    bool is_invalid_data_format() const { return ErrorCode::INVALID_DATA_FORMAT == _code; }
 
     bool is_not_found() const { return _code == ErrorCode::NOT_FOUND; }
     bool is_not_authorized() const { return code() == TStatusCode::NOT_AUTHORIZED; }
