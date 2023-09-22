@@ -160,7 +160,7 @@ struct TaskGroupInfo {
     int64_t version;
 
     static Status parse_group_info(const TPipelineWorkloadGroup& resource_group,
-                                   TaskGroupInfo* task_group_info);
+                                   TaskGroupInfo* task_group_info, int* query_cpu_hard_limit);
 
 private:
     static bool check_group_info(const TPipelineWorkloadGroup& resource_group);

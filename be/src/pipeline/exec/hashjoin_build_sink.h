@@ -134,14 +134,11 @@ public:
                 SourceState source_state) override;
 
     WriteDependency* wait_for_dependency(RuntimeState* state) override {
-        if (state->get_sink_local_state(id())
-                    ->cast<HashJoinBuildSinkLocalState>()
-                    ._should_build_hash_table) {
+        CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
+        if (local_state._should_build_hash_table) {
             return nullptr;
         }
-        return state->get_sink_local_state(id())
-                ->cast<HashJoinBuildSinkLocalState>()
-                ._shared_hash_table_dependency->write_blocked_by();
+        return local_state._shared_hash_table_dependency->write_blocked_by();
     }
 
     bool should_dry_run(RuntimeState* state) override {

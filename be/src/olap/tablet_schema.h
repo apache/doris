@@ -363,12 +363,8 @@ public:
     }
     void set_is_strict_mode(bool is_strict_mode) { _is_strict_mode = is_strict_mode; }
     bool is_strict_mode() const { return _is_strict_mode; }
-    void set_is_unique_key_ignore_mode(bool is_unique_key_ignore_mode) {
-        _is_unique_key_ignore_mode = is_unique_key_ignore_mode;
-    }
-    bool is_unique_key_ignore_mode() const { return _is_unique_key_ignore_mode; }
-    std::vector<uint32_t> get_missing_cids() { return _missing_cids; }
-    std::vector<uint32_t> get_update_cids() { return _update_cids; }
+    std::vector<uint32_t> get_missing_cids() const { return _missing_cids; }
+    std::vector<uint32_t> get_update_cids() const { return _update_cids; }
 
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
@@ -415,7 +411,6 @@ private:
     // to generate a new row, only available in non-strict mode
     bool _can_insert_new_rows_in_partial_update = true;
     bool _is_strict_mode = false;
-    bool _is_unique_key_ignore_mode = false;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);
