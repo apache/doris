@@ -58,14 +58,14 @@ testGroups = ""
 // empty suite will test all suite
 testSuites = ""
 // empty directories will test all directories
-testDirectories = "chaos"
+testDirectories = ""
 
 // this groups will not be executed
 excludeGroups = ""
 // this suites will not be executed
 excludeSuites = "test_broker_load"
 // this directories will not be executed
-excludeDirectories = "segcompaction_p2"
+excludeDirectories = "segcompaction_p2,chaos"
 
 customConf1 = "test_custom_conf_value"
 
