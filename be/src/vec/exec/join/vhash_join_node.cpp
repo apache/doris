@@ -347,7 +347,6 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     _build_table_convert_timer = ADD_TIMER(record_profile, "BuildTableConvertToPartitionedTime");
     _build_side_compute_hash_timer = ADD_TIMER(record_profile, "BuildSideHashComputingTime");
     _build_runtime_filter_timer = ADD_TIMER(record_profile, "BuildRuntimeFilterTime");
-    _shared_table_wait_timer = ADD_TIMER(_build_phase_profile, "WaitForSharedHashTableTime");
 
     // Probe phase
     auto probe_phase_profile = _probe_phase_profile;
@@ -939,7 +938,8 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
     } else if (!_should_build_hash_table) {
         DCHECK(_shared_hashtable_controller != nullptr);
         DCHECK(_shared_hash_table_context != nullptr);
-        SCOPED_TIMER(_shared_table_wait_timer);
+        auto wait_timer = ADD_TIMER(_build_phase_profile, "WaitForSharedHashTableTime");
+        SCOPED_TIMER(wait_timer);
         RETURN_IF_ERROR(
                 _shared_hashtable_controller->wait_for_signal(state, _shared_hash_table_context));
 
