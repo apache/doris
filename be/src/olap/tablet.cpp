@@ -3307,7 +3307,6 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset,
     std::vector<segment_v2::SegmentSharedPtr> segments;
     _load_rowset_segments(rowset, &segments);
 
-    std::lock_guard<std::mutex> rwlock(_rowset_update_lock);
     {
         std::shared_lock meta_rlock(_meta_lock);
         // tablet is under alter process. The delete bitmap will be calculated after conversion.
