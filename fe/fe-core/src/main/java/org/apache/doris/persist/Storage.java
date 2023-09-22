@@ -30,6 +30,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -185,8 +186,7 @@ public class Storage {
     }
 
     public static int newClusterID() {
-        Random random = new Random();
-        random.setSeed(System.currentTimeMillis());
+        Random random = new SecureRandom();
 
         int newID = 0;
         while (newID == 0) {

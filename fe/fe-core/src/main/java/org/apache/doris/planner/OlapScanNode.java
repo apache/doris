@@ -94,6 +94,7 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -971,7 +972,7 @@ public class OlapScanNode extends ScanNode {
             tabletCounts = Math.min(tabletCounts, ids.size());
 
             long seek = tableSample.getSeek() != -1
-                    ? tableSample.getSeek() : (long) (Math.random() * ids.size());
+                    ? tableSample.getSeek() : (long) (new SecureRandom().nextDouble() * ids.size());
             for (int i = 0; i < tabletCounts; i++) {
                 int seekTid = (int) ((i + seek) % ids.size());
                 sampleTabletIds.add(ids.get(seekTid));

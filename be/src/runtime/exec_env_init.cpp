@@ -133,11 +133,13 @@ static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
     DorisMetrics::instance()->initialize(init_system_metrics, disk_devices, network_interfaces);
 }
 
-Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths) {
-    return env->_init(store_paths);
+Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths,
+                     const std::set<std::string>& broken_paths) {
+    return env->_init(store_paths, broken_paths);
 }
 
-Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
+Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
+                      const std::set<std::string>& broken_paths) {
     //Only init once before be destroyed
     if (ready()) {
         return Status::OK();
@@ -155,10 +157,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _broker_client_cache = new BrokerServiceClientCache(config::max_client_cache_size_per_host);
 
     TimezoneUtils::load_timezone_names();
-
-    // _global_zone_cache is not owned by ExecEnv ... maybe should refactor.
-    _global_zone_cache = std::make_unique<vectorized::ZoneList>();
-    TimezoneUtils::load_timezones_to_cache(*_global_zone_cache);
+    TimezoneUtils::load_timezones_to_cache();
 
     ThreadPoolBuilder("SendBatchThreadPool")
             .set_min_threads(config::send_batch_thread_pool_thread_num)
@@ -205,12 +204,12 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _stream_load_executor = StreamLoadExecutor::create_shared(this);
     _routine_load_task_executor = new RoutineLoadTaskExecutor(this);
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
-    _block_spill_mgr = new BlockSpillManager(_store_paths);
+    _block_spill_mgr = new BlockSpillManager(store_paths);
     _group_commit_mgr = new GroupCommitMgr(this);
     _file_meta_cache = new FileMetaCache(config::max_external_file_meta_cache_num);
     _memtable_memory_limiter = std::make_unique<MemTableMemoryLimiter>();
     _load_stream_stub_pool = std::make_unique<stream_load::LoadStreamStubPool>();
-    _delta_writer_v2_pool = std::make_unique<stream_load::DeltaWriterV2Pool>();
+    _delta_writer_v2_pool = std::make_unique<vectorized::DeltaWriterV2Pool>();
 
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");
@@ -223,7 +222,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     }
     _broker_mgr->init();
     _small_file_mgr->init();
-    status = _scanner_scheduler->init();
+    status = _scanner_scheduler->init(this);
     if (!status.ok()) {
         LOG(ERROR) << "Scanner scheduler init failed. " << status;
         return status;
@@ -247,6 +246,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     // Storage engine
     doris::EngineOptions options;
     options.store_paths = store_paths;
+    options.broken_paths = broken_paths;
     options.backend_uid = doris::UniqueId::gen_uid();
     _storage_engine = new StorageEngine(options);
     auto st = _storage_engine->open();
@@ -271,17 +271,27 @@ Status ExecEnv::init_pipeline_task_scheduler() {
         executors_size = CpuInfo::num_cores();
     }
 
+    if (!config::doris_cgroup_cpu_path.empty()) {
+        _cgroup_cpu_ctl = std::make_unique<CgroupV1CpuCtl>();
+        Status ret = _cgroup_cpu_ctl->init();
+        if (!ret.ok()) {
+            LOG(ERROR) << "init cgroup cpu controller failed";
+        }
+    } else {
+        LOG(INFO) << "cgroup cpu controller is not inited";
+    }
+
     // TODO pipeline task group combie two blocked schedulers.
     auto t_queue = std::make_shared<pipeline::MultiCoreTaskQueue>(executors_size);
     auto b_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>(t_queue);
-    _pipeline_task_scheduler =
-            new pipeline::TaskScheduler(this, b_scheduler, t_queue, "WithoutGroupTaskSchePool");
+    _pipeline_task_scheduler = new pipeline::TaskScheduler(this, b_scheduler, t_queue,
+                                                           "WithoutGroupTaskSchePool", nullptr);
     RETURN_IF_ERROR(_pipeline_task_scheduler->start());
 
     auto tg_queue = std::make_shared<pipeline::TaskGroupTaskQueue>(executors_size);
     auto tg_b_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>(tg_queue);
-    _pipeline_task_group_scheduler =
-            new pipeline::TaskScheduler(this, tg_b_scheduler, tg_queue, "WithGroupTaskSchePool");
+    _pipeline_task_group_scheduler = new pipeline::TaskScheduler(
+            this, tg_b_scheduler, tg_queue, "WithGroupTaskSchePool", _cgroup_cpu_ctl.get());
     RETURN_IF_ERROR(_pipeline_task_group_scheduler->start());
 
     return Status::OK();

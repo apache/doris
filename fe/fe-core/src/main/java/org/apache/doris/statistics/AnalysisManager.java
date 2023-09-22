@@ -65,8 +65,8 @@ import com.google.common.reflect.TypeToken;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.logging.log4j.core.util.CronExpression;
 import org.jetbrains.annotations.Nullable;
-import org.quartz.CronExpression;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -151,7 +151,7 @@ public class AnalysisManager extends Daemon implements Writable {
             // Set the job state to RUNNING when its first task becomes RUNNING.
             if (info.state.equals(AnalysisState.RUNNING) && job.state.equals(AnalysisState.PENDING)) {
                 job.state = AnalysisState.RUNNING;
-                logCreateAnalysisJob(job);
+                replayCreateAnalysisJob(job);
             }
             boolean allFinished = true;
             boolean hasFailure = false;
@@ -372,7 +372,7 @@ public class AnalysisManager extends Daemon implements Writable {
             updateTableStats(jobInfo);
             return null;
         }
-        persistAnalysisJob(jobInfo);
+        recordAnalysisJob(jobInfo);
         analysisJobIdToTaskMap.put(jobInfo.jobId, analysisTaskInfos);
         // TODO: maybe we should update table stats only when all task succeeded.
         updateTableStats(jobInfo);
@@ -554,13 +554,13 @@ public class AnalysisManager extends Daemon implements Writable {
     }
 
     @VisibleForTesting
-    public void persistAnalysisJob(AnalysisInfo jobInfo) throws DdlException {
+    public void recordAnalysisJob(AnalysisInfo jobInfo) throws DdlException {
         if (jobInfo.scheduleType == ScheduleType.PERIOD && jobInfo.lastExecTimeInMs > 0) {
             return;
         }
         AnalysisInfoBuilder jobInfoBuilder = new AnalysisInfoBuilder(jobInfo);
         AnalysisInfo analysisInfo = jobInfoBuilder.setTaskId(-1).build();
-        logCreateAnalysisJob(analysisInfo);
+        replayCreateAnalysisJob(analysisInfo);
     }
 
     public void createTaskForEachColumns(AnalysisInfo jobInfo, Map<Long, BaseAnalysisTask> analysisTasks,
@@ -584,7 +584,7 @@ public class AnalysisManager extends Daemon implements Writable {
             }
             try {
                 if (!jobInfo.jobType.equals(JobType.SYSTEM)) {
-                    logCreateAnalysisTask(analysisInfo);
+                    replayCreateAnalysisTask(analysisInfo);
                 }
             } catch (Exception e) {
                 throw new DdlException("Failed to create analysis task", e);
@@ -623,7 +623,7 @@ public class AnalysisManager extends Daemon implements Writable {
             return;
         }
         try {
-            logCreateAnalysisTask(analysisInfo);
+            replayCreateAnalysisTask(analysisInfo);
         } catch (Exception e) {
             throw new DdlException("Failed to create analysis task", e);
         }
@@ -833,9 +833,8 @@ public class AnalysisManager extends Daemon implements Writable {
                 executor.submit(() -> {
                     try {
                         if (cancelled) {
-                            errorMessages.add("Cancelled since query timeout,"
-                                    + "you could set could query_timeout or parallel_sync_analyze_task_num "
-                                    + "to a bigger value and try again");
+                            errorMessages.add("Query timeout or user cancelled."
+                                    + "Could set analyze_timeout to a bigger value.");
                             return;
                         }
                         try {
@@ -927,8 +926,26 @@ public class AnalysisManager extends Daemon implements Writable {
         int size = in.readInt();
         for (int i = 0; i < size; i++) {
             AnalysisInfo analysisInfo = AnalysisInfo.read(in);
+            // Unfinished manual once job/tasks doesn't need to keep in memory anymore.
+            if (needAbandon(analysisInfo)) {
+                continue;
+            }
             map.put(job ? analysisInfo.jobId : analysisInfo.taskId, analysisInfo);
         }
+    }
+
+    // Need to abandon the unfinished manual once jobs/tasks while loading image and replay journal.
+    // Journal only store finished tasks and jobs.
+    public static boolean needAbandon(AnalysisInfo analysisInfo) {
+        if (analysisInfo == null) {
+            return true;
+        }
+        if ((AnalysisState.PENDING.equals(analysisInfo.state) || AnalysisState.RUNNING.equals(analysisInfo.state))
+                && ScheduleType.ONCE.equals(analysisInfo.scheduleType)
+                && JobType.MANUAL.equals(analysisInfo.jobType)) {
+            return true;
+        }
+        return false;
     }
 
     private static void readIdToTblStats(DataInput in, Map<Long, TableStats> map) throws IOException {
@@ -987,6 +1004,7 @@ public class AnalysisManager extends Daemon implements Writable {
         TableStats statsStatus = idToTblStats.get(tblId);
         if (statsStatus != null) {
             statsStatus.updatedRows.addAndGet(rows);
+            logCreateTableStats(statsStatus);
         }
     }
 

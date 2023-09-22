@@ -1,0 +1,1 @@
+DROP TABLE IF EXISTS routine_load_agg_tbl_basic;

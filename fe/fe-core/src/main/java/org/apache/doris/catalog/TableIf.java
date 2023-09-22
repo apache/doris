@@ -246,7 +246,7 @@ public interface TableIf {
         return -1L;
     }
 
-    default long getDataSize() {
+    default long getDataSize(boolean singleReplica) {
         // TODO: Each tableIf should impl it by itself.
         return 0;
     }

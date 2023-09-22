@@ -52,13 +52,12 @@
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 
-namespace doris {
-namespace stream_load {
+namespace doris::vectorized {
 
 Status OlapTableBlockConvertor::validate_and_convert_block(
         RuntimeState* state, vectorized::Block* input_block,
         std::shared_ptr<vectorized::Block>& block, vectorized::VExprContextSPtrs output_vexpr_ctxs,
-        size_t rows, bool eos, bool& has_filtered_rows) {
+        size_t rows, bool& has_filtered_rows) {
     DCHECK(input_block->rows() > 0);
 
     block = vectorized::Block::create_shared(input_block->get_columns_with_type_and_name());
@@ -70,7 +69,7 @@ Status OlapTableBlockConvertor::validate_and_convert_block(
 
     // fill the valus for auto-increment columns
     if (_auto_inc_col_idx.has_value()) {
-        RETURN_IF_ERROR(_fill_auto_inc_cols(block.get(), rows, eos));
+        RETURN_IF_ERROR(_fill_auto_inc_cols(block.get(), rows));
     }
 
     int64_t filtered_rows = 0;
@@ -450,8 +449,7 @@ void OlapTableBlockConvertor::_convert_to_dest_desc_block(doris::vectorized::Blo
     }
 }
 
-Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, size_t rows,
-                                                    bool eos) {
+Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, size_t rows) {
     size_t idx = _auto_inc_col_idx.value();
     SlotDescriptor* slot = _output_tuple_desc->slots()[idx];
     DCHECK(slot->type().type == PrimitiveType::TYPE_BIGINT);
@@ -513,5 +511,4 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, si
     return Status::OK();
 }
 
-} // namespace stream_load
-} // namespace doris
+} // namespace doris::vectorized

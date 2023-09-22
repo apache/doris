@@ -17,9 +17,12 @@
 
 #pragma once
 
+#include <sqltypes.h>
+
 #include <mutex>
 
 #include "pipeline/exec/data_queue.h"
+#include "pipeline/exec/multi_cast_data_streamer.h"
 #include "vec/common/sort/partition_sorter.h"
 #include "vec/common/sort/sorter.h"
 #include "vec/exec/join/process_hash_table_probe.h"
@@ -32,6 +35,8 @@ namespace doris {
 namespace pipeline {
 class Dependency;
 using DependencySPtr = std::shared_ptr<Dependency>;
+
+static constexpr auto SLOW_DEPENDENCY_THRESHOLD = 10 * 1000L * 1000L * 1000L;
 
 class Dependency : public std::enable_shared_from_this<Dependency> {
 public:
@@ -57,7 +62,14 @@ public:
     }
 
     // Which dependency current pipeline task is blocked by. `nullptr` if this dependency is ready.
-    [[nodiscard]] virtual Dependency* read_blocked_by() { return _ready_for_read ? nullptr : this; }
+    [[nodiscard]] virtual Dependency* read_blocked_by() {
+        if (config::enable_fuzzy_mode && !_ready_for_read &&
+            _read_dependency_watcher.elapsed_time() > SLOW_DEPENDENCY_THRESHOLD) {
+            LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
+                         << id();
+        }
+        return _ready_for_read ? nullptr : this;
+    }
 
     // Notify downstream pipeline tasks this dependency is ready.
     virtual void set_ready_for_read() {
@@ -118,6 +130,11 @@ public:
     }
 
     [[nodiscard]] virtual WriteDependency* write_blocked_by() {
+        if (config::enable_fuzzy_mode && !_ready_for_write &&
+            _write_dependency_watcher.elapsed_time() > SLOW_DEPENDENCY_THRESHOLD) {
+            LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
+                         << id();
+        }
         return _ready_for_write ? nullptr : this;
     }
 
@@ -411,6 +428,29 @@ private:
     UnionSharedState _union_state;
 };
 
+struct MultiCastSharedState {
+public:
+    std::shared_ptr<pipeline::MultiCastDataStreamer> _multi_cast_data_streamer;
+};
+
+class MultiCastDependency final : public WriteDependency {
+public:
+    using SharedState = MultiCastSharedState;
+    MultiCastDependency(int id) : WriteDependency(id, "MultiCastDependency") {}
+    ~MultiCastDependency() override = default;
+    void* shared_state() override { return (void*)&_multi_cast_state; };
+    MultiCastDependency* can_read(const int consumer_id) {
+        if (_multi_cast_state._multi_cast_data_streamer->can_read(consumer_id)) {
+            return nullptr;
+        } else {
+            return this;
+        }
+    }
+
+private:
+    MultiCastSharedState _multi_cast_state;
+};
+
 struct AnalyticSharedState {
 public:
     AnalyticSharedState() = default;
@@ -447,7 +487,9 @@ public:
         auto need_more_input = whether_need_next_partition(_analytic_state.found_partition_end);
         if (need_more_input) {
             block_reading();
+            set_ready_for_write();
         } else {
+            block_writing();
             set_ready_for_read();
         }
         return need_more_input;

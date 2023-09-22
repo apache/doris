@@ -147,6 +147,30 @@ suite("test_select_stddev_variance_window") {
     qt_select_default  "select k1, percentile_approx(k2,0.5,4096) over (partition by k6 order by k1 rows between current row and current row) from  ${tableName} order by k1;"
     qt_select_default  "select k1, percentile_approx(k2,0.5,4096) over (partition by k6 order by k1 rows between current row and unbounded following) from ${tableName} order by k1;"
     qt_select_default  "select k1, percentile_approx(k2,0.5,4096) over (partition by k6 order by k1) from ${tableName} order by k1;"
+
+    sql "set experimental_enable_nereids_planner = false;"
+
+    qt_sql_row_number_1 """
+        select * from (select row_number() over(partition by k2 order by k6) as rk,k2,k6 from ${tableName}) as t where rk = 1 order by 1,2,3;
+    """
+    qt_sql_rank_1 """
+        select * from (select rank() over(partition by k2 order by k6) as rk,k2,k6 from ${tableName}) as t where rk = 1 order by 1,2,3;
+    """
+    qt_sql_dense_rank_1 """
+        select * from (select dense_rank() over(partition by k2 order by k6) as rk,k2,k6 from ${tableName}) as t where rk = 1 order by 1,2,3;
+    """
+
+    sql "set experimental_enable_nereids_planner = true;"
+
+    qt_sql_row_number """
+        select * from (select row_number() over(partition by k2 order by k6) as rk,k2,k6 from ${tableName}) as t where rk = 1 order by 1,2,3;
+    """
+    qt_sql_rank """
+        select * from (select rank() over(partition by k2 order by k6) as rk,k2,k6 from ${tableName}) as t where rk = 1 order by 1,2,3;
+    """
+    qt_sql_dense_rank """
+        select * from (select dense_rank() over(partition by k2 order by k6) as rk,k2,k6 from ${tableName}) as t where rk = 1 order by 1,2,3;
+    """
 }
 
 
