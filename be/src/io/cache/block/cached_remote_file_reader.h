@@ -44,7 +44,7 @@ public:
 
     Status close() override;
 
-    const Path& path() const { return _remote_file_reader->path(); }
+    const Path& path() const override { return _remote_file_reader->path(); }
 
     size_t size() const override { return _remote_file_reader->size(); }
 
