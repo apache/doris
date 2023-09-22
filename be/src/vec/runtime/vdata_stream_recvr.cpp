@@ -227,7 +227,6 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
         _pending_closures.emplace_back(iter->second.get(), monotonicStopWatch);
         iter->second->wait(l);
     }
-
 }
 
 void VDataStreamRecvr::SenderQueue::decrement_senders(int be_number) {
