@@ -426,6 +426,11 @@ class Config {
             log.info("Set sslCertificatePath to '${config.sslCertificatePath}' because not specify.".toString())
         }
 
+        if (config.dockerEndDeleteFiles == null) {
+            config.dockerEndDeleteFiles = false
+            log.info("Set dockerEndDeleteFiles to '${config.dockerEndDeleteFiles}' because not specify.".toString())
+        }
+
         if (config.dorisComposePath == null) {
             config.dorisComposePath = "docker/runtime/doris-compose/doris-compose.py"
             log.info("Set dorisComposePath to '${config.dorisComposePath}' because not specify.".toString())
