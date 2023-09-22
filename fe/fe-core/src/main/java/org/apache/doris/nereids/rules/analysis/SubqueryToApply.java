@@ -47,7 +47,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -73,7 +72,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                     LogicalFilter<Plan> filter = ctx.root;
 
                     ImmutableList<Set<SubqueryExpr>> subqueryExprsList = filter.getConjuncts().stream()
-                            .map(e -> (Set<SubqueryExpr>) e.collect(SubqueryExpr.class::isInstance))
+                            .<Set<SubqueryExpr>>map(e -> e.collect(SubqueryExpr.class::isInstance))
                             .collect(ImmutableList.toImmutableList());
                     if (subqueryExprsList.stream()
                             .flatMap(Collection::stream).noneMatch(SubqueryExpr.class::isInstance)) {
@@ -122,7 +121,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
             RuleType.PROJECT_SUBQUERY_TO_APPLY.build(logicalProject().thenApply(ctx -> {
                 LogicalProject<Plan> project = ctx.root;
                 ImmutableList<Set<SubqueryExpr>> subqueryExprsList = project.getProjects().stream()
-                        .map(e -> (Set<SubqueryExpr>) e.collect(SubqueryExpr.class::isInstance))
+                        .<Set<SubqueryExpr>>map(e -> e.collect(SubqueryExpr.class::isInstance))
                         .collect(ImmutableList.toImmutableList());
                 if (subqueryExprsList.stream().flatMap(Collection::stream).count() == 0) {
                     return project;
@@ -185,11 +184,11 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                     }
 
                     ImmutableList<Set<SubqueryExpr>> subqueryExprsList = subqueryConjuncts.stream()
-                            .map(e -> (Set<SubqueryExpr>) e.collect(SubqueryExpr.class::isInstance))
+                            .<Set<SubqueryExpr>>map(e -> e.collect(SubqueryExpr.class::isInstance))
                             .collect(ImmutableList.toImmutableList());
-                    List<Expression> newConjuncts = Lists.newArrayList();
+                    ImmutableList.Builder<Expression> newConjuncts = new ImmutableList.Builder<>();
                     LogicalPlan applyPlan = null;
-                    LogicalPlan tmpPlan = (LogicalPlan) join.left();
+                    LogicalPlan leftChildPlan = (LogicalPlan) join.left();
 
                     // Subquery traversal with the conjunct of and as the granularity.
                     for (int i = 0; i < subqueryExprsList.size(); ++i) {
@@ -207,9 +206,9 @@ public class SubqueryToApply implements AnalysisRuleFactory {
 
                         applyPlan = subqueryToApply(
                                 subqueryExprs.stream().collect(ImmutableList.toImmutableList()),
-                                tmpPlan, context.getSubqueryToMarkJoinSlot(),
+                                leftChildPlan, context.getSubqueryToMarkJoinSlot(),
                                 ctx.cascadesContext, Optional.of(conjunct), false);
-                        tmpPlan = applyPlan;
+                        leftChildPlan = applyPlan;
                         newConjuncts.add(conjunct);
                     }
                     List<Expression> simpleConjuncts = joinConjuncts.get(false);
@@ -217,7 +216,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                         newConjuncts.addAll(simpleConjuncts);
                     }
                     Plan newJoin = join.withConjunctsChildren(join.getHashJoinConjuncts(),
-                            newConjuncts, applyPlan, join.right());
+                            newConjuncts.build(), applyPlan, join.right());
                     return newJoin;
                 }))
         );
@@ -225,7 +224,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
 
     private static boolean isValidSubqueryConjunct(Expression expression, Plan leftChild) {
         // the subquery must be uncorrelated subquery or only correlated to the left child
-        // currently only support the following 3 simple scenarios
+        // currently only support the following 4 simple scenarios
         // 1. col ComparisonPredicate subquery
         // 2. col in (subquery)
         // 3. exists (subquery)
