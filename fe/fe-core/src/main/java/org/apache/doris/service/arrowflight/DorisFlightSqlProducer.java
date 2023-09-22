@@ -22,6 +22,7 @@ package org.apache.doris.service.arrowflight;
 
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.service.arrowflight.tokens.TokenManager;
 
 import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
@@ -67,14 +68,16 @@ import org.apache.logging.log4j.Logger;
 import java.util.Collections;
 import java.util.List;
 
-public class FlightSqlServiceImpl implements FlightSqlProducer, AutoCloseable {
-    private static final Logger LOG = LogManager.getLogger(FlightSqlServiceImpl.class);
+public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable {
+    private static final Logger LOG = LogManager.getLogger(DorisFlightSqlProducer.class);
     private final Location location;
     private final BufferAllocator rootAllocator = new RootAllocator();
     private final SqlInfoBuilder sqlInfoBuilder;
+    private final TokenManager tokenManager;
 
-    public FlightSqlServiceImpl(final Location location) {
+    public DorisFlightSqlProducer(final Location location, TokenManager tokenManager) {
         this.location = location;
+        this.tokenManager = tokenManager;
         sqlInfoBuilder = new SqlInfoBuilder();
         sqlInfoBuilder.withFlightSqlServerName("DorisFE")
                 .withFlightSqlServerVersion("1.0")
@@ -104,6 +107,7 @@ public class FlightSqlServiceImpl implements FlightSqlProducer, AutoCloseable {
     public FlightInfo getFlightInfoStatement(final CommandStatementQuery request, final CallContext context,
             final FlightDescriptor descriptor) {
         try {
+            tokenManager.validateToken(context.peerIdentity());
             final String query = request.getQuery();
             final FlightStatementExecutor flightStatementExecutor = new FlightStatementExecutor(query);
 

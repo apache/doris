@@ -17,7 +17,14 @@
 
 package org.apache.doris.service.arrowflight;
 
+import org.apache.doris.common.Config;
+import org.apache.doris.service.arrowflight.auth2.FlightBearerTokenAuthenticator;
+import org.apache.doris.service.arrowflight.auth2.FlightCookieMiddleware;
+import org.apache.doris.service.arrowflight.tokens.TokenManager;
+import org.apache.doris.service.arrowflight.tokens.TokenManagerImpl;
+
 import org.apache.arrow.flight.FlightServer;
+import org.apache.arrow.flight.FlightServerMiddleware;
 import org.apache.arrow.flight.Location;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
@@ -29,16 +36,27 @@ import java.io.IOException;
 /**
  * flight sql protocol implementation based on nio.
  */
-public class FlightSqlService {
-    private static final Logger LOG = LogManager.getLogger(FlightSqlService.class);
+public class DorisFlightSqlService {
+    private static final Logger LOG = LogManager.getLogger(DorisFlightSqlService.class);
     private final FlightServer flightServer;
     private volatile boolean running;
+    private final TokenManager tokenManager;
+    public static final String FLIGHT_CLIENT_PROPERTIES_MIDDLEWARE = "client-properties-middleware";
+    public static final FlightServerMiddleware.Key<FlightCookieMiddleware> FLIGHT_CLIENT_PROPERTIES_MIDDLEWARE_KEY
+            = FlightServerMiddleware.Key.of(FLIGHT_CLIENT_PROPERTIES_MIDDLEWARE);
 
-    public FlightSqlService(int port) {
+    public DorisFlightSqlService(int port) {
         BufferAllocator allocator = new RootAllocator();
         Location location = Location.forGrpcInsecure("0.0.0.0", port);
-        FlightSqlServiceImpl producer = new FlightSqlServiceImpl(location);
-        flightServer = FlightServer.builder(allocator, location, producer).build();
+        this.tokenManager = new TokenManagerImpl(Config.arrow_flight_token_cache_size,
+                Config.arrow_flight_token_alive_time);
+
+        DorisFlightSqlProducer producer = new DorisFlightSqlProducer(location, tokenManager);
+        flightServer = FlightServer.builder(allocator, location, producer)
+                .headerAuthenticator(new FlightBearerTokenAuthenticator(tokenManager)).build();
+        // .middleware(FLIGHT_CLIENT_PROPERTIES_MIDDLEWARE_KEY,
+        //         new FlightServerCookieMiddleware.Factory())
+        // .authHandler(new BasicServerAuthHandler(new FlightServerBasicAuthValidator())).build();
     }
 
     // start Arrow Flight SQL service, return true if success, otherwise false

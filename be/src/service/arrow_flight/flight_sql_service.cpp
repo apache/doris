@@ -22,6 +22,7 @@
 #include "arrow/flight/sql/server.h"
 #include "service/arrow_flight/arrow_flight_batch_reader.h"
 #include "service/arrow_flight/flight_sql_info.h"
+#include "service/arrow_flight/flight_sql_server_auth_handler.h"
 #include "service/backend_options.h"
 #include "util/arrow/utils.h"
 #include "util/uid_util.h"
@@ -108,6 +109,8 @@ Status FlightSqlServer::init(int port) {
             arrow::flight::Location::ForGrpcTcp(BackendOptions::get_service_bind_address(), port)
                     .Value(&bind_location));
     arrow::flight::FlightServerOptions flight_options(bind_location);
+    flight_options.auth_handler = std::make_unique<FlightSqlServerAuthHandler>();
+    // flight_options.auth_handler = std::make_unique<arrow::flight::NoOpAuthHandler>();
     RETURN_DORIS_STATUS_IF_ERROR(Init(flight_options));
     LOG(INFO) << "Arrow Flight Service bind to host: " << BackendOptions::get_service_bind_address()
               << ", port: " << port;
