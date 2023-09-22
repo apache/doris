@@ -259,7 +259,7 @@ identifierSeq
     ;
 
 relationPrimary
-    : multipartIdentifier specifiedPartition? tableAlias relationHint? lateralView*           #tableName
+    : multipartIdentifier specifiedPartition? tableAlias sample? relationHint? lateralView*           #tableName
     | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                                    #aliasedQuery
     | tvfName=identifier LEFT_PAREN
       (properties+=tvfProperty (COMMA properties+=tvfProperty)*)?
@@ -450,6 +450,15 @@ unitIdentifier
 
 dataType
     : identifier (LEFT_PAREN (ASTERISK | INTEGER_VALUE (COMMA INTEGER_VALUE)*) RIGHT_PAREN)?     #primitiveDataType
+    ;
+
+sample
+    : TABLESAMPLE LEFT_PAREN sampleMethod? RIGHT_PAREN (REPEATABLE seed=INTEGER_VALUE)?
+    ;
+
+sampleMethod
+    : percentage=INTEGER_VALUE PERCENT                              #sampleByPercentile
+    | INTEGER_VALUE ROWS                                            #sampleByRows
     ;
 
 // this rule is used for explicitly capturing wrong identifiers such as test-table, which should actually be `test-table`
