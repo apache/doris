@@ -166,7 +166,6 @@ public class NativeInsertStmt extends InsertStmt {
     // true if be generates an insert from group commit tvf stmt and executes to load data
     public boolean isInnerGroupCommit = false;
 
-    private boolean isInsertIgnore = false;
     private boolean isFromDeleteOrUpdateStmt = false;
 
     public NativeInsertStmt(InsertTarget target, String label, List<String> cols, InsertSource source,
@@ -188,26 +187,6 @@ public class NativeInsertStmt extends InsertStmt {
         this.tableId = tableId;
     }
 
-    public NativeInsertStmt(long tableId, String label, List<String> cols, InsertSource source,
-            List<String> hints, boolean isInsertIgnore) {
-        this(new InsertTarget(new TableName(null, null, null), null), label, cols, source, hints, isInsertIgnore);
-        this.tableId = tableId;
-    }
-
-    public NativeInsertStmt(InsertTarget target, String label, List<String> cols, InsertSource source,
-            List<String> hints, boolean isInsertIgnore) {
-        super(new LabelName(null, label), null, null);
-        this.tblName = target.getTblName();
-        this.targetPartitionNames = target.getPartitionNames();
-        this.label = new LabelName(null, label);
-        this.queryStmt = source.getQueryStmt();
-        this.planHints = hints;
-        this.isInsertIgnore = isInsertIgnore;
-        this.targetColumnNames = cols;
-        this.isValuesOrConstantSelect = (queryStmt instanceof SelectStmt
-                && ((SelectStmt) queryStmt).getTableRefs().isEmpty());
-    }
-
     // Ctor for CreateTableAsSelectStmt and InsertOverwriteTableStmt
     public NativeInsertStmt(TableName name, PartitionNames targetPartitionNames, LabelName label,
             QueryStmt queryStmt, List<String> planHints, List<String> targetColumnNames) {
@@ -222,11 +201,10 @@ public class NativeInsertStmt extends InsertStmt {
     }
 
     public NativeInsertStmt(InsertTarget target, String label, List<String> cols, InsertSource source,
-             List<String> hints, boolean isPartialUpdate, boolean isInsertIgnore) {
+             List<String> hints, boolean isPartialUpdate) {
         this(target, label, cols, source, hints);
         this.isPartialUpdate = isPartialUpdate;
         this.partialUpdateCols.addAll(cols);
-        this.isInsertIgnore = isInsertIgnore;
     }
 
     public boolean isValuesOrConstantSelect() {
@@ -409,7 +387,7 @@ public class NativeInsertStmt extends InsertStmt {
             boolean isInsertStrict = analyzer.getContext().getSessionVariable().getEnableInsertStrict()
                     && !isFromDeleteOrUpdateStmt;
             sink.init(loadId, transactionId, db.getId(), timeoutSecond,
-                    sendBatchParallelism, false, isInsertStrict, isInsertIgnore);
+                    sendBatchParallelism, false, isInsertStrict);
         }
     }
 
@@ -855,14 +833,17 @@ public class NativeInsertStmt extends InsertStmt {
             selectList.set(i, expr);
             exprByName.put(col.getName(), expr);
         }
+
         List<Pair<String, Expr>> resultExprByName = Lists.newArrayList();
+        Map<String, Expr> slotToIndex = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         // reorder resultExprs in table column order
         for (Column col : targetTable.getFullSchema()) {
             if (isPartialUpdate && !partialUpdateCols.contains(col.getName())) {
                 continue;
             }
+            Expr targetExpr;
             if (exprByName.containsKey(col.getName())) {
-                resultExprByName.add(Pair.of(col.getName(), exprByName.get(col.getName())));
+                targetExpr = exprByName.get(col.getName());
             } else if (targetTable.getType().equals(TableIf.TableType.JDBC_EXTERNAL_TABLE)) {
                 // For JdbcTable,we do not need to generate plans for columns that are not specified at write time
                 continue;
@@ -878,19 +859,32 @@ public class NativeInsertStmt extends InsertStmt {
                                         .filter(p -> p.key().equals(((OlapTable) targetTable).getSequenceMapCol()))
                                         .map(Pair::value).findFirst().orElse(null)));
                     }
+                    continue;
+                } else if (col.getDefineExpr() != null) {
+                    // substitute define expr slot with select statement result expr
+                    ExprSubstitutionMap smap = new ExprSubstitutionMap();
+                    List<SlotRef> columns = col.getRefColumns();
+                    for (SlotRef slot : columns) {
+                        smap.getLhs().add(slot);
+                        smap.getRhs().add(slotToIndex.get(slot.getColumnName()));
+                    }
+                    targetExpr = Expr
+                            .substituteList(Lists.newArrayList(col.getDefineExpr().clone()), smap, analyzer, false)
+                            .get(0);
                 } else if (col.getDefaultValue() == null) {
-                    resultExprByName.add(Pair.of(col.getName(), NullLiteral.create(col.getType())));
+                    targetExpr = NullLiteral.create(col.getType());
                 } else {
                     if (col.getDefaultValueExprDef() != null) {
-                        resultExprByName.add(Pair.of(col.getName(), col.getDefaultValueExpr()));
+                        targetExpr = col.getDefaultValueExpr();
                     } else {
                         StringLiteral defaultValueExpr;
                         defaultValueExpr = new StringLiteral(col.getDefaultValue());
-                        resultExprByName.add(Pair.of(col.getName(),
-                                defaultValueExpr.checkTypeCompatibility(col.getType())));
+                        targetExpr = defaultValueExpr.checkTypeCompatibility(col.getType());
                     }
                 }
             }
+            resultExprByName.add(Pair.of(col.getName(), targetExpr));
+            slotToIndex.put(col.getName(), targetExpr);
         }
         resultExprs.addAll(resultExprByName.stream().map(Pair::value).collect(Collectors.toList()));
     }

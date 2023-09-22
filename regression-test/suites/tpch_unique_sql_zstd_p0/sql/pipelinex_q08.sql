@@ -1,5 +1,5 @@
 -- tables: part,supplier,lineitem,orders,customer,nation,region
-SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=false) */
+SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=true) */
   o_year,
   sum(CASE
       WHEN nation = 'BRAZIL'

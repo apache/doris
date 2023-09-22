@@ -46,13 +46,13 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.net.URL;
 import java.net.URLConnection;
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Random;
 import java.util.function.LongUnaryOperator;
 import java.util.function.Predicate;
 
@@ -262,7 +262,7 @@ public class Util {
     }
 
     public static int generateSchemaHash() {
-        return Math.abs(new Random().nextInt());
+        return Math.abs(new SecureRandom().nextInt());
     }
 
     /**

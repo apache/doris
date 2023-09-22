@@ -142,10 +142,12 @@ jdk_version() {
     local result
     local IFS=$'\n'
 
-    if [[ -z "${java_cmd}" ]]; then
+    if ! command -v "${java_cmd}" >/dev/null; then
+        echo "ERROR: invalid java_cmd ${java_cmd}" >>"${LOG_DIR}/be.out"
         result=no_java
         return 1
     else
+        echo "INFO: java_cmd ${java_cmd}" >>"${LOG_DIR}/be.out"
         local version
         # remove \r for Cygwin
         version="$("${java_cmd}" -Xms32M -Xmx32M -version 2>&1 | tr '\r' '\n' | grep version | awk '{print $3}')"
@@ -155,6 +157,7 @@ jdk_version() {
         else
             result="$(echo "${version}" | awk -F '.' '{print $1}')"
         fi
+        echo "INFO: jdk_version ${result}" >>"${LOG_DIR}/be.out"
     fi
     echo "${result}"
     return 0

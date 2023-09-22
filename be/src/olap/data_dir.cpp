@@ -242,6 +242,7 @@ void DataDir::health_check() {
         if (!res) {
             LOG(WARNING) << "store read/write test file occur IO Error. path=" << _path
                          << ", err: " << res;
+            StorageEngine::instance()->add_broken_path(_path);
             _is_used = !res.is<IO_ERROR>();
         }
     }
