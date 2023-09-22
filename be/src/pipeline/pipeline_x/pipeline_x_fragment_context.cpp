@@ -55,6 +55,7 @@
 #include "pipeline/exec/exchange_source_operator.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
+#include "pipeline/exec/multi_cast_data_stream_source.h"
 #include "pipeline/exec/nested_loop_join_build_operator.h"
 #include "pipeline/exec/nested_loop_join_probe_operator.h"
 #include "pipeline/exec/olap_scan_operator.h"
@@ -207,7 +208,7 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
         RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_create_data_sink(
                 _runtime_state->obj_pool(), request.fragment.output_sink,
                 request.fragment.output_exprs, request, root_pipeline->output_row_desc(),
-                _runtime_state.get(), *desc_tbl));
+                _runtime_state.get(), *desc_tbl, root_pipeline->id()));
         RETURN_IF_ERROR(_sink->init(request.fragment.output_sink));
         root_pipeline->set_sink(_sink);
     }
@@ -229,7 +230,8 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
                                                    const std::vector<TExpr>& output_exprs,
                                                    const TPipelineFragmentParams& params,
                                                    const RowDescriptor& row_desc,
-                                                   RuntimeState* state, DescriptorTbl& desc_tbl) {
+                                                   RuntimeState* state, DescriptorTbl& desc_tbl,
+                                                   PipelineId cur_pipeline_id) {
     switch (thrift_sink.type) {
     case TDataSinkType::DATA_STREAM_SINK: {
         if (!thrift_sink.__isset.stream_sink) {
@@ -251,6 +253,56 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
 
         // TODO: figure out good buffer size based on size of output row
         _sink.reset(new ResultSinkOperatorX(row_desc, output_exprs, thrift_sink.result_sink));
+        break;
+    }
+    case TDataSinkType::MULTI_CAST_DATA_STREAM_SINK: {
+        DCHECK(thrift_sink.__isset.multi_cast_stream_sink);
+        DCHECK_GT(thrift_sink.multi_cast_stream_sink.sinks.size(), 0);
+        // TODO: figure out good buffer size based on size of output row
+        /// TODO: Here is a magic number, and we will refactor this part later.
+        static int sink_count = 120000;
+        auto sink_id = sink_count++;
+        auto sender_size = thrift_sink.multi_cast_stream_sink.sinks.size();
+        // one sink has multiple sources.
+        std::vector<int> sources;
+        for (int i = 0; i < sender_size; ++i) {
+            auto source_id = sink_count++;
+            sources.push_back(source_id);
+        }
+
+        _sink.reset(new MultiCastDataStreamSinkOperatorX(
+                sink_id, sources, thrift_sink.multi_cast_stream_sink.sinks.size(), pool,
+                thrift_sink.multi_cast_stream_sink, row_desc));
+        for (int i = 0; i < sender_size; ++i) {
+            auto new_pipeline = add_pipeline();
+            auto _row_desc =
+                    !thrift_sink.multi_cast_stream_sink.sinks[i].output_exprs.empty()
+                            ? RowDescriptor(
+                                      state->desc_tbl(),
+                                      {thrift_sink.multi_cast_stream_sink.sinks[i].output_tuple_id},
+                                      {false})
+                            : _sink->row_desc();
+            auto source_id = sources[i];
+            OperatorXPtr source_op;
+            // 1. create and set the source operator of multi_cast_data_stream_source for new pipeline
+            source_op.reset(new MultiCastDataStreamerSourceOperatorX(
+                    i, pool, thrift_sink.multi_cast_stream_sink.sinks[i], row_desc, source_id));
+            new_pipeline->add_operator(source_op);
+
+            // 2. create and set sink operator of data stream sender for new pipeline
+
+            DataSinkOperatorXPtr sink_op;
+            sink_op.reset(new ExchangeSinkOperatorX(
+                    state, row_desc, thrift_sink.multi_cast_stream_sink.sinks[i],
+                    thrift_sink.multi_cast_stream_sink.destinations[i], false));
+            new_pipeline->set_sink(sink_op);
+
+            // 3. set dependency dag
+            _dag[new_pipeline->id()].push_back(cur_pipeline_id);
+        }
+        if (sources.empty()) {
+            return Status::InternalError("size of sources must be greater than 0");
+        }
         break;
     }
     default:

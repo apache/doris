@@ -81,6 +81,9 @@ public class StatisticConstants {
     // union more relation than 512 may cause StackOverFlowException in the future.
     public static final int UNION_ALL_LIMIT = 512;
 
+    public static final String FULL_AUTO_ANALYZE_START_TIME = "00:00:00";
+    public static final String FULL_AUTO_ANALYZE_END_TIME = "23:59:59";
+
     static {
         SYSTEM_DBS.add(SystemInfoService.DEFAULT_CLUSTER
                 + ClusterNamespace.CLUSTER_DELIMITER + FeConstants.INTERNAL_DB_NAME);

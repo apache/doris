@@ -78,6 +78,8 @@ public:
                 *block = std::move(_blocks_queues[id].front());
                 _blocks_queues[id].pop_front();
 
+                RETURN_IF_ERROR(validate_block_schema((*block).get()));
+
                 if (_blocks_queues[id].empty() && _data_dependency) {
                     _data_dependency->block_reading();
                 }

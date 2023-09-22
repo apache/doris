@@ -76,12 +76,12 @@ public:
 
     doris::segment_v2::InvertedIndexQueryType get_query_type_from_fn_name();
 
-    std::vector<std::wstring> analyse_data_token(const std::string& column_name,
-                                                 InvertedIndexCtx* inverted_index_ctx,
-                                                 const ColumnString* string_col,
-                                                 int32_t current_block_row_idx,
-                                                 const ColumnArray::Offsets64* array_offsets,
-                                                 int32_t& current_src_array_offset);
+    std::vector<std::string> analyse_data_token(const std::string& column_name,
+                                                InvertedIndexCtx* inverted_index_ctx,
+                                                const ColumnString* string_col,
+                                                int32_t current_block_row_idx,
+                                                const ColumnArray::Offsets64* array_offsets,
+                                                int32_t& current_src_array_offset);
 };
 
 class FunctionMatchAny : public FunctionMatchBase {

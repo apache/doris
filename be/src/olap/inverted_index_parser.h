@@ -21,6 +21,12 @@
 #include <memory>
 #include <string>
 
+namespace lucene {
+namespace analysis {
+class Analyzer;
+}
+} // namespace lucene
+
 namespace doris {
 
 enum class InvertedIndexParserType {
@@ -38,6 +44,7 @@ struct InvertedIndexCtx {
     InvertedIndexParserType parser_type;
     std::string parser_mode;
     CharFilterMap char_filter_map;
+    lucene::analysis::Analyzer* analyzer;
 };
 
 using InvertedIndexCtxSPtr = std::shared_ptr<InvertedIndexCtx>;

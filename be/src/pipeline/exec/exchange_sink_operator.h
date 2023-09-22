@@ -82,6 +82,11 @@ public:
     virtual ~BroadcastDependency() = default;
 
     [[nodiscard]] WriteDependency* write_blocked_by() override {
+        if (config::enable_fuzzy_mode && _available_block == 0 &&
+            _write_dependency_watcher.elapsed_time() > SLOW_DEPENDENCY_THRESHOLD) {
+            LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
+                         << id();
+        }
         return _available_block > 0 ? nullptr : this;
     }
 
@@ -303,7 +308,7 @@ private:
 
     std::unique_ptr<MemTracker> _mem_tracker;
     // Identifier of the destination plan node.
-    PlanNodeId _dest_node_id;
+    const PlanNodeId _dest_node_id;
 
     // User can change this config at runtime, avoid it being modified during query or loading process.
     bool _transfer_large_data_by_brpc = false;

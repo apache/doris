@@ -56,7 +56,7 @@ public class AnalysisTaskWrapper extends FutureTask<Void> {
             if (task.killed) {
                 return;
             }
-            if (task.info.scheduleType.equals(ScheduleType.AUTOMATIC) && !StatisticsUtil.checkAnalyzeTime(
+            if (task.info.scheduleType.equals(ScheduleType.AUTOMATIC) && !StatisticsUtil.inAnalyzeTime(
                     LocalTime.now(TimeUtils.getTimeZone().toZoneId()))) {
                 // TODO: Do we need a separate AnalysisState here?
                 Env.getCurrentEnv().getAnalysisManager()
