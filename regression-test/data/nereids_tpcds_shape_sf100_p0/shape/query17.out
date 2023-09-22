@@ -31,7 +31,7 @@ PhysicalResultSink
 ----------------------------------------------PhysicalOlapScan[store_sales]
 --------------------------------------------PhysicalDistribute
 ----------------------------------------------PhysicalProject
-------------------------------------------------filter((cast(d_quarter_name as VARCHAR(*)) = '2001Q1'))
+------------------------------------------------filter((d1.d_quarter_name = '2001Q1'))
 --------------------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------------PhysicalDistribute
 ----------------------------------------PhysicalProject
