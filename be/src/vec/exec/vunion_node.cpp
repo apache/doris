@@ -61,8 +61,8 @@ Status VUnionNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
     DCHECK(tnode.__isset.union_node);
     // Create const_expr_ctx_lists_ from thrift exprs.
-    auto& const_texpr_lists = tnode.union_node.const_expr_lists;
-    for (auto& texprs : const_texpr_lists) {
+    const auto& const_texpr_lists = tnode.union_node.const_expr_lists;
+    for (const auto& texprs : const_texpr_lists) {
         VExprContextSPtrs ctxs;
         RETURN_IF_ERROR(VExpr::create_expr_trees(texprs, ctxs));
         _const_expr_lists.push_back(ctxs);

@@ -47,10 +47,9 @@ int main(int argc, char** argv) {
             doris::StoragePageCache::create_global_cache(1 << 30, 10, 0));
     doris::ExecEnv::GetInstance()->set_segment_loader(new doris::SegmentLoader(1000));
     std::string conf = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conf.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
+    auto st = doris::config::init(conf.c_str(), false);
+    LOG(INFO) << "init config " << st;
+
     doris::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
     doris::CpuInfo::init();
