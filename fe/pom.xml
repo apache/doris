@@ -237,6 +237,8 @@ under the License.
         <!--The dependence of transitive dependence cannot be ruled out, only Saving the nation through twisted ways.-->
         <netty-3-test.version>3.10.6.Final</netty-3-test.version>
         <objenesis.version>2.1</objenesis.version>
+        <!-- NOTE: Using grpc-java whose version is newer than 1.34.0 will break the build on CentOS 6 due to the obsolete GLIBC -->
+        <grpc-java.version>1.34.0</grpc-java.version>
         <grpc.version>1.58.0</grpc.version>
         <check.freamework.version>3.38.0</check.freamework.version>
         <protobuf.version>3.24.3</protobuf.version>
@@ -244,7 +246,7 @@ under the License.
         <!-- see https://repo.maven.apache.org/maven2/com/google/protobuf/protoc/ to get correct version -->
         <protoc.artifact.version>3.21.9</protoc.artifact.version>
         <protoc.artifact>com.google.protobuf:protoc:${protoc.artifact.version}</protoc.artifact>
-        <grpc.java.artifact>io.grpc:protoc-gen-grpc-java:${grpc.version}</grpc.java.artifact>
+        <grpc.java.artifact>io.grpc:protoc-gen-grpc-java:${grpc-java.version}</grpc.java.artifact>
         <protoparser.version>3.1.5</protoparser.version>
         <snappy-java.version>1.1.10.1</snappy-java.version>
         <automaton.version>1.11-8</automaton.version>
