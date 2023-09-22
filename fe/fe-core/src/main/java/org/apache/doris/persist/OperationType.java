@@ -320,6 +320,9 @@ public class OperationType {
     // For backward compatible with 2.0.3
     public static final short OP_PERSIST_AUTO_JOB = 456;
 
+    // For backward compatible with 2.0.3
+    public static final short OP_DELETE_TABLE_STATS = 457;
+
     /**
      * Get opcode name by op code.
      **/
