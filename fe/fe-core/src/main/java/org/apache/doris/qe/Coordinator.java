@@ -1919,6 +1919,7 @@ public class Coordinator implements CoordInterface {
                         if (!enablePipelineEngine || perNodeScanRanges.size() > parallelExecInstanceNum
                                 || (node.isPresent() && node.get().getShouldColoScan())
                                 || (node.isPresent() && node.get() instanceof FileScanNode)
+                                || (node.isPresent() && node.get().isKeySearch())
                                 || Config.disable_shared_scan || enablePipelineXEngine) {
                             int expectedInstanceNum = 1;
                             if (parallelExecInstanceNum > 1) {
