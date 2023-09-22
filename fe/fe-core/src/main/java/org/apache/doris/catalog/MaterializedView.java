@@ -140,7 +140,7 @@ public class MaterializedView extends OlapTable {
         builder.append(refreshTriggerInfo);
         builder.append(" AS ");
         builder.append(querySql);
-        return querySql;
+        return builder.toString();
     }
 
     @Override

@@ -30,9 +30,7 @@ import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.mtmv.MTMVStatus;
-import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.external.iceberg.IcebergMetadataCache;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TBackendsMetadataParams;
@@ -422,11 +420,13 @@ public class MetadataGenerator {
 
         for (Table table : tables) {
             if (table instanceof MaterializedView) {
+                // TODO: 2023/9/22  ConnectContext.get() is null
                 // check tbl privs
-                if (!Env.getCurrentEnv().getAccessManager()
-                        .checkTblPriv(ConnectContext.get(), dbName, table.getName(), PrivPredicate.SHOW)) {
-                    continue;
-                }
+                //
+                //      if (!Env.getCurrentEnv().getAccessManager()
+                //              .checkTblPriv(ConnectContext.get(), dbName, table.getName(), PrivPredicate.SHOW)) {
+                //          continue;
+                //      }
                 MaterializedView mv = (MaterializedView) table;
                 MTMVStatus status = mv.getStatus();
                 TRow trow = new TRow();
@@ -448,8 +448,6 @@ public class MetadataGenerator {
                     trow.addToColumnValue(
                             new TCell().setStringVal(status.getLastExecutorSql()));
                     trow.addToColumnValue(new TCell().setLongVal(status.getLastRefreshJobId()));
-                    trow.addToColumnValue(
-                            new TCell().setStringVal(mv.toSql()));
                 } else {
                     trow.addToColumnValue(new TCell().setStringVal("NULL"));
                     trow.addToColumnValue(new TCell().setStringVal("NULL"));
@@ -458,8 +456,8 @@ public class MetadataGenerator {
                     trow.addToColumnValue(new TCell().setStringVal("NULL"));
                     trow.addToColumnValue(new TCell().setStringVal("NULL"));
                     trow.addToColumnValue(new TCell().setLongVal(0L));
-                    trow.addToColumnValue(new TCell().setStringVal("NULL"));
                 }
+                trow.addToColumnValue(new TCell().setStringVal(mv.toSql()));
                 dataBatch.add(trow);
             }
         }

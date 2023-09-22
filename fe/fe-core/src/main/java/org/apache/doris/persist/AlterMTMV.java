@@ -31,6 +31,7 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Objects;
 
 public class AlterMTMV implements Writable {
     @SerializedName("mn")
@@ -49,15 +50,16 @@ public class AlterMTMV implements Writable {
     public AlterMTMV(TableNameInfo mvName, BuildMode buildMode,
             RefreshMethod refreshMethod,
             MVRefreshTriggerInfo refreshTriggerInfo) {
-        this.mvName = mvName;
+        this.mvName = Objects.requireNonNull(mvName, "require mvName object");
         this.buildMode = buildMode;
         this.refreshMethod = refreshMethod;
         this.refreshTriggerInfo = refreshTriggerInfo;
         this.needRebuildJob = true;
     }
 
-    public AlterMTMV(MTMVStatus status) {
-        this.status = status;
+    public AlterMTMV(TableNameInfo mvName, MTMVStatus status) {
+        this.mvName = Objects.requireNonNull(mvName, "require mvName object");
+        this.status = Objects.requireNonNull(status, "require status object");
     }
 
     public TableNameInfo getMvName() {

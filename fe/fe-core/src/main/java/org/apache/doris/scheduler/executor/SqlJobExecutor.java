@@ -77,8 +77,8 @@ public class SqlJobExecutor implements JobExecutor {
             log.warn("execute sql job failed, sql: {}, error: {}", sql, e.getMessage());
             executorResult = new ExecutorResult<>(null, false, e.getMessage(), sql);
         }
-        long taskEndTime = System.currentTimeMillis();
-        afterExecute(executorResult, taskStartTime, taskEndTime, job.getJobId());
+        long lastRefreshFinishedTime = System.currentTimeMillis();
+        afterExecute(executorResult, taskStartTime, lastRefreshFinishedTime, job.getJobId());
         return executorResult;
     }
 
@@ -95,6 +95,6 @@ public class SqlJobExecutor implements JobExecutor {
                 + ctx.getState().getWarningRows() + ",infoMsg" + ctx.getState().getInfoMessage();
     }
 
-    protected void afterExecute(ExecutorResult result, long taskStartTime, long taskEndTime, long jobId) {
+    protected void afterExecute(ExecutorResult result, long taskStartTime, long lastRefreshFinishedTime, long jobId) {
     }
 }

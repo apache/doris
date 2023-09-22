@@ -19,6 +19,7 @@ package org.apache.doris.mtmv;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.scheduler.executor.SqlJobExecutor;
 import org.apache.doris.scheduler.job.ExecutorResult;
 
@@ -33,12 +34,12 @@ public class MTMVJobExecutor extends SqlJobExecutor {
 
     @Getter
     @Setter
-    @SerializedName(value = "dbName")
+    @SerializedName(value = "dn")
     private String dbName;
 
     @Getter
     @Setter
-    @SerializedName(value = "tableName")
+    @SerializedName(value = "tn")
     private String tableName;
 
     public MTMVJobExecutor(String dbName, String tableName, String sql) {
@@ -48,11 +49,11 @@ public class MTMVJobExecutor extends SqlJobExecutor {
     }
 
     @Override
-    protected void afterExecute(ExecutorResult result, long taskStartTime, long taskEndTime, long jobId) {
+    protected void afterExecute(ExecutorResult result, long taskStartTime, long lastRefreshFinishedTime, long jobId) {
         try {
-            Env.getCurrentEnv().alterMTMVStatus(
-                    new MTMVStatus(result.getErrorMsg(), result.getExecutorSql(), result.isSuccess(),
-                            taskStartTime, taskEndTime, jobId));
+            MTMVStatus mtmvStatus = new MTMVStatus(result.getErrorMsg(), result.getExecutorSql(), result.isSuccess(),
+                    taskStartTime, lastRefreshFinishedTime, jobId);
+            Env.getCurrentEnv().alterMTMVStatus(new TableNameInfo(dbName, tableName), mtmvStatus);
         } catch (UserException e) {
             e.printStackTrace();
             LOG.warn("afterExecute failed: {} ", e.getMessage());

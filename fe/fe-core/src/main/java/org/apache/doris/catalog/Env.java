@@ -176,6 +176,7 @@ import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.AutoIncrementIdUpdateLog;
 import org.apache.doris.persist.BackendReplicasInfo;
@@ -4030,8 +4031,8 @@ public class Env {
         this.alter.processAlterMTMV(alter, false);
     }
 
-    public void alterMTMVStatus(MTMVStatus status) throws UserException {
-        AlterMTMV alter = new AlterMTMV(status);
+    public void alterMTMVStatus(TableNameInfo mvName, MTMVStatus status) throws UserException {
+        AlterMTMV alter = new AlterMTMV(mvName, status);
         this.alter.processAlterMTMV(alter, false);
     }
 

@@ -74,6 +74,17 @@ public class TableNameInfo implements Writable {
         }
     }
 
+    public TableNameInfo(String db, String tbl) {
+        Objects.requireNonNull(tbl, "require tbl object");
+        Objects.requireNonNull(db, "require db object");
+        this.ctl = InternalCatalog.INTERNAL_CATALOG_NAME;
+        this.tbl = tbl;
+        if (Env.isStoredTableNamesLowerCase()) {
+            this.tbl = tbl.toLowerCase();
+        }
+        this.db = db;
+    }
+
     /**
      * analyze tableNameInfo
      * @param ctx ctx

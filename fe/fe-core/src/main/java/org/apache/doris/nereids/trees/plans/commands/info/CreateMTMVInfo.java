@@ -152,7 +152,7 @@ public class CreateMTMVInfo {
     private void getColumns(NereidsPlanner planner) {
         List<Slot> slots = planner.getOptimizedPlan().getOutput();
         // pre-block in some cases.
-        if (columns.isEmpty()) {
+        if (slots.isEmpty()) {
             throw new AnalysisException("table should contain at least one column");
         }
         if (simpleColumnDefinitions != null && simpleColumnDefinitions.size() != slots.size()) {
