@@ -1,1 +1,1 @@
-drop table `supplier`;
+drop table if exists `supplier`;
