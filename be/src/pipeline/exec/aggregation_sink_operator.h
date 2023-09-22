@@ -346,14 +346,14 @@ public:
     virtual Status sink(RuntimeState* state, vectorized::Block* in_block,
                         SourceState source_state) override;
 
-    virtual bool can_write(RuntimeState* state) override { return true; }
-
     using DataSinkOperatorX<LocalStateType>::id;
 
 protected:
+    using LocalState = LocalStateType;
     template <typename DependencyType, typename Derived>
     friend class AggSinkLocalState;
     friend class StreamingAggSinkLocalState;
+    friend class DistinctStreamingAggSinkLocalState;
     std::vector<vectorized::AggFnEvaluator*> _aggregate_evaluators;
     bool _can_short_circuit = false;
 
