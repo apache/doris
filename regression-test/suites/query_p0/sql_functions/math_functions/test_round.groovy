@@ -20,11 +20,11 @@
     qt_select "SELECT round(10.12345, 2)"
     qt_select "SELECT round_bankers(10.12345)"
     qt_select "SELECT round_bankers(10.12345, 2)"
-    // 2.5 is considered as a DECIMAL type, which will be rounded up when tie.
-    qt_select "SELECT round(2.5)"
-    // result of expr 250/100 is regarded as a FloatLiteral, which will be processed by _mm_round_pd of SSE4.1
-    // it will use banker's rounding, so result will be 2.0 instead of 3.0
-    qt_select "SELECT round(250/100)"
+
+    // test tie case 1: float, banker's rounding
+    qt_select "SELECT number*10/100, ROUND(number * 10 / 100) from NUMBERS('number'=50) where number % 5 = 0;"
+    // test tie case 2: decimal, rounded up when tie
+    qt_select "SELECT number*10/100, ROUND(CAST(number * 10 AS DECIMALV3(10,2)) / 100) from NUMBERS('number'=50) where number % 5 = 0"
 
     def tableTest = "test_query_db.test"
     qt_truncate "select truncate(k1, 1), truncate(k2, 1), truncate(k3, 1), truncate(k5, 1), truncate(k8, 1), truncate(k9, 1) from ${tableTest} order by 1;"
