@@ -81,8 +81,8 @@ public:
                                  int row_idx, bool col_const) const override;
 
     Status write_column_to_orc(const IColumn& column, const NullMap* null_map,
-                               orc::ColumnVectorBatch* orc_col_batch, int start,
-                               int end, std::vector<StringRef>& bufferList) const override;
+                               orc::ColumnVectorBatch* orc_col_batch, int start, int end,
+                               std::vector<StringRef>& buffer_list) const override;
 
 private:
     // Bitmap is binary data which is not shown by mysql.

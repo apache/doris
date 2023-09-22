@@ -87,8 +87,8 @@ public:
                                  int row_idx, bool col_const) const override;
 
     Status write_column_to_orc(const IColumn& column, const NullMap* null_map,
-                               orc::ColumnVectorBatch* orc_col_batch, int start,
-                               int end, std::vector<StringRef>& bufferList) const override;
+                               orc::ColumnVectorBatch* orc_col_batch, int start, int end,
+                               std::vector<StringRef>& buffer_list) const override;
 
     void set_return_object_as_string(bool value) override {
         DataTypeSerDe::set_return_object_as_string(value);

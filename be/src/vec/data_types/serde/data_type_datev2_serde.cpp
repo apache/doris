@@ -143,9 +143,52 @@ Status DataTypeDateV2SerDe::write_column_to_mysql(const IColumn& column,
 }
 
 Status DataTypeDateV2SerDe::write_column_to_orc(const IColumn& column, const NullMap* null_map,
-                           orc::ColumnVectorBatch* orc_col_batch, int start,
-                           int end, std::vector<StringRef>& bufferList) const {
-    return Status::NotSupported("write_column_to_orc with type [{}]", column.get_name());
+                                                orc::ColumnVectorBatch* orc_col_batch, int start,
+                                                int end,
+                                                std::vector<StringRef>& buffer_list) const {
+    auto& col_data = assert_cast<const ColumnVector<UInt32>&>(column).get_data();
+    orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
+
+    char* ptr = (char*)malloc(BUFFER_UNIT_SIZE);
+    if (!ptr) {
+        return Status::InternalError(
+                "malloc memory error when write largeint column data to orc file.");
+    }
+    StringRef bufferRef;
+    bufferRef.data = ptr;
+    bufferRef.size = BUFFER_UNIT_SIZE;
+    size_t offset = 0;
+    const size_t begin_off = offset;
+
+    for (size_t row_id = start; row_id < end; row_id++) {
+        if (cur_batch->notNull[row_id] == 0) {
+            continue;
+        }
+
+        int len = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(col_data[row_id])
+                          .to_buffer(const_cast<char*>(bufferRef.data) + offset);
+        while (bufferRef.size - BUFFER_RESERVED_SIZE < offset + len) {
+            char* new_ptr = (char*)malloc(bufferRef.size + BUFFER_UNIT_SIZE);
+            memcpy(new_ptr, bufferRef.data, bufferRef.size);
+            free(const_cast<char*>(bufferRef.data));
+            bufferRef.data = new_ptr;
+            bufferRef.size = bufferRef.size + BUFFER_UNIT_SIZE;
+        }
+        cur_batch->length[row_id] = len;
+        offset += len;
+    }
+
+    size_t data_off = 0;
+    for (size_t row_id = start; row_id < end; row_id++) {
+        if (cur_batch->notNull[row_id] == 1) {
+            cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + begin_off + data_off;
+            data_off += cur_batch->length[row_id];
+        }
+    }
+
+    buffer_list.emplace_back(bufferRef);
+    cur_batch->numElements = end - start;
+    return Status::OK();
 }
 
 } // namespace vectorized

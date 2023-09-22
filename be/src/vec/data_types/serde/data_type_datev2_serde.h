@@ -66,8 +66,8 @@ class DataTypeDateV2SerDe : public DataTypeNumberSerDe<UInt32> {
                                  int row_idx, bool col_const) const override;
 
     Status write_column_to_orc(const IColumn& column, const NullMap* null_map,
-                               orc::ColumnVectorBatch* orc_col_batch, int start,
-                               int end, std::vector<StringRef>& bufferList) const override;
+                               orc::ColumnVectorBatch* orc_col_batch, int start, int end,
+                               std::vector<StringRef>& buffer_list) const override;
 
 private:
     template <bool is_binary_format>

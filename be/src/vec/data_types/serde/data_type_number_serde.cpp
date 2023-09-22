@@ -241,15 +241,75 @@ Status DataTypeNumberSerDe<T>::write_column_to_mysql(const IColumn& column,
 
 template <typename T>
 Status DataTypeNumberSerDe<T>::write_column_to_orc(const IColumn& column, const NullMap* null_map,
-                           orc::ColumnVectorBatch* orc_col_batch, int start,
-                           int end, std::vector<StringRef>& bufferList) const {
-    orc::LongVectorBatch* cur_batch = dynamic_cast<orc::LongVectorBatch*>(orc_col_batch);
+                                                   orc::ColumnVectorBatch* orc_col_batch, int start,
+                                                   int end,
+                                                   std::vector<StringRef>& buffer_list) const {
     auto& col_data = assert_cast<const ColumnType&>(column).get_data();
 
-    for (size_t row_id = start; row_id < end; row_id++) {
-        cur_batch->data[row_id] = col_data[row_id];
+    if constexpr (std::is_same_v<T, Int128>) {
+        orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
+
+        char* ptr = (char*)malloc(BUFFER_UNIT_SIZE);
+        if (!ptr) {
+            return Status::InternalError(
+                    "malloc memory error when write largeint column data to orc file.");
+        }
+        StringRef bufferRef;
+        bufferRef.data = ptr;
+        bufferRef.size = BUFFER_UNIT_SIZE;
+        size_t offset = 0;
+        const size_t begin_off = offset;
+
+        for (size_t row_id = start; row_id < end; row_id++) {
+            if (cur_batch->notNull[row_id] == 0) {
+                continue;
+            }
+            std::string value_str = fmt::format("{}", col_data[row_id]);
+            size_t len = value_str.size();
+            while (bufferRef.size - BUFFER_RESERVED_SIZE < offset + len) {
+                char* new_ptr = (char*)malloc(bufferRef.size + BUFFER_UNIT_SIZE);
+                if (!new_ptr) {
+                    return Status::InternalError(
+                            "malloc memory error when write largeint column data to orc file.");
+                }
+                memcpy(new_ptr, bufferRef.data, bufferRef.size);
+                free(const_cast<char*>(bufferRef.data));
+                bufferRef.data = new_ptr;
+                bufferRef.size = bufferRef.size + BUFFER_UNIT_SIZE;
+            }
+            strcpy(const_cast<char*>(bufferRef.data) + offset, value_str.c_str());
+            offset += len;
+            cur_batch->length[row_id] = len;
+        }
+        size_t data_off = 0;
+        for (size_t row_id = start; row_id < end; row_id++) {
+            if (cur_batch->notNull[row_id] == 1) {
+                cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + begin_off + data_off;
+                data_off += cur_batch->length[row_id];
+            }
+        }
+        buffer_list.emplace_back(bufferRef);
+        cur_batch->numElements = end - start;
+    } else if constexpr ((std::is_integral<T>::value && std::is_signed<T>::value) ||
+                         std::is_same_v<T, UInt8>) { // tinyint/smallint/..int and boolean type
+        orc::LongVectorBatch* cur_batch = dynamic_cast<orc::LongVectorBatch*>(orc_col_batch);
+
+        for (size_t row_id = start; row_id < end; row_id++) {
+            if (cur_batch->notNull[row_id] == 1) {
+                cur_batch->data[row_id] = col_data[row_id];
+            }
+        }
+        cur_batch->numElements = end - start;
+    } else if constexpr (IsFloatNumber<T>) {
+        orc::DoubleVectorBatch* cur_batch = dynamic_cast<orc::DoubleVectorBatch*>(orc_col_batch);
+
+        for (size_t row_id = start; row_id < end; row_id++) {
+            if (cur_batch->notNull[row_id] == 1) {
+                cur_batch->data[row_id] = col_data[row_id];
+            }
+        }
+        cur_batch->numElements = end - start;
     }
-    cur_batch->numElements = end - start;
     return Status::OK();
 }
 

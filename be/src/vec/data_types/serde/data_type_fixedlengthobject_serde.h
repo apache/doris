@@ -101,8 +101,10 @@ public:
     }
 
     Status write_column_to_orc(const IColumn& column, const NullMap* null_map,
-                               orc::ColumnVectorBatch* orc_col_batch, int start,
-                               int end, std::vector<StringRef>& bufferList) const override;
+                               orc::ColumnVectorBatch* orc_col_batch, int start, int end,
+                               std::vector<StringRef>& buffer_list) const override {
+        return Status::NotSupported("write_column_to_orc with type [{}]", column.get_name());
+    }
 };
 } // namespace vectorized
 } // namespace doris

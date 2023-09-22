@@ -20,11 +20,11 @@
 #include <stdint.h>
 
 #include <memory>
+#include <orc/OrcFile.hh>
 #include <vector>
 
 #include "arrow/status.h"
 #include "common/status.h"
-#include <orc/OrcFile.hh>
 #include "util/jsonb_writer.h"
 #include "util/mysql_row_buffer.h"
 #include "vec/columns/column_nullable.h"
@@ -42,7 +42,7 @@ namespace cctz {
 class time_zone;
 } // namespace cctz
 namespace orc {
-    struct ColumnVectorBatch;
+struct ColumnVectorBatch;
 } // namespace orc
 
 #define SERIALIZE_COLUMN_TO_JSON()                                            \
@@ -160,6 +160,16 @@ public:
         }
     };
 
+    // only used for orc file format.
+    // Buffer used by date/datetime/datev2/datetimev2/largeint type
+    // date/datetime/datev2/datetimev2/largeint type will be converted to string bytes to store in Buffer
+    // The minimum value of largeint has 40 bytes after being converted to string(a negative number occupies a byte)
+    // The bytes of date/datetime/datev2/datetimev2 after converted to string are smaller than largeint
+    // Because a block is 4064 rows by default, here is 4064*40 bytes to BUFFER,
+    static constexpr size_t BUFFER_UNIT_SIZE = 4064 * 40;
+    // buffer reserves 40 bytes. The reserved space is just to prevent Headp-Buffer-Overflow
+    static constexpr size_t BUFFER_RESERVED_SIZE = 40;
+
 public:
     DataTypeSerDe();
     virtual ~DataTypeSerDe();
@@ -232,8 +242,8 @@ public:
 
     // ORC serializer
     virtual Status write_column_to_orc(const IColumn& column, const NullMap* null_map,
-                                     orc::ColumnVectorBatch* orc_col_batch, int start,
-                                     int end, std::vector<StringRef>& bufferList) const = 0;
+                                       orc::ColumnVectorBatch* orc_col_batch, int start, int end,
+                                       std::vector<StringRef>& buffer_list) const = 0;
     // ORC deserializer
 
     virtual void set_return_object_as_string(bool value) { _return_object_as_string = value; }

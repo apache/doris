@@ -422,8 +422,8 @@ Status VOrcTransformer::write(const Block& block) {
     try {
         for (size_t i = 0; i < block.columns(); i++) {
             auto& raw_column = block.get_by_position(i).column;
-            _write_one_col(_output_vexpr_ctxs[i]->root()->type(), root->fields[i], raw_column, 0,
-                           sz, &buffer_list);
+            RETURN_IF_ERROR(_serdes[i]->write_column_to_orc(*raw_column, nullptr, root->fields[i],
+                                                            0, sz, buffer_list));
         }
     } catch (const std::exception& e) {
         LOG(WARNING) << "Orc write error: " << e.what();

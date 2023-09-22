@@ -56,8 +56,8 @@ class DataTypeJsonbSerDe : public DataTypeStringSerDe {
                                                int nesting_level = 1) const override;
 
     Status write_column_to_orc(const IColumn& column, const NullMap* null_map,
-                               orc::ColumnVectorBatch* orc_col_batch, int start,
-                               int end, std::vector<StringRef>& bufferList) const override;
+                               orc::ColumnVectorBatch* orc_col_batch, int start, int end,
+                               std::vector<StringRef>& buffer_list) const override;
 
 private:
     template <bool is_binary_format>
