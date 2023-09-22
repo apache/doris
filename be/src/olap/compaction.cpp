@@ -832,14 +832,16 @@ int64_t Compaction::get_compaction_permits() {
     return permits;
 }
 
-Status Compaction::_load_segment_to_cache() {
-    if (_output_rowset != nullptr) {
-        // Load new rowset's segments to cache.
-        SegmentCacheHandle handle;
-        RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
-                std::static_pointer_cast<BetaRowset>(_output_rowset), &handle, true));
+void Compaction::_load_segment_to_cache() {
+    // Load new rowset's segments to cache.
+    SegmentCacheHandle handle;
+    auto st = SegmentLoader::instance()->load_segments(
+            std::static_pointer_cast<BetaRowset>(_output_rowset), &handle, true);
+    if (!st.ok()) {
+        LOG(WARNING) << "failed to load segment to cache! output rowset version="
+                     << _output_rowset->start_version() << "-" << _output_rowset->end_version()
+                     << ".";
     }
-    return Status::OK();
 }
 
 #ifdef BE_TEST
