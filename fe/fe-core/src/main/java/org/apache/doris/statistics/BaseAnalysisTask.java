@@ -170,6 +170,9 @@ public abstract class BaseAnalysisTask {
                 doExecute();
                 break;
             } catch (Throwable t) {
+                if (killed) {
+                    throw new RuntimeException(t);
+                }
                 LOG.warn("Failed to execute analysis task, retried times: {}", retriedTimes++, t);
                 if (retriedTimes > StatisticConstants.ANALYZE_TASK_RETRY_TIMES) {
                     throw new RuntimeException(t);
@@ -185,7 +188,11 @@ public abstract class BaseAnalysisTask {
         if (killed) {
             return;
         }
-        Env.getCurrentEnv().getStatisticsCache().syncLoadColStats(tbl.getId(), -1, col.getName());
+        long tblId = tbl.getId();
+        String colName = col.getName();
+        if (!Env.getCurrentEnv().getStatisticsCache().syncLoadColStats(tblId, -1, colName)) {
+            Env.getCurrentEnv().getAnalysisManager().removeColStatsStatus(tblId, colName);
+        }
     }
 
     protected void setTaskStateToRunning() {

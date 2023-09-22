@@ -33,6 +33,3 @@
 	path = be/src/clucene
 	url = https://github.com/apache/doris-thirdparty.git
 	branch = clucene
-[submodule ".github/actions/sonarcloud-github-action"]
-	path = .github/actions/sonarcloud-github-action
-	url = https://github.com/SonarSource/sonarcloud-github-action

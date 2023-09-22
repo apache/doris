@@ -25,7 +25,9 @@ namespace doris::vectorized {
 Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
                                        const ColumnNumbers& arguments, size_t result,
                                        size_t input_rows_count) {
-    auto match_query_str = block.get_by_position(arguments[1]).to_string(0);
+    ColumnPtr& column_ptr = block.get_by_position(arguments[1]).column;
+    DataTypePtr& type_ptr = block.get_by_position(arguments[1]).type;
+    auto match_query_str = type_ptr->to_string(*column_ptr, 0);
     std::string column_name = block.get_by_position(arguments[0]).name;
     auto match_pred_column_name =
             BeConsts::BLOCK_TEMP_COLUMN_PREFIX + column_name + "_match_" + match_query_str;

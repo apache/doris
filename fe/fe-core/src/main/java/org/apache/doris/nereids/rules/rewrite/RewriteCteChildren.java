@@ -145,10 +145,10 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
         Set<RelationId> consumerIds = cascadesContext.getCteIdToConsumers().get(cteId).stream()
                 .map(LogicalCTEConsumer::getRelationId)
                 .collect(Collectors.toSet());
-        Set<Set<Expression>> filtersAboveEachConsumer = cascadesContext.getConsumerIdToFilters().entrySet().stream()
+        List<Set<Expression>> filtersAboveEachConsumer = cascadesContext.getConsumerIdToFilters().entrySet().stream()
                 .filter(kv -> consumerIds.contains(kv.getKey()))
                 .map(Entry::getValue)
-                .collect(Collectors.toSet());
+                .collect(Collectors.toList());
         Set<Expression> someone = filtersAboveEachConsumer.stream().findFirst().orElse(null);
         if (someone == null) {
             return child;
@@ -156,11 +156,12 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
         int filterSize = cascadesContext.getCteIdToConsumers().get(cteId).size();
         Set<Expression> conjuncts = new HashSet<>();
         for (Expression f : someone) {
-            int matchCount = 1;
+            int matchCount = 0;
             Set<SlotReference> slots = f.collect(e -> e instanceof SlotReference);
             Set<Expression> mightBeJoined = new HashSet<>();
             for (Set<Expression> another : filtersAboveEachConsumer) {
                 if (another.equals(someone)) {
+                    matchCount++;
                     continue;
                 }
                 Set<Expression> matched = new HashSet<>();

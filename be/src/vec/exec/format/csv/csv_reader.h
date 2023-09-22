@@ -48,7 +48,7 @@ class RuntimeState;
 
 namespace io {
 class FileSystem;
-class IOContext;
+struct IOContext;
 } // namespace io
 struct TypeDescriptor;
 

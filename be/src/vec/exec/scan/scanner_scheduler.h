@@ -64,7 +64,7 @@ public:
     ScannerScheduler();
     ~ScannerScheduler();
 
-    [[nodiscard]] Status init();
+    [[nodiscard]] Status init(ExecEnv* env);
 
     [[nodiscard]] Status submit(ScannerContext* ctx);
 

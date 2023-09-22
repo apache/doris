@@ -1647,7 +1647,13 @@ public class SingleNodePlanner {
                     return unionNode;
                 }
                 unionNode.setTblRefIds(Lists.newArrayList(inlineViewRef.getId()));
-                unionNode.addConstExprList(selectStmt.getBaseTblResultExprs());
+                if (selectStmt.getValueList() != null) {
+                    for (List<Expr> row : selectStmt.getValueList().getRows()) {
+                        unionNode.addConstExprList(row);
+                    }
+                } else {
+                    unionNode.addConstExprList(selectStmt.getBaseTblResultExprs());
+                }
                 unionNode.init(analyzer);
                 //set outputSmap to substitute literal in outputExpr
                 unionNode.setWithoutTupleIsNullOutputSmap(inlineViewRef.getSmap());
@@ -2018,6 +2024,7 @@ public class SingleNodePlanner {
                         break;
                     case HIVE:
                         scanNode = new HiveScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
+                        ((HiveScanNode) scanNode).setTableSample(tblRef.getTableSample());
                         break;
                     default:
                         throw new UserException("Not supported table type: " + ((HMSExternalTable) table).getDlaType());

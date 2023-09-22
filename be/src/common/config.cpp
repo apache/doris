@@ -59,7 +59,7 @@ DEFINE_Int32(be_port, "9060");
 // port for brpc
 DEFINE_Int32(brpc_port, "8060");
 
-DEFINE_Int32(arrow_flight_port, "-1");
+DEFINE_Int32(arrow_flight_sql_port, "-1");
 
 // the number of bthreads for brpc, the default value is set to -1,
 // which means the number of bthreads is #cpu-cores
@@ -131,7 +131,7 @@ DEFINE_mBool(enable_query_memory_overcommit, "true");
 
 DEFINE_mBool(disable_memory_gc, "false");
 
-DEFINE_mInt64(large_memory_check_bytes, "1073741824");
+DEFINE_mInt64(large_memory_check_bytes, "2147483648");
 
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
 DEFINE_mInt32(thread_wait_gc_max_milliseconds, "1000");
@@ -274,6 +274,7 @@ DEFINE_mInt32(tablet_lookup_cache_clean_interval, "30");
 DEFINE_mInt32(disk_stat_monitor_interval, "5");
 DEFINE_mInt32(unused_rowset_monitor_interval, "30");
 DEFINE_String(storage_root_path, "${DORIS_HOME}/storage");
+DEFINE_mString(broken_storage_path, "");
 
 // Config is used to check incompatible old format hdr_ format
 // whether doris uses strict way. When config is true, process will log fatal
@@ -281,7 +282,7 @@ DEFINE_String(storage_root_path, "${DORIS_HOME}/storage");
 DEFINE_Bool(storage_strict_check_incompatible_old_format, "true");
 
 // BE process will exit if the percentage of error disk reach this value.
-DEFINE_mInt32(max_percentage_of_error_disk, "0");
+DEFINE_mInt32(max_percentage_of_error_disk, "100");
 DEFINE_mInt32(default_num_rows_per_column_file_block, "1024");
 // pending data policy
 DEFINE_mInt32(pending_data_expire_time_sec, "1800");
@@ -581,7 +582,7 @@ DEFINE_mInt32(result_buffer_cancelled_interval_time, "300");
 DEFINE_mInt32(priority_queue_remaining_tasks_increased_frequency, "512");
 
 // sync tablet_meta when modifying meta
-DEFINE_mBool(sync_tablet_meta, "false");
+DEFINE_mBool(sync_tablet_meta, "true");
 
 // default thrift rpc timeout ms
 DEFINE_mInt32(thrift_rpc_timeout_ms, "60000");
@@ -1068,9 +1069,6 @@ DEFINE_mInt64(lookup_connection_cache_bytes_limit, "4294967296");
 // level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
 DEFINE_mInt64(LZ4_HC_compression_level, "9");
 
-// enable window_funnel_function with different modes
-DEFINE_mBool(enable_window_funnel_function_v2, "false");
-
 DEFINE_Bool(enable_hdfs_hedged_read, "false");
 DEFINE_Int32(hdfs_hedged_read_thread_num, "128");
 DEFINE_Int32(hdfs_hedged_read_threshold_time, "500");
@@ -1091,6 +1089,15 @@ DEFINE_Int16(bitmap_serialize_version, "1");
 // the count of thread to group commit insert
 DEFINE_Int32(group_commit_insert_threads, "10");
 
+DEFINE_mInt32(scan_thread_nice_value, "0");
+DEFINE_mInt32(tablet_schema_cache_recycle_interval, "86400");
+
+DEFINE_Bool(exit_on_exception, "false");
+
+// cgroup
+DEFINE_String(doris_cgroup_cpu_path, "");
+
+// clang-format off
 #ifdef BE_TEST
 // test s3
 DEFINE_String(test_s3_resource, "resource");
@@ -1101,6 +1108,7 @@ DEFINE_String(test_s3_region, "region");
 DEFINE_String(test_s3_bucket, "bucket");
 DEFINE_String(test_s3_prefix, "prefix");
 #endif
+// clang-format on
 
 std::map<std::string, Register::Field>* Register::_s_field_map = nullptr;
 std::map<std::string, std::function<bool()>>* RegisterConfValidator::_s_field_validator = nullptr;
@@ -1329,9 +1337,9 @@ void Properties::set_force(const std::string& key, const std::string& val) {
 }
 
 Status Properties::dump(const std::string& conffile) {
-    RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(conffile));
+    std::string conffile_tmp = conffile + ".tmp";
     io::FileWriterPtr file_writer;
-    RETURN_IF_ERROR(io::global_local_filesystem()->create_file(conffile, &file_writer));
+    RETURN_IF_ERROR(io::global_local_filesystem()->create_file(conffile_tmp, &file_writer));
     RETURN_IF_ERROR(file_writer->append("# THIS IS AN AUTO GENERATED CONFIG FILE.\n"));
     RETURN_IF_ERROR(file_writer->append(
             "# You can modify this file manually, and the configurations in this file\n"));
@@ -1344,7 +1352,9 @@ Status Properties::dump(const std::string& conffile) {
         RETURN_IF_ERROR(file_writer->append("\n"));
     }
 
-    return file_writer->close();
+    RETURN_IF_ERROR(file_writer->close());
+
+    return io::global_local_filesystem()->rename(conffile_tmp, conffile);
 }
 
 template <typename T>
