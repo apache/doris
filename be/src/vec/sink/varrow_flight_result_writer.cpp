@@ -100,7 +100,7 @@ bool VArrowFlightResultWriter::can_sink() {
     return _sinker->can_sink();
 }
 
-Status VArrowFlightResultWriter::close() {
+Status VArrowFlightResultWriter::close(Status) {
     COUNTER_SET(_sent_rows_counter, _written_rows);
     COUNTER_UPDATE(_bytes_sent_counter, _bytes_sent);
     return Status::OK();

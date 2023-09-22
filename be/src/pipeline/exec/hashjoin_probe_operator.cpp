@@ -31,6 +31,8 @@ HashJoinProbeLocalState::HashJoinProbeLocalState(RuntimeState* state, OperatorXB
 
 Status HashJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(JoinProbeLocalState::init(state, info));
+    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<HashJoinProbeOperatorX>();
     _probe_ignore_null = p._probe_ignore_null;
     _probe_expr_ctxs.resize(p._probe_expr_ctxs.size());
@@ -51,27 +53,25 @@ Status HashJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& info) 
     _probe_arena_memory_usage =
             profile()->AddHighWaterMarkCounter("ProbeKeyArena", TUnit::BYTES, "MemoryUsage");
     // Probe phase
-    auto probe_phase_profile = _probe_phase_profile;
-    _probe_next_timer = ADD_TIMER(probe_phase_profile, "ProbeFindNextTime");
-    _probe_expr_call_timer = ADD_TIMER(probe_phase_profile, "ProbeExprCallTime");
-    _search_hashtable_timer =
-            ADD_CHILD_TIMER(probe_phase_profile, "ProbeWhenSearchHashTableTime", "ProbeTime");
-    _build_side_output_timer =
-            ADD_CHILD_TIMER(probe_phase_profile, "ProbeWhenBuildSideOutputTime", "ProbeTime");
-    _probe_side_output_timer =
-            ADD_CHILD_TIMER(probe_phase_profile, "ProbeWhenProbeSideOutputTime", "ProbeTime");
-    _probe_process_hashtable_timer =
-            ADD_CHILD_TIMER(probe_phase_profile, "ProbeWhenProcessHashTableTime", "ProbeTime");
+    _probe_next_timer = ADD_TIMER(profile(), "ProbeFindNextTime");
+    _probe_expr_call_timer = ADD_TIMER(profile(), "ProbeExprCallTime");
+    _search_hashtable_timer = ADD_TIMER(profile(), "ProbeWhenSearchHashTableTime");
+    _build_side_output_timer = ADD_TIMER(profile(), "ProbeWhenBuildSideOutputTime");
+    _probe_side_output_timer = ADD_TIMER(profile(), "ProbeWhenProbeSideOutputTime");
+    _probe_process_hashtable_timer = ADD_TIMER(profile(), "ProbeWhenProcessHashTableTime");
     _process_other_join_conjunct_timer = ADD_TIMER(profile(), "OtherJoinConjunctTime");
     return Status::OK();
 }
 
 void HashJoinProbeLocalState::prepare_for_next() {
     _probe_index = 0;
+    _ready_probe_index = 0;
     _prepare_probe_block();
 }
 
 Status HashJoinProbeLocalState::close(RuntimeState* state) {
+    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(_close_timer);
     if (_closed) {
         return Status::OK();
     }
@@ -185,7 +185,7 @@ HashJoinProbeOperatorX::HashJoinProbeOperatorX(ObjectPool* pool, const TPlanNode
 
 Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Block* output_block,
                                     SourceState& source_state) const {
-    auto& local_state = state->get_local_state(id())->cast<HashJoinProbeLocalState>();
+    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
     local_state.init_for_probe(state);
     SCOPED_TIMER(local_state._probe_timer);
     if (local_state._shared_state->short_circuit_for_probe) {
@@ -324,7 +324,7 @@ Status HashJoinProbeOperatorX::_do_evaluate(vectorized::Block& block,
 
 Status HashJoinProbeOperatorX::push(RuntimeState* state, vectorized::Block* input_block,
                                     SourceState source_state) const {
-    auto& local_state = state->get_local_state(id())->cast<HashJoinProbeLocalState>();
+    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
     local_state.prepare_for_next();
     local_state._probe_eos = source_state == SourceState::FINISHED;
     if (input_block->rows() > 0) {
@@ -435,6 +435,7 @@ Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
         RETURN_IF_ERROR(conjunct->prepare(state, *_intermediate_row_desc));
     }
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_probe_expr_ctxs, state, _child_x->row_desc()));
+    DCHECK(_build_side_child != nullptr);
     // right table data types
     _right_table_data_types =
             vectorized::VectorizedUtils::get_data_types(_build_side_child->row_desc());
@@ -452,9 +453,9 @@ Status HashJoinProbeOperatorX::open(RuntimeState* state) {
     return Status::OK();
 }
 
-bool HashJoinProbeOperatorX::can_read(RuntimeState* state) {
-    auto& local_state = state->get_local_state(id())->cast<HashJoinProbeLocalState>();
-    return local_state._dependency->done();
+Dependency* HashJoinProbeOperatorX::wait_for_dependency(RuntimeState* state) {
+    CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
+    return local_state._dependency->read_blocked_by();
 }
 
 } // namespace pipeline

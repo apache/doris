@@ -45,6 +45,7 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
     public static final ImmutableSet<String> LAMBDA_MAPPED_FUNCTION_SET = new ImmutableSortedSet.Builder(
             String.CASE_INSENSITIVE_ORDER).add("array_exists").add("array_sortby")
             .add("array_first_index").add("array_last_index").add("array_first").add("array_last").add("array_count")
+            .add("element_at")
             .build();
 
     private static final Logger LOG = LogManager.getLogger(LambdaFunctionCallExpr.class);
@@ -59,6 +60,11 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
 
     public LambdaFunctionCallExpr(LambdaFunctionCallExpr other) {
         super(other);
+    }
+
+    // nereids high order function call expr constructor without finalize/analyze
+    public LambdaFunctionCallExpr(Function function, FunctionParams functionParams) {
+        super(function, functionParams, null, false, functionParams.exprs());
     }
 
     @Override
@@ -108,7 +114,7 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
                         + lambda.debugString());
             }
             fn = new Function(fnName, Arrays.asList(argTypes), ArrayType.create(lambda.getChild(0).getType(), true),
-                    true, true, NullableMode.DEPEND_ON_ARGUMENT);
+                    true, true, NullableMode.CUSTOM);
         } else if (fnName.getFunction().equalsIgnoreCase("array_exists")
                 || fnName.getFunction().equalsIgnoreCase("array_first_index")
                 || fnName.getFunction().equalsIgnoreCase("array_last_index")

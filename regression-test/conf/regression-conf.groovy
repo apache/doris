@@ -93,6 +93,13 @@ doris_port=9030
 enableHiveTest=false
 hms_port=9183
 hdfs_port=8120
+hiveServerPort=10000
+
+// kafka test config
+// to enable kafka test, you need firstly to start kafka container
+// See `docker/thirdparties/start-thirdparties-docker.sh`
+enableKafkaTest=false
+kafka_port=19193
 
 // elasticsearch catalog test config
 // See `docker/thirdparties/start-thirdparties-docker.sh`
@@ -107,6 +114,7 @@ enableExternalHiveTest = false
 extHiveHmsHost = "***.**.**.**"
 extHiveHmsPort = 7004
 extHdfsPort = 4007
+extHiveServerPort= 7001
 extHiveHmsUser = "****"
 extHiveHmsPassword= "***********"
 

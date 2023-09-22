@@ -230,16 +230,21 @@ suite("test_ctas") {
         sql 'insert into a values(1, \'ww\'), (2, \'zs\');'
         sql 'insert into b values(1, 22);'
 
-        sql 'create table c properties("replication_num"="1") as select a.id, a.name, b.age from a left join b on a.id = b.id;'
+        sql 'set enable_nereids_planner=false'
+
+        sql 'create table c properties("replication_num"="1") as select b.id, a.name, b.age from a left join b on a.id = b.id;'
         
-        String desc = sql 'desc c'
-        assertTrue(desc.contains('Yes'))
+        String descC = sql 'desc c'
+        assertTrue(descC.contains('Yes'))
+        String descB = sql 'desc b'
+        assertTrue(descB.contains('No'))
+
         sql '''create table test_date_v2 
         properties (
                 "replication_num"="1"
         ) as select to_date('20250829');
         '''
-        desc = sql 'desc test_date_v2'
+        String desc = sql 'desc test_date_v2'
         assertTrue(desc.contains('Yes'))
     } finally {
         sql 'drop table a'

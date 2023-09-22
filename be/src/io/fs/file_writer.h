@@ -28,8 +28,16 @@ namespace doris {
 namespace io {
 class FileSystem;
 
+// Only affects remote file writers
+struct FileWriterOptions {
+    bool write_file_cache = false;
+    bool is_cold_data = false;
+    int64_t file_cache_expiration = 0; // Absolute time
+};
+
 class FileWriter {
 public:
+    // FIXME(plat1ko): FileWriter should be interface
     FileWriter(Path&& path, std::shared_ptr<FileSystem> fs) : _path(std::move(path)), _fs(fs) {}
     FileWriter() = default;
     virtual ~FileWriter() = default;

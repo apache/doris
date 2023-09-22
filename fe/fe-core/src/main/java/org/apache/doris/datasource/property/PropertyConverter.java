@@ -163,7 +163,7 @@ public class PropertyConverter {
         Map<String, String> obsProperties = Maps.newHashMap();
         obsProperties.put(OBSConstants.ENDPOINT, props.get(ObsProperties.ENDPOINT));
         obsProperties.put(ObsProperties.FS.IMPL_DISABLE_CACHE, "true");
-        obsProperties.put("fs.obs.impl", OBSFileSystem.class.getName());
+        obsProperties.put("fs.obs.impl", getHadoopFSImplByScheme("obs"));
         if (credential.isWhole()) {
             obsProperties.put(OBSConstants.ACCESS_KEY, credential.getAccessKey());
             obsProperties.put(OBSConstants.SECRET_KEY, credential.getSecretKey());
@@ -177,6 +177,18 @@ public class PropertyConverter {
             }
         }
         return obsProperties;
+    }
+
+    public static String getHadoopFSImplByScheme(String fsScheme) {
+        if (fsScheme.equalsIgnoreCase("obs")) {
+            return OBSFileSystem.class.getName();
+        } else if (fsScheme.equalsIgnoreCase("oss")) {
+            return AliyunOSSFileSystem.class.getName();
+        } else if (fsScheme.equalsIgnoreCase("cosn")) {
+            return CosNFileSystem.class.getName();
+        } else {
+            return S3AFileSystem.class.getName();
+        }
     }
 
     private static Map<String, String> convertToS3EnvProperties(Map<String, String> properties,
@@ -286,7 +298,7 @@ public class PropertyConverter {
         }
         ossProperties.put(org.apache.hadoop.fs.aliyun.oss.Constants.ENDPOINT_KEY, endpoint);
         ossProperties.put("fs.oss.impl.disable.cache", "true");
-        ossProperties.put("fs.oss.impl", AliyunOSSFileSystem.class.getName());
+        ossProperties.put("fs.oss.impl", getHadoopFSImplByScheme("oss"));
         boolean hdfsEnabled = Boolean.parseBoolean(props.getOrDefault(OssProperties.OSS_HDFS_ENABLED, "false"));
         if (S3Util.isHdfsOnOssEndpoint(endpoint) || hdfsEnabled) {
             // use endpoint or enable hdfs
@@ -327,7 +339,7 @@ public class PropertyConverter {
         Map<String, String> cosProperties = Maps.newHashMap();
         cosProperties.put(CosNConfigKeys.COSN_ENDPOINT_SUFFIX_KEY, props.get(CosProperties.ENDPOINT));
         cosProperties.put("fs.cosn.impl.disable.cache", "true");
-        cosProperties.put("fs.cosn.impl", CosNFileSystem.class.getName());
+        cosProperties.put("fs.cosn.impl", getHadoopFSImplByScheme("cosn"));
         if (credential.isWhole()) {
             cosProperties.put(CosNConfigKeys.COSN_SECRET_ID_KEY, credential.getAccessKey());
             cosProperties.put(CosNConfigKeys.COSN_SECRET_KEY_KEY, credential.getSecretKey());

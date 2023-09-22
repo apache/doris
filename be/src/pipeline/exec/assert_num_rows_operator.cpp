@@ -37,7 +37,8 @@ AssertNumRowsOperatorX::AssertNumRowsOperatorX(ObjectPool* pool, const TPlanNode
 
 Status AssertNumRowsOperatorX::pull(doris::RuntimeState* state, vectorized::Block* block,
                                     SourceState& source_state) {
-    auto& local_state = state->get_local_state(id())->cast<AssertNumRowsLocalState>();
+    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    SCOPED_TIMER(local_state.profile()->total_time_counter());
     local_state.add_num_rows_returned(block->rows());
     int64_t num_rows_returned = local_state.num_rows_returned();
     bool assert_res = false;
@@ -81,6 +82,7 @@ Status AssertNumRowsOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
                                  to_string_lambda(_assertion), _desired_num_rows, _subquery_string);
     }
     COUNTER_SET(local_state.rows_returned_counter(), local_state.num_rows_returned());
+    COUNTER_UPDATE(local_state.blocks_returned_counter(), 1);
     return Status::OK();
 }
 

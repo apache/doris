@@ -30,6 +30,8 @@ suite("ds_rf99") {
     sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_pipeline_engine=true'
+    sql 'set enable_runtime_filter_prune=false'
+    sql 'set expand_runtime_filter_by_inner_join=false'
     String stmt = '''
     explain physical plan
     select  
@@ -85,5 +87,5 @@ limit 100;
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
     
-     assertEquals("RF3[w_warehouse_sk->[cs_warehouse_sk],RF2[sm_ship_mode_sk->[cs_ship_mode_sk],RF1[cc_call_center_sk->[cs_call_center_sk],RF0[d_date_sk->[cs_ship_date_sk]", getRuntimeFilters(plan))
+     assertEquals("RF3[cc_call_center_sk->[cs_call_center_sk],RF2[sm_ship_mode_sk->[cs_ship_mode_sk],RF1[w_warehouse_sk->[cs_warehouse_sk],RF0[d_date_sk->[cs_ship_date_sk]", getRuntimeFilters(plan))
 }

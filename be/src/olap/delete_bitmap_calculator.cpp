@@ -17,6 +17,7 @@
 
 #include "olap/delete_bitmap_calculator.h"
 
+#include "common/status.h"
 #include "olap/primary_key_index.h"
 #include "vec/data_types/data_type_factory.hpp"
 

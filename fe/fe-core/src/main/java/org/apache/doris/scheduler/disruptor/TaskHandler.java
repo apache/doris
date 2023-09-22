@@ -18,8 +18,10 @@
 package org.apache.doris.scheduler.disruptor;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.scheduler.exception.JobException;
 import org.apache.doris.scheduler.executor.TransientTaskExecutor;
+import org.apache.doris.scheduler.job.ExecutorResult;
 import org.apache.doris.scheduler.job.Job;
 import org.apache.doris.scheduler.job.JobTask;
 import org.apache.doris.scheduler.manager.JobTaskManager;
@@ -28,8 +30,6 @@ import org.apache.doris.scheduler.manager.TransientTaskManager;
 
 import com.lmax.disruptor.WorkHandler;
 import lombok.extern.slf4j.Slf4j;
-
-import java.util.Objects;
 
 /**
  * This class represents a work handler for processing event tasks consumed by a Disruptor.
@@ -89,6 +89,8 @@ public class TaskHandler implements WorkHandler<TaskEvent> {
     @SuppressWarnings("checkstyle:UnusedLocalVariable")
     public void onTimerJobTaskHandle(TaskEvent taskEvent) {
         long jobId = taskEvent.getId();
+        long taskId = taskEvent.getTaskId();
+        long createTimeMs = jobTaskManager.pollPrepareTaskByTaskId(jobId, taskId);
         Job job = timerJobManager.getJob(jobId);
         if (job == null) {
             log.info("job is null, jobId: {}", jobId);
@@ -99,10 +101,11 @@ public class TaskHandler implements WorkHandler<TaskEvent> {
             return;
         }
         log.debug("job is running, eventJobId: {}", jobId);
-        JobTask jobTask = new JobTask(jobId);
+
+        JobTask jobTask = new JobTask(jobId, taskId, createTimeMs);
         try {
             jobTask.setStartTimeMs(System.currentTimeMillis());
-            Object result = job.getExecutor().execute(job);
+            ExecutorResult result = job.getExecutor().execute(job);
             job.setLatestCompleteExecuteTimeMs(System.currentTimeMillis());
             if (job.isCycleJob()) {
                 updateJobStatusIfPastEndTime(job);
@@ -110,14 +113,27 @@ public class TaskHandler implements WorkHandler<TaskEvent> {
                 // one time job should be finished after execute
                 updateOnceTimeJobStatus(job);
             }
-            String resultStr = Objects.isNull(result) ? "" : result.toString();
+            if (null == result) {
+                log.warn("Job execute failed, jobId: {}, result is null", jobId);
+                jobTask.setErrorMsg("Job execute failed, result is null");
+                jobTask.setIsSuccessful(false);
+                timerJobManager.pauseJob(jobId);
+                return;
+            }
+            String resultStr = GsonUtils.GSON.toJson(result.getResult());
             jobTask.setExecuteResult(resultStr);
-            jobTask.setIsSuccessful(true);
+            jobTask.setIsSuccessful(result.isSuccess());
+            if (!result.isSuccess()) {
+                log.warn("Job execute failed, jobId: {}, msg : {}", jobId, result.getExecutorSql());
+                jobTask.setErrorMsg(result.getExecutorSql());
+                timerJobManager.pauseJob(jobId);
+            }
+            jobTask.setExecuteSql(result.getExecutorSql());
         } catch (Exception e) {
             log.warn("Job execute failed, jobId: {}, msg : {}", jobId, e.getMessage());
-            job.pause(e.getMessage());
             jobTask.setErrorMsg(e.getMessage());
             jobTask.setIsSuccessful(false);
+            timerJobManager.pauseJob(jobId);
         }
         jobTask.setEndTimeMs(System.currentTimeMillis());
         if (null == jobTaskManager) {
@@ -143,7 +159,7 @@ public class TaskHandler implements WorkHandler<TaskEvent> {
 
     private void updateJobStatusIfPastEndTime(Job job) {
         if (job.isExpired()) {
-            job.finish();
+            timerJobManager.finishJob(job.getJobId());
         }
     }
 
