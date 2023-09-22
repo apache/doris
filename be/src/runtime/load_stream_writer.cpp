@@ -151,10 +151,10 @@ Status LoadStreamWriter::close() {
         }
     }
 
-    static_cast<void>(_rowset_builder.build_rowset());
-    static_cast<void>(_rowset_builder.submit_calc_delete_bitmap_task());
-    static_cast<void>(_rowset_builder.wait_calc_delete_bitmap());
-    static_cast<void>(_rowset_builder.commit_txn());
+    RETURN_IF_ERROR(_rowset_builder.build_rowset());
+    RETURN_IF_ERROR(_rowset_builder.submit_calc_delete_bitmap_task());
+    RETURN_IF_ERROR(_rowset_builder.wait_calc_delete_bitmap());
+    RETURN_IF_ERROR(_rowset_builder.commit_txn());
 
     return Status::OK();
 }
