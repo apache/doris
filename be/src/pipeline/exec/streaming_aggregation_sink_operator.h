@@ -83,7 +83,7 @@ public:
     StreamingAggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
-    Status close(RuntimeState* state) override;
+    Status close(RuntimeState* state, Status exec_status) override;
     Status do_pre_agg(vectorized::Block* input_block, vectorized::Block* output_block);
 
 private:

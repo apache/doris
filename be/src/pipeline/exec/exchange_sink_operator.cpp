@@ -238,30 +238,6 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
     _name = "ExchangeSinkOperatorX";
 }
 
-ExchangeSinkOperatorX::ExchangeSinkOperatorX(
-        const RowDescriptor& row_desc, PlanNodeId dest_node_id,
-        const std::vector<TPlanFragmentDestination>& destinations,
-        bool send_query_statistics_with_every_batch)
-        : DataSinkOperatorX(dest_node_id),
-          _row_desc(row_desc),
-          _part_type(TPartitionType::UNPARTITIONED),
-          _dests(destinations),
-          _send_query_statistics_with_every_batch(send_query_statistics_with_every_batch),
-          _dest_node_id(dest_node_id) {
-    _cur_pb_block = &_pb_block1;
-    _name = "ExchangeSinkOperatorX";
-}
-
-ExchangeSinkOperatorX::ExchangeSinkOperatorX(const RowDescriptor& row_desc,
-                                             bool send_query_statistics_with_every_batch)
-        : DataSinkOperatorX(0),
-          _row_desc(row_desc),
-          _send_query_statistics_with_every_batch(send_query_statistics_with_every_batch),
-          _dest_node_id(0) {
-    _cur_pb_block = &_pb_block1;
-    _name = "ExchangeSinkOperatorX";
-}
-
 Status ExchangeSinkOperatorX::init(const TDataSink& tsink) {
     RETURN_IF_ERROR(DataSinkOperatorX::init(tsink));
     const TDataStreamSink& t_stream_sink = tsink.stream_sink;
@@ -541,7 +517,7 @@ Status ExchangeSinkOperatorX::channel_add_rows(RuntimeState* state, Channels& ch
     return Status::OK();
 }
 
-Status ExchangeSinkOperatorX::try_close(RuntimeState* state) {
+Status ExchangeSinkOperatorX::try_close(RuntimeState* state, Status exec_status) {
     CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
     local_state._serializer.reset_block();
     Status final_st = Status::OK();
@@ -554,7 +530,7 @@ Status ExchangeSinkOperatorX::try_close(RuntimeState* state) {
     return final_st;
 }
 
-Status ExchangeSinkLocalState::close(RuntimeState* state) {
+Status ExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return Status::OK();
     }
@@ -571,7 +547,7 @@ Status ExchangeSinkLocalState::close(RuntimeState* state) {
     }
     _sink_buffer->update_profile(profile());
     _sink_buffer->close();
-    return PipelineXSinkLocalState<>::close(state);
+    return PipelineXSinkLocalState<>::close(state, exec_status);
 }
 
 WriteDependency* ExchangeSinkOperatorX::wait_for_dependency(RuntimeState* state) {
