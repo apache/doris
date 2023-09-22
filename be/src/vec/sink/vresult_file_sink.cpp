@@ -69,7 +69,6 @@ Status VResultFileSink::init(const TDataSink& tsink) {
     CHECK(sink.__isset.storage_backend_type);
     _storage_type = sink.storage_backend_type;
 
-    _name = "VResultFileSink";
     //for impl csv_with_name and csv_with_names_and_types
     _header_type = sink.header_type;
     _header = sink.header;

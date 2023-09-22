@@ -78,6 +78,8 @@ public:
                 *block = std::move(_blocks_queues[id].front());
                 _blocks_queues[id].pop_front();
 
+                RETURN_IF_ERROR(validate_block_schema((*block).get()));
+
                 if (_blocks_queues[id].empty() && _data_dependency) {
                     _data_dependency->block_reading();
                 }
@@ -142,12 +144,12 @@ public:
                     for (int j = i; j < block_size; j += queue_size) {
                         _blocks_queues[queue].emplace_back(std::move(blocks[j]));
                     }
+                    if (_data_dependency) {
+                        _data_dependency->set_ready_for_read();
+                    }
                 }
                 _next_queue_to_feed = queue + 1 < queue_size ? queue + 1 : 0;
             }
-        }
-        if (_data_dependency) {
-            _data_dependency->set_ready_for_read();
         }
         _current_used_bytes += local_bytes;
     }

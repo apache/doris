@@ -39,19 +39,18 @@ Status AsyncResultWriter::sink(Block* block, bool eos) {
     auto status = Status::OK();
     std::unique_ptr<Block> add_block;
     if (rows) {
-        add_block = block->create_same_struct_block(0);
+        add_block = _get_free_block(block, rows);
     }
 
-    std::lock_guard l(_m);
     // if io task failed, just return error status to
     // end the query
     if (!_writer_status.ok()) {
         return _writer_status;
     }
 
+    std::lock_guard l(_m);
     _eos = eos;
     if (rows) {
-        RETURN_IF_ERROR(MutableBlock::build_mutable_block(add_block.get()).merge(*block));
         _data_queue.emplace_back(std::move(add_block));
     } else if (_eos && _data_queue.empty()) {
         status = Status::EndOfFile("Run out of sink data");
@@ -75,25 +74,31 @@ void AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* profil
 }
 
 void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profile) {
-    _writer_status = open(state, profile);
+    if (auto status = open(state, profile); !status.ok()) {
+        force_close(status);
+    }
+
     if (_writer_status.ok()) {
         while (true) {
-            {
+            if (!_eos && _data_queue.empty() && _writer_status.ok()) {
                 std::unique_lock l(_m);
-                while (!_eos && _data_queue.empty() && !_force_close) {
+                while (!_eos && _data_queue.empty() && _writer_status.ok()) {
                     _cv.wait(l);
                 }
             }
 
-            if ((_eos && _data_queue.empty()) || _force_close) {
+            if ((_eos && _data_queue.empty()) || !_writer_status.ok()) {
                 _data_queue.clear();
                 break;
             }
 
-            auto status = write(get_block_from_queue());
-            std::unique_lock l(_m);
-            _writer_status = status;
+            auto block = get_block_from_queue();
+            auto status = write(block);
+            _return_free_block(std::move(block));
+
             if (!status.ok()) {
+                std::unique_lock l(_m);
+                _writer_status = status;
                 break;
             }
         }
@@ -101,8 +106,8 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
 
     // if not in transaction or status is in error or force close we can do close in
     // async IO thread
-    if (!_writer_status.ok() || _force_close || !in_transaction()) {
-        close();
+    if (!_writer_status.ok() || !in_transaction()) {
+        close(_writer_status);
         _need_normal_close = false;
     }
     _writer_thread_closed = true;
@@ -120,10 +125,24 @@ Status AsyncResultWriter::_projection_block(doris::vectorized::Block& input_bloc
     return status;
 }
 
-void AsyncResultWriter::force_close() {
+void AsyncResultWriter::force_close(Status s) {
     std::lock_guard l(_m);
-    _force_close = true;
+    _writer_status = s;
     _cv.notify_one();
+}
+
+void AsyncResultWriter::_return_free_block(std::unique_ptr<Block> b) {
+    _free_blocks.enqueue(std::move(b));
+}
+
+std::unique_ptr<Block> AsyncResultWriter::_get_free_block(doris::vectorized::Block* block,
+                                                          int rows) {
+    std::unique_ptr<Block> b;
+    if (!_free_blocks.try_dequeue(b)) {
+        b = block->create_same_struct_block(rows, true);
+    }
+    b->swap(*block);
+    return b;
 }
 
 } // namespace vectorized

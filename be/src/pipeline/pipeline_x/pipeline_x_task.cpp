@@ -62,7 +62,7 @@ Status PipelineXTask::prepare(RuntimeState* state, const TPipelineInstanceParams
     SCOPED_CPU_TIMER(_task_cpu_timer);
     SCOPED_TIMER(_prepare_timer);
 
-    LocalSinkStateInfo sink_info {_pipeline->pipeline_profile(), local_params.sender_id,
+    LocalSinkStateInfo sink_info {_parent_profile, local_params.sender_id,
                                   get_downstream_dependency().get()};
     RETURN_IF_ERROR(_sink->setup_local_state(state, sink_info));
 
@@ -72,7 +72,7 @@ Status PipelineXTask::prepare(RuntimeState* state, const TPipelineInstanceParams
     for (int op_idx = _operators.size() - 1; op_idx >= 0; op_idx--) {
         LocalStateInfo info {
                 op_idx == _operators.size() - 1
-                        ? _pipeline->pipeline_profile()
+                        ? _parent_profile
                         : state->get_local_state(_operators[op_idx + 1]->id())->profile(),
                 scan_ranges, get_upstream_dependency(_operators[op_idx]->id())};
         RETURN_IF_ERROR(_operators[op_idx]->setup_local_state(state, info));
@@ -114,6 +114,10 @@ void PipelineXTask::_init_profile() {
     _schedule_counts = ADD_COUNTER(_task_profile, "NumScheduleTimes", TUnit::UNIT);
     _yield_counts = ADD_COUNTER(_task_profile, "NumYieldTimes", TUnit::UNIT);
     _core_change_times = ADD_COUNTER(_task_profile, "CoreChangeTimes", TUnit::UNIT);
+
+    _wait_bf_counts = ADD_COUNTER(_task_profile, "WaitBfTimes", TUnit::UNIT);
+    _wait_dependency_counts = ADD_COUNTER(_task_profile, "WaitDenpendencyTimes", TUnit::UNIT);
+    _pending_finish_counts = ADD_COUNTER(_task_profile, "PendingFinishTimes", TUnit::UNIT);
 }
 
 void PipelineXTask::_fresh_profile_counter() {

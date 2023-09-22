@@ -239,6 +239,7 @@ FE currently has the following ports
 * http_port: http port, also used to push image
 * rpc_port:  thrift server port of Frontend
 * query_port: Mysql connection port
+* arrow_flight_sql_port: Arrow Flight SQL connection port
 
 1. edit_log_port
 
@@ -255,6 +256,10 @@ FE currently has the following ports
 4. query_port
 
 	After modifying the configuration, restart FE directly. This only affects mysql's connection target.
+
+5. arrow_flight_sql_port
+
+	After modifying the configuration, restart FE directly. This only affects arrow flight sql server connection target.
 
 ### Recover metadata from FE memory
 In some extreme cases, the image file on the disk may be damaged, but the metadata in the memory is intact. At this point, we can dump the metadata from the memory and replace the image file on the disk to recover the metadata. the entire non-stop query service operation steps are as follows:

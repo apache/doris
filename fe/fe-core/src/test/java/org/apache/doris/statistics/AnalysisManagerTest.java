@@ -261,7 +261,7 @@ public class AnalysisManagerTest {
         analysisManager.buildAndAssignJob(analyzeTblStmt);
         new Expectations() {
             {
-                analysisManager.persistAnalysisJob(analysisInfo);
+                analysisManager.recordAnalysisJob(analysisInfo);
                 times = 1;
             }
         };
