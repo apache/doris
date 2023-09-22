@@ -86,8 +86,8 @@ Status DataTypeDate64SerDe::deserialize_one_cell_from_json(IColumn& column, Slic
             val = 716833;
         }
     } else if (ReadBuffer rb(slice.data, slice.size); !read_date_text_impl<Int64>(val, rb)) {
-        return Status::InvalidArgument("parse date fail, string: '{}'",
-                                       std::string(rb.position(), rb.count()).c_str());
+        return Status::InvalidDataFormat("parse date fail, string: '{}'",
+                                         std::string(rb.position(), rb.count()).c_str());
     }
     column_data.insert_value(val);
     return Status::OK();
@@ -159,8 +159,8 @@ Status DataTypeDateTimeSerDe::deserialize_one_cell_from_json(IColumn& column, Sl
             val = 14000101000000L;
         }
     } else if (ReadBuffer rb(slice.data, slice.size); !read_datetime_text_impl<Int64>(val, rb)) {
-        return Status::InvalidArgument("parse datetime fail, string: '{}'",
-                                       std::string(rb.position(), rb.count()).c_str());
+        return Status::InvalidDataFormat("parse datetime fail, string: '{}'",
+                                         std::string(rb.position(), rb.count()).c_str());
     }
     column_data.insert_value(val);
     return Status::OK();

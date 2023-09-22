@@ -81,9 +81,9 @@ Status DataTypeDecimalSerDe<T>::deserialize_one_cell_from_json(IColumn& column, 
         column_data.emplace_back(val);
         return Status::OK();
     }
-    return Status::InvalidArgument("parse decimal fail, string: '{}', primitive type: '{}'",
-                                   std::string(rb.position(), rb.count()).c_str(),
-                                   get_primitive_type());
+    return Status::InvalidDataFormat("parse decimal fail, string: '{}', primitive type: '{}'",
+                                     std::string(rb.position(), rb.count()).c_str(),
+                                     get_primitive_type());
 }
 
 template <typename T>

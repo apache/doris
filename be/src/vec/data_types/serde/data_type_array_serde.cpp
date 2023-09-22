@@ -83,12 +83,12 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_json(IColumn& column, Slice
     IColumn& nested_column = array_column.get_data();
     DCHECK(nested_column.is_nullable());
     if (slice[0] != '[') {
-        return Status::InvalidArgument("Array does not start with '[' character, found '{}'",
-                                       slice[0]);
+        return Status::InvalidDataFormat("Array does not start with '[' character, found '{}'",
+                                         slice[0]);
     }
     if (slice[slice.size - 1] != ']') {
-        return Status::InvalidArgument("Array does not end with ']' character, found '{}'",
-                                       slice[slice.size - 1]);
+        return Status::InvalidDataFormat("Array does not end with ']' character, found '{}'",
+                                         slice[slice.size - 1]);
     }
     // empty array []
     if (slice.size == 2) {
