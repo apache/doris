@@ -108,10 +108,17 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_json(IColumn& column, Slice
     slices.emplace_back(slice);
     size_t slice_size = slice.size;
     // pre add total slice can reduce lasted element check.
+    char quote_char = 0;
     for (int idx = 0; idx < slice_size; ++idx) {
         char c = slice[idx];
         if (c == '"' || c == '\'') {
-            has_quote = !has_quote;
+            if (!has_quote) {
+                quote_char = c;
+                has_quote = !has_quote;
+            } else if (has_quote && quote_char == c) {
+                quote_char = 0;
+                has_quote = !has_quote;
+            }
         } else if (!has_quote && (c == '[' || c == '{')) {
             ++nested_level;
         } else if (!has_quote && (c == ']' || c == '}')) {
