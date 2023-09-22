@@ -695,6 +695,10 @@ under the License.
             <groupId>com.esotericsoftware</groupId>
             <artifactId>kryo-shaded</artifactId>
         </dependency>
+        <dependency>
+            <groupId>org.quartz-scheduler</groupId>
+            <artifactId>quartz</artifactId>
+        </dependency>
 
     </dependencies>
     <repositories>
