@@ -689,8 +689,8 @@ public class RuntimeProfile {
         computeTimeInProfile(this.counterTotalTime.getValue());
     }
 
-    public void setProfileLevel() {
-        this.enableSimplyProfile = ConnectContext.get().getSessionVariable().getEnableSimplyProfile();
+    public void setProfileLevel(boolean isSimpleProfile) {
+        this.enableSimplyProfile = isSimpleProfile;
     }
 
     private void computeTimeInProfile(long total) {

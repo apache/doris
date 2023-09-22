@@ -48,6 +48,7 @@ import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.BeginTransactionException;
@@ -55,6 +56,7 @@ import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
 
+import com.amazonaws.services.paymentcryptographydata.model.SessionKeyVisa;
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
@@ -321,7 +323,8 @@ public class BrokerLoadJob extends BulkLoadJob {
         if (!enableProfile) {
             return;
         }
-        jobProfile.update(createTimestamp, getSummaryInfo(true), true);
+        jobProfile.update(createTimestamp, getSummaryInfo(true), true,
+                Boolean.valueOf(sessionVariables.getOrDefault(SessionVariable.ENABLE_SIMPLY_PROFILE, "true")));
     }
 
     private Map<String, String> getSummaryInfo(boolean isFinished) {
