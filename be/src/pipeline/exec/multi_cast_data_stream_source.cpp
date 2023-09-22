@@ -142,7 +142,7 @@ Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalState
 Status MultiCastDataStreamerSourceOperatorX::get_block(RuntimeState* state,
                                                        vectorized::Block* block,
                                                        SourceState& source_state) {
-    auto& local_state = state->get_local_state(id())->cast<MultiCastDataStreamSourceLocalState>();
+    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     bool eos = false;
     vectorized::Block tmp_block;

@@ -564,7 +564,7 @@ public:
     Status setup_local_states(RuntimeState* state, std::vector<LocalSinkStateInfo>& infos) override;
     void get_dependency(std::vector<DependencySPtr>& dependency) override;
 
-    void get_dependency(DependencySPtr& dependency) override;
+    void get_dependency(DependencySPtr& dependency) ;
 
     using LocalState = LocalStateType;
 

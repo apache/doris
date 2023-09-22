@@ -121,8 +121,7 @@ public:
               _row_descriptor(row_descriptor) {};
     ~MultiCastDataStreamerSourceOperatorX() override = default;
     Dependency* wait_for_dependency(RuntimeState* state) override {
-        auto& local_state =
-                state->get_local_state(id())->cast<MultiCastDataStreamSourceLocalState>();
+        CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
         return local_state._dependency->can_read(_consumer_id);
     }
 
@@ -208,8 +207,7 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override {
-        auto& local_state =
-                state->get_sink_local_state(id())->cast<MultiCastDataStreamSinkLocalState>();
+        CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
         SCOPED_TIMER(local_state.profile()->total_time_counter());
         if (in_block->rows() > 0 || source_state == SourceState::FINISHED) {
             COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
