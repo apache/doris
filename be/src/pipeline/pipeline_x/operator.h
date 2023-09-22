@@ -374,7 +374,7 @@ public:
         return Status::OK();
     }
 
-    std::string debug_string(int indentation_level = 0) const override;
+    [[nodiscard]] std::string debug_string(int indentation_level = 0) const override;
 
 protected:
     DependencyType* _dependency;
@@ -517,7 +517,7 @@ public:
 
     virtual bool is_pending_finish(RuntimeState* state) const { return false; }
 
-    std::string debug_string() const override { return ""; }
+    [[nodiscard]] std::string debug_string() const override { return ""; }
 
     virtual std::string debug_string(int indentation_level) const;
 
@@ -628,7 +628,7 @@ public:
         return Status::OK();
     }
 
-    std::string debug_string(int indentation_level) const override;
+    [[nodiscard]] std::string debug_string(int indentation_level) const override;
     typename DependencyType::SharedState*& get_shared_state() { return _shared_state; }
 
 protected:

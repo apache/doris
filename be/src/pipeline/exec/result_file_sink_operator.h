@@ -44,6 +44,7 @@ public:
 };
 
 class ResultFileSinkOperatorX;
+class ResultSinkLocalState;
 class ResultFileSinkLocalState final : public AsyncWriterSink<vectorized::VFileResultWriter> {
 public:
     using Base = AsyncWriterSink<vectorized::VFileResultWriter>;
@@ -54,11 +55,26 @@ public:
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
 
+    int sender_id() { return _sender_id; }
+
+    RuntimeProfile::Counter* brpc_wait_timer() { return _brpc_wait_timer; }
+
 private:
     friend class ResultFileSinkOperatorX;
 
+    template <typename ChannelPtrType>
+    void _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st);
+
     std::unique_ptr<vectorized::Block> _output_block = nullptr;
     std::shared_ptr<BufferControlBlock> _sender;
+
+    std::vector<vectorized::Channel<ResultFileSinkLocalState>*> _channels;
+    bool _only_local_exchange = false;
+    vectorized::BlockSerializer<ResultFileSinkLocalState> _serializer;
+    std::unique_ptr<vectorized::BroadcastPBlockHolder> _block_holder;
+    RuntimeProfile::Counter* _brpc_wait_timer;
+
+    int _sender_id;
 };
 
 class ResultFileSinkOperatorX final : public DataSinkOperatorX<ResultFileSinkLocalState> {
@@ -83,6 +99,9 @@ private:
 
     const RowDescriptor& _row_desc;
     const std::vector<TExpr>& _t_output_expr;
+
+    const std::vector<TPlanFragmentDestination> _dests;
+    bool _send_query_statistics_with_every_batch;
 
     // set file options when sink type is FILE
     std::unique_ptr<vectorized::ResultFileOptions> _file_opts;

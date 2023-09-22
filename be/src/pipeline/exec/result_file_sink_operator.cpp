@@ -18,10 +18,13 @@
 #include "result_file_sink_operator.h"
 
 #include <memory>
+#include <random>
 
+#include "pipeline/exec/exchange_sink_buffer.h"
 #include "pipeline/exec/operator.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/result_buffer_mgr.h"
+#include "vec/sink/vdata_stream_sender.h"
 #include "vec/sink/vresult_file_sink.h"
 
 namespace doris {
@@ -45,11 +48,15 @@ ResultFileSinkLocalState::ResultFileSinkLocalState(DataSinkOperatorXBase* parent
                                                    RuntimeState* state)
         : AsyncWriterSink<vectorized::VFileResultWriter>(
                   parent, state, parent->cast<ResultFileSinkOperatorX>()._row_desc,
-                  parent->cast<ResultFileSinkOperatorX>()._t_output_expr) {}
+                  parent->cast<ResultFileSinkOperatorX>()._t_output_expr),
+          _serializer(this) {}
 
 ResultFileSinkOperatorX::ResultFileSinkOperatorX(const RowDescriptor& row_desc,
                                                  const std::vector<TExpr>& t_output_expr)
-        : DataSinkOperatorX(0), _row_desc(row_desc), _t_output_expr(t_output_expr) {}
+        : DataSinkOperatorX(0),
+          _row_desc(row_desc),
+          _t_output_expr(t_output_expr),
+          _is_top_sink(true) {}
 
 ResultFileSinkOperatorX::ResultFileSinkOperatorX(
         RuntimeState* state, ObjectPool* pool, int sender_id, const RowDescriptor& row_desc,
@@ -59,8 +66,10 @@ ResultFileSinkOperatorX::ResultFileSinkOperatorX(
         : DataSinkOperatorX(0),
           _row_desc(row_desc),
           _t_output_expr(t_output_expr),
-          _output_row_descriptor(descs.get_tuple_descriptor(sink.output_tuple_id), false) {
-    _is_top_sink = false;
+          _dests(destinations),
+          _send_query_statistics_with_every_batch(send_query_statistics_with_every_batch),
+          _output_row_descriptor(descs.get_tuple_descriptor(sink.output_tuple_id), false),
+          _is_top_sink(false) {
     CHECK_EQ(destinations.size(), 1);
 }
 
@@ -80,9 +89,11 @@ Status ResultFileSinkOperatorX::init(const TDataSink& tsink) {
 
 Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
-
     SCOPED_TIMER(profile()->total_time_counter());
     SCOPED_TIMER(_open_timer);
+    _sender_id = info.sender_id;
+
+    _brpc_wait_timer = ADD_TIMER(_profile, "BrpcSendTime.Wait");
     auto& p = _parent->cast<ResultFileSinkOperatorX>();
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));
     CHECK(p._file_opts.get() != nullptr);
@@ -104,6 +115,26 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
                 p._file_opts.get(), p._storage_type, state->fragment_instance_id(),
                 _output_vexpr_ctxs, nullptr, _output_block.get(),
                 state->return_object_data_as_binary(), p._output_row_descriptor));
+
+        std::map<int64_t, int64_t> fragment_id_to_channel_index;
+        for (int i = 0; i < p._dests.size(); ++i) {
+            _channels.push_back(new vectorized::Channel(
+                    this, p._row_desc, p._dests[i].brpc_server, state->fragment_instance_id(),
+                    info.tsink.result_file_sink.dest_node_id, false,
+                    p._send_query_statistics_with_every_batch));
+        }
+        std::random_device rd;
+        std::mt19937 g(rd());
+        shuffle(_channels.begin(), _channels.end(), g);
+
+        int local_size = 0;
+        for (int i = 0; i < _channels.size(); ++i) {
+            RETURN_IF_ERROR(_channels[i]->init(state));
+            if (_channels[i]->is_local()) {
+                local_size++;
+            }
+        }
+        _only_local_exchange = local_size == _channels.size();
     }
     _writer->set_header_info(p._header_type, p._header);
     return Status::OK();
@@ -146,10 +177,75 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
                 time(nullptr) + config::result_buffer_cancelled_interval_time,
                 state->fragment_instance_id());
     } else {
+        if (final_status.ok()) {
+            bool all_receiver_eof = true;
+            for (auto channel : _channels) {
+                if (!channel->is_receiver_eof()) {
+                    all_receiver_eof = false;
+                    break;
+                }
+            }
+            if (all_receiver_eof) {
+                return Status::EndOfFile("all data stream channels EOF");
+            }
+            // 1. serialize depends on it is not local exchange
+            // 2. send block
+            // 3. rollover block
+            if (_only_local_exchange) {
+                if (!_output_block->empty()) {
+                    Status status;
+                    for (auto channel : _channels) {
+                        if (!channel->is_receiver_eof()) {
+                            status = channel->send_local_block(_output_block.get());
+                            HANDLE_CHANNEL_STATUS(state, channel, status);
+                        }
+                    }
+                }
+            } else {
+                {
+                    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+                    bool serialized = false;
+                    RETURN_IF_ERROR(_serializer.next_serialized_block(
+                            _output_block.get(), _block_holder->get_block(), _channels.size(),
+                            &serialized, true));
+                    if (serialized) {
+                        auto cur_block = _serializer.get_block()->to_block();
+                        if (!cur_block.empty()) {
+                            RETURN_IF_ERROR(_serializer.serialize_block(
+                                    &cur_block, _block_holder->get_block(), _channels.size()));
+                        } else {
+                            _block_holder->get_block()->Clear();
+                        }
+                        Status status;
+                        for (auto channel : _channels) {
+                            if (!channel->is_receiver_eof()) {
+                                if (channel->is_local()) {
+                                    status = channel->send_local_block(&cur_block);
+                                } else {
+                                    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+                                    status =
+                                            channel->send_block(_block_holder.get(), nullptr, true);
+                                }
+                                HANDLE_CHANNEL_STATUS(state, channel, status);
+                            }
+                        }
+                        cur_block.clear_column_data();
+                        _serializer.get_block()->set_muatable_columns(cur_block.mutate_columns());
+                    }
+                }
+            }
+        }
         _output_block->clear();
     }
 
     return Base::close(state, exec_status);
+}
+
+template <typename ChannelPtrType>
+void ResultFileSinkLocalState::_handle_eof_channel(RuntimeState* state, ChannelPtrType channel,
+                                                   Status st) {
+    channel->set_receiver_eof(st);
+    channel->close(state);
 }
 
 Status ResultFileSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
