@@ -1064,7 +1064,7 @@ public class DatabaseTransactionMgr {
                 writeUnlock();
                 try {
                     transactionState.afterStateTransform(TransactionStatus.VISIBLE, txnOperated);
-                } catch (UserException e) {
+                } catch (Exception e) {
                     LOG.warn("afterStateTransform txn {} failed. msg: {}", transactionId, e.getMessage());
                 }
             }
