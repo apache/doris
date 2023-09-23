@@ -50,7 +50,7 @@ public:
     bool is_pending_finish() const override;
 };
 
-struct ExchangeDataDependency : public Dependency {
+struct ExchangeDataDependency final : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(ExchangeDataDependency);
     ExchangeDataDependency(int id, vectorized::VDataStreamRecvr::SenderQueue* sender_queue)
@@ -89,7 +89,7 @@ private:
 };
 
 class ExchangeSourceOperatorX;
-class ExchangeLocalState : public PipelineXLocalState<> {
+class ExchangeLocalState final : public PipelineXLocalState<> {
     ENABLE_FACTORY_CREATOR(ExchangeLocalState);
     ExchangeLocalState(RuntimeState* state, OperatorXBase* parent);
 
@@ -123,12 +123,12 @@ public:
                      SourceState& source_state) override;
 
     Status close(RuntimeState* state) override;
-    bool is_source() const override { return true; }
+    [[nodiscard]] bool is_source() const override { return true; }
 
-    RowDescriptor input_row_desc() const { return _input_row_desc; }
+    [[nodiscard]] RowDescriptor input_row_desc() const { return _input_row_desc; }
 
-    int num_senders() const { return _num_senders; }
-    bool is_merging() const { return _is_merging; }
+    [[nodiscard]] int num_senders() const { return _num_senders; }
+    [[nodiscard]] bool is_merging() const { return _is_merging; }
 
     std::shared_ptr<QueryStatisticsRecvr> sub_plan_query_statistics_recvr() {
         return _sub_plan_query_statistics_recvr;
