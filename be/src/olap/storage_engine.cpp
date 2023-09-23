@@ -543,6 +543,7 @@ void StorageEngine::_exit_if_too_many_disks_are_failed() {
 }
 
 void StorageEngine::stop() {
+    LOG(INFO) << "begin stopping storage engine";
     // trigger the waiting threads
     notify_listeners();
 
@@ -562,7 +563,9 @@ void StorageEngine::stop() {
     THREAD_JOIN(_compaction_tasks_producer_thread);
     THREAD_JOIN(_update_replica_infos_thread);
     THREAD_JOIN(_unused_rowset_monitor_thread);
+    LOG(INFO) << "start join garbage sweeper thread";
     THREAD_JOIN(_garbage_sweeper_thread);
+    LOG(INFO) << "end join garbage sweeper thread";
     THREAD_JOIN(_disk_stat_monitor_thread);
     THREAD_JOIN(_fd_cache_clean_thread);
     THREAD_JOIN(_tablet_checkpoint_tasks_producer_thread);
@@ -582,6 +585,7 @@ void StorageEngine::stop() {
     THREADS_JOIN(_path_scan_threads);
 #undef THREADS_JOIN
     _stopped = true;
+    LOG(INFO) << "end stopping storage engine";
 }
 
 void StorageEngine::_clear() {

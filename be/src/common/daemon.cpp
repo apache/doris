@@ -394,6 +394,7 @@ static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
 void signal_handler(int signal) {
     if (signal == SIGINT || signal == SIGTERM) {
         k_doris_exit = true;
+        LOG(INFO) << "doris start to exit";
     }
 }
 
