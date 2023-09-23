@@ -260,7 +260,7 @@ void ProcessHashTableProbe<JoinOpType>::_probe_hash(const Keys& keys, HashTableT
         }
         _probe_side_hash_values[k] = hash_table_ctx.hash_table.hash(keys[k]);
     }
-    *(_join_context->_ready_probe) = true;
+    *_join_context->_ready_probe = true;
 }
 
 template <int JoinOpType>
@@ -342,7 +342,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
         }
     }
 
-    auto keys = key_getter.get_keys(probe_rows);
+    const auto& keys = key_getter.get_keys(probe_rows);
     int multi_matched_output_row_count = 0;
     _probe_hash<need_null_map_for_probe, ignore_null, HashTableType>(keys, hash_table_ctx,
                                                                      null_map);
@@ -367,6 +367,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                         all_match_one = false;
                     }
                     probe_index++;
+                    continue;
                 }
             }
 
@@ -467,13 +468,8 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                     ++probe_index;
                 }
             }
-
-            if (current_offset == _probe_indexs.size() + 1) {
-                _probe_indexs.emplace_back(current_probe_index);
-            } else {
-                all_match_one = false;
-                _probe_indexs.resize(current_offset, current_probe_index);
-            }
+            all_match_one &= (current_offset == _probe_indexs.size() + 1);
+            _probe_indexs.resize(current_offset, current_probe_index);
         }
         probe_size = probe_index - last_probe_index + probe_row_match_iter.ok();
     }
