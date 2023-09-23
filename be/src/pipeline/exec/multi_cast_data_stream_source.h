@@ -177,7 +177,6 @@ class MultiCastDataStreamSinkLocalState final
     ENABLE_FACTORY_CREATOR(MultiCastDataStreamSinkLocalState);
     MultiCastDataStreamSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : Base(parent, state) {}
-    std::shared_ptr<pipeline::MultiCastDataStreamer> multi_cast_data_streamer();
     friend class MultiCastDataStreamSinkOperatorX;
     friend class DataSinkOperatorX<MultiCastDataStreamSinkLocalState>;
     using Base = PipelineXSinkLocalState<MultiCastDependency>;
@@ -209,6 +208,7 @@ public:
                 SourceState source_state) override {
         CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
         SCOPED_TIMER(local_state.profile()->total_time_counter());
+        COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
         if (in_block->rows() > 0 || source_state == SourceState::FINISHED) {
             COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
             auto st = local_state._shared_state->_multi_cast_data_streamer->push(
