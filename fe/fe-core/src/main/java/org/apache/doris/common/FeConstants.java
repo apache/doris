@@ -49,6 +49,8 @@ public class FeConstants {
 
     // set to true to skip some step when running FE unit test
     public static boolean runningUnitTest = false;
+    // use to set some mocked values for FE unit test
+    public static Object unitTestConstant = null;
 
     // set to false to disable internal schema db
     public static boolean enableInternalSchemaDb = true;
@@ -88,7 +90,10 @@ public class FeConstants {
     public static String FS_PREFIX_GFS = "gfs";
     public static String FS_PREFIX_JFS = "jfs";
     public static String FS_PREFIX_HDFS = "hdfs";
+    public static String FS_PREFIX_VIEWFS = "viewfs";
     public static String FS_PREFIX_FILE = "file";
     public static final String INTERNAL_DB_NAME = "__internal_schema";
     public static String TEMP_MATERIZLIZE_DVIEW_PREFIX = "internal_tmp_materialized_view_";
+
+    public static String METADATA_FAILURE_RECOVERY_KEY = "metadata_failure_recovery";
 }

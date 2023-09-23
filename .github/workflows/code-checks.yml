@@ -40,7 +40,7 @@ jobs:
       - name: Patch
         run: |
           pushd .github/actions/action-sh-checker >/dev/null
-          git apply ../patches/action-sh-checker.patch
+          sed -i 's/\[ "$GITHUB_EVENT_NAME" == "pull_request" \]/\[\[ "$GITHUB_EVENT_NAME" == "pull_request" || "$GITHUB_EVENT_NAME" == "pull_request_target" \]\]/' entrypoint.sh
           popd >/dev/null
 
       - name: Run ShellCheck
@@ -49,12 +49,15 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           sh_checker_comment: true
-          sh_checker_exclude: .git .github ^docker ^thirdparty/src ^thirdparty/installed ^ui ^docs/node_modules ^tools/clickbench-tools ^extension ^output ^fs_brokers/apache_hdfs_broker/output (^|.*/)Dockerfile$ ^be/src/apache-orc ^be/src/clucene
+          sh_checker_exclude: .git .github ^docker ^thirdparty/src ^thirdparty/installed ^ui ^docs/node_modules ^tools/clickbench-tools ^extension ^output ^fs_brokers/apache_hdfs_broker/output (^|.*/)Dockerfile$ ^be/src/apache-orc ^be/src/clucene ^pytest
 
-  clang-tidy:
-    name: "Clang Tidy"
+  preparation:
+    name: "Clang Tidy Preparation"
     if: ${{ github.event_name == 'pull_request_target' }}
     runs-on: ubuntu-22.04
+    permissions: read-all
+    outputs:
+      should_check: ${{ steps.generate.outputs.should_check }}
     steps:
       - name: Checkout ${{ github.ref }} ( ${{ github.event.pull_request.head.sha }} )
         uses: actions/checkout@v3
@@ -73,28 +76,56 @@ jobs:
               - 'gensrc/thrift/**'
 
       - name: Generate compile_commands.json
-        if: ${{ steps.filter.outputs.be_changes == 'true' }}
+        id: generate
         run: |
-          export DEFAULT_DIR='/opt/doris'
+          if [[ "${{ steps.filter.outputs.be_changes }}" == 'true' ]]; then
+            export DEFAULT_DIR='/opt/doris'
 
-          mkdir "${DEFAULT_DIR}"
-          wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.18/ldb_toolchain_gen.sh \
-            -q -O /tmp/ldb_toolchain_gen.sh
-          bash /tmp/ldb_toolchain_gen.sh "${DEFAULT_DIR}/ldb-toolchain"
+            mkdir "${DEFAULT_DIR}"
+            wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.18/ldb_toolchain_gen.sh \
+              -q -O /tmp/ldb_toolchain_gen.sh
+            bash /tmp/ldb_toolchain_gen.sh "${DEFAULT_DIR}/ldb-toolchain"
 
-          sudo DEBIAN_FRONTEND=noninteractive apt install --yes tzdata byacc
+            sudo DEBIAN_FRONTEND=noninteractive apt install --yes tzdata byacc
 
-          pushd thirdparty
-          curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-linux-x86_64.tar.xz \
-            -o doris-thirdparty-prebuilt-linux-x86_64.tar.xz
-          tar -xvf doris-thirdparty-prebuilt-linux-x86_64.tar.xz
-          popd
+            pushd thirdparty
+            curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-linux-x86_64.tar.xz \
+              -o doris-thirdparty-prebuilt-linux-x86_64.tar.xz
+            tar -xvf doris-thirdparty-prebuilt-linux-x86_64.tar.xz
+            popd
 
-          export PATH="${DEFAULT_DIR}/ldb-toolchain/bin/:$(pwd)/thirdparty/installed/bin/:${PATH}"
-          DISABLE_JAVA_UDF=ON DORIS_TOOLCHAIN=clang OUTPUT_BE_BINARY=0 ./build.sh --be
+            export PATH="${DEFAULT_DIR}/ldb-toolchain/bin/:$(pwd)/thirdparty/installed/bin/:${PATH}"
+            DISABLE_JAVA_UDF=ON DORIS_TOOLCHAIN=clang ENABLE_PCH=OFF OUTPUT_BE_BINARY=0 ./build.sh --be
+          fi
+
+          echo "should_check=${{ steps.filter.outputs.be_changes }}" >>${GITHUB_OUTPUT}
+
+      - name: Upload
+        uses: actions/upload-artifact@v3
+        if: ${{ steps.filter.outputs.be_changes == 'true' }}
+        with:
+          name: compile_commands
+          path: ./be/build_Release/compile_commands.json
+
+  clang-tidy:
+    name: "Clang Tidy"
+    needs: preparation
+    if: ${{ needs.preparation.outputs.should_check == 'true' }}
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout ${{ github.ref }} ( ${{ github.event.pull_request.head.sha }} )
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          submodules: recursive
+
+      - name: Download
+        uses: actions/download-artifact@v3
+        with:
+          name: compile_commands
+          path: ./be/build_Release
 
       - name: Run clang-tidy review
-        if: ${{ steps.filter.outputs.be_changes == 'true' }}
         uses: ./.github/actions/clang-tidy-review
         id: review
         with:

@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Config;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.QueryState;
@@ -114,7 +115,7 @@ public abstract class BaseAnalysisTask {
         init(info);
     }
 
-    private void init(AnalysisInfo info) {
+    protected void init(AnalysisInfo info) {
         catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(info.catalogName);
         if (catalog == null) {
             Env.getCurrentEnv().getAnalysisManager().updateTaskStatus(info, AnalysisState.FAILED,
@@ -169,6 +170,9 @@ public abstract class BaseAnalysisTask {
                 doExecute();
                 break;
             } catch (Throwable t) {
+                if (killed) {
+                    throw new RuntimeException(t);
+                }
                 LOG.warn("Failed to execute analysis task, retried times: {}", retriedTimes++, t);
                 if (retriedTimes > StatisticConstants.ANALYZE_TASK_RETRY_TIMES) {
                     throw new RuntimeException(t);
@@ -184,7 +188,11 @@ public abstract class BaseAnalysisTask {
         if (killed) {
             return;
         }
-        Env.getCurrentEnv().getStatisticsCache().syncLoadColStats(tbl.getId(), -1, col.getName());
+        long tblId = tbl.getId();
+        String colName = col.getName();
+        if (!Env.getCurrentEnv().getStatisticsCache().syncLoadColStats(tblId, -1, colName)) {
+            Env.getCurrentEnv().getAnalysisManager().removeColStatsStatus(tblId, colName);
+        }
     }
 
     protected void setTaskStateToRunning() {
@@ -215,14 +223,22 @@ public abstract class BaseAnalysisTask {
     }
 
     protected String getSampleExpression() {
-        if (info.analysisMethod == AnalysisMethod.FULL) {
+        if (info.forceFull) {
             return "";
         }
-        // TODO Add sampling methods for external tables
+        int sampleRows = info.sampleRows;
+        if (info.analysisMethod == AnalysisMethod.FULL) {
+            if (Config.enable_auto_sample
+                    && tbl.getDataSize(true) > Config.huge_table_lower_bound_size_in_bytes) {
+                sampleRows = Config.huge_table_default_sample_rows;
+            } else {
+                return "";
+            }
+        }
         if (info.samplePercent > 0) {
             return String.format("TABLESAMPLE(%d PERCENT)", info.samplePercent);
         } else {
-            return String.format("TABLESAMPLE(%d ROWS)", info.sampleRows);
+            return String.format("TABLESAMPLE(%d ROWS)", sampleRows);
         }
     }
 

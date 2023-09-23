@@ -39,6 +39,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "common/version_internal.h"
 #include "exec/data_sink.h"
 #include "exec/exec_node.h"
@@ -333,6 +334,13 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
 
             if (!eos || block->rows() > 0) {
                 auto st = _sink->send(runtime_state(), block.get());
+                //TODO: Asynchronisation need refactor this
+                if (st.is<NEED_SEND_AGAIN>()) { // created partition, do it again.
+                    st = _sink->send(runtime_state(), block.get());
+                    if (st.is<NEED_SEND_AGAIN>()) {
+                        LOG(WARNING) << "have to create partition again...";
+                    }
+                }
                 if (UNLIKELY(!st.ok() || block->rows() == 0)) {
                     // Used for group commit insert
                     if (_group_commit) {
@@ -528,7 +536,9 @@ void PlanFragmentExecutor::send_report(bool done) {
         return;
     }
     ReportStatusRequest report_req = {
+            false,
             status,
+            {},
             _runtime_state->enable_profile() ? _runtime_state->runtime_profile() : nullptr,
             _runtime_state->enable_profile() ? _runtime_state->load_channel_profile() : nullptr,
             done || !status.ok(),

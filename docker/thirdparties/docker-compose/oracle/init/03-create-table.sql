@@ -124,3 +124,10 @@ create table doris_test.aaad (
      id number(5),
      name varchar2(20)
 );
+
+create table doris_test."student2" (
+id number(5),
+name varchar2(20),
+age number(2),
+score number(3,1)
+);

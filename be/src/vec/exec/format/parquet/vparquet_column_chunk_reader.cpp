@@ -40,7 +40,7 @@ class time_zone;
 namespace doris {
 namespace io {
 class BufferedStreamReader;
-class IOContext;
+struct IOContext;
 } // namespace io
 } // namespace doris
 
