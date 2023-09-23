@@ -156,7 +156,7 @@ public class EsRestClient {
             String index = json.get("index").asText();
             if (includeHiddenIndex) {
                 ret.add(index);
-            }else{
+            } else {
                 if (!index.startsWith(".")) {
                     ret.add(index);
                 }
