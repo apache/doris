@@ -40,8 +40,8 @@ import org.apache.doris.service.FrontendOptions;
 
 import com.google.common.base.Charsets;
 import com.google.common.base.Strings;
-import io.grpc.netty.shaded.io.netty.util.internal.logging.InternalLoggerFactory;
-import io.grpc.netty.shaded.io.netty.util.internal.logging.Log4JLoggerFactory;
+import io.netty.util.internal.logging.InternalLoggerFactory;
+import io.netty.util.internal.logging.Log4JLoggerFactory;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.DefaultParser;
