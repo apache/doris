@@ -307,9 +307,6 @@ Status OperatorX<LocalStateType>::setup_local_state(RuntimeState* state, LocalSt
 template <typename LocalStateType>
 Status OperatorX<LocalStateType>::setup_local_states(RuntimeState* state,
                                                      std::vector<LocalStateInfo>& infos) {
-    if (infos.size() > 1) {
-        LOG_WARNING("herr");
-    }
     DCHECK(infos.size() == 1) << infos.size();
     for (auto& info : infos) {
         RETURN_IF_ERROR(setup_local_state(state, info));
@@ -320,15 +317,18 @@ Status OperatorX<LocalStateType>::setup_local_states(RuntimeState* state,
 template <>
 Status OperatorX<UnionSourceLocalState>::setup_local_states(RuntimeState* state,
                                                             std::vector<LocalStateInfo>& infos) {
+    int child_count = static_cast<pipeline::UnionSourceOperatorX*>(this)->get_child_count();
     std::shared_ptr<DataQueue> data_queue;
     for (auto& info : infos) {
         auto local_state = UnionSourceLocalState::create_shared(state, this);
         state->emplace_local_state(id(), local_state);
         RETURN_IF_ERROR(local_state->init(state, info));
-        if (!data_queue) {
-            data_queue = local_state->data_queue();
+        if (child_count != 0) {
+            if (!data_queue) {
+                data_queue = local_state->data_queue();
+            }
+            local_state->_shared_state->data_queue = data_queue;
         }
-        local_state->_shared_state->data_queue = data_queue;
     }
     return Status::OK();
 }
