@@ -1065,7 +1065,7 @@ public class DatabaseTransactionMgr {
                 try {
                     transactionState.afterStateTransform(TransactionStatus.VISIBLE, txnOperated);
                 } catch (Exception e) {
-                    LOG.warn("afterStateTransform txn {} failed. msg: {}", transactionId, e.getMessage());
+                    LOG.warn("afterStateTransform txn {} failed. exception: ", transactionState, e);
                 }
             }
             updateCatalogAfterVisible(transactionState, db);
