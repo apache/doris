@@ -198,7 +198,7 @@ void Daemon::memory_maintenance_thread() {
         doris::MemInfo::refresh_proc_mem_no_allocator_cache();
 
         // Update and print memory stat when the memory changes by 256M.
-        if (abs(last_print_proc_mem - PerfCounters::get_vm_rss()) > 268435456) {
+        if (abs(last_print_proc_mem - PerfCounters::get_vm_rss()) > 268435456 && !k_doris_exit) {
             last_print_proc_mem = PerfCounters::get_vm_rss();
             doris::MemTrackerLimiter::enable_print_log_process_usage();
 
