@@ -207,6 +207,7 @@ protected:
     Conditions _all_conditions;
     std::vector<ColumnPredicate*> _col_predicates;
     std::vector<ColumnPredicate*> _value_col_predicates;
+    std::vector<ColumnPredicate*> _obsolete_predicates;
     DeleteHandler _delete_handler;
 
     bool _aggregation = false;

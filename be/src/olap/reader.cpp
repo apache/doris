@@ -94,6 +94,9 @@ TabletReader::~TabletReader() {
     for (auto pred : _value_col_predicates) {
         delete pred;
     }
+    for (auto pred : _obsolete_predicates) {
+        delete pred;
+    }
 }
 
 Status TabletReader::init(const ReaderParams& read_params) {
@@ -453,15 +456,23 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
         ColumnPredicate* predicate = _parse_to_predicate(condition);
         if (predicate != nullptr) {
             FieldAggregationMethod aggregate_method = _tablet_schema->field_index(condition.column_name)).aggregation();
-            bool can_pushdown_rowset_reader = false;
 
-            if (aggregate_method == FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE
-                || aggregate_method == FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL) {
+            bool can_pushdown_rowset_reader = false;
+            if (aggregate_method == FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE) {
                 can_pushdown_rowset_reader = true;
             }
+            if (aggregate_method == FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL) {
+                if (predicate->type() != PredicateType::IS_NULL) {
+                    can_pushdown_rowset_reader = true;
+                }
+            }
 
-            if (aggregate_method != FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE && can_pushdown_rowset_reader) {
-                _value_col_predicates.push_back(predicate);
+            if (aggregate_method != FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE) {
+                if (can_pushdown_rowset_reader) {
+                    _value_col_predicates.push_back(predicate);
+                } else {
+                    _obsolete_predicates.push_back(predicate);
+                }
             } else {
                 _col_predicates.push_back(predicate);
                 Status status = _conditions.append_condition(condition);
