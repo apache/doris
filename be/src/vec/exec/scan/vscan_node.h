@@ -124,6 +124,9 @@ protected:
     // Only predicate on key column can be pushed down.
     virtual bool _is_key_column(const std::string& col_name) { return false; }
 
+    // Return true if it is value column and type is REPLACE or REPLACE_IF_NOT_NULL
+    virtual bool _is_uniq_agg_column(const std::string& col_name) { return false; }
+
 protected:
     RuntimeState* _state;
     // For load scan node, there should be both input and output tuple descriptor.

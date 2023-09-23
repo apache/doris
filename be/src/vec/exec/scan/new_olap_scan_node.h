@@ -35,6 +35,7 @@ protected:
     Status _init_profile() override;
     Status _process_conjuncts() override;
     bool _is_key_column(const std::string& col_name) override;
+    bool _is_uniq_agg_column(const std::string& col_name) override;
 
     bool _should_push_down_binary_predicate(
             VectorizedFnCall* fn_call, VExprContext* expr_ctx, StringRef* constant_val,

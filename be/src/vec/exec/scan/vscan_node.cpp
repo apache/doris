@@ -379,8 +379,7 @@ VExpr* VScanNode::_normalize_predicate(VExpr* conjunct_expr_root) {
                                     &push_down));
                             RETURN_IF_PUSH_DOWN(_normalize_noneq_binary_predicate(
                                     cur_expr, *(_vconjunct_ctx_ptr.get()), slot, value_range,
-                                    &push_down));
-                            if (_is_key_column(slot->col_name())) {
+                            if (_is_key_column(slot->col_name()) || _is_uniq_agg_column(slot->col_name())) {
                                 RETURN_IF_PUSH_DOWN(_normalize_bloom_filter(
                                         cur_expr, *(_vconjunct_ctx_ptr.get()), slot, &push_down));
                                 if (_state->enable_function_pushdown()) {

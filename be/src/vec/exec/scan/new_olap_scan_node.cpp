@@ -304,4 +304,30 @@ bool NewOlapScanNode::_is_key_column(const std::string& key_name) {
     return res != _olap_scan_node.key_column_name.end();
 }
 
+bool NewOlapScanNode::_is_uniq_agg_column(const std::string& col_name) {
+    if (_olap_scan_node.keyType != TKeysType::AGG_KEYS) {
+        return true;
+    }
+
+    // choose any tablet to get tablet schema
+    auto tablet_id = _scan_ranges[0]->tablet_id;
+    std::string err;
+    TabletSharedPtr tablet =
+            StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, true, &err);
+    if (tablet == nullptr) {
+        std::stringstream ss;
+        ss << "failed to get tablet: " << tablet_id << ", reason: " << err;
+        LOG(WARNING) << ss.str();
+        return false;
+    }
+
+    // in agg key, replace or replace_if_not_null can be push down
+    FieldAggregationMethod aggregate_method = tablet->tablet_schema()->column(col_name).aggregation();
+    if (aggregate_method == FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE
+            || aggregate_method == FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL) {
+        return true;
+    }
+
+    return false;
+}
 }; // namespace doris::vectorized

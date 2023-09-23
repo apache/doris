@@ -472,7 +472,20 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
 
     // Function filter push down to storage engine
     for (const auto& filter : read_params.function_filters) {
-        _col_predicates.emplace_back(_parse_to_predicate(filter));
+        auto function_col_uid = _tablet_schema->column(filter._col_name).unique_id();
+        FieldAggregationMethod aggregate_method = _tablet_schema->column_by_uid(function_col_uid).aggregation();
+        if (aggregate_method != FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE) {
+            if (UNLIKELY(aggregate_method != FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE
+                    && aggregate_method != FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL)) {
+                LOG(WARNING) << "push down error function to reader, col_name = " << filter._col_name;
+            } else {
+                // if the aggregation of col isn't replace or replace_if_not_null, don't add it into col predicate
+                // result is still correct because the function filter hasn't been removed on the upper level
+                _value_col_predicates.push_back(_parse_to_predicate(filter));
+            }
+        } else {
+            _col_predicates.emplace_back(_parse_to_predicate(filter));
+        }
     }
 }
 
