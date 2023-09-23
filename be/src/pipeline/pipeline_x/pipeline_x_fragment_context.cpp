@@ -750,6 +750,11 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         RETURN_IF_ERROR(cur_pipe->add_operator(op));
         break;
     }
+    case TPlanNodeType::DATA_GEN_SCAN_NODE: {
+        op.reset(new DataGenSourceOperatorX(pool, tnode, descs));
+        RETURN_IF_ERROR(cur_pipe->add_operator(op));
+        break;
+    }
     case TPlanNodeType::SELECT_NODE: {
         op.reset(new SelectOperatorX(pool, tnode, descs));
         RETURN_IF_ERROR(cur_pipe->add_operator(op));
