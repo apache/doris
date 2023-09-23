@@ -244,22 +244,18 @@ KeyGetter ProcessHashTableProbe<JoinOpType>::_init_probe_side(size_t probe_rows,
 }
 
 template <int JoinOpType>
-template <bool need_null_map_for_probe, bool ignore_null, typename HashTableType, typename Keys>
-void ProcessHashTableProbe<JoinOpType>::_probe_hash(const Keys& keys, HashTableType& hash_table_ctx,
-                                                    ConstNullMapPtr null_map) {
+template <typename HashTableType, typename Keys>
+void ProcessHashTableProbe<JoinOpType>::_probe_hash(const Keys& keys,
+                                                    HashTableType& hash_table_ctx) {
     if (*_join_context->_ready_probe) {
         return;
     }
     SCOPED_TIMER(_search_hashtable_timer);
     _probe_side_hash_values.resize(keys.size());
     for (size_t k = 0; k < keys.size(); ++k) {
-        if constexpr (need_null_map_for_probe) {
-            if ((*null_map)[k]) {
-                continue;
-            }
-        }
         _probe_side_hash_values[k] = hash_table_ctx.hash_table.hash(keys[k]);
     }
+
     *_join_context->_ready_probe = true;
 }
 
@@ -344,12 +340,12 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
 
     const auto& keys = key_getter.get_keys(probe_rows);
     int multi_matched_output_row_count = 0;
-    _probe_hash<need_null_map_for_probe, ignore_null, HashTableType>(keys, hash_table_ctx,
-                                                                     null_map);
+    _probe_hash<HashTableType>(keys, hash_table_ctx);
 
     {
         SCOPED_TIMER(_search_hashtable_timer);
         using FindResult = decltype(key_getter.find_key(hash_table_ctx.hash_table, 0, *_arena));
+
         FindResult empty = {nullptr, false};
         while (current_offset < _batch_size && probe_index < probe_rows) {
             if constexpr (ignore_null && need_null_map_for_probe) {
@@ -377,8 +373,8 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                             : key_getter.find_key_with_hash(hash_table_ctx.hash_table,
                                                             _probe_side_hash_values[probe_index],
                                                             keys[probe_index]);
-
-            if (LIKELY(probe_index + HASH_MAP_PREFETCH_DIST < probe_rows)) {
+            if (LIKELY(probe_index + HASH_MAP_PREFETCH_DIST < probe_rows) &&
+                !(need_null_map_for_probe && (*null_map)[probe_index + HASH_MAP_PREFETCH_DIST])) {
                 key_getter.template prefetch_by_hash<true>(
                         hash_table_ctx.hash_table,
                         _probe_side_hash_values[probe_index + HASH_MAP_PREFETCH_DIST]);
