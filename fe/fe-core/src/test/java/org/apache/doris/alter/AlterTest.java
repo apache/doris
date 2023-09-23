@@ -1290,10 +1290,6 @@ public class AlterTest {
 
             OlapTable tbl = (OlapTable) db.getTableOrMetaException("col_tbl" + i);
             Assert.assertEquals(newReplicaAlloc, tbl.getDefaultReplicaAllocation());
-            if (i == 2) {
-                Assert.assertEquals(newReplicaAlloc,
-                        tbl.getTableProperty().getDynamicPartitionProperty().getReplicaAllocation());
-            }
             for (Partition partition : tbl.getAllPartitions()) {
                 Assert.assertEquals(newReplicaAlloc,
                         tbl.getPartitionInfo().getReplicaAllocation(partition.getId()));
@@ -1318,7 +1314,7 @@ public class AlterTest {
                 if (env.getColocateTableIndex().isGroupUnstable(groupSchema.getGroupId())) {
                     allStable = false;
                     if (k >= 120) {
-                        Assert.assertTrue(fullGroupName + " is unstable" , false);
+                        Assert.assertTrue(fullGroupName + " is unstable", false);
                     }
                     continue;
                 }

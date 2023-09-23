@@ -686,12 +686,15 @@ public class ColocateTableIndex implements Writable {
                     Database db = Env.getCurrentInternalCatalog().getDbNullable(groupId.dbId);
                     if (db != null) {
                         dbName = db.getFullName();
+                        int index = dbName.indexOf(":");
+                        if (index > 0) {
+                            dbName = dbName.substring(index + 1); //use short db name
+                        }
                     }
                 }
-                info.add(dbName);
                 String groupName = entry.getKey();
                 if (!GroupId.isGlobalGroupName(groupName)) {
-                    groupName = groupName.substring(groupName.indexOf(".") + 1);
+                    groupName = dbName + "." + groupName.substring(groupName.indexOf("_") + 1);
                 }
                 info.add(groupName);
                 info.add(Joiner.on(", ").join(group2Tables.get(groupId)));

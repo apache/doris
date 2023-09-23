@@ -62,7 +62,7 @@ public class ColocateGroupName {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         if (!Strings.isNullOrEmpty(db)) {
-            sb.append("`").append(db).append("`");
+            sb.append("`").append(db).append("`.");
         }
         sb.append("`").append(group).append("`");
         return sb.toString();
