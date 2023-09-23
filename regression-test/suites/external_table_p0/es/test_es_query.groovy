@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
-    sql """ set enable_pipeline_x_engine = true; """
     String enabled = context.config.otherConfigs.get("enableEsTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
