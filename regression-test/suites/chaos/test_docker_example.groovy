@@ -17,7 +17,7 @@
 
 import org.apache.doris.regression.suite.ClusterOptions
 
-suite("test_chaos_example") {
+suite("test_docker_example") {
     docker {
         sql """create table tb1 (k int) DISTRIBUTED BY HASH(k) BUCKETS 10"""
         sql """insert into tb1 values (1),(2),(3)"""

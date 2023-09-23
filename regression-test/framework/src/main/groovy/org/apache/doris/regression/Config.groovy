@@ -62,7 +62,7 @@ class Config {
     public String sslCertificatePath
     public String dorisComposePath
     public String image
-    public boolean dockerEndDeleteFiles
+    public Boolean dockerEndDeleteFiles
 
     public String testGroups
     public String excludeGroups
