@@ -1247,7 +1247,10 @@ public class Coordinator implements CoordInterface {
                 String errMsg = copyStatus.getErrorMsg();
                 LOG.warn("query failed: {}", errMsg);
 
-                // hide host info
+                // hide host info exclude localhost
+                if (errMsg.contains("localhost")) {
+                    throw new UserException(errMsg);
+                }
                 int hostIndex = errMsg.indexOf("host");
                 if (hostIndex != -1) {
                     errMsg = errMsg.substring(0, hostIndex);
