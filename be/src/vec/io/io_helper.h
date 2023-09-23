@@ -463,7 +463,6 @@ StringParser::ParseResult try_read_decimal_text(T& x, ReadBuffer& in, UInt32 pre
 }
 
 template <typename T>
-<<<<<<< HEAD
 bool try_read_ipv4_text(T& x, ReadBuffer& in) {
     return read_ipv4_text_impl<T>(x, in);
 }
@@ -474,13 +473,8 @@ bool try_read_ipv6_text(T& x, ReadBuffer& in) {
 }
 
 template <typename T>
-bool try_read_datetime_text(T& x, ReadBuffer& in, const cctz::time_zone& local_time_zone,
-                            ZoneList& time_zone_cache, std::shared_mutex& cache_lock) {
-    return read_datetime_text_impl<T>(x, in, local_time_zone, time_zone_cache, cache_lock);
-=======
 bool try_read_datetime_text(T& x, ReadBuffer& in, const cctz::time_zone& local_time_zone) {
     return read_datetime_text_impl<T>(x, in, local_time_zone);
->>>>>>> ce8dfd3561a20bf227356482b2c4d50b605fb663
 }
 
 template <typename T>
