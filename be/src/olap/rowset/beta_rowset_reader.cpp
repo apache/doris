@@ -272,12 +272,11 @@ Status BetaRowsetReader::next_block(vectorized::Block* block) {
 }
 
 bool BetaRowsetReader::_should_push_down_value_predicates() const {
-    // if unique table with rowset [0-x] or [0-1] [2-y] [...],
-    // value column predicates can be pushdown on rowset [0-x] or [2-y], [2-y] must be compaction and not overlapping
-    return _rowset->keys_type() == UNIQUE_KEYS &&
-           (((_rowset->start_version() == 0 || _rowset->start_version() == 2) &&
+    // if table with rowset [0-x] or [0-1] [2-y] [...], value column predicates(replcae or replace_if_not_null)
+    // can be pushdown on rowset [0-x] or [2-y], [2-y] must be compaction and not overlapping
+    return ((_rowset->start_version() == 0 || _rowset->start_version() == 2) &&
              !_rowset->_rowset_meta->is_segments_overlapping()) ||
-            _context->enable_unique_key_merge_on_write);
+            _context->enable_unique_key_merge_on_write;
 }
 
 Status BetaRowsetReader::get_segment_num_rows(std::vector<uint32_t>* segment_num_rows) {
