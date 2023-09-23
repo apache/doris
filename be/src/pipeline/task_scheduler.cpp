@@ -277,7 +277,7 @@ void TaskScheduler::_do_work(size_t index) {
             // exec failed，cancel all fragment instance
             fragment_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, status.to_string());
             fragment_ctx->send_report(true);
-            _try_close_task(task, PipelineTaskState::CANCELED);
+            _try_close_task(task, PipelineTaskState::CANCELED, status);
             continue;
         }
 
@@ -291,8 +291,10 @@ void TaskScheduler::_do_work(size_t index) {
                 fragment_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
                                      "finalize fail:" + status.to_string());
             } else {
-                _try_close_task(task, fragment_ctx->is_canceled() ? PipelineTaskState::CANCELED
-                                                                  : PipelineTaskState::FINISHED);
+                _try_close_task(task,
+                                fragment_ctx->is_canceled() ? PipelineTaskState::CANCELED
+                                                            : PipelineTaskState::FINISHED,
+                                status);
             }
             continue;
         }
@@ -315,11 +317,12 @@ void TaskScheduler::_do_work(size_t index) {
     }
 }
 
-void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state) {
-    auto status = task->try_close();
+void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state,
+                                    Status exec_status) {
+    auto status = task->try_close(exec_status);
     if (!status.ok() && state != PipelineTaskState::CANCELED) {
         // Call `close` if `try_close` failed to make sure allocated resources are released
-        task->close();
+        task->close(exec_status);
         task->query_context()->cancel(true, status.to_string(),
                                       Status::Cancelled(status.to_string()));
         state = PipelineTaskState::CANCELED;
@@ -328,7 +331,7 @@ void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state)
         _blocked_task_scheduler->add_blocked_task(task);
         return;
     } else {
-        status = task->close();
+        status = task->close(exec_status);
         if (!status.ok() && state != PipelineTaskState::CANCELED) {
             task->query_context()->cancel(true, status.to_string(),
                                           Status::Cancelled(status.to_string()));

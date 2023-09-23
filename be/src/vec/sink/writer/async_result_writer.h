@@ -32,6 +32,12 @@ class RuntimeProfile;
 class TDataSink;
 class TExpr;
 
+namespace pipeline {
+class AsyncWriterDependency;
+class WriteDependency;
+
+} // namespace pipeline
+
 namespace vectorized {
 class Block;
 /*
@@ -50,6 +56,8 @@ class AsyncResultWriter : public ResultWriter {
 public:
     AsyncResultWriter(const VExprContextSPtrs& output_expr_ctxs);
 
+    void set_dependency(pipeline::AsyncWriterDependency* dep) { _dependency = dep; }
+
     void force_close(Status s);
 
     virtual bool in_transaction() { return false; }
@@ -66,8 +74,10 @@ public:
 
     bool can_write() {
         std::lock_guard l(_m);
-        return _data_queue.size() < QUEUE_SIZE || !_writer_status.ok() || _eos;
+        return _data_queue_is_available() || _is_finished();
     }
+
+    pipeline::WriteDependency* write_blocked_by();
 
     [[nodiscard]] bool is_pending_finish() const { return !_writer_thread_closed; }
 
@@ -90,6 +100,8 @@ protected:
     void _return_free_block(std::unique_ptr<Block>);
 
 private:
+    [[nodiscard]] bool _data_queue_is_available() const { return _data_queue.size() < QUEUE_SIZE; }
+    [[nodiscard]] bool _is_finished() const { return !_writer_status.ok() || _eos; }
     static constexpr auto QUEUE_SIZE = 3;
     std::mutex _m;
     std::condition_variable _cv;
@@ -98,6 +110,9 @@ private:
     bool _eos = false;
     bool _need_normal_close = true;
     bool _writer_thread_closed = false;
+
+    // Used by pipelineX
+    pipeline::AsyncWriterDependency* _dependency;
 
     moodycamel::ConcurrentQueue<std::unique_ptr<Block>> _free_blocks;
 };

@@ -56,7 +56,7 @@ public:
 
     virtual Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
-    virtual Status close(RuntimeState* state) override;
+    Status close(RuntimeState* state, Status exec_status) override;
 
     Status try_spill_disk(bool eos = false);
 
