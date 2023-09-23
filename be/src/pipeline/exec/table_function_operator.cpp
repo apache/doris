@@ -49,12 +49,12 @@ Status TableFunctionLocalState::init(RuntimeState* state, LocalStateInfo& info) 
     RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
     auto& p = _parent->cast<TableFunctionOperatorX>();
     _vfn_ctxs.resize(p._vfn_ctxs.size());
-    _fns.resize(p._fns.size());
     for (size_t i = 0; i < _vfn_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._vfn_ctxs[i]->clone(state, _vfn_ctxs[i]));
 
+        const std::string& tf_name = _vfn_ctxs[i]->root()->fn().name.function_name;
         vectorized::TableFunction* fn = nullptr;
-        RETURN_IF_ERROR(vectorized::TableFunctionFactory::get_fn(p._fns[i]->name(), _pool, &fn));
+        RETURN_IF_ERROR(vectorized::TableFunctionFactory::get_fn(tf_name, state->obj_pool(), &fn));
         fn->set_expr_context(_vfn_ctxs[i]);
         _fns.push_back(fn);
     }
