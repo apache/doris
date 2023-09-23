@@ -112,9 +112,11 @@ public:
 
     RuntimeProfile* pipeline_profile() { return _pipeline_profile.get(); }
 
-    const RowDescriptor& output_row_desc() const { return operatorXs.back()->row_desc(); }
+    [[nodiscard]] const RowDescriptor& output_row_desc() const {
+        return operatorXs.back()->row_desc();
+    }
 
-    PipelineId id() const { return _pipeline_id; }
+    [[nodiscard]] PipelineId id() const { return _pipeline_id; }
 
 private:
     void _init_profile();
