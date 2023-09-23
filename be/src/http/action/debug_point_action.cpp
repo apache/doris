@@ -49,11 +49,11 @@ Status AddDebugPointAction::_handle(HttpRequest* req) {
     if (debug_point.empty()) {
         return Status::InternalError("Empty debug point name");
     }
-    int execute_limit = -1;
-    long timeout_second = -1;
+    int64_t execute_limit = -1;
+    int64_t timeout_second = -1;
     try {
         if (!execute.empty()) {
-            execute_limit = std::stoi(execute);
+            execute_limit = std::stol(execute);
         }
     } catch (const std::exception& e) {
         return Status::InternalError("Invalid execute limit format, execute {}, err {}", execute,

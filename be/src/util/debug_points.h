@@ -17,8 +17,10 @@
 
 #pragma once
 
+#include <atomic>
+#include <functional>
 #include <map>
-#include <mutex>
+#include <memory>
 #include <string>
 
 #include "common/compiler_util.h"
@@ -34,29 +36,32 @@
 namespace doris {
 
 struct DebugPoint {
-    int execute_num = 0;
-    int execute_limit = -1;
+    std::atomic<int64_t> execute_num {0};
+    int64_t execute_limit = -1;
     int64_t expire_ms = -1;
 };
 
 class DebugPoints {
 public:
     bool is_enable(const std::string& name);
-    void add(const std::string& name, int execute_limit, int64_t timeout_second);
+    void add(const std::string& name, int64_t execute_limit, int64_t timeout_second);
     void remove(const std::string& name);
     void clear();
 
-    static DebugPoints* instance() {
-        static DebugPoints instance;
-        return &instance;
-    }
+    static DebugPoints* instance();
 
 private:
-    DebugPoints() = default;
+    DebugPoints();
+
+    using DebugPointMap = std::map<std::string, std::shared_ptr<DebugPoint>>;
+
+    // handler(new_debug_points)
+    void update(std::function<void(DebugPointMap&)>&& handler);
 
 private:
-    std::mutex _mutex;
-    std::map<std::string, DebugPoint> _debug_points;
+    /// TODO: replace atomic_load/store() on shared_ptr (which is deprecated as of C++20) by C++20 std::atomic<std::shared_ptr>.
+    /// Clang 15 currently does not support it.
+    std::shared_ptr<const DebugPointMap> _debug_points;
 };
 
 } // namespace doris
