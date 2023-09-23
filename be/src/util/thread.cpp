@@ -308,7 +308,11 @@ void Thread::set_idle_sched() {
 #endif
 
 void Thread::join() {
-    ThreadJoiner(this).join();
+    auto status = ThreadJoiner(this).join();
+    if (!status.ok()) {
+        LOG(WARNING) << "Join thread failed, thread: " << to_string()
+                     << ", err:" << status.to_string();
+    }
 }
 
 int64_t Thread::tid() const {
