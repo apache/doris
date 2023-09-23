@@ -452,8 +452,15 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
     for (const auto& condition : read_params.conditions) {
         ColumnPredicate* predicate = _parse_to_predicate(condition);
         if (predicate != nullptr) {
-            if (_tablet_schema->column(_tablet_schema->field_index(condition.column_name))
-                        .aggregation() != FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE) {
+            FieldAggregationMethod aggregate_method = _tablet_schema->field_index(condition.column_name)).aggregation();
+            bool can_pushdown_rowset_reader = false;
+
+            if (aggregate_method == FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE
+                || aggregate_method == FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL) {
+                can_pushdown_rowset_reader = true;
+            }
+
+            if (aggregate_method != FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE && can_pushdown_rowset_reader) {
                 _value_col_predicates.push_back(predicate);
             } else {
                 _col_predicates.push_back(predicate);
@@ -478,9 +485,9 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
             if (UNLIKELY(aggregate_method != FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE
                     && aggregate_method != FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL)) {
                 LOG(WARNING) << "push down error function to reader, col_name = " << filter._col_name;
-            } else {
                 // if the aggregation of col isn't replace or replace_if_not_null, don't add it into col predicate
-                // result is still correct because the function filter hasn't been removed on the upper level
+                // but result is still correct, because the function filter hasn't been removed on the upper level
+            } else {
                 _value_col_predicates.push_back(_parse_to_predicate(filter));
             }
         } else {
