@@ -1,4 +1,3 @@
-/*
 SELECT
   cd_gender
 , cd_marital_status
@@ -54,4 +53,3 @@ WHERE (c.c_current_addr_sk = ca.ca_address_sk)
 GROUP BY cd_gender, cd_marital_status, cd_education_status, cd_purchase_estimate, cd_credit_rating, cd_dep_count, cd_dep_employed_count, cd_dep_college_count
 ORDER BY cd_gender ASC, cd_marital_status ASC, cd_education_status ASC, cd_purchase_estimate ASC, cd_credit_rating ASC, cd_dep_count ASC, cd_dep_employed_count ASC, cd_dep_college_count ASC
 LIMIT 100
-*/

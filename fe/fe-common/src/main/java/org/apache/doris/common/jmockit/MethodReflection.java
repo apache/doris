@@ -158,6 +158,6 @@ public final class MethodReflection {
     private static boolean isSameType(Class<?> firstType, Class<?> secondType) {
         return firstType == secondType
                 || firstType.isPrimitive() && firstType == AutoType.getPrimitiveType(secondType)
-                || secondType.isPrimitive() && firstType == AutoType.getPrimitiveType(secondType);
+                || secondType.isPrimitive() && secondType == AutoType.getPrimitiveType(firstType);
     }
 }

@@ -17,12 +17,23 @@
 
 suite("sub_query_alias") {
     sql """
-        SET enable_vectorized_engine=true
-    """
-
-    sql """
         SET enable_nereids_planner=true
     """
+
+    sql "SET enable_fallback_to_original_planner=false"
+
+    test {
+        sql """ select * 
+        from (
+            select * 
+            from customer, lineorder 
+            where customer.c_custkey = lineorder.lo_custkey
+        )  """
+        check {result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
 
     qt_select_1 """
         select t.c_custkey, t.lo_custkey 

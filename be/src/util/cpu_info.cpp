@@ -21,8 +21,6 @@
 #include "util/cpu_info.h"
 
 #if defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
-/* GCC-compatible compiler, targeting x86/x86-64 */
-#include <x86intrin.h>
 #elif defined(__GNUC__) && defined(__ARM_NEON__)
 /* GCC-compatible compiler, targeting ARM with NEON */
 #include <arm_neon.h>
@@ -37,25 +35,31 @@
 #include <spe.h>
 #endif
 
+#ifndef __APPLE__
+#include <sys/sysinfo.h>
+#else
+#include <sys/sysctl.h>
+#endif
+
+#include <gen_cpp/Metrics_types.h>
 #include <sched.h>
 #include <stdlib.h>
-#include <string.h>
-#include <sys/sysinfo.h>
 #include <unistd.h>
 
 #include <algorithm>
-#include <boost/algorithm/string.hpp>
+#include <boost/algorithm/string/predicate.hpp>
+#include <boost/algorithm/string/trim.hpp>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
 #include <filesystem>
 #include <fstream>
-#include <iostream>
-#include <sstream>
 
 #include "common/config.h"
 #include "common/env_config.h"
 #include "gflags/gflags.h"
+#include "gutil/stringprintf.h"
 #include "gutil/strings/substitute.h"
 #include "util/pretty_printer.h"
-#include "util/string_parser.hpp"
 
 using boost::algorithm::contains;
 using boost::algorithm::trim;
@@ -169,7 +173,13 @@ void CpuInfo::init() {
         num_cores_ = 1;
     }
     if (config::num_cores > 0) num_cores_ = config::num_cores;
+
+#ifdef __APPLE__
+    size_t len = sizeof(max_num_cores_);
+    sysctlbyname("hw.logicalcpu", &max_num_cores_, &len, nullptr, 0);
+#else
     max_num_cores_ = get_nprocs_conf();
+#endif
 
     // Print a warning if something is wrong with sched_getcpu().
 #ifdef HAVE_SCHED_GETCPU
@@ -324,10 +334,16 @@ void CpuInfo::_get_cache_info(long cache_sizes[NUM_CACHE_LEVELS],
     sysctlbyname("hw.cachesize", nullptr, &len, nullptr, 0);
     uint64_t* data = static_cast<uint64_t*>(malloc(len));
     sysctlbyname("hw.cachesize", data, &len, nullptr, 0);
+#ifndef __arm64__
     DCHECK(len / sizeof(uint64_t) >= 3);
     for (size_t i = 0; i < NUM_CACHE_LEVELS; ++i) {
         cache_sizes[i] = data[i];
     }
+#else
+    for (size_t i = 0; i < NUM_CACHE_LEVELS; ++i) {
+        cache_sizes[i] = data[i + 1];
+    }
+#endif
     size_t linesize;
     size_t sizeof_linesize = sizeof(linesize);
     sysctlbyname("hw.cachelinesize", &linesize, &sizeof_linesize, nullptr, 0);
@@ -353,15 +369,23 @@ std::string CpuInfo::debug_string() {
     long cache_line_sizes[NUM_CACHE_LEVELS];
     _get_cache_info(cache_sizes, cache_line_sizes);
 
-    string L1 = strings::Substitute("L1 Cache: $0 (Line: $1)",
-                                    PrettyPrinter::print(cache_sizes[L1_CACHE], TUnit::BYTES),
-                                    PrettyPrinter::print(cache_line_sizes[L1_CACHE], TUnit::BYTES));
-    string L2 = strings::Substitute("L2 Cache: $0 (Line: $1)",
-                                    PrettyPrinter::print(cache_sizes[L2_CACHE], TUnit::BYTES),
-                                    PrettyPrinter::print(cache_line_sizes[L2_CACHE], TUnit::BYTES));
-    string L3 = strings::Substitute("L3 Cache: $0 (Line: $1)",
-                                    PrettyPrinter::print(cache_sizes[L3_CACHE], TUnit::BYTES),
-                                    PrettyPrinter::print(cache_line_sizes[L3_CACHE], TUnit::BYTES));
+    string L1 = strings::Substitute(
+            "L1 Cache: $0 (Line: $1)",
+            PrettyPrinter::print(static_cast<int64_t>(cache_sizes[L1_CACHE]), TUnit::BYTES),
+            PrettyPrinter::print(static_cast<int64_t>(cache_line_sizes[L1_CACHE]), TUnit::BYTES));
+    string L2 = strings::Substitute(
+            "L2 Cache: $0 (Line: $1)",
+            PrettyPrinter::print(static_cast<int64_t>(cache_sizes[L2_CACHE]), TUnit::BYTES),
+            PrettyPrinter::print(static_cast<int64_t>(cache_line_sizes[L2_CACHE]), TUnit::BYTES));
+    string L3 =
+            cache_sizes[L3_CACHE]
+                    ? strings::Substitute(
+                              "L3 Cache: $0 (Line: $1)",
+                              PrettyPrinter::print(static_cast<int64_t>(cache_sizes[L3_CACHE]),
+                                                   TUnit::BYTES),
+                              PrettyPrinter::print(static_cast<int64_t>(cache_line_sizes[L3_CACHE]),
+                                                   TUnit::BYTES))
+                    : "";
     stream << "Cpu Info:" << std::endl
            << "  Model: " << model_name_ << std::endl
            << "  Cores: " << num_cores_ << std::endl

@@ -24,6 +24,7 @@
 #include <variant>
 
 #include "vec/common/hash_table/hash.h"
+#include "vec/common/hash_table/hash_table_utils.h"
 
 using StringKey8 = doris::vectorized::UInt64;
 using StringKey16 = doris::vectorized::UInt128;
@@ -35,21 +36,21 @@ struct StringKey24 {
     bool operator==(const StringKey24 rhs) const { return a == rhs.a && b == rhs.b && c == rhs.c; }
 };
 
-inline StringRef ALWAYS_INLINE to_string_ref(const StringKey8& n) {
+inline doris::StringRef ALWAYS_INLINE to_string_ref(const StringKey8& n) {
     assert(n != 0);
     return {reinterpret_cast<const char*>(&n), 8ul - (__builtin_clzll(n) >> 3)};
 }
-inline StringRef ALWAYS_INLINE to_string_ref(const StringKey16& n) {
+inline doris::StringRef ALWAYS_INLINE to_string_ref(const StringKey16& n) {
     assert(n.high != 0);
     return {reinterpret_cast<const char*>(&n), 16ul - (__builtin_clzll(n.high) >> 3)};
 }
-inline StringRef ALWAYS_INLINE to_string_ref(const StringKey24& n) {
+inline doris::StringRef ALWAYS_INLINE to_string_ref(const StringKey24& n) {
     assert(n.c != 0);
     return {reinterpret_cast<const char*>(&n), 24ul - (__builtin_clzll(n.c) >> 3)};
 }
 
 struct StringHashTableHash {
-#if defined(__SSE4_2__)
+#if defined(__SSE4_2__) || defined(__aarch64__)
     size_t ALWAYS_INLINE operator()(StringKey8 key) const {
         size_t res = -1ULL;
         res = _mm_crc32_u64(res, key);
@@ -79,7 +80,9 @@ struct StringHashTableHash {
         return util_hash::CityHash64(reinterpret_cast<const char*>(&key), 24);
     }
 #endif
-    size_t ALWAYS_INLINE operator()(StringRef key) const { return StringRefHash()(key); }
+    size_t ALWAYS_INLINE operator()(doris::StringRef key) const {
+        return doris::StringRefHash()(key);
+    }
 };
 
 template <typename Cell>
@@ -107,7 +110,9 @@ public:
 
     void clear_has_zero() {
         _has_zero = false;
-        if (!std::is_trivially_destructible_v<Cell>) zero_value()->~Cell();
+        if (!std::is_trivially_destructible_v<Cell>) {
+            zero_value()->~Cell();
+        }
     }
 
     Cell* zero_value() { return std::launder(reinterpret_cast<Cell*>(&zero_value_storage)); }
@@ -125,8 +130,33 @@ public:
             const auto& key = key_holder_get_key(key_holder);
             set_has_zero(key);
             inserted = true;
-        } else
+        } else {
             inserted = false;
+        }
+        it = zero_value();
+    }
+
+    class Constructor {
+    public:
+        friend struct StringHashTableEmpty;
+        template <typename... Args>
+        void operator()(Args&&... args) const {
+            new (_cell) Cell(std::forward<Args>(args)...);
+        }
+
+    private:
+        Constructor(Cell* cell) : _cell(cell) {}
+        Cell* _cell;
+    };
+
+    template <typename KeyHolder, typename Func>
+    void ALWAYS_INLINE lazy_emplace(KeyHolder&& key_holder, LookupResult& it, size_t hash_value,
+                                    Func&& f) {
+        if (!has_zero()) {
+            const auto& key = key_holder_get_key(key_holder);
+            set_has_zero(key);
+            std::forward<Func>(f)(Constructor(zero_value()), key);
+        }
         it = zero_value();
     }
 
@@ -179,7 +209,7 @@ struct StringHashTableLookupResult {
 };
 
 template <typename Mapped>
-ALWAYS_INLINE inline auto lookup_result_get_mapped(StringHashTableLookupResult<Mapped*> cell) {
+ALWAYS_INLINE inline auto lookup_result_get_mapped(StringHashTableLookupResult<Mapped> cell) {
     return &cell.get_mapped();
 }
 
@@ -195,7 +225,7 @@ protected:
     using T2 = typename SubMaps::T2;
     using T3 = typename SubMaps::T3;
 
-    // Long strings are stored as StringRef along with saved hash
+    // Long strings are stored as doris::StringRef along with saved hash
     using Ts = typename SubMaps::Ts;
     using Self = StringHashTable;
 
@@ -209,9 +239,6 @@ protected:
     Ts ms;
 
     using Cell = typename Ts::cell_type;
-
-    friend class const_iterator;
-    friend class iterator;
 
     template <typename Derived, bool is_const>
     class iterator_base {
@@ -229,7 +256,7 @@ protected:
         friend class StringHashTable;
 
     public:
-        iterator_base() {}
+        iterator_base() = default;
         iterator_base(Container* container_, bool end = false) : container(container_) {
             if (end) {
                 sub_table_index = 4;
@@ -282,6 +309,7 @@ protected:
                 return iterator4 == rhs.iterator4;
             }
             }
+            LOG(FATAL) << "__builtin_unreachable";
             __builtin_unreachable();
         }
 
@@ -352,8 +380,6 @@ protected:
                 }
                 }
             }
-            while (need_switch_to_next)
-                ;
 
             return static_cast<Derived&>(*this);
         }
@@ -428,7 +454,7 @@ protected:
     };
 
 public:
-    using Key = StringRef;
+    using Key = doris::StringRef;
     using key_type = Key;
     using mapped_type = typename Ts::mapped_type;
     using value_type = typename Ts::value_type;
@@ -451,7 +477,18 @@ public:
               m3(std::move(rhs.m3)),
               ms(std::move(rhs.ms)) {}
 
+    StringHashTable& operator=(StringHashTable&& other) {
+        std::swap(m0, other.m0);
+        std::swap(m1, other.m1);
+        std::swap(m2, other.m2);
+        std::swap(m3, other.m3);
+        std::swap(ms, other.ms);
+        return *this;
+    }
+
     ~StringHashTable() = default;
+
+    size_t hash(doris::StringRef key) { return StringHashTableHash()(key); }
 
     // Dispatch is written in a way that maximizes the performance:
     // 1. Always memcpy 8 times bytes
@@ -466,7 +503,7 @@ public:
     template <typename Self, typename KeyHolder, typename Func>
     static auto ALWAYS_INLINE dispatch(Self& self, KeyHolder&& key_holder, Func&& func) {
         StringHashTableHash hash;
-        const StringRef& x = key_holder_get_key(key_holder);
+        const doris::StringRef& x = key_holder_get_key(key_holder);
         const size_t sz = x.size;
         if (sz == 0) {
             key_holder_discard_key(key_holder);
@@ -548,6 +585,27 @@ public:
         this->dispatch(*this, key_holder, EmplaceCallable(it, inserted));
     }
 
+    template <typename Func>
+    struct LazyEmplaceCallable {
+        LookupResult& mapped;
+        Func&& f;
+
+        LazyEmplaceCallable(LookupResult& mapped_, Func&& f_)
+                : mapped(mapped_), f(std::forward<Func>(f_)) {}
+
+        template <typename Map, typename KeyHolder>
+        void ALWAYS_INLINE operator()(Map& map, KeyHolder&& key_holder, size_t hash) {
+            typename Map::LookupResult result;
+            map.lazy_emplace(key_holder, result, hash, std::forward<Func>(f));
+            mapped = &result->get_second();
+        }
+    };
+
+    template <typename KeyHolder, typename Func>
+    void ALWAYS_INLINE lazy_emplace(KeyHolder&& key_holder, LookupResult& it, Func&& f) {
+        this->dispatch(*this, key_holder, LazyEmplaceCallable<Func>(it, std::forward<Func>(f)));
+    }
+
     struct FindCallable {
         // find() doesn't need any key memory management, so we don't work with
         // any key holders here, only with normal keys. The key type is still
@@ -612,4 +670,11 @@ public:
 #ifdef DBMS_HASH_MAP_COUNT_COLLISIONS
     size_t get_collisions() const { return 0; }
 #endif
+};
+
+template <typename SubMaps>
+struct HashTableTraits<StringHashTable<SubMaps>> {
+    static constexpr bool is_phmap = false;
+    static constexpr bool is_string_hash_table = true;
+    static constexpr bool is_partitioned_table = false;
 };

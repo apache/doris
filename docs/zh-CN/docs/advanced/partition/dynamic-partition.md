@@ -32,6 +32,8 @@ under the License.
 
 动态分区只支持 Range 分区。
 
+注意：这个功能在被CCR同步时将会失效。如果这个表是被CCR复制而来的，即PROPERTIES中包含`is_being_synced = true`时，在`show create table`中会显示开启状态，但不会实际生效。当`is_being_synced`被设置为 `false` 时，这些功能将会恢复生效，但`is_being_synced`属性仅供CCR外围模块使用，在CCR同步的过程中不要手动设置。  
+
 ## 原理
 
 在某些使用场景下，用户会将表按照天进行分区划分，每天定时执行例行任务，这时需要使用方手动管理分区，否则可能由于使用方没有创建分区导致数据导入失败，这给使用方带来了额外的维护成本。
@@ -74,9 +76,9 @@ under the License.
 
   是否开启动态分区特性。可指定为 `TRUE` 或 `FALSE`。如果不填写，默认为 `TRUE`。如果为 `FALSE`，则 Doris 会忽略该表的动态分区规则。
 
-- `dynamic_partition.time_unit`
+- `dynamic_partition.time_unit`（必选参数）
 
-  动态分区调度的单位。可指定为 `HOUR`、`DAY`、`WEEK`、`MONTH`。分别表示按小时、按天、按星期、按月进行分区创建或删除。
+  动态分区调度的单位。可指定为 `HOUR`、`DAY`、`WEEK`、`MONTH`、`YEAR`。分别表示按小时、按天、按星期、按月、按年进行分区创建或删除。
 
   当指定为 `HOUR` 时，动态创建的分区名后缀格式为 `yyyyMMddHH`，例如`2020032501`。小时为单位的分区列数据类型不能为 DATE。
 
@@ -86,6 +88,8 @@ under the License.
 
   当指定为 `MONTH` 时，动态创建的分区名后缀格式为 `yyyyMM`，例如 `202003`。
 
+  当指定为 `YEAR` 时，动态创建的分区名后缀格式为 `yyyy`，例如 `2020`。
+
 - `dynamic_partition.time_zone`
 
   动态分区的时区，如果不填写，则默认为当前机器的系统的时区，例如 `Asia/Shanghai`，如果想获取当前支持的时区设置，可以参考 `https://en.wikipedia.org/wiki/List_of_tz_database_time_zones`。
@@ -94,11 +98,11 @@ under the License.
 
   动态分区的起始偏移，为负数。根据 `time_unit` 属性的不同，以当天（星期/月）为基准，分区范围在此偏移之前的分区将会被删除。如果不填写，则默认为 `-2147483648`，即不删除历史分区。
 
-- `dynamic_partition.end`
+- `dynamic_partition.end`（必选参数）
 
   动态分区的结束偏移，为正数。根据 `time_unit` 属性的不同，以当天（星期/月）为基准，提前创建对应范围的分区。
 
-- `dynamic_partition.prefix`
+- `dynamic_partition.prefix`（必选参数）
 
   动态创建的分区名前缀。
 
@@ -131,6 +135,8 @@ under the License.
 - `dynamic_partition.hot_partition_num`
 
   指定最新的多少个分区为热分区。对于热分区，系统会自动设置其 `storage_medium` 参数为SSD，并且设置 `storage_cooldown_time`。
+  
+  **注意：若存储路径下没有 SSD 磁盘路径，配置该参数会导致动态分区创建失败。**
 
   `hot_partition_num` 是往前 n 天和未来所有分区
 
@@ -148,11 +154,11 @@ under the License.
 
 - `dynamic_partition.reserved_history_periods`
 
-  需要保留的历史分区的时间范围。当`dynamic_partition.time_unit` 设置为 "DAY/WEEK/MONTH" 时，需要以 `[yyyy-MM-dd,yyyy-MM-dd],[...,...]` 格式进行设置。当`dynamic_partition.time_unit` 设置为 "HOUR" 时，需要以 `[yyyy-MM-dd HH:mm:ss,yyyy-MM-dd HH:mm:ss],[...,...]` 的格式来进行设置。如果不设置，默认为 `"NULL"`。
+  需要保留的历史分区的时间范围。当`dynamic_partition.time_unit` 设置为 "DAY/WEEK/MONTH/YEAR" 时，需要以 `[yyyy-MM-dd,yyyy-MM-dd],[...,...]` 格式进行设置。当`dynamic_partition.time_unit` 设置为 "HOUR" 时，需要以 `[yyyy-MM-dd HH:mm:ss,yyyy-MM-dd HH:mm:ss],[...,...]` 的格式来进行设置。如果不设置，默认为 `"NULL"`。
 
   我们举例说明。假设今天是 2021-09-06，按天分类，动态分区的属性设置为：
 
-  `time_unit="DAY/WEEK/MONTH", end=3, start=-3, reserved_history_periods="[2020-06-01,2020-06-20],[2020-10-31,2020-11-15]"`。
+  `time_unit="DAY/WEEK/MONTH/YEAR", end=3, start=-3, reserved_history_periods="[2020-06-01,2020-06-20],[2020-10-31,2020-11-15]"`。
 
   则系统会自动保留：
 
@@ -172,6 +178,14 @@ under the License.
   ```
 
   这两个时间段的分区。其中，`reserved_history_periods` 的每一个 `[...,...]` 是一对设置项，两者需要同时被设置，且第一个时间不能大于第二个时间。
+
+- `dynamic_partition.storage_medium`
+
+  <version since="1.2.3"></version>
+
+  指定创建的动态分区的默认存储介质。默认是 HDD，可选择 SSD。
+
+  注意，当设置为SSD时，`hot_partition_num` 属性将不再生效，所有分区将默认为 SSD 存储介质并且冷却时间为 9999-12-31 23:59:59。
 
 #### 创建历史分区规则
 
@@ -452,6 +466,87 @@ mysql> SHOW DYNAMIC PARTITION TABLES;
    由于动态分区的总开关，也就是 FE 的配置 `dynamic_partition_enable` 为 false，导致无法创建动态分区表。
 
    这时候请修改 FE 的配置文件，增加一行 `dynamic_partition_enable=true`，并重启 FE。或者执行命令 ADMIN SET FRONTEND CONFIG ("dynamic_partition_enable" = "true") 将动态分区开关打开即可。
+
+2. 关于动态分区的副本设置
+
+    动态分区是由系统内部的调度逻辑自动创建的。在自动创建分区时，所使用的分区属性（包括分区的副本数等），都是单独使用 `dynamic_partition` 前缀的属性，而不是使用表的默认属性。举例说明：
+
+    ```
+    CREATE TABLE tbl1 (
+    `k1` int,
+    `k2` date
+    )
+    PARTITION BY RANGE(k2)()
+    DISTRIBUTED BY HASH(k1) BUCKETS 3
+    PROPERTIES
+    (
+    "dynamic_partition.enable" = "true",
+    "dynamic_partition.time_unit" = "DAY",
+    "dynamic_partition.end" = "3",
+    "dynamic_partition.prefix" = "p",
+    "dynamic_partition.buckets" = "32",
+    "dynamic_partition.replication_num" = "1",
+    "dynamic_partition.start" = "-3",
+    "replication_num" = "3"
+    );
+    ```
+
+    这个示例中，没有创建任何初始分区（PARTITION BY 子句中的分区定义为空），并且设置了 `DISTRIBUTED BY HASH(k1) BUCKETS 3`, `"replication_num" = "3"`, `"dynamic_partition.replication_num" = "1"` 和 `"dynamic_partition.buckets" = "32"`。
+
+    我们将前两个参数成为表的默认参数，而后两个参数成为动态分区专用参数。
+
+    当系统自动创建分区时，会使用分桶数 32 和 副本数 1 这两个配置（即动态分区专用参数）。而不是分桶数 3 和 副本数 3 这两个配置。
+
+    当用户通过 `ALTER TABLE tbl1 ADD PARTITION` 语句手动添加分区时，则会使用分桶数 3 和 副本数 3 这两个配置（即表的默认参数）。
+
+    即动态分区使用一套独立的参数设置。只有当没有设置动态分区专用参数时，才会使用表的默认参数。如下：
+
+    ```
+    CREATE TABLE tbl2 (
+    `k1` int,
+    `k2` date
+    )
+    PARTITION BY RANGE(k2)()
+    DISTRIBUTED BY HASH(k1) BUCKETS 3
+    PROPERTIES
+    (
+    "dynamic_partition.enable" = "true",
+    "dynamic_partition.time_unit" = "DAY",
+    "dynamic_partition.end" = "3",
+    "dynamic_partition.prefix" = "p",
+    "dynamic_partition.start" = "-3",
+    "dynamic_partition.buckets" = "32",
+    "replication_num" = "3"
+    );
+    ```
+    
+    这个示例中，没有单独指定 `dynamic_partition.replication_num`，则动态分区会使用表的默认参数，即 `"replication_num" = "3"`。
+
+    而如下示例：
+
+    ```
+    CREATE TABLE tbl3 (
+    `k1` int,
+    `k2` date
+    )
+    PARTITION BY RANGE(k2)(
+        PARTITION p1 VALUES LESS THAN ("2019-10-10")
+    )
+    DISTRIBUTED BY HASH(k1) BUCKETS 3
+    PROPERTIES
+    (
+    "dynamic_partition.enable" = "true",
+    "dynamic_partition.time_unit" = "DAY",
+    "dynamic_partition.end" = "3",
+    "dynamic_partition.prefix" = "p",
+    "dynamic_partition.start" = "-3",
+    "dynamic_partition.buckets" = "32",
+    "dynamic_partition.replication_num" = "1",
+    "replication_num" = "3"
+    );
+    ```
+
+    这个示例中，有一个手动创建的分区 p1。这个分区会使用表的默认设置，即分桶数 3 和副本数 3。而后续系统自动创建的动态分区，依然会使用动态分区专用参数，即分桶数 32 和副本数 1。
 
 ## 更多帮助
 

@@ -17,17 +17,26 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+
+#include <functional>
 #include <string>
 
-#include "olap/data_dir.h"
-#include "olap/olap_define.h"
+#include "common/status.h"
+#include "gutil/stringprintf.h"
 #include "olap/tablet_meta.h"
 
 namespace doris {
+class DataDir;
+class OlapMeta;
 
 const std::string OLD_HEADER_PREFIX = "hdr_";
 
 const std::string HEADER_PREFIX = "tabletmeta_";
+
+const std::string PENDING_PUBLISH_INFO = "ppi_";
+
+const std::string DELETE_BITMAP = "dlb_";
 
 // Helper Class for managing tablet headers of one root path.
 class TabletMetaManager {
@@ -52,6 +61,30 @@ public:
                                    const string& header_prefix = "tabletmeta_");
 
     static Status load_json_meta(DataDir* store, const std::string& meta_path);
+
+    static Status save_pending_publish_info(DataDir* store, TTabletId tablet_id,
+                                            int64_t publish_version,
+                                            const std::string& meta_binary);
+
+    static Status remove_pending_publish_info(DataDir* store, TTabletId tablet_id,
+                                              int64_t publish_version);
+
+    static Status traverse_pending_publish(
+            OlapMeta* meta, std::function<bool(int64_t, int64_t, const std::string&)> const& func);
+
+    static Status save_delete_bitmap(DataDir* store, TTabletId tablet_id,
+                                     DeleteBitmapPtr delete_bimap, int64_t version);
+
+    static Status traverse_delete_bitmap(
+            OlapMeta* meta, std::function<bool(int64_t, int64_t, const std::string&)> const& func);
+
+    static std::string encode_delete_bitmap_key(TTabletId tablet_id, int64_t version);
+    static std::string encode_delete_bitmap_key(TTabletId tablet_id);
+
+    static void decode_delete_bitmap_key(const string& enc_key, TTabletId* tablet_id,
+                                         int64_t* version);
+    static Status remove_old_version_delete_bitmap(DataDir* store, TTabletId tablet_id,
+                                                   int64_t version);
 };
 
 } // namespace doris

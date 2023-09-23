@@ -19,7 +19,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.EncryptKeySearchDesc;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -27,11 +26,17 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 public class DropEncryptKeyStmt extends DdlStmt {
+    private final boolean ifExists;
     private final EncryptKeyName encryptKeyName;
     private EncryptKeySearchDesc encryptKeySearchDesc;
 
-    public DropEncryptKeyStmt(EncryptKeyName encryptKeyName) {
+    public DropEncryptKeyStmt(boolean ifExists, EncryptKeyName encryptKeyName) {
+        this.ifExists = ifExists;
         this.encryptKeyName = encryptKeyName;
+    }
+
+    public boolean isIfExists() {
+        return ifExists;
     }
 
     public EncryptKeyName getEncryptKeyName() {
@@ -43,11 +48,11 @@ public class DropEncryptKeyStmt extends DdlStmt {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
 
         // check operation privilege
-        if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
 

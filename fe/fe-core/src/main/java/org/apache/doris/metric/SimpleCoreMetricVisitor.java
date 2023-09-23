@@ -117,7 +117,6 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
                     .join(prefix + metric.getName(), CORE_METRICS.get(metric.getName()), metric.getValue().toString()))
                     .append("\n");
         }
-        return;
     }
 
     @Override
@@ -132,7 +131,6 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
                 String.format("%.0f", snapshot.get95thPercentile()))).append("\n");
         sb.append(Joiner.on(" ").join(prefix + name + "_99", CORE_METRICS.get(name),
                 String.format("%.0f", snapshot.get99thPercentile()))).append("\n");
-        return;
     }
 
     @Override

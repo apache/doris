@@ -12,10 +12,23 @@
 
 #include "mustache.h"
 
+#include <rapidjson/allocators.h>
+#include <rapidjson/document.h>
+#include <rapidjson/encodings.h>
 #include <rapidjson/prettywriter.h>
+#include <rapidjson/rapidjson.h>
+#include <strings.h>
 
-#include <boost/algorithm/string.hpp>
-#include <fstream>
+#include <algorithm>
+#include <boost/algorithm/string/classification.hpp>
+#include <boost/algorithm/string/detail/classification.hpp>
+#include <boost/algorithm/string/join.hpp>
+#include <boost/algorithm/string/predicate_facade.hpp>
+#include <boost/algorithm/string/split.hpp>
+#include <boost/algorithm/string/trim.hpp>
+#include <boost/iterator/iterator_facade.hpp>
+#include <boost/type_index/type_index_facade.hpp>
+#include <fstream> // IWYU pragma: keep
 #include <iostream>
 #include <stack>
 #include <vector>
@@ -24,7 +37,6 @@
 #include "rapidjson/writer.h"
 
 using namespace rapidjson;
-using namespace std;
 using namespace boost::algorithm;
 
 namespace mustache {
@@ -50,8 +62,8 @@ enum TagOperator {
 
 struct OpCtx {
     TagOperator op;
-    string tag_name;
-    string tag_arg;
+    std::string tag_name;
+    std::string tag_arg;
     bool escaped = false;
 };
 
@@ -60,7 +72,7 @@ struct ContextStack {
     const ContextStack* parent;
 };
 
-TagOperator GetOperator(const string& tag) {
+TagOperator GetOperator(const std::string& tag) {
     if (tag.size() == 0) return SUBSTITUTION;
     switch (tag[0]) {
     case '#':
@@ -87,13 +99,13 @@ TagOperator GetOperator(const string& tag) {
     }
 }
 
-int EvaluateTag(const string& document, const string& document_root, int idx,
-                const ContextStack* context, const OpCtx& op_ctx, stringstream* out);
+int EvaluateTag(const std::string& document, const std::string& document_root, int idx,
+                const ContextStack* context, const OpCtx& op_ctx, std::stringstream* out);
 
-static bool RenderTemplate(const string& document, const string& document_root,
-                           const ContextStack* stack, stringstream* out);
+static bool RenderTemplate(const std::string& document, const std::string& document_root,
+                           const ContextStack* stack, std::stringstream* out);
 
-void EscapeHtml(const string& in, stringstream* out) {
+void EscapeHtml(const std::string& in, std::stringstream* out) {
     for (const char& c : in) {
         switch (c) {
         case '&':
@@ -129,7 +141,7 @@ void Dump(const rapidjson::Value& v) {
 // being a simple split() is that we allow path components to be quoted, e.g.: "foo".bar,
 // and any '.' characters inside those quoted sections aren't considered to be
 // delimiters. This is to allow Json keys that contain periods.
-void FindJsonPathComponents(const string& path, vector<string>* components) {
+void FindJsonPathComponents(const std::string& path, std::vector<std::string>* components) {
     bool in_quote = false;
     bool escape_this_char = false;
     int start = 0;
@@ -166,19 +178,20 @@ void FindJsonPathComponents(const string& path, vector<string>* components) {
 
 // Looks up the json entity at 'path' in 'parent_context', and places it in 'resolved'. If
 // the entity does not exist (i.e. the path is invalid), 'resolved' will be set to nullptr.
-void ResolveJsonContext(const string& path, const ContextStack* stack, const Value** resolved) {
+void ResolveJsonContext(const std::string& path, const ContextStack* stack,
+                        const Value** resolved) {
     if (path == ".") {
         *resolved = stack->value;
         return;
     }
-    vector<string> components;
+    std::vector<std::string> components;
     FindJsonPathComponents(path, &components);
 
     // At each enclosing level of context, try to resolve the path.
     for (; stack != nullptr; stack = stack->parent) {
         const Value* cur = stack->value;
         bool match = true;
-        for (const string& c : components) {
+        for (const std::string& c : components) {
             if (cur->IsObject() && cur->HasMember(c.c_str())) {
                 cur = &(*cur)[c.c_str()];
             } else {
@@ -194,7 +207,7 @@ void ResolveJsonContext(const string& path, const ContextStack* stack, const Val
     *resolved = nullptr;
 }
 
-int FindNextTag(const string& document, int idx, OpCtx* op, stringstream* out) {
+int FindNextTag(const std::string& document, int idx, OpCtx* op, std::stringstream* out) {
     op->op = NONE;
     while (idx < document.size()) {
         if (document[idx] == '{' && idx < (document.size() - 3) && document[idx + 1] == '{') {
@@ -205,7 +218,7 @@ int FindNextTag(const string& document, int idx, OpCtx* op, stringstream* out) {
                 op->escaped = false;
                 idx += 2; // Now at start of template expression
             }
-            stringstream expr;
+            std::stringstream expr;
             while (idx < document.size()) {
                 if (document[idx] != '}') {
                     expr << document[idx];
@@ -224,7 +237,7 @@ int FindNextTag(const string& document, int idx, OpCtx* op, stringstream* out) {
                 }
             }
 
-            string key = expr.str();
+            std::string key = expr.str();
             trim(key);
             if (key != ".") trim_if(key, is_any_of("."));
             if (key.size() == 0) continue;
@@ -238,7 +251,7 @@ int FindNextTag(const string& document, int idx, OpCtx* op, stringstream* out) {
 
             if (op->op == EQUALITY || op->op == INEQUALITY) {
                 // Find an argument
-                vector<string> components;
+                std::vector<std::string> components;
                 split(components, key, is_any_of(" "));
                 key = components[0];
                 components.erase(components.begin());
@@ -262,8 +275,9 @@ int FindNextTag(const string& document, int idx, OpCtx* op, stringstream* out) {
 //
 // If 'is_negation' is true, the behaviour is the opposite of the above: false values
 // cause the section to be normally evaluated etc.
-int EvaluateSection(const string& document, const string& document_root, int idx,
-                    const ContextStack* context_stack, const OpCtx& op_ctx, stringstream* out) {
+int EvaluateSection(const std::string& document, const std::string& document_root, int idx,
+                    const ContextStack* context_stack, const OpCtx& op_ctx,
+                    std::stringstream* out) {
     // Precondition: idx is the immediate next character after an opening {{ #tag_name }}
     const Value* context;
     ResolveJsonContext(op_ctx.tag_name, context_stack, &context);
@@ -291,7 +305,7 @@ int EvaluateSection(const string& document, const string& document_root, int idx
         context = context_stack->value;
     }
 
-    vector<const Value*> values;
+    std::vector<const Value*> values;
     if (!skip_contents && context != nullptr && context->IsArray()) {
         for (int i = 0; i < context->Size(); ++i) {
             values.push_back(&(*context)[i]);
@@ -307,7 +321,7 @@ int EvaluateSection(const string& document, const string& document_root, int idx
     int start_idx = idx;
     for (const Value* v : values) {
         idx = start_idx;
-        stack<OpCtx> section_starts;
+        std::stack<OpCtx> section_starts;
         section_starts.push(op_ctx);
         while (idx < document.size()) {
             OpCtx next_ctx;
@@ -334,8 +348,9 @@ int EvaluateSection(const string& document, const string& document_root, int idx
 
 // Evaluates a SUBSTITUTION tag, by replacing its contents with the value of the tag's
 // name in 'parent_context'.
-int EvaluateSubstitution(const string& document, const int idx, const ContextStack* context_stack,
-                         const OpCtx& op_ctx, stringstream* out) {
+int EvaluateSubstitution(const std::string& document, const int idx,
+                         const ContextStack* context_stack, const OpCtx& op_ctx,
+                         std::stringstream* out) {
     const Value* val;
     ResolveJsonContext(op_ctx.tag_name, context_stack, &val);
     if (val == nullptr) return idx;
@@ -353,15 +368,15 @@ int EvaluateSubstitution(const string& document, const int idx, const ContextSta
     } else if (val->IsDouble()) {
         (*out) << val->GetDouble();
     } else if (val->IsBool()) {
-        (*out) << boolalpha << val->GetBool();
+        (*out) << std::boolalpha << val->GetBool();
     }
     return idx;
 }
 
 // Evaluates a LENGTH tag by replacing its contents with the type-dependent 'size' of the
 // value.
-int EvaluateLength(const string& document, const int idx, const ContextStack* context_stack,
-                   const string& tag_name, stringstream* out) {
+int EvaluateLength(const std::string& document, const int idx, const ContextStack* context_stack,
+                   const std::string& tag_name, std::stringstream* out) {
     const Value* val;
     ResolveJsonContext(tag_name, context_stack, &val);
     if (val == nullptr) return idx;
@@ -374,8 +389,8 @@ int EvaluateLength(const string& document, const int idx, const ContextStack* co
     return idx;
 }
 
-int EvaluateLiteral(const string& document, const int idx, const ContextStack* context_stack,
-                    const string& tag_name, stringstream* out) {
+int EvaluateLiteral(const std::string& document, const int idx, const ContextStack* context_stack,
+                    const std::string& tag_name, std::stringstream* out) {
     const Value* val;
     ResolveJsonContext(tag_name, context_stack, &val);
     if (val == nullptr) return idx;
@@ -392,17 +407,17 @@ int EvaluateLiteral(const string& document, const int idx, const ContextStack* c
 //
 // TODO: This could obviously be more efficient (and there are lots of file accesses in a
 // long list context).
-void EvaluatePartial(const string& tag_name, const string& document_root, const ContextStack* stack,
-                     stringstream* out) {
-    stringstream ss;
+void EvaluatePartial(const std::string& tag_name, const std::string& document_root,
+                     const ContextStack* stack, std::stringstream* out) {
+    std::stringstream ss;
     ss << document_root << tag_name;
-    ifstream tmpl(ss.str().c_str());
+    std::ifstream tmpl(ss.str().c_str());
     if (!tmpl.is_open()) {
         ss << ".mustache";
         tmpl.open(ss.str().c_str());
         if (!tmpl.is_open()) return;
     }
-    stringstream file_ss;
+    std::stringstream file_ss;
     file_ss << tmpl.rdbuf();
     RenderTemplate(file_ss.str(), document_root, stack, out);
 }
@@ -410,8 +425,8 @@ void EvaluatePartial(const string& tag_name, const string& document_root, const 
 // Given a tag name, and its operator, evaluate the tag in the given context and write the
 // output to 'out'. The heavy-lifting is delegated to specific Evaluate*()
 // methods. Returns the new cursor position within 'document', or -1 on error.
-int EvaluateTag(const string& document, const string& document_root, int idx,
-                const ContextStack* context, const OpCtx& op_ctx, stringstream* out) {
+int EvaluateTag(const std::string& document, const std::string& document_root, int idx,
+                const ContextStack* context, const OpCtx& op_ctx, std::stringstream* out) {
     if (idx == -1) return idx;
     switch (op_ctx.op) {
     case SECTION_START:
@@ -436,13 +451,13 @@ int EvaluateTag(const string& document, const string& document_root, int idx,
     case SECTION_END:
         return idx;
     default:
-        cout << "Unknown tag: " << op_ctx.op << endl;
+        std::cout << "Unknown tag: " << op_ctx.op << std::endl;
         return -1;
     }
 }
 
-static bool RenderTemplate(const string& document, const string& document_root,
-                           const ContextStack* stack, stringstream* out) {
+static bool RenderTemplate(const std::string& document, const std::string& document_root,
+                           const ContextStack* stack, std::stringstream* out) {
     int idx = 0;
     while (idx < document.size() && idx != -1) {
         OpCtx op;
@@ -453,8 +468,8 @@ static bool RenderTemplate(const string& document, const string& document_root,
     return idx != -1;
 }
 
-bool RenderTemplate(const string& document, const string& document_root, const Value& context,
-                    stringstream* out) {
+bool RenderTemplate(const std::string& document, const std::string& document_root,
+                    const Value& context, std::stringstream* out) {
     ContextStack stack = {&context, nullptr};
     return RenderTemplate(document, document_root, &stack, out);
 }

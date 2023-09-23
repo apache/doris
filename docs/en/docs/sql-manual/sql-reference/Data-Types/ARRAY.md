@@ -5,7 +5,7 @@
 }
 ---
 
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -26,21 +26,30 @@ under the License.
 
 ## ARRAY
 
+<version since="1.2.0">
+
+ARRAY
+
+</version>
+
 ### description
 
-ARRAY\<T\>
+`ARRAY<T>`
 
 An array of T-type items, it cannot be used as a key column. Now ARRAY can only used in Duplicate Model Tables.
+
+<version since="2.0">
+
+After version 2.0, it supports the use of non-key columns in Unique model tables.
+
+</version>
 
 T-type could be any of:
 
 ```
 BOOLEAN, TINYINT, SMALLINT, INT, BIGINT, LARGEINT, FLOAT, DOUBLE, DECIMAL, DATE,
-DATETIME, CHAR, VARCHAR, STRING
+DATEV2, DATETIME, DATETIMEV2, CHAR, VARCHAR, STRING
 ```
-### notice
-
-We should add config `enable_array_type=true` inside fe.conf before use ARRAY
 
 ### example
 
@@ -65,7 +74,7 @@ Insert data example:
 
 ```
 mysql> INSERT INTO `array_test` VALUES (1, [1,2,3,4,5]);
-mysql> INSERT INTO `array_test` VALUES (2, array(6,7,8)), (3, array()), (4, null);
+mysql> INSERT INTO `array_test` VALUES (2, [6,7,8]), (3, []), (4, null);
 ```
 
 Select data example:
@@ -84,4 +93,4 @@ mysql> SELECT * FROM `array_test`;
 
 ### keywords
 
-    ARRAY, array_contains, array_position, element_at
+    ARRAY

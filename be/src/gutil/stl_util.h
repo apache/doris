@@ -41,7 +41,6 @@ using std::swap;
 #include <deque>
 using std::deque;
 #include <functional>
-using std::binary_function;
 using std::less;
 #include <iterator>
 using std::back_insert_iterator;
@@ -86,7 +85,7 @@ void STLClearObject(deque<T, A>* obj) {
 // Reduce memory usage on behalf of object if its capacity is greater
 // than or equal to "limit", which defaults to 2^20.
 template <class T>
-inline void STLClearIfBig(T* obj, size_t limit = 1 << 20) {
+ void STLClearIfBig(T* obj, size_t limit = 1 << 20) {
     if (obj->capacity() >= limit) {
         STLClearObject(obj);
     } else {
@@ -96,7 +95,7 @@ inline void STLClearIfBig(T* obj, size_t limit = 1 << 20) {
 
 // Specialization for deque, which doesn't implement capacity().
 template <class T, class A>
-inline void STLClearIfBig(deque<T, A>* obj, size_t limit = 1 << 20) {
+ void STLClearIfBig(deque<T, A>* obj, size_t limit = 1 << 20) {
     if (obj->size() >= limit) {
         STLClearObject(obj);
     } else {
@@ -124,7 +123,7 @@ inline void STLClearIfBig(deque<T, A>* obj, size_t limit = 1 << 20) {
 // operations cheap.  Note that the default number of buckets is 193
 // in the Gnu library implementation as of Jan '08.
 template <class T>
-inline void STLClearHashIfBig(T* obj, size_t limit) {
+ void STLClearHashIfBig(T* obj, size_t limit) {
     if (obj->bucket_count() >= limit) {
         T tmp;
         tmp.swap(*obj);
@@ -312,7 +311,7 @@ inline void STLAppendToString(string* str, const char* ptr, size_t n) {
 // change this as well.
 
 template <typename T, typename Allocator>
-inline T* vector_as_array(vector<T, Allocator>* v) {
+ T* vector_as_array(vector<T, Allocator>* v) {
 #ifdef NDEBUG
     return &*v->begin();
 #else
@@ -321,7 +320,7 @@ inline T* vector_as_array(vector<T, Allocator>* v) {
 }
 
 template <typename T, typename Allocator>
-inline const T* vector_as_array(const vector<T, Allocator>* v) {
+ const T* vector_as_array(const vector<T, Allocator>* v) {
 #ifdef NDEBUG
     return &*v->begin();
 #else
@@ -353,7 +352,7 @@ inline char* string_as_array(string* str) {
 // differed.
 
 template <class HashSet>
-inline bool HashSetEquality(const HashSet& set_a, const HashSet& set_b) {
+ bool HashSetEquality(const HashSet& set_a, const HashSet& set_b) {
     if (set_a.size() != set_b.size()) return false;
     for (typename HashSet::const_iterator i = set_a.begin(); i != set_a.end(); ++i)
         if (set_b.find(*i) == set_b.end()) return false;
@@ -361,7 +360,7 @@ inline bool HashSetEquality(const HashSet& set_a, const HashSet& set_b) {
 }
 
 template <class HashMap>
-inline bool HashMapEquality(const HashMap& map_a, const HashMap& map_b) {
+ bool HashMapEquality(const HashMap& map_a, const HashMap& map_b) {
     if (map_a.size() != map_b.size()) return false;
     for (typename HashMap::const_iterator i = map_a.begin(); i != map_a.end(); ++i) {
         typename HashMap::const_iterator j = map_b.find(i->first);
@@ -641,7 +640,7 @@ bool STLIncludes(const SortedSTLContainerA& a, const SortedSTLContainerB& b) {
 // the contents of an STL map. For other sample usage, see the unittest.
 
 template <typename Pair, typename UnaryOp>
-class UnaryOperateOnFirst : public std::unary_function<Pair, typename UnaryOp::result_type> {
+class UnaryOperateOnFirst {
 public:
     UnaryOperateOnFirst() {}
 
@@ -660,7 +659,7 @@ UnaryOperateOnFirst<Pair, UnaryOp> UnaryOperate1st(const UnaryOp& f) {
 }
 
 template <typename Pair, typename UnaryOp>
-class UnaryOperateOnSecond : public std::unary_function<Pair, typename UnaryOp::result_type> {
+class UnaryOperateOnSecond {
 public:
     UnaryOperateOnSecond() {}
 
@@ -679,8 +678,7 @@ UnaryOperateOnSecond<Pair, UnaryOp> UnaryOperate2nd(const UnaryOp& f) {
 }
 
 template <typename Pair, typename BinaryOp>
-class BinaryOperateOnFirst
-        : public std::binary_function<Pair, Pair, typename BinaryOp::result_type> {
+class BinaryOperateOnFirst {
 public:
     BinaryOperateOnFirst() {}
 
@@ -702,8 +700,7 @@ BinaryOperateOnFirst<Pair, BinaryOp> BinaryOperate1st(const BinaryOp& f) {
 }
 
 template <typename Pair, typename BinaryOp>
-class BinaryOperateOnSecond
-        : public std::binary_function<Pair, Pair, typename BinaryOp::result_type> {
+class BinaryOperateOnSecond {
 public:
     BinaryOperateOnSecond() {}
 
@@ -736,9 +733,7 @@ BinaryOperateOnSecond<Pair, BinaryOp> BinaryOperate2nd(const BinaryOp& f) {
 // F has to be a model of AdaptableBinaryFunction.
 // G1 and G2 have to be models of AdabtableUnaryFunction.
 template <typename F, typename G1, typename G2>
-class BinaryComposeBinary
-        : public binary_function<typename G1::argument_type, typename G2::argument_type,
-                                 typename F::result_type> {
+class BinaryComposeBinary {
 public:
     BinaryComposeBinary(F f, G1 g1, G2 g2) : f_(f), g1_(g1), g2_(g2) {}
 

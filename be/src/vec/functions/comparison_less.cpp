@@ -15,6 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "vec/columns/column.h"
+#include "vec/core/accurate_comparison.h"
+#include "vec/data_types/data_type.h"
 #include "vec/functions/functions_comparison.h"
 #include "vec/functions/simple_function_factory.h"
 

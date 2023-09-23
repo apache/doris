@@ -17,13 +17,14 @@
 
 #include "geo/geo_types.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <string.h>
+
+#include <ostream>
 
 #include "common/logging.h"
-#include "geo/geo_types.h"
-#include "geo/wkt_parse.h"
-#include "geo/wkt_parse_ctx.h"
-#include "s2/s2debug.h"
+#include "gtest/gtest_pred_impl.h"
 
 namespace doris {
 

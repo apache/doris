@@ -17,56 +17,71 @@
 
 #pragma once
 
+#include <cstddef>
+
 #include "vec/columns/column.h"
+
 namespace doris {
 
-class MemPool;
 class SlotDescriptor;
-class Status;
-struct StringValue;
-class Tuple;
-class TupleDescriptor;
 
 // Helper class for dealing with text data, e.g., converting text data to
 // numeric types, etc.
 class TextConverter {
 public:
-    TextConverter(char escape_char);
+    static constexpr char NULL_STR[3] = {'\\', 'N', '\0'};
 
-    // Converts slot data, of length 'len',  into type of slot_desc,
-    // and writes the result into the tuples's slot.
-    // copy_string indicates whether we need to make a separate copy of the string data:
-    // For regular unescaped strings, we point to the original data in the _file_buf.
-    // For regular escaped strings, we copy an its unescaped string into a separate buffer
-    // and point to it.
-    // If the string needs to be copied, the memory is allocated from 'pool', otherwise
-    // 'pool' is unused.
-    // Unsuccessful conversions are turned into NULLs.
-    // Returns true if the value was written successfully.
-    bool write_slot(const SlotDescriptor* slot_desc, Tuple* tuple, const char* data, int len,
-                    bool copy_string, bool need_escape, MemPool* pool);
+    TextConverter(char escape_char, char collection_delimiter = '\2', char map_kv_delimiter = '\3');
+
+    inline void write_string_column(const SlotDescriptor* slot_desc,
+                                    vectorized::MutableColumnPtr* column_ptr, const char* data,
+                                    size_t len) {
+        return write_string_column(slot_desc, column_ptr, data, len, false);
+    }
 
     void write_string_column(const SlotDescriptor* slot_desc,
-                             vectorized::MutableColumnPtr* column_ptr, const char* data,
-                             size_t len);
+                             vectorized::MutableColumnPtr* column_ptr, const char* data, size_t len,
+                             bool need_escape);
 
-    bool write_column(const SlotDescriptor* slot_desc, vectorized::MutableColumnPtr* column_ptr,
-                      const char* data, size_t len, bool copy_string, bool need_escape);
+    inline bool write_column(const SlotDescriptor* slot_desc,
+                             vectorized::MutableColumnPtr* column_ptr, const char* data, size_t len,
+                             bool copy_string, bool need_escape) {
+        vectorized::IColumn* nullable_col_ptr = column_ptr->get();
+        return write_vec_column(slot_desc, nullable_col_ptr, data, len, copy_string, need_escape);
+    }
 
+    inline bool write_vec_column(const SlotDescriptor* slot_desc,
+                                 vectorized::IColumn* nullable_col_ptr, const char* data,
+                                 size_t len, bool copy_string, bool need_escape) {
+        return write_vec_column(slot_desc, nullable_col_ptr, data, len, copy_string, need_escape,
+                                1);
+    }
+
+    /// Write consecutive rows of the same data.
     bool write_vec_column(const SlotDescriptor* slot_desc, vectorized::IColumn* nullable_col_ptr,
-                          const char* data, size_t len, bool copy_string, bool need_escape);
-
-    // Removes escape characters from len characters of the null-terminated string src,
-    // and copies the unescaped string into dest, changing *len to the unescaped length.
-    // No null-terminator is added to dest.
-    void unescape_string(const char* src, char* dest, size_t* len);
+                          const char* data, size_t len, bool copy_string, bool need_escape,
+                          size_t rows);
     void unescape_string_on_spot(const char* src, size_t* len);
-    // Removes escape characters from 'str', allocating a new string from pool.
-    // 'str' is updated with the new ptr and length.
-    void unescape_string(StringValue* str, MemPool* pool);
+
+    void set_collection_delimiter(char collection_delimiter) {
+        _collection_delimiter = collection_delimiter;
+    }
+    void set_map_kv_delimiter(char mapkv_delimiter) { _map_kv_delimiter = mapkv_delimiter; }
+
+    inline void set_escape_char(const char escape) { this->_escape_char = escape; }
 
 private:
+    bool _write_data(const TypeDescriptor& type_desc, vectorized::IColumn* nullable_col_ptr,
+                     const char* data, size_t len, bool copy_string, bool need_escape, size_t rows,
+                     char array_delimiter);
+
     char _escape_char;
+
+    //struct,array and map delimiter
+    char _collection_delimiter;
+
+    //map key and value delimiter
+    char _map_kv_delimiter;
 };
 
 } // namespace doris

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "explode_split",
+    "title": "EXPLODE_SPLIT",
     "language": "en"
 }
 ---
@@ -27,6 +27,9 @@ under the License.
 ## explode_split
 
 ### description
+#### syntax
+
+`explode_split(str, delimiter)`
 
 Table functions must be used in conjunction with Lateral View.
 

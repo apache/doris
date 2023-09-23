@@ -17,24 +17,23 @@
 
 #include "olap/utils.h"
 
-#include <dirent.h>
-#include <errno.h>
-#include <lz4/lz4.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <sys/stat.h>
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
 #include <time.h>
 #include <unistd.h>
+#include <zconf.h>
+#include <zlib.h>
 
-#include <cstdint>
+#include <cmath>
 #include <cstring>
-#include <filesystem>
+#include <memory>
 #include <regex>
+#include <set>
+#include <sstream>
 #include <string>
 #include <vector>
 
-#include "olap/file_helper.h"
-#include "util/file_utils.h"
+#include "util/sse_util.hpp"
 
 #ifdef DORIS_WITH_LZO
 #include <lzo/lzo1c.h>
@@ -45,148 +44,17 @@
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "env/env.h"
-#include "gutil/strings/substitute.h"
+#include "io/fs/file_reader.h"
+#include "io/fs/file_writer.h"
+#include "io/fs/local_file_system.h"
 #include "olap/olap_common.h"
-#include "olap/olap_define.h"
-#include "util/errno.h"
 #include "util/string_parser.hpp"
 
-using std::string;
-using std::set;
-using std::vector;
-
 namespace doris {
+using namespace ErrorCode;
 
-Status olap_compress(const char* src_buf, size_t src_len, char* dest_buf, size_t dest_len,
-                     size_t* written_len, OLAPCompressionType compression_type) {
-    if (nullptr == src_buf || nullptr == dest_buf || nullptr == written_len) {
-        LOG(WARNING) << "input param with nullptr pointer. [src_buf=" << src_buf
-                     << " dest_buf=" << dest_buf << " written_len=" << written_len << "]";
-
-        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
-    }
-
-    *written_len = dest_len;
-    switch (compression_type) {
-#ifdef DORIS_WITH_LZO
-    case OLAP_COMP_TRANSPORT: {
-        // A small buffer(hundreds of bytes) for LZO1X
-        unsigned char mem[LZO1X_1_MEM_COMPRESS];
-        int lzo_res = 0;
-        if (LZO_E_OK != (lzo_res = lzo1x_1_compress(
-                                 reinterpret_cast<const lzo_byte*>(src_buf), src_len,
-                                 reinterpret_cast<unsigned char*>(dest_buf), written_len, mem))) {
-            LOG(WARNING) << "compress failed. src_len=" << src_len << "; dest_len= " << dest_len
-                         << "; written_len=" << *written_len << "; lzo_res=" << lzo_res;
-
-            return Status::OLAPInternalError(OLAP_ERR_COMPRESS_ERROR);
-        } else if (*written_len > dest_len) {
-            VLOG_NOTICE << "buffer overflow when compressing. "
-                        << "dest_len=" << dest_len << ", written_len=" << *written_len;
-
-            return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
-        }
-        break;
-    }
-    case OLAP_COMP_STORAGE: {
-        // data for LZO1C_99
-        unsigned char mem[LZO1C_99_MEM_COMPRESS];
-        int lzo_res = 0;
-        if (LZO_E_OK != (lzo_res = lzo1c_99_compress(
-                                 reinterpret_cast<const lzo_byte*>(src_buf), src_len,
-                                 reinterpret_cast<unsigned char*>(dest_buf), written_len, mem))) {
-            LOG(WARNING) << "compress failed. src_len=" << src_len << "; dest_len= " << dest_len
-                         << "; written_len=" << *written_len << "; lzo_res=" << lzo_res;
-
-            return Status::OLAPInternalError(OLAP_ERR_COMPRESS_ERROR);
-        } else if (*written_len > dest_len) {
-            VLOG_NOTICE << "buffer overflow when compressing. "
-                        << ", dest_len=" << dest_len << ", written_len=" << *written_len;
-
-            return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
-        }
-        break;
-    }
-#endif
-
-    case OLAP_COMP_LZ4: {
-        // int lz4_res = LZ4_compress_limitedOutput(src_buf, dest_buf, src_len, dest_len);
-        int lz4_res = LZ4_compress_default(src_buf, dest_buf, src_len, dest_len);
-        *written_len = lz4_res;
-        if (0 == lz4_res) {
-            VLOG_TRACE << "compress failed. src_len=" << src_len << ", dest_len=" << dest_len
-                       << ", written_len=" << *written_len << ", lz4_res=" << lz4_res;
-            return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
-        }
-        break;
-    }
-    default:
-        LOG(WARNING) << "unknown compression type. [type=" << compression_type << "]";
-        break;
-    }
-    return Status::OK();
-}
-
-Status olap_decompress(const char* src_buf, size_t src_len, char* dest_buf, size_t dest_len,
-                       size_t* written_len, OLAPCompressionType compression_type) {
-    if (nullptr == src_buf || nullptr == dest_buf || nullptr == written_len) {
-        LOG(WARNING) << "input param with nullptr pointer. [src_buf=" << src_buf
-                     << " dest_buf=" << dest_buf << " written_len=" << written_len << "]";
-
-        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
-    }
-
-    *written_len = dest_len;
-    switch (compression_type) {
-#ifdef DORIS_WITH_LZO
-    case OLAP_COMP_TRANSPORT: {
-        int lzo_res = lzo1x_decompress_safe(reinterpret_cast<const lzo_byte*>(src_buf), src_len,
-                                            reinterpret_cast<unsigned char*>(dest_buf), written_len,
-                                            nullptr);
-        if (LZO_E_OK != lzo_res) {
-            LOG(WARNING) << "decompress failed. src_len=" << src_len << "; dest_len= " << dest_len
-                         << "; written_len=" << *written_len << "; lzo_res=" << lzo_res;
-            return Status::OLAPInternalError(OLAP_ERR_DECOMPRESS_ERROR);
-        } else if (*written_len > dest_len) {
-            LOG(WARNING) << "buffer overflow when decompressing. [dest_len=" << dest_len
-                         << " written_len=" << *written_len << "]";
-            return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
-        }
-        break;
-    }
-    case OLAP_COMP_STORAGE: {
-        int lzo_res = lzo1c_decompress_safe(reinterpret_cast<const lzo_byte*>(src_buf), src_len,
-                                            reinterpret_cast<unsigned char*>(dest_buf), written_len,
-                                            nullptr);
-        if (LZO_E_OK != lzo_res) {
-            LOG(WARNING) << "compress failed. src_len=" << src_len << "; dest_len= " << dest_len
-                         << "; written_len=" << *written_len << "; lzo_res=" << lzo_res;
-            return Status::OLAPInternalError(OLAP_ERR_DECOMPRESS_ERROR);
-        } else if (*written_len > dest_len) {
-            LOG(WARNING) << "buffer overflow when decompressing. [dest_len=" << dest_len
-                         << " written_len=" << *written_len << "]";
-            return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
-        }
-        break;
-    }
-#endif
-
-    case OLAP_COMP_LZ4: {
-        int lz4_res = LZ4_decompress_safe(src_buf, dest_buf, src_len, dest_len);
-        *written_len = lz4_res;
-        if (lz4_res < 0) {
-            LOG(WARNING) << "decompress failed. src_len=" << src_len << "; dest_len= " << dest_len
-                         << "; written_len=" << *written_len << "; lzo_res=" << lz4_res;
-            return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
-        }
-        break;
-    }
-    default:
-        LOG(FATAL) << "unknown compress kind. kind=" << compression_type;
-        break;
-    }
-    return Status::OK();
+uint32_t olap_adler32_init() {
+    return adler32(0L, Z_NULL, 0);
 }
 
 uint32_t olap_adler32(uint32_t adler, const char* buf, size_t len) {
@@ -535,30 +403,16 @@ unsigned int crc32c_lut(char const* b, unsigned int off, unsigned int len, unsig
     return localCrc;
 }
 
-uint32_t olap_crc32(uint32_t crc32, const char* buf, size_t len) {
-#if defined(__i386) || defined(__x86_64__)
-    if (OLAP_LIKELY(CpuInfo::is_supported(CpuInfo::SSE4_2))) {
-        return baidu_crc32_qw(buf, crc32, len);
-    } else {
-        return crc32c_lut(buf, 0, len, crc32);
-    }
-#else
-    return crc32c_lut(buf, 0, len, crc32);
-#endif
-}
-
-Status gen_timestamp_string(string* out_string) {
+Status gen_timestamp_string(std::string* out_string) {
     time_t now = time(nullptr);
     tm local_tm;
 
     if (localtime_r(&now, &local_tm) == nullptr) {
-        LOG(WARNING) << "fail to localtime_r time. [time=" << now << "]";
-        return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
+        return Status::Error<OS_ERROR>("fail to localtime_r time. time={}", now);
     }
-    char time_suffix[16] = {0}; // Example: 20150706111404, 长度是15个字符
+    char time_suffix[16] = {0}; // Example: 20150706111404's length is 15
     if (strftime(time_suffix, sizeof(time_suffix), "%Y%m%d%H%M%S", &local_tm) == 0) {
-        LOG(WARNING) << "fail to strftime time. [time=" << now << "]";
-        return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
+        return Status::Error<OS_ERROR>("fail to strftime time. time={}", now);
     }
 
     *out_string = time_suffix;
@@ -569,43 +423,33 @@ int operator-(const BinarySearchIterator& left, const BinarySearchIterator& righ
     return *left - *right;
 }
 
-Status read_write_test_file(const string& test_file_path) {
+Status read_write_test_file(const std::string& test_file_path) {
     if (access(test_file_path.c_str(), F_OK) == 0) {
         if (remove(test_file_path.c_str()) != 0) {
             char errmsg[64];
-            LOG(WARNING) << "fail to delete test file. "
-                         << "path=" << test_file_path << ", errno=" << errno
-                         << ", err=" << strerror_r(errno, errmsg, 64);
-            return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
+            return Status::IOError("fail to access test file. path={}, errno={}, err={}",
+                                   test_file_path, errno, strerror_r(errno, errmsg, 64));
         }
     } else {
         if (errno != ENOENT) {
             char errmsg[64];
-            LOG(WARNING) << "fail to access test file. "
-                         << "path=" << test_file_path << ", errno=" << errno
-                         << ", err=" << strerror_r(errno, errmsg, 64);
-            return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
+            return Status::IOError("fail to access test file. path={}, errno={}, err={}",
+                                   test_file_path, errno, strerror_r(errno, errmsg, 64));
         }
     }
-    Status res = Status::OK();
-    FileHandler file_handler;
-    if ((res = file_handler.open_with_mode(test_file_path.c_str(), O_RDWR | O_CREAT | O_SYNC,
-                                           S_IRUSR | S_IWUSR)) != Status::OK()) {
-        LOG(WARNING) << "fail to create test file. path=" << test_file_path;
-        return res;
-    }
+
     const size_t TEST_FILE_BUF_SIZE = 4096;
     const size_t DIRECT_IO_ALIGNMENT = 512;
     char* write_test_buff = nullptr;
     char* read_test_buff = nullptr;
     if (posix_memalign((void**)&write_test_buff, DIRECT_IO_ALIGNMENT, TEST_FILE_BUF_SIZE) != 0) {
-        LOG(WARNING) << "fail to allocate write buffer memory. size=" << TEST_FILE_BUF_SIZE;
-        return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
+        return Status::Error<MEM_ALLOC_FAILED>("fail to allocate write buffer memory. size={}",
+                                               TEST_FILE_BUF_SIZE);
     }
     std::unique_ptr<char, decltype(&std::free)> write_buff(write_test_buff, &std::free);
     if (posix_memalign((void**)&read_test_buff, DIRECT_IO_ALIGNMENT, TEST_FILE_BUF_SIZE) != 0) {
-        LOG(WARNING) << "fail to allocate read buffer memory. size=" << TEST_FILE_BUF_SIZE;
-        return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
+        return Status::Error<MEM_ALLOC_FAILED>("fail to allocate read buffer memory. size={}",
+                                               TEST_FILE_BUF_SIZE);
     }
     std::unique_ptr<char, decltype(&std::free)> read_buff(read_test_buff, &std::free);
     // generate random numbers
@@ -614,45 +458,33 @@ Status read_write_test_file(const string& test_file_path) {
         int32_t tmp_value = rand_r(&rand_seed);
         write_test_buff[i] = static_cast<char>(tmp_value);
     }
-    if (!(res = file_handler.pwrite(write_buff.get(), TEST_FILE_BUF_SIZE, SEEK_SET))) {
-        LOG(WARNING) << "fail to write test file. [file_name=" << test_file_path << "]";
-        return res;
-    }
-    if ((res = file_handler.pread(read_buff.get(), TEST_FILE_BUF_SIZE, SEEK_SET)) != Status::OK()) {
-        LOG(WARNING) << "fail to read test file. [file_name=" << test_file_path << "]";
-        return res;
-    }
+
+    // write file
+    io::FileWriterPtr file_writer;
+    RETURN_IF_ERROR(io::global_local_filesystem()->create_file(test_file_path, &file_writer));
+    RETURN_IF_ERROR(file_writer->append({write_buff.get(), TEST_FILE_BUF_SIZE}));
+    RETURN_IF_ERROR(file_writer->close());
+    // read file
+    io::FileReaderSPtr file_reader;
+    RETURN_IF_ERROR(io::global_local_filesystem()->open_file(test_file_path, &file_reader));
+    size_t bytes_read = 0;
+    RETURN_IF_ERROR(file_reader->read_at(0, {read_buff.get(), TEST_FILE_BUF_SIZE}, &bytes_read));
     if (memcmp(write_buff.get(), read_buff.get(), TEST_FILE_BUF_SIZE) != 0) {
-        LOG(WARNING) << "the test file write_buf and read_buf not equal, [file_name = "
-                     << test_file_path << "]";
-        return Status::OLAPInternalError(OLAP_ERR_TEST_FILE_ERROR);
+        return Status::IOError("the test file write_buf and read_buf not equal, file_name={}.",
+                               test_file_path);
     }
-    if ((res = file_handler.close()) != Status::OK()) {
-        LOG(WARNING) << "fail to close test file. [file_name=" << test_file_path << "]";
-        return res;
-    }
-    if (remove(test_file_path.c_str()) != 0) {
-        char errmsg[64];
-        VLOG_NOTICE << "fail to delete test file. [err='" << strerror_r(errno, errmsg, 64)
-                    << "' path='" << test_file_path << "']";
-        return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
-    }
-    return res;
+    // delete file
+    return io::global_local_filesystem()->delete_file(test_file_path);
 }
 
-bool check_datapath_rw(const string& path) {
-    if (!FileUtils::check_exist(path)) return false;
-    string file_path = path + "/.read_write_test_file";
-    try {
-        Status res = read_write_test_file(file_path);
-        return res.ok();
-    } catch (...) {
-        // do nothing
+Status check_datapath_rw(const std::string& path) {
+    bool exists = true;
+    RETURN_IF_ERROR(io::global_local_filesystem()->exists(path, &exists));
+    if (!exists) {
+        return Status::IOError("path does not exist: {}", path);
     }
-    LOG(WARNING) << "error when try to read and write temp file under the data path and return "
-                    "false. [path="
-                 << path << "]";
-    return false;
+    std::string file_path = path + "/.read_write_test_file";
+    return read_write_test_file(file_path);
 }
 
 __thread char Errno::_buf[BUF_SIZE]; ///< buffer instance
@@ -709,7 +541,7 @@ bool valid_signed_number<int128_t>(const std::string& value_str) {
     }
 }
 
-bool valid_decimal(const string& value_str, const uint32_t precision, const uint32_t frac) {
+bool valid_decimal(const std::string& value_str, const uint32_t precision, const uint32_t frac) {
     const char* decimal_pattern = "-?\\d+(.\\d+)?";
     std::regex e(decimal_pattern);
     std::smatch what;
@@ -726,7 +558,7 @@ bool valid_decimal(const string& value_str, const uint32_t precision, const uint
     size_t integer_len = 0;
     size_t fractional_len = 0;
     size_t point_pos = value_str.find('.');
-    if (point_pos == string::npos) {
+    if (point_pos == std::string::npos) {
         integer_len = number_length;
         fractional_len = 0;
     } else {
@@ -741,7 +573,7 @@ bool valid_decimal(const string& value_str, const uint32_t precision, const uint
     }
 }
 
-bool valid_datetime(const string& value_str, const uint32_t scale) {
+bool valid_datetime(const std::string& value_str, const uint32_t scale) {
     const char* datetime_pattern =
             "((?:\\d){4})-((?:\\d){2})-((?:\\d){2})[ ]*"
             "(((?:\\d){2}):((?:\\d){2}):((?:\\d){2})([.]*((?:\\d){0,6})))?";

@@ -73,15 +73,13 @@
 #pragma once
 
 #include <stddef.h>
-#include <stdint.h> // for uintptr_t
 #include <string.h>
-
-#include <algorithm>
 #include <string>
-#include <utility>
+#include <cstddef>
+#include <functional>
+#include <iterator>
+#include <string_view>
 
-#include "gutil/casts.h"
-#include "gutil/hash/city.h"
 #include "gutil/hash/hash128to64.h"
 #include "gutil/hash/jenkins.h"
 #include "gutil/hash/jenkins_lookup2.h"
@@ -89,8 +87,7 @@
 #include "gutil/hash/string_hash.h"
 #include "gutil/int128.h"
 #include "gutil/integral_types.h"
-#include "gutil/macros.h"
-#include "gutil/port.h"
+#include "gutil/hash/builtin_type_hash.h"
 
 // ----------------------------------------------------------------------
 // Fingerprint()
@@ -118,7 +115,7 @@
 extern uint64 FingerprintReferenceImplementation(const char* s, uint32 len);
 extern uint64 FingerprintInterleavedImplementation(const char* s, uint32 len);
 inline uint64 Fingerprint(const char* s, uint32 len) {
-    if (sizeof(s) == 8) { // 64-bit systems have 8-byte pointers.
+    if constexpr (sizeof(s) == 8) { // 64-bit systems have 8-byte pointers.
         // The better choice when we have a decent number of registers.
         return FingerprintInterleavedImplementation(s, len);
     } else {
@@ -126,7 +123,7 @@ inline uint64 Fingerprint(const char* s, uint32 len) {
     }
 }
 
-// Routine that combines together the hi/lo part of a fingerprint
+// Routine that combines the hi/lo part of a fingerprint
 // and changes the result appropriately to avoid returning 0/1.
 inline uint64 CombineFingerprintHalves(uint32 hi, uint32 lo) {
     uint64 result = (static_cast<uint64>(hi) << 32) | static_cast<uint64>(lo);
@@ -181,11 +178,9 @@ inline uint64 FingerprintCat(uint64 fp1, uint64 fp2) {
     return Hash64NumWithSeed(fp1, fp2);
 }
 
-namespace std {
-
 // This intended to be a "good" hash function.  It may change from time to time.
 template <>
-struct hash<uint128> {
+struct std::hash<uint128> {
     size_t operator()(const uint128& x) const {
         if (sizeof(&x) == 8) { // 64-bit systems have 8-byte pointers.
             return Hash128to64(x);
@@ -205,7 +200,7 @@ struct hash<uint128> {
 
 // Hasher for STL pairs. Requires hashers for both members to be defined
 template <class First, class Second>
-struct hash<pair<First, Second> > {
+struct std::hash<std::pair<First, Second> > {
     size_t operator()(const pair<First, Second>& p) const {
         size_t h1 = std::hash<First>()(p.first);
         size_t h2 = std::hash<Second>()(p.second);
@@ -215,8 +210,6 @@ struct hash<pair<First, Second> > {
     }
     static const size_t min_buckets = 8; // 4 and 8 are defaults.
 };
-
-} // namespace std
 
 // If you want an excellent string hash function, and you don't mind if it
 // might change when you sync and recompile, please use GoodFastHash<>.

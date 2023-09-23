@@ -26,8 +26,9 @@
 
 #pragma once
 
-#include <common/logging.h>
+#include "common/logging.h"
 #include <stdint.h>
+#include <ostream>
 
 #define BASE_HAS_ATOMIC64 1 // Use only in tests and base/atomic*
 
@@ -63,7 +64,7 @@ typedef int64_t Atomic64;
 // hard-to-track-down bugs, if the pointer isn't naturally aligned. Check alignment
 // in debug mode.
 template <class T>
-inline void CheckNaturalAlignment(const T* ptr) {
+void CheckNaturalAlignment(const T* ptr) {
     DCHECK_EQ(0, reinterpret_cast<const uintptr_t>(ptr) & (sizeof(T) - 1))
             << "unaligned pointer not allowed for atomics";
 }

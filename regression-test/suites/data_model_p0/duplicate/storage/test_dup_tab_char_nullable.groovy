@@ -22,7 +22,7 @@ suite("test_dup_tab_char_nullable") {
     sql "drop table if exists ${table1}"
 
     sql """
-CREATE TABLE `${table1}` (
+CREATE TABLE IF NOT EXISTS `${table1}` (
   `city` char(20) NULL COMMENT "",
   `name` char(20) NULL COMMENT "",
   `addr` char(20) NULL COMMENT "",
@@ -38,7 +38,6 @@ PROPERTIES (
 )
 
     """
-    sql "set enable_vectorized_engine = false"
 
     sql """insert into ${table1} values
        ('a1','a2','a3','a4'),
@@ -49,7 +48,6 @@ PROPERTIES (
        ('e1','e2','e3','e4'),
        (null,'e2',null,'e4')
 """
-    sql "set enable_vectorized_engine = true"
 
     qt_read_single_column_1 "select city from ${table1} where city in ('a1','e1') order by city"
     qt_read_single_column_2 "select city from ${table1} where city not in ('a1','e1') order by city"

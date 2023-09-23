@@ -17,20 +17,36 @@
 
 package org.apache.doris.nereids.trees.expressions.functions;
 
+import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
+import com.google.common.base.Suppliers;
+
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /** BoundFunction. */
-public abstract class BoundFunction extends Expression {
+public abstract class BoundFunction extends Function implements ComputeSignature {
     private final String name;
+
+    private final Supplier<FunctionSignature> signatureCache = Suppliers.memoize(() -> {
+        // first step: find the candidate signature in the signature list
+        FunctionSignature matchedSignature = searchSignature(getSignatures());
+        // second step: change the signature, e.g. fill precision for decimal v2
+        return computeSignature(matchedSignature);
+    });
 
     public BoundFunction(String name, Expression... arguments) {
         super(arguments);
+        this.name = Objects.requireNonNull(name, "name can not be null");
+    }
+
+    public BoundFunction(String name, List<Expression> children) {
+        super(children);
         this.name = Objects.requireNonNull(name, "name can not be null");
     }
 
@@ -38,8 +54,8 @@ public abstract class BoundFunction extends Expression {
         return name;
     }
 
-    public List<Expression> getArguments() {
-        return children;
+    public FunctionSignature getSignature() {
+        return signatureCache.get();
     }
 
     @Override

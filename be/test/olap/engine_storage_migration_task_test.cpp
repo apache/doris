@@ -17,34 +17,48 @@
 
 #include "olap/task/engine_storage_migration_task.h"
 
-#include <gtest/gtest.h>
-#include <sys/file.h>
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/types.pb.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stdlib.h>
+#include <unistd.h>
 
+#include <algorithm>
+#include <map>
+#include <memory>
 #include <string>
+#include <utility>
 
+#include "common/config.h"
+#include "common/object_pool.h"
+#include "exec/tablet_info.h"
 #include "gen_cpp/Descriptors_types.h"
-#include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/internal_service.pb.h"
+#include "gtest/gtest_pred_impl.h"
+#include "io/fs/local_file_system.h"
+#include "olap/data_dir.h"
 #include "olap/delta_writer.h"
-#include "olap/field.h"
+#include "olap/olap_common.h"
+#include "olap/olap_define.h"
 #include "olap/options.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
-#include "olap/tablet_meta_manager.h"
-#include "olap/utils.h"
+#include "olap/tablet_manager.h"
+#include "olap/task/engine_publish_version_task.h"
+#include "olap/txn_manager.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/descriptor_helper.h"
+#include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
-#include "runtime/mem_pool.h"
-#include "runtime/tuple.h"
-#include "util/file_utils.h"
-#include "util/logging.h"
 
 namespace doris {
+class OlapMeta;
 
 static const uint32_t MAX_PATH_LEN = 1024;
 
-static StorageEngine* k_engine = nullptr;
+static std::unique_ptr<StorageEngine> k_engine;
 static std::string path1;
 static std::string path2;
 
@@ -55,33 +69,33 @@ static void set_up() {
     path2 = std::string(buffer) + "/data_test_2";
     config::storage_root_path = path1 + ";" + path2;
     config::min_file_descriptor_number = 1000;
-    FileUtils::remove_all(path1);
-    FileUtils::create_dir(path1);
-
-    FileUtils::remove_all(path2);
-    FileUtils::create_dir(path2);
+    EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(path1).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(path2).ok());
     std::vector<StorePath> paths;
     paths.emplace_back(path1, -1);
     paths.emplace_back(path2, -1);
 
     doris::EngineOptions options;
     options.store_paths = paths;
-    Status s = doris::StorageEngine::open(options, &k_engine);
+    k_engine = std::make_unique<StorageEngine>(options);
+    Status s = k_engine->open();
     EXPECT_TRUE(s.ok()) << s.to_string();
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
-    exec_env->set_storage_engine(k_engine);
+    exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
+    exec_env->set_storage_engine(k_engine.get());
     k_engine->start_bg_threads();
 }
 
 static void tear_down() {
-    if (k_engine != nullptr) {
-        k_engine->stop();
-        delete k_engine;
-        k_engine = nullptr;
-    }
+    ExecEnv* exec_env = doris::ExecEnv::GetInstance();
+    exec_env->set_memtable_memory_limiter(nullptr);
+    exec_env->set_storage_engine(nullptr);
+    k_engine.reset();
     EXPECT_EQ(system("rm -rf ./data_test_1"), 0);
     EXPECT_EQ(system("rm -rf ./data_test_2"), 0);
-    FileUtils::remove_all(std::string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX);
+    EXPECT_TRUE(io::global_local_filesystem()
+                        ->delete_directory(std::string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX)
+                        .ok());
 }
 
 static void create_tablet_request_with_sequence_col(int64_t tablet_id, int32_t schema_hash,
@@ -154,9 +168,11 @@ public:
 };
 
 TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
+    std::unique_ptr<RuntimeProfile> profile;
+    profile = std::make_unique<RuntimeProfile>("CreateTablet");
     TCreateTabletReq request;
     create_tablet_request_with_sequence_col(10005, 270068377, &request);
-    Status res = k_engine->create_tablet(request);
+    Status res = k_engine->create_tablet(request, profile.get());
     EXPECT_EQ(Status::OK(), res);
 
     TDescriptorTable tdesc_tbl = create_descriptor_tablet_with_sequence_col();
@@ -164,35 +180,33 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
     DescriptorTbl* desc_tbl = nullptr;
     DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
-    const std::vector<SlotDescriptor*>& slots = tuple_desc->slots();
+    OlapTableSchemaParam param;
 
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {10005, 270068377, WriteType::LOAD, 20003,
-                              30003, load_id,   tuple_desc,      &(tuple_desc->slots())};
+    WriteRequest write_req;
+    write_req.tablet_id = 10005;
+    write_req.schema_hash = 270068377;
+    write_req.txn_id = 20003;
+    write_req.partition_id = 30003;
+    write_req.load_id = load_id;
+    write_req.tuple_desc = tuple_desc;
+    write_req.slots = &(tuple_desc->slots());
+    write_req.is_high_priority = false;
+    write_req.table_schema_param = &param;
+
     DeltaWriter* delta_writer = nullptr;
-    DeltaWriter::open(&write_req, &delta_writer);
+
+    profile = std::make_unique<RuntimeProfile>("LoadChannels");
+    DeltaWriter::open(&write_req, &delta_writer, profile.get());
     EXPECT_NE(delta_writer, nullptr);
-
-    MemPool pool;
-    // Tuple 1
-    {
-        Tuple* tuple = reinterpret_cast<Tuple*>(pool.allocate(tuple_desc->byte_size()));
-        memset(tuple, 0, tuple_desc->byte_size());
-        *(int8_t*)(tuple->get_slot(slots[0]->tuple_offset())) = 123;
-        *(int16_t*)(tuple->get_slot(slots[1]->tuple_offset())) = 456;
-        *(int32_t*)(tuple->get_slot(slots[2]->tuple_offset())) = 1;
-        ((DateTimeValue*)(tuple->get_slot(slots[3]->tuple_offset())))
-                ->from_date_str("2020-07-16 19:39:43", 19);
-
-        res = delta_writer->write(tuple);
-        EXPECT_EQ(Status::OK(), res);
-    }
 
     res = delta_writer->close();
     EXPECT_EQ(Status::OK(), res);
-    res = delta_writer->close_wait(PSlaveTabletNodes(), false);
+    res = delta_writer->build_rowset();
+    EXPECT_EQ(Status::OK(), res);
+    res = delta_writer->commit_txn(PSlaveTabletNodes(), false);
     EXPECT_EQ(Status::OK(), res);
 
     // publish version success
@@ -206,14 +220,15 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
             write_req.txn_id, write_req.partition_id, &tablet_related_rs);
     for (auto& tablet_rs : tablet_related_rs) {
         RowsetSharedPtr rowset = tablet_rs.second;
+        TabletPublishStatistics stats;
         res = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
-                                                   tablet->tablet_id(), tablet->schema_hash(),
-                                                   tablet->tablet_uid(), version);
+                                                   tablet->tablet_id(), tablet->tablet_uid(),
+                                                   version, &stats);
         EXPECT_EQ(Status::OK(), res);
         res = tablet->add_inc_rowset(rowset);
         EXPECT_EQ(Status::OK(), res);
     }
-    EXPECT_EQ(1, tablet->num_rows());
+    EXPECT_EQ(0, tablet->num_rows());
     // we should sleep 1 second for the migrated tablet has different time with the current tablet
     sleep(1);
 
@@ -235,7 +250,7 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
     // check path
     EXPECT_EQ(tablet2->data_dir()->path(), dest_store->path());
     // check rows
-    EXPECT_EQ(1, tablet2->num_rows());
+    EXPECT_EQ(0, tablet2->num_rows());
     // tablet2 should not equal to tablet
     EXPECT_NE(tablet2, tablet);
 
@@ -253,7 +268,7 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
     // check path
     EXPECT_EQ(tablet3->data_dir()->path(), tablet->data_dir()->path());
     // check rows
-    EXPECT_EQ(1, tablet3->num_rows());
+    EXPECT_EQ(0, tablet3->num_rows());
     // orgi_tablet should not equal to new_tablet and tablet
     EXPECT_NE(tablet3, tablet2);
     EXPECT_NE(tablet3, tablet);

@@ -21,4 +21,4 @@ enum Ownership { DO_NOT_TAKE_OWNERSHIP, TAKE_OWNERSHIP };
 //     ignore_result(my_var.release());
 //
 template <typename T>
-inline void ignore_result(const T&) {}
+void ignore_result(const T&) {}

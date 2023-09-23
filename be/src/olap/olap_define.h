@@ -26,29 +26,29 @@
 #include "common/status.h"
 
 namespace doris {
-// 以下是一些统一的define
-// 命令返回的Signature的长度
+// Here are some unified definitions
+// The length of the Signature returned by the command
 static const uint32_t OLAP_COMMAND_SIGNATURE_LEN = 4;
-// 最大全路径长度
+// Maximum path length
 static const uint32_t OLAP_MAX_PATH_LEN = 512;
-// 每个row block压缩之后的最大长度
+// Maximum length of each row block after compression
 static const uint32_t OLAP_DEFAULT_MAX_PACKED_ROW_BLOCK_SIZE = 1024 * 1024 * 20;
-// 每个row block压缩前的最大长度，也就是buf的最大长度
+// The maximum length of each row block before compression, which is the maximum length of the buf
 static const uint32_t OLAP_DEFAULT_MAX_UNPACKED_ROW_BLOCK_SIZE = 1024 * 1024 * 100;
-// 列存储文件的块大小,由于可能会被全部载入内存,所以需要严格控制大小, 这里定义为256MB
+// The block size of the column storage file needs to be strictly controlled as it may be fully loaded into memory. Here, it is defined as 256MB
 static const uint32_t OLAP_MAX_COLUMN_SEGMENT_FILE_SIZE = 268435456;
-// 列存储文件大小的伸缩性
+// Scalability of column storage file size
 static const double OLAP_COLUMN_FILE_SEGMENT_SIZE_SCALE = 0.9;
-// 在列存储文件中, 数据分块压缩, 每个块的默认压缩前的大小
+// In column storage files, data is compressed in blocks, with the default size of each block before compression
 static const uint32_t OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE = 10 * 1024;
-// 在列存储文件中, 对字符串使用字典编码的字典大小门限
-// 此为百分比, 字典大小/原数据大小小于该百分比时, 启用字典编码
+// The dictionary size threshold for using dictionary encoding for strings in column storage files
+// This is a percentage, and dictionary encoding is enabled when the dictionary size/original data size is less than this percentage
 static const uint32_t OLAP_DEFAULT_COLUMN_DICT_KEY_SIZE_THRESHOLD = 80; // 30%
-// LRU Cache Key的大小
+// Size of LRU Cache Key
 static const size_t OLAP_LRU_CACHE_MAX_KEY_LENGTH = OLAP_MAX_PATH_LEN * 2;
 
 static const uint64_t OLAP_FIX_HEADER_MAGIC_NUMBER = 0;
-// 执行be/ce时默认的候选集大小
+// Default candidate size when executing be/ce
 static constexpr uint32_t OLAP_COMPACTION_DEFAULT_CANDIDATE_SIZE = 10;
 
 // the max length supported for varchar type
@@ -57,8 +57,17 @@ static const uint16_t OLAP_VARCHAR_MAX_LENGTH = 65535;
 // the max length supported for string type 2GB
 static const uint32_t OLAP_STRING_MAX_LENGTH = 2147483647;
 
+// the max length supported for jsonb type 2G
+static const uint32_t OLAP_JSONB_MAX_LENGTH = 2147483647;
+
+// the max length supported for struct, but excluding the length of its subtypes.
+static const uint16_t OLAP_STRUCT_MAX_LENGTH = 65535;
+
 // the max length supported for array
 static const uint16_t OLAP_ARRAY_MAX_LENGTH = 65535;
+
+// the max length supported for map
+static const uint16_t OLAP_MAP_MAX_LENGTH = 65535;
 
 // the max bytes for stored string length
 using StringOffsetType = uint32_t;
@@ -76,7 +85,7 @@ enum OLAPDataVersion {
     DORIS_V1 = 1,
 };
 
-// storage_root_path下不同类型文件夹名称
+// Different types of folder names under storage_root_path
 static const std::string MINI_PREFIX = "mini_download";
 static const std::string CLUSTER_ID_PREFIX = "cluster_id";
 static const std::string DATA_PREFIX = "data";
@@ -88,6 +97,17 @@ static const std::string ERROR_LOG_PREFIX = "error_log";
 static const std::string PENDING_DELTA_PREFIX = "pending_delta";
 static const std::string INCREMENTAL_DELTA_PREFIX = "incremental_delta";
 static const std::string CLONE_PREFIX = "clone";
+
+// define paths
+static inline std::string remote_tablet_path(int64_t tablet_id) {
+    // data/{tablet_id}
+    return fmt::format("{}/{}", DATA_PREFIX, tablet_id);
+}
+static inline std::string remote_tablet_meta_path(int64_t tablet_id, int64_t replica_id,
+                                                  int64_t cooldown_term) {
+    // data/{tablet_id}/{replica_id}.{cooldown_term}.meta
+    return fmt::format("{}/{}.{}.meta", remote_tablet_path(tablet_id), replica_id, cooldown_term);
+}
 
 static const std::string TABLET_UID = "tablet_uid";
 static const std::string STORAGE_NAME = "storage_name";
@@ -105,12 +125,17 @@ static const uint64_t GB_EXCHANGE_BYTE = 1024 * 1024 * 1024;
 // bloom filter fpp
 static const double BLOOM_FILTER_DEFAULT_FPP = 0.05;
 
-#define OLAP_GOTO(label) goto label
-
 enum ColumnFamilyIndex {
     DEFAULT_COLUMN_FAMILY_INDEX = 0,
     DORIS_COLUMN_FAMILY_INDEX,
     META_COLUMN_FAMILY_INDEX,
+};
+
+enum class DataWriteType {
+    TYPE_DEFAULT = 0,
+    TYPE_DIRECT,
+    TYPE_SCHEMA_CHANGE,
+    TYPE_COMPACTION,
 };
 
 static const char* const HINIS_KEY_SEPARATOR = ";";
@@ -124,40 +149,12 @@ static const std::string END_ROWSET_ID = "end_rowset_id";
 static const std::string CONVERTED_FLAG = "true";
 static const std::string TABLET_CONVERT_FINISHED = "tablet_convert_finished";
 const std::string TABLET_ID_KEY = "tablet_id";
+const std::string TABLE_ID_KEY = "table_id";
 const std::string ENABLE_BYTE_TO_BASE64 = "byte_to_base64";
 const std::string TABLET_ID_PREFIX = "t_";
 const std::string ROWSET_ID_PREFIX = "s_";
 const std::string REMOTE_ROWSET_GC_PREFIX = "gc_";
 const std::string REMOTE_TABLET_GC_PREFIX = "tgc_";
-
-#if defined(__GNUC__)
-#define OLAP_LIKELY(x) __builtin_expect((x), 1)
-#define OLAP_UNLIKELY(x) __builtin_expect((x), 0)
-#else
-#define OLAP_LIKELY(x)
-#define OLAP_UNLIKELY(x)
-#endif
-
-#ifndef RETURN_NOT_OK
-#define RETURN_NOT_OK(s)               \
-    do {                               \
-        Status _s = (s);               \
-        if (OLAP_UNLIKELY(!_s.ok())) { \
-            return _s;                 \
-        }                              \
-    } while (0);
-#endif
-
-#ifndef RETURN_NOT_OK_LOG
-#define RETURN_NOT_OK_LOG(s, msg)                          \
-    do {                                                   \
-        Status _s = (s);                                   \
-        if (OLAP_UNLIKELY(!_s)) {                          \
-            LOG(WARNING) << (msg) << "[res=" << _s << "]"; \
-            return _s;                                     \
-        }                                                  \
-    } while (0);
-#endif
 
 // Declare copy constructor and equal operator as private
 #ifndef DISALLOW_COPY_AND_ASSIGN
@@ -165,29 +162,6 @@ const std::string REMOTE_TABLET_GC_PREFIX = "tgc_";
     type_t& operator=(const type_t&);    \
     type_t(const type_t&);
 #endif
-
-// 没有使用的变量不报warning
-#define OLAP_UNUSED_ARG(a) (void)(a)
-
-// thread-safe(gcc only) method for obtaining singleton
-#define DECLARE_SINGLETON(classname)     \
-public:                                  \
-    static classname* instance() {       \
-        classname* p_instance = nullptr; \
-        try {                            \
-            static classname s_instance; \
-            p_instance = &s_instance;    \
-        } catch (...) {                  \
-            p_instance = nullptr;        \
-        }                                \
-        return p_instance;               \
-    }                                    \
-                                         \
-protected:                               \
-    classname();                         \
-                                         \
-private:                                 \
-    ~classname();
 
 #define SAFE_DELETE(ptr)      \
     do {                      \
@@ -203,6 +177,20 @@ private:                                 \
             delete[] ptr;      \
             ptr = nullptr;     \
         }                      \
+    } while (0)
+
+#define SAFE_STOP(ptr)        \
+    do {                      \
+        if (nullptr != ptr) { \
+            ptr->stop();      \
+        }                     \
+    } while (0)
+
+#define SAFE_SHUTDOWN(ptr)    \
+    do {                      \
+        if (nullptr != ptr) { \
+            ptr->shutdown();  \
+        }                     \
     } while (0)
 
 #ifndef BUILD_VERSION

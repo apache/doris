@@ -63,6 +63,5 @@ public class Cdc2DorisSQLDemo {
 
         //insert into mysql table to doris table
         tEnv.executeSql("INSERT INTO doris_test_sink select id,name from cdc_test_source");
-        env.execute();
     }
 }

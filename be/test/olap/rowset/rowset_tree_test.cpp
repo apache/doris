@@ -21,13 +21,15 @@
 
 #include "olap/rowset/rowset_tree.h"
 
+#include <gen_cpp/olap_file.pb.h>
 #include <glog/logging.h>
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-param-test.h>
+#include <gtest/gtest-test-part.h>
 
-#include <boost/optional/optional.hpp>
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
-#include <functional>
 #include <memory>
 #include <string>
 #include <tuple>
@@ -35,10 +37,12 @@
 #include <utility>
 #include <vector>
 
+#include "gtest/gtest_pred_impl.h"
 #include "gutil/map-util.h"
 #include "gutil/stringprintf.h"
 #include "gutil/strings/substitute.h"
 #include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/unique_rowset_id_generator.h"
 #include "olap/tablet_schema.h"
 #include "testutil/mock_rowset.h"
@@ -90,7 +94,7 @@ public:
         RowsetMetaSharedPtr meta_ptr = make_shared<RowsetMeta>();
         meta_ptr->init_from_pb(rs_meta_pb);
         RowsetSharedPtr res_ptr;
-        MockRowset::create_rowset(schema_, rowset_path_, meta_ptr, &res_ptr, is_mem_rowset);
+        MockRowset::create_rowset(schema_, meta_ptr, &res_ptr, is_mem_rowset);
         return res_ptr;
     }
 
@@ -255,11 +259,13 @@ TEST_F(TestRowsetTree, TestTreeRandomized) {
             int r = strcmp(s1.c_str(), s2.c_str());
             switch (op) {
             case BOUND_LESS_THAN:
-                if (r == 0) continue; // pass through.
+                if (r == 0) continue;
+                [[fallthrough]];
             case BOUND_LESS_EQUAL:
                 return std::pair<string, string>(std::min(s1, s2), std::max(s1, s2));
             case BOUND_GREATER_THAN:
-                if (r == 0) continue; // pass through.
+                if (r == 0) continue;
+                [[fallthrough]];
             case BOUND_GREATER_EQUAL:
                 return std::pair<string, string>(std::max(s1, s2), std::min(s1, s2));
             case BOUND_EQUAL:

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "dayofweek",
+    "title": "DAYOFWEEK",
     "language": "en"
 }
 ---
@@ -52,4 +52,4 @@ mysql> select dayofweek(cast(20190625 as date));
 +-----------------------------------+
 ```
 ### keywords
-DAYOFWEEK
+    DAYOFWEEK

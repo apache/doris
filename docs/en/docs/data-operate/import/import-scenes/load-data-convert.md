@@ -1,7 +1,7 @@
 ---
 {
-    "title": "Data transformation, column mapping and filtering",
-    "language": "zh-CN"
+    "title": "Data Transformation, Column Mapping and Filtering",
+    "language": "en"
 }
 ---
 
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Imported data transformation, column mapping and filtering
+# Imported Data Transformation, Column Mapping and Filtering
 
 ## Supported import methods
 
@@ -195,7 +195,7 @@ Assuming that the source file has 4 columns, the contents are as follows (the he
 | 1        | 100      | beijing   | 1.1      |
 | 2        | 200      | shanghai  | 1.2      |
 | 3        | 300      | guangzhou | 1.3      |
-| 4        | 400      | chongqing | 1.4      |
+| \N       | 400      | chongqing | 1.4      |
 
 1. Convert the column values in the source file and import them into the table
 
@@ -286,7 +286,7 @@ Assuming that the source file has 4 columns, the contents are as follows (the he
 | 1        | 100      | beijing   | 1.1      |
 | 2        | 200      | shanghai  | 1.2      |
 | 3        | 300      | guangzhou | 1.3      |
-| 4        | 400      | chongqing | 1.4      |
+| \N       | 400      | chongqing | 1.4      |
 
 1. In the default case of column mapping and transformation, filter directly
 
@@ -329,7 +329,7 @@ Assuming that the source file has 4 columns, the contents are as follows (the he
    Suppose there are 4 columns `k1,k2,k3,k4` in the table. We want to filter out the data whose `k1` column is `null`, and at the same time filter out the data whose `k4` column is less than 1.2, the filter conditions are as follows:
 
    ````text
-   where k1 is null and k4 < 1.2
+   where k1 is not null and k4 >= 1.2
    ````
 
    The data in the final table is as follows:

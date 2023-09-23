@@ -17,19 +17,23 @@
 
 #pragma once
 
-#include <queue>
+#include <stddef.h>
+#include <stdint.h>
 
-#include "common/object_pool.h"
-#include "util/tuple_row_compare.h"
+#include <queue>
+#include <vector>
+
+#include "common/status.h"
+#include "util/runtime_profile.h"
+#include "vec/core/block.h"
 #include "vec/core/sort_cursor.h"
+#include "vec/core/sort_description.h"
+#include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
 
-class RowBatch;
-class RuntimeProfile;
-
 namespace vectorized {
-class Block;
+
 // VSortedRunMerger is used to merge multiple sorted runs of blocks. A run is a sorted
 // sequence of blocks, which are fetched from a BlockSupplier function object.
 // Merging is implemented using a binary min-heap that maintains the run with the next
@@ -41,38 +45,45 @@ public:
     // Function that returns the next block of rows from an input sorted run. The batch
     // is owned by the supplier (i.e. not VSortedRunMerger). eos is indicated by an NULL
     // batch being returned.
-    VSortedRunMerger(const std::vector<VExprContext*>& ordering_expr,
-                     const std::vector<bool>& _is_asc_order, const std::vector<bool>& _nulls_first,
-                     const size_t batch_size, int64_t limit, size_t offset,
-                     RuntimeProfile* profile);
+    VSortedRunMerger(const VExprContextSPtrs& ordering_expr, const std::vector<bool>& _is_asc_order,
+                     const std::vector<bool>& _nulls_first, const size_t batch_size, int64_t limit,
+                     size_t offset, RuntimeProfile* profile);
+
+    VSortedRunMerger(const SortDescription& desc, const size_t batch_size, int64_t limit,
+                     size_t offset, RuntimeProfile* profile);
 
     virtual ~VSortedRunMerger() = default;
 
     // Prepare this merger to merge and return rows from the sorted runs in 'input_runs'.
     // Retrieves the first batch from each run and sets up the binary heap implementing
     // the priority queue.
-    Status prepare(const std::vector<BlockSupplier>& input_runs, bool parallel = false);
+    Status prepare(const std::vector<BlockSupplier>& input_runs);
 
     // Return the next block of sorted rows from this merger.
     Status get_next(Block* output_block, bool* eos);
 
-    // Do not support now
-    virtual Status get_batch(RowBatch** output_batch) {
-        return Status::InternalError("no support method get_batch(RowBatch** output_batch)");
-    }
+    void set_pipeline_engine_enabled(bool value) { _pipeline_engine_enabled = value; }
 
 protected:
-    const std::vector<VExprContext*>& _ordering_expr;
-    const std::vector<bool>& _is_asc_order;
-    const std::vector<bool>& _nulls_first;
+    const VExprContextSPtrs _ordering_expr;
+    SortDescription _desc;
+    const std::vector<bool> _is_asc_order;
+    const std::vector<bool> _nulls_first;
     const size_t _batch_size;
 
+    bool _use_sort_desc = false;
     size_t _num_rows_returned = 0;
     int64_t _limit = -1;
     size_t _offset = 0;
 
-    std::vector<ReceiveQueueSortCursorImpl> _cursors;
-    std::priority_queue<SortCursor> _priority_queue;
+    bool _pipeline_engine_enabled = false;
+
+    std::vector<BlockSupplierSortCursorImpl> _cursors;
+    std::priority_queue<MergeSortCursor> _priority_queue;
+
+    /// In pipeline engine, if a cursor needs to read one more block from supplier,
+    /// we make it as a pending cursor until the supplier is readable.
+    MergeSortCursorImpl* _pending_cursor = nullptr;
 
     Block _empty_block;
 
@@ -83,8 +94,11 @@ protected:
     RuntimeProfile::Counter* _get_next_block_timer;
 
 private:
-    void next_heap(SortCursor& current);
-    bool has_next_block(SortCursor& current);
+    void init_timers(RuntimeProfile* profile);
+
+    /// In pipeline engine, return false if need to read one more block from sender.
+    bool next_heap(MergeSortCursor& current);
+    bool has_next_block(MergeSortCursor& current);
 };
 
 } // namespace vectorized

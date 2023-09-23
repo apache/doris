@@ -17,14 +17,15 @@
 
 #include "util/metrics.h"
 
-#include <gtest/gtest.h>
+#include <glog/logging.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <unistd.h>
 
-#include <iostream>
 #include <thread>
 
-#include "common/config.h"
+#include "gtest/gtest_pred_impl.h"
 #include "testutil/test_util.h"
-#include "util/logging.h"
 #include "util/stopwatch.hpp"
 
 namespace doris {
@@ -449,7 +450,7 @@ test_registry_task_duration_standard_deviation 28.8661
     }
 
     {
-        // Register one histogram metric with lables to the entity
+        // Register one histogram metric with labels to the entity
         auto entity = registry.register_entity("test_entity", {{"instance", "test"}});
 
         MetricPrototype task_duration_type(MetricType::HISTOGRAM, MetricUnit::MILLISECONDS,

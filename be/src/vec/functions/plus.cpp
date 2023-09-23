@@ -18,7 +18,11 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/Plus.cpp
 // and modified by Doris
 
+#include <utility>
+
+#include "runtime/decimalv2_value.h"
 #include "vec/common/arithmetic_overflow.h"
+#include "vec/data_types/number_traits.h"
 #include "vec/functions/function_binary_arithmetic.h"
 #include "vec/functions/simple_function_factory.h"
 
@@ -37,10 +41,10 @@ struct PlusImpl {
 
     template <typename Result = DecimalV2Value>
     static inline DecimalV2Value apply(DecimalV2Value a, DecimalV2Value b) {
-        return a + b;
+        return DecimalV2Value(a.value() + b.value());
     }
 
-    /// Apply operation and check overflow. It's used for Deciamal operations. @returns true if overflowed, false otherwise.
+    /// Apply operation and check overflow. It's used for Decimal operations. @returns true if overflowed, false otherwise.
     template <typename Result = ResultType>
     static inline bool apply(A a, B b, Result& c) {
         return common::add_overflow(static_cast<Result>(a), b, c);

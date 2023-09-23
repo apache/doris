@@ -93,10 +93,10 @@ ALTER TABLE example_db.my_table set (
 );
 ```
 
-5. Modify the in_memory attribute of the table
+5. Modify the in_memory attribute of the table, only can set value 'false'
 
 ```sql
-ALTER TABLE example_db.my_table set ("in_memory" = "true");
+ALTER TABLE example_db.my_table set ("in_memory" = "false");
 ```
 
 6. Enable batch delete function
@@ -159,8 +159,8 @@ ALTER TABLE example_db.mysql_table MODIFY ENGINE TO odbc PROPERTIES("driver" = "
 ```sql
 ALTER TABLE example_db.mysql_table SET ("replication_num" = "2");
 ALTER TABLE example_db.mysql_table SET ("default.replication_num" = "2");
-ALTER TABLE example_db.mysql_table SET ("replication_allocation" = "tag.location.tag1: 1");
-ALTER TABLE example_db.mysql_table SET ("default.replication_allocation" = "tag.location.tag1: 1");
+ALTER TABLE example_db.mysql_table SET ("replication_allocation" = "tag.location.default: 1");
+ALTER TABLE example_db.mysql_table SET ("default.replication_allocation" = "tag.location.default: 1");
 ````
 
 Note:
@@ -168,6 +168,14 @@ Note:
 2. For non-partitioned tables, modifying the replica distribution property without the default prefix will modify both the default replica distribution and the actual replica distribution of the table. That is, after the modification, through the `show create table` and `show partitions from tbl` statements, you can see that the replica distribution has been modified.
 changed.
 3. For partitioned tables, the actual replica distribution of the table is at the partition level, that is, each partition has its own replica distribution, which can be viewed through the `show partitions from tbl` statement. If you want to modify the actual replica distribution, see `ALTER TABLE PARTITION`.
+
+13\. **[Experimental]** turn on `light_schema_change`
+
+  For tables that were not created with light_schema_change enabled, you can enable it by using the following statement.
+
+```sql
+ALTER TABLE example_db.mysql_table SET ("light_schema_change" = "true");
+```
 
 ### Example
 
@@ -210,10 +218,10 @@ If you need to add dynamic partition attributes to tables without dynamic partit
 ALTER TABLE example_db.my_table set ("dynamic_partition.enable" = "true", "dynamic_partition.time_unit" = "DAY", "dynamic_partition.end" = "3", "dynamic_partition.prefix" = "p", "dynamic_partition. buckets" = "32");
 ```
 
-5. Modify the in_memory attribute of the table
+5. Modify the in_memory attribute of the table, only can set value 'false'
 
 ```sql
-ALTER TABLE example_db.my_table set ("in_memory" = "true");
+ALTER TABLE example_db.my_table set ("in_memory" = "false");
 ```
 
 6. Enable batch delete function
@@ -251,6 +259,19 @@ ALTER TABLE example_db.my_table MODIFY COLUMN k1 COMMENT "k1", MODIFY COLUMN k2 
 ```sql
 ALTER TABLE example_db.mysql_table MODIFY ENGINE TO odbc PROPERTIES("driver" = "MySQL");
 ```
+
+12. Add a cold and hot separation data migration strategy to the table
+```sql
+ ALTER TABLE create_table_not_have_policy set ("storage_policy" = "created_create_table_alter_policy");
+```
+NOTE：The table can be successfully added only if it hasn't been associated with a storage policy. A table just can have one storage policy.
+
+13. Add a hot and cold data migration strategy to the partition of the table
+```sql
+ALTER TABLE create_table_partition MODIFY PARTITION (*) SET("storage_policy"="created_create_table_partition_alter_policy");
+```
+NOTE：The table's partition can be successfully added only if it hasn't been associated with a storage policy. A table just can have one storage policy.
+
 
 ### Keywords
 

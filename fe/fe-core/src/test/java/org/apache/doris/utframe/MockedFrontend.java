@@ -17,8 +17,8 @@
 
 package org.apache.doris.utframe;
 
-import org.apache.doris.PaloFe;
-import org.apache.doris.PaloFe.StartupOptions;
+import org.apache.doris.DorisFE;
+import org.apache.doris.DorisFE.StartupOptions;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.util.PrintableMap;
 
@@ -79,6 +79,7 @@ public class MockedFrontend {
         MIN_FE_CONF.put("http_port", "8030");
         MIN_FE_CONF.put("rpc_port", "9020");
         MIN_FE_CONF.put("query_port", "9030");
+        MIN_FE_CONF.put("arrow_flight_sql_port", "9040");
         MIN_FE_CONF.put("edit_log_port", "9010");
         MIN_FE_CONF.put("priority_networks", "127.0.0.1/24");
         MIN_FE_CONF.put("sys_log_verbose_modules", "org");
@@ -180,7 +181,7 @@ public class MockedFrontend {
             // And it also cost time to start up.
             options.enableHttpServer = false;
             options.enableQeService = false;
-            PaloFe.start(frontend.getRunningDir(), frontend.getRunningDir(), args, options);
+            DorisFE.start(frontend.getRunningDir(), frontend.getRunningDir(), args, options);
         }
     }
 

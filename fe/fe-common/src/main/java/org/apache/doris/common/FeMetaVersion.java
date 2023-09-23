@@ -40,12 +40,39 @@ public final class FeMetaVersion {
     public static final int VERSION_109 = 109;
     // For routine load user info
     public static final int VERSION_110 = 110;
-    // add catalog PrivTable in PaloAuth to support unified privilege management
+    // add catalog PrivTable in Auth to support unified privilege management
     public static final int VERSION_111 = 111;
     // add row policy and add maxColUniqueId for olapTable
     public static final int VERSION_112 = 112;
+    // add password options
+    public static final int VERSION_113 = 113;
+    // add new recover info for recover ddl
+    public static final int VERSION_114 = 114;
+    // change replica meta to json
+    public static final int VERSION_115 = 115;
+    // change Auto to rbac
+    public static final int VERSION_116 = 116;
+    // add user and comment to load job
+    public static final int VERSION_117 = 117;
+    // change frontend meta to json, add hostname to MasterInfo
+    public static final int VERSION_118 = 118;
+    // TablePropertyInfo add db id
+    public static final int VERSION_119 = 119;
+    // For export job
+    public static final int VERSION_120 = 120;
+    // For BackendHbResponse node type
+    public static final int VERSION_121 = 121;
+    // For IndexChangeJob
+    public static final int VERSION_122 = 122;
+    // For AnalysisInfo
+    public static final int VERSION_123 = 123;
+    // For auto-increment column
+    public static final int VERSION_124 = 124;
+    // For write/read auto create partition expr
+    public static final int VERSION_125 = 125;
+
     // note: when increment meta version, should assign the latest version to VERSION_CURRENT
-    public static final int VERSION_CURRENT = VERSION_112;
+    public static final int VERSION_CURRENT = VERSION_125;
 
     // all logs meta version should >= the minimum version, so that we could remove many if clause, for example
     // if (FE_METAVERSION < VERSION_94) ...

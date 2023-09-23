@@ -32,7 +32,7 @@ ALTER TABLE COLUMN
 
 ### Description
 
-This statement is used to perform a schema change operation on an existing table. The schema change is asynchronous, and the task is returned when the task is submitted successfully. After that, you can use the [SHOW ALTER](../../Show-Statements/SHOW-ALTER.md) command to view the progress.
+This statement is used to perform a schema change operation on an existing table. The schema change is asynchronous, and the task is returned when the task is submitted successfully. After that, you can use the [SHOW ALTER TABLE COLUMN](../../Show-Statements/SHOW-ALTER.md) command to view the progress.
 
 grammar:
 
@@ -198,6 +198,7 @@ Note: Whether you modify the key column or the value column, you need to declare
 ALTER TABLE example_db.my_table
 MODIFY COLUMN val1 VARCHAR(64) REPLACE DEFAULT "abc";
 ```
+Note: You can only modify the column's data type; other attributes of the column must remain unchanged.
 
 9. Reorder the columns in example_rollup_index (set the original column order as: k1,k2,k3,v1,v2)
 
@@ -214,6 +215,12 @@ ALTER TABLE example_db.my_table
 ADD COLUMN v2 INT MAX DEFAULT "0" AFTER k2 TO example_rollup_index,
 ORDER BY (k3,k1,k2,v2,v1) FROM example_rollup_index;
 ```
+
+11. Modify the length of a field in the Key column of the Duplicate key table
+
+```sql
+alter table example_tbl modify column k3 varchar(50) key null comment 'to 50'
+````
 
 ### Keywords
 

@@ -631,7 +631,7 @@ bool UpdateReturnCopy(Collection* const collection, const typename Collection::v
 // twice. Unlike UpdateReturnCopy this also does not come with the issue of an
 // undefined previous* in case new data was inserted.
 template <class Collection>
-typename Collection::mapped_type* const InsertOrReturnExisting(
+typename Collection::mapped_type* InsertOrReturnExisting(
         Collection* const collection, const typename Collection::value_type& vt) {
     std::pair<typename Collection::iterator, bool> ret = collection->insert(vt);
     if (ret.second) {
@@ -643,7 +643,7 @@ typename Collection::mapped_type* const InsertOrReturnExisting(
 
 // Same as above, except for explicit key and data.
 template <class Collection>
-typename Collection::mapped_type* const InsertOrReturnExisting(
+typename Collection::mapped_type* InsertOrReturnExisting(
         Collection* const collection, const typename Collection::key_type& key,
         const typename Collection::mapped_type& data) {
     return InsertOrReturnExisting(collection, typename Collection::value_type(key, data));
@@ -851,16 +851,16 @@ std::pair<typename MapContainer::mapped_type* const, bool> ComputeIfAbsentReturn
 //                                        [] { return new_value; });
 //
 template <class MapContainer, typename Function>
-typename MapContainer::mapped_type* const ComputeIfAbsent(
-        MapContainer* container, const typename MapContainer::key_type& key,
-        Function compute_func) {
+typename MapContainer::mapped_type* ComputeIfAbsent(MapContainer* container,
+                                                    const typename MapContainer::key_type& key,
+                                                    Function compute_func) {
     return ComputeIfAbsentReturnAbsense(container, key, compute_func).first;
 };
 
 template <class MapContainer, typename Function>
-typename MapContainer::mapped_type* const ComputePairIfAbsent(
-        MapContainer* container, const typename MapContainer::key_type& key,
-        Function compute_pair_func) {
+typename MapContainer::mapped_type* ComputePairIfAbsent(MapContainer* container,
+                                                        const typename MapContainer::key_type& key,
+                                                        Function compute_pair_func) {
     return ComputePairIfAbsentReturnAbsense<MapContainer, Function>(container, key,
                                                                     compute_pair_func)
             .first;

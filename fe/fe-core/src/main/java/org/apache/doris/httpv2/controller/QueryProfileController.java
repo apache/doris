@@ -17,11 +17,13 @@
 
 package org.apache.doris.httpv2.controller;
 
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -35,19 +37,22 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @RestController
 @RequestMapping("/rest/v1")
 public class QueryProfileController extends BaseController {
     private static final Logger LOG = LogManager.getLogger(QueryProfileController.class);
 
-    private static final String QUERY_ID = "query_id";
+    private static final String ID = "id";
+    private static final String DETAIL_COL = "Detail";
+    private static final Set<String> QUERY_ID_TYPES = ImmutableSet.of("Query", "Load");
 
-    @RequestMapping(path = "/query_profile/{" + QUERY_ID + "}", method = RequestMethod.GET)
-    public Object profile(@PathVariable(value = QUERY_ID) String queryId) {
-        String profile = ProfileManager.getInstance().getProfile(queryId);
+    @RequestMapping(path = "/query_profile/{" + ID + "}", method = RequestMethod.GET)
+    public Object profile(@PathVariable(value = ID) String id) {
+        String profile = ProfileManager.getInstance().getProfile(id);
         if (profile == null) {
-            return ResponseEntityBuilder.okWithCommonError("Query " + queryId + " does not exist");
+            return ResponseEntityBuilder.okWithCommonError("ID " + id + " does not exist");
         }
         profile = profile.replaceAll("\n", "</br>");
         profile = profile.replaceAll(" ", "&nbsp;&nbsp;");
@@ -65,33 +70,28 @@ public class QueryProfileController extends BaseController {
 
     private void addFinishedQueryInfo(Map<String, Object> result) {
         List<List<String>> finishedQueries = ProfileManager.getInstance().getAllQueries();
-        List<String> columnHeaders = ProfileManager.PROFILE_HEADERS;
-        int queryIdIndex = 0; // the first column is 'Query ID' by default
-        for (int i = 0; i < columnHeaders.size(); ++i) {
-            if (columnHeaders.get(i).equals(ProfileManager.QUERY_ID)) {
-                queryIdIndex = i;
-                break;
-            }
-        }
+        List<String> columnHeaders = Lists.newLinkedList();
+        columnHeaders.addAll(SummaryProfile.SUMMARY_KEYS);
 
         result.put("column_names", columnHeaders);
-        result.put("href_column", Lists.newArrayList(ProfileManager.QUERY_ID));
+        // The first column is profile id, which is also a href column
+        result.put("href_column", Lists.newArrayList(columnHeaders.get(0)));
         List<Map<String, Object>> list = Lists.newArrayList();
         result.put("rows", list);
 
         for (List<String> row : finishedQueries) {
-            String queryId = row.get(queryIdIndex);
             Map<String, Object> rowMap = new HashMap<>();
             for (int i = 0; i < row.size(); ++i) {
                 rowMap.put(columnHeaders.get(i), row.get(i));
             }
 
             // add hyper link
-            if (Strings.isNullOrEmpty(queryId)) {
+            if (Strings.isNullOrEmpty(row.get(0))) {
                 rowMap.put("__hrefPaths", Lists.newArrayList("/query_profile/-1"));
             } else {
-                rowMap.put("__hrefPaths", Lists.newArrayList("/query_profile/" + queryId));
+                rowMap.put("__hrefPaths", Lists.newArrayList("/query_profile/" + row.get(0)));
             }
+
             list.add(rowMap);
         }
     }

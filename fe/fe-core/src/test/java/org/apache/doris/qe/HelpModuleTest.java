@@ -90,22 +90,13 @@ public class HelpModuleTest {
         entry = Maps.immutableEntry("empty", map);
         topic.loadFrom(entry);
         topics.add(topic);
+
+        System.out.println(HelpModuleTest.class.getResource("/"));
+        System.out.println(HelpModuleTest.class.getClassLoader().getResource(""));
     }
 
     @Test
     public void testNormal() throws IOException, UserException {
-        // Mock
-        // HelpObjectLoader categoryLoader = EasyMock.createMock(HelpObjectLoader.class);
-        // EasyMock.expect(categoryLoader.loadAll(EasyMock.isA(String.class))).andReturn(categories).anyTimes();
-        // EasyMock.replay(categoryLoader);
-        // HelpObjectLoader topicLoader = EasyMock.createMock(HelpObjectLoader.class);
-        // EasyMock.expect(topicLoader.loadAll(EasyMock.isA(String.class))).andReturn(topics).anyTimes();
-        // EasyMock.replay(topicLoader);
-        // PowerMock.mockStatic(HelpObjectLoader.class);
-        // EasyMock.expect(HelpObjectLoader.createCategoryLoader()).andReturn(categoryLoader).anyTimes();
-        // EasyMock.expect(HelpObjectLoader.createTopicLoader()).andReturn(topicLoader).anyTimes();
-        // PowerMock.replay(HelpObjectLoader.class);
-
         HelpModule module = new HelpModule();
         URL help = getClass().getClassLoader().getResource("data/help");
         module.setUp(help.getPath());
@@ -176,5 +167,18 @@ public class HelpModuleTest {
 
         Assert.assertTrue(Arrays.equals(module.listCategoryByName("ADMIN").toArray(),
                 Lists.newArrayList("Admin").toArray()));
+    }
+
+    // Need first call docs/build_help_resource.sh to build real help resource.
+    // And copy docs/build/help-resource.zip to fe/fe-core/src/test/resources/real-help-resource.zip
+    @Test
+    public void testRealHelpZip() {
+        try {
+            HelpModule.getInstance().setUpModule("real-help-resource.zip");
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        } catch (UserException e) {
+            throw new RuntimeException(e);
+        }
     }
 }

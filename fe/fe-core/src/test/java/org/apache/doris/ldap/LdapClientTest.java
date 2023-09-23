@@ -19,7 +19,7 @@ package org.apache.doris.ldap;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.LdapConfig;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.persist.LdapInfo;
 
 import com.google.common.collect.Lists;
@@ -45,9 +45,11 @@ public class LdapClientTest {
     private Env env;
 
     @Mocked
-    private PaloAuth auth;
+    private Auth auth;
 
     private LdapInfo ldapInfo = new LdapInfo(ADMIN_PASSWORD);
+
+    private LdapClient ldapClient = new LdapClient();
 
     @Before
     public void setUp() {
@@ -96,7 +98,7 @@ public class LdapClientTest {
                         if (passwd.equals(password)) {
                             return;
                         } else {
-                            throw new RuntimeException("exception");
+                            throw new org.springframework.ldap.AuthenticationException();
                         }
                     }
                 };
@@ -109,13 +111,13 @@ public class LdapClientTest {
         List<String> list = Lists.newArrayList();
         list.add("zhangsan");
         mockLdapTemplateSearch(list);
-        Assert.assertTrue(LdapClient.doesUserExist("zhangsan"));
+        Assert.assertTrue(ldapClient.doesUserExist("zhangsan"));
     }
 
     @Test
     public void testDoesUserExistFail() {
         mockLdapTemplateSearch(null);
-        Assert.assertFalse(LdapClient.doesUserExist("zhangsan"));
+        Assert.assertFalse(ldapClient.doesUserExist("zhangsan"));
     }
 
     @Test(expected = RuntimeException.class)
@@ -124,15 +126,15 @@ public class LdapClientTest {
         list.add("zhangsan");
         list.add("zhangsan");
         mockLdapTemplateSearch(list);
-        Assert.assertTrue(LdapClient.doesUserExist("zhangsan"));
+        Assert.assertTrue(ldapClient.doesUserExist("zhangsan"));
         Assert.fail("No Exception throws.");
     }
 
     @Test
     public void testCheckPassword() {
         mockLdapTemplateAuthenticate(ADMIN_PASSWORD);
-        Assert.assertTrue(LdapClient.checkPassword("zhangsan", ADMIN_PASSWORD));
-        Assert.assertFalse(LdapClient.checkPassword("zhangsan", "123"));
+        Assert.assertTrue(ldapClient.checkPassword("zhangsan", ADMIN_PASSWORD));
+        Assert.assertFalse(ldapClient.checkPassword("zhangsan", "123"));
     }
 
     @Test
@@ -140,6 +142,6 @@ public class LdapClientTest {
         List<String> list = Lists.newArrayList();
         list.add("cn=groupName,ou=groups,dc=example,dc=com");
         mockLdapTemplateSearch(list);
-        Assert.assertEquals(1, LdapClient.getGroups("zhangsan").size());
+        Assert.assertEquals(1, ldapClient.getGroups("zhangsan").size());
     }
 }

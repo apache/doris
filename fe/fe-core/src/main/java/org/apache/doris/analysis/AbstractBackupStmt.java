@@ -61,7 +61,7 @@ public class AbstractBackupStmt extends DdlStmt {
 
         // user need database level privilege(not table level), because when doing restore operation,
         // the restore table may be newly created, so we can not judge its privileges.
-        if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(),
+        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
                 labelName.getDbName(), PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "LOAD");
         }
@@ -140,5 +140,13 @@ public class AbstractBackupStmt extends DdlStmt {
 
     public long getTimeoutMs() {
         return timeoutMs;
+    }
+
+    public void setProperty(String key, String value) {
+        properties.put(key, value);
+    }
+
+    public void removeProperty(String key) {
+        properties.remove(key);
     }
 }

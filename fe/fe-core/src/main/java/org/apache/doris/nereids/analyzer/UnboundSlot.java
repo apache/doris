@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.analyzer;
 
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.util.Utils;
 
@@ -30,7 +31,8 @@ import java.util.Objects;
 /**
  * Slot has not been bound.
  */
-public class UnboundSlot extends Slot implements Unbound {
+public class UnboundSlot extends Slot implements Unbound, PropagateNullable {
+
     private final List<String> nameParts;
 
     public UnboundSlot(String... nameParts) {
@@ -38,7 +40,7 @@ public class UnboundSlot extends Slot implements Unbound {
     }
 
     public UnboundSlot(List<String> nameParts) {
-        this.nameParts = Objects.requireNonNull(nameParts, "nameParts can not be null");
+        this.nameParts = ImmutableList.copyOf(Objects.requireNonNull(nameParts, "nameParts can not be null"));
     }
 
     public List<String> getNameParts() {
@@ -54,6 +56,11 @@ public class UnboundSlot extends Slot implements Unbound {
                 return n;
             }
         }).reduce((left, right) -> left + "." + right).orElse("");
+    }
+
+    @Override
+    public List<String> getQualifier() {
+        return nameParts.subList(0, nameParts.size() - 1);
     }
 
     @Override
@@ -84,7 +91,7 @@ public class UnboundSlot extends Slot implements Unbound {
 
     @Override
     public int hashCode() {
-        return Objects.hash(nameParts.toArray());
+        return nameParts.hashCode();
     }
 
     @Override

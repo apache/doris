@@ -15,15 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stdint.h>
+
 #include <memory>
 #include <string>
 
-#include "gtest/gtest.h"
+#include "gtest/gtest_pred_impl.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/aggregate_function_topn.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/data_types/data_type.h"
+#include "vec/columns/columns_number.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 
@@ -44,8 +52,7 @@ TEST(AggTest, basic_test) {
     register_aggregate_function_sum(factory);
     DataTypePtr data_type(std::make_shared<DataTypeInt32>());
     DataTypes data_types = {data_type};
-    Array array;
-    auto agg_function = factory.get("sum", data_types, array);
+    auto agg_function = factory.get("sum", data_types);
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
     agg_function->create(place);
@@ -76,9 +83,8 @@ TEST(AggTest, topn_test) {
     AggregateFunctionSimpleFactory factory;
     register_aggregate_function_topn(factory);
     DataTypes data_types = {std::make_shared<DataTypeString>(), std::make_shared<DataTypeInt32>()};
-    Array array;
 
-    auto agg_function = factory.get("topn", data_types, array);
+    auto agg_function = factory.get("topn", data_types);
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
     agg_function->create(place);
@@ -89,7 +95,7 @@ TEST(AggTest, topn_test) {
         agg_function->add(place, const_cast<const IColumn**>(columns), i, nullptr);
     }
 
-    std::string result = reinterpret_cast<AggregateFunctionTopNData*>(place)->get();
+    std::string result = reinterpret_cast<AggregateFunctionTopNData<std::string>*>(place)->get();
     std::string expect_result =
             "{\"1\":2048,\"2\":683,\"3\":341,\"4\":205,\"5\":137,\"6\":97,\"7\":73,\"8\":57,\"9\":"
             "46,\"10\":37}";

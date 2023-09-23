@@ -17,8 +17,13 @@
 
 package org.apache.doris.ha;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
+
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -26,28 +31,31 @@ import java.io.IOException;
 
 public class MasterInfo implements Writable {
 
-    private String ip;
+    @SerializedName(value = "host", alternate = {"ip"})
+    private String host;
+    @SerializedName("httpPort")
     private int httpPort;
+    @SerializedName("rpcPort")
     private int rpcPort;
 
     public MasterInfo() {
-        this.ip = "";
+        this.host = "";
         this.httpPort = 0;
         this.rpcPort = 0;
     }
 
-    public MasterInfo(String ip, int httpPort, int rpcPort) {
-        this.ip = ip;
+    public MasterInfo(String host, int httpPort, int rpcPort) {
+        this.host = host;
         this.httpPort = httpPort;
         this.rpcPort = rpcPort;
     }
 
-    public String getIp() {
-        return this.ip;
+    public String getHost() {
+        return this.host;
     }
 
-    public void setIp(String ip) {
-        this.ip = ip;
+    public void setHost(String host) {
+        this.host = host;
     }
 
     public int getHttpPort() {
@@ -67,16 +75,35 @@ public class MasterInfo implements Writable {
     }
 
     @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, ip);
-        out.writeInt(httpPort);
-        out.writeInt(rpcPort);
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("MasterInfo: host=").append(host)
+                .append(" httpPort=").append(httpPort)
+                .append(" rpcPort=").append(rpcPort);
+        return sb.toString();
     }
 
-    public void readFields(DataInput in) throws IOException {
-        ip = Text.readString(in);
+    @Override
+    public void write(DataOutput out) throws IOException {
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
+    }
+
+    @Deprecated
+    private void readFields(DataInput in) throws IOException {
+        host = Text.readString(in);
         httpPort = in.readInt();
         rpcPort = in.readInt();
+    }
+
+    public static MasterInfo read(DataInput in) throws IOException {
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_118) {
+            MasterInfo masterInfo = new MasterInfo();
+            masterInfo.readFields(in);
+            return masterInfo;
+        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, MasterInfo.class);
     }
 
 }

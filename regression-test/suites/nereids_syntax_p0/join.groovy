@@ -17,11 +17,63 @@
 
 suite("join") {
     sql """
-        SET enable_vectorized_engine=true
+        SET enable_nereids_planner=true
+    """
+
+    sql "SET enable_fallback_to_original_planner=false"
+
+    sql """
+        drop table if exists test_table_a;
     """
 
     sql """
-        SET enable_nereids_planner=true
+        drop table if exists test_table_b;
+    """
+
+    sql """
+        CREATE TABLE `test_table_a`
+        (
+            `wtid`                varchar(30)    NOT NULL ,
+            `wfid`           varchar(30) NOT NULL
+        ) ENGINE=OLAP
+        UNIQUE KEY(`wtid`,`wfid`)
+        DISTRIBUTED BY HASH(`wfid`) BUCKETS 10
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2"
+        );
+    """
+
+    sql """
+        CREATE TABLE `test_table_b`
+        (
+            `wtid`           varchar(100) NOT NULL ,
+            `wfid`           varchar(100) NOT NULL
+        ) ENGINE=OLAP
+        UNIQUE KEY(`wtid`,`wfid`)
+        DISTRIBUTED BY HASH(`wfid`) BUCKETS 10
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "storage_format" = "V2"
+        );
+    """
+
+    sql """
+        insert into test_table_b values( '1', '1'),('2','2'),('3','3'),('1','2'),('1','3'),('2','3'); 
+    """
+
+    sql """
+        insert into test_table_a values( '1', '1'),('2','2'),('3','3'),('1','2'),('1','3'),('2','3'); 
+    """
+
+    // must analyze before explain, because empty table may generate different plan
+    sql """
+        analyze table test_table_b with sync;
+    """
+
+    sql """
+        analyze table test_table_a with sync;
     """
 
     order_qt_inner_join_1 """
@@ -67,5 +119,156 @@ suite("join") {
     order_qt_cross_join """
         SELECT * FROM lineorder CROSS JOIN supplier;
     """
-}
 
+    order_qt_inner_join_with_other_condition """
+        select lo_orderkey, lo_partkey, p_partkey, p_size from lineorder inner join part on lo_partkey = p_partkey where lo_orderkey - 1310000 > p_size;
+    """
+
+    order_qt_outer_join_with_filter """
+        select lo_orderkey, lo_partkey, p_partkey, p_size from lineorder inner join part on lo_partkey = p_partkey where lo_orderkey - 1310000 > p_size;
+    """
+
+    sql """
+        drop table if exists outerjoin_A_join;
+    """
+
+    sql """
+        drop table if exists outerjoin_B_join;
+    """
+
+    sql """
+        drop table if exists outerjoin_C_join;
+    """
+
+    sql """
+        drop table if exists outerjoin_D;
+    """
+    
+    sql """
+        create table if not exists outerjoin_A_join ( a int not null )
+        ENGINE=OLAP
+        DISTRIBUTED BY HASH(a) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2"
+        );
+    """
+
+    sql """
+        create table if not exists outerjoin_B_join ( a int not null )
+        ENGINE=OLAP
+        DISTRIBUTED BY HASH(a) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2"
+        );
+    """
+
+    sql """
+        create table if not exists outerjoin_C_join ( a int not null )
+        ENGINE=OLAP
+        DISTRIBUTED BY HASH(a) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2"
+        );
+    """
+
+    sql """
+        create table if not exists outerjoin_D ( a int not null )
+        ENGINE=OLAP
+        DISTRIBUTED BY HASH(a) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2"
+        );
+    """
+
+    sql """
+        insert into outerjoin_A_join values( 1 );
+    """
+
+    sql """
+        insert into outerjoin_B_join values( 1 );
+    """
+
+    sql """
+        insert into outerjoin_C_join values( 1 );
+    """
+
+    sql """
+        insert into outerjoin_D values( 1 );
+    """
+
+    test {
+        sql"""select * from test_table_a a cross join test_table_b b on a.wtid > b.wtid"""
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+
+    sql """drop table if exists test_memo_1"""
+    sql """drop table if exists test_memo_2"""
+    sql """drop table if exists test_memo_3"""
+
+    sql """ CREATE TABLE `test_memo_1` (
+    `c_bigint` bigint(20) NULL,
+    `c_long_decimal` decimal(27, 9) NULL
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`c_bigint`)
+    COMMENT 'OLAP'
+    DISTRIBUTED BY HASH(`c_bigint`) BUCKETS 1
+    PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "storage_format" = "V2",
+            "light_schema_change" = "true",
+            "disable_auto_compaction" = "false"
+    );
+    """
+
+    sql """ CREATE TABLE `test_memo_2` (
+    `sk` bigint(20) NULL,
+    `id` int(11) NULL
+    ) ENGINE=OLAP
+    UNIQUE KEY(`sk`)
+    COMMENT 'OLAP'
+    DISTRIBUTED BY HASH(`sk`) BUCKETS 1
+    PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "storage_format" = "V2",
+            "light_schema_change" = "true",
+            "disable_auto_compaction" = "false"
+    );
+    """
+
+    sql """ CREATE TABLE `test_memo_3` (
+    `id` bigint(20) NOT NULL,
+    `c1` varchar(150) NULL
+    ) ENGINE=OLAP
+    UNIQUE KEY(`id`)
+    DISTRIBUTED BY HASH(`id`) BUCKETS 1
+    PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "storage_format" = "V2",
+            "light_schema_change" = "true",
+            "disable_auto_compaction" = "false"
+    );
+    """
+
+    sql """
+        select 
+         ref_1.`c_long_decimal` as c0,
+         ref_3.`c1` as c1
+        from
+          test_memo_1 as ref_1
+          inner join test_memo_2 as ref_2 on (case when true then 5 else 5 end is not NULL)
+          inner join test_memo_3 as ref_3 on (version() is not NULL)
+        where
+          ref_2.`id` is not NULL
+    """
+}

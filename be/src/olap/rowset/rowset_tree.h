@@ -21,15 +21,17 @@
 
 #pragma once
 
-#include <boost/optional/optional.hpp>
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "common/status.h"
 #include "gutil/map-util.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
 #include "util/slice.h"
 
@@ -37,7 +39,6 @@ namespace doris {
 
 template <class Traits>
 class IntervalTree;
-
 struct RowsetIntervalTraits;
 struct RowsetWithBounds;
 

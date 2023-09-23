@@ -46,10 +46,6 @@ public class ColocatePersistInfo implements Writable {
     @SerializedName(value = "backendsPerBucketSeq")
     private Map<Tag, List<List<Long>>> backendsPerBucketSeq = Maps.newHashMap();
 
-    public ColocatePersistInfo() {
-
-    }
-
     private ColocatePersistInfo(GroupId groupId, long tableId, Map<Tag, List<List<Long>>> backendsPerBucketSeq) {
         this.groupId = groupId;
         this.tableId = tableId;
@@ -72,10 +68,6 @@ public class ColocatePersistInfo implements Writable {
 
     public static ColocatePersistInfo createForMarkStable(GroupId groupId) {
         return new ColocatePersistInfo(groupId, -1L, Maps.newHashMap());
-    }
-
-    public static ColocatePersistInfo createForRemoveTable(long tableId) {
-        return new ColocatePersistInfo(new GroupId(-1, -1), tableId, Maps.newHashMap());
     }
 
     public static ColocatePersistInfo read(DataInput in) throws IOException {

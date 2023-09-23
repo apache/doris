@@ -27,7 +27,6 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
-import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 
 import com.google.common.collect.ArrayListMultimap;
@@ -38,6 +37,7 @@ import com.google.common.collect.Maps;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -49,7 +49,7 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 public class BrokerMgr {
     public static final ImmutableList<String> BROKER_PROC_NODE_TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("Name").add("IP").add("HostName").add("Port").add("Alive")
+            .add("Name").add("Host").add("Port").add("Alive")
             .add("LastStartTime").add("LastUpdateTime").add("ErrMsg")
             .build();
 
@@ -126,6 +126,26 @@ public class BrokerMgr {
         } finally {
             lock.unlock();
         }
+    }
+
+    public FsBroker getAnyAliveBroker() {
+        lock.lock();
+        try {
+            List<FsBroker> allBrokers = new ArrayList<>();
+            for (List<FsBroker> list : brokerListMap.values()) {
+                allBrokers.addAll(list);
+            }
+
+            Collections.shuffle(allBrokers);
+            for (FsBroker fsBroker : allBrokers) {
+                if (fsBroker.isAlive) {
+                    return fsBroker;
+                }
+            }
+        } finally {
+            lock.unlock();
+        }
+        return null;
     }
 
     public FsBroker getBroker(String brokerName, String host) throws AnalysisException {
@@ -207,7 +227,7 @@ public class BrokerMgr {
             }
             Env.getCurrentEnv().getEditLog().logAddBroker(new ModifyBrokerInfo(name, addedBrokerAddress));
             for (FsBroker address : addedBrokerAddress) {
-                brokerAddrsMap.put(address.ip, address);
+                brokerAddrsMap.put(address.host, address);
             }
             brokersMap.put(name, brokerAddrsMap);
             brokerListMap.put(name, Lists.newArrayList(brokerAddrsMap.values()));
@@ -225,7 +245,7 @@ public class BrokerMgr {
                 brokersMap.put(name, brokerAddrsMap);
             }
             for (FsBroker address : addresses) {
-                brokerAddrsMap.put(address.ip, address);
+                brokerAddrsMap.put(address.host, address);
             }
 
             brokerListMap.put(name, Lists.newArrayList(brokerAddrsMap.values()));
@@ -259,7 +279,7 @@ public class BrokerMgr {
             }
             Env.getCurrentEnv().getEditLog().logDropBroker(new ModifyBrokerInfo(name, droppedAddressList));
             for (FsBroker address : droppedAddressList) {
-                brokerAddrsMap.remove(address.ip, address);
+                brokerAddrsMap.remove(address.host, address);
             }
 
             brokerListMap.put(name, Lists.newArrayList(brokerAddrsMap.values()));
@@ -273,7 +293,7 @@ public class BrokerMgr {
         try {
             ArrayListMultimap<String, FsBroker> brokerAddrsMap = brokersMap.get(name);
             for (FsBroker addr : addresses) {
-                brokerAddrsMap.remove(addr.ip, addr);
+                brokerAddrsMap.remove(addr.host, addr);
             }
 
             brokerListMap.put(name, Lists.newArrayList(brokerAddrsMap.values()));
@@ -343,8 +363,7 @@ public class BrokerMgr {
                     for (FsBroker broker : entry.getValue().values()) {
                         List<String> row = Lists.newArrayList();
                         row.add(brokerName);
-                        row.add(broker.ip);
-                        row.add(NetUtils.getHostnameByIp(broker.ip));
+                        row.add(broker.host);
                         row.add(String.valueOf(broker.port));
                         row.add(String.valueOf(broker.isAlive));
                         row.add(TimeUtils.longToTimeString(broker.lastStartTime));

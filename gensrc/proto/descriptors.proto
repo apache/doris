@@ -28,12 +28,15 @@ message PSlotDescriptor {
     required int32 parent = 2; // tuple id which this slot is belong to
     required PTypeDesc slot_type = 3;
     required int32 column_pos = 4;   // in originating table
-    required int32 byte_offset = 5;  // into tuple
+    required int32 byte_offset = 5;  // into tuple, not used any more
     required int32 null_indicator_byte = 6;
     required int32 null_indicator_bit = 7;
     required string col_name = 8;
     required int32 slot_idx = 9;
-    required bool is_materialized = 10;
+    optional bool is_materialized = 10;
+    optional int32 col_unique_id = 11;
+    optional bool is_key = 12;
+    optional bool is_auto_increment = 13;
 };
 
 message PTupleDescriptor {
@@ -49,6 +52,7 @@ message POlapTableIndexSchema {
     repeated string columns = 2;
     required int32 schema_hash = 3;
     repeated ColumnPB columns_desc = 4;
+    repeated TabletIndexPB indexes_desc = 5;
 };
 
 message POlapTableSchemaParam {
@@ -60,5 +64,8 @@ message POlapTableSchemaParam {
     repeated PSlotDescriptor slot_descs = 4;
     required PTupleDescriptor tuple_desc = 5;
     repeated POlapTableIndexSchema indexes = 6;
+    optional bool partial_update = 7;
+    repeated string partial_update_input_columns = 8;
+    optional bool is_strict_mode = 9 [default = false];
 };
 

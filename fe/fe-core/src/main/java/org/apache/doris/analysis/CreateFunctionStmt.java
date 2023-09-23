@@ -19,9 +19,11 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.AliasFunction;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
-import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
@@ -42,11 +44,9 @@ import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
-import com.google.common.collect.Sets;
 import io.grpc.ManagedChannel;
-import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
+import io.grpc.netty.NettyChannelBuilder;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -57,15 +57,11 @@ import java.io.InputStream;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.Parameter;
-import java.math.BigDecimal;
-import java.math.BigInteger;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -96,8 +92,12 @@ public class CreateFunctionStmt extends DdlStmt {
     public static final String MERGE_METHOD_NAME = "merge";
     public static final String GETVALUE_METHOD_NAME = "getValue";
     public static final String STATE_CLASS_NAME = "State";
+    // add for java udf check return type nullable mode, always_nullable or always_not_nullable
+    public static final String IS_RETURN_NULL = "always_nullable";
     private static final Logger LOG = LogManager.getLogger(CreateFunctionStmt.class);
 
+    private SetType type = SetType.DEFAULT;
+    private final boolean ifNotExists;
     private final FunctionName functionName;
     private final boolean isAggregate;
     private final boolean isAlias;
@@ -107,18 +107,25 @@ public class CreateFunctionStmt extends DdlStmt {
     private final Map<String, String> properties;
     private final List<String> parameters;
     private final Expr originFunction;
-    TFunctionBinaryType binaryType = TFunctionBinaryType.NATIVE;
+    TFunctionBinaryType binaryType = TFunctionBinaryType.JAVA_UDF;
 
     // needed item set after analyzed
     private String userFile;
     private Function function;
     private String checksum = "";
+    // now set udf default NullableMode is ALWAYS_NULLABLE
+    // if not, will core dump when input is not null column, but need return null
+    // like https://github.com/apache/doris/pull/14002/files
+    private NullableMode returnNullMode = NullableMode.ALWAYS_NULLABLE;
 
     // timeout for both connection and read. 10 seconds is long enough.
     private static final int HTTP_TIMEOUT_MS = 10000;
 
-    public CreateFunctionStmt(boolean isAggregate, FunctionName functionName, FunctionArgsDef argsDef,
+    public CreateFunctionStmt(SetType type, boolean ifNotExists, boolean isAggregate, FunctionName functionName,
+                              FunctionArgsDef argsDef,
                               TypeDef returnType, TypeDef intermediateType, Map<String, String> properties) {
+        this.type = type;
+        this.ifNotExists = ifNotExists;
         this.functionName = functionName;
         this.isAggregate = isAggregate;
         this.argsDef = argsDef;
@@ -134,8 +141,10 @@ public class CreateFunctionStmt extends DdlStmt {
         this.originFunction = null;
     }
 
-    public CreateFunctionStmt(FunctionName functionName, FunctionArgsDef argsDef,
-                              List<String> parameters, Expr originFunction) {
+    public CreateFunctionStmt(SetType type, boolean ifNotExists, FunctionName functionName, FunctionArgsDef argsDef,
+            List<String> parameters, Expr originFunction) {
+        this.type = type;
+        this.ifNotExists = ifNotExists;
         this.functionName = functionName;
         this.isAlias = true;
         this.argsDef = argsDef;
@@ -148,6 +157,14 @@ public class CreateFunctionStmt extends DdlStmt {
         this.isAggregate = false;
         this.returnType = new TypeDef(Type.VARCHAR);
         this.properties = ImmutableSortedMap.of();
+    }
+
+    public SetType getType() {
+        return type;
+    }
+
+    public boolean isIfNotExists() {
+        return ifNotExists;
     }
 
     public FunctionName getFunctionName() {
@@ -166,23 +183,40 @@ public class CreateFunctionStmt extends DdlStmt {
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
 
-        analyzeCommon(analyzer);
-        // check
-        if (isAggregate) {
-            analyzeUda();
-        } else if (isAlias) {
-            analyzeAliasFunction();
+        // https://github.com/apache/doris/issues/17810
+        // this error report in P0 test, so we suspect that it is related to concurrency
+        // add this change to test it.
+        if (Config.use_fuzzy_session_variable) {
+            synchronized (CreateFunctionStmt.class) {
+                analyzeCommon(analyzer);
+                // check
+                if (isAggregate) {
+                    analyzeUda();
+                } else if (isAlias) {
+                    analyzeAliasFunction();
+                } else {
+                    analyzeUdf();
+                }
+            }
         } else {
-            analyzeUdf();
+            analyzeCommon(analyzer);
+            // check
+            if (isAggregate) {
+                analyzeUda();
+            } else if (isAlias) {
+                analyzeAliasFunction();
+            } else {
+                analyzeUdf();
+            }
         }
     }
 
     private void analyzeCommon(Analyzer analyzer) throws AnalysisException {
         // check function name
-        functionName.analyze(analyzer);
+        functionName.analyze(analyzer, this.type);
 
         // check operation privilege
-        if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
         // check argument
@@ -200,10 +234,14 @@ public class CreateFunctionStmt extends DdlStmt {
             intermediateType = returnType;
         }
 
-        String type = properties.getOrDefault(BINARY_TYPE, "NATIVE");
+        String type = properties.getOrDefault(BINARY_TYPE, "JAVA_UDF");
         binaryType = getFunctionBinaryType(type);
         if (binaryType == null) {
             throw new AnalysisException("unknown function type");
+        }
+        if (type.equals("NATIVE")) {
+            throw new AnalysisException("do not support 'NATIVE' udf type after doris version 1.2.0,"
+                                    + "please use JAVA_UDF or RPC instead");
         }
 
         userFile = properties.getOrDefault(FILE_KEY, properties.get(OBJECT_FILE_KEY));
@@ -219,6 +257,19 @@ public class CreateFunctionStmt extends DdlStmt {
             String md5sum = properties.get(MD5_CHECKSUM);
             if (md5sum != null && !md5sum.equalsIgnoreCase(checksum)) {
                 throw new AnalysisException("library's checksum is not equal with input, checksum=" + checksum);
+            }
+        }
+        if (binaryType == TFunctionBinaryType.JAVA_UDF) {
+            String returnNullModeStr = properties.get(IS_RETURN_NULL);
+            if (returnNullModeStr == null) {
+                return;
+            }
+            if (!returnNullModeStr.equalsIgnoreCase("false") && !returnNullModeStr.equalsIgnoreCase("true")) {
+                throw new AnalysisException("'always_nullable' in properties, you should set it false or true");
+            }
+
+            if (!Boolean.parseBoolean(returnNullModeStr)) {
+                returnNullMode = NullableMode.ALWAYS_NOT_NULLABLE;
             }
         }
     }
@@ -302,6 +353,7 @@ public class CreateFunctionStmt extends DdlStmt {
         function.setLocation(location);
         function.setBinaryType(binaryType);
         function.setChecksum(checksum);
+        function.setNullableMode(returnNullMode);
     }
 
     private void analyzeUdf() throws AnalysisException {
@@ -327,6 +379,7 @@ public class CreateFunctionStmt extends DdlStmt {
                 returnType.getType(), argsDef.isVariadic(),
                 location, symbol, prepareFnSymbol, closeFnSymbol);
         function.setChecksum(checksum);
+        function.setNullableMode(returnNullMode);
     }
 
     private void analyzeJavaUdaf(String clazz) throws AnalysisException {
@@ -334,93 +387,101 @@ public class CreateFunctionStmt extends DdlStmt {
 
         try {
             URL[] urls = {new URL("jar:" + userFile + "!/")};
-            URLClassLoader cl = URLClassLoader.newInstance(urls);
-            Class udfClass = cl.loadClass(clazz);
-            String udfClassName = udfClass.getCanonicalName();
-            String stateClassName = udfClassName + "$" + STATE_CLASS_NAME;
-            Class stateClass = cl.loadClass(stateClassName);
+            try (URLClassLoader cl = URLClassLoader.newInstance(urls)) {
+                Class udfClass = cl.loadClass(clazz);
+                String udfClassName = udfClass.getCanonicalName();
+                String stateClassName = udfClassName + "$" + STATE_CLASS_NAME;
+                Class stateClass = cl.loadClass(stateClassName);
 
-            for (Method m : udfClass.getMethods()) {
-                if (!m.getDeclaringClass().equals(udfClass)) {
-                    continue;
+                for (Method m : udfClass.getMethods()) {
+                    if (!m.getDeclaringClass().equals(udfClass)) {
+                        continue;
+                    }
+                    String name = m.getName();
+                    if (allMethods.containsKey(name)) {
+                        throw new AnalysisException(
+                                String.format("UDF class '%s' has multiple methods with name '%s' ", udfClassName,
+                                        name));
+                    }
+                    allMethods.put(name, m);
                 }
-                String name = m.getName();
-                if (allMethods.containsKey(name)) {
+
+                if (allMethods.get(CREATE_METHOD_NAME) == null) {
                     throw new AnalysisException(
-                            String.format("UDF class '%s' has multiple methods with name '%s' ", udfClassName, name));
+                            String.format("No method '%s' in class '%s'!", CREATE_METHOD_NAME, udfClassName));
+                } else {
+                    checkMethodNonStaticAndPublic(CREATE_METHOD_NAME, allMethods.get(CREATE_METHOD_NAME), udfClassName);
+                    checkArgumentCount(allMethods.get(CREATE_METHOD_NAME), 0, udfClassName);
+                    checkReturnJavaType(udfClassName, allMethods.get(CREATE_METHOD_NAME), stateClass);
                 }
-                allMethods.put(name, m);
-            }
 
-            if (allMethods.get(CREATE_METHOD_NAME) == null) {
-                throw new AnalysisException(
-                        String.format("No method '%s' in class '%s'!", CREATE_METHOD_NAME, udfClassName));
-            } else {
-                checkMethodNonStaticAndPublic(CREATE_METHOD_NAME, allMethods.get(CREATE_METHOD_NAME), udfClassName);
-                checkArgumentCount(allMethods.get(CREATE_METHOD_NAME), 0, udfClassName);
-                checkReturnJavaType(udfClassName, allMethods.get(CREATE_METHOD_NAME), stateClass);
-            }
-
-            if (allMethods.get(DESTROY_METHOD_NAME) == null) {
-                throw new AnalysisException(
-                        String.format("No method '%s' in class '%s'!", DESTROY_METHOD_NAME, udfClassName));
-            } else {
-                checkMethodNonStaticAndPublic(DESTROY_METHOD_NAME, allMethods.get(DESTROY_METHOD_NAME), udfClassName);
-                checkArgumentCount(allMethods.get(DESTROY_METHOD_NAME), 1, udfClassName);
-                checkReturnJavaType(udfClassName, allMethods.get(DESTROY_METHOD_NAME), void.class);
-            }
-
-            if (allMethods.get(ADD_METHOD_NAME) == null) {
-                throw new AnalysisException(
-                        String.format("No method '%s' in class '%s'!", ADD_METHOD_NAME, udfClassName));
-            } else {
-                checkMethodNonStaticAndPublic(ADD_METHOD_NAME, allMethods.get(ADD_METHOD_NAME), udfClassName);
-                checkArgumentCount(allMethods.get(ADD_METHOD_NAME), argsDef.getArgTypes().length + 1, udfClassName);
-                checkReturnJavaType(udfClassName, allMethods.get(ADD_METHOD_NAME), void.class);
-                for (int i = 0; i < argsDef.getArgTypes().length; i++) {
-                    Parameter p = allMethods.get(ADD_METHOD_NAME).getParameters()[i + 1];
-                    checkUdfType(udfClass, allMethods.get(ADD_METHOD_NAME), argsDef.getArgTypes()[i], p.getType(),
-                            p.getName());
+                if (allMethods.get(DESTROY_METHOD_NAME) == null) {
+                    throw new AnalysisException(
+                            String.format("No method '%s' in class '%s'!", DESTROY_METHOD_NAME, udfClassName));
+                } else {
+                    checkMethodNonStaticAndPublic(DESTROY_METHOD_NAME, allMethods.get(DESTROY_METHOD_NAME),
+                            udfClassName);
+                    checkArgumentCount(allMethods.get(DESTROY_METHOD_NAME), 1, udfClassName);
+                    checkReturnJavaType(udfClassName, allMethods.get(DESTROY_METHOD_NAME), void.class);
                 }
-            }
 
-            if (allMethods.get(SERIALIZE_METHOD_NAME) == null) {
-                throw new AnalysisException(
-                        String.format("No method '%s' in class '%s'!", SERIALIZE_METHOD_NAME, udfClassName));
-            } else {
-                checkMethodNonStaticAndPublic(SERIALIZE_METHOD_NAME, allMethods.get(SERIALIZE_METHOD_NAME),
-                        udfClassName);
-                checkArgumentCount(allMethods.get(SERIALIZE_METHOD_NAME), 2, udfClassName);
-                checkReturnJavaType(udfClassName, allMethods.get(SERIALIZE_METHOD_NAME), void.class);
-            }
+                if (allMethods.get(ADD_METHOD_NAME) == null) {
+                    throw new AnalysisException(
+                            String.format("No method '%s' in class '%s'!", ADD_METHOD_NAME, udfClassName));
+                } else {
+                    checkMethodNonStaticAndPublic(ADD_METHOD_NAME, allMethods.get(ADD_METHOD_NAME), udfClassName);
+                    checkArgumentCount(allMethods.get(ADD_METHOD_NAME), argsDef.getArgTypes().length + 1, udfClassName);
+                    checkReturnJavaType(udfClassName, allMethods.get(ADD_METHOD_NAME), void.class);
+                    for (int i = 0; i < argsDef.getArgTypes().length; i++) {
+                        Parameter p = allMethods.get(ADD_METHOD_NAME).getParameters()[i + 1];
+                        checkUdfType(udfClass, allMethods.get(ADD_METHOD_NAME), argsDef.getArgTypes()[i], p.getType(),
+                                p.getName());
+                    }
+                }
 
-            if (allMethods.get(MERGE_METHOD_NAME) == null) {
-                throw new AnalysisException(
-                        String.format("No method '%s' in class '%s'!", MERGE_METHOD_NAME, udfClassName));
-            } else {
-                checkMethodNonStaticAndPublic(MERGE_METHOD_NAME, allMethods.get(MERGE_METHOD_NAME), udfClassName);
-                checkArgumentCount(allMethods.get(MERGE_METHOD_NAME), 2, udfClassName);
-                checkReturnJavaType(udfClassName, allMethods.get(MERGE_METHOD_NAME), void.class);
-            }
+                if (allMethods.get(SERIALIZE_METHOD_NAME) == null) {
+                    throw new AnalysisException(
+                            String.format("No method '%s' in class '%s'!", SERIALIZE_METHOD_NAME, udfClassName));
+                } else {
+                    checkMethodNonStaticAndPublic(SERIALIZE_METHOD_NAME, allMethods.get(SERIALIZE_METHOD_NAME),
+                            udfClassName);
+                    checkArgumentCount(allMethods.get(SERIALIZE_METHOD_NAME), 2, udfClassName);
+                    checkReturnJavaType(udfClassName, allMethods.get(SERIALIZE_METHOD_NAME), void.class);
+                }
 
-            if (allMethods.get(GETVALUE_METHOD_NAME) == null) {
-                throw new AnalysisException(
-                        String.format("No method '%s' in class '%s'!", GETVALUE_METHOD_NAME, udfClassName));
-            } else {
-                checkMethodNonStaticAndPublic(GETVALUE_METHOD_NAME, allMethods.get(GETVALUE_METHOD_NAME), udfClassName);
-                checkArgumentCount(allMethods.get(GETVALUE_METHOD_NAME), 1, udfClassName);
-                checkReturnUdfType(udfClass, allMethods.get(GETVALUE_METHOD_NAME), returnType.getType());
-            }
+                if (allMethods.get(MERGE_METHOD_NAME) == null) {
+                    throw new AnalysisException(
+                            String.format("No method '%s' in class '%s'!", MERGE_METHOD_NAME, udfClassName));
+                } else {
+                    checkMethodNonStaticAndPublic(MERGE_METHOD_NAME, allMethods.get(MERGE_METHOD_NAME), udfClassName);
+                    checkArgumentCount(allMethods.get(MERGE_METHOD_NAME), 2, udfClassName);
+                    checkReturnJavaType(udfClassName, allMethods.get(MERGE_METHOD_NAME), void.class);
+                }
 
-            if (!Modifier.isPublic(stateClass.getModifiers()) || !Modifier.isStatic(stateClass.getModifiers())) {
+                if (allMethods.get(GETVALUE_METHOD_NAME) == null) {
+                    throw new AnalysisException(
+                            String.format("No method '%s' in class '%s'!", GETVALUE_METHOD_NAME, udfClassName));
+                } else {
+                    checkMethodNonStaticAndPublic(GETVALUE_METHOD_NAME, allMethods.get(GETVALUE_METHOD_NAME),
+                            udfClassName);
+                    checkArgumentCount(allMethods.get(GETVALUE_METHOD_NAME), 1, udfClassName);
+                    checkReturnUdfType(udfClass, allMethods.get(GETVALUE_METHOD_NAME), returnType.getType());
+                }
+
+                if (!Modifier.isPublic(stateClass.getModifiers()) || !Modifier.isStatic(stateClass.getModifiers())) {
+                    throw new AnalysisException(
+                            String.format(
+                                    "UDAF '%s' should have one public & static 'State' class to Construction data ",
+                                    udfClassName));
+                }
+            } catch (ClassNotFoundException e) {
                 throw new AnalysisException(
-                        String.format("UDAF '%s' should have one public & static 'State' class to Construction data ",
-                                udfClassName));
+                        "Class [" + clazz + "] or inner class [State] not found in file :" + userFile);
+            } catch (IOException e) {
+                throw new AnalysisException("Failed to load file: " + userFile);
             }
         } catch (MalformedURLException e) {
             throw new AnalysisException("Failed to load file: " + userFile);
-        } catch (ClassNotFoundException e) {
-            throw new AnalysisException("Class [" + clazz + "] or inner class [State] not found in file :" + userFile);
         }
     }
 
@@ -464,91 +525,80 @@ public class CreateFunctionStmt extends DdlStmt {
     private void analyzeJavaUdf(String clazz) throws AnalysisException {
         try {
             URL[] urls = {new URL("jar:" + userFile + "!/")};
-            URLClassLoader cl = URLClassLoader.newInstance(urls);
-            Class udfClass = cl.loadClass(clazz);
+            try (URLClassLoader cl = URLClassLoader.newInstance(urls)) {
+                Class udfClass = cl.loadClass(clazz);
 
-            Method eval = null;
-            for (Method m : udfClass.getMethods()) {
-                if (!m.getDeclaringClass().equals(udfClass)) {
-                    continue;
+                Method eval = null;
+                for (Method m : udfClass.getMethods()) {
+                    if (!m.getDeclaringClass().equals(udfClass)) {
+                        continue;
+                    }
+                    String name = m.getName();
+                    if (EVAL_METHOD_KEY.equals(name) && eval == null) {
+                        eval = m;
+                    } else if (EVAL_METHOD_KEY.equals(name)) {
+                        throw new AnalysisException(String.format(
+                                "UDF class '%s' has multiple methods with name '%s' ", udfClass.getCanonicalName(),
+                                EVAL_METHOD_KEY));
+                    }
                 }
-                String name = m.getName();
-                if (EVAL_METHOD_KEY.equals(name) && eval == null) {
-                    eval = m;
-                } else if (EVAL_METHOD_KEY.equals(name)) {
+                if (eval == null) {
                     throw new AnalysisException(String.format(
-                            "UDF class '%s' has multiple methods with name '%s' ", udfClass.getCanonicalName(),
-                            EVAL_METHOD_KEY));
+                            "No method '%s' in class '%s'!", EVAL_METHOD_KEY, udfClass.getCanonicalName()));
                 }
-            }
-            if (eval == null) {
-                throw new AnalysisException(String.format(
-                        "No method '%s' in class '%s'!", EVAL_METHOD_KEY, udfClass.getCanonicalName()));
-            }
-            if (Modifier.isStatic(eval.getModifiers())) {
-                throw new AnalysisException(
-                        String.format("Method '%s' in class '%s' should be non-static", eval.getName(),
-                                udfClass.getCanonicalName()));
-            }
-            if (!Modifier.isPublic(eval.getModifiers())) {
-                throw new AnalysisException(
-                        String.format("Method '%s' in class '%s' should be public", eval.getName(),
-                                udfClass.getCanonicalName()));
-            }
-            if (eval.getParameters().length != argsDef.getArgTypes().length) {
-                throw new AnalysisException(
-                        String.format("The number of parameters for method '%s' in class '%s' should be %d",
-                                eval.getName(), udfClass.getCanonicalName(), argsDef.getArgTypes().length));
-            }
+                if (Modifier.isStatic(eval.getModifiers())) {
+                    throw new AnalysisException(
+                            String.format("Method '%s' in class '%s' should be non-static", eval.getName(),
+                                    udfClass.getCanonicalName()));
+                }
+                if (!Modifier.isPublic(eval.getModifiers())) {
+                    throw new AnalysisException(
+                            String.format("Method '%s' in class '%s' should be public", eval.getName(),
+                                    udfClass.getCanonicalName()));
+                }
+                if (eval.getParameters().length != argsDef.getArgTypes().length) {
+                    throw new AnalysisException(
+                            String.format("The number of parameters for method '%s' in class '%s' should be %d",
+                                    eval.getName(), udfClass.getCanonicalName(), argsDef.getArgTypes().length));
+                }
 
-            checkUdfType(udfClass, eval, returnType.getType(), eval.getReturnType(), "return");
-            for (int i = 0; i < eval.getParameters().length; i++) {
-                Parameter p = eval.getParameters()[i];
-                checkUdfType(udfClass, eval, argsDef.getArgTypes()[i], p.getType(), p.getName());
+                checkUdfType(udfClass, eval, returnType.getType(), eval.getReturnType(), "return");
+                for (int i = 0; i < eval.getParameters().length; i++) {
+                    Parameter p = eval.getParameters()[i];
+                    checkUdfType(udfClass, eval, argsDef.getArgTypes()[i], p.getType(), p.getName());
+                }
+            } catch (ClassNotFoundException e) {
+                throw new AnalysisException("Class [" + clazz + "] not found in file :" + userFile);
+            } catch (IOException e) {
+                throw new AnalysisException("Failed to load file: " + userFile);
             }
         } catch (MalformedURLException e) {
             throw new AnalysisException("Failed to load file: " + userFile);
-        } catch (ClassNotFoundException e) {
-            throw new AnalysisException("Class [" + clazz + "] not found in file :" + userFile);
         }
     }
 
-    private static final ImmutableMap<PrimitiveType, Set<Class>> PrimitiveTypeToJavaClassType =
-            new ImmutableMap.Builder<PrimitiveType, Set<Class>>()
-                    .put(PrimitiveType.BOOLEAN, Sets.newHashSet(Boolean.class, boolean.class))
-                    .put(PrimitiveType.TINYINT, Sets.newHashSet(Byte.class, byte.class))
-                    .put(PrimitiveType.SMALLINT, Sets.newHashSet(Short.class, short.class))
-                    .put(PrimitiveType.INT, Sets.newHashSet(Integer.class, int.class))
-                    .put(PrimitiveType.FLOAT, Sets.newHashSet(Float.class, float.class))
-                    .put(PrimitiveType.DOUBLE, Sets.newHashSet(Double.class, double.class))
-                    .put(PrimitiveType.BIGINT, Sets.newHashSet(Long.class, long.class))
-                    .put(PrimitiveType.CHAR, Sets.newHashSet(String.class))
-                    .put(PrimitiveType.VARCHAR, Sets.newHashSet(String.class))
-                    .put(PrimitiveType.STRING, Sets.newHashSet(String.class))
-                    .put(PrimitiveType.DATE, Sets.newHashSet(LocalDate.class))
-                    .put(PrimitiveType.DATEV2, Sets.newHashSet(LocalDate.class))
-                    .put(PrimitiveType.DATETIME, Sets.newHashSet(LocalDateTime.class))
-                    .put(PrimitiveType.DATETIMEV2, Sets.newHashSet(LocalDateTime.class))
-                    .put(PrimitiveType.LARGEINT, Sets.newHashSet(BigInteger.class))
-                    .put(PrimitiveType.DECIMALV2, Sets.newHashSet(BigDecimal.class))
-                    .put(PrimitiveType.DECIMAL32, Sets.newHashSet(BigDecimal.class))
-                    .put(PrimitiveType.DECIMAL64, Sets.newHashSet(BigDecimal.class))
-                    .put(PrimitiveType.DECIMAL128, Sets.newHashSet(BigDecimal.class))
-                    .build();
-
     private void checkUdfType(Class clazz, Method method, Type expType, Class pType, String pname)
             throws AnalysisException {
-        if (!(expType instanceof ScalarType)) {
+        Set<Class> javaTypes;
+        if (expType instanceof ScalarType) {
+            ScalarType scalarType = (ScalarType) expType;
+            javaTypes = Type.PrimitiveTypeToJavaClassType.get(scalarType.getPrimitiveType());
+        } else if (expType instanceof ArrayType) {
+            ArrayType arrayType = (ArrayType) expType;
+            javaTypes = Type.PrimitiveTypeToJavaClassType.get(arrayType.getPrimitiveType());
+        } else if (expType instanceof MapType) {
+            MapType mapType = (MapType) expType;
+            javaTypes = Type.PrimitiveTypeToJavaClassType.get(mapType.getPrimitiveType());
+        } else {
             throw new AnalysisException(
-                    String.format("Method '%s' in class '%s' does not support non-scalar type '%s'",
+                    String.format("Method '%s' in class '%s' does not support type '%s'",
                             method.getName(), clazz.getCanonicalName(), expType));
         }
-        ScalarType scalarType = (ScalarType) expType;
-        Set<Class> javaTypes = PrimitiveTypeToJavaClassType.get(scalarType.getPrimitiveType());
+
         if (javaTypes == null) {
             throw new AnalysisException(
                     String.format("Method '%s' in class '%s' does not support type '%s'",
-                            method.getName(), clazz.getCanonicalName(), scalarType));
+                            method.getName(), clazz.getCanonicalName(), expType.toString()));
         }
         if (!javaTypes.contains(pType)) {
             throw new AnalysisException(
@@ -623,6 +673,12 @@ public class CreateFunctionStmt extends DdlStmt {
                 break;
             case BITMAP:
                 typeBuilder.setId(Types.PGenericType.TypeId.BITMAP);
+                break;
+            case QUANTILE_STATE:
+                typeBuilder.setId(Types.PGenericType.TypeId.QUANTILE_STATE);
+                break;
+            case AGG_STATE:
+                typeBuilder.setId(Types.PGenericType.TypeId.AGG_STATE);
                 break;
             case DATE:
                 typeBuilder.setId(Types.PGenericType.TypeId.DATE);

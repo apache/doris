@@ -20,12 +20,12 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.CheckedMath;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExceptNode;
 import org.apache.doris.thrift.TExplainLevel;
@@ -38,12 +38,14 @@ import org.apache.doris.thrift.TUnionNode;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -118,6 +120,10 @@ public abstract class SetOperationNode extends PlanNode {
         constExprLists.add(exprs);
     }
 
+    public void addResultExprLists(List<Expr> exprs) {
+        resultExprLists.add(exprs);
+    }
+
     /**
      * Returns true if this UnionNode has only constant exprs.
      */
@@ -144,6 +150,15 @@ public abstract class SetOperationNode extends PlanNode {
     @Override
     public void finalize(Analyzer analyzer) throws UserException {
         super.finalize(analyzer);
+        // the resultExprLists should be substituted by child's output smap
+        // because the result exprs are column A, B, but the child output exprs are column B, A
+        // after substituted, the next computePassthrough method will get correct info to do its job
+        List<List<Expr>> substitutedResultExprLists = Lists.newArrayList();
+        for (int i = 0; i < resultExprLists.size(); ++i) {
+            substitutedResultExprLists.add(Expr.substituteList(
+                    resultExprLists.get(i), children.get(i).getOutputSmap(), analyzer, true));
+        }
+        resultExprLists = substitutedResultExprLists;
         // In Doris-6380, moved computePassthrough() and the materialized position of resultExprs/constExprs
         // from this.init() to this.finalize(), and will not call SetOperationNode::init() again at the end
         // of createSetOperationNodeFragment().
@@ -179,8 +194,7 @@ public abstract class SetOperationNode extends PlanNode {
                     newExprList.add(exprList.get(j));
                 }
             }
-            materializedResultExprLists.add(
-                    Expr.substituteList(newExprList, getChild(i).getOutputSmap(), analyzer, true));
+            materializedResultExprLists.add(newExprList);
         }
         Preconditions.checkState(
                 materializedResultExprLists.size() == getChildren().size());
@@ -195,6 +209,19 @@ public abstract class SetOperationNode extends PlanNode {
                 }
             }
             materializedConstExprLists.add(newExprList);
+        }
+        if (!resultExprLists.isEmpty()) {
+            List<Expr> exprs = resultExprLists.get(0);
+            TupleDescriptor tupleDescriptor = analyzer.getTupleDesc(tupleId);
+            for (int i = 0; i < exprs.size(); i++) {
+                boolean isNullable = exprs.get(i).isNullable();
+                for (int j = 1; j < resultExprLists.size(); j++) {
+                    isNullable = isNullable || resultExprLists.get(j).get(i).isNullable();
+                }
+                tupleDescriptor.getSlots().get(i).setIsNullable(
+                        tupleDescriptor.getSlots().get(i).getIsNullable() || isNullable);
+                tupleDescriptor.computeMemLayout();
+            }
         }
     }
 
@@ -277,6 +304,9 @@ public abstract class SetOperationNode extends PlanNode {
 
         for (int i = 0; i < setOpResultExprs.size(); ++i) {
             if (!setOpTupleDescriptor.getSlots().get(i).isMaterialized()) {
+                if (childTupleDescriptor.getSlots().get(i).isMaterialized()) {
+                    return false;
+                }
                 continue;
             }
             SlotRef setOpSlotRef = setOpResultExprs.get(i).unwrapSlotRef(false);
@@ -285,21 +315,14 @@ public abstract class SetOperationNode extends PlanNode {
             if (childSlotRef == null) {
                 return false;
             }
-            if (VectorizedUtil.isVectorized()) {
-                // On vectorized engine, we have more chance to do passthrough.
-                if (childSlotRef.getDesc().getSlotOffset() != setOpSlotRef.getDesc().getSlotOffset()) {
-                    return false;
-                }
-                if (childSlotRef.isNullable() != setOpSlotRef.isNullable()) {
-                    return false;
-                }
-                if (childSlotRef.getDesc().getType() != setOpSlotRef.getDesc().getType()) {
-                    return false;
-                }
-            } else {
-                if (!childSlotRef.getDesc().layoutEquals(setOpSlotRef.getDesc())) {
-                    return false;
-                }
+            if (childSlotRef.getDesc().getSlotOffset() != setOpSlotRef.getDesc().getSlotOffset()) {
+                return false;
+            }
+            if (childSlotRef.isNullable() != setOpSlotRef.isNullable()) {
+                return false;
+            }
+            if (childSlotRef.getDesc().getType() != setOpSlotRef.getDesc().getType()) {
+                return false;
             }
         }
         return true;
@@ -380,7 +403,7 @@ public abstract class SetOperationNode extends PlanNode {
                 msg.node_type = TPlanNodeType.EXCEPT_NODE;
                 break;
             default:
-                LOG.error("Node type: " + nodeType.toString() + " is invalid.");
+                LOG.error("Node type: " + nodeType + " is invalid.");
                 break;
         }
     }
@@ -419,7 +442,7 @@ public abstract class SetOperationNode extends PlanNode {
             if (!passThroughNodeIds.isEmpty()) {
                 String result = prefix + "pass-through-operands: ";
                 if (passThroughNodeIds.size() == children.size()) {
-                    output.append(result + "all\n");
+                    output.append(result).append("all\n");
                 } else {
                     output.append(result).append(Joiner.on(",").join(passThroughNodeIds)).append("\n");
                 }
@@ -436,5 +459,61 @@ public abstract class SetOperationNode extends PlanNode {
         }
         numInstances = Math.max(1, numInstances);
         return numInstances;
+    }
+
+    public void initOutputSlotIds(Set<SlotId> requiredSlotIdSet, Analyzer analyzer) {
+    }
+
+    public void projectOutputTuple() {
+    }
+
+    public Set<SlotId> computeInputSlotIds(Analyzer analyzer) {
+        Set<SlotId> results = Sets.newHashSet();
+        for (int i = 0; i < resultExprLists.size(); ++i) {
+            List<Expr> substituteList =
+                    Expr.substituteList(resultExprLists.get(i), children.get(i).getOutputSmap(), analyzer, true);
+            for (Expr expr : substituteList) {
+                List<SlotId> slotIdList = Lists.newArrayList();
+                expr.getIds(null, slotIdList);
+                results.addAll(slotIdList);
+            }
+        }
+        return results;
+    }
+
+    /**
+     * just for Nereids.
+     */
+    public void finalizeForNereids(List<SlotDescriptor> constExprSlots, List<SlotDescriptor> resultExprSlots) {
+        materializedConstExprLists.clear();
+        for (List<Expr> exprList : constExprLists) {
+            Preconditions.checkState(exprList.size() == constExprSlots.size());
+            List<Expr> newExprList = Lists.newArrayList();
+            for (int i = 0; i < exprList.size(); ++i) {
+                if (constExprSlots.get(i).isMaterialized()) {
+                    newExprList.add(exprList.get(i));
+                }
+            }
+            materializedConstExprLists.add(newExprList);
+        }
+
+        materializedResultExprLists.clear();
+        Preconditions.checkState(resultExprLists.size() == children.size());
+        for (int i = 0; i < resultExprLists.size(); ++i) {
+            List<Expr> exprList = resultExprLists.get(i);
+            List<Expr> newExprList = Lists.newArrayList();
+            Preconditions.checkState(exprList.size() == resultExprSlots.size());
+            for (int j = 0; j < exprList.size(); ++j) {
+                if (resultExprSlots.get(j).isMaterialized()) {
+                    newExprList.add(exprList.get(j));
+                    // TODO: reconsider this, we may change nullable info in previous nereids rules not here.
+                    resultExprSlots.get(j)
+                            .setIsNullable(resultExprSlots.get(j).getIsNullable() || exprList.get(j).isNullable());
+                }
+            }
+            materializedResultExprLists.add(newExprList);
+        }
+        Preconditions.checkState(
+                materializedResultExprLists.size() == getChildren().size());
     }
 }

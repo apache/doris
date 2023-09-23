@@ -17,37 +17,33 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.io.Text;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.List;
 import java.util.Set;
 
 public class HashDistributionDesc extends DistributionDesc {
-    private int numBucket;
     private List<String> distributionColumnNames;
 
-    public HashDistributionDesc() {
+    public HashDistributionDesc(int numBucket, List<String> distributionColumnNames) {
+        super(numBucket);
         type = DistributionInfoType.HASH;
-        distributionColumnNames = Lists.newArrayList();
+        this.distributionColumnNames = distributionColumnNames;
     }
 
-    public HashDistributionDesc(int numBucket, List<String> distributionColumnNames) {
+    public HashDistributionDesc(int numBucket, boolean autoBucket, List<String> distributionColumnNames) {
+        super(numBucket, autoBucket);
         type = DistributionInfoType.HASH;
-        this.numBucket = numBucket;
         this.distributionColumnNames = distributionColumnNames;
     }
 
@@ -55,14 +51,10 @@ public class HashDistributionDesc extends DistributionDesc {
         return distributionColumnNames;
     }
 
-    public int getBuckets() {
-        return numBucket;
-    }
-
     @Override
-    public void analyze(Set<String> colSet, List<ColumnDef> columnDefs) throws AnalysisException {
+    public void analyze(Set<String> colSet, List<ColumnDef> columnDefs, KeysDesc keysDesc) throws AnalysisException {
         if (numBucket <= 0) {
-            throw new AnalysisException("Number of hash distribution should be larger than zero.");
+            throw new AnalysisException("Number of hash distribution should be greater than zero.");
         }
         if (distributionColumnNames == null || distributionColumnNames.size() == 0) {
             throw new AnalysisException("Number of hash column should be larger than zero.");
@@ -76,11 +68,12 @@ public class HashDistributionDesc extends DistributionDesc {
                 throw new AnalysisException("Duplicated distribution column " + columnName);
             }
             for (ColumnDef columnDef : columnDefs) {
-                if (columnDef.getName().equals(columnName)) {
-                    if (columnDef.getType().isScalarType(PrimitiveType.STRING)) {
-                        throw new AnalysisException("String Type should not be used in distribution column["
-                                + columnDef.getName() + "].");
+                if (columnDef.getName().equalsIgnoreCase(columnName)) {
+                    if (!columnDef.isKey() && (keysDesc.getKeysType() == KeysType.UNIQUE_KEYS
+                            || keysDesc.getKeysType() == KeysType.AGG_KEYS)) {
+                        throw new AnalysisException("Distribution column[" + columnName + "] is not key column");
                     }
+                    break;
                 }
             }
         }
@@ -99,7 +92,11 @@ public class HashDistributionDesc extends DistributionDesc {
             i++;
         }
         stringBuilder.append(")\n");
-        stringBuilder.append("BUCKETS ").append(numBucket);
+        if (autoBucket) {
+            stringBuilder.append("BUCKETS AUTO");
+        } else {
+            stringBuilder.append("BUCKETS ").append(numBucket);
+        }
         return stringBuilder.toString();
     }
 
@@ -117,15 +114,26 @@ public class HashDistributionDesc extends DistributionDesc {
             boolean find = false;
             for (Column column : columns) {
                 if (column.getName().equalsIgnoreCase(colName)) {
-                    if (!column.isKey() && column.getAggregationType() != AggregateType.NONE) {
-                        throw new DdlException("Distribution column[" + colName + "] is not key column");
+                    if (column.getType().isScalarType(PrimitiveType.STRING)) {
+                        throw new DdlException("String Type should not be used in distribution column["
+                                + column.getName() + "].");
+                    } else if (column.getType().isArrayType()) {
+                        throw new DdlException("Array Type should not be used in distribution column["
+                                + column.getName() + "].");
+                    } else if (column.getType().isMapType()) {
+                        throw new DdlException("Map Type should not be used in distribution column["
+                                + column.getName() + "].");
+                    } else if (column.getType().isStructType()) {
+                        throw new DdlException("Struct Type should not be used in distribution column["
+                                + column.getName() + "].");
+                    } else if (column.getType().isFloatingPointType()) {
+                        throw new DdlException("Floating point type should not be used in distribution column["
+                                + column.getName() + "].");
                     }
 
-                    if (column.getType().isFloatingPointType()) {
-                        throw new DdlException("Floating point type column can not be distribution column");
-                    }
-
-                    distributionColumns.add(column);
+                    // distribution info and base columns persist seperately inside OlapTable, so we need deep copy
+                    // to avoid modify table columns also modify columns inside distribution info.
+                    distributionColumns.add(new Column(column));
                     find = true;
                     break;
                 }
@@ -135,27 +143,8 @@ public class HashDistributionDesc extends DistributionDesc {
             }
         }
 
-        HashDistributionInfo hashDistributionInfo = new HashDistributionInfo(numBucket, distributionColumns);
+        HashDistributionInfo hashDistributionInfo =
+                                new HashDistributionInfo(numBucket, autoBucket, distributionColumns);
         return hashDistributionInfo;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-
-        out.writeInt(numBucket);
-        int count = distributionColumnNames.size();
-        out.writeInt(count);
-        for (String colName : distributionColumnNames) {
-            Text.writeString(out, colName);
-        }
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        numBucket = in.readInt();
-        int count = in.readInt();
-        for (int i = 0; i < count; i++) {
-            distributionColumnNames.add(Text.readString(in));
-        }
     }
 }

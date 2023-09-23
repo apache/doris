@@ -19,11 +19,14 @@ package org.apache.doris.metric;
 
 import org.apache.doris.common.FeConstants;
 
+import com.codahale.metrics.Histogram;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.util.List;
+import java.util.Map;
+import java.util.SortedMap;
 
 public class MetricsTest {
 
@@ -52,5 +55,31 @@ public class MetricsTest {
                 Assert.fail();
             }
         }
+    }
+
+    @Test
+    public void testUserQueryMetrics() {
+        MetricRepo.USER_COUNTER_QUERY_ALL.getOrAdd("test_user").increase(1L);
+        MetricRepo.USER_COUNTER_QUERY_ERR.getOrAdd("test_user").increase(1L);
+        MetricRepo.USER_HISTO_QUERY_LATENCY.getOrAdd("test_user").update(10L);
+        StringBuilder sb = new StringBuilder();
+        MetricVisitor visitor = new PrometheusMetricVisitor();
+        List<Metric> metrics = MetricRepo.DORIS_METRIC_REGISTER.getMetrics();
+        for (Metric metric : metrics) {
+            visitor.visit(sb, MetricVisitor.FE_PREFIX, metric);
+        }
+        SortedMap<String, Histogram> histograms = MetricRepo.METRIC_REGISTER.getHistograms();
+        for (Map.Entry<String, Histogram> entry : histograms.entrySet()) {
+            visitor.visitHistogram(sb, MetricVisitor.FE_PREFIX, entry.getKey(), entry.getValue());
+        }
+        String metricResult = sb.toString();
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_query_total counter"));
+        Assert.assertTrue(metricResult.contains("doris_fe_query_total{user=\"test_user\"} 1"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_query_err counter"));
+        Assert.assertTrue(metricResult.contains("doris_fe_query_err{user=\"test_user\"} 1"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_query_latency_ms summary"));
+        Assert.assertTrue(metricResult.contains("doris_fe_query_latency_ms{quantile=\"0.999\"} 0.0"));
+        Assert.assertTrue(metricResult.contains("doris_fe_query_latency_ms{quantile=\"0.999\",user=\"test_user\"} 10.0"));
+
     }
 }

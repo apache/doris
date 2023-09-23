@@ -1,6 +1,6 @@
 ---
 {
-    "title": "hex",
+    "title": "HEX",
     "language": "en"
 }
 ---
@@ -82,4 +82,4 @@ mysql> select hex(-1);
 +------------------+
 ```
 ### keywords
-HEX
+    HEX

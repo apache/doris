@@ -1,4 +1,4 @@
-CREATE TABLE `test_bucket_shuffle_join` (
+CREATE TABLE IF NOT EXISTS `test_bucket_shuffle_join` (
   `id` int(11) NOT NULL COMMENT "",
   `rectime` datetime NOT NULL COMMENT ""
 ) ENGINE=OLAP

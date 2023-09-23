@@ -15,10 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <random>
+#include <glog/logging.h>
 
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <cstdint>
+#include <cstdlib>
+#include <memory>
+#include <random>
+#include <utility>
+
+#include "common/status.h"
 #include "udf/udf.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
@@ -40,15 +58,9 @@ public:
         return std::make_shared<DataTypeFloat64>();
     }
 
-    Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        std::mt19937_64* generator =
-                reinterpret_cast<std::mt19937_64*>(context->allocate(sizeof(std::mt19937_64)));
-        if (UNLIKELY(generator == nullptr)) {
-            return Status::MemoryAllocFailed("allocate random seed generator failed.");
-        }
-
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        std::shared_ptr<std::mt19937_64> generator(new std::mt19937_64());
         context->set_function_state(scope, generator);
-        new (generator) std::mt19937_64();
         if (scope == FunctionContext::THREAD_LOCAL) {
             if (context->get_num_args() == 1) {
                 // This is a call to RandSeed, initialize the seed
@@ -90,12 +102,6 @@ public:
     }
 
     Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if (scope == FunctionContext::THREAD_LOCAL) {
-            uint8_t* generator = reinterpret_cast<uint8_t*>(
-                    context->get_function_state(FunctionContext::THREAD_LOCAL));
-            context->free(generator);
-            context->set_function_state(FunctionContext::THREAD_LOCAL, nullptr);
-        }
         return Status::OK();
     }
 };

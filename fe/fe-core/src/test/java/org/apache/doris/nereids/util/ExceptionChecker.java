@@ -37,7 +37,7 @@ public class ExceptionChecker {
     }
 
     public ExceptionChecker assertMessageContains(String context) {
-        Assertions.assertTrue(exception.getMessage().contains(context));
+        Assertions.assertTrue(exception.getMessage().contains(context), exception.getMessage());
         return this;
     }
 

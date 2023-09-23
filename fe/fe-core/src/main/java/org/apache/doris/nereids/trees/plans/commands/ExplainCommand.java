@@ -17,30 +17,70 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.ExplainOptions;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.trees.plans.Explainable;
+import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 
 /**
  * explain command.
  */
-public class ExplainCommand implements Command {
+public class ExplainCommand extends Command implements NoForward {
 
     /**
      * explain level.
      */
     public enum ExplainLevel {
-        NORMAL,
-        VERBOSE,
-        GRAPH,
+        NONE(false),
+        NORMAL(false),
+        VERBOSE(false),
+        GRAPH(false),
+        PARSED_PLAN(true),
+        ANALYZED_PLAN(true),
+        REWRITTEN_PLAN(true),
+        OPTIMIZED_PLAN(true),
+        SHAPE_PLAN(true),
+        MEMO_PLAN(true),
+        ALL_PLAN(true)
         ;
+
+        public final boolean isPlanLevel;
+
+        ExplainLevel(boolean isPlanLevel) {
+            this.isPlanLevel = isPlanLevel;
+        }
     }
 
     private final ExplainLevel level;
     private final LogicalPlan logicalPlan;
 
     public ExplainCommand(ExplainLevel level, LogicalPlan logicalPlan) {
+        super(PlanType.EXPLAIN_COMMAND);
         this.level = level;
         this.logicalPlan = logicalPlan;
+    }
+
+    @Override
+    public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        LogicalPlan explainPlan = null;
+        if (!(logicalPlan instanceof Explainable)) {
+            throw new AnalysisException("explain a plan cannot be explained");
+        }
+        explainPlan = ((LogicalPlan) ((Explainable) logicalPlan).getExplainPlan(ctx));
+        LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(explainPlan, ctx.getStatementContext());
+        logicalPlanAdapter.setIsExplain(new ExplainOptions(level));
+        executor.setParsedStmt(logicalPlanAdapter);
+        NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
+        planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
+        executor.setPlanner(planner);
+        executor.checkBlockRules();
+        executor.handleExplainStmt(planner.getExplainString(new ExplainOptions(level)), true);
     }
 
     @Override

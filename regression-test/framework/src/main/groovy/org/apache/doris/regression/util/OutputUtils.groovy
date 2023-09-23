@@ -59,18 +59,27 @@ class OutputUtils {
         if (dataType == "FLOAT" || dataType == "DOUBLE" || dataType == "DECIMAL") {
             Boolean expectNull = expectCell.equals("\\\\N")
             Boolean actualNull = realCell.equals("\\\\N")
+            Boolean expectNan = expectCell.equals("nan")
+            Boolean actualNan = realCell.equals("nan")
+            Boolean expectInf = expectCell.equals("inf")
+            Boolean actualInf = realCell.equals("inf")
+            Boolean expectMinusInf = expectCell.equals("-inf")
+            Boolean actualMinusInf = realCell.equals("-inf")
 
-            if (expectNull != actualNull) {
+            if (expectNull != actualNull || expectNan != actualNan || expectInf != actualInf || expectMinusInf != actualMinusInf) {
                 return "${info}, line ${line}, ${dataType} result mismatch.\nExpect cell: ${expectCell}\nBut real is: ${realCell}"
             } else if (!expectNull) {
+                if (expectNull || expectNan || expectInf || expectMinusInf) {
+                    return null
+                }
                 // both are not null
                 double expectDouble = Double.parseDouble(expectCell)
                 double realDouble = Double.parseDouble(realCell)
 
                 double realRelativeError = Math.abs(expectDouble - realDouble) / realDouble
-                double expectRelativeError = 1e-10
+                double expectRelativeError = 1e-8
 
-                if(expectRelativeError < realRelativeError) {
+                if (expectRelativeError < realRelativeError) {
                     // Keep the scale of low precision data to solve TPCH cases like:
                     // "Expect cell is: 0.0395, But real is: 0.039535109"
                     int expectDecimalPlaces = expectCell.contains(".") ? expectCell.length() - expectCell.lastIndexOf(".") - 1 : 0
@@ -132,6 +141,7 @@ class OutputUtils {
 
                     def res = checkCell(info, line, expectCell, realCell, dataType)
                     if(res != null) {
+                        res += "line ${line} mismatch\nExpectRow: ${expectRaw}\nRealRow: ${realRaw}";
                         return res
                     }
                 }

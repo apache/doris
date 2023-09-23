@@ -17,185 +17,30 @@
 
 #include "exprs/json_functions.h"
 
+#include <rapidjson/allocators.h>
 #include <rapidjson/document.h>
-#include <rapidjson/stringbuffer.h>
-#include <rapidjson/writer.h>
+#include <rapidjson/encodings.h>
+#include <rapidjson/rapidjson.h>
 #include <re2/re2.h>
+#include <simdjson/simdjson.h> // IWYU pragma: keep
 #include <stdlib.h>
-#include <sys/time.h>
 
-#include <boost/algorithm/string.hpp>
-#include <iomanip>
+#include <boost/iterator/iterator_facade.hpp>
+#include <boost/token_functions.hpp>
+#include <boost/tokenizer.hpp>
 #include <sstream>
 #include <string>
-#include <string_view>
 #include <vector>
 
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
-#include "exprs/anyval_util.h"
-#include "gutil/strings/stringpiece.h"
-#include "rapidjson/error/en.h"
-#include "udf/udf.h"
-#include "util/string_util.h"
 
 namespace doris {
 
 // static const re2::RE2 JSON_PATTERN("^([a-zA-Z0-9_\\-\\:\\s#\\|\\.]*)(?:\\[([0-9]+)\\])?");
 // json path cannot contains: ", [, ]
 static const re2::RE2 JSON_PATTERN("^([^\\\"\\[\\]]*)(?:\\[([0-9]+|\\*)\\])?");
-
-void JsonFunctions::init() {}
-
-IntVal JsonFunctions::get_json_int(FunctionContext* context, const StringVal& json_str,
-                                   const StringVal& path) {
-    if (json_str.is_null || path.is_null) {
-        return IntVal::null();
-    }
-    std::string_view json_string((char*)json_str.ptr, json_str.len);
-    std::string_view path_string((char*)path.ptr, path.len);
-    rapidjson::Document document;
-    rapidjson::Value* root =
-            get_json_object(context, json_string, path_string, JSON_FUN_INT, &document);
-    if (root != nullptr && root->IsInt()) {
-        return IntVal(root->GetInt());
-    } else {
-        return IntVal::null();
-    }
-}
-
-StringVal JsonFunctions::get_json_string(FunctionContext* context, const StringVal& json_str,
-                                         const StringVal& path) {
-    if (json_str.is_null || path.is_null) {
-        return StringVal::null();
-    }
-
-    std::string_view json_string((char*)json_str.ptr, json_str.len);
-    std::string_view path_string((char*)path.ptr, path.len);
-    rapidjson::Document document;
-    rapidjson::Value* root =
-            get_json_object(context, json_string, path_string, JSON_FUN_STRING, &document);
-    if (root == nullptr || root->IsNull()) {
-        return StringVal::null();
-    } else if (root->IsString()) {
-        return AnyValUtil::from_string_temp(context, root->GetString());
-    } else {
-        rapidjson::StringBuffer buf;
-        rapidjson::Writer<rapidjson::StringBuffer> writer(buf);
-        root->Accept(writer);
-        return AnyValUtil::from_string_temp(context, std::string(buf.GetString()));
-    }
-}
-
-DoubleVal JsonFunctions::get_json_double(FunctionContext* context, const StringVal& json_str,
-                                         const StringVal& path) {
-    if (json_str.is_null || path.is_null) {
-        return DoubleVal::null();
-    }
-    std::string_view json_string((char*)json_str.ptr, json_str.len);
-    std::string_view path_string((char*)path.ptr, path.len);
-    rapidjson::Document document;
-    rapidjson::Value* root =
-            get_json_object(context, json_string, path_string, JSON_FUN_DOUBLE, &document);
-    if (root == nullptr || root->IsNull()) {
-        return DoubleVal::null();
-    } else if (root->IsInt()) {
-        return DoubleVal(static_cast<double>(root->GetInt()));
-    } else if (root->IsDouble()) {
-        return DoubleVal(root->GetDouble());
-    } else {
-        return DoubleVal::null();
-    }
-}
-
-StringVal JsonFunctions::json_array(FunctionContext* context, int num_args,
-                                    const StringVal* json_str) {
-    if (json_str->is_null) {
-        return StringVal::null();
-    }
-    rapidjson::Value array_obj(rapidjson::kArrayType);
-    rapidjson::Document document;
-    rapidjson::Document::AllocatorType& allocator = document.GetAllocator();
-    //flag: The number it contains represents the type of previous parameters
-    const StringVal& flag = json_str[num_args - 1];
-    DCHECK_EQ(num_args - 1, flag.len);
-    for (int i = 0; i < num_args - 1; ++i) {
-        const StringVal& arg = json_str[i];
-        rapidjson::Value val = parse_str_with_flag(arg, flag, i, allocator);
-        array_obj.PushBack(val, allocator);
-    }
-    rapidjson::StringBuffer buf;
-    rapidjson::Writer<rapidjson::StringBuffer> writer(buf);
-    array_obj.Accept(writer);
-    return AnyValUtil::from_string_temp(context, std::string(buf.GetString()));
-}
-
-StringVal JsonFunctions::json_object(FunctionContext* context, int num_args,
-                                     const StringVal* json_str) {
-    if (json_str->is_null) {
-        return StringVal::null();
-    }
-    rapidjson::Document document(rapidjson::kObjectType);
-    rapidjson::Document::AllocatorType& allocator = document.GetAllocator();
-    const StringVal& flag = json_str[num_args - 1];
-    document.SetObject();
-    DCHECK_EQ(num_args - 1, flag.len);
-    for (int i = 1; i < num_args - 1; i = i + 2) {
-        const StringVal& arg = json_str[i];
-        rapidjson::Value key(rapidjson::kStringType);
-        key.SetString((char*)json_str[i - 1].ptr, json_str[i - 1].len, allocator);
-        rapidjson::Value val = parse_str_with_flag(arg, flag, i, allocator);
-        document.AddMember(key, val, allocator);
-    }
-    rapidjson::StringBuffer buf;
-    rapidjson::Writer<rapidjson::StringBuffer> writer(buf);
-    document.Accept(writer);
-    return AnyValUtil::from_string_temp(context, std::string(buf.GetString()));
-}
-
-rapidjson::Value JsonFunctions::parse_str_with_flag(const StringVal& arg, const StringVal& flag,
-                                                    const int num,
-                                                    rapidjson::Document::AllocatorType& allocator) {
-    rapidjson::Value val;
-    if (*(flag.ptr + num) == '0') { //null
-        rapidjson::Value nullObject(rapidjson::kNullType);
-        val = nullObject;
-    } else if (*(flag.ptr + num) == '1') { //bool
-        bool res = ((arg == "1") ? true : false);
-        val.SetBool(res);
-    } else if (*(flag.ptr + num) == '2') { //int
-        std::stringstream ss;
-        ss << arg.ptr;
-        int number = 0;
-        ss >> number;
-        val.SetInt(number);
-    } else if (*(flag.ptr + num) == '3') { //double
-        std::stringstream ss;
-        ss << arg.ptr;
-        double number = 0.0;
-        ss >> number;
-        val.SetDouble(number);
-    } else if (*(flag.ptr + num) == '4' || *(flag.ptr + num) == '5') {
-        StringPiece str((char*)arg.ptr, arg.len);
-        if (*(flag.ptr + num) == '4') {
-            str = str.substr(1, str.length() - 2);
-        }
-        val.SetString(str.data(), str.length(), allocator);
-    } else {
-        DCHECK(false) << "parse json type error with unknown type";
-    }
-    return val;
-}
-StringVal JsonFunctions::json_quote(FunctionContext* context, const StringVal& json_str) {
-    if (json_str.is_null) {
-        return StringVal::null();
-    }
-    rapidjson::Value array_obj(rapidjson::kObjectType);
-    array_obj.SetString(rapidjson::StringRef((char*)json_str.ptr, json_str.len));
-    rapidjson::StringBuffer buf;
-    rapidjson::Writer<rapidjson::StringBuffer> writer(buf);
-    array_obj.Accept(writer);
-    return AnyValUtil::from_string_temp(context, std::string(buf.GetString()));
-}
 
 rapidjson::Value* JsonFunctions::match_value(const std::vector<JsonPath>& parsed_paths,
                                              rapidjson::Value* document,
@@ -298,68 +143,6 @@ rapidjson::Value* JsonFunctions::match_value(const std::vector<JsonPath>& parsed
     return root;
 }
 
-rapidjson::Value* JsonFunctions::get_json_object(FunctionContext* context,
-                                                 const std::string_view& json_string,
-                                                 const std::string_view& path_string,
-                                                 const JsonFunctionType& fntype,
-                                                 rapidjson::Document* document) {
-    // split path by ".", and escape quota by "\"
-    // eg:
-    //    '$.text#abc.xyz'  ->  [$, text#abc, xyz]
-    //    '$."text.abc".xyz'  ->  [$, text.abc, xyz]
-    //    '$."text.abc"[1].xyz'  ->  [$, text.abc[1], xyz]
-    JsonState* json_state = nullptr;
-    JsonState tmp_json_state;
-
-#ifndef BE_TEST
-    json_state = reinterpret_cast<JsonState*>(
-            context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
-    if (json_state == nullptr) {
-        json_state = &tmp_json_state;
-    }
-
-    if (json_state->json_paths.size() == 0) {
-        auto tok = get_json_token(path_string);
-        std::vector<std::string> paths(tok.begin(), tok.end());
-        get_parsed_paths(paths, &json_state->json_paths);
-    }
-#else
-    json_state = &tmp_json_state;
-    auto tok = get_json_token(path_string);
-    std::vector<std::string> paths(tok.begin(), tok.end());
-    get_parsed_paths(paths, &json_state->json_paths);
-#endif
-
-    VLOG_TRACE << "first parsed path: " << json_state->json_paths[0].debug_string();
-
-    if (!json_state->json_paths[0].is_valid) {
-        return document;
-    }
-
-    if (UNLIKELY(json_state->json_paths.size() == 1)) {
-        if (fntype == JSON_FUN_STRING) {
-            document->SetString(json_string.data(), json_string.length(), document->GetAllocator());
-        } else {
-            return document;
-        }
-    }
-
-    if (!json_state->document.IsNull()) {
-        document = &json_state->document;
-    } else {
-        document->Parse(json_string.data(), json_string.length());
-        //rapidjson::Document document;
-        if (UNLIKELY(document->HasParseError())) {
-            VLOG_CRITICAL << "Error at offset " << document->GetErrorOffset() << ": "
-                          << GetParseError_En(document->GetParseError());
-            document->SetNull();
-            return document;
-        }
-    }
-
-    return match_value(json_state->json_paths, document, document->GetAllocator());
-}
-
 rapidjson::Value* JsonFunctions::get_json_array_from_parsed_json(
         const std::string& json_path, rapidjson::Value* document,
         rapidjson::Document::AllocatorType& mem_allocator, bool* wrap_explicitly) {
@@ -389,11 +172,13 @@ rapidjson::Value* JsonFunctions::get_json_array_from_parsed_json(
     rapidjson::Value* root = match_value(parsed_paths, document, mem_allocator, true);
     if (root == nullptr || root == document) { // not found
         return nullptr;
-    } else if (!root->IsArray()) {
+    } else if (!root->IsArray() && wrap_explicitly) {
         rapidjson::Value* array_obj = nullptr;
         array_obj = static_cast<rapidjson::Value*>(mem_allocator.Malloc(sizeof(rapidjson::Value)));
         array_obj->SetArray();
-        array_obj->PushBack(*root, mem_allocator);
+        rapidjson::Value copy;
+        copy.CopyFrom(*root, mem_allocator);
+        array_obj->PushBack(std::move(copy), mem_allocator);
         // set `wrap_explicitly` to true, so that the caller knows that this Array is wrapped actively.
         *wrap_explicitly = true;
         return array_obj;
@@ -418,49 +203,6 @@ rapidjson::Value* JsonFunctions::get_json_object_from_parsed_json(
         return nullptr;
     }
     return root;
-}
-
-void JsonFunctions::json_path_prepare(doris_udf::FunctionContext* context,
-                                      doris_udf::FunctionContext::FunctionStateScope scope) {
-    if (scope != FunctionContext::FRAGMENT_LOCAL) {
-        return;
-    }
-
-    if (!context->is_arg_constant(0) && !context->is_arg_constant(1)) {
-        return;
-    }
-
-    JsonState* json_state = new JsonState;
-
-    StringVal* json_str = reinterpret_cast<StringVal*>(context->get_constant_arg(0));
-    if (json_str != nullptr && !json_str->is_null) {
-        std::string json_string((char*)json_str->ptr, json_str->len);
-        json_state->document.Parse(json_string.c_str());
-    }
-    StringVal* path = reinterpret_cast<StringVal*>(context->get_constant_arg(1));
-    if (path != nullptr && !path->is_null) {
-        std::string path_str(reinterpret_cast<char*>(path->ptr), path->len);
-        boost::tokenizer<boost::escaped_list_separator<char>> tok(
-                path_str, boost::escaped_list_separator<char>("\\", ".", "\""));
-        std::vector<std::string> path_exprs(tok.begin(), tok.end());
-        get_parsed_paths(path_exprs, &json_state->json_paths);
-    }
-
-    context->set_function_state(scope, json_state);
-    VLOG_TRACE << "prepare json path. size: " << json_state->json_paths.size();
-}
-
-void JsonFunctions::json_path_close(doris_udf::FunctionContext* context,
-                                    doris_udf::FunctionContext::FunctionStateScope scope) {
-    if (scope != FunctionContext::FRAGMENT_LOCAL) {
-        return;
-    }
-
-    JsonState* json_state = reinterpret_cast<JsonState*>(context->get_function_state(scope));
-    if (json_state != nullptr) {
-        delete json_state;
-        VLOG_TRACE << "close json state";
-    }
 }
 
 void JsonFunctions::parse_json_paths(const std::string& path_string,
@@ -505,6 +247,72 @@ void JsonFunctions::get_parsed_paths(const std::vector<std::string>& path_exprs,
             parsed_paths->emplace_back(std::move(col), idx, true);
         }
     }
+}
+
+Status JsonFunctions::extract_from_object(simdjson::ondemand::object& obj,
+                                          const std::vector<JsonPath>& jsonpath,
+                                          simdjson::ondemand::value* value) noexcept {
+// Return DataQualityError when it's a malformed json.
+// Otherwise the path was not found, due to array out of bound or not exist
+#define HANDLE_SIMDJSON_ERROR(err, msg)                                                        \
+    do {                                                                                       \
+        const simdjson::error_code& _err = err;                                                \
+        const std::string& _msg = msg;                                                         \
+        if (UNLIKELY(_err)) {                                                                  \
+            if (_err == simdjson::NO_SUCH_FIELD || _err == simdjson::INDEX_OUT_OF_BOUNDS) {    \
+                return Status::NotFound(                                                       \
+                        fmt::format("err: {}, msg: {}", simdjson::error_message(_err), _msg)); \
+            }                                                                                  \
+            return Status::DataQualityError(                                                   \
+                    fmt::format("err: {}, msg: {}", simdjson::error_message(_err), _msg));     \
+        }                                                                                      \
+    } while (false);
+
+    if (jsonpath.size() <= 1) {
+        // The first elem of json path should be '$'.
+        // A valid json path's size is >= 2.
+        return Status::DataQualityError("empty json path");
+    }
+
+    simdjson::ondemand::value tvalue;
+
+    // Skip the first $.
+    for (int i = 1; i < jsonpath.size(); i++) {
+        if (UNLIKELY(!jsonpath[i].is_valid)) {
+            return Status::DataQualityError(fmt::format("invalid json path: {}", jsonpath[i].key));
+        }
+
+        const std::string& col = jsonpath[i].key;
+        int index = jsonpath[i].idx;
+
+        // Since the simdjson::ondemand::object cannot be converted to simdjson::ondemand::value,
+        // we have to do some special treatment for the second elem of json path.
+        // If the key is not found in json object, simdjson::NO_SUCH_FIELD would be returned.
+        if (i == 1) {
+            HANDLE_SIMDJSON_ERROR(obj.find_field_unordered(col).get(tvalue),
+                                  fmt::format("unable to find field: {}", col));
+        } else {
+            HANDLE_SIMDJSON_ERROR(tvalue.find_field_unordered(col).get(tvalue),
+                                  fmt::format("unable to find field: {}", col));
+        }
+
+        // TODO support [*] which idex == -2
+        if (index != -1) {
+            // try to access tvalue as array.
+            // If the index is beyond the length of array, simdjson::INDEX_OUT_OF_BOUNDS would be returned.
+            simdjson::ondemand::array arr;
+            HANDLE_SIMDJSON_ERROR(tvalue.get_array().get(arr),
+                                  fmt::format("failed to access field as array, field: {}", col));
+
+            HANDLE_SIMDJSON_ERROR(
+                    arr.at(index).get(tvalue),
+                    fmt::format("failed to access array field: {}, index: {}", col, index));
+        }
+    }
+
+    std::swap(*value, tvalue);
+
+    return Status::OK();
 }
 
 } // namespace doris

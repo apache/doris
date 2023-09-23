@@ -17,10 +17,13 @@
 
 #pragma once
 
-#include <gutil/macros.h>
+#include <butil/macros.h>
 
 #include <string>
 #include <vector>
+
+#include "gen_cpp/Types_types.h"
+#include "util/network_util.h"
 
 namespace doris {
 
@@ -29,14 +32,24 @@ class CIDR;
 class BackendOptions {
 public:
     static bool init();
-    static std::string get_localhost();
+    static const std::string& get_localhost();
+    static TBackend get_local_backend();
+    static void set_localhost(const std::string& host);
+    static bool is_bind_ipv6();
+    static const char* get_service_bind_address();
+    static const char* get_service_bind_address_without_bracket();
+    static bool analyze_priority_cidrs(const std::string& priority_networks,
+                                       std::vector<CIDR>* cidrs);
+    static bool analyze_localhost(std::string& localhost, bool& bind_ipv6, std::vector<CIDR>* cidrs,
+                                  std::vector<InetAddress>* hosts);
 
 private:
-    static bool analyze_priority_cidrs();
     static bool is_in_prior_network(const std::string& ip);
 
     static std::string _s_localhost;
+    static TBackend _backend;
     static std::vector<CIDR> _s_priority_cidrs;
+    static bool _bind_ipv6;
 
     DISALLOW_COPY_AND_ASSIGN(BackendOptions);
 };

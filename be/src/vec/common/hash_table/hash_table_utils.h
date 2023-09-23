@@ -18,8 +18,11 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Common/HashTable/HashTable.h
 // and modified by Doris
 
+#pragma once
+
 template <typename T>
 struct HashTableTraits {
     static constexpr bool is_phmap = false;
-    static constexpr bool is_parallel_phmap = false;
+    static constexpr bool is_string_hash_table = false;
+    static constexpr bool is_partitioned_table = false;
 };

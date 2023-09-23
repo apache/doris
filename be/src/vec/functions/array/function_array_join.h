@@ -106,9 +106,10 @@ private:
     }
 
     static void _fill_result_string(const std::string& input_str, const std::string& sep_str,
-                                    std::string& result_str) {
-        if (result_str.size() == 0) {
+                                    std::string& result_str, bool& is_first_elem) {
+        if (is_first_elem) {
             result_str.append(input_str);
+            is_first_elem = false;
         } else {
             result_str.append(sep_str);
             result_str.append(input_str);
@@ -117,7 +118,8 @@ private:
     }
 
     template <typename ColumnType>
-    static bool _execute_number(const IColumn& src_column, const ColumnArray::Offsets& src_offsets,
+    static bool _execute_number(const IColumn& src_column,
+                                const ColumnArray::Offsets64& src_offsets,
                                 const UInt8* src_null_map, const std::string& sep_str,
                                 const std::string& null_replace_str, DataTypePtr& nested_type,
                                 ColumnString* dest_column_ptr) {
@@ -129,15 +131,16 @@ private:
             return false;
         }
 
-        ColumnArray::Offset prev_src_offset = 0;
+        size_t prev_src_offset = 0;
         for (auto curr_src_offset : src_offsets) {
             std::string result_str;
-            for (ColumnArray::Offset j = prev_src_offset; j < curr_src_offset; ++j) {
+            bool is_first_elem = true;
+            for (size_t j = prev_src_offset; j < curr_src_offset; ++j) {
                 if (src_null_map && src_null_map[j]) {
                     if (null_replace_str.size() == 0) {
                         continue;
                     } else {
-                        _fill_result_string(null_replace_str, sep_str, result_str);
+                        _fill_result_string(null_replace_str, sep_str, result_str, is_first_elem);
                         continue;
                     }
                 }
@@ -146,10 +149,10 @@ private:
                     DecimalV2Value decimal_value =
                             (DecimalV2Value)(src_data_concrete->get_data()[j]);
                     std::string decimal_str = decimal_value.to_string();
-                    _fill_result_string(decimal_str, sep_str, result_str);
+                    _fill_result_string(decimal_str, sep_str, result_str, is_first_elem);
                 } else {
                     std::string elem_str = remove_nullable(nested_type)->to_string(src_column, j);
-                    _fill_result_string(elem_str, sep_str, result_str);
+                    _fill_result_string(elem_str, sep_str, result_str, is_first_elem);
                 }
             }
 
@@ -160,7 +163,8 @@ private:
         return true;
     }
 
-    static bool _execute_string(const IColumn& src_column, const ColumnArray::Offsets& src_offsets,
+    static bool _execute_string(const IColumn& src_column,
+                                const ColumnArray::Offsets64& src_offsets,
                                 const UInt8* src_null_map, const std::string& sep_str,
                                 const std::string& null_replace_str,
                                 ColumnString* dest_column_ptr) {
@@ -169,22 +173,23 @@ private:
             return false;
         }
 
-        ColumnArray::Offset prev_src_offset = 0;
+        size_t prev_src_offset = 0;
         for (auto curr_src_offset : src_offsets) {
             std::string result_str;
-            for (ColumnArray::Offset j = prev_src_offset; j < curr_src_offset; ++j) {
+            bool is_first_elem = true;
+            for (size_t j = prev_src_offset; j < curr_src_offset; ++j) {
                 if (src_null_map && src_null_map[j]) {
                     if (null_replace_str.size() == 0) {
                         continue;
                     } else {
-                        _fill_result_string(null_replace_str, sep_str, result_str);
+                        _fill_result_string(null_replace_str, sep_str, result_str, is_first_elem);
                         continue;
                     }
                 }
 
                 StringRef src_str_ref = src_data_concrete->get_data_at(j);
                 std::string elem_str(src_str_ref.data, src_str_ref.size);
-                _fill_result_string(elem_str, sep_str, result_str);
+                _fill_result_string(elem_str, sep_str, result_str, is_first_elem);
             }
 
             dest_column_ptr->insert_data(result_str.c_str(), result_str.size());
@@ -193,7 +198,8 @@ private:
         return true;
     }
 
-    static bool _execute_by_type(const IColumn& src_column, const ColumnArray::Offsets& src_offsets,
+    static bool _execute_by_type(const IColumn& src_column,
+                                 const ColumnArray::Offsets64& src_offsets,
                                  const UInt8* src_null_map, const std::string& sep_str,
                                  const std::string& null_replace_str, DataTypePtr& nested_type,
                                  ColumnString* dest_column_ptr) {
@@ -229,6 +235,22 @@ private:
         } else if (which.is_date_time()) {
             res = _execute_number<ColumnDateTime>(src_column, src_offsets, src_null_map, sep_str,
                                                   null_replace_str, nested_type, dest_column_ptr);
+        } else if (which.is_date_v2()) {
+            res = _execute_number<ColumnDateV2>(src_column, src_offsets, src_null_map, sep_str,
+                                                null_replace_str, nested_type, dest_column_ptr);
+        } else if (which.is_date_time_v2()) {
+            res = _execute_number<ColumnDateTimeV2>(src_column, src_offsets, src_null_map, sep_str,
+                                                    null_replace_str, nested_type, dest_column_ptr);
+        } else if (which.is_decimal32()) {
+            res = _execute_number<ColumnDecimal32>(src_column, src_offsets, src_null_map, sep_str,
+                                                   null_replace_str, nested_type, dest_column_ptr);
+        } else if (which.is_decimal64()) {
+            res = _execute_number<ColumnDecimal64>(src_column, src_offsets, src_null_map, sep_str,
+                                                   null_replace_str, nested_type, dest_column_ptr);
+        } else if (which.is_decimal128i()) {
+            res = _execute_number<ColumnDecimal128I>(src_column, src_offsets, src_null_map, sep_str,
+                                                     null_replace_str, nested_type,
+                                                     dest_column_ptr);
         } else if (which.is_decimal128()) {
             res = _execute_number<ColumnDecimal128>(src_column, src_offsets, src_null_map, sep_str,
                                                     null_replace_str, nested_type, dest_column_ptr);

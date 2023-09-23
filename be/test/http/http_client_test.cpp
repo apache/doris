@@ -17,14 +17,19 @@
 
 #include "http/http_client.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <unistd.h>
 
-#include "boost/algorithm/string.hpp"
-#include "common/logging.h"
+#include <boost/algorithm/string/predicate.hpp>
+
+#include "gtest/gtest_pred_impl.h"
 #include "http/ev_http_server.h"
 #include "http/http_channel.h"
 #include "http/http_handler.h"
+#include "http/http_headers.h"
 #include "http/http_request.h"
+#include "http/utils.h"
 
 namespace doris {
 
@@ -68,11 +73,20 @@ public:
     }
 };
 
-static HttpClientTestSimpleGetHandler s_simple_get_handler = HttpClientTestSimpleGetHandler();
-static HttpClientTestSimplePostHandler s_simple_post_handler = HttpClientTestSimplePostHandler();
+class HttpNotFoundHandler : public HttpHandler {
+public:
+    void handle(HttpRequest* req) override {
+        HttpChannel::send_reply(req, HttpStatus::NOT_FOUND, "file not exist.");
+    }
+};
+
 static EvHttpServer* s_server = nullptr;
 static int real_port = 0;
 static std::string hostname = "";
+
+static HttpClientTestSimpleGetHandler s_simple_get_handler;
+static HttpClientTestSimplePostHandler s_simple_post_handler;
+static HttpNotFoundHandler s_not_found_handler;
 
 class HttpClientTest : public testing::Test {
 public:
@@ -84,6 +98,7 @@ public:
         s_server->register_handler(GET, "/simple_get", &s_simple_get_handler);
         s_server->register_handler(HEAD, "/simple_get", &s_simple_get_handler);
         s_server->register_handler(POST, "/simple_post", &s_simple_post_handler);
+        s_server->register_handler(GET, "/not_found", &s_not_found_handler);
         s_server->start();
         real_port = s_server->get_real_port();
         EXPECT_NE(0, real_port);
@@ -138,10 +153,9 @@ TEST_F(HttpClientTest, get_failed) {
     auto st = client.init(hostname + "/simple_get");
     EXPECT_TRUE(st.ok());
     client.set_method(GET);
-    client.set_basic_auth("test1", "");
     std::string response;
     st = client.execute(&response);
-    EXPECT_FALSE(!st.ok());
+    EXPECT_FALSE(st.ok());
 }
 
 TEST_F(HttpClientTest, post_normal) {
@@ -169,7 +183,24 @@ TEST_F(HttpClientTest, post_failed) {
     st = client.execute_post_request(request_body, &response);
     EXPECT_FALSE(st.ok());
     std::string not_found = "404";
-    EXPECT_TRUE(boost::algorithm::contains(st.get_error_msg(), not_found));
+    EXPECT_TRUE(boost::algorithm::contains(st.to_string(), not_found));
+}
+
+TEST_F(HttpClientTest, not_found) {
+    HttpClient client;
+    std::string url = hostname + "/not_found";
+    constexpr uint64_t kMaxTimeoutMs = 1000;
+
+    auto get_cb = [&url](HttpClient* client) {
+        std::string resp;
+        RETURN_IF_ERROR(client->init(url));
+        client->set_timeout_ms(kMaxTimeoutMs);
+        return client->execute(&resp);
+    };
+
+    auto status = HttpClient::execute_with_retry(3, 1, get_cb);
+    // libcurl is configured by CURLOPT_FAILONERROR
+    EXPECT_FALSE(status.ok());
 }
 
 } // namespace doris

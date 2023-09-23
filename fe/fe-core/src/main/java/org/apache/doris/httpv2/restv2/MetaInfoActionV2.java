@@ -23,7 +23,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
@@ -91,16 +90,11 @@ public class MetaInfoActionV2 extends RestBaseController {
         }
 
         // 1. get all database with privilege
-        List<String> dbNames = null;
-        try {
-            dbNames = Env.getCurrentInternalCatalog().getClusterDbNames(ns);
-        } catch (AnalysisException e) {
-            return ResponseEntityBuilder.okWithCommonError("namespace does not exist: " + ns);
-        }
+        List<String> dbNames = Env.getCurrentInternalCatalog().getDbNames();
         List<String> dbNameSet = Lists.newArrayList();
         for (String fullName : dbNames) {
             final String db = ClusterNamespace.getNameFromFullName(fullName);
-            if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(), fullName,
+            if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), fullName,
                     PrivPredicate.SHOW)) {
                 continue;
             }
@@ -149,8 +143,8 @@ public class MetaInfoActionV2 extends RestBaseController {
         db.readLock();
         try {
             for (Table tbl : db.getTables()) {
-                if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), fullDbName, tbl.getName(),
-                        PrivPredicate.SHOW)) {
+                if (!Env.getCurrentEnv().getAccessManager()
+                        .checkTblPriv(ConnectContext.get(), fullDbName, tbl.getName(), PrivPredicate.SHOW)) {
                     continue;
                 }
                 tblNames.add(tbl.getName());

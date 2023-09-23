@@ -26,6 +26,7 @@ import org.apache.doris.rewrite.ExprRewriter;
 import com.google.common.base.Predicates;
 import com.google.common.collect.Lists;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -36,6 +37,7 @@ public class SelectList {
     private static final String SET_VAR_KEY = "set_var";
 
     private boolean isDistinct;
+    private boolean isExcept;
     private Map<String, String> optHints;
     private List<OrderByElement> orderByElements;
 
@@ -53,15 +55,26 @@ public class SelectList {
             items.add(item.clone());
         }
         isDistinct = other.isDistinct;
+        isExcept = other.isExcept;
+    }
+
+    public List<Expr> getExprs() {
+        List<Expr> exprs = new ArrayList<Expr>();
+        for (SelectListItem item : items) {
+            exprs.add(item.getExpr());
+        }
+        return exprs;
     }
 
     public SelectList() {
         items = Lists.newArrayList();
         this.isDistinct = false;
+        this.isExcept = false;
     }
 
     public SelectList(List<SelectListItem> items, boolean isDistinct) {
         this.isDistinct = isDistinct;
+        this.isExcept = false;
         this.items = items;
     }
 
@@ -79,6 +92,14 @@ public class SelectList {
 
     public void setIsDistinct(boolean value) {
         isDistinct = value;
+    }
+
+    public boolean isExcept() {
+        return isExcept;
+    }
+
+    public void setIsExcept(boolean except) {
+        isExcept = except;
     }
 
     public Map<String, String> getOptHints() {

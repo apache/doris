@@ -18,7 +18,7 @@
 name: Doris enhancement
 description: Add an enhanment for Apache Doris
 title: "[Enhancement] "
-labels: [ "kind/enhancement" ]
+labels: ["kind/enhancement"]
 body:
   - type: markdown
     attributes:
@@ -31,11 +31,11 @@ body:
     attributes:
       label: Search before asking
       description: >
-        Please make sure to search in the [issues](https://github.com/apache/incubator-doris/issues?q=is%3Aissue) first to see
+        Please make sure to search in the [issues](https://github.com/apache/doris/issues?q=is%3Aissue) first to see
         whether the same issue was reported already.
       options:
         - label: >
-            I had searched in the [issues](https://github.com/apache/incubator-doris/issues?q=is%3Aissue) and found no similar
+            I had searched in the [issues](https://github.com/apache/doris/issues?q=is%3Aissue) and found no similar
             issues.
           required: true
 
@@ -49,7 +49,7 @@ body:
       label: Solution
       placeholder: >
         Add overview of proposed solution. 
-        
+
         Add related materials like links if they exist.
 
   - type: checkboxes

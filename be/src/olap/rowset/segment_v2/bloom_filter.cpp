@@ -15,20 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <cstdint>
-#include <functional>
+#include "olap/rowset/segment_v2/bloom_filter.h"
 
-#include "gen_cpp/segment_v2.pb.h"
-#include "gutil/strings/substitute.h"
+#include <gen_cpp/segment_v2.pb.h>
+#include <math.h>
+
+#include <cstdint>
+#include <memory>
+
+#include "common/status.h"
 #include "olap/rowset/segment_v2/block_split_bloom_filter.h"
-#include "olap/utils.h"
+#include "olap/rowset/segment_v2/ngram_bloom_filter.h"
 
 namespace doris {
 namespace segment_v2 {
 
-Status BloomFilter::create(BloomFilterAlgorithmPB algorithm, std::unique_ptr<BloomFilter>* bf) {
+Status BloomFilter::create(BloomFilterAlgorithmPB algorithm, std::unique_ptr<BloomFilter>* bf,
+                           size_t bf_size) {
     if (algorithm == BLOCK_BLOOM_FILTER) {
         bf->reset(new BlockSplitBloomFilter());
+    } else if (algorithm == NGRAM_BLOOM_FILTER) {
+        bf->reset(new NGramBloomFilter(bf_size));
     } else {
         return Status::InternalError("invalid bloom filter algorithm:{}", algorithm);
     }
@@ -48,7 +55,7 @@ uint32_t BloomFilter::optimal_bit_num(uint64_t n, double fpp) {
     // ref parquet bloom_filter branch(BlockSplitBloomFilter.java)
     uint32_t num_bits = -8 * (double)n / log(1 - pow(fpp, 1.0 / 8));
     uint32_t max_bits = MAXIMUM_BYTES << 3;
-    if (num_bits > max_bits || num_bits < 0) {
+    if (num_bits > max_bits) {
         num_bits = max_bits;
     }
 

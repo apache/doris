@@ -1,6 +1,6 @@
 ---
 {
-    "title": "lower",
+    "title": "LOWER",
     "language": "zh-CN"
 }
 ---
@@ -28,10 +28,10 @@ under the License.
 ### description
 #### Syntax
 
-`INT lower(VARCHAR str)`
+`VARCHAR lower(VARCHAR str)`
 
 
-将参数中所有的字符串都转换成小写
+将参数中所有的字符串都转换成小写，该函数的另一个别名为[lcase](./lcase.md)。
 
 ### example
 
@@ -44,4 +44,4 @@ mysql> SELECT lower("AbC123");
 +-----------------+
 ```
 ### keywords
-LOWER
+    LOWER

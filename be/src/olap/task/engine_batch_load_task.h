@@ -18,29 +18,27 @@
 #ifndef DORIS_BE_SRC_OLAP_TASK_ENGINE_BATCH_LOAD_TASK_H
 #define DORIS_BE_SRC_OLAP_TASK_ENGINE_BATCH_LOAD_TASK_H
 
-#include <utility>
+#include <stdint.h>
+
+#include <memory>
+#include <string>
 #include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/AgentService_types.h"
-#include "gen_cpp/MasterService_types.h"
-#include "olap/olap_common.h"
-#include "olap/olap_define.h"
 #include "olap/task/engine_task.h"
 
-using namespace std;
-
 namespace doris {
+class MemTrackerLimiter;
+class TPushReq;
+class TTabletInfo;
 
 const uint32_t PUSH_MAX_RETRY = 1;
 const uint32_t MAX_RETRY = 3;
 const uint32_t DEFAULT_DOWNLOAD_TIMEOUT = 3600;
-class StorageEngine;
 
 class EngineBatchLoadTask : public EngineTask {
 public:
-    EngineBatchLoadTask(TPushReq& push_req, std::vector<TTabletInfo>* tablet_infos,
-                        int64_t signature, Status* res_status);
+    EngineBatchLoadTask(TPushReq& push_req, std::vector<TTabletInfo>* tablet_infos);
     virtual ~EngineBatchLoadTask();
 
     virtual Status execute();
@@ -61,7 +59,7 @@ private:
     // @param [in] request specify tablet and delete conditions
     // @param [out] tablet_info_vec return tablet last status, which
     //              include version info, row count, data size, etc
-    // @return OLAP_SUCCESS if submit delete_data success
+    // @return OK if submit delete_data success
     virtual Status _delete_data(const TPushReq& request, vector<TTabletInfo>* tablet_info_vec);
 
     Status _get_tmp_file_dir(const std::string& root_path, std::string* local_path);
@@ -71,9 +69,6 @@ private:
     bool _is_init = false;
     TPushReq& _push_req;
     std::vector<TTabletInfo>* _tablet_infos;
-    int64_t _signature;
-    Status _download_status;
-    Status* _res_status;
     std::string _remote_file_path;
     std::string _local_file_path;
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;

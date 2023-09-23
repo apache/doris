@@ -32,7 +32,7 @@ SHOW VARIABLES
 
 ### Description
 
-改语句是用来显示Doris系统变量，可以通过条件查询
+该语句是用来显示Doris系统变量，可以通过条件查询
 
 语法：
 

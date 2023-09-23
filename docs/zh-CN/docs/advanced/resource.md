@@ -73,7 +73,7 @@ under the License.
 
 `spark.hadoop.fs.defaultFS`: master为yarn时必填。
 
-其他参数为可选，参考http://spark.apache.org/docs/latest/configuration.html。
+其他参数为可选，参考http://spark.apache.org/docs/latest/configuration.html
 
 ##### 如果Spark用于ETL，还需要指定以下参数：
 
@@ -127,7 +127,6 @@ PROPERTIES
 
 `driver`: 标示外部表使用的driver动态库，引用该resource的ODBC外表必填，旧的mysql外表选填。
 
-具体如何使用可以，可以参考[ODBC of Doris](../ecosystem/external-table/odbc-of-doris.md)
 
 #### 示例
 

@@ -23,22 +23,21 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 
 import com.google.common.base.Joiner;
-import com.google.common.collect.Sets;
 
+import java.util.EnumSet;
 import java.util.List;
-import java.util.Set;
 
 /*
  * AlterOperations contains a set alter operations generated from a AlterStmt's alter clause.
  * This class is mainly used to integrate these operation types and check whether they have conflicts.
  */
 public class AlterOperations {
-    private Set<AlterOpType> currentOps = Sets.newHashSet();
+    private EnumSet<AlterOpType> currentOps = EnumSet.noneOf(AlterOpType.class);
 
     public AlterOperations() {
     }
 
-    public Set<AlterOpType> getCurrentOps() {
+    public EnumSet<AlterOpType> getCurrentOps() {
         return currentOps;
     }
 
@@ -77,6 +76,27 @@ public class AlterOperations {
         return alterClauses.stream().filter(clause ->
             clause instanceof ModifyTablePropertiesClause
         ).map(c -> ((ModifyTablePropertiesClause) c).getStoragePolicy()).findFirst().orElse("");
+    }
+
+    public boolean checkIsBeingSynced(List<AlterClause> alterClauses) {
+        return alterClauses.stream().filter(clause ->
+            clause instanceof ModifyTablePropertiesClause
+        ).anyMatch(clause -> clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED));
+    }
+
+    public boolean checkBinlogConfigChange(List<AlterClause> alterClauses) {
+        return alterClauses.stream().filter(clause ->
+            clause instanceof ModifyTablePropertiesClause
+        ).anyMatch(clause -> clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE)
+            || clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS)
+            || clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES)
+            || clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS));
+    }
+
+    public boolean isBeingSynced(List<AlterClause> alterClauses) {
+        return alterClauses.stream().filter(clause ->
+            clause instanceof ModifyTablePropertiesClause
+        ).map(c -> ((ModifyTablePropertiesClause) c).isBeingSynced()).findFirst().orElse(false);
     }
 
     // MODIFY_TABLE_PROPERTY is also processed by SchemaChangeHandler

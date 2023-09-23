@@ -32,6 +32,18 @@ PID_DIR="$(
 )"
 export PID_DIR
 
+while read -r line; do
+    envline="$(echo "${line}" |
+        sed 's/[[:blank:]]*=[[:blank:]]*/=/g' |
+        sed 's/^[[:blank:]]*//g' |
+        grep -E "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*=" ||
+        true)"
+    envline="$(eval "echo ${envline}")"
+    if [[ "${envline}" == *"="* ]]; then
+        eval 'export "${envline}"'
+    fi
+done <"${DORIS_HOME}/conf/fe.conf"
+
 signum=9
 if [[ "$1" = "--grace" ]]; then
     signum=15
@@ -54,7 +66,7 @@ if [[ -f "${pidfile}" ]]; then
         exit 1
     fi
 
-    pidcomm="$(ps -p "${pid}" -o comm=)"
+    pidcomm="$(basename "$(ps -p "${pid}" -o comm=)")"
     # check if pid process is frontend process
     if [[ "java" != "${pidcomm}" ]]; then
         echo "ERROR: pid process may not be fe. "

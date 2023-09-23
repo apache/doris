@@ -17,15 +17,30 @@
 
 #include "runtime/user_function_cache.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
-#include <cstdio>
-#include <cstdlib>
+#include <string>
 
-#include "common/logging.h"
-#include "http/ev_http_server.h"
-#include "http/http_channel.h"
-#include "http/http_handler.h"
-#include "http/http_request.h"
-#include "util/file_utils.h"
-#include "util/md5.h"
+#include "gtest/gtest.h"
+
+namespace doris {
+
+class UserFunctionCacheTest : public ::testing::Test {
+protected:
+    UserFunctionCache ufc;
+};
+
+TEST_F(UserFunctionCacheTest, SplitStringByChecksumTest) {
+    // Test valid string format
+    std::string valid_str =
+            "7119053928154065546.20c8228267b6c9ce620fddb39467d3eb.postgresql-42.5.0.jar";
+    auto result = ufc._split_string_by_checksum(valid_str);
+    ASSERT_EQ(result.size(), 4);
+    EXPECT_EQ(result[0], "7119053928154065546");
+    EXPECT_EQ(result[1], "20c8228267b6c9ce620fddb39467d3eb");
+    EXPECT_EQ(result[2], "postgresql-42.5.0");
+    EXPECT_EQ(result[3], "jar");
+}
+
+} // namespace doris

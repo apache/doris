@@ -28,6 +28,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.rewrite.ExprRewriter;
+import org.apache.doris.thrift.TNullSide;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -73,6 +74,11 @@ public class InlineViewRef extends TableRef {
 
     // Map inline view's output slots to the corresponding baseTblResultExpr of queryStmt.
     protected final ExprSubstitutionMap baseTblSmap;
+
+    // When parsing a ddl of hive view, it does not contains any catalog info,
+    // so we need to record it in Analyzer
+    // otherwise some error will occurs when resolving TableRef later.
+    protected String externalCtl;
 
     // END: Members that need to be reset()
     // ///////////////////////////////////////
@@ -186,6 +192,9 @@ public class InlineViewRef extends TableRef {
         // Analyze the inline view query statement with its own analyzer
         inlineViewAnalyzer = new Analyzer(analyzer);
         inlineViewAnalyzer.setInlineView(true);
+        if (hasExplicitAlias) {
+            inlineViewAnalyzer.setExplicitViewAlias(aliases[0]);
+        }
         queryStmt.analyze(inlineViewAnalyzer);
         correlatedTupleIds.addAll(queryStmt.getCorrelatedTupleIds(inlineViewAnalyzer));
 
@@ -217,18 +226,31 @@ public class InlineViewRef extends TableRef {
         // would alter the results of the analytic functions (see IMPALA-1243)
         // TODO: relax this a bit by allowing propagation out of the inline view (but
         // not into it)
+        List<SlotDescriptor> slots = analyzer.changeSlotToNullableOfOuterJoinedTuples();
         for (int i = 0; i < getColLabels().size(); ++i) {
             String colName = getColLabels().get(i);
             SlotDescriptor slotDesc = analyzer.registerColumnRef(getAliasAsName(), colName);
             Expr colExpr = queryStmt.getResultExprs().get(i);
-            slotDesc.setSourceExpr(colExpr);
+            if (queryStmt instanceof SelectStmt && ((SelectStmt) queryStmt).getValueList() != null) {
+                ValueList valueList = ((SelectStmt) queryStmt).getValueList();
+                for (int j = 0; j < valueList.getRows().size(); ++j) {
+                    slotDesc.addSourceExpr(valueList.getRows().get(j).get(i));
+                }
+            } else {
+                slotDesc.setSourceExpr(colExpr);
+            }
+            slotDesc.setIsNullable(slotDesc.getIsNullable() || colExpr.isNullable());
             SlotRef slotRef = new SlotRef(slotDesc);
-            sMap.put(slotRef, colExpr);
-            baseTblSmap.put(slotRef, queryStmt.getBaseTblResultExprs().get(i));
+            // to solve select * from (values(1, 2, 3), (4, 5, 6)) a returns only one row.
+            if (slotDesc.getSourceExprs().size() == 1) {
+                sMap.put(slotRef, colExpr);
+                baseTblSmap.put(slotRef, queryStmt.getBaseTblResultExprs().get(i));
+            }
             if (createAuxPredicate(colExpr)) {
                 analyzer.createAuxEquivPredicate(new SlotRef(slotDesc), colExpr.clone());
             }
         }
+        analyzer.changeSlotsToNotNullable(slots);
         if (LOG.isDebugEnabled()) {
             LOG.debug("inline view " + getUniqueAlias() + " smap: " + sMap.debugString());
             LOG.debug("inline view " + getUniqueAlias() + " baseTblSmap: " + baseTblSmap.debugString());
@@ -364,7 +386,11 @@ public class InlineViewRef extends TableRef {
             if (!requiresNullWrapping(analyzer, smap.getRhs().get(i), nullSMap)) {
                 continue;
             }
-            params.add(new TupleIsNullPredicate(materializedTupleIds));
+            if (analyzer.isOuterJoinedLeftSide(materializedTupleIds.get(0))) {
+                params.add(new TupleIsNullPredicate(materializedTupleIds, TNullSide.LEFT));
+            } else {
+                params.add(new TupleIsNullPredicate(materializedTupleIds, TNullSide.RIGHT));
+            }
             params.add(NullLiteral.create(smap.getRhs().get(i).getType()));
             params.add(smap.getRhs().get(i));
             Expr ifExpr = new FunctionCallExpr("if", params);
@@ -435,6 +461,14 @@ public class InlineViewRef extends TableRef {
 
     public QueryStmt getQueryStmt() {
         return queryStmt;
+    }
+
+    public void setExternalCtl(String externalCtl) {
+        this.externalCtl = externalCtl;
+    }
+
+    public String getExternalCtl() {
+        return this.externalCtl;
     }
 
     @Override

@@ -47,19 +47,19 @@ FE 节点的扩容和缩容过程，不影响当前系统运行。
 
 ### 增加 FE 节点
 
-FE 分为 Leader，Follower 和 Observer 三种角色。 默认一个集群，只能有一个 Leader，可以有多个 Follower 和 Observer。其中 Leader 和 Follower 组成一个 Paxos 选择组，如果 Leader 宕机，则剩下的 Follower 会自动选出新的 Leader，保证写入高可用。Observer 同步 Leader 的数据，但是不参加选举。如果只部署一个 FE，则 FE 默认就是 Leader。
+FE 分为 Follower 和 Observer 两种角色，其中 Follower 角色会选举出一个 Follower 节点作为 Master。 默认一个集群，只能有一个 Master 状态的 Follower 角色，可以有多个 Follower 和 Observer，同时需保证 Follower 角色为奇数个。其中所有 Follower 角色组成一个选举组，如果 Master 状态的 Follower 宕机，则剩下的 Follower 会自动选出新的 Master，保证写入高可用。Observer 同步 Master 的数据，但是不参加选举。如果只部署一个 FE，则 FE 默认就是 Master。
 
-第一个启动的 FE 自动成为 Leader。在此基础上，可以添加若干 Follower 和 Observer。
+第一个启动的 FE 自动成为 Master。在此基础上，可以添加若干 Follower 和 Observer。
 
 #### 配置及启动 Follower 或 Observer
 
-这里 Follower 和 Observer 的配置同 Leader 的配置。
+这里 Follower 和 Observer 的配置同 Master 的配置。
 
 首先第一次启动时，需执行以下命令：
 
 `./bin/start_fe.sh --helper leader_fe_host:edit_log_port --daemon`
 
-其中 leader\_fe\_host 为 Leader 所在节点 ip, edit\_log\_port 在 Leader 的配置文件 fe.conf 中。--helper 参数仅在 follower 和 observer 第一次启动时才需要。
+其中 leader\_fe\_host 为 Master 所在节点 ip, edit\_log\_port 在 Master 的配置文件 fe.conf 中。--helper 参数仅在 follower 和 observer 第一次启动时才需要。
 
 #### 将 Follower 或 Observer 加入到集群
 
@@ -76,8 +76,8 @@ FE 分为 Leader，Follower 和 Observer 三种角色。 默认一个集群，�
 查看 Follower 或 Observer 运行状态。使用 mysql-client 连接到任一已启动的 FE，并执行：SHOW PROC '/frontends'; 可以查看当前已加入集群的 FE 及其对应角色。
 
 > FE 扩容注意事项：
-> 1. Follower FE（包括 Leader）的数量必须为奇数，建议最多部署 3 个组成高可用（HA）模式即可。
-> 2. 当 FE 处于高可用部署时（1个 Leader，2个 Follower），我们建议通过增加 Observer FE 来扩展 FE 的读服务能力。当然也可以继续增加 Follower FE，但几乎是不必要的。
+> 1. Follower FE（包括 Master）的数量必须为奇数，建议最多部署 3 个组成高可用（HA）模式即可。
+> 2. 当 FE 处于高可用部署时（1个 Master，2个 Follower），我们建议通过增加 Observer FE 来扩展 FE 的读服务能力。当然也可以继续增加 Follower FE，但几乎是不必要的。
 > 3. 通常一个 FE 节点可以应对 10-20 台 BE 节点。建议总的 FE 节点数量在 10 个以下。而通常 3 个即可满足绝大部分需求。
 > 4. helper 不能指向 FE 自身，必须指向一个或多个已存在并且正常运行中的 Master/Follower FE。
 
@@ -88,11 +88,11 @@ FE 分为 Leader，Follower 和 Observer 三种角色。 默认一个集群，�
 ```ALTER SYSTEM DROP FOLLOWER[OBSERVER] "fe_host:edit_log_port";```
 
 > FE 缩容注意事项：
-> 1. 删除 Follower FE 时，确保最终剩余的 Follower（包括 Leader）节点为奇数。
+> 1. 删除 Follower FE 时，确保最终剩余的 Follower（包括 Master）节点为奇数。
 
 ## BE 扩容和缩容
 
-用户可以通过 mysql-client 登陆 Leader FE。通过:
+用户可以通过 mysql-client 登陆 Master FE。通过:
 
 ```SHOW PROC '/backends';```
 
@@ -102,7 +102,7 @@ FE 分为 Leader，Follower 和 Observer 三种角色。 默认一个集群，�
 
 以上方式，都需要 Doris 的 root 用户权限。
 
-BE 节点的扩容和缩容过程，不影响当前系统运行以及正在执行的任务，并且不会影响当前系统的性能。数据均衡会自动进行。根据集群现有数据量的大小，集群会在几个小时到1天不等的时间内，恢复到负载均衡的状态。集群负载情况，可以参见 [Tablet 负载均衡文档](../maint-monitor/tablet-repair-and-balance.html#%E5%89%AF%E6%9C%AC%E5%9D%87%E8%A1%A1)。
+BE 节点的扩容和缩容过程，不影响当前系统运行以及正在执行的任务，并且不会影响当前系统的性能。数据均衡会自动进行。根据集群现有数据量的大小，集群会在几个小时到1天不等的时间内，恢复到负载均衡的状态。集群负载情况，可以参见 [Tablet 负载均衡文档](../maint-monitor/tablet-repair-and-balance.md)。
 
 ### 增加 BE 节点
 

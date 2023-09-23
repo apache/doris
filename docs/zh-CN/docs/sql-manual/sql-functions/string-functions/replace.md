@@ -1,6 +1,6 @@
 ---
 {
-    "title": "replace",
+    "title": "REPLACE",
     "language": "zh-CN"
 }
 ---
@@ -43,4 +43,4 @@ mysql> select replace("http://www.baidu.com:9090", "9090", "");
 +------------------------------------------------------+
 ```
 ### keywords
-REPLACE
+    REPLACE

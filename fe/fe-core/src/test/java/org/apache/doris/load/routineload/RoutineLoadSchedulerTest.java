@@ -98,7 +98,7 @@ public class RoutineLoadSchedulerTest {
                 database.getTableNullable(1L);
                 minTimes = 0;
                 result = olapTable;
-                systemInfoService.getClusterBackendIds(clusterName, true);
+                systemInfoService.getAllBackendIds(true);
                 minTimes = 0;
                 result = beIds;
                 routineLoadManager.getSizeOfIdToRoutineLoadTask();
@@ -132,7 +132,6 @@ public class RoutineLoadSchedulerTest {
             throws DdlException, InterruptedException {
         new Expectations() {
             {
-                connectContext.toResourceCtx();
                 minTimes = 0;
                 result = tResourceInfo;
             }
@@ -157,7 +156,7 @@ public class RoutineLoadSchedulerTest {
                 catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = database;
-                systemInfoService.getBackendIds(true);
+                systemInfoService.getAllBackendIds(true);
                 minTimes = 0;
                 result = backendIds;
             }

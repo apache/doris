@@ -40,28 +40,28 @@ curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_h
 
 该语句用于向指定的 table 导入数据，与普通Load区别是，这种导入方式是同步导入。
 
-​        这种导入方式仍然能够保证一批导入任务的原子性，要么全部数据导入成功，要么全部失败。
+这种导入方式仍然能够保证一批导入任务的原子性，要么全部数据导入成功，要么全部失败。
 
-​        该操作会同时更新和此 base table 相关的 rollup table 的数据。
+该操作会同时更新和此 base table 相关的 rollup table 的数据。
 
-​        这是一个同步操作，整个数据导入工作完成后返回给用户导入结果。
+这是一个同步操作，整个数据导入工作完成后返回给用户导入结果。
 
-​        当前支持HTTP chunked与非chunked上传两种方式，对于非chunked方式，必须要有Content-Length来标示上传内容长度，这样能够保证数据的完整性。
+当前支持HTTP chunked与非chunked上传两种方式，对于非chunked方式，必须要有Content-Length来标示上传内容长度，这样能够保证数据的完整性。
 
-​        另外，用户最好设置Expect Header字段内容100-continue，这样可以在某些出错场景下避免不必要的数据传输。
+另外，用户最好设置Expect Header字段内容100-continue，这样可以在某些出错场景下避免不必要的数据传输。
 
 参数介绍：
         用户可以通过HTTP的Header部分来传入导入参数
 
 1. label: 一次导入的标签，相同标签的数据无法多次导入。用户可以通过指定Label的方式来避免一份数据重复导入的问题。
    
-     当前Doris内部保留30分钟内最近成功的label。
+    当前Doris内部保留30分钟内最近成功的label。
     
 2. column_separator：用于指定导入文件中的列分隔符，默认为\t。如果是不可见字符，则需要加\x作为前缀，使用十六进制来表示分隔符。
    
-    ​    如hive文件的分隔符\x01，需要指定为-H "column_separator:\x01"。
+    如hive文件的分隔符\x01，需要指定为-H "column_separator:\x01"。
     
-    ​    可以使用多个字符的组合作为列分隔符。
+    可以使用多个字符的组合作为列分隔符。
     
 3. line_delimiter：用于指定导入文件中的换行符，默认为\n。可以使用做多个字符的组合作为换行符。
    
@@ -69,17 +69,17 @@ curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_h
    
     如果源文件与表schema不对应，那么需要这个字段进行一些数据转换。这里有两种形式column，一种是直接对应导入文件中的字段，直接使用字段名表示；
     
-    ​    一种是衍生列，语法为 `column_name` = expression。举几个例子帮助理解。
+    一种是衍生列，语法为 `column_name` = expression。举几个例子帮助理解。
     
-    ​    例1: 表中有3个列“c1, c2, c3”，源文件中的三个列一次对应的是"c3,c2,c1"; 那么需要指定-H "columns: c3, c2, c1"
+    例1: 表中有3个列“c1, c2, c3”，源文件中的三个列一次对应的是"c3,c2,c1"; 那么需要指定-H "columns: c3, c2, c1"
     
-    ​    例2: 表中有3个列“c1, c2, c3", 源文件中前三列依次对应，但是有多余1列；那么需要指定-H "columns: c1, c2, c3, xxx";
+    例2: 表中有3个列“c1, c2, c3", 源文件中前三列依次对应，但是有多余1列；那么需要指定-H "columns: c1, c2, c3, xxx";
     
-    ​    最后一个列随意指定个名称占位即可
+    最后一个列随意指定个名称占位即可
     
-    ​    例3: 表中有3个列“year, month, day"三个列，源文件中只有一个时间列，为”2018-06-01 01:02:03“格式；
+    例3: 表中有3个列“year, month, day"三个列，源文件中只有一个时间列，为”2018-06-01 01:02:03“格式；
     
-    ​    那么可以指定-H "columns: col, year = year(col), month=month(col), day=day(col)"完成导入
+    那么可以指定-H "columns: col, year = year(col), month=month(col), day=day(col)"完成导入
     
 5. where: 用于抽取部分数据。用户如果有需要将不需要的数据过滤掉，那么可以通过设定这个选项来达到。
    
@@ -99,7 +99,7 @@ curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_h
 
 11. exec_mem_limit: 导入内存限制。默认为 2GB。单位为字节。
 
-12. format: 指定导入数据格式，默认是csv，支持json格式。
+12. format: 指定导入数据格式，支持csv、json、<version since="1.2" type="inline"> csv_with_names(支持csv文件行首过滤)、csv_with_names_and_types(支持csv文件前两行过滤)、parquet、orc</version>，默认是csv。
 
 13. jsonpaths: 导入json方式分为：简单模式和匹配模式。
     
@@ -124,179 +124,198 @@ curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_h
 16. merge_type: 数据的合并类型，一共支持三种类型APPEND、DELETE、MERGE 其中，APPEND是默认值，表示这批数据全部需要追加到现有数据中，DELETE 表示删除与这批数据key相同的所有行，MERGE 语义 需要与delete 条件联合使用，表示满足delete 条件的数据按照DELETE 语义处理其余的按照APPEND 语义处理， 示例：`-H "merge_type: MERGE" -H "delete: flag=1"`
 
 17. delete: 仅在 MERGE下有意义， 表示数据的删除条件
-        function_column.sequence_col: 只适用于UNIQUE_KEYS,相同key列下，保证value列按照source_sequence列进行REPLACE, source_sequence可以是数据源中的列，也可以是表结构中的一列。
+
+18. function_column.sequence_col: 只适用于UNIQUE_KEYS,相同key列下，保证value列按照source_sequence列进行REPLACE, source_sequence可以是数据源中的列，也可以是表结构中的一列。
     
-18. fuzzy_parse: 布尔类型，为true表示json将以第一行为schema 进行解析，开启这个选项可以提高json 导入效率，但是要求所有json 对象的key的顺序和第一行一致， 默认为false，仅用于json 格式
+19. fuzzy_parse: 布尔类型，为true表示json将以第一行为schema 进行解析，开启这个选项可以提高 json 导入效率，但是要求所有json 对象的key的顺序和第一行一致， 默认为false，仅用于json 格式
     
-19. num_as_string: 布尔类型，为true表示在解析json数据时会将数字类型转为字符串，然后在确保不会出现精度丢失的情况下进行导入。
+20. num_as_string: 布尔类型，为true表示在解析json数据时会将数字类型转为字符串，然后在确保不会出现精度丢失的情况下进行导入。
     
-20. read_json_by_line: 布尔类型，为true表示支持每行读取一个json对象，默认值为false。
+21. read_json_by_line: 布尔类型，为true表示支持每行读取一个json对象，默认值为false。
     
-21. send_batch_parallelism: 整型，用于设置发送批处理数据的并行度，如果并行度的值超过 BE 配置中的 `max_send_batch_parallelism_per_job`，那么作为协调点的 BE 将使用 `max_send_batch_parallelism_per_job` 的值。
+22. send_batch_parallelism: 整型，用于设置发送批处理数据的并行度，如果并行度的值超过 BE 配置中的 `max_send_batch_parallelism_per_job`，那么作为协调点的 BE 将使用 `max_send_batch_parallelism_per_job` 的值。
 
-22. hidden_columns: 用于指定导入数据中包含的隐藏列，在Header中不包含columns时生效，多个hidden column用逗号分割。
-       ```
-           hidden_columns: __DORIS_DELETE_SIGN__,__DORIS_SEQUENCE_COL__
-           系统会使用用户指定的数据导入数据。在上述用例中，导入数据中最后一列数据为__DORIS_SEQUENCE_COL__。
-       ```
+23. <version since="1.2" type="inline"> hidden_columns: 用于指定导入数据中包含的隐藏列，在Header中不包含columns时生效，多个hidden column用逗号分割。</version>
 
-    RETURN VALUES
-        导入完成后，会以Json格式返回这次导入的相关内容。当前包括以下字段
-        Status: 导入最后的状态。
-            Success：表示导入成功，数据已经可见；
-            Publish Timeout：表述导入作业已经成功Commit，但是由于某种原因并不能立即可见。用户可以视作已经成功不必重试导入
-            Label Already Exists: 表明该Label已经被其他作业占用，可能是导入成功，也可能是正在导入。
-            用户需要通过get label state命令来确定后续的操作
-            其他：此次导入失败，用户可以指定Label重试此次作业
-        Message: 导入状态详细的说明。失败时会返回具体的失败原因。
-        NumberTotalRows: 从数据流中读取到的总行数
-        NumberLoadedRows: 此次导入的数据行数，只有在Success时有效
-        NumberFilteredRows: 此次导入过滤掉的行数，即数据质量不合格的行数
-        NumberUnselectedRows: 此次导入，通过 where 条件被过滤掉的行数
-        LoadBytes: 此次导入的源文件数据量大小
-        LoadTimeMs: 此次导入所用的时间
-        BeginTxnTimeMs: 向Fe请求开始一个事务所花费的时间，单位毫秒。
-        StreamLoadPutTimeMs: 向Fe请求获取导入数据执行计划所花费的时间，单位毫秒。
-        ReadDataTimeMs: 读取数据所花费的时间，单位毫秒。
-        WriteDataTimeMs: 执行写入数据操作所花费的时间，单位毫秒。
-        CommitAndPublishTimeMs: 向Fe请求提交并且发布事务所花费的时间，单位毫秒。
-        ErrorURL: 被过滤数据的具体内容，仅保留前1000条
+      ```
+      hidden_columns: __DORIS_DELETE_SIGN__,__DORIS_SEQUENCE_COL__
+      系统会使用用户指定的数据导入数据。在上述用例中，导入数据中最后一列数据为__DORIS_SEQUENCE_COL__。
+      ```
 
-ERRORS:
-        可以通过以下语句查看导入错误详细信息：
+24. load_to_single_tablet: 布尔类型，为true表示支持一个任务只导入数据到对应分区的一个 tablet，默认值为 false，该参数只允许在对带有 random 分桶的 olap 表导数的时候设置。
 
-       ```sql
-        SHOW LOAD WARNINGS ON 'url
-       ```
+25. compress_type: 指定文件的压缩格式。目前只支持 csv 文件的压缩。支持 gz, lzo, bz2, lz4, lzop, deflate 压缩格式。
 
+26. trim_double_quotes: 布尔类型，默认值为 false，为 true 时表示裁剪掉 csv 文件每个字段最外层的双引号。
 
-​        其中 url 为 ErrorURL 给出的 url。
+27. skip_lines: <version since="dev" type="inline"> 整数类型, 默认值为0, 含义为跳过csv文件的前几行. 当设置format设置为 `csv_with_names` 或、`csv_with_names_and_types` 时, 该参数会失效. </version>
+
+28. comment: <version since="1.2.3" type="inline"> 字符串类型, 默认值为空. 给任务增加额外的信息. </version>
 
 ### Example
 
 1. 将本地文件'testData'中的数据导入到数据库'testDb'中'testTbl'的表，使用Label用于去重。指定超时时间为 100 秒
    
-    ```
-        curl --location-trusted -u root -H "label:123" -H "timeout:100" -T testData http://host:port/api/testDb/testTbl/_stream_load
-    ```
+   ```
+   curl --location-trusted -u root -H "label:123" -H "timeout:100" -T testData http://host:port/api/testDb/testTbl/_stream_load
+   ```
 
 2. 将本地文件'testData'中的数据导入到数据库'testDb'中'testTbl'的表，使用Label用于去重, 并且只导入k1等于20180601的数据
         
-        ```
-        curl --location-trusted -u root -H "label:123" -H "where: k1=20180601" -T testData http://host:port/api/testDb/testTbl/_stream_load
-        ```
+   ```
+   curl --location-trusted -u root -H "label:123" -H "where: k1=20180601" -T testData http://host:port/api/testDb/testTbl/_stream_load
+   ```
     
 3. 将本地文件'testData'中的数据导入到数据库'testDb'中'testTbl'的表, 允许20%的错误率（用户是defalut_cluster中的）
         
-        ```
-        curl --location-trusted -u root -H "label:123" -H "max_filter_ratio:0.2" -T testData http://host:port/api/testDb/testTbl/_stream_load
-        ```
+   ```
+   curl --location-trusted -u root -H "label:123" -H "max_filter_ratio:0.2" -T testData http://host:port/api/testDb/testTbl/_stream_load
+   ```
     
 4. 将本地文件'testData'中的数据导入到数据库'testDb'中'testTbl'的表, 允许20%的错误率，并且指定文件的列名（用户是defalut_cluster中的）
-        
-        ```
-        curl --location-trusted -u root  -H "label:123" -H "max_filter_ratio:0.2" -H "columns: k2, k1, v1" -T testData http://host:port/api/testDb/testTbl/_stream_load
-        ```
+   
+   ```
+   curl --location-trusted -u root  -H "label:123" -H "max_filter_ratio:0.2" -H "columns: k2, k1, v1" -T testData http://host:port/api/testDb/testTbl/_stream_load
+   ```
     
 5. 将本地文件'testData'中的数据导入到数据库'testDb'中'testTbl'的表中的p1, p2分区, 允许20%的错误率。
         
-        ```
-        curl --location-trusted -u root  -H "label:123" -H "max_filter_ratio:0.2" -H "partitions: p1, p2" -T testData http://host:port/api/testDb/testTbl/_stream_load
-        ```
+   ```
+   curl --location-trusted -u root  -H "label:123" -H "max_filter_ratio:0.2" -H "partitions: p1, p2" -T testData http://host:port/api/testDb/testTbl/_stream_load
+   ```
     
 6. 使用streaming方式导入（用户是defalut_cluster中的）
         
-        ```
-        seq 1 10 | awk '{OFS="\t"}{print $1, $1 * 10}' | curl --location-trusted -u root -T - http://host:port/api/testDb/testTbl/_stream_load
-        ```
+   ```
+   seq 1 10 | awk '{OFS="\t"}{print $1, $1 * 10}' | curl --location-trusted -u root -T - http://host:port/api/testDb/testTbl/_stream_load
+   ```
     
 7. 导入含有HLL列的表，可以是表中的列或者数据中的列用于生成HLL列，也可使用hll_empty补充数据中没有的列
         
-        ```
-        curl --location-trusted -u root -H "columns: k1, k2, v1=hll_hash(k1), v2=hll_empty()" -T testData http://host:port/api/testDb/testTbl/_stream_load
-        ```
+   ```
+   curl --location-trusted -u root -H "columns: k1, k2, v1=hll_hash(k1), v2=hll_empty()" -T testData http://host:port/api/testDb/testTbl/_stream_load
+   ```
     
 8. 导入数据进行严格模式过滤，并设置时区为 Africa/Abidjan
         
-        ```
-        curl --location-trusted -u root -H "strict_mode: true" -H "timezone: Africa/Abidjan" -T testData http://host:port/api/testDb/testTbl/_stream_load
-        ```
+    ```
+    curl --location-trusted -u root -H "strict_mode: true" -H "timezone: Africa/Abidjan" -T testData http://host:port/api/testDb/testTbl/_stream_load
+    ```
     
 9. 导入含有BITMAP列的表，可以是表中的列或者数据中的列用于生成BITMAP列，也可以使用bitmap_empty填充空的Bitmap
-       ```
-        curl --location-trusted -u root -H "columns: k1, k2, v1=to_bitmap(k1), v2=bitmap_empty()" -T testData http://host:port/api/testDb/testTbl/_stream_load
-        ```
+
+   ```
+   curl --location-trusted -u root -H "columns: k1, k2, v1=to_bitmap(k1), v2=bitmap_empty()" -T testData http://host:port/api/testDb/testTbl/_stream_load
+   ```
    
 10. 简单模式，导入json数据
-表结构：
+    
+    表结构：
 
-`category` varchar(512) NULL COMMENT "",
-`author` varchar(512) NULL COMMENT "",
-`title` varchar(512) NULL COMMENT "",
-`price` double NULL COMMENT ""
+     `category` varchar(512) NULL COMMENT "",
+     `author` varchar(512) NULL COMMENT "",
+     `title` varchar(512) NULL COMMENT "",
+     `price` double NULL COMMENT ""
 
-json数据格式：
-```
-{"category":"C++","author":"avc","title":"C++ primer","price":895}
-```
-导入命令：
-```
-curl --location-trusted -u root  -H "label:123" -H "format: json" -T testData http://host:port/api/testDb/testTbl/_stream_load
-```
-为了提升吞吐量，支持一次性导入多条json数据，每行为一个json对象，默认使用\n作为换行符，需要将read_json_by_line设置为true，json数据格式如下：
-        
-```
-{"category":"C++","author":"avc","title":"C++ primer","price":89.5}
-{"category":"Java","author":"avc","title":"Effective Java","price":95}
-{"category":"Linux","author":"avc","title":"Linux kernel","price":195}
-```
-
+    json数据格式：
+    ```
+    {"category":"C++","author":"avc","title":"C++ primer","price":895}
+    ```
+    导入命令：
+    ```
+    curl --location-trusted -u root  -H "label:123" -H "format: json" -T testData http://host:port/api/testDb/testTbl/_stream_load
+    ```
+    为了提升吞吐量，支持一次性导入多条json数据，每行为一个json对象，默认使用\n作为换行符，需要将read_json_by_line设置为true，json数据格式如下：
+            
+    ```
+    {"category":"C++","author":"avc","title":"C++ primer","price":89.5}
+    {"category":"Java","author":"avc","title":"Effective Java","price":95}
+    {"category":"Linux","author":"avc","title":"Linux kernel","price":195}
+    ```
+    
 11. 匹配模式，导入json数据
-json数据格式：
-```
-[
-{"category":"xuxb111","author":"1avc","title":"SayingsoftheCentury","price":895},{"category":"xuxb222","author":"2avc","title":"SayingsoftheCentury","price":895},
-{"category":"xuxb333","author":"3avc","title":"SayingsoftheCentury","price":895}
-]
-```
-通过指定jsonpath进行精准导入，例如只导入category、author、price三个属性
-```
-curl --location-trusted -u root  -H "columns: category, price, author" -H "label:123" -H "format: json" -H "jsonpaths: [\"$.category\",\"$.price\",\"$.author\"]" -H "strip_outer_array: true" -T testData http://host:port/api/testDb/testTbl/_stream_load
-```
 
-说明：
-    1）如果json数据是以数组开始，并且数组中每个对象是一条记录，则需要将strip_outer_array设置成true，表示展平数组。
-    2）如果json数据是以数组开始，并且数组中每个对象是一条记录，在设置jsonpath时，我们的ROOT节点实际上是数组中对象。
+    json数据格式：
 
+    ```
+    [
+    {"category":"xuxb111","author":"1avc","title":"SayingsoftheCentury","price":895},{"category":"xuxb222","author":"2avc","title":"SayingsoftheCentury","price":895},
+    {"category":"xuxb333","author":"3avc","title":"SayingsoftheCentury","price":895}
+    ]
+    ```
+    通过指定jsonpath进行精准导入，例如只导入category、author、price三个属性
+    ```
+    curl --location-trusted -u root  -H "columns: category, price, author" -H "label:123" -H "format: json" -H "jsonpaths: [\"$.category\",\"$.price\",\"$.author\"]" -H "strip_outer_array: true" -T testData http://host:port/api/testDb/testTbl/_stream_load
+    ```
+    
+    说明：
+        1）如果json数据是以数组开始，并且数组中每个对象是一条记录，则需要将strip_outer_array设置成true，表示展平数组。
+        2）如果json数据是以数组开始，并且数组中每个对象是一条记录，在设置jsonpath时，我们的ROOT节点实际上是数组中对象。
+    
 12. 用户指定json根节点
-json数据格式:
-```
-{
- "RECORDS":[
-{"category":"11","title":"SayingsoftheCentury","price":895,"timestamp":1589191587},
-{"category":"22","author":"2avc","price":895,"timestamp":1589191487},
-{"category":"33","author":"3avc","title":"SayingsoftheCentury","timestamp":1589191387}
-]
-}
-```
-通过指定jsonpath进行精准导入，例如只导入category、author、price三个属性 
-```
-curl --location-trusted -u root  -H "columns: category, price, author" -H "label:123" -H "format: json" -H "jsonpaths: [\"$.category\",\"$.price\",\"$.author\"]" -H "strip_outer_array: true" -H "json_root: $.RECORDS" -T testData http://host:port/api/testDb/testTbl/_stream_load
-```
+
+    json数据格式:
+    ```
+    {
+     "RECORDS":[
+    {"category":"11","title":"SayingsoftheCentury","price":895,"timestamp":1589191587},
+    {"category":"22","author":"2avc","price":895,"timestamp":1589191487},
+    {"category":"33","author":"3avc","title":"SayingsoftheCentury","timestamp":1589191387}
+    ]
+    }
+    ```
+    通过指定jsonpath进行精准导入，例如只导入category、author、price三个属性 
+    ```
+    curl --location-trusted -u root  -H "columns: category, price, author" -H "label:123" -H "format: json" -H "jsonpaths: [\"$.category\",\"$.price\",\"$.author\"]" -H "strip_outer_array: true" -H "json_root: $.RECORDS" -T testData http://host:port/api/testDb/testTbl/_stream_load
+    ```
 13. 删除与这批导入key 相同的数据
     
-```
-curl --location-trusted -u root -H "merge_type: DELETE" -T testData http://host:port/api/testDb/testTbl/_stream_load
-```
+    ```
+    curl --location-trusted -u root -H "merge_type: DELETE" -T testData http://host:port/api/testDb/testTbl/_stream_load
+    ```
 
 14. 将这批数据中与flag 列为ture 的数据相匹配的列删除，其他行正常追加
-```
-curl --location-trusted -u root: -H "column_separator:," -H "columns: siteid, citycode, username, pv, flag" -H "merge_type: MERGE" -H "delete: flag=1"  -T testData http://host:port/api/testDb/testTbl/_stream_load
-```
+    
+    ```
+    curl --location-trusted -u root: -H "column_separator:," -H "columns: siteid, citycode, username, pv, flag" -H "merge_type: MERGE" -H "delete: flag=1"  -T testData http://host:port/api/testDb/testTbl/_stream_load
+    ```
 15. 导入数据到含有sequence列的UNIQUE_KEYS表中
-```
-curl --location-trusted -u root -H "columns: k1,k2,source_sequence,v1,v2" -H "function_column.sequence_col: source_sequence" -T testData http://host:port/api/testDb/testTbl/_stream_load
-```
+
+    ```
+    curl --location-trusted -u root -H "columns: k1,k2,source_sequence,v1,v2" -H "function_column.sequence_col: source_sequence" -T testData http://host:port/api/testDb/testTbl/_stream_load
+    ```
+    
+16. csv文件行首过滤导入
+   
+    文件数据:
+
+    ```
+     id,name,age
+     1,doris,20
+     2,flink,10
+    ```
+    通过指定`format=csv_with_names`过滤首行导入
+    ```
+    curl --location-trusted -u root -T test.csv  -H "label:1" -H "format:csv_with_names" -H "column_separator:," http://host:port/api/testDb/testTbl/_stream_load
+    ```
+17. 导入数据到表字段含有DEFAULT CURRENT_TIMESTAMP的表中
+
+    表结构：
+    ```sql
+    `id` bigint(30) NOT NULL,
+    `order_code` varchar(30) DEFAULT NULL COMMENT '',
+    `create_time` datetimev2(3) DEFAULT CURRENT_TIMESTAMP
+    ```
+    
+    json数据格式：
+    ```
+    {"id":1,"order_Code":"avc"}
+    ```
+
+    导入命令：
+    ```
+    curl --location-trusted -u root -T test.json -H "label:1" -H "format:json" -H 'columns: id, order_code, create_time=CURRENT_TIMESTAMP()' http://host:port/api/testDb/testTbl/_stream_load
+    ```
 ### Keywords
 
     STREAM, LOAD
@@ -327,52 +346,53 @@ curl --location-trusted -u root -H "columns: k1,k2,source_sequence,v1,v2" -H "fu
    }
    ```
 
-   字段释义如下：
+   下面主要解释了 Stream load 导入结果参数：
 
-   - TxnId：导入事务ID，由系统自动生成，全局唯一。
+    - TxnId：导入的事务ID。用户可不感知。
 
-   - Label：导入Label，如果没有指定，则系统会生成一个 UUID。
+    - Label：导入 Label。由用户指定或系统自动生成。
 
-   - Status：
+    - Status：导入完成状态。
 
-     导入结果。有如下取值：
+        "Success"：表示导入成功。
 
-     - Success：表示导入成功，并且数据已经可见。
-     - Publish Timeout：该状态也表示导入已经完成，只是数据可能会延迟可见。
-     - Label Already Exists：Label 重复，需更换 Label。
-     - Fail：导入失败。
+        "Publish Timeout"：该状态也表示导入已经完成，只是数据可能会延迟可见，无需重试。
 
-   - ExistingJobStatus：
+        "Label Already Exists"：Label 重复，需更换 Label。
 
-     已存在的 Label 对应的导入作业的状态。
+        "Fail"：导入失败。
 
-     这个字段只有在当 Status 为 "Label Already Exists" 是才会显示。用户可以通过这个状态，知晓已存在 Label 对应的导入作业的状态。"RUNNING" 表示作业还在执行，"FINISHED" 表示作业成功。
+    - ExistingJobStatus：已存在的 Label 对应的导入作业的状态。
 
-   - Message：导入错误信息。
+        这个字段只有在当 Status 为 "Label Already Exists" 时才会显示。用户可以通过这个状态，知晓已存在 Label 对应的导入作业的状态。"RUNNING" 表示作业还在执行，"FINISHED" 表示作业成功。
 
-   - NumberTotalRows：导入总处理的行数。
+    - Message：导入错误信息。
 
-   - NumberLoadedRows：成功导入的行数。
+    - NumberTotalRows：导入总处理的行数。
 
-   - NumberFilteredRows：数据质量不合格的行数。
+    - NumberLoadedRows：成功导入的行数。
 
-   - NumberUnselectedRows：被 where 条件过滤的行数。
+    - NumberFilteredRows：数据质量不合格的行数。
 
-   - LoadBytes：导入的字节数。
+    - NumberUnselectedRows：被 where 条件过滤的行数。
 
-   - LoadTimeMs：导入完成时间。单位毫秒。
+    - LoadBytes：导入的字节数。
 
-   - BeginTxnTimeMs：向 FE 请求开始一个事务所花费的时间，单位毫秒。
+    - LoadTimeMs：导入完成时间。单位毫秒。
 
-   - StreamLoadPutTimeMs：向 FE 请求获取导入数据执行计划所花费的时间，单位毫秒。
+    - BeginTxnTimeMs：向Fe请求开始一个事务所花费的时间，单位毫秒。
 
-   - ReadDataTimeMs：读取数据所花费的时间，单位毫秒。
+    - StreamLoadPutTimeMs：向Fe请求获取导入数据执行计划所花费的时间，单位毫秒。
 
-   - WriteDataTimeMs：执行写入数据操作所花费的时间，单位毫秒。
+    - ReadDataTimeMs：读取数据所花费的时间，单位毫秒。
 
-   - CommitAndPublishTimeMs：向Fe请求提交并且发布事务所花费的时间，单位毫秒。
+    - WriteDataTimeMs：执行写入数据操作所花费的时间，单位毫秒。
 
-   - ErrorURL：如果有数据质量问题，通过访问这个 URL 查看具体错误行。
+    - CommitAndPublishTimeMs：向Fe请求提交并且发布事务所花费的时间，单位毫秒。
+
+    - ErrorURL：如果有数据质量问题，通过访问这个 URL 查看具体错误行。
+
+    > 注意：由于 Stream load 是同步的导入方式，所以并不会在 Doris 系统中记录导入信息，用户无法异步的通过查看导入命令看到 Stream load。使用时需监听创建导入请求的返回值获取导入结果。
 
 2. 如何正确提交 Stream Load 作业和处理返回结果。
 
@@ -411,7 +431,7 @@ curl --location-trusted -u root -H "columns: k1,k2,source_sequence,v1,v2" -H "fu
 
 7. 严格模式
 
-   `strict_mode` 属性用于设置导入任务是否运行在严格模式下。该格式会对列映射、转换和过滤的结果产生影响。关于严格模式的具体说明，可参阅 [严格模式](../../../../data-operate/import/import-scenes/load-strict-mode.md) 文档。
+   `strict_mode` 属性用于设置导入任务是否运行在严格模式下。该属性会对列映射、转换和过滤的结果产生影响，它同时也将控制部分列更新的行为。关于严格模式的具体说明，可参阅 [严格模式](../../../../data-operate/import/import-scenes/load-strict-mode.md) 文档。
 
 8. 超时时间
 

@@ -37,11 +37,6 @@ public class TupleId extends Id<TupleId> {
             public TupleId getNextId() {
                 return new TupleId(nextId++);
             }
-
-            @Override
-            public TupleId getMaxId() {
-                return new TupleId(nextId - 1);
-            }
         };
     }
 }

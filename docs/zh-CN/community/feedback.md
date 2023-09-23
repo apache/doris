@@ -42,4 +42,4 @@ under the License.
 
 2. Github
 
-   提交一个 [Github Issue](https://github.com/apache/incubator-doris/issues/new/choose)
+   提交一个 [Github Issue](https://github.com/apache/doris/issues/new/choose)

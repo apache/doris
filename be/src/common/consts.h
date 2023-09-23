@@ -24,6 +24,11 @@ namespace BeConsts {
 const std::string CSV = "csv";
 const std::string CSV_WITH_NAMES = "csv_with_names";
 const std::string CSV_WITH_NAMES_AND_TYPES = "csv_with_names_and_types";
+const std::string BLOCK_TEMP_COLUMN_PREFIX = "__TEMP__";
+const std::string BLOCK_TEMP_COLUMN_SCANNER_FILTERED = "__TEMP__scanner_filtered";
+const std::string ROWID_COL = "__DORIS_ROWID_COL__";
+const std::string ROW_STORE_COL = "__DORIS_ROW_STORE_COL__";
+const std::string DYNAMIC_COLUMN_NAME = "__DORIS_DYNAMIC_COL__";
 
 constexpr int MAX_DECIMAL32_PRECISION = 9;
 constexpr int MAX_DECIMAL64_PRECISION = 18;

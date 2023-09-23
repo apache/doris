@@ -17,33 +17,36 @@
 
 #include "vec/aggregate_functions/aggregate_function_approx_count_distinct.h"
 
-#include "vec/utils/template_helpers.hpp"
+#include "util/bitmap_value.h"
+#include "vec/aggregate_functions/helpers.h"
+#include "vec/columns/column_array.h"
+#include "vec/columns/column_decimal.h"
+#include "vec/columns/column_map.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_struct.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/functions/function.h"
 
 namespace doris::vectorized {
 
 AggregateFunctionPtr create_aggregate_function_approx_count_distinct(
-        const std::string& name, const DataTypes& argument_types, const Array& parameters,
-        const bool result_is_nullable) {
-    AggregateFunctionPtr res = nullptr;
-    WhichDataType which(argument_types[0]->is_nullable()
-                                ? reinterpret_cast<const DataTypeNullable*>(argument_types[0].get())
-                                          ->get_nested_type()
-                                : argument_types[0]);
+        const std::string& name, const DataTypes& argument_types, const bool result_is_nullable) {
+    WhichDataType which(remove_nullable(argument_types[0]));
 
-    res.reset(create_class_with_type<AggregateFunctionApproxCountDistinct>(*argument_types[0],
-                                                                           argument_types));
+#define DISPATCH(TYPE, COLUMN_TYPE)                                                             \
+    if (which.idx == TypeIndex::TYPE)                                                           \
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<COLUMN_TYPE>>( \
+                argument_types, result_is_nullable);
+    TYPE_TO_COLUMN_TYPE(DISPATCH)
+#undef DISPATCH
 
-    if (!res) {
-        LOG(WARNING) << fmt::format("Illegal type {} of argument for aggregate function {}",
-                                    argument_types[0]->get_name(), name);
-    }
-
-    return res;
+    return nullptr;
 }
 
 void register_aggregate_function_approx_count_distinct(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function("approx_count_distinct",
-                              create_aggregate_function_approx_count_distinct);
+    factory.register_function_both("approx_count_distinct",
+                                   create_aggregate_function_approx_count_distinct);
     factory.register_alias("approx_count_distinct", "ndv");
 }
 

@@ -20,12 +20,30 @@
 
 #pragma once
 
+#include <stddef.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <memory>
+
+#include "common/status.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/data_types/get_least_supertype.h"
-#include "vec/functions/function_helpers.h"
-#include "vec/functions/function_string.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_number.h"
+#include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
-#include "vec/utils/util.hpp"
+
+namespace doris {
+class FunctionContext;
+} // namespace doris
 
 namespace doris::vectorized {
 class FunctionIfNull : public IFunction {
@@ -37,8 +55,6 @@ public:
     String get_name() const override { return name; }
 
     size_t get_number_of_arguments() const override { return 2; }
-
-    bool use_default_implementation_for_constants() const override { return false; }
 
     // be compatible with fe code
     /* 
@@ -62,7 +78,7 @@ public:
     // ifnull(col_left, col_right) == if(isnull(col_left), col_right, col_left)
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        const ColumnWithTypeAndName& col_left = block.get_by_position(arguments[0]);
+        ColumnWithTypeAndName& col_left = block.get_by_position(arguments[0]);
         if (col_left.column->only_null()) {
             block.get_by_position(result).column = block.get_by_position(arguments[1]).column;
             return Status::OK();
@@ -70,6 +86,8 @@ public:
 
         ColumnWithTypeAndName null_column_arg0 {nullptr, std::make_shared<DataTypeUInt8>(), ""};
         ColumnWithTypeAndName nested_column_arg0 {nullptr, col_left.type, ""};
+
+        col_left.column = col_left.column->convert_to_full_column_if_const();
 
         /// implement isnull(col_left) logic
         if (auto* nullable = check_and_get_column<ColumnNullable>(*col_left.column)) {

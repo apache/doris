@@ -30,9 +30,7 @@ SET(SOURCE_FILES
         hash/hash.cc
         hash/jenkins.cc
         int128.cc
-        once.cc
         ref_counted.cc
-        spinlock_internal.cc
         stringprintf.cc
         strings/ascii_ctype.cc
         strings/charset.cc
@@ -47,7 +45,6 @@ SET(SOURCE_FILES
         strings/substitute.cc
         strings/util.cc
         strtoint.cc
-        sysinfo.cc
         threading/thread_collision_warner.cc
         utf/rune.c
         cpu.cc)
@@ -58,7 +55,8 @@ endif()
 
 add_library(Gutil STATIC ${SOURCE_FILES})
 
-set_target_properties(Gutil PROPERTIES COMPILE_FLAGS "-funsigned-char -Wno-deprecated -Wno-char-subscripts")
+set_target_properties(Gutil PROPERTIES COMPILE_FLAGS "-funsigned-char -Wno-deprecated")
+target_compile_options(Gutil PRIVATE -Wno-char-subscripts -Wno-implicit-fallthrough)
 # target_link_libraries(Gutil glog protobuf rt)
 
 #set(GUTIL_LIBS

@@ -99,7 +99,7 @@ Parameter introduction:
 
 11. exec_mem_limit: Import memory limit. Default is 2GB. The unit is bytes.
 
-12. format: Specify the import data format, the default is csv, and json format is supported.
+12. format: Specify load data format, support csv, json, <version since="1.2" type="inline"> csv_with_names(support csv file line header filter), csv_with_names_and_types(support csv file first two lines filter), parquet, orc</version>, default is csv.
 
 13. jsonpaths: The way of importing json is divided into: simple mode and matching mode.
 
@@ -113,30 +113,32 @@ Parameter introduction:
 
 14. strip_outer_array: Boolean type, true indicates that the json data starts with an array object and flattens the array object, the default value is false. E.g:
 
-       ````
-        [
-         {"k1" : 1, "v1" : 2},
-         {"k1" : 3, "v1" : 4}
-        ]
-        When strip_outer_array is true, the final import into doris will generate two rows of data.
-       ````
+     ````
+      [
+       {"k1" : 1, "v1" : 2},
+       {"k1" : 3, "v1" : 4}
+      ]
+    ````
+    When strip_outer_array is true, the final import into doris will generate two rows of data.
+
 
 15. json_root: json_root is a valid jsonpath string, used to specify the root node of the json document, the default value is "".
 
 16. merge_type: The merge type of data, which supports three types: APPEND, DELETE, and MERGE. Among them, APPEND is the default value, which means that this batch of data needs to be appended to the existing data, and DELETE means to delete all the data with the same key as this batch of data. Line, the MERGE semantics need to be used in conjunction with the delete condition, which means that the data that meets the delete condition is processed according to the DELETE semantics and the rest is processed according to the APPEND semantics, for example: `-H "merge_type: MERGE" -H "delete: flag=1"`
 
 17. delete: Only meaningful under MERGE, indicating the deletion condition of the data
-        function_column.sequence_col: Only applicable to UNIQUE_KEYS. Under the same key column, ensure that the value column is REPLACEed according to the source_sequence column. The source_sequence can be a column in the data source or a column in the table structure.
+    
+18. function_column.sequence_col: Only applicable to UNIQUE_KEYS. Under the same key column, ensure that the value column is REPLACEed according to the source_sequence column. The source_sequence can be a column in the data source or a column in the table structure.
 
-18. fuzzy_parse: Boolean type, true means that json will be parsed with the schema of the first row. Enabling this option can improve the efficiency of json import, but requires that the order of the keys of all json objects is the same as the first row, the default is false, only use in json format
+19. fuzzy_parse: Boolean type, true means that json will be parsed with the schema of the first row. Enabling this option can improve the efficiency of json import, but requires that the order of the keys of all json objects is the same as the first row, the default is false, only use in json format
 
-19. num_as_string: Boolean type, true means that when parsing json data, the numeric type will be converted to a string, and then imported without losing precision.
+20. num_as_string: Boolean type, true means that when parsing json data, the numeric type will be converted to a string, and then imported without losing precision.
 
-20. read_json_by_line: Boolean type, true to support reading one json object per line, the default value is false.
+21. read_json_by_line: Boolean type, true to support reading one json object per line, the default value is false.
 
-21. send_batch_parallelism: Integer, used to set the parallelism of sending batch data. If the value of parallelism exceeds `max_send_batch_parallelism_per_job` in the BE configuration, the BE as a coordination point will use the value of `max_send_batch_parallelism_per_job`.
+22. send_batch_parallelism: Integer, used to set the parallelism of sending batch data. If the value of parallelism exceeds `max_send_batch_parallelism_per_job` in the BE configuration, the BE as a coordination point will use the value of `max_send_batch_parallelism_per_job`.
 
-22. hidden_columns: Specify hidden column when no `columns` in Headers，multi hidden column shoud be
+23. hidden_columns: Specify hidden column when no `columns` in Headers，multi hidden column shoud be
 separated by commas.
 
        ```
@@ -144,38 +146,15 @@ separated by commas.
            The system will use the order specified by user. in case above, data should be ended
            with __DORIS_SEQUENCE_COL__.
        ```
+24. load_to_single_tablet: Boolean type, True means that one task can only load data to one tablet in the corresponding partition at a time. The default value is false. This parameter can only be set when loading data into the OLAP table with random bucketing.
 
-    RETURN VALUES
-        After the import is complete, the related content of this import will be returned in Json format. Currently includes the following fields
-        Status: Import the last status.
-            Success: Indicates that the import is successful and the data is already visible;
-            Publish Timeout: Indicates that the import job has been successfully committed, but is not immediately visible for some reason. The user can consider the import to be successful and not have to retry the import
-            Label Already Exists: Indicates that the Label has been occupied by other jobs. It may be imported successfully or it may be being imported.
-            The user needs to determine the subsequent operation through the get label state command
-            Others: The import failed, the user can specify the Label to retry the job
-        Message: Detailed description of the import status. On failure, the specific failure reason is returned.
-        NumberTotalRows: The total number of rows read from the data stream
-        NumberLoadedRows: The number of data rows imported this time, only valid in Success
-        NumberFilteredRows: The number of rows filtered out by this import, that is, the number of rows with unqualified data quality
-        NumberUnselectedRows: This import, the number of rows filtered out by the where condition
-        LoadBytes: The size of the source file data imported this time
-        LoadTimeMs: The time taken for this import
-        BeginTxnTimeMs: The time it takes to request Fe to start a transaction, in milliseconds.
-        StreamLoadPutTimeMs: The time it takes to request Fe to obtain the execution plan for importing data, in milliseconds.
-        ReadDataTimeMs: Time spent reading data, in milliseconds.
-        WriteDataTimeMs: The time taken to perform the write data operation, in milliseconds.
-        CommitAndPublishTimeMs: The time it takes to submit a request to Fe and publish the transaction, in milliseconds.
-        ErrorURL: The specific content of the filtered data, only the first 1000 items are retained
+25. compress_type: Specify compress type file. Only support compressed csv file now. Support gz, lzo, bz2, lz4, lzop, deflate.
 
-ERRORS:
-        Import error details can be viewed with the following statement:
+26. trim_double_quotes: Boolean type, The default value is false. True means that the outermost double quotes of each field in the csv file are trimmed.
 
-       ```sql
-        SHOW LOAD WARNINGS ON 'url
-       ````
+27. skip_lines: <version since="dev" type="inline"> Integer type, the default value is 0. It will skip some lines in the head of csv file. It will be disabled when format is `csv_with_names` or `csv_with_names_and_types`. </version>
 
-
- where url is the url given by ErrorURL.
+28. comment: <version since="1.2.3" type="inline"> String type, the default value is "". </version>
 
 ### Example
 
@@ -186,145 +165,172 @@ ERRORS:
    ````
 
 2. Import the data in the local file 'testData' into the table 'testTbl' in the database 'testDb', use Label for deduplication, and only import data whose k1 is equal to 20180601
-        
 
-       ````
-       curl --location-trusted -u root -H "label:123" -H "where: k1=20180601" -T testData http://host:port/api/testDb/testTbl/_stream_load
-       ````
+   ````
+   curl --location-trusted -u root -H "label:123" -H "where: k1=20180601" -T testData http://host:port/api/testDb/testTbl/_stream_load
+   ````
 
 3. Import the data in the local file 'testData' into the table 'testTbl' in the database 'testDb', allowing a 20% error rate (the user is in the defalut_cluster)
-        
 
-       ````
-       curl --location-trusted -u root -H "label:123" -H "max_filter_ratio:0.2" -T testData http://host:port/api/testDb/testTbl/_stream_load
-       ````
+   ````
+   curl --location-trusted -u root -H "label:123" -H "max_filter_ratio:0.2" -T testData http://host:port/api/testDb/testTbl/_stream_load
+   ````
 
 4. Import the data in the local file 'testData' into the table 'testTbl' in the database 'testDb', allow a 20% error rate, and specify the column name of the file (the user is in the defalut_cluster)
-        
 
-       ````
-       curl --location-trusted -u root -H "label:123" -H "max_filter_ratio:0.2" -H "columns: k2, k1, v1" -T testData http://host:port/api/testDb/testTbl /_stream_load
-       ````
+   ````
+   curl --location-trusted -u root -H "label:123" -H "max_filter_ratio:0.2" -H "columns: k2, k1, v1" -T testData http://host:port/api/testDb/testTbl /_stream_load
+   ````
 
 5. Import the data in the local file 'testData' into the p1, p2 partitions of the table 'testTbl' in the database 'testDb', allowing a 20% error rate.
-        
 
-       ````
-       curl --location-trusted -u root -H "label:123" -H "max_filter_ratio:0.2" -H "partitions: p1, p2" -T testData http://host:port/api/testDb/testTbl/_stream_load
-       ````
+   ````
+   curl --location-trusted -u root -H "label:123" -H "max_filter_ratio:0.2" -H "partitions: p1, p2" -T testData http://host:port/api/testDb/testTbl/_stream_load
+   ````
 
 6. Import using streaming (user is in defalut_cluster)
-        
 
-       ````
-       seq 1 10 | awk '{OFS="\t"}{print $1, $1 * 10}' | curl --location-trusted -u root -T - http://host:port/api/testDb/testTbl/ _stream_load
-       ````
+    ````
+    seq 1 10 | awk '{OFS="\t"}{print $1, $1 * 10}' | curl --location-trusted -u root -T - http://host:port/api/testDb/testTbl/ _stream_load
+    ````
 
 7. Import a table containing HLL columns, which can be columns in the table or columns in the data to generate HLL columns, or use hll_empty to supplement columns that are not in the data
-        
 
-       ````
-       curl --location-trusted -u root -H "columns: k1, k2, v1=hll_hash(k1), v2=hll_empty()" -T testData http://host:port/api/testDb/testTbl/_stream_load
-       ````
+   ````
+   curl --location-trusted -u root -H "columns: k1, k2, v1=hll_hash(k1), v2=hll_empty()" -T testData http://host:port/api/testDb/testTbl/_stream_load
+   ````
 
 8. Import data for strict mode filtering and set the time zone to Africa/Abidjan
-        
 
-       ````
-       curl --location-trusted -u root -H "strict_mode: true" -H "timezone: Africa/Abidjan" -T testData http://host:port/api/testDb/testTbl/_stream_load
-       ````
+   ````
+   curl --location-trusted -u root -H "strict_mode: true" -H "timezone: Africa/Abidjan" -T testData http://host:port/api/testDb/testTbl/_stream_load
+   ````
 
 9. Import a table with a BITMAP column, which can be a column in the table or a column in the data to generate a BITMAP column, or use bitmap_empty to fill an empty Bitmap
-       ````
-        curl --location-trusted -u root -H "columns: k1, k2, v1=to_bitmap(k1), v2=bitmap_empty()" -T testData http://host:port/api/testDb/testTbl/_stream_load
-        ````
+   ````
+    curl --location-trusted -u root -H "columns: k1, k2, v1=to_bitmap(k1), v2=bitmap_empty()" -T testData http://host:port/api/testDb/testTbl/_stream_load
+   ````
 
 10. Simple mode, import json data
     Table Structure:
 
-`category` varchar(512) NULL COMMENT "",
-`author` varchar(512) NULL COMMENT "",
-`title` varchar(512) NULL COMMENT "",
-`price` double NULL COMMENT ""
+    `category` varchar(512) NULL COMMENT "",
+    `author` varchar(512) NULL COMMENT "",
+    `title` varchar(512) NULL COMMENT "",
+    `price` double NULL COMMENT ""
 
-json data format:
+    json data format:
+    ````
+    {"category":"C++","author":"avc","title":"C++ primer","price":895}
+    ````
+    
+    Import command:
+    
+    ````
+    curl --location-trusted -u root -H "label:123" -H "format: json" -T testData http://host:port/api/testDb/testTbl/_stream_load
+    ````
+    
+    In order to improve throughput, it supports importing multiple pieces of json data at one time, each line is a json object, and \n is used as a newline by default. You need to set read_json_by_line to true. The json data format is as follows:
 
-````
-{"category":"C++","author":"avc","title":"C++ primer","price":895}
-````
-
-Import command:
-
-````
-curl --location-trusted -u root -H "label:123" -H "format: json" -T testData http://host:port/api/testDb/testTbl/_stream_load
-````
-
-In order to improve throughput, it supports importing multiple pieces of json data at one time, each line is a json object, and \n is used as a newline by default. You need to set read_json_by_line to true. The json data format is as follows:
-        
-
-````
-{"category":"C++","author":"avc","title":"C++ primer","price":89.5}
-{"category":"Java","author":"avc","title":"Effective Java","price":95}
-{"category":"Linux","author":"avc","title":"Linux kernel","price":195}
-````
-
+    ````
+    {"category":"C++","author":"avc","title":"C++ primer","price":89.5}
+    {"category":"Java","author":"avc","title":"Effective Java","price":95}
+    {"category":"Linux","author":"avc","title":"Linux kernel","price":195}
+    ````
+    
 11. Match pattern, import json data
     json data format:
 
-````
-[
-{"category":"xuxb111","author":"1avc","title":"SayingsoftheCentury","price":895},{"category":"xuxb222","author":"2avc"," title":"SayingsoftheCentury","price":895},
-{"category":"xuxb333","author":"3avc","title":"SayingsoftheCentury","price":895}
-]
-````
+    ````
+    [
+    {"category":"xuxb111","author":"1avc","title":"SayingsoftheCentury","price":895},{"category":"xuxb222","author":"2avc"," title":"SayingsoftheCentury","price":895},
+    {"category":"xuxb333","author":"3avc","title":"SayingsoftheCentury","price":895}
+    ]
+    ````
 
-Precise import by specifying jsonpath, such as importing only three attributes of category, author, and price
+    Precise import by specifying jsonpath, such as importing only three attributes of category, author, and price
 
-````
-curl --location-trusted -u root -H "columns: category, price, author" -H "label:123" -H "format: json" -H "jsonpaths: [\"$.category\",\" $.price\",\"$.author\"]" -H "strip_outer_array: true" -T testData http://host:port/api/testDb/testTbl/_stream_load
-````
+    ````
+    curl --location-trusted -u root -H "columns: category, price, author" -H "label:123" -H "format: json" -H "jsonpaths: [\"$.category\",\" $.price\",\"$.author\"]" -H "strip_outer_array: true" -T testData http://host:port/api/testDb/testTbl/_stream_load
+    ````
 
-illustrate:
-    1) If the json data starts with an array, and each object in the array is a record, you need to set strip_outer_array to true, which means flatten the array.
-    2) If the json data starts with an array, and each object in the array is a record, when setting jsonpath, our ROOT node is actually an object in the array.
+    illustrate:
+        1) If the json data starts with an array, and each object in the array is a record, you need to set strip_outer_array to true, which means flatten the array.
+        2) If the json data starts with an array, and each object in the array is a record, when setting jsonpath, our ROOT node is actually an object in the array.
 
 12. User specified json root node
     json data format:
 
-````
-{
- "RECORDS":[
-{"category":"11","title":"SayingsoftheCentury","price":895,"timestamp":1589191587},
-{"category":"22","author":"2avc","price":895,"timestamp":1589191487},
-{"category":"33","author":"3avc","title":"SayingsoftheCentury","timestamp":1589191387}
-]
-}
-````
+    ````
+    {
+     "RECORDS":[
+    {"category":"11","title":"SayingsoftheCentury","price":895,"timestamp":1589191587},
+    {"category":"22","author":"2avc","price":895,"timestamp":1589191487},
+    {"category":"33","author":"3avc","title":"SayingsoftheCentury","timestamp":1589191387}
+    ]
+    }
+    ````
 
-Precise import by specifying jsonpath, such as importing only three attributes of category, author, and price
-
-````
-curl --location-trusted -u root -H "columns: category, price, author" -H "label:123" -H "format: json" -H "jsonpaths: [\"$.category\",\" $.price\",\"$.author\"]" -H "strip_outer_array: true" -H "json_root: $.RECORDS" -T testData http://host:port/api/testDb/testTbl/_stream_load
-````
-
+    Precise import by specifying jsonpath, such as importing only three attributes of category, author, and price
+    
+    ````
+    curl --location-trusted -u root -H "columns: category, price, author" -H "label:123" -H "format: json" -H "jsonpaths: [\"$.category\",\" $.price\",\"$.author\"]" -H "strip_outer_array: true" -H "json_root: $.RECORDS" -T testData http://host:port/api/testDb/testTbl/_stream_load
+    ````
+    
 13. Delete the data with the same import key as this batch
 
-````
-curl --location-trusted -u root -H "merge_type: DELETE" -T testData http://host:port/api/testDb/testTbl/_stream_load
-````
+    ````
+    curl --location-trusted -u root -H "merge_type: DELETE" -T testData http://host:port/api/testDb/testTbl/_stream_load
+    ````
 
 14. Delete the columns in this batch of data that match the data whose flag is listed as true, and append other rows normally
-
-````
-curl --location-trusted -u root: -H "column_separator:," -H "columns: siteid, citycode, username, pv, flag" -H "merge_type: MERGE" -H "delete: flag=1" -T testData http://host:port/api/testDb/testTbl/_stream_load
-````
-
+    
+    ````
+    curl --location-trusted -u root: -H "column_separator:," -H "columns: siteid, citycode, username, pv, flag" -H "merge_type: MERGE" -H "delete: flag=1" -T testData http://host:port/api/testDb/testTbl/_stream_load
+    ````
+    
 15. Import data into UNIQUE_KEYS table with sequence column
+    
+    ````
+    curl --location-trusted -u root -H "columns: k1,k2,source_sequence,v1,v2" -H "function_column.sequence_col: source_sequence" -T testData http://host:port/api/testDb/testTbl/ _stream_load
+    ````
 
-````
-curl --location-trusted -u root -H "columns: k1,k2,source_sequence,v1,v2" -H "function_column.sequence_col: source_sequence" -T testData http://host:port/api/testDb/testTbl/ _stream_load
-````
+16. csv file line header filter import
 
+    file data:
+    
+    ```
+       id,name,age
+       1,doris,20
+       2,flink,10
+    ```
+    Filter the first line import by specifying `format=csv_with_names`
+    ```
+    curl --location-trusted -u root -T test.csv  -H "label:1" -H "format:csv_with_names" -H "column_separator:," http://host:port/api/testDb/testTbl/_stream_load
+    ```
+    
+17. Import data into a table whose table field contains DEFAULT CURRENT_TIMESTAMP
+
+    Table Structure:
+    
+    ```sql
+    `id` bigint(30) NOT NULL,
+    `order_code` varchar(30) DEFAULT NULL COMMENT '',
+    `create_time` datetimev2(3) DEFAULT CURRENT_TIMESTAMP    
+    ```
+
+    JSON data format:
+
+    ```
+    {"id":1,"order_Code":"avc"}
+    ```
+
+    Import command:
+
+    ```
+    curl --location-trusted -u root -T test.json -H "label:1" -H "format:json" -H 'columns: id, order_code, create_time=CURRENT_TIMESTAMP()' http://host:port/api/testDb/testTbl/_stream_load
+    ```
+    
 ### Keywords
 
     STREAM, LOAD
@@ -355,52 +361,53 @@ curl --location-trusted -u root -H "columns: k1,k2,source_sequence,v1,v2" -H "fu
    }
    ````
 
-   The field definitions are as follows:
+   The following main explanations are given for the Stream load import result parameters:
 
-   - TxnId: Import transaction ID, which is automatically generated by the system and is globally unique.
+    + TxnId: The imported transaction ID. Users do not perceive.
 
-   - Label: Import Label, if not specified, the system will generate a UUID.
+    + Label: Import Label. User specified or automatically generated by the system.
 
-   - Status:
+    + Status: Import completion status.
 
-     Import results. Has the following values:
+	    "Success": Indicates successful import.
 
-     - Success: Indicates that the import was successful and the data is already visible.
-     - Publish Timeout: This status also means that the import has completed, but the data may be visible with a delay.
-     - Label Already Exists: The Label is duplicated and needs to be replaced.
-     - Fail: Import failed.
+	    "Publish Timeout": This state also indicates that the import has been completed, except that the data may be delayed and visible without retrying.
 
-   - ExistingJobStatus:
+	    "Label Already Exists": Label duplicate, need to be replaced Label.
 
-     The status of the import job corresponding to the existing Label.
+	    "Fail": Import failed.
 
-     This field is only displayed when the Status is "Label Already Exists". The user can know the status of the import job corresponding to the existing Label through this status. "RUNNING" means the job is still executing, "FINISHED" means the job was successful.
+    + ExistingJobStatus: The state of the load job corresponding to the existing Label.
 
-   - Message: Import error message.
+        This field is displayed only when the status is "Label Already Exists". The user can know the status of the load job corresponding to Label through this state. "RUNNING" means that the job is still executing, and "FINISHED" means that the job is successful.
 
-   - NumberTotalRows: The total number of rows processed by the import.
+    + Message: Import error messages.
 
-   - NumberLoadedRows: The number of rows successfully imported.
+    + NumberTotalRows: Number of rows imported for total processing.
 
-   - NumberFilteredRows: The number of rows with unqualified data quality.
+    + NumberLoadedRows: Number of rows successfully imported.
 
-   - NumberUnselectedRows: The number of rows filtered by the where condition.
+    + NumberFilteredRows: Number of rows that do not qualify for data quality.
 
-   - LoadBytes: Number of bytes imported.
+    + NumberUnselectedRows: Number of rows filtered by where condition.
 
-   - LoadTimeMs: Import completion time. The unit is milliseconds.
+    + LoadBytes: Number of bytes imported.
 
-   - BeginTxnTimeMs: The time it takes to request the FE to start a transaction, in milliseconds.
+    + LoadTimeMs: Import completion time. Unit milliseconds.
 
-   - StreamLoadPutTimeMs: The time taken to request the FE to obtain the execution plan for importing data, in milliseconds.
+    + BeginTxnTimeMs: The time cost for RPC to Fe to begin a transaction, Unit milliseconds.
 
-   - ReadDataTimeMs: Time spent reading data, in milliseconds.
+    + StreamLoadPutTimeMs: The time cost for RPC to Fe to get a stream load plan, Unit milliseconds.
 
-   - WriteDataTimeMs: The time spent performing the write data operation, in milliseconds.
+    + ReadDataTimeMs: Read data time, Unit milliseconds.
 
-   - CommitAndPublishTimeMs: The time it takes to submit a request to Fe and publish the transaction, in milliseconds.
+    + WriteDataTimeMs: Write data time, Unit milliseconds.
 
-   - ErrorURL: If there is a data quality problem, visit this URL to view the specific error line.
+    + CommitAndPublishTimeMs: The time cost for RPC to Fe to commit and publish a transaction, Unit milliseconds.
+
+    + ErrorURL: If you have data quality problems, visit this URL to see specific error lines.
+
+    > Note: Since Stream load is a synchronous import mode, import information will not be recorded in Doris system. Users cannot see Stream load asynchronously by looking at import commands. You need to listen for the return value of the create import request to get the import result.
 
 2. How to correctly submit the Stream Load job and process the returned results.
 
@@ -425,21 +432,21 @@ curl --location-trusted -u root -H "columns: k1,k2,source_sequence,v1,v2" -H "fu
 
 4. Label, import transaction, multi-table atomicity
 
-   All import tasks in Doris are atomic. And the import of multiple tables in the same import task can also guarantee atomicity. At the same time, Doris can also use the Label mechanism to ensure that the data imported is not lost or heavy. For details, see the [Import Transactions and Atomicity](../../../data-operate/import/import-scenes/load-atomicity.md) documentation.
+   All import tasks in Doris are atomic. And the import of multiple tables in the same import task can also guarantee atomicity. At the same time, Doris can also use the Label mechanism to ensure that the data imported is not lost or heavy. For details, see the [Import Transactions and Atomicity](../../../../data-operate/import/import-scenes/load-atomicity.md) documentation.
 
 5. Column mapping, derived columns and filtering
 
-   Doris can support very rich column transformation and filtering operations in import statements. Most built-in functions and UDFs are supported. For how to use this function correctly, please refer to the [Column Mapping, Conversion and Filtering](../../../data-operate/import/import-scenes/load-data-convert.md) document.
+   Doris can support very rich column transformation and filtering operations in import statements. Most built-in functions and UDFs are supported. For how to use this function correctly, please refer to the [Column Mapping, Conversion and Filtering](../../../../data-operate/import/import-scenes/load-data-convert.md) document.
 
 6. Error data filtering
 
    Doris' import tasks can tolerate a portion of malformed data. The tolerance ratio is set via `max_filter_ratio`. The default is 0, which means that the entire import task will fail when there is an error data. If the user wants to ignore some problematic data rows, the secondary parameter can be set to a value between 0 and 1, and Doris will automatically skip the rows with incorrect data format.
 
-   For some calculation methods of the tolerance rate, please refer to the [Column Mapping, Conversion and Filtering](../../../data-operate/import/import-scenes/load-data-convert.md) document.
+   For some calculation methods of the tolerance rate, please refer to the [Column Mapping, Conversion and Filtering](../../../../data-operate/import/import-scenes/load-data-convert.md) document.
 
 7. Strict Mode
 
-   The `strict_mode` attribute is used to set whether the import task runs in strict mode. The format affects the results of column mapping, transformation, and filtering. For a detailed description of strict mode, see the [strict mode](../../../data-operate/import/import-scenes/load-strict-mode.md) documentation.
+   The `strict_mode` attribute is used to set whether the import task runs in strict mode. The format affects the results of column mapping, transformation, and filtering, and it also controls the behavior of partial updates. For a detailed description of strict mode, see the [strict mode](../../../../data-operate/import/import-scenes/load-strict-mode.md) documentation.
 
 8. Timeout
 

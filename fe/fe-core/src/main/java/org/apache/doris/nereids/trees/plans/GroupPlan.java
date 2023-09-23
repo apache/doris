@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLeaf;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
 
@@ -36,6 +37,7 @@ import java.util.Optional;
  * as a place-holder when do match root.
  */
 public class GroupPlan extends LogicalLeaf {
+
     private final Group group;
 
     public GroupPlan(Group group) {
@@ -53,13 +55,13 @@ public class GroupPlan extends LogicalLeaf {
     }
 
     @Override
-    public List<Expression> getExpressions() {
+    public List<? extends Expression> getExpressions() {
         return ImmutableList.of();
     }
 
     @Override
-    public GroupPlan withOutput(List<Slot> output) {
-        throw new IllegalStateException("GroupPlan can not invoke withOutput()");
+    public Statistics getStats() {
+        throw new IllegalStateException("GroupPlan can not invoke getStats()");
     }
 
     @Override
@@ -73,20 +75,15 @@ public class GroupPlan extends LogicalLeaf {
     }
 
     @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        throw new IllegalStateException("GroupPlan can not invoke withLogicalProperties()");
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        throw new IllegalStateException("GroupPlan can not invoke withGroupExprLogicalPropChildren()");
     }
 
     @Override
     public List<Slot> computeOutput() {
         throw new IllegalStateException("GroupPlan can not compute output."
                 + " You should invoke GroupPlan.getOutput()");
-    }
-
-    @Override
-    public LogicalProperties computeLogicalProperties(Plan... inputs) {
-        throw new IllegalStateException("GroupPlan can not compute logical properties."
-                + " You should invoke GroupPlan.getLogicalProperties()");
     }
 
     @Override
@@ -98,4 +95,5 @@ public class GroupPlan extends LogicalLeaf {
     public String toString() {
         return "GroupPlan( " + group.getGroupId() + " )";
     }
+
 }

@@ -17,8 +17,15 @@
 
 #include "vec/data_types/data_type_bitmap.h"
 
+#include <utility>
+
+#include "util/bitmap_value.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_complex.h"
+#include "vec/columns/column_const.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/string_buffer.hpp"
+#include "vec/common/string_ref.h"
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
@@ -26,7 +33,8 @@ namespace doris::vectorized {
 // binary: <size array> | <bitmap array>
 //  <size array>: row num | bitmap1 size | bitmap2 size | ...
 //  <bitmap array>: bitmap1 | bitmap2 | ...
-int64_t DataTypeBitMap::get_uncompressed_serialized_bytes(const IColumn& column) const {
+int64_t DataTypeBitMap::get_uncompressed_serialized_bytes(const IColumn& column,
+                                                          int be_exec_version) const {
     auto ptr = column.convert_to_full_column_if_const();
     auto& data_column = assert_cast<const ColumnBitmap&>(*ptr);
 
@@ -40,7 +48,7 @@ int64_t DataTypeBitMap::get_uncompressed_serialized_bytes(const IColumn& column)
     return allocate_len_size + allocate_content_size;
 }
 
-char* DataTypeBitMap::serialize(const IColumn& column, char* buf) const {
+char* DataTypeBitMap::serialize(const IColumn& column, char* buf, int be_exec_version) const {
     auto ptr = column.convert_to_full_column_if_const();
     auto& data_column = assert_cast<const ColumnBitmap&>(*ptr);
 
@@ -56,14 +64,15 @@ char* DataTypeBitMap::serialize(const IColumn& column, char* buf) const {
     char* data_ptr = buf + sizeof(size_t) * (meta_ptr[0] + 1);
     for (size_t i = 0; i < meta_ptr[0]; ++i) {
         auto& bitmap = const_cast<BitmapValue&>(data_column.get_element(i));
-        bitmap.write(data_ptr);
+        bitmap.write_to(data_ptr);
         data_ptr += meta_ptr[i + 1];
     }
 
     return data_ptr;
 }
 
-const char* DataTypeBitMap::deserialize(const char* buf, IColumn* column) const {
+const char* DataTypeBitMap::deserialize(const char* buf, IColumn* column,
+                                        int be_exec_version) const {
     auto& data_column = assert_cast<ColumnBitmap&>(*column);
     auto& data = data_column.get_data();
 
@@ -90,7 +99,7 @@ void DataTypeBitMap::serialize_as_stream(const BitmapValue& cvalue, BufferWritab
     std::string memory_buffer;
     int bytesize = value.getSizeInBytes();
     memory_buffer.resize(bytesize);
-    value.write(const_cast<char*>(memory_buffer.data()));
+    value.write_to(const_cast<char*>(memory_buffer.data()));
     write_string_binary(memory_buffer, buf);
 }
 
@@ -100,13 +109,28 @@ void DataTypeBitMap::deserialize_as_stream(BitmapValue& value, BufferReadable& b
     value.deserialize(ref.data);
 }
 
-void DataTypeBitMap::to_string(const class doris::vectorized::IColumn& column, size_t row_num,
-                               doris::vectorized::BufferWritable& ostr) const {
-    auto& data =
-            const_cast<BitmapValue&>(assert_cast<const ColumnBitmap&>(column).get_element(row_num));
-    std::string result(data.getSizeInBytes(), '0');
-    data.write((char*)result.data());
+void DataTypeBitMap::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
 
-    ostr.write(result.data(), result.size());
+    auto& data =
+            const_cast<BitmapValue&>(assert_cast<const ColumnBitmap&>(*ptr).get_element(row_num));
+
+    std::string buffer(data.getSizeInBytes(), '0');
+    data.write_to(const_cast<char*>(buffer.data()));
+    ostr.write(buffer.c_str(), buffer.size());
+}
+
+Status DataTypeBitMap::from_string(ReadBuffer& rb, IColumn* column) const {
+    auto& data_column = assert_cast<ColumnBitmap&>(*column);
+    auto& data = data_column.get_data();
+
+    BitmapValue value;
+    if (!value.deserialize(rb.to_string().c_str())) {
+        return Status::InternalError("deserialize BITMAP from string fail!");
+    }
+    data.push_back(std::move(value));
+    return Status::OK();
 }
 } // namespace doris::vectorized

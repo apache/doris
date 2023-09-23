@@ -17,48 +17,38 @@
 
 #include "runtime/memory/thread_mem_tracker_mgr.h"
 
+#include <gen_cpp/types.pb.h>
+
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
-#include "runtime/memory/mem_tracker_task_pool.h"
-#include "service/backend_options.h"
 
 namespace doris {
 
 void ThreadMemTrackerMgr::attach_limiter_tracker(
-        const std::string& task_id, const TUniqueId& fragment_instance_id,
-        const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
+        const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
+        const TUniqueId& fragment_instance_id) {
     DCHECK(mem_tracker);
-    flush_untracked_mem<false>();
-    _task_id = task_id;
+    CHECK(init());
+    flush_untracked_mem();
     _fragment_instance_id = fragment_instance_id;
     _limiter_tracker = mem_tracker;
+    _limiter_tracker_raw = mem_tracker.get();
+    _wait_gc = true;
 }
 
-void ThreadMemTrackerMgr::detach_limiter_tracker() {
-    flush_untracked_mem<false>();
-    _task_id = "";
+void ThreadMemTrackerMgr::detach_limiter_tracker(
+        const std::shared_ptr<MemTrackerLimiter>& old_mem_tracker) {
+    CHECK(init());
+    flush_untracked_mem();
     _fragment_instance_id = TUniqueId();
-    _limiter_tracker = ExecEnv::GetInstance()->process_mem_tracker();
+    _limiter_tracker = old_mem_tracker;
+    _limiter_tracker_raw = old_mem_tracker.get();
+    _wait_gc = false;
 }
 
-void ThreadMemTrackerMgr::exceeded_cancel_task(const std::string& cancel_details) {
-    if (_fragment_instance_id != TUniqueId()) {
-        ExecEnv::GetInstance()->fragment_mgr()->cancel(
-                _fragment_instance_id, PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED,
-                cancel_details);
-    }
+void ThreadMemTrackerMgr::cancel_fragment(const std::string& exceed_msg) {
+    ExecEnv::GetInstance()->fragment_mgr()->cancel_instance(
+            _fragment_instance_id, PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED, exceed_msg);
 }
 
-void ThreadMemTrackerMgr::exceeded(Status failed_try_consume_st) {
-    if (_cb_func != nullptr) {
-        _cb_func();
-    }
-    if (is_attach_query()) {
-        auto st = _limiter_tracker->mem_limit_exceeded(
-                fmt::format("exec node:<{}>", last_consumer_tracker()),
-                _limiter_tracker->parent().get(), failed_try_consume_st);
-        exceeded_cancel_task(st.get_error_msg());
-        _check_limit = false; // Make sure it will only be canceled once
-    }
-}
 } // namespace doris

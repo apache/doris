@@ -18,13 +18,19 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.types.coercion.Int32OrLessType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 
 /**
  * Integer data type in Nereids.
  */
-public class IntegerType extends IntegralType {
-    public static IntegerType INSTANCE = new IntegerType();
+public class IntegerType extends IntegralType implements Int32OrLessType {
+    public static final IntegerType INSTANCE = new IntegerType();
+
+    private static final int WIDTH = 4;
+
+    private IntegerType() {
+    }
 
     @Override
     public Type toCatalogDataType() {
@@ -49,5 +55,10 @@ public class IntegerType extends IntegralType {
     @Override
     public DataType defaultConcreteType() {
         return this;
+    }
+
+    @Override
+    public int width() {
+        return WIDTH;
     }
 }

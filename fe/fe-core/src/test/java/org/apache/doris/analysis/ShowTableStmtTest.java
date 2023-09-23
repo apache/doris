@@ -18,8 +18,8 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.MockedAuth;
-import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
 
 import mockit.Mocked;
@@ -31,47 +31,54 @@ public class ShowTableStmtTest {
     private Analyzer analyzer;
 
     @Mocked
-    private PaloAuth auth;
+    private AccessControllerManager accessManager;
     @Mocked
     private ConnectContext ctx;
 
     @Before
     public void setUp() {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
-        MockedAuth.mockedAuth(auth);
+        MockedAuth.mockedAccess(accessManager);
         MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
     }
 
     @Test
     public void testNormal() throws AnalysisException {
-        ShowTableStmt stmt = new ShowTableStmt("", false, null);
+        ShowTableStmt stmt = new ShowTableStmt("", null, false, null);
         stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW TABLES FROM testCluster:testDb", stmt.toString());
+        Assert.assertEquals("SHOW TABLES FROM internal.testDb", stmt.toString());
         Assert.assertEquals("testCluster:testDb", stmt.getDb());
         Assert.assertFalse(stmt.isVerbose());
         Assert.assertEquals(1, stmt.getMetaData().getColumnCount());
         Assert.assertEquals("Tables_in_testDb", stmt.getMetaData().getColumn(0).getName());
 
-        stmt = new ShowTableStmt("abc", true, null);
+        stmt = new ShowTableStmt("abc", null, true, null);
         stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW FULL TABLES FROM testCluster:abc", stmt.toString());
+        Assert.assertEquals("SHOW FULL TABLES FROM internal.abc", stmt.toString());
         Assert.assertEquals(3, stmt.getMetaData().getColumnCount());
         Assert.assertEquals("Tables_in_abc", stmt.getMetaData().getColumn(0).getName());
         Assert.assertEquals("Table_type", stmt.getMetaData().getColumn(1).getName());
 
-        stmt = new ShowTableStmt("abc", true, "bcd");
+        stmt = new ShowTableStmt("abc", null, true, "bcd");
         stmt.analyze(analyzer);
         Assert.assertEquals("bcd", stmt.getPattern());
-        Assert.assertEquals("SHOW FULL TABLES FROM testCluster:abc LIKE 'bcd'", stmt.toString());
+        Assert.assertEquals("SHOW FULL TABLES FROM internal.abc LIKE 'bcd'", stmt.toString());
         Assert.assertEquals(3, stmt.getMetaData().getColumnCount());
         Assert.assertEquals("Tables_in_abc", stmt.getMetaData().getColumn(0).getName());
         Assert.assertEquals("Table_type", stmt.getMetaData().getColumn(1).getName());
     }
 
-    @Test(expected = AnalysisException.class)
-    public void testNoDb() throws AnalysisException {
-        ShowTableStmt stmt = new ShowTableStmt("", false, null);
-        stmt.analyze(AccessTestUtil.fetchEmptyDbAnalyzer());
+    @Test
+    public void testNoDb() {
+        ShowTableStmt stmt = new ShowTableStmt("", null, false, null);
+        try {
+            stmt.analyze(AccessTestUtil.fetchEmptyDbAnalyzer());
+        } catch (AnalysisException e) {
+            return;
+        } catch (Exception e) {
+            e.printStackTrace();
+            Assert.fail(e.getMessage());
+        }
         Assert.fail("No exception throws");
     }
 }

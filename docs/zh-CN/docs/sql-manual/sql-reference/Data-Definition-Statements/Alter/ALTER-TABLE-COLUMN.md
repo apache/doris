@@ -28,11 +28,11 @@ under the License.
 
 ### Name
 
-ALTER TABLE  COLUMN
+ALTER TABLE COLUMN
 
 ### Description
 
-该语句用于对已有 table 进行 Schema change 操作。schema change 是异步的，任务提交成功则返回，之后可使用[SHOW ALTER](../../Show-Statements/SHOW-ALTER.md) 命令查看进度。
+该语句用于对已有 table 进行 Schema change 操作。schema change 是异步的，任务提交成功则返回，之后可使用[SHOW ALTER TABLE COLUMN](../../Show-Statements/SHOW-ALTER.md) 命令查看进度。
 
 语法：
 
@@ -198,6 +198,7 @@ MODIFY COLUMN col1 BIGINT KEY DEFAULT "1" AFTER col2;
 ALTER TABLE example_db.my_table 
 MODIFY COLUMN val1 VARCHAR(64) REPLACE DEFAULT "abc";
 ```
+注意：只能修改列的类型，列的其他属性维持原样
 
 9. 重新排序 example_rollup_index 中的列（设原列顺序为：k1,k2,k3,v1,v2）
 
@@ -214,6 +215,14 @@ ALTER TABLE example_db.my_table
 ADD COLUMN v2 INT MAX DEFAULT "0" AFTER k2 TO example_rollup_index,
 ORDER BY (k3,k1,k2,v2,v1) FROM example_rollup_index;
 ```
+
+11. 修改Duplicate key 表 Key 列的某个字段的长度
+
+```sql
+alter table example_tbl modify column k3 varchar(50) key null comment 'to 50'
+```
+
+
 
 ### Keywords
 

@@ -21,12 +21,9 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.qe.VariableVarConverters;
 import org.apache.doris.thrift.TExprNode;
@@ -41,6 +38,8 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
+import java.math.BigDecimal;
+import java.nio.ByteBuffer;
 import java.util.Objects;
 
 public class StringLiteral extends LiteralExpr {
@@ -96,9 +95,9 @@ public class StringLiteral extends LiteralExpr {
         int minLength = Math.min(thisBytes.length, otherBytes.length);
         int i = 0;
         for (i = 0; i < minLength; i++) {
-            if (thisBytes[i] < otherBytes[i]) {
+            if (Byte.toUnsignedInt(thisBytes[i]) < Byte.toUnsignedInt(otherBytes[i])) {
                 return -1;
-            } else if (thisBytes[i] > otherBytes[i]) {
+            } else if (Byte.toUnsignedInt(thisBytes[i]) > Byte.toUnsignedInt(otherBytes[i])) {
                 return 1;
             }
         }
@@ -135,20 +134,22 @@ public class StringLiteral extends LiteralExpr {
 
     @Override
     protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.STRING_LITERAL;
-        msg.string_literal = new TStringLiteral(getUnescapedValue());
-    }
-
-    // FIXME: modify by zhaochun
-    public String getUnescapedValue() {
-        // Unescape string exactly like Hive does. Hive's method assumes
-        // quotes so we add them here to reuse Hive's code.
-        return value;
+        if (value == null) {
+            msg.node_type = TExprNodeType.NULL_LITERAL;
+        } else {
+            msg.string_literal = new TStringLiteral(value);
+            msg.node_type = TExprNodeType.STRING_LITERAL;
+        }
     }
 
     @Override
     public String getStringValue() {
         return value;
+    }
+
+    @Override
+    public String getStringValueForArray() {
+        return "\"" + getStringValue() + "\"";
     }
 
     @Override
@@ -158,7 +159,7 @@ public class StringLiteral extends LiteralExpr {
 
     @Override
     public double getDoubleValue() {
-        return Double.valueOf(value);
+        return Double.parseDouble(value);
     }
 
     @Override
@@ -176,11 +177,11 @@ public class StringLiteral extends LiteralExpr {
     public LiteralExpr convertToDate(Type targetType) throws AnalysisException {
         LiteralExpr newLiteral = null;
         try {
-            newLiteral = new DateLiteral(value, ScalarType.getDefaultDateType(targetType));
+            newLiteral = new DateLiteral(value, targetType);
         } catch (AnalysisException e) {
             if (targetType.isScalarType(PrimitiveType.DATETIME)) {
-                newLiteral = new DateLiteral(value, ScalarType.getDefaultDateType(Type.DATE));
-                newLiteral.setType(ScalarType.getDefaultDateType(Type.DATETIME));
+                newLiteral = new DateLiteral(value, Type.DATE);
+                newLiteral.setType(Type.DATETIME);
             } else if (targetType.isScalarType(PrimitiveType.DATETIMEV2)) {
                 newLiteral = new DateLiteral(value, Type.DATEV2);
                 newLiteral.setType(targetType);
@@ -188,7 +189,22 @@ public class StringLiteral extends LiteralExpr {
                 throw e;
             }
         }
+        try {
+            newLiteral.checkValueValid();
+        } catch (AnalysisException e) {
+            return NullLiteral.create(newLiteral.getType());
+        }
         return newLiteral;
+    }
+
+    public boolean canConvertToDateType(Type targetType) {
+        try {
+            Preconditions.checkArgument(targetType.isDateType());
+            new DateLiteral(value, targetType);
+            return true;
+        } catch (AnalysisException e) {
+            return false;
+        }
     }
 
     @Override
@@ -222,21 +238,28 @@ public class StringLiteral extends LiteralExpr {
                     try {
                         return new FloatLiteral(Double.valueOf(value), targetType);
                     } catch (NumberFormatException e) {
-                        ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_NUMBER, value);
+                        // consistent with CastExpr's getResultValue() method
+                        return new NullLiteral();
                     }
-                    break;
                 case DECIMALV2:
                 case DECIMAL32:
                 case DECIMAL64:
                 case DECIMAL128:
-                    return new DecimalLiteral(value);
+                    try {
+                        DecimalLiteral res = new DecimalLiteral(new BigDecimal(value).stripTrailingZeros());
+                        res.setType(targetType);
+                        return res;
+                    } catch (Exception e) {
+                        throw new AnalysisException(
+                                String.format("input value can't parse to decimal, value=%s", value));
+                    }
                 default:
                     break;
             }
         } else if (targetType.isDateType()) {
             // FE only support 'yyyy-MM-dd hh:mm:ss' && 'yyyy-MM-dd' format
             // so if FE unchecked cast fail, we also build CastExpr for BE
-            // BE support other format suck as 'yyyyMMdd'...
+            // BE support other format such as 'yyyyMMdd'...
             try {
                 return convertToDate(targetType);
             } catch (AnalysisException e) {
@@ -248,6 +271,8 @@ public class StringLiteral extends LiteralExpr {
             StringLiteral stringLiteral = new StringLiteral(this);
             stringLiteral.setType(targetType);
             return stringLiteral;
+        } else if (targetType.isJsonbType()) {
+            return new JsonLiteral(value);
         }
         return super.uncheckedCastTo(targetType);
     }
@@ -272,5 +297,19 @@ public class StringLiteral extends LiteralExpr {
     @Override
     public int hashCode() {
         return 31 * super.hashCode() + Objects.hashCode(value);
+    }
+
+    @Override
+    public void setupParamFromBinary(ByteBuffer data) {
+        int strLen = getParmLen(data);
+        if (strLen > data.remaining()) {
+            strLen = data.remaining();
+        }
+        byte[] bytes = new byte[strLen];
+        data.get(bytes);
+        value = new String(bytes);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("parsed value '{}'", value);
+        }
     }
 }

@@ -17,34 +17,47 @@
 
 #include "exec/schema_scanner/schema_schemata_scanner.h"
 
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/FrontendService_types.h>
+
+#include <string>
+
 #include "exec/schema_scanner/schema_helper.h"
-#include "runtime/primitive_type.h"
-#include "runtime/string_value.h"
+#include "runtime/define_primitive_type.h"
+#include "util/runtime_profile.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
+class RuntimeState;
+namespace vectorized {
+class Block;
+} // namespace vectorized
 
-SchemaScanner::ColumnDesc SchemaSchemataScanner::_s_columns[] = {
+std::vector<SchemaScanner::ColumnDesc> SchemaSchemataScanner::_s_columns = {
         //   name,       type,          size
-        {"CATALOG_NAME", TYPE_VARCHAR, sizeof(StringValue), true},
-        {"SCHEMA_NAME", TYPE_VARCHAR, sizeof(StringValue), false},
-        {"DEFAULT_CHARACTER_SET_NAME", TYPE_VARCHAR, sizeof(StringValue), false},
-        {"DEFAULT_COLLATION_NAME", TYPE_VARCHAR, sizeof(StringValue), false},
-        {"SQL_PATH", TYPE_VARCHAR, sizeof(StringValue), true},
+        {"CATALOG_NAME", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"SCHEMA_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"DEFAULT_CHARACTER_SET_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"DEFAULT_COLLATION_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"SQL_PATH", TYPE_VARCHAR, sizeof(StringRef), true},
 };
 
 SchemaSchemataScanner::SchemaSchemataScanner()
-        : SchemaScanner(_s_columns, sizeof(_s_columns) / sizeof(SchemaScanner::ColumnDesc)),
-          _db_index(0) {}
+        : SchemaScanner(_s_columns, TSchemaTableType::SCH_SCHEMATA) {}
 
-SchemaSchemataScanner::~SchemaSchemataScanner() {}
+SchemaSchemataScanner::~SchemaSchemataScanner() = default;
 
 Status SchemaSchemataScanner::start(RuntimeState* state) {
+    SCOPED_TIMER(_get_db_timer);
     if (!_is_init) {
         return Status::InternalError("used before initial.");
     }
     TGetDbsParams db_params;
     if (nullptr != _param->wild) {
         db_params.__set_pattern(*(_param->wild));
+    }
+    if (nullptr != _param->catalog) {
+        db_params.__set_catalog(*(_param->catalog));
     }
     if (nullptr != _param->current_user_ident) {
         db_params.__set_current_user_ident(*(_param->current_user_ident));
@@ -67,73 +80,72 @@ Status SchemaSchemataScanner::start(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaSchemataScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
-    // set all bit to not null
-    memset((void*)tuple, 0, _tuple_desc->num_null_bytes());
+Status SchemaSchemataScanner::get_next_block(vectorized::Block* block, bool* eos) {
+    if (!_is_init) {
+        return Status::InternalError("Used before Initialized.");
+    }
+    if (nullptr == block || nullptr == eos) {
+        return Status::InternalError("input pointer is nullptr.");
+    }
+
+    *eos = true;
+    if (!_db_result.dbs.size()) {
+        return Status::OK();
+    }
+    return _fill_block_impl(block);
+}
+
+Status SchemaSchemataScanner::_fill_block_impl(vectorized::Block* block) {
+    SCOPED_TIMER(_fill_block_timer);
+    auto dbs_num = _db_result.dbs.size();
+    std::vector<void*> null_datas(dbs_num, nullptr);
+    std::vector<void*> datas(dbs_num);
 
     // catalog
     {
         if (!_db_result.__isset.catalogs) {
-            tuple->set_null(_tuple_desc->slots()[0]->null_indicator_offset());
+            fill_dest_column_for_range(block, 0, null_datas);
         } else {
-            void* slot = tuple->get_slot(_tuple_desc->slots()[0]->tuple_offset());
-            StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-            std::string catalog_name = _db_result.catalogs[_db_index];
-            str_slot->ptr = (char*)pool->allocate(catalog_name.size());
-            str_slot->len = catalog_name.size();
-            memcpy(str_slot->ptr, catalog_name.c_str(), str_slot->len);
+            StringRef strs[dbs_num];
+            for (int i = 0; i < dbs_num; ++i) {
+                strs[i] = StringRef(_db_result.catalogs[i].c_str(), _db_result.catalogs[i].size());
+                datas[i] = strs + i;
+            }
+            fill_dest_column_for_range(block, 0, datas);
         }
     }
     // schema
     {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[1]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        std::string db_name = SchemaHelper::extract_db_name(_db_result.dbs[_db_index]);
-        str_slot->ptr = (char*)pool->allocate(db_name.size());
-        str_slot->len = db_name.size();
-        memcpy(str_slot->ptr, db_name.c_str(), str_slot->len);
+        std::string db_names[dbs_num];
+        StringRef strs[dbs_num];
+        for (int i = 0; i < dbs_num; ++i) {
+            db_names[i] = SchemaHelper::extract_db_name(_db_result.dbs[i]);
+            strs[i] = StringRef(db_names[i].c_str(), db_names[i].size());
+            datas[i] = strs + i;
+        }
+        fill_dest_column_for_range(block, 1, datas);
     }
     // DEFAULT_CHARACTER_SET_NAME
     {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[2]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        str_slot->len = strlen("utf8") + 1;
-        str_slot->ptr = (char*)pool->allocate(str_slot->len);
-        if (nullptr == str_slot->ptr) {
-            return Status::InternalError("Allocate memory failed.");
+        std::string src = "utf8";
+        StringRef str = StringRef(src.c_str(), src.size());
+        for (int i = 0; i < dbs_num; ++i) {
+            datas[i] = &str;
         }
-        memcpy(str_slot->ptr, "utf8", str_slot->len);
+        fill_dest_column_for_range(block, 2, datas);
     }
     // DEFAULT_COLLATION_NAME
     {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[3]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        str_slot->len = strlen("utf8_general_ci") + 1;
-        str_slot->ptr = (char*)pool->allocate(str_slot->len);
-        if (nullptr == str_slot->ptr) {
-            return Status::InternalError("Allocate memory failed.");
+        std::string src = "utf8_general_ci";
+        StringRef str = StringRef(src.c_str(), src.size());
+        for (int i = 0; i < dbs_num; ++i) {
+            datas[i] = &str;
         }
-        memcpy(str_slot->ptr, "utf8_general_ci", str_slot->len);
+        fill_dest_column_for_range(block, 3, datas);
     }
     // SQL_PATH
-    { tuple->set_null(_tuple_desc->slots()[4]->null_indicator_offset()); }
-    _db_index++;
+    { fill_dest_column_for_range(block, 4, null_datas); }
     return Status::OK();
-}
-
-Status SchemaSchemataScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eos) {
-    if (!_is_init) {
-        return Status::InternalError("Used before Initialized.");
-    }
-    if (nullptr == tuple || nullptr == pool || nullptr == eos) {
-        return Status::InternalError("input pointer is nullptr.");
-    }
-    if (_db_index >= _db_result.dbs.size()) {
-        *eos = true;
-        return Status::OK();
-    }
-    *eos = false;
-    return fill_one_row(tuple, pool);
 }
 
 } // namespace doris

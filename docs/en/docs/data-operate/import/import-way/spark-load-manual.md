@@ -30,7 +30,7 @@ Spark load realizes the preprocessing of load data by spark, improves the perfor
 
 Spark load uses the resources of the spark cluster to sort the data to be imported, and Doris be writes files directly, which can greatly reduce the resource usage of the Doris cluster, and is very good for historical mass data migration to reduce the resource usage and load of the Doris cluster. Effect.
 
-If users do not have the resources of Spark cluster and want to complete the migration of external storage historical data conveniently and quickly, they can use [Broker load](./BROKER-LOAD.md) . Compared with Spark load, importing Broker load will consume more resources on the Doris cluster.
+If users do not have the resources of Spark cluster and want to complete the migration of external storage historical data conveniently and quickly, they can use [Broker load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD.md) . Compared with Spark load, importing Broker load will consume more resources on the Doris cluster.
 
 Spark load is an asynchronous load method. Users need to create spark type load job by MySQL protocol and view the load results by `show load`.
 
@@ -132,7 +132,7 @@ In the existing Doris import process, the data structure of global dictionary is
 
 ## Hive Bitmap UDF
 
-Spark supports loading hive-generated bitmap data directly into Doris, see [hive-bitmap-udf documentation](../../../ecosystem/external-table/hive-bitmap-udf)
+Spark supports loading hive-generated bitmap data directly into Doris, see [hive-bitmap-udf documentation](../../../ecosystem/hive-bitmap-udf.md)
 
 ## Basic operation
 
@@ -154,10 +154,10 @@ PROPERTIES
   working_dir = path,
   broker = broker_name,
   broker.property_key = property_value,
-  hadoop.security.authentication = kerberos,
-  kerberos_principal = doris@YOUR.COM,
-  kerberos_keytab = /home/doris/my.keytab
-  kerberos_keytab_content = ASDOWHDLAWIDJHWLDKSALDJSDIWALD
+  broker.hadoop.security.authentication = kerberos,
+  broker.kerberos_principal = doris@YOUR.COM,
+  broker.kerberos_keytab = /home/doris/my.keytab
+  broker.kerberos_keytab_content = ASDOWHDLAWIDJHWLDKSALDJSDIWALD
 )
 
 -- drop spark resource
@@ -183,28 +183,40 @@ REVOKE USAGE_PRIV ON RESOURCE resource_name FROM ROLE role_name
 
 - `type`: resource type, required. Currently, only spark is supported.
 - Spark related parameters are as follows:
-
   - `spark.master`: required, yarn is supported at present, `spark://host:port`.
-
   - `spark.submit.deployMode`: the deployment mode of Spark Program. It is required and supports cluster and client.
-
-  - `spark.hadoop.yarn.resourcemanager.address`: required when master is yarn.
-
   - `spark.hadoop.fs.defaultfs`: required when master is yarn.
-
+  - `spark.submit.timeout`：spark task timeout, default 5 minutes
   - Other parameters are optional, refer to `http://spark.apache.org/docs/latest/configuration.html`
-- `working_dir`: directory used by ETL. Spark is required when used as an ETL resource. For example: `hdfs://host :port/tmp/doris`.
-- `hadoop.security.authentication`: Specify the authentication method as kerberos.
-- `kerberos_principal`: Specify the principal of kerberos.
-- `kerberos_keytab`: Specify the path to the keytab file for kerberos. The file must be an absolute path to a file on the server where the broker process is located. And can be accessed by the Broker process.
-- `kerberos_keytab_content`: Specify the content of the keytab file in kerberos after base64 encoding. You can choose one of these with `kerberos_keytab` configuration.
+- YARN RM related parameters are as follows：
+    - If Spark is a single-point RM, you need to configure `spark.hadoop.yarn.resourcemanager.address`，address of the single point resource manager.
+    - If Spark is RM-HA, it needs to be configured (where hostname and address are optional)：
+        - `spark.hadoop.yarn.resourcemanager.ha.enabled`: ResourceManager enables HA, set to true.
+        - `spark.hadoop.yarn.resourcemanager.ha.rm-ids`: List of ResourceManager logical IDs.
+        - `spark.hadoop.yarn.resourcemanager.hostname.rm-id`: For each rm-id, specify the hostname of the ResourceManager.
+        - `spark.hadoop.yarn.resourcemanager.address.rm-id`: For each rm-id, specify the host:port for clients to submit jobs.
+- HDFS HA related parameters are as follows：
+    - `spark.hadoop.fs.defaultFS`, hdfs client default path prefix.
+    - `spark.hadoop.dfs.nameservices`, hdfs cluster logical name.
+    - `spark.hadoop.dfs.ha.namenodes.nameservices01` , unique identifier for each NameNode in the nameservice.
+    - `spark.hadoop.dfs.namenode.rpc-address.nameservices01.mynamenode1`, fully qualified RPC address for each NameNode.
+    - `spark.hadoop.dfs.namenode.rpc-address.nameservices01.mynamenode2`, fully qualified RPC address for each NameNode.
+    - `spark.hadoop.dfs.client.failover.proxy.provider` = `org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider`, set the implementation class.
+-`working_dir`: directory used by ETL. Spark is required when used as an ETL resource. For example: `hdfs://host :port/tmp/doris`.
+- `broker.hadoop.security.authentication`: Specify the authentication method as kerberos.
+- `broker.kerberos_principal`: Specify the principal of kerberos.
+- `broker.kerberos_keytab`: Specify the path to the keytab file for kerberos. The file must be an absolute path to a file on the server where the broker process is located. And can be accessed by the Broker process.
+- `broker.kerberos_keytab_content`: Specify the content of the keytab file in kerberos after base64 encoding. You can choose one of these with `broker.kerberos_keytab` configuration.
 - `broker`: the name of the broker. Spark is required when used as an ETL resource. You need to use the 'alter system add broker' command to complete the configuration in advance.
 - `broker.property_key`: the authentication information that the broker needs to specify when reading the intermediate file generated by ETL.
+- `env`: Specify the spark environment variable and support dynamic setting. For example, when the authentication mode of Hadoop is simple, set the Hadoop user name and password
+  - `env.HADOOP_USER_NAME`: user name
+  - `env.HADOOP_USER_PASSWORD`: user password
 
 Example:
 
 ```sql
--- yarn cluster 模式
+-- yarn cluster mode
 CREATE EXTERNAL RESOURCE "spark0"
 PROPERTIES
 (
@@ -223,7 +235,7 @@ PROPERTIES
   "broker.password" = "password0"
 );
 
--- spark standalone client 模式
+-- spark standalone client mode
 CREATE EXTERNAL RESOURCE "spark1"
 PROPERTIES
 (
@@ -233,16 +245,49 @@ PROPERTIES
   "working_dir" = "hdfs://127.0.0.1:10000/tmp/doris",
   "broker" = "broker1"
 );
+
+-- yarn HA mode
+CREATE EXTERNAL RESOURCE sparkHA
+PROPERTIES
+(
+  "type" = "spark",
+  "spark.master" = "yarn",
+  "spark.submit.deployMode" = "cluster",
+  "spark.executor.memory" = "1g",
+  "spark.yarn.queue" = "default",
+  "spark.hadoop.yarn.resourcemanager.ha.enabled" = "true",
+  "spark.hadoop.yarn.resourcemanager.ha.rm-ids" = "rm1,rm2",
+  "spark.hadoop.yarn.resourcemanager.address.rm1" = "xxxx:8032",
+  "spark.hadoop.yarn.resourcemanager.address.rm2" = "xxxx:8032",
+  "spark.hadoop.fs.defaultFS" = "hdfs://nameservices01",
+  "spark.hadoop.dfs.nameservices" = "nameservices01",
+  "spark.hadoop.dfs.ha.namenodes.nameservices01" = "mynamenode1,mynamenode2",
+  "spark.hadoop.dfs.namenode.rpc-address.nameservices01.mynamenode1" = "xxxx:8020",
+  "spark.hadoop.dfs.namenode.rpc-address.nameservices01.mynamenode2" = "xxxx:8020",
+  "spark.hadoop.dfs.client.failover.proxy.provider" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider",
+  "working_dir" = "hdfs://nameservices01/doris_prd_data/sinan/spark_load/",
+  "broker" = "broker_name",
+  "broker.username" = "username",
+  "broker.password" = "",
+  "broker.dfs.nameservices" = "nameservices01",
+  "broker.dfs.ha.namenodes.nameservices01" = "mynamenode1, mynamenode2",
+  "broker.dfs.namenode.rpc-address.nameservices01.mynamenode1" = "xxxx:8020",
+  "broker.dfs.namenode.rpc-address.nameservices01.mynamenode2" = "xxxx:8020",
+  "broker.dfs.client.failover.proxy.provider" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+);
 ```
 
 **Spark Load supports Kerberos authentication**
 
 If Spark load accesses Hadoop cluster resources with Kerberos authentication, we only need to specify the following parameters when creating Spark resources:
 
-- `hadoop.security.authentication`: Specify the authentication method as kerberos.
-- `kerberos_principal`: Specify the principal of kerberos.
-- `kerberos_keytab`: Specify the path to the keytab file for kerberos. The file must be an absolute path to a file on the server where the broker process is located. And can be accessed by the Broker process.
-- `kerberos_keytab_content`: Specify the content of the keytab file in kerberos after base64 encoding. You can choose one of these with `kerberos_keytab` configuration.
+- `spark.hadoop.hadoop.security.authentication` Specify the authentication method as Kerberos for Yarn。
+- `spark.hadoop.yarn.resourcemanager.principal` Specify the principal of kerberos for Yarn.
+- `spark.hadoop.yarn.resourcemanager.keytab` Specify the path to the keytab file of kerberos for Yarn. The file must be an absolute path to a file on the server where the frontend process is located. And can be accessed by the frontend process.
+- `broker.hadoop.security.authentication`: Specify the authentication method as kerberos.
+- `broker.kerberos_principal`: Specify the principal of kerberos.
+- `broker.kerberos_keytab`: Specify the path to the keytab file for kerberos. The file must be an absolute path to a file on the server where the broker process is located. And can be accessed by the Broker process.
+- `broker.kerberos_keytab_content`: Specify the content of the keytab file in kerberos after base64 encoding. You can choose one of these with `kerberos_keytab` configuration.
 
 Example：
 
@@ -259,11 +304,14 @@ PROPERTIES
   "spark.yarn.queue" = "queue0",
   "spark.hadoop.yarn.resourcemanager.address" = "127.0.0.1:9999",
   "spark.hadoop.fs.defaultFS" = "hdfs://127.0.0.1:10000",
+  "spark.hadoop.hadoop.security.authentication" = "kerberos",
+  "spark.hadoop.yarn.resourcemanager.principal" = "doris@YOUR.YARN.COM",
+  "spark.hadoop.yarn.resourcemanager.keytab" = "/home/doris/yarn.keytab",
   "working_dir" = "hdfs://127.0.0.1:10000/tmp/doris",
   "broker" = "broker0",
-  "hadoop.security.authentication" = "kerberos",
-  "kerberos_principal" = "doris@YOUR.COM",
-  "kerberos_keytab" = "/home/doris/my.keytab"
+  "broker.hadoop.security.authentication" = "kerberos",
+  "broker.kerberos_principal" = "doris@YOUR.COM",
+  "broker.kerberos_keytab" = "/home/doris/my.keytab"
 );
 ```
 
@@ -600,7 +648,7 @@ The data type applicable to the aggregate column of the doris table is bitmap ty
 
 There is no need to build a global dictionary, just specify the corresponding field in the load command, the format is: ```doris field name=binary_bitmap (hive table field name)```
 
-Similarly, the binary (bitmap) type of data import is currently only supported when the upstream data source is a hive table.
+Similarly, the binary (bitmap) type of data import is currently only supported when the upstream data source is a hive table,You can refer to the use of hive bitmap [hive-bitmap-udf](../../../ecosystem/hive-bitmap-udf.md)
 
 ### Show Load
 

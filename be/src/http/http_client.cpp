@@ -17,7 +17,15 @@
 
 #include "http/http_client.h"
 
+#include <glog/logging.h>
+#include <unistd.h>
+
+#include <memory>
+#include <ostream>
+
 #include "common/config.h"
+#include "http/http_status.h"
+#include "util/stack_util.h"
 
 namespace doris {
 
@@ -162,8 +170,9 @@ Status HttpClient::execute(const std::function<bool(const void* data, size_t len
     _callback = &callback;
     auto code = curl_easy_perform(_curl);
     if (code != CURLE_OK) {
-        LOG(WARNING) << "fail to execute HTTP client, errmsg=" << _to_errmsg(code);
-        return Status::InternalError(_to_errmsg(code));
+        LOG(WARNING) << "fail to execute HTTP client, errmsg=" << _to_errmsg(code)
+                     << ", trace=" << get_stack_trace();
+        return Status::HttpError(_to_errmsg(code));
     }
     return Status::OK();
 }
@@ -221,7 +230,14 @@ Status HttpClient::execute_with_retry(int retry_times, int sleep_time,
         HttpClient client;
         status = callback(&client);
         if (status.ok()) {
-            return status;
+            auto http_status = client.get_http_status();
+            if (http_status == 200) {
+                return status;
+            } else {
+                auto error_msg = fmt::format("http status code is not 200, code={}", http_status);
+                LOG(WARNING) << error_msg;
+                return Status::HttpError(error_msg);
+            }
         }
         sleep(sleep_time);
     }

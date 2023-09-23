@@ -18,18 +18,19 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.analysis.StorageBackend;
-import org.apache.doris.backup.RemoteFile;
-import org.apache.doris.backup.S3Storage;
 import org.apache.doris.backup.Status;
-import org.apache.doris.catalog.AuthType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.hive.HiveMetaStoreCache;
+import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.remote.RemoteFile;
+import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TBrokerCheckPathExistRequest;
 import org.apache.doris.thrift.TBrokerCheckPathExistResponse;
@@ -52,73 +53,27 @@ import org.apache.doris.thrift.TBrokerPWriteRequest;
 import org.apache.doris.thrift.TBrokerReadResponse;
 import org.apache.doris.thrift.TBrokerRenamePathRequest;
 import org.apache.doris.thrift.TBrokerVersion;
-import org.apache.doris.thrift.THdfsConf;
-import org.apache.doris.thrift.THdfsParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloBrokerService;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FileStatus;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.hdfs.HdfsConfiguration;
-import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
 import java.io.FileInputStream;
 import java.io.IOException;
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 
 public class BrokerUtil {
     private static final Logger LOG = LogManager.getLogger(BrokerUtil.class);
 
     private static final int READ_BUFFER_SIZE_B = 1024 * 1024;
-    public static String HADOOP_FS_NAME = "fs.defaultFS";
-    // simple or kerberos
-    public static String HADOOP_SECURITY_AUTHENTICATION = "hadoop.security.authentication";
-    public static String HADOOP_USER_NAME = "hadoop.username";
-    public static String HADOOP_KERBEROS_PRINCIPAL = "hadoop.kerberos.principal";
-    public static String HADOOP_KERBEROS_KEYTAB = "hadoop.kerberos.keytab";
-    public static String HADOOP_SHORT_CIRCUIT = "dfs.client.read.shortcircuit";
-    public static String HADOOP_SOCKET_PATH = "dfs.domain.socket.path";
-
-    public static THdfsParams generateHdfsParam(Map<String, String> properties) {
-        THdfsParams tHdfsParams = new THdfsParams();
-        tHdfsParams.setHdfsConf(new ArrayList<>());
-        for (Map.Entry<String, String> property : properties.entrySet()) {
-            if (property.getKey().equalsIgnoreCase(HADOOP_FS_NAME)) {
-                tHdfsParams.setFsName(property.getValue());
-            } else if (property.getKey().equalsIgnoreCase(HADOOP_USER_NAME)) {
-                tHdfsParams.setUser(property.getValue());
-            } else if (property.getKey().equalsIgnoreCase(HADOOP_KERBEROS_PRINCIPAL)) {
-                tHdfsParams.setHdfsKerberosPrincipal(property.getValue());
-            } else if (property.getKey().equalsIgnoreCase(HADOOP_KERBEROS_KEYTAB)) {
-                tHdfsParams.setHdfsKerberosKeytab(property.getValue());
-            } else {
-                THdfsConf hdfsConf = new THdfsConf();
-                hdfsConf.setKey(property.getKey());
-                hdfsConf.setValue(property.getValue());
-                tHdfsParams.hdfs_conf.add(hdfsConf);
-            }
-        }
-        // `dfs.client.read.shortcircuit` and `dfs.domain.socket.path` should be both set to enable short circuit read.
-        // We should disable short circuit read if they are not both set because it will cause performance down.
-        if (!properties.containsKey(HADOOP_SHORT_CIRCUIT) || !properties.containsKey(HADOOP_SOCKET_PATH)) {
-            tHdfsParams.addToHdfsConf(new THdfsConf(HADOOP_SHORT_CIRCUIT, "false"));
-        }
-        return tHdfsParams;
-    }
 
     /**
      * Parse file status in path with broker, except directory
@@ -129,90 +84,26 @@ public class BrokerUtil {
      */
     public static void parseFile(String path, BrokerDesc brokerDesc, List<TBrokerFileStatus> fileStatuses)
             throws UserException {
-        if (brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER) {
-            TNetworkAddress address = getAddress(brokerDesc);
-            TPaloBrokerService.Client client = borrowClient(address);
-            boolean failed = true;
-            try {
-                TBrokerListPathRequest request = new TBrokerListPathRequest(
-                        TBrokerVersion.VERSION_ONE, path, false, brokerDesc.getProperties());
-                TBrokerListResponse tBrokerListResponse = null;
-                try {
-                    tBrokerListResponse = client.listPath(request);
-                } catch (TException e) {
-                    reopenClient(client);
-                    tBrokerListResponse = client.listPath(request);
-                }
-                if (tBrokerListResponse.getOpStatus().getStatusCode() != TBrokerOperationStatusCode.OK) {
-                    throw new UserException("Broker list path failed. path=" + path
-                        + ",broker=" + address + ",msg=" + tBrokerListResponse.getOpStatus().getMessage());
-                }
-                failed = false;
-                for (TBrokerFileStatus tBrokerFileStatus : tBrokerListResponse.getFiles()) {
-                    if (tBrokerFileStatus.isDir) {
-                        continue;
-                    }
-                    fileStatuses.add(tBrokerFileStatus);
-                }
-            } catch (TException e) {
-                LOG.warn("Broker list path exception, path={}, address={}", path, address, e);
-                throw new UserException("Broker list path exception. path=" + path + ", broker=" + address);
-            } finally {
-                returnClient(client, address, failed);
+        List<RemoteFile> rfiles = new ArrayList<>();
+        try {
+            RemoteFileSystem fileSystem = FileSystemFactory.get(
+                    brokerDesc.getName(), brokerDesc.getStorageType(), brokerDesc.getProperties());
+            Status st = fileSystem.list(path, rfiles, false);
+            if (!st.ok()) {
+                throw new UserException(brokerDesc.getName() + " list path failed. path=" + path
+                        + ",msg=" + st.getErrMsg());
             }
-        } else if (brokerDesc.getStorageType() == StorageBackend.StorageType.S3) {
-            S3Storage s3 = new S3Storage(brokerDesc.getProperties());
-            List<RemoteFile> rfiles = new ArrayList<>();
-            try {
-                Status st = s3.list(path, rfiles, false);
-                if (!st.ok()) {
-                    throw new UserException("S3 list path failed. path=" + path
-                            + ",msg=" + st.getErrMsg());
-                }
-            } catch (Exception e) {
-                LOG.warn("s3 list path exception, path={}", path, e);
-                throw new UserException("s3 list path exception. path=" + path + ", err: " + e.getMessage());
-            }
-            for (RemoteFile r : rfiles) {
-                if (r.isFile()) {
-                    fileStatuses.add(new TBrokerFileStatus(r.getName(), !r.isFile(), r.getSize(), r.isFile()));
-                }
-            }
-        } else if (brokerDesc.getStorageType() == StorageBackend.StorageType.HDFS) {
-            if (!brokerDesc.getProperties().containsKey(HADOOP_FS_NAME)
-                    || !brokerDesc.getProperties().containsKey(HADOOP_USER_NAME)) {
-                throw new UserException(String.format(
-                    "The properties of hdfs is invalid. %s and %s are needed", HADOOP_FS_NAME, HADOOP_USER_NAME));
-            }
-            String fsName = brokerDesc.getProperties().get(HADOOP_FS_NAME);
-            String userName = brokerDesc.getProperties().get(HADOOP_USER_NAME);
-            Configuration conf = new HdfsConfiguration();
-            boolean isSecurityEnabled = false;
-            for (Map.Entry<String, String> propEntry : brokerDesc.getProperties().entrySet()) {
-                conf.set(propEntry.getKey(), propEntry.getValue());
-                if (propEntry.getKey().equals(BrokerUtil.HADOOP_SECURITY_AUTHENTICATION)
-                        && propEntry.getValue().equals(AuthType.KERBEROS.getDesc())) {
-                    isSecurityEnabled = true;
-                }
-            }
-            try {
-                if (isSecurityEnabled) {
-                    UserGroupInformation.setConfiguration(conf);
-                    UserGroupInformation.loginUserFromKeytab(
-                            brokerDesc.getProperties().get(BrokerUtil.HADOOP_KERBEROS_PRINCIPAL),
-                            brokerDesc.getProperties().get(BrokerUtil.HADOOP_KERBEROS_KEYTAB));
-                }
-                FileSystem fs = FileSystem.get(new URI(fsName), conf, userName);
-                FileStatus[] statusList = fs.globStatus(new Path(path));
-                for (FileStatus status : statusList) {
-                    if (status.isFile()) {
-                        fileStatuses.add(new TBrokerFileStatus(status.getPath().toUri().getPath(),
-                                status.isDirectory(), status.getLen(), status.isFile()));
-                    }
-                }
-            } catch (IOException | InterruptedException | URISyntaxException e) {
-                LOG.warn("hdfs check error: ", e);
-                throw new UserException(e.getMessage());
+        } catch (Exception e) {
+            LOG.warn("{} list path exception, path={}", brokerDesc.getName(), path, e);
+            throw new UserException(brokerDesc.getName() +  " list path exception. path="
+                    + path + ", err: " + e.getMessage());
+        }
+        for (RemoteFile r : rfiles) {
+            if (r.isFile()) {
+                TBrokerFileStatus status = new TBrokerFileStatus(r.getName(), !r.isFile(), r.getSize(), r.isFile());
+                status.setBlockSize(r.getBlockSize());
+                status.setModificationTime(r.getModificationTime());
+                fileStatuses.add(status);
             }
         }
     }
@@ -223,16 +114,25 @@ public class BrokerUtil {
 
     public static List<String> parseColumnsFromPath(String filePath, List<String> columnsFromPath)
             throws UserException {
-        return parseColumnsFromPath(filePath, columnsFromPath, true);
+        return parseColumnsFromPath(filePath, columnsFromPath, true, false);
     }
 
     public static List<String> parseColumnsFromPath(
             String filePath,
             List<String> columnsFromPath,
-            boolean caseSensitive)
+            boolean caseSensitive,
+            boolean isACID)
             throws UserException {
         if (columnsFromPath == null || columnsFromPath.isEmpty()) {
             return Collections.emptyList();
+        }
+        // if it is ACID, the path count is 3. The hdfs path is hdfs://xxx/table_name/par=xxx/delta(or base)_xxx/.
+        int pathCount = isACID ? 3 : 2;
+        if (!caseSensitive) {
+            for (int i = 0; i < columnsFromPath.size(); i++) {
+                String path = columnsFromPath.remove(i);
+                columnsFromPath.add(i, path.toLowerCase());
+            }
         }
         String[] strings = filePath.split("/");
         if (strings.length < 2) {
@@ -241,15 +141,21 @@ public class BrokerUtil {
         }
         String[] columns = new String[columnsFromPath.size()];
         int size = 0;
-        for (int i = strings.length - 2; i >= 0; i--) {
+        boolean skipOnce = true;
+        for (int i = strings.length - pathCount; i >= 0; i--) {
             String str = strings[i];
             if (str != null && str.isEmpty()) {
                 continue;
             }
             if (str == null || !str.contains("=")) {
+                if (!isACID && skipOnce) {
+                    skipOnce = false;
+                    continue;
+                }
                 throw new UserException("Fail to parse columnsFromPath, expected: "
                         + columnsFromPath + ", filePath: " + filePath);
             }
+            skipOnce = false;
             String[] pair = str.split("=", 2);
             if (pair.length != 2) {
                 throw new UserException("Fail to parse columnsFromPath, expected: "
@@ -260,7 +166,8 @@ public class BrokerUtil {
             if (index == -1) {
                 continue;
             }
-            columns[index] = pair[1];
+            columns[index] = HiveMetaStoreCache.HIVE_DEFAULT_PARTITION.equals(pair[1])
+                ? FeConstants.null_string : pair[1];
             size++;
             if (size >= columnsFromPath.size()) {
                 break;
@@ -367,7 +274,7 @@ public class BrokerUtil {
                         LOG.warn("Broker close reader failed. path={}, address={}", path, address, ex);
                     }
                 }
-                if (tOperationStatus == null || tOperationStatus.getStatusCode() != TBrokerOperationStatusCode.OK) {
+                if (tOperationStatus.getStatusCode() != TBrokerOperationStatusCode.OK) {
                     LOG.warn("Broker close reader failed. path={}, address={}, error={}", path, address,
                              tOperationStatus.getMessage());
                 } else {
@@ -543,7 +450,7 @@ public class BrokerUtil {
         } catch (AnalysisException e) {
             throw new UserException(e.getMessage());
         }
-        return new TNetworkAddress(broker.ip, broker.port);
+        return new TNetworkAddress(broker.host, broker.port);
     }
 
     public static TPaloBrokerService.Client borrowClient(TNetworkAddress address) throws UserException {
@@ -668,7 +575,9 @@ public class BrokerUtil {
                         LOG.warn("Broker close writer failed. filePath={}, address={}", brokerFilePath, address, ex);
                     }
                 }
-                if (tOperationStatus == null || tOperationStatus.getStatusCode() != TBrokerOperationStatusCode.OK) {
+                if (tOperationStatus == null) {
+                    LOG.warn("Broker close reader failed. fd={}, address={}", fd.toString(), address);
+                } else if (tOperationStatus.getStatusCode() != TBrokerOperationStatusCode.OK) {
                     LOG.warn("Broker close writer failed. filePath={}, address={}, error={}", brokerFilePath,
                              address, tOperationStatus.getMessage());
                 } else {
@@ -683,3 +592,4 @@ public class BrokerUtil {
 
     }
 }
+

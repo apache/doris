@@ -18,13 +18,10 @@
 # where to put generated libraries
 set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/common")
 
-add_library(Common STATIC
-  daemon.cpp
-  status.cpp
-  resource_tls.cpp
-  logconfig.cpp
-  configbase.cpp
-)
+file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS *.cpp)
+add_library(Common STATIC ${SRC_FILES})
+
+pch_reuse(Common)
 
 # Generate env_config.h according to env_config.h.in
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/env_config.h.in ${GENSRC_DIR}/common/env_config.h)

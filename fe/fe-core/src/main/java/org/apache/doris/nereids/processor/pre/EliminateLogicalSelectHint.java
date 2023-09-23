@@ -21,10 +21,17 @@ import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.hint.Hint;
+import org.apache.doris.nereids.hint.LeadingHint;
+import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.properties.SelectHint;
+import org.apache.doris.nereids.properties.SelectHintLeading;
+import org.apache.doris.nereids.properties.SelectHintSetVar;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
+import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
 
@@ -37,15 +44,26 @@ import java.util.Optional;
 /**
  * eliminate set var hint, and set var to session variables.
  */
-public class EliminateLogicalSelectHint extends PlanPreprocessor {
+public class EliminateLogicalSelectHint extends PlanPreprocessor implements CustomRewriter {
     private Logger logger = LoggerFactory.getLogger(getClass());
 
     @Override
-    public LogicalPlan visitLogicalSelectHint(LogicalSelectHint<Plan> selectHintPlan, StatementContext context) {
+    public Plan rewriteRoot(Plan plan, JobContext jobContext) {
+        return plan.accept(this, jobContext.getCascadesContext().getStatementContext());
+    }
+
+    @Override
+    public LogicalPlan visitLogicalSelectHint(
+            LogicalSelectHint<? extends Plan> selectHintPlan,
+            StatementContext context) {
         for (Entry<String, SelectHint> hint : selectHintPlan.getHints().entrySet()) {
             String hintName = hint.getKey();
             if (hintName.equalsIgnoreCase("SET_VAR")) {
-                setVar(hint.getValue(), context);
+                setVar((SelectHintSetVar) hint.getValue(), context);
+            } else if (hintName.equalsIgnoreCase("ORDERED")) {
+                ConnectContext.get().getSessionVariable().setDisableJoinReorder(true);
+            } else if (hintName.equalsIgnoreCase("LEADING")) {
+                extractLeading((SelectHintLeading) hint.getValue(), context);
             } else {
                 logger.warn("Can not process select hint '{}' and skip it", hint.getKey());
             }
@@ -54,7 +72,7 @@ public class EliminateLogicalSelectHint extends PlanPreprocessor {
         return (LogicalPlan) selectHintPlan.child();
     }
 
-    private void setVar(SelectHint selectHint, StatementContext context) {
+    private void setVar(SelectHintSetVar selectHint, StatementContext context) {
         SessionVariable sessionVariable = context.getConnectContext().getSessionVariable();
         // set temporary session value, and then revert value in the 'finally block' of StmtExecutor#execute
         sessionVariable.setIsSingleSetVar(true);
@@ -65,10 +83,33 @@ public class EliminateLogicalSelectHint extends PlanPreprocessor {
                 try {
                     VariableMgr.setVar(sessionVariable, new SetVar(key, new StringLiteral(value.get())));
                 } catch (Throwable t) {
-                    throw new AnalysisException("Can not set session variable '" + key + "' = '"
-                            + value.get() + "'", t);
+                    throw new AnalysisException("Can not set session variable '"
+                            + key + "' = '" + value.get() + "'", t);
                 }
             }
         }
+        // if sv set enable_nereids_planner=true and hint set enable_nereids_planner=false, we should set
+        // enable_fallback_to_original_planner=true and revert it after executing.
+        // throw exception to fall back to original planner
+        if (!sessionVariable.isEnableNereidsPlanner()) {
+            try {
+                sessionVariable.enableFallbackToOriginalPlannerOnce();
+            } catch (Throwable t) {
+                throw new AnalysisException("failed to set fallback to original planner to true", t);
+            }
+            throw new AnalysisException("The nereids is disabled in this sql, fallback to original planner");
+        }
+    }
+
+    private void extractLeading(SelectHintLeading selectHint, StatementContext context) {
+        LeadingHint hint = new LeadingHint("Leading", selectHint.getParameters(), selectHint.toString());
+        if (context.getHintMap().get("Leading") != null) {
+            hint.setStatus(Hint.HintStatus.SYNTAX_ERROR);
+            hint.setErrorMessage("can only have one leading clause");
+        }
+        context.getHintMap().put("Leading", hint);
+        context.setLeadingJoin(true);
+        assert (selectHint != null);
+        assert (context != null);
     }
 }

@@ -22,7 +22,7 @@ suite("test_dup_tab_date_nullable") {
     sql "drop table if exists ${table1}"
 
     sql """
-CREATE TABLE `${table1}` (
+CREATE TABLE IF NOT EXISTS `${table1}` (
   `siteid` int(11) NULL COMMENT "",
   `date1` date NULL COMMENT "",
   `date2` date NULL COMMENT "",
@@ -42,14 +42,12 @@ PROPERTIES (
 
     """
 
-    sql "set enable_vectorized_engine = true"
-
     sql """insert into ${table1} values
         (1, '2021-04-01', '2021-04-02', '2021-04-03', '2021-04-01', '2021-04-02', '2021-04-03'),
         (1, '2021-03-01', '2021-03-02', '2021-03-03', '2021-03-01', '2021-03-02', '2021-03-03'),
         (1, '2021-02-01', '2021-02-02', '2021-02-03', '2021-02-01', '2021-02-02', '2021-02-03'),
         (1, '2021-01-01', '2021-01-02', '2021-01-03', '2021-01-01', '2021-01-02', '2021-01-03'),
-        (null, '2021-05-01', 'null', '2021-04-03', '2021-05-01', 'null', '2021-04-03')
+        (null, '2021-05-01', null, '2021-04-03', '2021-05-01', null, '2021-04-03')
     """
 
     qt_sql1 "select date1 from ${table1} order by date1"

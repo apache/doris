@@ -1,6 +1,6 @@
 ---
 {
-"title": "substr",
+"title": "SUBSTR",
 "language": "zh-CN"
 }
 ---
@@ -47,4 +47,4 @@ mysql> select substr("Hello doris", 1, 2);
 +-----------------------------+
 ```
 ### keywords
-SUBSTR
+    SUBSTR

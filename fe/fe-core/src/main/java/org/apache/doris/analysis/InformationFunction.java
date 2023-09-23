@@ -74,6 +74,9 @@ public class InformationFunction extends Expr {
             type = Type.BIGINT;
             intValue = analyzer.getConnectId();
             strValue = "";
+        } else if (funcType.equalsIgnoreCase("CURRENT_CATALOG")) {
+            type = Type.VARCHAR;
+            strValue = ConnectContext.get().getDefaultCatalog();
         }
     }
 

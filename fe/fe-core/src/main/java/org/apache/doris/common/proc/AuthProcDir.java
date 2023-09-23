@@ -20,7 +20,7 @@ package org.apache.doris.common.proc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.Auth;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -31,12 +31,13 @@ import com.google.common.collect.ImmutableList;
  */
 public class AuthProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("UserIdentity").add("Password").add("GlobalPrivs").add("CatalogPrivs")
-            .add("DatabasePrivs").add("TablePrivs").add("ResourcePrivs").build();
+            .add("UserIdentity").add("Password").add("Roles").add("GlobalPrivs").add("CatalogPrivs")
+            .add("DatabasePrivs").add("TablePrivs").add("ColPrivs").add("ResourcePrivs").add("WorkloadGroupPrivs")
+            .build();
 
-    private PaloAuth auth;
+    private Auth auth;
 
-    public AuthProcDir(PaloAuth auth) {
+    public AuthProcDir(Auth auth) {
         this.auth = auth;
     }
 
@@ -56,7 +57,7 @@ public class AuthProcDir implements ProcDirInterface {
             throw new AnalysisException("Invalid user ident: " + userIdent);
         }
 
-        return new UserPropertyProcNode(auth, userIdentity.getQualifiedUser());
+        return new UserPropertyProcNode(auth, userIdentity);
     }
 
     @Override

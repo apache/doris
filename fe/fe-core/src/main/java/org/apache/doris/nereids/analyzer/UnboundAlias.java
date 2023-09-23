@@ -20,21 +20,37 @@ package org.apache.doris.nereids.analyzer;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Expression for unbound alias.
  */
-public class UnboundAlias extends NamedExpression implements UnaryExpression, Unbound {
+public class UnboundAlias extends NamedExpression implements UnaryExpression, Unbound, PropagateNullable {
+
+    private Optional<String> alias;
 
     public UnboundAlias(Expression child) {
-        super(child);
+        super(ImmutableList.of(child));
+        this.alias = Optional.empty();
+    }
+
+    public UnboundAlias(Expression child, String alias) {
+        super(ImmutableList.of(child));
+        this.alias = Optional.of(alias);
+    }
+
+    private UnboundAlias(List<Expression> children, Optional<String> alias) {
+        super(children);
+        this.alias = alias;
     }
 
     @Override
@@ -43,8 +59,20 @@ public class UnboundAlias extends NamedExpression implements UnaryExpression, Un
     }
 
     @Override
+    public String toSql() {
+        StringBuilder stringBuilder = new StringBuilder();
+        stringBuilder.append("(" + child() + ")");
+        alias.ifPresent(name -> stringBuilder.append(" AS " + name));
+        return stringBuilder.toString();
+
+    }
+
+    @Override
     public String toString() {
-        return "UnboundAlias(" + child() + ")";
+        StringBuilder stringBuilder = new StringBuilder();
+        stringBuilder.append("UnboundAlias(" + child() + ")");
+        alias.ifPresent(name -> stringBuilder.append(" AS " + name));
+        return stringBuilder.toString();
     }
 
     @Override
@@ -55,6 +83,10 @@ public class UnboundAlias extends NamedExpression implements UnaryExpression, Un
     @Override
     public UnboundAlias withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new UnboundAlias(children.get(0));
+        return new UnboundAlias(children, alias);
+    }
+
+    public Optional<String> getAlias() {
+        return alias;
     }
 }

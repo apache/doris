@@ -113,7 +113,7 @@ public class DropPartitionTest {
         String recoverPartitionSql = "recover partition p20210202 from test.tbl1";
         RecoverPartitionStmt recoverPartitionStmt = (RecoverPartitionStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverPartitionSql, connectContext);
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
-                "No partition named p20210202 in table tbl1",
+                "No partition named 'p20210202' or partition id '-1' in table tbl1",
                 () -> Env.getCurrentEnv().recoverPartition(recoverPartitionStmt));
     }
 

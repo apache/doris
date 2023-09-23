@@ -39,6 +39,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TPartitionType;
 
 import com.google.common.base.Preconditions;
@@ -205,8 +206,8 @@ public class DistributedPlanner {
             Preconditions.checkState(childFragments.size() == 2);
             result = createHashJoinFragment((HashJoinNode) root,
                     childFragments.get(1), childFragments.get(0), fragments);
-        } else if (root instanceof CrossJoinNode) {
-            result = createCrossJoinFragment((CrossJoinNode) root, childFragments.get(1),
+        } else if (root instanceof NestedLoopJoinNode) {
+            result = createNestedLoopJoinFragment((NestedLoopJoinNode) root, childFragments.get(1),
                     childFragments.get(0));
         } else if (root instanceof SelectNode) {
             result = createSelectNodeFragment((SelectNode) root, childFragments);
@@ -236,7 +237,8 @@ public class DistributedPlanner {
         // move 'result' to end, it depends on all of its children
         fragments.remove(result);
         fragments.add(result);
-        if (!isPartitioned && result.isPartitioned() && result.getPlanRoot().getNumInstances() > 1) {
+        if ((!isPartitioned && result.isPartitioned() && result.getPlanRoot().getNumInstances() > 1)
+                || (!(root instanceof SortNode) && root.hasOffset())) {
             result = createMergeFragment(result);
             fragments.add(result);
         }
@@ -251,15 +253,22 @@ public class DistributedPlanner {
      */
     private PlanFragment createMergeFragment(PlanFragment inputFragment)
             throws UserException {
-        Preconditions.checkState(inputFragment.isPartitioned());
+        Preconditions.checkState(inputFragment.isPartitioned() || inputFragment.getPlanRoot().hasOffset());
 
         // exchange node clones the behavior of its input, aside from the conjuncts
         ExchangeNode mergePlan =
                 new ExchangeNode(ctx.getNextNodeId(), inputFragment.getPlanRoot(), false);
+        PlanNode inputRoot = inputFragment.getPlanRoot();
+        if (inputRoot.hasOffset()) {
+            long limit = inputRoot.getOffset() + inputRoot.getLimit();
+            inputRoot.unsetLimit();
+            inputRoot.setLimit(limit);
+        }
         mergePlan.setNumInstances(inputFragment.getPlanRoot().getNumInstances());
         mergePlan.init(ctx.getRootAnalyzer());
         Preconditions.checkState(mergePlan.hasValidStats());
         PlanFragment fragment = new PlanFragment(ctx.getNextFragmentId(), mergePlan, DataPartition.UNPARTITIONED);
+        fragment.setResultSinkType(ctx.getRootAnalyzer().getContext().getResultSinkType());
         inputFragment.setDestination(mergePlan);
         return fragment;
     }
@@ -271,12 +280,8 @@ public class DistributedPlanner {
      * TODO: hbase scans are range-partitioned on the row key
      */
     private PlanFragment createScanFragment(PlanNode node) throws UserException {
-        if (node instanceof MysqlScanNode || node instanceof OdbcScanNode) {
+        if (node instanceof MysqlScanNode) {
             return new PlanFragment(ctx.getNextFragmentId(), node, DataPartition.UNPARTITIONED);
-        } else if (node instanceof SchemaScanNode) {
-            return new PlanFragment(ctx.getNextFragmentId(), node, DataPartition.RANDOM);
-        } else if (node instanceof TableValuedFunctionScanNode) {
-            return new PlanFragment(ctx.getNextFragmentId(), node, DataPartition.RANDOM);
         } else if (node instanceof OlapScanNode) {
             // olap scan node
             OlapScanNode olapScanNode = (OlapScanNode) node;
@@ -323,11 +328,11 @@ public class DistributedPlanner {
 
         // bucket shuffle join is better than broadcast and shuffle join
         // it can reduce the network cost of join, so doris chose it first
-        List<Expr> rhsPartitionxprs = Lists.newArrayList();
-        if (canBucketShuffleJoin(node, leftChildFragment, rhsPartitionxprs)) {
+        List<Expr> rhsPartitionExprs = Lists.newArrayList();
+        if (canBucketShuffleJoin(node, leftChildFragment, rhsPartitionExprs)) {
             node.setDistributionMode(HashJoinNode.DistributionMode.BUCKET_SHUFFLE);
             DataPartition rhsJoinPartition =
-                    new DataPartition(TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED, rhsPartitionxprs);
+                    new DataPartition(TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED, rhsPartitionExprs);
             ExchangeNode rhsExchange =
                     new ExchangeNode(ctx.getNextNodeId(), rightChildFragment.getPlanRoot(), false);
             rhsExchange.setNumInstances(rightChildFragment.getPlanRoot().getNumInstances());
@@ -353,7 +358,10 @@ public class DistributedPlanner {
         // - and the expected size of the hash tbl doesn't exceed autoBroadcastThreshold
         // we set partition join as default when broadcast join cost equals partition join cost
 
-        if (node.getJoinOp() != JoinOperator.RIGHT_OUTER_JOIN && node.getJoinOp() != JoinOperator.FULL_OUTER_JOIN) {
+        if (node.getJoinOp() == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN) {
+            doBroadcast = true;
+        } else if (node.getJoinOp() != JoinOperator.RIGHT_OUTER_JOIN
+                && node.getJoinOp() != JoinOperator.FULL_OUTER_JOIN) {
             if (node.getInnerRef().isBroadcastJoin()) {
                 // respect user join hint
                 doBroadcast = true;
@@ -375,6 +383,7 @@ public class DistributedPlanner {
             node.setChild(0, leftChildFragment.getPlanRoot());
             connectChildFragment(node, 1, leftChildFragment, rightChildFragment);
             leftChildFragment.setPlanRoot(node);
+            ((ExchangeNode) node.getChild(1)).setRightChildOfBroadcastHashJoin(true);
             return leftChildFragment;
         } else {
             node.setDistributionMode(HashJoinNode.DistributionMode.PARTITIONED);
@@ -425,26 +434,33 @@ public class DistributedPlanner {
 
     /**
      * Colocate Join can be performed when the following 4 conditions are met at the same time.
-     * 1. Session variables disable_colocate_plan = false
-     * 2. There is no join hints in HashJoinNode
-     * 3. There are no exchange node between source scan node and HashJoinNode.
-     * 4. The scan nodes which are related by EqConjuncts in HashJoinNode are colocate and group can be matched.
+     * 1. Join operator is not NULL_AWARE_LEFT_ANTI_JOIN
+     * 2. Session variables disable_colocate_plan = false
+     * 3. There is no join hints in HashJoinNode
+     * 4. There are no exchange node between source scan node and HashJoinNode.
+     * 5. The scan nodes which are related by EqConjuncts in HashJoinNode are colocate and group can be matched.
      */
     private boolean canColocateJoin(HashJoinNode node, PlanFragment leftChildFragment, PlanFragment rightChildFragment,
                                     List<String> cannotReason) {
         // Condition1
+        if (node.getJoinOp() == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN) {
+            cannotReason.add(DistributedPlanColocateRule.NULL_AWARE_LEFT_ANTI_JOIN_MUST_BROADCAST);
+            return false;
+        }
+
+        // Condition2
         if (ConnectContext.get().getSessionVariable().isDisableColocatePlan()) {
             cannotReason.add(DistributedPlanColocateRule.SESSION_DISABLED);
             return false;
         }
 
-        // Condition2: If user have a join hint to use proper way of join, can not be colocate join
+        // Condition3: If user have a join hint to use proper way of join, can not be colocate join
         if (node.getInnerRef().hasJoinHints()) {
             cannotReason.add(DistributedPlanColocateRule.HAS_JOIN_HINT);
             return false;
         }
 
-        // Condition3:
+        // Condition4:
         // If there is an exchange node between the HashJoinNode and their real associated ScanNode,
         //   it means that the data has been rehashed.
         // The rehashed data can no longer be guaranteed to correspond to the left and right buckets,
@@ -468,7 +484,7 @@ public class DistributedPlanner {
             predicateList.add(eqJoinPredicate);
         }
 
-        // Condition4
+        // Condition5
         return dataDistributionMatchEqPredicate(scanNodeWithJoinConjuncts, cannotReason);
     }
 
@@ -479,7 +495,7 @@ public class DistributedPlanner {
             return null;
         }
         ScanNode scanNode = planFragment.getPlanRoot()
-                .getScanNodeInOneFragmentByTupleId(slotRef.getDesc().getParent().getId());
+                .getScanNodeInOneFragmentBySlotRef(slotRef);
         if (scanNode == null) {
             cannotReason.add(DistributedPlanColocateRule.REDISTRIBUTED_SRC_DATA);
             return null;
@@ -521,8 +537,14 @@ public class DistributedPlanner {
         // they are naturally colocate relationship no need to check colocate group
         Collection<Long> leftPartitions = leftRoot.getSelectedPartitionIds();
         Collection<Long> rightPartitions = rightRoot.getSelectedPartitionIds();
-        boolean noNeedCheckColocateGroup = (leftTable.getId() == rightTable.getId())
-                && (leftPartitions.equals(rightPartitions)) && (leftPartitions.size() <= 1);
+
+        // For UT or no partition is selected, getSelectedIndexId() == -1, see selectMaterializedView()
+        boolean hitSameIndex = (leftTable.getId() == rightTable.getId())
+                && (leftRoot.getSelectedIndexId() != -1 && rightRoot.getSelectedIndexId() != -1)
+                && (leftRoot.getSelectedIndexId() == rightRoot.getSelectedIndexId());
+
+        boolean noNeedCheckColocateGroup = hitSameIndex && (leftPartitions.equals(rightPartitions))
+                && (leftPartitions.size() <= 1);
 
         if (!noNeedCheckColocateGroup) {
             ColocateTableIndex colocateIndex = Env.getCurrentColocateIndex();
@@ -568,7 +590,7 @@ public class DistributedPlanner {
                 }
             }
 
-            //3 the join columns should contains all distribute columns to enable colocate join
+            //3 the join columns should contain all distribute columns to enable colocate join
             if (leftJoinColumns.containsAll(leftDistributeColumns)
                     && rightJoinColumns.containsAll(rightDistributeColumns)) {
                 return true;
@@ -581,6 +603,10 @@ public class DistributedPlanner {
 
     private boolean canBucketShuffleJoin(HashJoinNode node, PlanFragment leftChildFragment,
                                          List<Expr> rhsHashExprs) {
+        if (node.getJoinOp() == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN) {
+            return false;
+        }
+
         if (!ConnectContext.get().getSessionVariable().isEnableBucketShuffleJoin()) {
             return false;
         }
@@ -626,10 +652,11 @@ public class DistributedPlanner {
         DistributionInfo leftDistribution = leftScanNode.getOlapTable().getDefaultDistributionInfo();
 
         if (leftDistribution instanceof HashDistributionInfo) {
-            // use the table_name + '-' + column_name as check condition
+            // use the table_name + '-' + column_name.toLowerCase() as check condition,
+            // as column name in doris is case insensitive and table name is case sensitive
             List<Column> leftDistributeColumns = ((HashDistributionInfo) leftDistribution).getDistributionColumns();
             List<String> leftDistributeColumnNames = leftDistributeColumns.stream()
-                    .map(col -> leftTable.getName() + "." + col.getName()).collect(Collectors.toList());
+                    .map(col -> leftTable.getName() + "." + col.getName().toLowerCase()).collect(Collectors.toList());
 
             List<String> leftJoinColumnNames = new ArrayList<>();
             List<Expr> rightExprs = new ArrayList<>();
@@ -642,11 +669,13 @@ public class DistributedPlanner {
                     continue;
                 }
 
-                SlotRef leftSlot = lhsJoinExpr.unwrapSlotRef();
-                if (leftSlot.getTable() instanceof OlapTable) {
+                SlotRef leftSlot = node.getChild(0).findSrcSlotRef(lhsJoinExpr.unwrapSlotRef());
+                if (leftSlot.getTable() instanceof OlapTable
+                        && leftScanNode.desc.getSlots().contains(leftSlot.getDesc())) {
                     // table name in SlotRef is not the really name. `select * from test as t`
                     // table name in SlotRef is `t`, but here we need is `test`.
-                    leftJoinColumnNames.add(leftSlot.getTable().getName() + "." + leftSlot.getColumnName());
+                    leftJoinColumnNames.add(leftSlot.getTable().getName() + "."
+                            + leftSlot.getColumnName().toLowerCase());
                     rightExprs.add(rhsJoinExpr);
                 }
             }
@@ -659,7 +688,11 @@ public class DistributedPlanner {
                 // check the rhs join expr type is same as distribute column
                 for (int j = 0; j < leftJoinColumnNames.size(); j++) {
                     if (leftJoinColumnNames.get(j).equals(distributeColumnName)) {
-                        if (rightExprs.get(j).getType().equals(leftDistributeColumns.get(i).getType())) {
+                        // varchar and string type don't need to check the length property
+                        if ((rightExprs.get(j).getType().isVarcharOrStringType()
+                                && leftDistributeColumns.get(i).getType().isVarcharOrStringType())
+                                || (rightExprs.get(j).getType()
+                                        .equals(leftDistributeColumns.get(i).getType()))) {
                             rhsJoinExprs.add(rightExprs.get(j));
                             findRhsExprs = true;
                             break;
@@ -682,16 +715,42 @@ public class DistributedPlanner {
      * Modifies the leftChildFragment to execute a cross join. The right child input is provided by an ExchangeNode,
      * which is the destination of the rightChildFragment's output.
      */
-    private PlanFragment createCrossJoinFragment(
-            CrossJoinNode node, PlanFragment rightChildFragment, PlanFragment leftChildFragment)
+    private PlanFragment createNestedLoopJoinFragment(
+            NestedLoopJoinNode node, PlanFragment rightChildFragment, PlanFragment leftChildFragment)
             throws UserException {
-        // The rhs tree is going to send data through an exchange node which effectively
-        // compacts the data. No reason to do it again at the rhs root node.
-        rightChildFragment.getPlanRoot().setCompactData(false);
-        node.setChild(0, leftChildFragment.getPlanRoot());
-        connectChildFragment(node, 1, leftChildFragment, rightChildFragment);
-        leftChildFragment.setPlanRoot(node);
-        return leftChildFragment;
+        if (node.canParallelize()) {
+            // The rhs tree is going to send data through an exchange node which effectively
+            // compacts the data. No reason to do it again at the rhs root node.
+            rightChildFragment.getPlanRoot().setCompactData(false);
+            node.setChild(0, leftChildFragment.getPlanRoot());
+            connectChildFragment(node, 1, leftChildFragment, rightChildFragment);
+            leftChildFragment.setPlanRoot(node);
+            return leftChildFragment;
+        } else {
+            // For non-equal nljoin, we should make sure using only one instance to do processing.
+            DataPartition lhsJoinPartition = new DataPartition(TPartitionType.UNPARTITIONED);
+            ExchangeNode lhsExchange =
+                    new ExchangeNode(ctx.getNextNodeId(), leftChildFragment.getPlanRoot(), false);
+            lhsExchange.setNumInstances(1);
+            lhsExchange.init(ctx.getRootAnalyzer());
+
+            DataPartition rhsJoinPartition =
+                    new DataPartition(TPartitionType.UNPARTITIONED);
+            ExchangeNode rhsExchange =
+                    new ExchangeNode(ctx.getNextNodeId(), rightChildFragment.getPlanRoot(), false);
+            rhsExchange.setNumInstances(1);
+            rhsExchange.init(ctx.getRootAnalyzer());
+
+            node.setChild(0, lhsExchange);
+            node.setChild(1, rhsExchange);
+            PlanFragment joinFragment = new PlanFragment(ctx.getNextFragmentId(), node, lhsJoinPartition);
+            // connect the child fragments
+            leftChildFragment.setDestination(lhsExchange);
+            leftChildFragment.setOutputPartition(lhsJoinPartition);
+            rightChildFragment.setDestination(rhsExchange);
+            rightChildFragment.setOutputPartition(rhsJoinPartition);
+            return joinFragment;
+        }
     }
 
     /**
@@ -873,6 +932,13 @@ public class DistributedPlanner {
             if (canColocateAgg(node.getAggInfo(), childFragment.getDataPartition())) {
                 childFragment.addPlanRoot(node);
                 childFragment.setHasColocatePlanNode(true);
+                return childFragment;
+            } else if (SessionVariable.enablePipelineEngine()
+                    && childFragment.getPlanRoot().shouldColoAgg(node.getAggInfo())
+                    && childFragment.getPlanRoot() instanceof OlapScanNode) {
+                childFragment.getPlanRoot().setShouldColoScan();
+                childFragment.addPlanRoot(node);
+                childFragment.setHasColocatePlanNode(false);
                 return childFragment;
             } else {
                 return createMergeAggregationFragment(node, childFragment);

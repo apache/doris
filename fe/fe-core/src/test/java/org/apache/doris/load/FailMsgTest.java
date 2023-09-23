@@ -46,7 +46,7 @@ public class FailMsgTest {
         Assert.assertEquals(failMsg1.getMsg(), "Job failed");
         Assert.assertEquals(failMsg1.getCancelType(), FailMsg.CancelType.ETL_QUALITY_UNSATISFIED);
 
-        Assert.assertTrue(failMsg1.equals(failMsg));
+        Assert.assertEquals(failMsg1, failMsg);
 
         dis.close();
         file.delete();

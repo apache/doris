@@ -62,11 +62,36 @@ public class LargeIntLiteral extends LiteralExpr {
         analysisDone();
     }
 
+    public LargeIntLiteral(BigInteger v) {
+        super();
+        type = Type.LARGEINT;
+        value = v;
+    }
+
     public LargeIntLiteral(String value) throws AnalysisException {
         super();
         BigInteger bigInt;
         try {
             bigInt = new BigInteger(value);
+            // ATTN: value from 'sql_parser.y' is always be positive. for example: '-256' will to be
+            // 256, and for int8_t, 256 is invalid, while -256 is valid. So we check the right border
+            // is LARGE_INT_MAX_ABS
+            if (bigInt.compareTo(LARGE_INT_MIN) < 0 || bigInt.compareTo(LARGE_INT_MAX_ABS) > 0) {
+                throw new AnalysisException("Large int literal is out of range: " + value);
+            }
+        } catch (NumberFormatException e) {
+            throw new AnalysisException("Invalid integer literal: " + value, e);
+        }
+        this.value = bigInt;
+        type = Type.LARGEINT;
+        analysisDone();
+    }
+
+    public LargeIntLiteral(BigDecimal value) throws AnalysisException {
+        super();
+        BigInteger bigInt;
+        try {
+            bigInt = new BigInteger(value.toPlainString());
             // ATTN: value from 'sql_parser.y' is always be positive. for example: '-256' will to be
             // 256, and for int8_t, 256 is invalid, while -256 is valid. So we check the right border
             // is LARGE_INT_MAX_ABS
@@ -166,6 +191,11 @@ public class LargeIntLiteral extends LiteralExpr {
     }
 
     @Override
+    public String getStringValueForArray() {
+        return "\"" + getStringValue() + "\"";
+    }
+
+    @Override
     public long getLongValue() {
         return value.longValue();
     }
@@ -191,7 +221,9 @@ public class LargeIntLiteral extends LiteralExpr {
         if (targetType.isFloatingPointType()) {
             return new FloatLiteral(new Double(value.doubleValue()), targetType);
         } else if (targetType.isDecimalV2() || targetType.isDecimalV3()) {
-            return new DecimalLiteral(new BigDecimal(value));
+            DecimalLiteral res = new DecimalLiteral(new BigDecimal(value));
+            res.setType(targetType);
+            return res;
         } else if (targetType.isIntegerType()) {
             try {
                 return new IntLiteral(value.longValueExact(), targetType);

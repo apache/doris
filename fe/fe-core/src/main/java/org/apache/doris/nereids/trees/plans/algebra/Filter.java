@@ -18,10 +18,19 @@
 package org.apache.doris.nereids.trees.plans.algebra;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.util.ExpressionUtils;
+
+import com.google.common.base.Suppliers;
+
+import java.util.Set;
 
 /**
  * Common interface for logical/physical filter.
  */
 public interface Filter {
-    Expression getPredicates();
+    Set<Expression> getConjuncts();
+
+    default Expression getPredicate() {
+        return Suppliers.memoize(() -> ExpressionUtils.and(getConjuncts().toArray(new Expression[0]))).get();
+    }
 }

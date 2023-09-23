@@ -36,7 +36,32 @@ suite("aggregate") {
                 c_timestamp_3 datetimev2(6),
                 c_boolean boolean,
                 c_short_decimal decimal(5,2),
-                c_long_decimal decimal(27,9)
+                c_long_decimal decimal(38,10)
+            )
+            DUPLICATE KEY(c_bigint)
+            DISTRIBUTED BY HASH(c_bigint) BUCKETS 1
+            PROPERTIES (
+              "replication_num" = "1"
+            )
+        """
+
+    def tableName2 = "datetype2"
+
+    sql """ DROP TABLE IF EXISTS ${tableName2} """
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tableName2} (
+                c_bigint bigint,
+                c_double double,
+                c_string string,
+                c_date date,
+                c_timestamp datetime,
+                c_date_1 datev2,
+                c_timestamp_1 datetimev2,
+                c_timestamp_2 datetimev2(3),
+                c_timestamp_3 datetimev2(6),
+                c_boolean boolean,
+                c_short_decimal decimal(5,2),
+                c_long_decimal decimal(38,11)
             )
             DUPLICATE KEY(c_bigint)
             DISTRIBUTED BY HASH(c_bigint) BUCKETS 1
@@ -79,6 +104,9 @@ suite("aggregate") {
         }
     }
 
+    sql "insert into ${tableName2} values (12, 12.25, 'String1', '1999-01-08', '1999-01-08 02:05:06', '1999-01-08', '1999-01-08 02:05:06.111111', null, '1999-01-08 02:05:06.111111', 'true', null, 123456789012345678.012345678);"
+
+    sql " sync "
     qt_aggregate """ select max(upper(c_string)), min(upper(c_string)) from ${tableName} """
     qt_aggregate """ select avg(c_bigint), avg(c_double) from ${tableName} """
     qt_aggregate """ select avg(distinct c_bigint), avg(distinct c_double) from ${tableName} """
@@ -110,6 +138,9 @@ suite("aggregate") {
     qt_aggregate """ select variance(c_bigint), variance(distinct c_double) from ${tableName}  """
     qt_aggregate """ select 1 k1, 2 k2, c_bigint k3, sum(c_double) from ${tableName} group by 1, k2, k3 order by k1, k2, k3 """
     qt_aggregate """ select (k1 + k2) * k3 k4 from (select 1 k1, 2 k2, c_bigint k3, sum(c_double) from ${tableName} group by 1, k2, k3) t order by k4 """
+    qt_aggregate32" select topn_weighted(c_string,c_bigint,3) from ${tableName}"
+    qt_aggregate33" select avg_weighted(c_double,c_bigint) from ${tableName};"
+    qt_aggregate34" select percentile_array(c_bigint,[0.2,0.5,0.9]) from ${tableName};"
     qt_aggregate """
                 SELECT c_bigint,  
                     CASE
@@ -135,6 +166,10 @@ suite("aggregate") {
                     'again'
                     ELSE 'other' end
                  """
+    
+    qt_aggregate """ select any(c_bigint), any(c_double),any(c_string), any(c_date), any(c_timestamp),any_value(c_date_1), any(c_timestamp_1), 
+                 any_value(c_timestamp_2), any(c_timestamp_3) , any(c_boolean), any(c_short_decimal), any(c_long_decimal)from ${tableName2} """
+
 
     sql "use test_query_db"
     List<String> fields = ["k1", "k2", "k3", "k4", "k5", "k6", "k10", "k11", "k7", "k8", "k9"]
@@ -173,6 +208,7 @@ suite("aggregate") {
 
     // test_query_normal_order_aggression
     String k3 = fields[8]
+    String k8 = fields[9]
     qt_aggregate10"select ${k1}, ${k3}, count(${k2}) over (partition by ${k1}, ${k3} order by ${k3}) as wj from baseall order by ${k1}, ${k3}, wj"
     qt_aggregate11"""select ${k1}, count(${k2}) over (partition by ${k1} order by ${k3}
              range between unbounded preceding and unbounded following)
@@ -246,6 +282,26 @@ suite("aggregate") {
              group by ${k1}, ${k3}) t2 where t1.${k1}=t2.${k1} and t1.${k3}=t2.${k3}
              order by t1.${k1}, t1.${k3}, t2.mysum"""
 
+    qt_aggregate30"select max(${k8}) from baseall"
+
     qt_aggregate_2phase_0"""select avg(distinct k1),avg(k2) from baseall"""
     qt_aggregate_2phase_1"""select k1,count(distinct k2,k3),min(k4),count(*) from baseall group by k1 order by k1"""
+
+    qt_aggregate31"select count(*) from baseall where k1 < 64 and k1 > 0;"
+    sql""" DROP TABLE IF EXISTS tempbaseall """
+    sql"""create table tempbaseall PROPERTIES("replication_num" = "1")  as select k1, k2 from baseall where k1 is not null;"""
+    qt_aggregate32"select k1, k2 from (select k1, max(k2) as k2 from tempbaseall where k1 > 0 group by k1 order by k1)a where k1 > 0 and k1 < 10 order by k1;"
+
+    sql 'set enable_fallback_to_original_planner=false'
+    sql 'set enable_nereids_planner=true'
+    qt_aggregate """ select avg(distinct c_bigint), avg(distinct c_double) from regression_test_query_p0_aggregate.${tableName} """
+    qt_aggregate """ select count(distinct c_bigint),count(distinct c_double),count(distinct c_string),count(distinct c_date_1),count(distinct c_timestamp_1),count(distinct c_timestamp_2),count(distinct c_timestamp_3),count(distinct c_boolean) from regression_test_query_p0_aggregate.${tableName} """
+
+    qt_subquery_with_inner_predicate """
+        select count(*) from (select t2.c_bigint, t2.c_double, t2.c_string from (select c_bigint, c_double, c_string, c_date,c_timestamp, c_short_decimal from regression_test_query_p0_aggregate.${tableName}) t2)t1
+    """
+
+    qt_subquery_without_inner_predicate """
+        select count(*) from (select t2.c_bigint, t2.c_double, t2.c_string from (select c_bigint, c_double, c_string, c_date,c_timestamp, c_short_decimal from regression_test_query_p0_aggregate.${tableName} where c_bigint > 5000) t2)t1
+    """
 }

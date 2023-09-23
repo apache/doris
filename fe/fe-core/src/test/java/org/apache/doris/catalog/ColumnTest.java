@@ -142,4 +142,12 @@ public class ColumnTest {
         oldColumn.checkSchemaChangeAllowed(newColumn);
         Assert.fail("No exception throws.");
     }
+
+    @Test(expected = DdlException.class)
+    public void testSchemaChangeArrayToArray() throws DdlException {
+        Column oldColumn = new Column("a", ArrayType.create(Type.TINYINT, true), false, null, true, "0", "");
+        Column newColumn = new Column("a", ArrayType.create(Type.INT, true), false, null, true, "0", "");
+        oldColumn.checkSchemaChangeAllowed(newColumn);
+        Assert.fail("No exception throws.");
+    }
 }

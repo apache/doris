@@ -27,7 +27,7 @@ import org.apache.doris.nereids.types.TinyIntType;
 /**
  * tiny int type literal
  */
-public class TinyIntLiteral extends Literal {
+public class TinyIntLiteral extends IntegerLikeLiteral {
 
     private final byte value;
 
@@ -54,5 +54,15 @@ public class TinyIntLiteral extends Literal {
             throw new org.apache.doris.nereids.exceptions.AnalysisException(
                     "Can not convert to legacy literal: " + value, e);
         }
+    }
+
+    @Override
+    public int getIntValue() {
+        return value;
+    }
+
+    @Override
+    public Number getNumber() {
+        return value;
     }
 }

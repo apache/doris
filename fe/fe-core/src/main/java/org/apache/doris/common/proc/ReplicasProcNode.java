@@ -18,8 +18,14 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.statistics.query.QueryStatsUtil;
 import org.apache.doris.system.Backend;
 
 import com.google.common.collect.ImmutableList;
@@ -33,12 +39,11 @@ import java.util.List;
  * show replicas' detail info within a tablet
  */
 public class ReplicasProcNode implements ProcNodeInterface {
-    public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("ReplicaId").add("BackendId").add("Version")
-            .add("LstSuccessVersion").add("LstFailedVersion")
-            .add("LstFailedTime").add("SchemaHash").add("DataSize").add("RowCount").add("State")
-            .add("IsBad").add("VersionCount").add("PathHash").add("MetaUrl").add("CompactionStatus")
-            .build();
+    public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>().add("ReplicaId")
+            .add("BackendId").add("Version").add("LstSuccessVersion").add("LstFailedVersion").add("LstFailedTime")
+            .add("SchemaHash").add("LocalDataSize").add("RemoteDataSize").add("RowCount").add("State").add("IsBad")
+            .add("VersionCount").add("PathHash").add("MetaUrl").add("CompactionStatus").add("CooldownReplicaId")
+            .add("CooldownMetaId").add("QueryHits").build();
 
     private long tabletId;
     private List<Replica> replicas;
@@ -54,21 +59,38 @@ public class ReplicasProcNode implements ProcNodeInterface {
 
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
+        TabletMeta tabletMeta = Env.getCurrentInvertedIndex().getTabletMeta(tabletId);
+        Tablet tablet = null;
+        try {
+            OlapTable table = (OlapTable) Env.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId())
+                    .getTableNullable(tabletMeta.getTableId());
+            table.readLock();
+            try {
+                tablet = table.getPartition(tabletMeta.getPartitionId()).getIndex(tabletMeta.getIndexId())
+                        .getTablet(tabletId);
+            } finally {
+                table.readUnlock();
+            }
+        } catch (Exception e) {
+            return result;
+        }
+
         for (Replica replica : replicas) {
             Backend be = backendMap.get(replica.getBackendId());
             String host = (be == null ? Backend.DUMMY_IP : be.getHost());
             int port = (be == null ? 0 : be.getHttpPort());
-            String metaUrl = String.format("http://%s:%d/api/meta/header/%d",
-                    host, port,
-                    tabletId,
-                    replica.getSchemaHash());
+            String hostPort = NetUtils.getHostPortInAccessibleFormat(host, port);
+            String metaUrl = String.format("http://" + hostPort + "/api/meta/header/%d", tabletId);
+            String compactionUrl = String.format("http://" + hostPort + "/api/compaction/show?tablet_id=%d", tabletId);
 
-            String compactionUrl = String.format(
-                    "http://%s:%d/api/compaction/show?tablet_id=%d",
-                    host, port,
-                    tabletId,
-                    replica.getSchemaHash());
-
+            String cooldownMetaId = "";
+            if (replica.getCooldownMetaId() != null) {
+                cooldownMetaId = replica.getCooldownMetaId().toString();
+            }
+            long queryHits = 0L;
+            if (Config.enable_query_hit_stats) {
+                queryHits = QueryStatsUtil.getMergedReplicaStats(replica.getId());
+            }
             result.addRow(Arrays.asList(String.valueOf(replica.getId()),
                                         String.valueOf(replica.getBackendId()),
                                         String.valueOf(replica.getVersion()),
@@ -77,13 +99,17 @@ public class ReplicasProcNode implements ProcNodeInterface {
                                         TimeUtils.longToTimeString(replica.getLastFailedTimestamp()),
                                         String.valueOf(replica.getSchemaHash()),
                                         String.valueOf(replica.getDataSize()),
+                                        String.valueOf(replica.getRemoteDataSize()),
                                         String.valueOf(replica.getRowCount()),
                                         String.valueOf(replica.getState()),
                                         String.valueOf(replica.isBad()),
                                         String.valueOf(replica.getVersionCount()),
                                         String.valueOf(replica.getPathHash()),
                                         metaUrl,
-                                        compactionUrl));
+                                        compactionUrl,
+                                        String.valueOf(tablet.getCooldownConf().first),
+                                        cooldownMetaId,
+                                        String.valueOf(queryHits)));
         }
         return result;
     }

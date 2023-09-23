@@ -41,6 +41,7 @@ public class ExtractCommonFactorsRuleFunctionTest {
     private static final String TABLE_NAME_1 = "tb1";
     private static final String TABLE_NAME_2 = "tb2";
     private static final String TABLE_NAME_3 = "tb3";
+    private static final String TABLE_NAME_4 = "nation";
 
     @BeforeClass
     public static void beforeClass() throws Exception {
@@ -61,6 +62,18 @@ public class ExtractCommonFactorsRuleFunctionTest {
                 + " (k1 tinyint, k2 smallint, k3 int, k4 bigint, k5 largeint, k6 date, k7 datetime, k8 float, k9 double) "
                 + "distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
         dorisAssert.withTable(createTableSQL);
+        createTableSQL = "CREATE TABLE " + DB_NAME + "." + TABLE_NAME_4 + "(\n"
+                + "  `n_nationkey` int(11) NOT NULL,\n"
+                + "  `n_name` varchar(25) NOT NULL,\n"
+                + "  `n_regionkey` int(11) NOT NULL,\n"
+                + "  `n_comment` varchar(152) NULL\n"
+                + ")\n"
+                + "DUPLICATE KEY(`n_nationkey`)\n"
+                + "DISTRIBUTED BY HASH(`n_nationkey`) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"replication_allocation\" = \"tag.location.default: 1\"\n"
+                + ");";
+        dorisAssert.withTable(createTableSQL);
     }
 
     @AfterClass
@@ -72,24 +85,31 @@ public class ExtractCommonFactorsRuleFunctionTest {
     public void testWithoutRewritten() throws Exception {
         String query = "select * from tb1, tb2 where (tb1.k1 =1) or (tb2.k2=1)";
         String planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("CROSS JOIN"));
+        Assert.assertTrue(planString.contains("NESTED LOOP JOIN"));
     }
 
     @Test
     public void testCommonFactors() throws Exception {
-        String query = "select * from tb1, tb2 where (tb1.k1=tb2.k1 and tb1.k2 =1) or (tb1.k1=tb2.k1 and tb2.k2=1)";
+        String query = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb1, tb2 where (tb1.k1=tb2.k1 and tb1.k2 =1) or (tb1.k1=tb2.k1 and tb2.k2=1)";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("HASH JOIN"));
         Assert.assertEquals(1, StringUtils.countMatches(planString, "`tb1`.`k1` = `tb2`.`k1`"));
     }
 
     @Test
-    public void testWideCommonFactorsWithEqualPredicate() throws Exception {
-        String query = "select * from tb1, tb2 where (tb1.k1=1 and tb2.k1=1) or (tb1.k1 =2 and tb2.k1=2)";
+    public void testWideCommonFactorsWithOrPredicate() throws Exception {
+        String query = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb1 where tb1.k1 > 1000 or tb1.k1 < 200 or tb1.k1 = 300";
         String planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("(`tb1`.`k1` = 1 OR `tb1`.`k1` = 2)"));
-        Assert.assertTrue(planString.contains("(`tb2`.`k1` = 1 OR `tb2`.`k1` = 2)"));
-        Assert.assertTrue(planString.contains("CROSS JOIN"));
+        Assert.assertTrue(planString.contains("PREDICATES: `tb1`.`k1` = 300 OR `tb1`.`k1` > 1000 OR `tb1`.`k1` < 200"));
+    }
+
+    @Test
+    public void testWideCommonFactorsWithEqualPredicate() throws Exception {
+        String query = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb1, tb2 where (tb1.k1=1 and tb2.k1=1) or (tb1.k1 =2 and tb2.k1=2)";
+        String planString = dorisAssert.query(query).explainQuery();
+        Assert.assertTrue(planString.contains("`tb1`.`k1` IN (1, 2)"));
+        Assert.assertTrue(planString.contains("`tb2`.`k1` IN (1, 2)"));
+        Assert.assertTrue(planString.contains("NESTED LOOP JOIN"));
     }
 
     @Test
@@ -97,15 +117,15 @@ public class ExtractCommonFactorsRuleFunctionTest {
         String query = "select * from tb1, tb2 where (tb1.k1>1 and tb2.k1=1) or (tb1.k1 <2 and tb2.k2=2)";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertFalse(planString.contains("(`tb1`.`k1` > 1 OR `tb1`.`k1` < 2)"));
-        Assert.assertTrue(planString.contains("CROSS JOIN"));
+        Assert.assertTrue(planString.contains("NESTED LOOP JOIN"));
     }
 
     @Test
     public void testWideCommonFactorsWithMergeRangePredicate() throws Exception {
-        String query = "select * from tb1, tb2 where (tb1.k1 between 1 and 3 and tb2.k1=1) or (tb1.k1 <2 and tb2.k2=2)";
+        String query = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb1, tb2 where (tb1.k1 between 1 and 3 and tb2.k1=1) or (tb1.k1 <2 and tb2.k2=2)";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`tb1`.`k1` <= 3"));
-        Assert.assertTrue(planString.contains("CROSS JOIN"));
+        Assert.assertTrue(planString.contains("NESTED LOOP JOIN"));
     }
 
     @Test
@@ -113,53 +133,52 @@ public class ExtractCommonFactorsRuleFunctionTest {
         String query = "select * from tb1, tb2 where (tb1.k1 >1 and tb1.k1 <3 and tb1.k1 <5 and tb2.k1=1) "
                 + "or (tb1.k1 <2 and tb2.k2=2)";
         String planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`tb1`.`k1` < 5"));
-        Assert.assertTrue(planString.contains("CROSS JOIN"));
+        Assert.assertTrue(planString.contains("NESTED LOOP JOIN"));
     }
 
     @Test
     public void testWideCommonFactorsWithDuplicateRangePredicate() throws Exception {
-        String query = "select * from tb1, tb2 where (tb1.k1 >1 and tb1.k1 >1 and tb1.k1 <5 and tb2.k1=1) "
+        String query = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb1, tb2 where (tb1.k1 >1 and tb1.k1 >1 and tb1.k1 <5 and tb2.k1=1) "
                 + "or (tb1.k1 <2 and tb2.k2=2)";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`tb1`.`k1` < 5"));
-        Assert.assertTrue(planString.contains("CROSS JOIN"));
+        Assert.assertTrue(planString.contains("NESTED LOOP JOIN"));
     }
 
     @Test
     public void testWideCommonFactorsWithInPredicate() throws Exception {
-        String query = "select * from tb1, tb2 where (tb1.k1 in (1) and tb2.k1 in(1)) "
+        String query = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb1, tb2 where (tb1.k1 in (1) and tb2.k1 in(1)) "
                 + "or (tb1.k1 in(2) and tb2.k1 in(2))";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`tb1`.`k1` IN (1, 2)"));
         Assert.assertTrue(planString.contains("`tb2`.`k1` IN (1, 2)"));
-        Assert.assertTrue(planString.contains("CROSS JOIN"));
+        Assert.assertTrue(planString.contains("NESTED LOOP JOIN"));
     }
 
     @Test
     public void testWideCommonFactorsWithDuplicateInPredicate() throws Exception {
-        String query = "select * from tb1, tb2 where (tb1.k1 in (1,2) and tb2.k1 in(1,2)) "
+        String query = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb1, tb2 where (tb1.k1 in (1,2) and tb2.k1 in(1,2)) "
                 + "or (tb1.k1 in(3) and tb2.k1 in(2))";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`tb1`.`k1` IN (1, 2, 3)"));
         Assert.assertTrue(planString.contains("`tb2`.`k1` IN (1, 2)"));
-        Assert.assertTrue(planString.contains("CROSS JOIN"));
+        Assert.assertTrue(planString.contains("NESTED LOOP JOIN"));
     }
 
     @Test
     public void testWideCommonFactorsWithRangeAndIn() throws Exception {
-        String query = "select * from tb1, tb2 where (tb1.k1 between 1 and 3 and tb2.k1 in(1,2)) "
+        String query = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb1, tb2 where (tb1.k1 between 1 and 3 and tb2.k1 in(1,2)) "
                 + "or (tb1.k1 between 2 and 4 and tb2.k1 in(3))";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`tb1`.`k1` >= 1"));
         Assert.assertTrue(planString.contains("`tb1`.`k1` <= 4"));
         Assert.assertTrue(planString.contains("`tb2`.`k1` IN (1, 2, 3)"));
-        Assert.assertTrue(planString.contains("CROSS JOIN"));
+        Assert.assertTrue(planString.contains("NESTED LOOP JOIN"));
     }
 
     @Test
     public void testWideCommonFactorsAndCommonFactors() throws Exception {
-        String query = "select * from tb1, tb2 where (tb1.k1 between 1 and 3 and tb1.k1=tb2.k1) "
+        String query = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb1, tb2 where (tb1.k1 between 1 and 3 and tb1.k1=tb2.k1) "
                 + "or (tb1.k1=tb2.k1 and tb1.k1 between 2 and 4)";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`tb1`.`k1` >= 1"));
@@ -218,7 +237,7 @@ public class ExtractCommonFactorsRuleFunctionTest {
                 + "\"storage_format\" = \"V2\"\n"
                 + ");";
         dorisAssert.withTable(createTableSQL);
-        String query = "select sum(l_extendedprice* (1 - l_discount)) as revenue "
+        String query = "select /*+ SET_VAR(enable_nereids_planner=false) */ sum(l_extendedprice* (1 - l_discount)) as revenue "
                 + "from lineitem, part "
                 + "where ( p_partkey = l_partkey and p_brand = 'Brand#11' "
                 + "and p_container in ('SM CASE', 'SM BOX', 'SM PACK', 'SM PKG') "
@@ -240,10 +259,10 @@ public class ExtractCommonFactorsRuleFunctionTest {
         Assert.assertTrue(planString.contains("`l_partkey` = `p_partkey`"));
         Assert.assertTrue(planString.contains("`l_shipmode` IN ('AIR', 'AIR REG')"));
         Assert.assertTrue(planString.contains("`l_shipinstruct` = 'DELIVER IN PERSON'"));
-        Assert.assertTrue(planString.contains("((`l_quantity` >= 9 AND `l_quantity` <= 19) "
-                + "OR (`l_quantity` >= 20 AND `l_quantity` <= 36))"));
+        Assert.assertTrue(planString.contains("`l_quantity` >= 9 AND `l_quantity` <= 19 "
+                + "OR `l_quantity` >= 20 AND `l_quantity` <= 36"));
         Assert.assertTrue(planString.contains("`p_size` >= 1"));
-        Assert.assertTrue(planString.contains("(`p_brand` = 'Brand#11' OR `p_brand` = 'Brand#21' OR `p_brand` = 'Brand#32')"));
+        Assert.assertTrue(planString.contains("`p_brand` IN ('Brand#11', 'Brand#21', 'Brand#32')"));
         Assert.assertTrue(planString.contains("`p_size` <= 15"));
         Assert.assertTrue(planString.contains("`p_container` IN ('SM CASE', 'SM BOX', 'SM PACK', 'SM PKG', 'MED BAG', "
                 + "'MED BOX', 'MED PKG', 'MED PACK', 'LG CASE', 'LG BOX', 'LG PACK', 'LG PKG')"));
@@ -252,29 +271,29 @@ public class ExtractCommonFactorsRuleFunctionTest {
     @Test
     public void testRewriteLikePredicate() throws Exception {
         // tinyint
-        String sql = "select * from tb3 where k1 like '%4%';";
+        String sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb3 where k1 like '%4%';";
         LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
-        dorisAssert.query(sql).explainContains("`k1` LIKE '%4%'");
+        dorisAssert.query(sql).explainContains("CAST(`k1` AS VARCHAR(*)) LIKE '%4%'");
 
         // smallint
-        sql = "select * from tb3 where k2 like '%4%';";
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb3 where k2 like '%4%';";
         LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
-        dorisAssert.query(sql).explainContains("`k2` LIKE '%4%'");
+        dorisAssert.query(sql).explainContains("CAST(`k2` AS VARCHAR(*)) LIKE '%4%'");
 
         // int
-        sql = "select * from tb3 where k3 like '%4%';";
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb3 where k3 like '%4%';";
         LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
-        dorisAssert.query(sql).explainContains("`k3` LIKE '%4%'");
+        dorisAssert.query(sql).explainContains("CAST(`k3` AS VARCHAR(*)) LIKE '%4%'");
 
         // bigint
-        sql = "select * from tb3 where k4 like '%4%';";
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb3 where k4 like '%4%';";
         LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
-        dorisAssert.query(sql).explainContains("`k4` LIKE '%4%'");
+        dorisAssert.query(sql).explainContains("CAST(`k4` AS VARCHAR(*)) LIKE '%4%'");
 
         // largeint
-        sql = "select * from tb3 where k5 like '%4%';";
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb3 where k5 like '%4%';";
         LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
-        dorisAssert.query(sql).explainContains("`k5` LIKE '%4%'");
+        dorisAssert.query(sql).explainContains("CAST(`k5` AS VARCHAR(*)) LIKE '%4%'");
     }
 
     @Test
@@ -304,5 +323,16 @@ public class ExtractCommonFactorsRuleFunctionTest {
         // date
         String sql = "select * from tb3 where k9 like '%4%';";
         LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
+    }
+
+    @Test
+    public void testExtractCommonFactorsWithOnClause() throws Exception {
+        String sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from\n"
+                + "db1.nation n1 join db1.nation n2\n"
+                + "on (n1.n_name = 'FRANCE' and n2.n_name = 'GERMANY')\n"
+                + "or (n1.n_name = 'GERMANY' and n2.n_name = 'FRANCE')";
+        String explainStr = dorisAssert.query(sql).explainQuery();
+        Assert.assertTrue(explainStr.contains("PREDICATES: `n1`.`n_name` IN ('FRANCE', 'GERMANY')"));
+        Assert.assertTrue(explainStr.contains("PREDICATES: `n2`.`n_name` IN ('FRANCE', 'GERMANY')"));
     }
 }

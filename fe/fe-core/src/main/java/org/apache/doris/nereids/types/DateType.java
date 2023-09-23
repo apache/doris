@@ -18,18 +18,37 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.types.coercion.PrimitiveType;
+import org.apache.doris.common.Config;
+import org.apache.doris.nereids.types.coercion.DateLikeType;
 
 /**
  * Date type in Nereids.
  */
-public class DateType extends PrimitiveType {
+public class DateType extends DateLikeType {
 
-    public static DateType INSTANCE = new DateType();
+    public static final DateType INSTANCE = new DateType();
+
+    private static final int WIDTH = 16;
+
+    private DateType() {
+    }
+
+    @Override
+    public DataType conversion() {
+        if (Config.enable_date_conversion) {
+            return DateV2Type.INSTANCE;
+        }
+        return this;
+    }
 
     @Override
     public Type toCatalogDataType() {
         return Type.DATE;
+    }
+
+    @Override
+    public int width() {
+        return WIDTH;
     }
 }
 

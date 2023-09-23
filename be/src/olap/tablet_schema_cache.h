@@ -24,38 +24,41 @@
 #include <unordered_map>
 
 #include "olap/tablet_schema.h"
+#include "runtime/exec_env.h"
+#include "util/doris_metrics.h"
 
 namespace doris {
 
 class TabletSchemaCache {
 public:
-    static void create_global_schema_cache() {
-        DCHECK(_s_instance == nullptr);
-        static TabletSchemaCache instance;
-        _s_instance = &instance;
+    ~TabletSchemaCache() = default;
+
+    static TabletSchemaCache* create_global_schema_cache() {
+        TabletSchemaCache* res = new TabletSchemaCache();
+        return res;
     }
 
-    static TabletSchemaCache* instance() { return _s_instance; }
-
-    TabletSchemaSPtr insert(const std::string& key) {
-        DCHECK(_s_instance != nullptr);
-        std::lock_guard guard(_mtx);
-        auto iter = _cache.find(key);
-        if (iter == _cache.end()) {
-            TabletSchemaSPtr tablet_schema_ptr = std::make_shared<TabletSchema>();
-            TabletSchemaPB pb;
-            pb.ParseFromString(key);
-            tablet_schema_ptr->init_from_pb(pb);
-            _cache[key] = tablet_schema_ptr;
-            return tablet_schema_ptr;
-        }
-        return iter->second;
+    static TabletSchemaCache* instance() {
+        return ExecEnv::GetInstance()->get_tablet_schema_cache();
     }
+
+    TabletSchemaSPtr insert(const std::string& key);
+
+    void start();
+
+    void stop();
 
 private:
-    static inline TabletSchemaCache* _s_instance = nullptr;
+    /**
+     * @brief recycle when TabletSchemaSPtr use_count equals 1.
+     */
+    void _recycle();
+
+private:
     std::mutex _mtx;
     std::unordered_map<std::string, TabletSchemaSPtr> _cache;
+    std::atomic_bool _should_stop = {false};
+    std::atomic_bool _is_stopped = {false};
 };
 
 } // namespace doris

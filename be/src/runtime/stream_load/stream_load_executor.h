@@ -19,10 +19,7 @@
 
 #include <memory>
 
-#include "gen_cpp/FrontendService.h"
-#include "gen_cpp/FrontendService_types.h"
-#include "gen_cpp/HeartbeatService_types.h"
-#include "gen_cpp/Types_types.h"
+#include "common/factory_creator.h"
 
 namespace doris {
 
@@ -30,9 +27,11 @@ class ExecEnv;
 class StreamLoadContext;
 class Status;
 class TTxnCommitAttachment;
-class StreamLoadPipe;
+class TLoadTxnCommitRequest;
 
 class StreamLoadExecutor {
+    ENABLE_FACTORY_CREATOR(StreamLoadExecutor);
+
 public:
     StreamLoadExecutor(ExecEnv* exec_env) : _exec_env(exec_env) {}
 
@@ -48,14 +47,13 @@ public:
 
     void rollback_txn(StreamLoadContext* ctx);
 
-    Status execute_plan_fragment(StreamLoadContext* ctx);
+    Status execute_plan_fragment(std::shared_ptr<StreamLoadContext> ctx);
 
 private:
     // collect the load statistics from context and set them to stat
     // return true if stat is set, otherwise, return false
     bool collect_load_stat(StreamLoadContext* ctx, TTxnCommitAttachment* attachment);
 
-private:
     ExecEnv* _exec_env;
 };
 

@@ -28,7 +28,7 @@ under the License.
 
 从 0.9.0 版本开始，Doris 引入了优化后的副本管理策略，同时支持了更为丰富的副本状态查看工具。本文档主要介绍 Doris 数据副本均衡、修复方面的调度策略，以及副本管理的运维方法。帮助用户更方便的掌握和管理集群中的副本状态。
 
-> Colocation 属性的表的副本修复和均衡可以参阅[这里](../../advanced/join-optimization/colocation-join.md)
+> Colocation 属性的表的副本修复和均衡可以参阅[这里](../../query-acceleration/join-optimization/colocation-join.md)
 
 ## 名词解释
 
@@ -101,7 +101,7 @@ under the License.
 
 6. FORCE\_REDUNDANT
 
-    这是一个特殊状态。只会出现在当期望副本数大于等于可用节点数时，并且 Tablet 处于副本缺失状态时出现。这种情况下，需要先删除一个副本，以保证有可用节点用于创建新副本。
+    这是一个特殊状态。只会出现在当已存在副本数大于等于可用节点数，可用节点数大于等于期望副本数，并且存活的副本数小于期望副本数。这种情况下，需要先删除一个副本，以保证有可用节点用于创建新副本。
     
 7. COLOCATE\_MISMATCH
 
@@ -150,7 +150,7 @@ TabletChecker 作为常驻的后台进程，会定期检查所有分片的状态
 
 5. FORCE\_REDUNDANT
 
-    不同于 REDUNDANT，因为此时虽然 Tablet 有副本缺失，但是因为已经没有额外的可用节点用于创建新的副本了。所以此时必须先删除一个副本，以腾出一个可用节点用于创建新的副本。
+    不同于 REDUNDANT，因为此时虽然存活的副本数小于期望副本数，但是因为已经没有额外的可用节点用于创建新的副本了。所以此时必须先删除一个副本，以腾出一个可用节点用于创建新的副本。
     删除副本的顺序同 REDUNDANT。
     
 6. COLOCATE\_MISMATCH
@@ -216,7 +216,7 @@ TabletScheduler 里等待被调度的分片会根据状态不同，赋予不同�
 
 ## 副本均衡
 
-Doris 会自动进行集群内的副本均衡。目前支持两种均衡策略，负载/分区。负载均衡适合需要兼顾节点磁盘使用率和节点副本数量的场景；而分区均衡会使每个分区的副本都均匀分布在各个节点，避免热点，适合对分区读写要求比较高的场景。但是，分区均衡不考虑磁盘使用率，使用分区均衡时需要注意磁盘的使用情况。 策略只能在fe启动前配置[tablet_rebalancer_type](../config/fe-config.html#配置项列表 )  ，不支持运行时切换。
+Doris 会自动进行集群内的副本均衡。目前支持两种均衡策略，负载/分区。负载均衡适合需要兼顾节点磁盘使用率和节点副本数量的场景；而分区均衡会使每个分区的副本都均匀分布在各个节点，避免热点，适合对分区读写要求比较高的场景。但是，分区均衡不考虑磁盘使用率，使用分区均衡时需要注意磁盘的使用情况。 策略只能在fe启动前配置[tablet_rebalancer_type](../config/fe-config.md)  ，不支持运行时切换。
 
 ### 负载均衡
 
@@ -228,7 +228,7 @@ Doris 会自动进行集群内的副本均衡。目前支持两种均衡策略�
 
 我们用 ClusterLoadStatistics（CLS）表示一个 cluster 中各个 Backend 的负载均衡情况。TabletScheduler 根据这个统计值，来触发集群均衡。我们当前通过 **磁盘使用率** 和 **副本数量** 两个指标，为每个BE计算一个 loadScore，作为 BE 的负载分数。分数越高，表示该 BE 的负载越重。
 
-磁盘使用率和副本数量各有一个权重系数，分别为 **capacityCoefficient** 和 **replicaNumCoefficient**，其 **和衡为1**。其中 capacityCoefficient 会根据实际磁盘使用率动态调整。当一个 BE 的总体磁盘使用率在 50% 以下，则 capacityCoefficient 值为 0.5，如果磁盘使用率在 75%（可通过 FE 配置项 `capacity_used_percent_high_water` 配置）以上，则值为 1。如果使用率介于 50% ~ 75% 之间，则该权重系数平滑增加，公式为：
+磁盘使用率和副本数量各有一个权重系数，分别为 **capacityCoefficient** 和 **replicaNumCoefficient**，其 **和恒为1**。其中 capacityCoefficient 会根据实际磁盘使用率动态调整。当一个 BE 的总体磁盘使用率在 50% 以下，则 capacityCoefficient 值为 0.5，如果磁盘使用率在 75%（可通过 FE 配置项 `capacity_used_percent_high_water` 配置）以上，则值为 1。如果使用率介于 50% ~ 75% 之间，则该权重系数平滑增加，公式为：
 
 `capacityCoefficient= 2 * 磁盘使用率 - 0.5`
 
@@ -383,7 +383,7 @@ TabletScheduler 在每轮调度时，都会通过 LoadBalancer 来选择一定�
     +-----------+-----------+---------+-------------+-------------------+-----------------------+------------------+----------------------+---------------+------------+----------+----------+--------+-------+--------------+----------------------+----------+------------------+ 
     ```
 
-    上图显示了对应 Tablet 的所有副本情况。这里显示的内容和 `SHOW TABLET FROM tbl1;` 的内容相同。但这里可以清楚的知道，一个具体的 Tablet 的所有副本的状态。
+    上图显示了对应 Tablet 的所有副本情况。这里显示的内容和 `SHOW TABLETS FROM tbl1;` 的内容相同。但这里可以清楚的知道，一个具体的 Tablet 的所有副本的状态。
 
 ### 副本调度任务
 
@@ -441,7 +441,7 @@ TabletScheduler 在每轮调度时，都会通过 LoadBalancer 来选择一定�
 
     通过以下命令可以查看集群当前的负载情况：
     
-    `SHOW PROC '/cluster_balance/cluster_load_stat';`
+    `SHOW PROC '/cluster_balance/cluster_load_stat/location_default';`
     
     首先看到的是对不同存储介质的划分：
     
@@ -456,7 +456,7 @@ TabletScheduler 在每轮调度时，都会通过 LoadBalancer 来选择一定�
     
     点击某一种存储介质，可以看到包含该存储介质的 BE 节点的均衡状态：
     
-    `SHOW PROC '/cluster_balance/cluster_load_stat/HDD';`
+    `SHOW PROC '/cluster_balance/cluster_load_stat/location_default/HDD';`
     
     ```
     +----------+-----------------+-----------+---------------+----------------+-------------+------------+----------+-----------+--------------------+-------+
@@ -486,7 +486,7 @@ TabletScheduler 在每轮调度时，都会通过 LoadBalancer 来选择一定�
 
     用户可以进一步查看某个 BE 上各个路径的使用率，比如 ID 为 10001 这个 BE：
 
-    `SHOW PROC '/cluster_balance/cluster_load_stat/HDD/10001';`
+    `SHOW PROC '/cluster_balance/cluster_load_stat/location_default/HDD/10001';`
 
     ```
     +------------------+------------------+---------------+---------------+---------+--------+----------------------+
@@ -628,13 +628,21 @@ TabletScheduler 在每轮调度时，都会通过 LoadBalancer 来选择一定�
 * storage\_high\_watermark\_usage\_percent 和 storage\_min\_left\_capacity\_bytes
 
     * 说明：这两个参数，分别表示一个磁盘的最大空间使用率上限，以及最小的空间剩余下限。当一块磁盘的空间使用率大于上限，或者剩余空间小于下限时，该磁盘将不再作为均衡调度的目的地址。
-    * 默认值：0.85 和 1048576000 （1GB）
+    * 默认值：0.85 和 2097152000 （2GB）
     * 重要性：中
     
 * disable\_balance
 
     * 说明：控制是否关闭均衡功能。当副本处于均衡过程中时，有些功能，如 ALTER TABLE 等将会被禁止。而均衡可能持续很长时间。因此，如果用户希望尽快进行被禁止的操作。可以将该参数设为 true，以关闭均衡调度。
     * 默认值：false
+    * 重要性：中
+
+以下可调整参数均为 be.conf 中可配置参数。
+
+* clone\_worker\_count
+
+    * 说明：影响副本均衡的速度。在磁盘压力不大的情况下，可以通过调整该参数来加快副本均衡。
+    * 默认值：3
     * 重要性：中
 
 ### 不可调整参数

@@ -26,8 +26,7 @@ import org.junit.Test;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.nio.file.Files;
 
 public class DropDbInfoTest {
     @Test
@@ -39,34 +38,34 @@ public class DropDbInfoTest {
         // 1. Write objects to file
         File file = new File("./dropDbInfo");
         file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(file.toPath()));
 
         DropDbInfo info1 = new DropDbInfo();
         info1.write(dos);
 
-        DropDbInfo info2 = new DropDbInfo("test_db", true);
+        DropDbInfo info2 = new DropDbInfo("test_db", true, 0);
         info2.write(dos);
 
         dos.flush();
         dos.close();
 
         // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(file.toPath()));
 
         DropDbInfo rInfo1 = DropDbInfo.read(dis);
-        Assert.assertTrue(rInfo1.equals(info1));
+        Assert.assertEquals(rInfo1, info1);
 
         DropDbInfo rInfo2 = DropDbInfo.read(dis);
-        Assert.assertTrue(rInfo2.equals(info2));
+        Assert.assertEquals(rInfo2, info2);
 
         Assert.assertEquals("test_db", rInfo2.getDbName());
         Assert.assertTrue(rInfo2.isForceDrop());
 
-        Assert.assertTrue(rInfo2.equals(rInfo2));
-        Assert.assertFalse(rInfo2.equals(this));
-        Assert.assertFalse(info2.equals(new DropDbInfo("test_db1", true)));
-        Assert.assertFalse(info2.equals(new DropDbInfo("test_db", false)));
-        Assert.assertTrue(info2.equals(new DropDbInfo("test_db", true)));
+        Assert.assertEquals(rInfo2, rInfo2);
+        Assert.assertNotEquals(rInfo2, this);
+        Assert.assertNotEquals(info2, new DropDbInfo("test_db1", true, 0));
+        Assert.assertNotEquals(info2, new DropDbInfo("test_db", false, 0));
+        Assert.assertEquals(info2, new DropDbInfo("test_db", true, 0));
 
         // 3. delete files
         dis.close();

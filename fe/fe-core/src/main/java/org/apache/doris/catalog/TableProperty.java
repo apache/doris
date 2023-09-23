@@ -60,6 +60,8 @@ public class TableProperty implements Writable {
     private boolean isInMemory = false;
 
     private String storagePolicy = "";
+    private Boolean isBeingSynced = null;
+    private BinlogConfig binlogConfig;
 
     /*
      * the default storage format of this table.
@@ -77,10 +79,24 @@ public class TableProperty implements Writable {
 
     private boolean disableAutoCompaction = false;
 
-    private DataSortInfo dataSortInfo = new DataSortInfo();
+    private boolean enableSingleReplicaCompaction = false;
 
-    // remote storage policy, for cold data
-    private String remoteStoragePolicy;
+    private boolean storeRowColumn = false;
+
+    private boolean skipWriteIndexOnLoad = false;
+
+    private String compactionPolicy = PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY;
+
+    private long timeSeriesCompactionGoalSizeMbytes
+                                    = PropertyAnalyzer.TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES_DEFAULT_VALUE;
+
+    private long timeSeriesCompactionFileCountThreshold
+                                    = PropertyAnalyzer.TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD_DEFAULT_VALUE;
+
+    private long timeSeriesCompactionTimeThresholdSeconds
+                                    = PropertyAnalyzer.TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE;
+
+    private DataSortInfo dataSortInfo = new DataSortInfo();
 
     public TableProperty(Map<String, String> properties) {
         this.properties = properties;
@@ -106,6 +122,13 @@ public class TableProperty implements Writable {
             case OperationType.OP_MODIFY_IN_MEMORY:
                 buildInMemory();
                 buildStoragePolicy();
+                buildIsBeingSynced();
+                buildCompactionPolicy();
+                buildTimeSeriesCompactionGoalSizeMbytes();
+                buildTimeSeriesCompactionFileCountThreshold();
+                buildTimeSeriesCompactionTimeThresholdSeconds();
+                buildSkipWriteIndexOnLoad();
+                buildEnableSingleReplicaCompaction();
                 break;
             default:
                 break;
@@ -118,11 +141,17 @@ public class TableProperty implements Writable {
      *
      * @return this for chained
      */
-    public TableProperty resetPropertiesForRestore() {
+    public TableProperty resetPropertiesForRestore(boolean reserveDynamicPartitionEnable, boolean reserveReplica,
+                                                   ReplicaAllocation replicaAlloc) {
         // disable dynamic partition
         if (properties.containsKey(DynamicPartitionProperty.ENABLE)) {
-            properties.put(DynamicPartitionProperty.ENABLE, "false");
+            if (!reserveDynamicPartitionEnable) {
+                properties.put(DynamicPartitionProperty.ENABLE, "false");
+            }
             executeBuildDynamicProperty();
+        }
+        if (!reserveReplica) {
+            setReplicaAlloc(replicaAlloc);
         }
         return this;
     }
@@ -164,6 +193,88 @@ public class TableProperty implements Writable {
         return disableAutoCompaction;
     }
 
+    public TableProperty buildEnableSingleReplicaCompaction() {
+        enableSingleReplicaCompaction = Boolean.parseBoolean(
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION, "false"));
+        return this;
+    }
+
+    public boolean enableSingleReplicaCompaction() {
+        return enableSingleReplicaCompaction;
+    }
+
+    public TableProperty buildStoreRowColumn() {
+        storeRowColumn = Boolean.parseBoolean(
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN, "false"));
+        // Remove deprecated prefix and try again
+        String deprecatedPrefix = "deprecated_";
+        if (!storeRowColumn && PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN.startsWith(deprecatedPrefix)) {
+            storeRowColumn = Boolean.parseBoolean(
+                properties.getOrDefault(
+                    PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN.substring(deprecatedPrefix.length()), "false"));
+        }
+        return this;
+    }
+
+    public boolean storeRowColumn() {
+        return storeRowColumn;
+    }
+
+    public TableProperty buildSkipWriteIndexOnLoad() {
+        skipWriteIndexOnLoad = Boolean.parseBoolean(
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD, "false"));
+        return this;
+    }
+
+    public boolean skipWriteIndexOnLoad() {
+        return skipWriteIndexOnLoad;
+    }
+
+    public TableProperty buildCompactionPolicy() {
+        compactionPolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY,
+                                                                PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY);
+        return this;
+    }
+
+    public String compactionPolicy() {
+        return compactionPolicy;
+    }
+
+    public TableProperty buildTimeSeriesCompactionGoalSizeMbytes() {
+        timeSeriesCompactionGoalSizeMbytes = Long.parseLong(properties
+                    .getOrDefault(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES,
+                    String.valueOf(PropertyAnalyzer.TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES_DEFAULT_VALUE)));
+        return this;
+    }
+
+    public long timeSeriesCompactionGoalSizeMbytes() {
+        return timeSeriesCompactionGoalSizeMbytes;
+    }
+
+    public TableProperty buildTimeSeriesCompactionFileCountThreshold() {
+        timeSeriesCompactionFileCountThreshold = Long.parseLong(properties
+                    .getOrDefault(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD,
+                    String.valueOf(PropertyAnalyzer.TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD_DEFAULT_VALUE)));
+
+        return this;
+    }
+
+    public long timeSeriesCompactionFileCountThreshold() {
+        return timeSeriesCompactionFileCountThreshold;
+    }
+
+    public TableProperty buildTimeSeriesCompactionTimeThresholdSeconds() {
+        timeSeriesCompactionTimeThresholdSeconds = Long.parseLong(properties
+                    .getOrDefault(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS,
+                    String.valueOf(PropertyAnalyzer.TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE)));
+
+        return this;
+    }
+
+    public long timeSeriesCompactionTimeThresholdSeconds() {
+        return timeSeriesCompactionTimeThresholdSeconds;
+    }
+
     public TableProperty buildStoragePolicy() {
         storagePolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, "");
         return this;
@@ -171,6 +282,69 @@ public class TableProperty implements Writable {
 
     public String getStoragePolicy() {
         return storagePolicy;
+    }
+
+    public TableProperty buildIsBeingSynced() {
+        isBeingSynced = Boolean.parseBoolean(properties.getOrDefault(
+                PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED, "false"));
+        return this;
+    }
+
+    public void setIsBeingSynced() {
+        properties.put(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED, "true");
+        isBeingSynced = true;
+    }
+
+    public boolean isBeingSynced() {
+        if (isBeingSynced == null) {
+            buildIsBeingSynced();
+        }
+        return isBeingSynced;
+    }
+
+    public void removeInvalidProperties() {
+        properties.remove(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY);
+        properties.remove(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH);
+    }
+
+    public TableProperty buildBinlogConfig() {
+        BinlogConfig binlogConfig = new BinlogConfig();
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE)) {
+            binlogConfig.setEnable(Boolean.parseBoolean(properties.get(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE)));
+        }
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS)) {
+            binlogConfig.setTtlSeconds(Long.parseLong(properties.get(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS)));
+        }
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES)) {
+            binlogConfig.setMaxBytes(Long.parseLong(properties.get(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES)));
+        }
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS)) {
+            binlogConfig.setMaxHistoryNums(
+                    Long.parseLong(properties.get(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS)));
+        }
+        this.binlogConfig = binlogConfig;
+
+        return this;
+    }
+
+    public BinlogConfig getBinlogConfig() {
+        if (binlogConfig == null) {
+            buildBinlogConfig();
+        }
+        return binlogConfig;
+    }
+
+    public void setBinlogConfig(BinlogConfig newBinlogConfig) {
+        Map<String, String> binlogProperties = Maps.newHashMap();
+        binlogProperties.put(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE, String.valueOf(newBinlogConfig.isEnable()));
+        binlogProperties.put(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS,
+                String.valueOf(newBinlogConfig.getTtlSeconds()));
+        binlogProperties.put(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES,
+                String.valueOf(newBinlogConfig.getMaxBytes()));
+        binlogProperties.put(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS,
+                String.valueOf(newBinlogConfig.getMaxHistoryNums()));
+        modifyTableProperties(binlogProperties);
+        this.binlogConfig = newBinlogConfig;
     }
 
     public TableProperty buildDataSortInfo() {
@@ -196,11 +370,6 @@ public class TableProperty implements Writable {
         return this;
     }
 
-    public TableProperty buildRemoteStoragePolicy() {
-        remoteStoragePolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_POLICY, "");
-        return this;
-    }
-
     public void modifyTableProperties(Map<String, String> modifyProperties) {
         properties.putAll(modifyProperties);
         removeDuplicateReplicaNumProperty();
@@ -216,11 +385,6 @@ public class TableProperty implements Writable {
         // set it to "properties" so that this info can be persisted
         properties.put("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
                 replicaAlloc.toCreateStmt());
-    }
-
-    public void setRemoteStoragePolicy(String remotePolicyName) {
-        this.remoteStoragePolicy = remotePolicyName;
-        properties.put(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_POLICY, remotePolicyName);
     }
 
     public ReplicaAllocation getReplicaAllocation() {
@@ -253,6 +417,14 @@ public class TableProperty implements Writable {
         return isInMemory;
     }
 
+    public boolean isAutoBucket() {
+        return Boolean.parseBoolean(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_AUTO_BUCKET, "false"));
+    }
+
+    public String getEstimatePartitionSize() {
+        return properties.getOrDefault(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE, "");
+    }
+
     public TStorageFormat getStorageFormat() {
         // Force convert all V1 table to V2 table
         if (TStorageFormat.V1 == storageFormat) {
@@ -263,10 +435,6 @@ public class TableProperty implements Writable {
 
     public DataSortInfo getDataSortInfo() {
         return dataSortInfo;
-    }
-
-    public String getRemoteStoragePolicy() {
-        return remoteStoragePolicy;
     }
 
     public TCompressionType getCompressionType() {
@@ -286,12 +454,23 @@ public class TableProperty implements Writable {
                 PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "false"));
     }
 
+    public void setSequenceMapCol(String colName) {
+        properties.put(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                + PropertyAnalyzer.PROPERTIES_SEQUENCE_COL, colName);
+    }
+
+    public String getSequenceMapCol() {
+        return properties.get(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                + PropertyAnalyzer.PROPERTIES_SEQUENCE_COL);
+    }
+
     public void buildReplicaAllocation() {
         try {
             // Must copy the properties because "analyzeReplicaAllocation" will remove the property
             // from the properties.
             Map<String, String> copiedProperties = Maps.newHashMap(properties);
-            this.replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(copiedProperties, "default");
+            this.replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocationWithoutCheck(
+                    copiedProperties, "default");
         } catch (AnalysisException e) {
             // should not happen
             LOG.error("should not happen when build replica allocation", e);
@@ -310,10 +489,19 @@ public class TableProperty implements Writable {
                 .buildInMemory()
                 .buildStorageFormat()
                 .buildDataSortInfo()
-                .buildRemoteStoragePolicy()
                 .buildCompressionType()
                 .buildStoragePolicy()
-                .buildEnableLightSchemaChange();
+                .buildIsBeingSynced()
+                .buildBinlogConfig()
+                .buildEnableLightSchemaChange()
+                .buildStoreRowColumn()
+                .buildSkipWriteIndexOnLoad()
+                .buildCompactionPolicy()
+                .buildTimeSeriesCompactionGoalSizeMbytes()
+                .buildTimeSeriesCompactionFileCountThreshold()
+                .buildTimeSeriesCompactionTimeThresholdSeconds()
+                .buildDisableAutoCompaction()
+                .buildEnableSingleReplicaCompaction();
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
             // get replica num from property map and create replica allocation
             String repNum = tableProperty.properties.remove(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM);

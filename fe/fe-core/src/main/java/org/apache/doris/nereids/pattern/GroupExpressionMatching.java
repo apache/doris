@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -67,18 +68,20 @@ public class GroupExpressionMatching implements Iterable<Plan> {
                 return;
             }
 
+            int childrenGroupArity = groupExpression.arity();
+            int patternArity = pattern.arity();
             if (!(pattern instanceof SubTreePattern)) {
                 // (logicalFilter(), multi()) match (logicalFilter()),
                 // but (logicalFilter(), logicalFilter(), multi()) not match (logicalFilter())
-                boolean extraMulti = pattern.arity() == groupExpression.arity() + 1
+                boolean extraMulti = patternArity == childrenGroupArity + 1
                         && (pattern.hasMultiChild() || pattern.hasMultiGroupChild());
-                if (pattern.arity() > groupExpression.arity() && !extraMulti) {
+                if (patternArity > childrenGroupArity && !extraMulti) {
                     return;
                 }
 
                 // (multi()) match (logicalFilter(), logicalFilter()),
                 // but (logicalFilter()) not match (logicalFilter(), logicalFilter())
-                if (!pattern.isAny() && pattern.arity() < groupExpression.arity()
+                if (!pattern.isAny() && patternArity < childrenGroupArity
                         && !pattern.hasMultiChild() && !pattern.hasMultiGroupChild()) {
                     return;
                 }
@@ -91,19 +94,18 @@ public class GroupExpressionMatching implements Iterable<Plan> {
 
             // getPlan return the plan with GroupPlan as children
             Plan root = groupExpression.getPlan();
-            // pattern.arity() == 0 equals to root.arity() == 0
-            if (pattern.arity() == 0 && !(pattern instanceof SubTreePattern)) {
+            if (patternArity == 0 && !(pattern instanceof SubTreePattern)) {
                 if (pattern.matchPredicates(root)) {
                     // if no children pattern, we treat all children as GROUP. e.g. Pattern.ANY.
                     // leaf plan will enter this branch too, e.g. logicalRelation().
                     results.add(root);
                 }
-            } else {
+            } else if (childrenGroupArity > 0) {
                 // matching children group, one List<Plan> per child
                 // first dimension is every child group's plan
                 // second dimension is all matched plan in one group
-                List<List<Plan>> childrenPlans = Lists.newArrayListWithCapacity(groupExpression.arity());
-                for (int i = 0; i < groupExpression.arity(); ++i) {
+                List<List<Plan>> childrenPlans = Lists.newArrayListWithCapacity(childrenGroupArity);
+                for (int i = 0; i < childrenGroupArity; ++i) {
                     Group childGroup = groupExpression.child(i);
                     List<Plan> childrenPlan = matchingChildGroup(pattern, childGroup, i);
 
@@ -118,6 +120,13 @@ public class GroupExpressionMatching implements Iterable<Plan> {
                     childrenPlans.add(childrenPlan);
                 }
                 assembleAllCombinationPlanTree(root, pattern, groupExpression, childrenPlans);
+            } else if (patternArity == 1 && (pattern.hasMultiChild() || pattern.hasMultiGroupChild())) {
+                // leaf group with multi child pattern
+                // e.g. logicalPlan(multi()) match LogicalOlapScan, because LogicalOlapScan is LogicalPlan
+                //      and multi() pattern indicate zero or more children()
+                if (pattern.matchPredicates(root)) {
+                    results.add(root);
+                }
             }
         }
 
@@ -141,9 +150,9 @@ public class GroupExpressionMatching implements Iterable<Plan> {
                 }
             }
 
-            ImmutableList.Builder<Plan> matchingChildren = ImmutableList.builder();
+            List<Plan> matchingChildren = new ArrayList<>();
             new GroupMatching(childPattern, childGroup).forEach(matchingChildren::add);
-            return matchingChildren.build();
+            return matchingChildren;
         }
 
         private void assembleAllCombinationPlanTree(Plan root, Pattern<Plan> rootPattern,
@@ -151,21 +160,22 @@ public class GroupExpressionMatching implements Iterable<Plan> {
                 List<List<Plan>> childrenPlans) {
             int[] childrenPlanIndex = new int[childrenPlans.size()];
             int offset = 0;
+            LogicalProperties logicalProperties = groupExpression.getOwnerGroup().getLogicalProperties();
 
             // assemble all combination of plan tree by current root plan and children plan
             while (offset < childrenPlans.size()) {
-                List<Plan> children = Lists.newArrayList();
+                ImmutableList.Builder<Plan> childrenBuilder =
+                        ImmutableList.builderWithExpectedSize(childrenPlans.size());
                 for (int i = 0; i < childrenPlans.size(); i++) {
-                    children.add(childrenPlans.get(i).get(childrenPlanIndex[i]));
+                    childrenBuilder.add(childrenPlans.get(i).get(childrenPlanIndex[i]));
                 }
+                List<Plan> children = childrenBuilder.build();
 
-                LogicalProperties logicalProperties = groupExpression.getOwnerGroup().getLogicalProperties();
                 // assemble children: replace GroupPlan to real plan,
                 // withChildren will erase groupExpression, so we must
                 // withGroupExpression too.
-                Plan rootWithChildren = root.withChildren(children)
-                        .withLogicalProperties(Optional.of(logicalProperties))
-                        .withGroupExpression(Optional.of(groupExpression));
+                Plan rootWithChildren = root.withGroupExprLogicalPropChildren(Optional.of(groupExpression),
+                        Optional.of(logicalProperties), children);
                 if (rootPattern.matchPredicates(rootWithChildren)) {
                     results.add(rootWithChildren);
                 }

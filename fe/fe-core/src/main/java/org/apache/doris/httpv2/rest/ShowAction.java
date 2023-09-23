@@ -37,7 +37,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -75,6 +75,11 @@ public class ShowAction extends RestBaseController {
 
     @RequestMapping(path = "/api/show_meta_info", method = RequestMethod.GET)
     public Object show_meta_info(HttpServletRequest request, HttpServletResponse response) {
+        if (Config.enable_all_http_auth) {
+            executeCheckPassword(request, response);
+            checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        }
+
         String action = request.getParameter("action");
         if (Strings.isNullOrEmpty(action)) {
             return ResponseEntityBuilder.badRequest("Missing action parameter");
@@ -110,9 +115,13 @@ public class ShowAction extends RestBaseController {
 
         // forward to master if necessary
         if (!Env.getCurrentEnv().isMaster() && isForward) {
-            RedirectView redirectView = redirectToMaster(request, response);
-            Preconditions.checkNotNull(redirectView);
-            return redirectView;
+            try {
+                RedirectView redirectView = redirectToMasterOrException(request, response);
+                Preconditions.checkNotNull(redirectView);
+                return redirectView;
+            } catch (Exception e) {
+                return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+            }
         } else {
             ProcNodeInterface procNode = null;
             ProcService instance = ProcService.getInstance();
@@ -143,6 +152,11 @@ public class ShowAction extends RestBaseController {
 
     @RequestMapping(path = "/api/show_runtime_info", method = RequestMethod.GET)
     public Object show_runtime_info(HttpServletRequest request, HttpServletResponse response) {
+        if (Config.enable_all_http_auth) {
+            executeCheckPassword(request, response);
+            checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        }
+
         HashMap<String, String> feInfo = new HashMap<String, String>();
 
         // Get memory info
@@ -164,6 +178,10 @@ public class ShowAction extends RestBaseController {
 
     @RequestMapping(path = "/api/show_data", method = RequestMethod.GET)
     public Object show_data(HttpServletRequest request, HttpServletResponse response) {
+        if (Config.enable_all_http_auth) {
+            executeCheckPassword(request, response);
+            checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        }
 
         Map<String, Long> oneEntry = Maps.newHashMap();
 
@@ -180,7 +198,7 @@ public class ShowAction extends RestBaseController {
         } else {
             for (long dbId : Env.getCurrentInternalCatalog().getDbIds()) {
                 DatabaseIf db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
-                if (db == null || !(db instanceof Database) || ((Database) db).isInfoSchemaDb()) {
+                if (db == null || !(db instanceof Database) || ((Database) db).isMysqlCompatibleDatabase()) {
                     continue;
                 }
                 totalSize += getDataSizeOfDatabase(db);

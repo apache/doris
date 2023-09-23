@@ -51,8 +51,9 @@ import java.util.Set;
 public class DiskRebalancer extends Rebalancer {
     private static final Logger LOG = LogManager.getLogger(DiskRebalancer.class);
 
-    public DiskRebalancer(SystemInfoService infoService, TabletInvertedIndex invertedIndex) {
-        super(infoService, invertedIndex);
+    public DiskRebalancer(SystemInfoService infoService, TabletInvertedIndex invertedIndex,
+            Map<Long, PathSlot> backendsWorkingSlots) {
+        super(infoService, invertedIndex, backendsWorkingSlots);
     }
 
     public List<BackendLoadStatistic> filterByPrioBackends(List<BackendLoadStatistic> bes) {
@@ -110,8 +111,7 @@ public class DiskRebalancer extends Rebalancer {
      */
     @Override
     protected List<TabletSchedCtx> selectAlternativeTabletsForCluster(
-            ClusterLoadStatistic clusterStat, TStorageMedium medium) {
-        String clusterName = clusterStat.getClusterName();
+            LoadStatisticForTag clusterStat, TStorageMedium medium) {
         List<TabletSchedCtx> alternativeTablets = Lists.newArrayList();
 
         // get classification of backends
@@ -123,7 +123,7 @@ public class DiskRebalancer extends Rebalancer {
         if (!(lowBEs.isEmpty() && highBEs.isEmpty())) {
             // the cluster is not balanced
             if (prioBackends.isEmpty()) {
-                LOG.info("cluster is not balanced: {} with medium: {}. skip", clusterName, medium);
+                LOG.info("cluster is not balanced with medium: {}. skip", medium);
                 return alternativeTablets;
             } else {
                 // prioBEs are not empty, we only schedule prioBEs' disk balance task
@@ -152,6 +152,10 @@ public class DiskRebalancer extends Rebalancer {
         Collections.shuffle(midBEs);
         for (int i = midBEs.size() - 1; i >= 0; i--) {
             BackendLoadStatistic beStat = midBEs.get(i);
+            PathSlot pathSlot = backendsWorkingSlots.get(beStat.getBeId());
+            if (pathSlot == null) {
+                continue;
+            }
 
             // classify the paths.
             Set<Long> pathLow = Sets.newHashSet();
@@ -171,7 +175,10 @@ public class DiskRebalancer extends Rebalancer {
             // for each path, we try to select at most BALANCE_SLOT_NUM_FOR_PATH tablets
             Map<Long, Integer> remainingPaths = Maps.newHashMap();
             for (Long pathHash : pathHigh) {
-                remainingPaths.put(pathHash, TabletScheduler.BALANCE_SLOT_NUM_FOR_PATH);
+                int availBalanceNum = pathSlot.getAvailableBalanceNum(pathHash);
+                if (availBalanceNum > 0) {
+                    remainingPaths.put(pathHash, availBalanceNum);
+                }
             }
 
             if (remainingPaths.isEmpty()) {
@@ -199,7 +206,7 @@ public class DiskRebalancer extends Rebalancer {
                         continue;
                     }
 
-                    TabletSchedCtx tabletCtx = new TabletSchedCtx(TabletSchedCtx.Type.BALANCE, clusterName,
+                    TabletSchedCtx tabletCtx = new TabletSchedCtx(TabletSchedCtx.Type.BALANCE,
                             tabletMeta.getDbId(), tabletMeta.getTableId(), tabletMeta.getPartitionId(),
                             tabletMeta.getIndexId(), tabletId, null /* replica alloc is not used for balance*/,
                             System.currentTimeMillis());
@@ -208,10 +215,10 @@ public class DiskRebalancer extends Rebalancer {
                     tabletCtx.setTag(clusterStat.getTag());
                     if (prioBackends.containsKey(beStat.getBeId())) {
                         // priority of balance task of prio BE is NORMAL
-                        tabletCtx.setOrigPriority(Priority.NORMAL);
+                        tabletCtx.setPriority(Priority.NORMAL);
                     } else {
                         // balance task's default priority is LOW
-                        tabletCtx.setOrigPriority(Priority.LOW);
+                        tabletCtx.setPriority(Priority.LOW);
                     }
                     // we must set balanceType to DISK_BALANCE for create migration task
                     tabletCtx.setBalanceType(BalanceType.DISK_BALANCE);
@@ -232,8 +239,8 @@ public class DiskRebalancer extends Rebalancer {
         // remove balanced BEs from prio backends
         prioBackends.keySet().removeIf(id -> !unbalancedBEs.contains(id));
         if (!alternativeTablets.isEmpty()) {
-            LOG.info("select alternative tablets for cluster: {}, medium: {}, num: {}, detail: {}",
-                    clusterName, medium, alternativeTablets.size(),
+            LOG.info("select alternative tablets, medium: {}, num: {}, detail: {}",
+                    medium, alternativeTablets.size(),
                     alternativeTablets.stream().mapToLong(TabletSchedCtx::getTabletId).toArray());
         }
         return alternativeTablets;
@@ -246,11 +253,11 @@ public class DiskRebalancer extends Rebalancer {
      * 3. Select a low load path from this backend as destination.
      */
     @Override
-    public void completeSchedCtx(TabletSchedCtx tabletCtx,
-            Map<Long, PathSlot> backendsWorkingSlots) throws SchedException {
-        ClusterLoadStatistic clusterStat = statisticMap.get(tabletCtx.getCluster(), tabletCtx.getTag());
+    public void completeSchedCtx(TabletSchedCtx tabletCtx) throws SchedException {
+        LoadStatisticForTag clusterStat = statisticMap.get(tabletCtx.getTag());
         if (clusterStat == null) {
-            throw new SchedException(Status.UNRECOVERABLE, "cluster does not exist");
+            throw new SchedException(Status.UNRECOVERABLE,
+                    String.format("tag %s does not exist", tabletCtx.getTag()));
         }
         if (tabletCtx.getTempSrcBackendId() == -1 || tabletCtx.getTempSrcPathHash() == -1) {
             throw new SchedException(Status.UNRECOVERABLE,
@@ -322,7 +329,7 @@ public class DiskRebalancer extends Rebalancer {
             }
             long destPathHash = slot.takeBalanceSlot(stat.getPathHash());
             if (destPathHash == -1) {
-                throw new SchedException(Status.UNRECOVERABLE, "unable to take dest slot");
+                continue;
             }
             tabletCtx.setDest(beStat.getBeId(), destPathHash, stat.getPath());
             setDest = true;

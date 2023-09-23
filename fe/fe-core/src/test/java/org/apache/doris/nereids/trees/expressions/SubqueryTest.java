@@ -82,7 +82,7 @@ public class SubqueryTest extends AnalyzeCheckTestBase {
     }
 
     @Test
-    public void scalarTest() {
+    public void filterScalarTest() {
         // min will be rewritten as as, it needs to be bound
         /*String sql = "select * from t0 where t0.id = "
                 + "(select min(t1.id) from t1 where t0.k1 = t1.k1)";
@@ -94,19 +94,35 @@ public class SubqueryTest extends AnalyzeCheckTestBase {
         assert sql1 != null;
 
         String sql2 = "select * from t0 where t0.id = "
-                + "(select t1.k1 from t1 where t0.k1 = t1.k1)";
+                + "(select sum(t1.k1) from t1 where t0.k1 = t1.k1)";
         checkAnalyze(sql2);
 
         String sql3 = "select * from t0 where t0.id = "
                 + "(select * from t1 where t0.k1 = t1.k1)";
         assert sql3 != null;
+
+        String sql4 = "select * from t0 where t0.id = "
+                + "(select sum(t1.k1) from t1 where t0.k1 = t1.k1) "
+                + "and t0.k2 = (select sum(t2.k1) from t2 where t0.v1 = t2.v2)";
+        checkAnalyze(sql4);
+
+        String sql5 = "select * from t0 where t0.id = "
+                + "(select sum(t1.k1) from t1 where t0.k1 = "
+                + "(select sum(t2.k1) from t2 where t1.id = t2.v2))";
+        checkAnalyze(sql5);
     }
 
     @Test
     public void inScalarTest() {
         String sql = "select * from t0 where t0.id in "
-                + "(select * from t1 where t1.k1 = "
-                + "(select t2.id from t2 where t0.id = t2.id));";
+                + "(select t1.k1 from t1 where t1.k1 = "
+                + "(select sum(t2.id) from t2 where t1.id = t2.id));";
         checkAnalyze(sql);
+
+        String sql1 = "select * from t0 where t0.k1 in ("
+                + "select t1.k1 from t1 where "
+                + "t1.v2 in (select t2.k1 from t2 where t2.k1 = 3) "
+                + "and t1.v2 > (select sum(t2.k1) from t2 where t2.v2 = t1.id))";
+        checkAnalyze(sql1);
     }
 }

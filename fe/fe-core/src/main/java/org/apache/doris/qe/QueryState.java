@@ -29,7 +29,8 @@ public class QueryState {
         NOOP,   // send nothing to remote
         OK,     // send OK packet to remote
         EOF,    // send EOF packet to remote
-        ERR     // send ERROR packet to remote
+        ERR,     // send ERROR packet to remote
+        UNKNOWN  // send UNKNOWN packet to remote
     }
 
     public enum ErrType {
@@ -47,6 +48,7 @@ public class QueryState {
     private int warningRows = 0;
     // make it public for easy to use
     public int serverStatus = 0;
+    public boolean isNereids = false;
 
     public QueryState() {
     }
@@ -55,14 +57,20 @@ public class QueryState {
         stateType = MysqlStateType.OK;
         errorCode = null;
         infoMessage = null;
+        errorMessage = "";
         serverStatus = 0;
         isQuery = false;
         affectedRows = 0;
         warningRows = 0;
+        isNereids = false;
     }
 
     public MysqlStateType getStateType() {
         return stateType;
+    }
+
+    public void setNoop() {
+        stateType = MysqlStateType.NOOP;
     }
 
     public void setEof() {
@@ -132,6 +140,14 @@ public class QueryState {
 
     public int getWarningRows() {
         return warningRows;
+    }
+
+    public void setNereids(boolean nereids) {
+        isNereids = nereids;
+    }
+
+    public boolean isNereids() {
+        return isNereids;
     }
 
     public MysqlPacket toResponsePacket() {

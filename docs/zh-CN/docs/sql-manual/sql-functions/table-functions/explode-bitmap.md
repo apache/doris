@@ -1,6 +1,6 @@
 ---
 {
-    "title": "explode_bitmap",
+    "title": "EXPLODE_BITMAP",
     "language": "zh-CN"
 }
 ---
@@ -32,11 +32,8 @@ under the License.
 
 展开一个bitmap类型。
 
-语法：
-
-```
-explode_bitmap(bitmap)
-```
+#### syntax
+`explode_bitmap(bitmap)`
 
 ### example
 

@@ -15,35 +15,41 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#define __IN_CONFIGBASE_CPP__
-#include "common/configbase.h"
-#undef __IN_CONFIGBASE_CPP__
+#include "common/config.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+
+#include <map>
+#include <ostream>
+#include <string>
+#include <utility>
 
 #include "common/status.h"
+#include "gtest/gtest_pred_impl.h"
 
 namespace doris {
 using namespace config;
 
 class ConfigTest : public testing::Test {
     void SetUp() override { config::Register::_s_field_map->clear(); }
+    void TearDown() override { config::Register::_s_field_map->clear(); }
 };
 
 TEST_F(ConfigTest, DumpAllConfigs) {
-    CONF_Bool(cfg_bool_false, "false");
-    CONF_Bool(cfg_bool_true, "true");
-    CONF_Double(cfg_double, "123.456");
-    CONF_Int16(cfg_int16_t, "2561");
-    CONF_Int32(cfg_int32_t, "65536123");
-    CONF_Int64(cfg_int64_t, "4294967296123");
-    CONF_String(cfg_std_string, "doris_config_test_string");
-    CONF_Bools(cfg_std_vector_bool, "true,false,true");
-    CONF_Doubles(cfg_std_vector_double, "123.456,123.4567,123.45678");
-    CONF_Int16s(cfg_std_vector_int16_t, "2561,2562,2563");
-    CONF_Int32s(cfg_std_vector_int32_t, "65536123,65536234,65536345");
-    CONF_Int64s(cfg_std_vector_int64_t, "4294967296123,4294967296234,4294967296345");
-    CONF_Strings(cfg_std_vector_std_string, "doris,config,test,string");
+    DEFINE_Bool(cfg_bool_false, "false");
+    DEFINE_Bool(cfg_bool_true, "true");
+    DEFINE_Double(cfg_double, "123.456");
+    DEFINE_Int16(cfg_int16_t, "2561");
+    DEFINE_Int32(cfg_int32_t, "65536123");
+    DEFINE_Int64(cfg_int64_t, "4294967296123");
+    DEFINE_String(cfg_std_string, "doris_config_test_string");
+    DEFINE_Bools(cfg_std_vector_bool, "true,false,true");
+    DEFINE_Doubles(cfg_std_vector_double, "123.456,123.4567,123.45678");
+    DEFINE_Int16s(cfg_std_vector_int16_t, "2561,2562,2563");
+    DEFINE_Int32s(cfg_std_vector_int32_t, "65536123,65536234,65536345");
+    DEFINE_Int64s(cfg_std_vector_int64_t, "4294967296123,4294967296234,4294967296345");
+    DEFINE_Strings(cfg_std_vector_std_string, "doris,config,test,string");
 
     EXPECT_TRUE(config::init(nullptr, true));
     std::stringstream ss;
@@ -61,13 +67,13 @@ TEST_F(ConfigTest, DumpAllConfigs) {
 }
 
 TEST_F(ConfigTest, UpdateConfigs) {
-    CONF_Bool(cfg_bool_immutable, "true");
-    CONF_mBool(cfg_bool, "false");
-    CONF_mDouble(cfg_double, "123.456");
-    CONF_mInt16(cfg_int16_t, "2561");
-    CONF_mInt32(cfg_int32_t, "65536123");
-    CONF_mInt64(cfg_int64_t, "4294967296123");
-    CONF_String(cfg_std_string, "doris_config_test_string");
+    DEFINE_Bool(cfg_bool_immutable, "true");
+    DEFINE_mBool(cfg_bool, "false");
+    DEFINE_mDouble(cfg_double, "123.456");
+    DEFINE_mInt16(cfg_int16_t, "2561");
+    DEFINE_mInt32(cfg_int32_t, "65536123");
+    DEFINE_mInt64(cfg_int64_t, "4294967296123");
+    DEFINE_String(cfg_std_string, "doris_config_test_string");
 
     EXPECT_TRUE(config::init(nullptr, true));
 
@@ -99,36 +105,45 @@ TEST_F(ConfigTest, UpdateConfigs) {
     // not exist
     Status s = config::set_config("cfg_not_exist", "123");
     EXPECT_FALSE(s.ok());
-    EXPECT_EQ(s.to_string(), "Not found: 'cfg_not_exist' is not found");
+    EXPECT_TRUE(s.to_string().find("[NOT_FOUND]") != std::string::npos);
+    EXPECT_TRUE(s.to_string().find("'cfg_not_exist' is not found") != std::string::npos);
 
     // immutable
     EXPECT_TRUE(cfg_bool_immutable);
     s = config::set_config("cfg_bool_immutable", "false");
     EXPECT_FALSE(s.ok());
-    EXPECT_EQ(s.to_string(), "Not supported: 'cfg_bool_immutable' is not support to modify");
+    EXPECT_TRUE(s.to_string().find("NOT_IMPLEMENTED_ERROR") != std::string::npos);
+    EXPECT_TRUE(s.to_string().find("'cfg_bool_immutable' is not support to modify") !=
+                std::string::npos);
     EXPECT_TRUE(cfg_bool_immutable);
 
     // convert error
     s = config::set_config("cfg_bool", "falseeee");
     EXPECT_FALSE(s.ok());
-    EXPECT_EQ(s.to_string(), "Invalid argument: convert 'falseeee' as bool failed");
+    EXPECT_TRUE(s.to_string().find("INVALID_ARGUMENT") != std::string::npos);
+    EXPECT_TRUE(s.to_string().find("convert 'falseeee' as bool failed") != std::string::npos);
     EXPECT_TRUE(cfg_bool);
 
     s = config::set_config("cfg_double", "");
     EXPECT_FALSE(s.ok());
-    EXPECT_EQ(s.to_string(), "Invalid argument: convert '' as double failed");
+    EXPECT_TRUE(s.to_string().find("INVALID_ARGUMENT") != std::string::npos);
+    EXPECT_TRUE(s.to_string().find("convert '' as double failed") != std::string::npos);
     EXPECT_EQ(cfg_double, 654.321);
 
     // convert error
     s = config::set_config("cfg_int32_t", "4294967296124");
     EXPECT_FALSE(s.ok());
-    EXPECT_EQ(s.to_string(), "Invalid argument: convert '4294967296124' as int32_t failed");
+    EXPECT_TRUE(s.to_string().find("INVALID_ARGUMENT") != std::string::npos);
+    EXPECT_TRUE(s.to_string().find("convert '4294967296124' as int32_t failed") !=
+                std::string::npos);
     EXPECT_EQ(cfg_int32_t, 65536124);
 
     // not support
     s = config::set_config("cfg_std_string", "test");
     EXPECT_FALSE(s.ok());
-    EXPECT_EQ(s.to_string(), "Not supported: 'cfg_std_string' is not support to modify");
+    EXPECT_TRUE(s.to_string().find("NOT_IMPLEMENTED_ERROR") != std::string::npos);
+    EXPECT_TRUE(s.to_string().find("'cfg_std_string' is not support to modify") !=
+                std::string::npos);
     EXPECT_EQ(cfg_std_string, "doris_config_test_string");
 }
 

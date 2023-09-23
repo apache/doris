@@ -48,54 +48,70 @@ illustrate:
 
     file_path points to the path where the file is stored and the file prefix. Such as `hdfs://path/to/my_file_`.
 
-   The final filename will consist of `my_file_`, the file number and the file format suffix. The file serial number starts from 0, and the number is the number of files to be divided. Such as:
+    ```
+    The final filename will consist of `my_file_`, the file number and the file format suffix. The file serial number starts from 0, and the number is the number of files to be divided. Such as:
 
     my_file_abcdefg_0.csv
     my_file_abcdefg_1.csv
     my_file_abcdegf_2.csv
+    ```
+    You can also omit the file prefix and specify only the file directory, such as: `hdfs://path/to/`
 
 2. format_as
 
+    ```
     FORMAT AS CSV
+    ```
 
-    Specifies the export format. Default is CSV.
+    Specifies the export format. Supported formats include CSV, PARQUET, CSV_WITH_NAMES, CSV_WITH_NAMES_AND_TYPES and ORC. Default is CSV.
+    > Note: PARQUET, CSV_WITH_NAMES, CSV_WITH_NAMES_AND_TYPES, and ORC are supported starting in version 1.2 .
 
 3. properties
 
     Specify related properties. Currently exporting via the Broker process, or via the S3 protocol is supported.
 
-       grammar:
-       [PROPERTIES ("key"="value", ...)]
-       The following properties are supported:
-       column_separator: column separator
-       line_delimiter: line delimiter
-       max_file_size: the size limit of a single file, if the result exceeds this value, it will be cut into multiple files.
-    
-       Broker related properties need to be prefixed with `broker.`:
-       broker.name: broker name
-       broker.hadoop.security.authentication: specify the authentication method as kerberos
-       broker.kerberos_principal: specifies the principal of kerberos
-       broker.kerberos_keytab: specifies the path to the keytab file of kerberos. The file must be the absolute path to the file on the server where the broker process is located. and can be accessed by the Broker process
-    
-       HDFS related properties:
-       fs.defaultFS: namenode address and port
-       hadoop.username: hdfs username
-       dfs.nameservices: if hadoop enable HA, please set fs nameservice. See hdfs-site.xml
-       dfs.ha.namenodes.[nameservice ID]：unique identifiers for each NameNode in the nameservice. See hdfs-site.xml
-       dfs.namenode.rpc-address.[nameservice ID].[name node ID]`：the fully-qualified RPC address for each NameNode to listen on. See hdfs-site.xml
-       dfs.client.failover.proxy.provider.[nameservice ID]：the Java class that HDFS clients use to contact the Active NameNode, usually it is org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider
+    ```
+    grammar:
+    [PROPERTIES ("key"="value", ...)]
+    The following properties are supported:
 
-       For a kerberos-authentication enabled Hadoop cluster, additional properties need to be set:
-       dfs.namenode.kerberos.principal: HDFS namenode service principal
-       hadoop.security.authentication: kerberos
-       hadoop.kerberos.principal: the Kerberos pincipal that Doris will use when connectiong to HDFS.
-       hadoop.kerberos.keytab: HDFS client keytab location.
+    File related properties
+        column_separator: column separator,is only for CSV format. mulit-bytes is supported starting in version 1.2, such as: "\\x01", "abc".
+        line_delimiter: line delimiter,is only for CSV format. mulit-bytes supported starting in version 1.2, such as: "\\x01", "abc".
+        max_file_size: the size limit of a single file, if the result exceeds this value, it will be cut into multiple files, the value range of max_file_size is [5MB, 2GB] and the default is 1GB. (When specified that the file format is ORC, the size of the actual division file will be a multiples of 64MB, such as: specify max_file_size = 5MB, and actually use 64MB as the division; specify max_file_size = 65MB, and will actually use 128MB as cut division points.)
+        delete_existing_files: default `false`. If it is specified as true, you will first delete all files specified in the directory specified by the file_path, and then export the data to the directory.For example: "file_path" = "/user/tmp", then delete all files and directory under "/user/"; "file_path" = "/user/tmp/", then delete all files and directory under "/user/tmp/" 
+        file_suffix: Specify the suffix of the export file
     
-       For the S3 protocol, you can directly execute the S3 protocol configuration:
-       AWS_ENDPOINT
-       AWS_ACCESS_KEY
-       AWS_SECRET_KEY
-       AWS_REGION
+    Broker related properties need to be prefixed with `broker.`:
+        broker.name: broker name
+        broker.hadoop.security.authentication: specify the authentication method as kerberos
+        broker.kerberos_principal: specifies the principal of kerberos
+        broker.kerberos_keytab: specifies the path to the keytab file of kerberos. The file must be the absolute path to the file on the server where the broker process is located. and can be accessed by the Broker process
+    
+    HDFS related properties:
+        fs.defaultFS: namenode address and port
+        hadoop.username: hdfs username
+        dfs.nameservices: if hadoop enable HA, please set fs nameservice. See hdfs-site.xml
+        dfs.ha.namenodes.[nameservice ID]：unique identifiers for each NameNode in the nameservice. See hdfs-site.xml
+        dfs.namenode.rpc-address.[nameservice ID].[name node ID]: the fully-qualified RPC address for each NameNode to listen on. See hdfs-site.xml
+        dfs.client.failover.proxy.provider.[nameservice ID]：the Java class that HDFS clients use to contact the Active NameNode, usually it is org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider
+
+        For a kerberos-authentication enabled Hadoop cluster, additional properties need to be set:
+        dfs.namenode.kerberos.principal: HDFS namenode service principal
+        hadoop.security.authentication: kerberos
+        hadoop.kerberos.principal: the Kerberos pincipal that Doris will use when connectiong to HDFS.
+        hadoop.kerberos.keytab: HDFS client keytab location.
+    
+    For the S3 protocol, you can directly execute the S3 protocol configuration:
+    s3.endpoint
+    s3.access_key
+    s3.secret_key
+    s3.region
+    use_path_stype: (optional) default false . The S3 SDK uses the virtual-hosted style by default. However, some object storage systems may not be enabled or support virtual-hosted style access. At this time, we can add the use_path_style parameter to force the use of path style access method.
+
+    ```
+
+    > Note that to use the `delete_existing_files` parameter, you also need to add the configuration `enable_delete_existing_files = true` to the fe.conf file and restart the FE. Only then will the `delete_existing_files` parameter take effect. Setting `delete_existing_files = true` is a dangerous operation and it is recommended to only use it in a testing environment.
 
 ### example
 
@@ -181,7 +197,7 @@ illustrate:
    );
    ````
 
-5. Export the query result of the select statement to the file `cos://${bucket_name}/path/result.txt`. Specify the export format as csv.
+5. Export the query result of the select statement to the file `s3a://${bucket_name}/path/result.txt`. Specify the export format as csv.
    After the export is complete, an identity file is generated.
 
    ```sql
@@ -206,7 +222,7 @@ illustrate:
    Verify on cos
 
           1. A path that does not exist will be automatically created
-             2. Access.key/secret.key/endpoint needs to be confirmed with cos students. Especially the value of endpoint does not need to fill in bucket_name.
+          2. Access.key/secret.key/endpoint needs to be confirmed with students of cos. Especially the value of endpoint does not need to fill in bucket_name.
 
 6. Use the s3 protocol to export to bos, and enable concurrent export.
 
@@ -217,10 +233,10 @@ illustrate:
    format as csv
    properties
    (
-       "AWS_ENDPOINT" = "http://s3.bd.bcebos.com",
-       "AWS_ACCESS_KEY" = "xxxx",
-       "AWS_SECRET_KEY" = "xxx",
-       "AWS_REGION" = "bd"
+        "s3.endpoint" = "http://s3.bd.bcebos.com",
+        "s3.access_key" = "xxxx",
+        "s3.secret_key" = "xxx",
+        "s3.region" = "bd"
    )
    ````
 
@@ -236,18 +252,19 @@ illustrate:
    format as csv
    properties
    (
-       "AWS_ENDPOINT" = "http://s3.bd.bcebos.com",
-       "AWS_ACCESS_KEY" = "xxxx",
-       "AWS_SECRET_KEY" = "xxx",
-       "AWS_REGION" = "bd"
+        "s3.endpoint" = "http://s3.bd.bcebos.com",
+        "s3.access_key" = "xxxx",
+        "s3.secret_key" = "xxx",
+        "s3.region" = "bd"
    )
    ````
 
-8. Use hdfs export to export simple query results to the file `hdfs://path/to/result.txt`. Specify the export format as CSV and the user name as work. Specify the column separator as `,` and the row separator as `\n`.
+8. Use hdfs export to export simple query results to the file `hdfs://${host}:${fileSystem_port}/path/to/result.txt`. Specify the export format as CSV and the user name as work. Specify the column separator as `,` and the row separator as `\n`.
 
    ```sql
+   -- the default port of fileSystem_port is 9000
    SELECT * FROM tbl
-   INTO OUTFILE "hdfs://path/to/result_"
+   INTO OUTFILE "hdfs://${host}:${fileSystem_port}/path/to/result_"
    FORMAT AS CSV
    PROPERTIES
    (
@@ -278,6 +295,26 @@ illustrate:
 
    If the final generated file is not larger than 100MB, it will be: `result_0.csv`.
    If larger than 100MB, it may be `result_0.csv, result_1.csv, ...`.
+
+9. Export the query result of the select statement to the file `cosn://${bucket_name}/path/result.txt` on Tencent Cloud Object Storage (COS). Specify the export format as csv.
+   After the export is complete, an identity file is generated.
+
+   ```sql
+   select k1,k2,v1 from tbl1 limit 100000
+   into outfile "cosn://my_bucket/export/my_file_"
+   FORMAT AS CSV
+   PROPERTIES
+   (
+       "broker.name" = "broker_name",
+       "broker.fs.cosn.userinfo.secretId" = "xxx",
+       "broker.fs.cosn.userinfo.secretKey" = "xxxx",
+       "broker.fs.cosn.bucket.endpoint_suffix" = "cos.xxxxxx.myqcloud.com",
+       "column_separator" = ",",
+       "line_delimiter" = "\n",
+       "max_file_size" = "1024MB",
+       "success_file_name" = "SUCCESS"
+   )
+   ````
 
 ### keywords
 

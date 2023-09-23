@@ -17,5 +17,34 @@
 
 suite("test_conv") {
     qt_select "SELECT CONV(15,10,2)"
+
+    sql """ drop table if exists test_conv; """
+    sql """ create table test_conv(
+        k1 varchar(16),
+        v1 int
+    ) distributed by hash (k1) buckets 1
+    properties ("replication_num"="1");
+    """
+    sql """ insert into test_conv values
+        ("100", 1),
+        ("100", 1),
+        ("100", 1),
+        ("100", 1),
+        ("100", 1),
+        ("100", 1),
+        ("100", 1),
+        ("100", 1),
+        ("100", 1),
+        ("100", 1),
+        ("100", 1),
+        ("100", 1),
+        ("100", 1),
+        ("100", 1),
+        ("100", 1),
+        ("100", 1),
+        ("100", 1)
+    """
+
+    qt_sql_conv1 """ select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/conv(k1, cast(null as bigint), cast(null as bigint)) from test_conv; """
 }
 

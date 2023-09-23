@@ -54,24 +54,26 @@ template <typename>
 struct AbsImpl;
 template <typename>
 struct NegativeImpl;
+template <typename>
+struct PositiveImpl;
 
 /// Used to indicate undefined operation
 struct InvalidType;
 
 template <template <typename> class Op, typename Name, bool is_injective>
 class FunctionUnaryArithmetic : public IFunction {
-    static constexpr bool allow_decimal =
-            std::is_same_v<Op<Int8>, NegativeImpl<Int8>> || std::is_same_v<Op<Int8>, AbsImpl<Int8>>;
+    static constexpr bool allow_decimal = std::is_same_v<Op<Int8>, NegativeImpl<Int8>> ||
+                                          std::is_same_v<Op<Int8>, AbsImpl<Int8>> ||
+                                          std::is_same_v<Op<Int8>, PositiveImpl<Int8>>;
 
     template <typename F>
     static bool cast_type(const IDataType* type, F&& f) {
-        return cast_type_to_either<
-                DataTypeUInt8, DataTypeUInt16, DataTypeUInt32, DataTypeUInt64, DataTypeInt8,
-                DataTypeInt16, DataTypeInt32, DataTypeInt64, DataTypeInt128, DataTypeFloat32,
-                DataTypeFloat64,
-                //                                            DataTypeDecimal<Decimal32>,
-                //                                            DataTypeDecimal<Decimal64>,
-                DataTypeDecimal<Decimal128>>(type, std::forward<F>(f));
+        return cast_type_to_either<DataTypeUInt8, DataTypeUInt16, DataTypeUInt32, DataTypeUInt64,
+                                   DataTypeInt8, DataTypeInt16, DataTypeInt32, DataTypeInt64,
+                                   DataTypeInt128, DataTypeFloat32, DataTypeFloat64,
+                                   DataTypeDecimal<Decimal32>, DataTypeDecimal<Decimal64>,
+                                   DataTypeDecimal<Decimal128>, DataTypeDecimal<Decimal128I>>(
+                type, std::forward<F>(f));
     }
 
 public:
@@ -82,8 +84,6 @@ public:
 
     size_t get_number_of_arguments() const override { return 1; }
     bool get_is_injective(const Block&) override { return is_injective; }
-
-    bool use_default_implementation_for_constants() const override { return true; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         DataTypePtr result;

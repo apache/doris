@@ -14,13 +14,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
+#include <inttypes.h>
+#include <sys/types.h>
 #include <limits>
+#include <ostream>
+
 using std::numeric_limits;
 #include <string>
+
 using std::string;
 
-#include <common/logging.h>
+#include "common/logging.h"
 #include <fmt/format.h>
 
 #include "gutil/gscoped_ptr.h"
@@ -450,14 +454,14 @@ bool ParseLeadingBoolValue(const char* str, bool deflt) {
 }
 
 // ----------------------------------------------------------------------
-// FpToString()
+// Uint64ToString()
 // FloatToString()
 // IntToString()
 //    Convert various types to their string representation, possibly padded
 //    with spaces, using snprintf format specifiers.
 // ----------------------------------------------------------------------
 
-string FpToString(Fprint fp) {
+string Uint64ToString(uint64 fp) {
     char buf[17];
     snprintf(buf, sizeof(buf), "%016" PRIx64, fp);
     return string(buf);

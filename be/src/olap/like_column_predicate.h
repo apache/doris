@@ -16,32 +16,47 @@
 // under the License.
 #pragma once
 
-#include "exprs/like_predicate.h"
+#include <glog/logging.h>
+#include <stdint.h>
+
+#include <boost/iterator/iterator_facade.hpp>
+#include <functional>
+#include <memory>
+#include <ostream>
+#include <string>
+#include <utility>
+
+#include "common/status.h"
 #include "olap/column_predicate.h"
-#include "runtime/string_value.h"
-#include "udf/udf.h"
+#include "olap/rowset/segment_v2/bloom_filter.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_dictionary.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/functions/like.h"
 
-namespace doris {
+namespace roaring {
+class Roaring;
+} // namespace roaring
 
-template <bool is_vectorized>
+namespace doris {
+class FunctionContext;
+
+namespace segment_v2 {
+class BitmapIndexIterator;
+} // namespace segment_v2
+
+template <PrimitiveType T>
 class LikeColumnPredicate : public ColumnPredicate {
 public:
-    LikeColumnPredicate(bool opposite, uint32_t column_id, doris_udf::FunctionContext* fn_ctx,
-                        doris_udf::StringVal val);
+    LikeColumnPredicate(bool opposite, uint32_t column_id, doris::FunctionContext* fn_ctx,
+                        doris::StringRef val);
     ~LikeColumnPredicate() override = default;
 
     PredicateType type() const override { return PredicateType::EQ; }
     void evaluate_vec(const vectorized::IColumn& column, uint16_t size, bool* flags) const override;
 
-    void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const override;
-
-    void evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) const override {
-    }
-    void evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size,
-                      bool* flags) const override {}
     Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* roaring) const override {
         return Status::OK();
@@ -53,109 +68,108 @@ public:
     void evaluate_and_vec(const vectorized::IColumn& column, uint16_t size,
                           bool* flags) const override;
 
-private:
-    template <bool is_nullable>
-    void _base_evaluate(const ColumnBlock* block, uint16_t* sel, uint16_t* size) const {
-        uint16_t new_size = 0;
-        if constexpr (!is_vectorized) {
-            for (uint16_t i = 0; i < *size; ++i) {
-                uint16_t idx = sel[i];
-                sel[new_size] = idx;
-                const StringValue* cell_value =
-                        reinterpret_cast<const StringValue*>(block->cell(idx).cell_ptr());
-                doris_udf::StringVal target;
-                cell_value->to_string_val(&target);
-                if constexpr (is_nullable) {
-                    new_size += _opposite ^ (!block->cell(idx).is_null() &&
-                                             (_state->function)(_fn_ctx, target, pattern).val);
-                } else {
-                    new_size += _opposite ^ (_state->function)(_fn_ctx, target, pattern).val;
-                }
-            }
-        }
-        *size = new_size;
+    std::string get_search_str() const override {
+        return std::string(reinterpret_cast<const char*>(pattern.data), pattern.size);
     }
+    bool is_opposite() const { return _opposite; }
 
+    void set_page_ng_bf(std::unique_ptr<segment_v2::BloomFilter> src) override {
+        _page_ng_bf = std::move(src);
+    }
+    bool evaluate_and(const BloomFilter* bf) const override {
+        // like predicate can not use normal bf, just return true to accept
+        if (!bf->is_ngram_bf()) return true;
+        if (_page_ng_bf) {
+            return bf->contains(*_page_ng_bf);
+        }
+        return true;
+    }
+    bool can_do_bloom_filter(bool ngram) const override { return ngram; }
+
+private:
     template <bool is_and>
     void _evaluate_vec(const vectorized::IColumn& column, uint16_t size, bool* flags) const {
-        if constexpr (is_vectorized) {
-            if (column.is_nullable()) {
-                auto* nullable_col =
-                        vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
-                auto& null_map_data = nullable_col->get_null_map_column().get_data();
-                auto& nested_col = nullable_col->get_nested_column();
-                if (nested_col.is_column_dictionary()) {
-                    auto* nested_col_ptr = vectorized::check_and_get_column<
-                            vectorized::ColumnDictionary<vectorized::Int32>>(nested_col);
-                    auto& data_array = nested_col_ptr->get_data();
-                    for (uint16_t i = 0; i < size; i++) {
-                        if (null_map_data[i]) {
-                            if constexpr (is_and) {
-                                flags[i] &= _opposite;
-                            } else {
-                                flags[i] = _opposite;
-                            }
-                            continue;
-                        }
-
-                        StringValue cell_value = nested_col_ptr->get_value(data_array[i]);
+        if (column.is_nullable()) {
+            auto* nullable_col =
+                    vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
+            auto& null_map_data = nullable_col->get_null_map_column().get_data();
+            auto& nested_col = nullable_col->get_nested_column();
+            if (nested_col.is_column_dictionary()) {
+                auto* nested_col_ptr = vectorized::check_and_get_column<
+                        vectorized::ColumnDictionary<vectorized::Int32>>(nested_col);
+                auto& data_array = nested_col_ptr->get_data();
+                for (uint16_t i = 0; i < size; i++) {
+                    if (null_map_data[i]) {
                         if constexpr (is_and) {
-                            unsigned char flag = 0;
-                            (_state->function)(
-                                    const_cast<vectorized::LikeSearchState*>(&_like_state),
-                                    cell_value, pattern, &flag);
-                            flags[i] &= _opposite ^ flag;
+                            flags[i] &= _opposite;
                         } else {
-                            unsigned char flag = 0;
-                            (_state->function)(
-                                    const_cast<vectorized::LikeSearchState*>(&_like_state),
-                                    cell_value, pattern, &flag);
-                            flags[i] = _opposite ^ flag;
+                            flags[i] = _opposite;
                         }
+                        continue;
                     }
-                } else {
-                    LOG(FATAL) << "vectorized (not) like predicates should be dict column";
+
+                    StringRef cell_value = nested_col_ptr->get_shrink_value(data_array[i]);
+                    if constexpr (is_and) {
+                        unsigned char flag = 0;
+                        (_state->scalar_function)(
+                                const_cast<vectorized::LikeSearchState*>(&_like_state),
+                                StringRef(cell_value.data, cell_value.size), pattern, &flag);
+                        flags[i] &= _opposite ^ flag;
+                    } else {
+                        unsigned char flag = 0;
+                        (_state->scalar_function)(
+                                const_cast<vectorized::LikeSearchState*>(&_like_state),
+                                StringRef(cell_value.data, cell_value.size), pattern, &flag);
+                        flags[i] = _opposite ^ flag;
+                    }
                 }
             } else {
-                if (column.is_column_dictionary()) {
-                    auto* nested_col_ptr = vectorized::check_and_get_column<
-                            vectorized::ColumnDictionary<vectorized::Int32>>(column);
-                    auto& data_array = nested_col_ptr->get_data();
-                    for (uint16_t i = 0; i < size; i++) {
-                        StringValue cell_value = nested_col_ptr->get_value(data_array[i]);
-                        if constexpr (is_and) {
-                            unsigned char flag = 0;
-                            (_state->function)(
-                                    const_cast<vectorized::LikeSearchState*>(&_like_state),
-                                    cell_value, pattern, &flag);
-                            flags[i] &= _opposite ^ flag;
-                        } else {
-                            unsigned char flag = 0;
-                            (_state->function)(
-                                    const_cast<vectorized::LikeSearchState*>(&_like_state),
-                                    cell_value, pattern, &flag);
-                            flags[i] = _opposite ^ flag;
-                        }
+                LOG(FATAL) << "vectorized (not) like predicates should be dict column";
+            }
+        } else {
+            if (column.is_column_dictionary()) {
+                auto* nested_col_ptr = vectorized::check_and_get_column<
+                        vectorized::ColumnDictionary<vectorized::Int32>>(column);
+                auto& data_array = nested_col_ptr->get_data();
+                for (uint16_t i = 0; i < size; i++) {
+                    StringRef cell_value = nested_col_ptr->get_shrink_value(data_array[i]);
+                    if constexpr (is_and) {
+                        unsigned char flag = 0;
+                        (_state->scalar_function)(
+                                const_cast<vectorized::LikeSearchState*>(&_like_state),
+                                StringRef(cell_value.data, cell_value.size), pattern, &flag);
+                        flags[i] &= _opposite ^ flag;
+                    } else {
+                        unsigned char flag = 0;
+                        (_state->scalar_function)(
+                                const_cast<vectorized::LikeSearchState*>(&_like_state),
+                                StringRef(cell_value.data, cell_value.size), pattern, &flag);
+                        flags[i] = _opposite ^ flag;
                     }
-                } else {
-                    LOG(FATAL) << "vectorized (not) like predicates should be dict column";
                 }
+            } else {
+                LOG(FATAL) << "vectorized (not) like predicates should be dict column";
             }
         }
+    }
+
+    std::string _debug_string() const override {
+        std::string info = "LikeColumnPredicate";
+        return info;
     }
 
     std::string _origin;
-    // life time controlled by scan node
-    doris_udf::FunctionContext* _fn_ctx;
-    using PatternType = std::conditional_t<is_vectorized, StringValue, StringVal>;
-    using StateType = std::conditional_t<is_vectorized, vectorized::LikeState, LikePredicateState>;
-    PatternType pattern;
+    // lifetime controlled by scan node
+    using StateType = vectorized::LikeState;
+    StringRef pattern;
 
     StateType* _state;
 
-    // A separate scratch region is required for every concurrent caller of the Hyperscan API.
-    // So here _like_state is separate for each instance of LikeColumnPredicate.
+    // A separate scratch region is required for every concurrent caller of the
+    // Hyperscan API. So here _like_state is separate for each instance of
+    // LikeColumnPredicate.
     vectorized::LikeSearchState _like_state;
+    std::unique_ptr<segment_v2::BloomFilter> _page_ng_bf; // for ngram-bf index
 };
 
-} //namespace doris
+} // namespace doris

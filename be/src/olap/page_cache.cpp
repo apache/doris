@@ -17,37 +17,40 @@
 
 #include "olap/page_cache.h"
 
-#include "runtime/thread_context.h"
+#include <glog/logging.h>
+
+#include <ostream>
+
+#include "runtime/exec_env.h"
 
 namespace doris {
-
-StoragePageCache* StoragePageCache::_s_instance = nullptr;
-
-void StoragePageCache::create_global_cache(size_t capacity, int32_t index_cache_percentage,
-                                           uint32_t num_shards) {
-    DCHECK(_s_instance == nullptr);
-    static StoragePageCache instance(capacity, index_cache_percentage, num_shards);
-    _s_instance = &instance;
+StoragePageCache* StoragePageCache::create_global_cache(size_t capacity,
+                                                        int32_t index_cache_percentage,
+                                                        int64_t pk_index_cache_capacity,
+                                                        uint32_t num_shards) {
+    StoragePageCache* res = new StoragePageCache(capacity, index_cache_percentage,
+                                                 pk_index_cache_capacity, num_shards);
+    return res;
 }
 
 StoragePageCache::StoragePageCache(size_t capacity, int32_t index_cache_percentage,
-                                   uint32_t num_shards)
+                                   int64_t pk_index_cache_capacity, uint32_t num_shards)
         : _index_cache_percentage(index_cache_percentage) {
     if (index_cache_percentage == 0) {
-        _data_page_cache = std::unique_ptr<Cache>(
-                new_lru_cache("DataPageCache", capacity, LRUCacheType::SIZE, num_shards));
+        _data_page_cache = std::make_unique<DataPageCache>(capacity, num_shards);
     } else if (index_cache_percentage == 100) {
-        _index_page_cache = std::unique_ptr<Cache>(
-                new_lru_cache("IndexPageCache", capacity, LRUCacheType::SIZE, num_shards));
+        _index_page_cache = std::make_unique<IndexPageCache>(capacity, num_shards);
     } else if (index_cache_percentage > 0 && index_cache_percentage < 100) {
-        _data_page_cache = std::unique_ptr<Cache>(
-                new_lru_cache("DataPageCache", capacity * (100 - index_cache_percentage) / 100,
-                              LRUCacheType::SIZE, num_shards));
-        _index_page_cache = std::unique_ptr<Cache>(
-                new_lru_cache("IndexPageCache", capacity * index_cache_percentage / 100,
-                              LRUCacheType::SIZE, num_shards));
+        _data_page_cache = std::make_unique<DataPageCache>(
+                capacity * (100 - index_cache_percentage) / 100, num_shards);
+        _index_page_cache = std::make_unique<IndexPageCache>(
+                capacity * index_cache_percentage / 100, num_shards);
     } else {
         CHECK(false) << "invalid index page cache percentage";
+    }
+    if (pk_index_cache_capacity > 0) {
+        _pk_index_page_cache =
+                std::make_unique<PKIndexPageCache>(pk_index_cache_capacity, num_shards);
     }
 }
 
@@ -59,12 +62,16 @@ bool StoragePageCache::lookup(const CacheKey& key, PageCacheHandle* handle,
         return false;
     }
     *handle = PageCacheHandle(cache, lru_handle);
+    handle->update_last_visit_time();
     return true;
 }
 
-void StoragePageCache::insert(const CacheKey& key, const Slice& data, PageCacheHandle* handle,
+void StoragePageCache::insert(const CacheKey& key, DataPage* data, PageCacheHandle* handle,
                               segment_v2::PageTypePB page_type, bool in_memory) {
-    auto deleter = [](const doris::CacheKey& key, void* value) { delete[](uint8_t*) value; };
+    auto deleter = [](const doris::CacheKey& key, void* value) {
+        DataPage* cache_value = (DataPage*)value;
+        delete cache_value;
+    };
 
     CachePriority priority = CachePriority::NORMAL;
     if (in_memory) {
@@ -72,8 +79,9 @@ void StoragePageCache::insert(const CacheKey& key, const Slice& data, PageCacheH
     }
 
     auto cache = _get_page_cache(page_type);
-    auto lru_handle = cache->insert(key.encode(), data.data, data.size, deleter, priority);
+    auto lru_handle = cache->insert(key.encode(), data, data->capacity(), deleter, priority);
     *handle = PageCacheHandle(cache, lru_handle);
+    handle->update_last_visit_time();
 }
 
 } // namespace doris

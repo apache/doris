@@ -34,11 +34,6 @@ public class PlanNodeId extends Id<PlanNodeId> {
             public PlanNodeId getNextId() {
                 return new PlanNodeId(nextId++);
             }
-
-            @Override
-            public PlanNodeId getMaxId() {
-                return new PlanNodeId(nextId - 1);
-            }
         };
     }
 

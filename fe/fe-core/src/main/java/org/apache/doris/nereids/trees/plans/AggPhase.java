@@ -38,6 +38,10 @@ public enum AggPhase {
         this.execAggPhase = execAggPhase;
     }
 
+    public boolean isLocal() {
+        return this == LOCAL || this == DISTINCT_LOCAL;
+    }
+
     public boolean isGlobal() {
         return this == GLOBAL || this == DISTINCT_GLOBAL;
     }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.task;
 
+import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TSnapshotRequest;
 import org.apache.doris.thrift.TTaskType;
@@ -24,18 +25,22 @@ import org.apache.doris.thrift.TypesConstants;
 
 public class SnapshotTask extends AgentTask {
     private long jobId;
-
     private long version;
-
     private int schemaHash;
-
     private long timeoutMs;
-
     private boolean isRestoreTask;
 
-    public SnapshotTask(TResourceInfo resourceInfo, long backendId, long signature, long jobId,
-            long dbId, long tableId, long partitionId, long indexId, long tabletId,
-            long version, int schemaHash, long timeoutMs, boolean isRestoreTask) {
+    // Set to true if this task for AdminCopyTablet.
+    // Otherwise, it is for Backup/Restore operation.
+    private boolean isCopyTabletTask = false;
+    private MarkedCountDownLatch<Long, Long> countDownLatch;
+    // Only for copy tablet task.
+    // Save the snapshot path.
+    private String resultSnapshotPath;
+
+    public SnapshotTask(TResourceInfo resourceInfo, long backendId, long signature, long jobId, long dbId, long tableId,
+            long partitionId, long indexId, long tabletId, long version, int schemaHash, long timeoutMs,
+            boolean isRestoreTask) {
         super(resourceInfo, backendId, TTaskType.MAKE_SNAPSHOT, dbId, tableId, partitionId, indexId, tabletId,
                 signature);
 
@@ -47,6 +52,22 @@ public class SnapshotTask extends AgentTask {
         this.timeoutMs = timeoutMs;
 
         this.isRestoreTask = isRestoreTask;
+    }
+
+    public void setIsCopyTabletTask(boolean value) {
+        this.isCopyTabletTask = value;
+    }
+
+    public boolean isCopyTabletTask() {
+        return isCopyTabletTask;
+    }
+
+    public void setCountDownLatch(MarkedCountDownLatch<Long, Long> countDownLatch) {
+        this.countDownLatch = countDownLatch;
+    }
+
+    public void countDown(long backendId, long tabletId) {
+        this.countDownLatch.markedCountDown(backendId, tabletId);
     }
 
     public long getJobId() {
@@ -69,12 +90,21 @@ public class SnapshotTask extends AgentTask {
         return isRestoreTask;
     }
 
+    public void setResultSnapshotPath(String resultSnapshotPath) {
+        this.resultSnapshotPath = resultSnapshotPath;
+    }
+
+    public String getResultSnapshotPath() {
+        return resultSnapshotPath;
+    }
+
     public TSnapshotRequest toThrift() {
         TSnapshotRequest request = new TSnapshotRequest(tabletId, schemaHash);
         request.setVersion(version);
         request.setListFiles(true);
         request.setPreferredSnapshotVersion(TypesConstants.TPREFER_SNAPSHOT_REQ_VERSION);
         request.setTimeout(timeoutMs / 1000);
+        request.setIsCopyTabletTask(isCopyTabletTask);
         return request;
     }
 }

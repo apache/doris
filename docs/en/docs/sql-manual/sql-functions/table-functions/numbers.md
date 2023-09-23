@@ -1,6 +1,6 @@
 ---
 {
-    "title": "numbers",
+    "title": "NUMBERS",
     "language": "en"
 }
 ---
@@ -32,18 +32,22 @@ Table-Value-Function, generate a temporary table with only one column named 'num
 
 This function is used in FROM clauses.
 
-grammar:
-```
-FROM numbers(n[,m]);
+#### syntax
+
+```sql
+numbers(
+  "number" = "n",
+  "backend_num" = "m"
+  );
 ```
 
 parameter：
-- `n`: It means to generate rows [0, n).
-- `m`: Optional parameters. It means this function is executed simultaneously on `m` be nodes (multiple BEs need to be deployed).
+- `number`: It means to generate rows [0, n).
+- `backend_num`: Optional parameters. It means this function is executed simultaneously on `m` be nodes (multiple BEs need to be deployed).
 
 ### example
 ```
-mysql> select * from numbers("5");
+mysql> select * from numbers("number" = "10");
 +--------+
 | number |
 +--------+

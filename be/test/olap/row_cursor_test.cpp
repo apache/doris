@@ -20,11 +20,8 @@
 #include <gtest/gtest.h>
 
 #include "common/object_pool.h"
-#include "olap/row.h"
 #include "olap/schema.h"
 #include "olap/tablet_schema.h"
-#include "runtime/mem_pool.h"
-#include "util/logging.h"
 #include "util/types.h"
 
 namespace doris {
@@ -261,13 +258,13 @@ void set_tablet_schema_for_cmp_and_aggregate(TabletSchemaSPtr tablet_schema) {
 
 class TestRowCursor : public testing::Test {
 public:
-    TestRowCursor() { _mem_pool.reset(new MemPool()); }
+    TestRowCursor() { _arena.reset(new vectorized::Arena()); }
 
     virtual void SetUp() {}
 
     virtual void TearDown() {}
 
-    std::unique_ptr<MemPool> _mem_pool;
+    std::unique_ptr<vectorized::Arena> _arena;
 };
 
 TEST_F(TestRowCursor, InitRowCursor) {
@@ -287,8 +284,6 @@ TEST_F(TestRowCursor, InitRowCursorWithColumnCount) {
     Status res = row.init(tablet_schema, 5);
     EXPECT_EQ(res, Status::OK());
     EXPECT_EQ(row.get_fixed_len(), 23);
-    EXPECT_EQ(row.get_variable_len(), 0);
-    row.allocate_memory_for_string_type(tablet_schema);
     EXPECT_EQ(row.get_variable_len(), 0);
 }
 
@@ -332,246 +327,6 @@ TEST_F(TestRowCursor, InitRowCursorWithScanKey) {
     OlapTuple tuple2 = row.to_tuple();
     EXPECT_TRUE(strncmp(tuple2.get_value(0).c_str(), "0&char_exceed_length", 20));
     EXPECT_TRUE(strncmp(tuple2.get_value(1).c_str(), "0&varchar_exceed_length", 23));
-}
-
-TEST_F(TestRowCursor, EqualAndCompare) {
-    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
-    set_tablet_schema_for_cmp_and_aggregate(tablet_schema);
-
-    RowCursor left;
-    Status res = left.init(tablet_schema);
-    EXPECT_EQ(res, Status::OK());
-    EXPECT_EQ(left.get_fixed_len(), 78);
-    EXPECT_EQ(left.get_variable_len(), 20);
-
-    Slice l_char("well");
-    int32_t l_int = 10;
-    left.set_field_content(0, reinterpret_cast<char*>(&l_char), _mem_pool.get());
-    left.set_field_content(1, reinterpret_cast<char*>(&l_int), _mem_pool.get());
-
-    // right row only has k2 in int type
-    std::vector<uint32_t> col_ids;
-    col_ids.push_back(0);
-
-    RowCursor right_eq;
-    res = right_eq.init(tablet_schema, col_ids);
-    Slice r_char_eq = ("well");
-    right_eq.set_field_content(0, reinterpret_cast<char*>(&r_char_eq), _mem_pool.get());
-    EXPECT_EQ(compare_row_key(left, right_eq), 0);
-
-    RowCursor right_lt;
-    res = right_lt.init(tablet_schema, col_ids);
-    Slice r_char_lt = ("welm");
-    right_lt.set_field_content(0, reinterpret_cast<char*>(&r_char_lt), _mem_pool.get());
-    EXPECT_LT(compare_row_key(left, right_lt), 0);
-
-    RowCursor right_gt;
-    res = right_gt.init(tablet_schema, col_ids);
-    Slice r_char_gt = ("welk");
-    right_gt.set_field_content(0, reinterpret_cast<char*>(&r_char_gt), _mem_pool.get());
-    EXPECT_GT(compare_row_key(left, right_gt), 0);
-}
-
-TEST_F(TestRowCursor, IndexCmp) {
-    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
-    set_tablet_schema_for_cmp_and_aggregate(tablet_schema);
-
-    RowCursor left;
-    Status res = left.init(tablet_schema, 2);
-    EXPECT_EQ(res, Status::OK());
-    EXPECT_EQ(left.get_fixed_len(), 22);
-    EXPECT_EQ(left.get_variable_len(), 4);
-
-    Slice l_char("well");
-    int32_t l_int = 10;
-    left.set_field_content(0, reinterpret_cast<char*>(&l_char), _mem_pool.get());
-    left.set_field_content(1, reinterpret_cast<char*>(&l_int), _mem_pool.get());
-
-    RowCursor right_eq;
-    res = right_eq.init(tablet_schema, 2);
-    Slice r_char_eq("well");
-    int32_t r_int_eq = 10;
-    right_eq.set_field_content(0, reinterpret_cast<char*>(&r_char_eq), _mem_pool.get());
-    right_eq.set_field_content(1, reinterpret_cast<char*>(&r_int_eq), _mem_pool.get());
-
-    EXPECT_EQ(index_compare_row(left, right_eq), 0);
-
-    RowCursor right_lt;
-    res = right_lt.init(tablet_schema, 2);
-    Slice r_char_lt("well");
-    int32_t r_int_lt = 11;
-    right_lt.set_field_content(0, reinterpret_cast<char*>(&r_char_lt), _mem_pool.get());
-    right_lt.set_field_content(1, reinterpret_cast<char*>(&r_int_lt), _mem_pool.get());
-    EXPECT_LT(index_compare_row(left, right_lt), 0);
-
-    RowCursor right_gt;
-    res = right_gt.init(tablet_schema, 2);
-    Slice r_char_gt("good");
-    int32_t r_int_gt = 10;
-    right_gt.set_field_content(0, reinterpret_cast<char*>(&r_char_gt), _mem_pool.get());
-    right_gt.set_field_content(1, reinterpret_cast<char*>(&r_int_gt), _mem_pool.get());
-    EXPECT_GT(index_compare_row(left, right_gt), 0);
-}
-
-TEST_F(TestRowCursor, FullKeyCmp) {
-    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
-    set_tablet_schema_for_cmp_and_aggregate(tablet_schema);
-
-    RowCursor left;
-    Status res = left.init(tablet_schema);
-    EXPECT_EQ(res, Status::OK());
-    EXPECT_EQ(left.get_fixed_len(), 78);
-    EXPECT_EQ(left.get_variable_len(), 20);
-
-    Slice l_char("well");
-    int32_t l_int = 10;
-    left.set_field_content(0, reinterpret_cast<char*>(&l_char), _mem_pool.get());
-    left.set_field_content(1, reinterpret_cast<char*>(&l_int), _mem_pool.get());
-
-    RowCursor right_eq;
-    res = right_eq.init(tablet_schema);
-    Slice r_char_eq("well");
-    int32_t r_int_eq = 10;
-    right_eq.set_field_content(0, reinterpret_cast<char*>(&r_char_eq), _mem_pool.get());
-    right_eq.set_field_content(1, reinterpret_cast<char*>(&r_int_eq), _mem_pool.get());
-    EXPECT_EQ(compare_row(left, right_eq), 0);
-
-    RowCursor right_lt;
-    res = right_lt.init(tablet_schema);
-    Slice r_char_lt("well");
-    int32_t r_int_lt = 11;
-    right_lt.set_field_content(0, reinterpret_cast<char*>(&r_char_lt), _mem_pool.get());
-    right_lt.set_field_content(1, reinterpret_cast<char*>(&r_int_lt), _mem_pool.get());
-    EXPECT_LT(compare_row(left, right_lt), 0);
-
-    RowCursor right_gt;
-    res = right_gt.init(tablet_schema);
-    Slice r_char_gt("good");
-    int32_t r_int_gt = 10;
-    right_gt.set_field_content(0, reinterpret_cast<char*>(&r_char_gt), _mem_pool.get());
-    right_gt.set_field_content(1, reinterpret_cast<char*>(&r_int_gt), _mem_pool.get());
-    EXPECT_GT(compare_row(left, right_gt), 0);
-}
-
-TEST_F(TestRowCursor, AggregateWithoutNull) {
-    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
-    set_tablet_schema_for_cmp_and_aggregate(tablet_schema);
-
-    RowCursor row;
-
-    Status res = row.init(tablet_schema);
-    EXPECT_EQ(res, Status::OK());
-    EXPECT_EQ(row.get_fixed_len(), 78);
-    EXPECT_EQ(row.get_variable_len(), 20);
-    row.allocate_memory_for_string_type(tablet_schema);
-
-    RowCursor left;
-    res = left.init(tablet_schema);
-
-    Slice l_char("well");
-    int32_t l_int = 10;
-    int128_t l_largeint = (int128_t)(1) << 100;
-    double l_double = 8.8;
-    decimal12_t l_decimal = {11, 22};
-    Slice l_varchar("beijing");
-    left.set_field_content(0, reinterpret_cast<char*>(&l_char), _mem_pool.get());
-    left.set_field_content(1, reinterpret_cast<char*>(&l_int), _mem_pool.get());
-    left.set_field_content(2, reinterpret_cast<char*>(&l_largeint), _mem_pool.get());
-    left.set_field_content(3, reinterpret_cast<char*>(&l_double), _mem_pool.get());
-    left.set_field_content(4, reinterpret_cast<char*>(&l_decimal), _mem_pool.get());
-    left.set_field_content(5, reinterpret_cast<char*>(&l_varchar), _mem_pool.get());
-
-    std::unique_ptr<MemPool> mem_pool(new MemPool());
-    ObjectPool agg_object_pool;
-    init_row_with_others(&row, left, mem_pool.get(), &agg_object_pool);
-
-    RowCursor right;
-    res = right.init(tablet_schema);
-    Slice r_char("well");
-    int32_t r_int = 10;
-    int128_t r_largeint = (int128_t)(1) << 100;
-    double r_double = 5.5;
-    decimal12_t r_decimal = {22, 22};
-    Slice r_varchar("shenzhen");
-    right.set_field_content(0, reinterpret_cast<char*>(&r_char), _mem_pool.get());
-    right.set_field_content(1, reinterpret_cast<char*>(&r_int), _mem_pool.get());
-    right.set_field_content(2, reinterpret_cast<char*>(&r_largeint), _mem_pool.get());
-    right.set_field_content(3, reinterpret_cast<char*>(&r_double), _mem_pool.get());
-    right.set_field_content(4, reinterpret_cast<char*>(&r_decimal), _mem_pool.get());
-    right.set_field_content(5, reinterpret_cast<char*>(&r_varchar), _mem_pool.get());
-
-    agg_update_row(&row, right, nullptr);
-
-    int128_t agg_value = get_int128_from_unalign(row.cell_ptr(2));
-    EXPECT_TRUE(agg_value == ((int128_t)(1) << 101));
-
-    double agg_double = *reinterpret_cast<double*>(row.cell_ptr(3));
-    EXPECT_TRUE(agg_double == r_double);
-
-    decimal12_t agg_decimal = *reinterpret_cast<decimal12_t*>(row.cell_ptr(4));
-    EXPECT_TRUE(agg_decimal == r_decimal);
-
-    Slice* agg_varchar = reinterpret_cast<Slice*>(row.cell_ptr(5));
-    EXPECT_EQ(agg_varchar->compare(r_varchar), 0);
-}
-
-TEST_F(TestRowCursor, AggregateWithNull) {
-    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
-    set_tablet_schema_for_cmp_and_aggregate(tablet_schema);
-
-    RowCursor row;
-
-    Status res = row.init(tablet_schema);
-    EXPECT_EQ(res, Status::OK());
-    EXPECT_EQ(row.get_fixed_len(), 78);
-    EXPECT_EQ(row.get_variable_len(), 20);
-    row.allocate_memory_for_string_type(tablet_schema);
-
-    RowCursor left;
-    res = left.init(tablet_schema);
-
-    Slice l_char("well");
-    int32_t l_int = 10;
-    int128_t l_largeint = (int128_t)(1) << 100;
-    Slice l_varchar("beijing");
-    left.set_field_content(0, reinterpret_cast<char*>(&l_char), _mem_pool.get());
-    left.set_field_content(1, reinterpret_cast<char*>(&l_int), _mem_pool.get());
-    left.set_field_content(2, reinterpret_cast<char*>(&l_largeint), _mem_pool.get());
-    left.set_null(3);
-    left.set_null(4);
-    left.set_field_content(5, reinterpret_cast<char*>(&l_varchar), _mem_pool.get());
-
-    std::unique_ptr<MemPool> mem_pool(new MemPool());
-    ObjectPool agg_object_pool;
-    init_row_with_others(&row, left, mem_pool.get(), &agg_object_pool);
-
-    RowCursor right;
-    res = right.init(tablet_schema);
-    Slice r_char("well");
-    int32_t r_int = 10;
-    int128_t r_largeint = (int128_t)(1) << 100;
-    double r_double = 5.5;
-    decimal12_t r_decimal = {22, 22};
-    right.set_field_content(0, reinterpret_cast<char*>(&r_char), _mem_pool.get());
-    right.set_field_content(1, reinterpret_cast<char*>(&r_int), _mem_pool.get());
-    right.set_field_content(2, reinterpret_cast<char*>(&r_largeint), _mem_pool.get());
-    right.set_field_content(3, reinterpret_cast<char*>(&r_double), _mem_pool.get());
-    right.set_field_content(4, reinterpret_cast<char*>(&r_decimal), _mem_pool.get());
-    right.set_null(5);
-
-    agg_update_row(&row, right, nullptr);
-
-    int128_t agg_value = get_int128_from_unalign(row.cell_ptr(2));
-    EXPECT_TRUE(agg_value == ((int128_t)(1) << 101));
-
-    bool is_null_double = left.is_null(3);
-    EXPECT_TRUE(is_null_double);
-
-    decimal12_t agg_decimal = *reinterpret_cast<decimal12_t*>(row.cell_ptr(4));
-    EXPECT_TRUE(agg_decimal == r_decimal);
-
-    bool is_null_varchar = row.is_null(5);
-    EXPECT_TRUE(is_null_varchar);
 }
 
 } // namespace doris

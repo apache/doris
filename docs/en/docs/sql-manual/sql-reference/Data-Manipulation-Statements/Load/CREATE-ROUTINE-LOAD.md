@@ -34,17 +34,18 @@ CREATE ROUTINE LOAD
 
 The Routine Load function allows users to submit a resident import task, and import data into Doris by continuously reading data from a specified data source.
 
-Currently, only data in CSV or Json format can be imported from Kakfa through unauthenticated or SSL authentication.
+Currently, only data in CSV or Json format can be imported from Kakfa through unauthenticated or SSL authentication. [Example of importing data in Json format](../../../../data-operate/import/import-way/routine-load-manual.md#Example_of_importing_data_in_Json_format)
 
 grammar:
 
 ```sql
-CREATE ROUTINE LOAD [db.]job_name ON tbl_name
+CREATE ROUTINE LOAD [db.]job_name [ON tbl_name]
 [merge_type]
 [load_properties]
 [job_properties]
 FROM data_source [data_source_properties]
-````
+[COMMENT "comment"]
+```
 
 - `[db.]job_name`
 
@@ -52,11 +53,22 @@ FROM data_source [data_source_properties]
 
 - `tbl_name`
 
-  Specifies the name of the table to be imported.
+  Specifies the name of the table to be imported.Optional parameter, If not specified, the dynamic table method will 
+  be used, which requires the data in Kafka to contain table name information. Currently, only the table name can be 
+  obtained from the Kafka value, and it needs to conform to the format of "table_name|{"col1": "val1", "col2": "val2"}" 
+  for JSON data. The "tbl_name" represents the table name, and "|" is used as the delimiter between the table name and 
+  the table data. The same format applies to CSV data, such as "table_name|val1,val2,val3". It is important to note that 
+  the "table_name" must be consistent with the table name in Doris, otherwise it may cause import failures.
+
+  Tips: The `columns_mapping` parameter is not supported for dynamic tables. If your table structure is consistent with 
+  the table structure in Doris and there is a large amount of table information to be imported, this method will be the 
+  best choice.
 
 - `merge_type`
 
   Data merge type. The default is APPEND, which means that the imported data are ordinary append write operations. The MERGE and DELETE types are only available for Unique Key model tables. The MERGE type needs to be used with the [DELETE ON] statement to mark the Delete Flag column. The DELETE type means that all imported data are deleted data.
+
+  Tips: When using dynamic multiple tables, please note that this parameter should be consistent with the type of each dynamic table, otherwise it will result in import failure.
 
 - load_properties
 
@@ -84,21 +96,29 @@ FROM data_source [data_source_properties]
 
     `(k1, k2, tmpk1, k3 = tmpk1 + 1)`
 
+    Tips: Dynamic multiple tables are not supported.
+
   - `preceding_filter`
 
     Filter raw data. For a detailed introduction to this part, you can refer to the [Column Mapping, Transformation and Filtering] document.
+
+    Tips: Dynamic multiple tables are not supported.
 
   - `where_predicates`
 
     Filter imported data based on conditions. For a detailed introduction to this part, you can refer to the [Column Mapping, Transformation and Filtering] document.
 
     `WHERE k1 > 100 and k2 = 1000`
+  
+    Tips: When using dynamic multiple tables, please note that this parameter should be consistent with the type of each dynamic table, otherwise it will result in import failure.
 
   - `partitions`
 
     Specify in which partitions of the import destination table. If not specified, it will be automatically imported into the corresponding partition.
 
     `PARTITION(p1, p2, p3)`
+    
+    Tips: When using dynamic multiple tables, please note that this parameter should conform to each dynamic table, otherwise it may cause import failure.
 
   - `DELETE ON`
 
@@ -106,9 +126,13 @@ FROM data_source [data_source_properties]
 
     `DELETE ON v3 >100`
 
+    Tips: When using dynamic multiple tables, please note that this parameter should conform to each dynamic table, otherwise it may cause import failure.
+
   - `ORDER BY`
 
     Tables only for the Unique Key model. Used to specify the column in the imported data that represents the Sequence Col. Mainly used to ensure data order when importing.
+  
+    Tips: When using dynamic multiple tables, please note that this parameter should conform to each dynamic table, otherwise it may cause import failure.
 
 - `job_properties`
 
@@ -125,7 +149,7 @@ FROM data_source [data_source_properties]
 
   1. `desired_concurrent_number`
 
-     Desired concurrency. A routine import job will be divided into multiple subtasks for execution. This parameter specifies the maximum number of tasks a job can execute concurrently. Must be greater than 0. Default is 3.
+     Desired concurrency. A routine import job will be divided into multiple subtasks for execution. This parameter specifies the maximum number of tasks a job can execute concurrently. Must be greater than 0. Default is 5.
 
      This degree of concurrency is not the actual degree of concurrency. The actual degree of concurrency will be comprehensively considered by the number of nodes in the cluster, the load situation, and the situation of the data source.
 
@@ -135,7 +159,7 @@ FROM data_source [data_source_properties]
 
      These three parameters represent:
 
-     1. The maximum execution time of each subtask, in seconds. The range is 5 to 60. Default is 10.
+     1. The maximum execution time of each subtask, in seconds. The range is 1 to 60. Default is 10.
      2. The maximum number of lines read by each subtask. Must be greater than or equal to 200000. The default is 200000.
      3. The maximum number of bytes read by each subtask. The unit is bytes and the range is 100MB to 1GB. The default is 100MB.
 
@@ -160,6 +184,38 @@ FROM data_source [data_source_properties]
      Whether to enable strict mode, the default is off. If enabled, the column type conversion of non-null raw data will be filtered if the result is NULL. Specify as:
 
      `"strict_mode" = "true"`
+
+     The strict mode mode means strict filtering of column type conversions during the load process. The strict filtering strategy is as follows:
+
+     1. For column type conversion, if strict mode is true, the wrong data will be filtered. The error data here refers to the fact that the original data is not null, and the result is a null value after participating in the column type conversion.
+     2. When a loaded column is generated by a function transformation, strict mode has no effect on it.
+     3. For a column type loaded with a range limit, if the original data can pass the type conversion normally, but cannot pass the range limit, strict mode will not affect it. For example, if the type is decimal(1,0) and the original data is 10, it is eligible for type conversion but not for column declarations. This data strict has no effect on it.
+
+     **strict mode and load relationship of source data**
+
+     Here is an example of a column type of TinyInt.
+
+     > Note: When a column in a table allows a null value to be loaded
+
+     | source data | source data example | string to int | strict_mode   | result                 |
+     | ----------- | ------------------- | ------------- | ------------- | ---------------------- |
+     | null        | \N                  | N/A           | true or false | NULL                   |
+     | not null    | aaa or 2000         | NULL          | true          | invalid data(filtered) |
+     | not null    | aaa                 | NULL          | false         | NULL                   |
+     | not null    | 1                   | 1             | true or false | correct data           |
+
+     Here the column type is Decimal(1,0)
+
+     > Note: When a column in a table allows a null value to be loaded
+
+     | source data | source data example | string to int | strict_mode   | result                 |
+     | ----------- | ------------------- | ------------- | ------------- | ---------------------- |
+     | null        | \N                  | N/A           | true or false | NULL                   |
+     | not null    | aaa                 | NULL          | true          | invalid data(filtered) |
+     | not null    | aaa                 | NULL          | false         | NULL                   |
+     | not null    | 1 or 10             | 1             | true or false | correct data           |
+
+     > Note: 10 Although it is a value that is out of range, because its type meets the requirements of decimal, strict mode has no effect on it. 10 will eventually be filtered in other ETL processing flows. But it will not be filtered by strict mode.
 
   5. `timezone`
 
@@ -186,7 +242,23 @@ FROM data_source [data_source_properties]
      When the import data format is json, you can specify the root node of the Json data through json_root. Doris will extract the elements of the root node through json_root for parsing. Default is empty.
 
      `-H "json_root: $.RECORDS"`
+  10. `send_batch_parallelism`
+     
+     Integer, Used to set the default parallelism for sending batch, if the value for parallelism exceed `max_send_batch_parallelism_per_job` in BE config, then the coordinator BE will use the value of `max_send_batch_parallelism_per_job`.
+  
+  11. `load_to_single_tablet`
+      Boolean type, True means that one task can only load data to one tablet in the corresponding partition at a time. The default value is false. This parameter can only be set when loading data into the OLAP table with random bucketing.
 
+  12. `partial_columns`
+      Boolean type, True means that use partial column update, the default value is false, this parameter is only allowed to be set when the table model is Unique and Merge on Write is used. Multi-table does not support this parameter.
+
+  13. `max_filter_ratio`
+      The maximum allowed filtering rate within the sampling window. Must be between 0 and 1. The default value is 1.0.
+
+      The sampling window is `max_batch_rows * 10`. That is, if the number of error lines / total lines is greater than `max_filter_ratio` within the sampling window, the routine operation will be suspended, requiring manual intervention to check data quality problems.
+
+      Rows that are filtered out by where conditions are not considered error rows.
+  
 - `FROM data_source [data_source_properties]`
 
   The type of data source. Currently supports:
@@ -243,7 +315,7 @@ FROM data_source [data_source_properties]
 
      When the value of the parameter is a file, you need to add the keyword: "FILE:" before the value.
 
-     For how to create a file, please refer to the [CREATE FILE](http://palo.baidu.com/docs/SQL Manual/Syntax Help/DML/ROUTINE-LOAD/#Syntax error or this link does not work-) command documentation.
+     For how to create a file, please refer to the [CREATE FILE](../../../Data-Definition-Statements/Create/CREATE-FILE) command documentation.
 
      For more supported custom parameters, please refer to the configuration items on the client side in the official CONFIGURATION document of librdkafka. Such as:
 
@@ -287,7 +359,8 @@ FROM data_source [data_source_properties]
         ````text
         "property.kafka_default_offsets" = "OFFSET_BEGINNING"
         ````
-
+- <version since="1.2.3" type="inline"> comment </version>
+  Comment for the routine load job.
 ### Example
 
 1. Create a Kafka routine import task named test1 for example_tbl of example_db. Specify the column separator and group.id and client.id, and automatically consume all partitions by default, and start subscribing from the location where there is data (OFFSET_BEGINNING)
@@ -316,7 +389,31 @@ FROM data_source [data_source_properties]
    );
    ````
 
-2. Create a Kafka routine import task named test1 for example_tbl of example_db. Import tasks are in strict mode.
+2. Create a Kafka routine dynamic multiple tables import task named "test1" for the "example_db". Specify the column delimiter, group.id, and client.id, and automatically consume all partitions, subscribing from the position with data (OFFSET_BEGINNING).
+
+Assuming that we need to import data from Kafka into tables "test1" and "test2" in the "example_db", we create a routine import task named "test1". At the same time, we write the data in "test1" and "test2" to a Kafka topic named "my_topic" so that data from Kafka can be imported into both tables through a routine import task.
+
+   ```sql
+   CREATE ROUTINE LOAD example_db.test1
+   PROPERTIES
+   (
+       "desired_concurrent_number"="3",
+       "max_batch_interval" = "20",
+       "max_batch_rows" = "300000",
+       "max_batch_size" = "209715200",
+       "strict_mode" = "false"
+   )
+   FROM KAFKA
+   (
+       "kafka_broker_list" = "broker1:9092,broker2:9092,broker3:9092",
+       "kafka_topic" = "my_topic",
+       "property.group.id" = "xxx",
+       "property.client.id" = "xxx",
+       "property.kafka_default_offsets" = "OFFSET_BEGINNING"
+   );
+   ```
+
+3. Create a Kafka routine import task named test1 for example_tbl of example_db. Import tasks are in strict mode.
 
    
 
@@ -342,7 +439,7 @@ FROM data_source [data_source_properties]
    );
    ````
 
-3. Import data from the Kafka cluster through SSL authentication. Also set the client.id parameter. The import task is in non-strict mode and the time zone is Africa/Abidjan
+4. Import data from the Kafka cluster through SSL authentication. Also set the client.id parameter. The import task is in non-strict mode and the time zone is Africa/Abidjan
 
    
 
@@ -372,7 +469,7 @@ FROM data_source [data_source_properties]
    );
    ````
 
-4. Import data in Json format. By default, the field name in Json is used as the column name mapping. Specify to import three partitions 0, 1, and 2, and the starting offsets are all 0
+5. Import data in Json format. By default, the field name in Json is used as the column name mapping. Specify to import three partitions 0, 1, and 2, and the starting offsets are all 0
 
    
 
@@ -397,7 +494,7 @@ FROM data_source [data_source_properties]
    );
    ````
 
-5. Import Json data, extract fields through Jsonpaths, and specify the root node of the Json document
+6. Import Json data, extract fields through Jsonpaths, and specify the root node of the Json document
 
    
 
@@ -425,7 +522,7 @@ FROM data_source [data_source_properties]
    );
    ````
 
-6. Create a Kafka routine import task named test1 for example_tbl of example_db. And use conditional filtering.
+7. Create a Kafka routine import task named test1 for example_tbl of example_db. And use conditional filtering.
 
    
 
@@ -452,7 +549,7 @@ FROM data_source [data_source_properties]
    );
    ````
 
-7. Import data to Unique with sequence column Key model table
+8. Import data to Unique with sequence column Key model table
 
    
 
@@ -476,7 +573,7 @@ FROM data_source [data_source_properties]
    );
    ````
 
-8. Consume from a specified point in time
+9. Consume from a specified point in time
 
    
 
@@ -492,7 +589,7 @@ FROM data_source [data_source_properties]
    (
        "kafka_broker_list" = "broker1:9092,broker2:9092",
        "kafka_topic" = "my_topic",
-       "kafka_default_offset" = "2021-05-21 10:00:00"
+       "kafka_default_offsets" = "2021-05-21 10:00:00"
    );
    ````
 
@@ -510,11 +607,11 @@ There are three relevant parameters:
 
 - `kafka_partitions`: Specify a list of partitions to be consumed, such as "0, 1, 2, 3".
 - `kafka_offsets`: Specify the starting offset of each partition, which must correspond to the number of `kafka_partitions` list. For example: "1000, 1000, 2000, 2000"
-- `property.kafka_default_offset`: Specifies the default starting offset of the partition.
+- `property.kafka_default_offsets`: Specifies the default starting offset of the partition.
 
 When creating an import job, these three parameters can have the following combinations:
 
-| Composition | `kafka_partitions` | `kafka_offsets` | `property.kafka_default_offset` | Behavior                                                     |
+| Composition | `kafka_partitions` | `kafka_offsets` | `property.kafka_default_offsets` | Behavior                                                     |
 | ----------- | ------------------ | --------------- | ------------------------------- | ------------------------------------------------------------ |
 | 1           | No                 | No              | No                              | The system will automatically find all partitions corresponding to the topic and start consumption from OFFSET_END |
 | 2           | No                 | No              | Yes                             | The system will automatically find all partitions corresponding to the topic and start consumption from the location specified by default offset |

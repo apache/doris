@@ -17,9 +17,8 @@
 
 #include "util/thread.h"
 
-#include <gtest/gtest.h>
-#include <sys/types.h>
-#include <unistd.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
 #include <ostream>
 #include <string>
@@ -27,14 +26,14 @@
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/basictypes.h"
+#include "gtest/gtest_pred_impl.h"
 #include "gutil/ref_counted.h"
-#include "util/countdown_latch.h"
 #include "util/runtime_profile.h"
 #include "util/time.h"
 
 using std::string;
 namespace doris {
+using namespace ErrorCode;
 
 class ThreadTest : public ::testing::Test {
 public:
@@ -57,13 +56,13 @@ TEST_F(ThreadTest, TestFailedJoin) {
     Status status = Thread::create("test", "sleeper thread", SleepForMs, 1000, &holder);
     EXPECT_TRUE(status.ok());
     status = ThreadJoiner(holder.get()).give_up_after_ms(50).join();
-    EXPECT_TRUE(status.is_aborted());
+    EXPECT_TRUE(status.is<ABORTED>());
 }
 
 static void TryJoinOnSelf() {
     Status s = ThreadJoiner(Thread::current_thread()).join();
     // Use CHECK instead of ASSERT because gtest isn't thread-safe.
-    CHECK(s.is_invalid_argument());
+    CHECK(s.is<INVALID_ARGUMENT>());
 }
 
 // Try to join on the thread that is currently running.

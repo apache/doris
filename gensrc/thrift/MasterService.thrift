@@ -42,6 +42,10 @@ struct TTabletInfo {
     15: optional Types.TReplicaId replica_id
     // data size on remote storage
     16: optional Types.TSize remote_data_size
+    // 17: optional Types.TReplicaId cooldown_replica_id
+    // 18: optional bool is_cooldown
+    19: optional i64 cooldown_term
+    20: optional Types.TUniqueId cooldown_meta_id
 }
 
 struct TFinishTaskRequest {
@@ -61,6 +65,8 @@ struct TFinishTaskRequest {
     14: optional list<Types.TTabletId> downloaded_tablet_ids
     15: optional i64 copy_size
     16: optional i64 copy_time_ms
+    17: optional map<Types.TTabletId, Types.TVersion> succ_tablets
+    18: optional map<i64, i64> tablet_id_to_delta_num_rows
 }
 
 struct TTablet {
@@ -77,6 +83,7 @@ struct TDisk {
     6: optional i64 path_hash
     7: optional Types.TStorageMedium storage_medium
     8: optional Types.TSize remote_used_capacity
+    9: optional Types.TSize trash_used_capacity
 }
 
 struct TPluginInfo {
@@ -95,6 +102,10 @@ struct TReportRequest {
     // the max compaction score of all tablets on a backend,
     // this field should be set along with tablet report
     8: optional i64 tablet_max_compaction_score
+    9: optional list<AgentService.TStoragePolicy> storage_policy // only id and version
+    10: optional list<AgentService.TStorageResource> resource // only id and version
+    11: i32 num_cores
+    12: i32 pipeline_executor_size
 }
 
 struct TMasterResult {
@@ -102,7 +113,7 @@ struct TMasterResult {
     1: required Status.TStatus status
 }
 
-// Now we only support CPU share.
+// Deprecated
 enum TResourceType {
     TRESOURCE_CPU_SHARE
     TRESOURCE_IO_SHARE
@@ -116,11 +127,12 @@ enum TResourceType {
     TRESOURCE_HDD_WRITE_MBPS
 }
 
+// Deprecated
 struct TResourceGroup {
     1: required map<TResourceType, i32> resourceByType
 }
 
-// Resource per user
+// Deprecated
 struct TUserResource {
     1: required TResourceGroup resource
 
@@ -128,6 +140,7 @@ struct TUserResource {
     2: required map<string, i32> shareByGroup
 }
 
+// Deprecated
 struct TFetchResourceResult {
     // Master service not find protocol version, so using agent service version
     1: required AgentService.TAgentServiceVersion protocolVersion

@@ -17,26 +17,34 @@
 
 #include "exec/schema_scanner/schema_table_privileges_scanner.h"
 
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/FrontendService_types.h>
+
+#include <string>
+
 #include "exec/schema_scanner/schema_helper.h"
-#include "runtime/primitive_type.h"
-#include "runtime/string_value.h"
+#include "runtime/define_primitive_type.h"
+#include "util/runtime_profile.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
+class RuntimeState;
+namespace vectorized {
+class Block;
+} // namespace vectorized
 
-SchemaScanner::ColumnDesc SchemaTablePrivilegesScanner::_s_tbls_columns[] = {
+std::vector<SchemaScanner::ColumnDesc> SchemaTablePrivilegesScanner::_s_tbls_columns = {
         //   name,       type,          size,     is_null
-        {"GRANTEE", TYPE_VARCHAR, sizeof(StringValue), true},
-        {"TABLE_CATALOG", TYPE_VARCHAR, sizeof(StringValue), true},
-        {"TABLE_SCHEMA", TYPE_VARCHAR, sizeof(StringValue), false},
-        {"TABLE_NAME", TYPE_VARCHAR, sizeof(StringValue), false},
-        {"PRIVILEGE_TYPE", TYPE_VARCHAR, sizeof(StringValue), false},
-        {"IS_GRANTABLE", TYPE_VARCHAR, sizeof(StringValue), true},
+        {"GRANTEE", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"TABLE_CATALOG", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"TABLE_SCHEMA", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"TABLE_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"PRIVILEGE_TYPE", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"IS_GRANTABLE", TYPE_VARCHAR, sizeof(StringRef), true},
 };
 
 SchemaTablePrivilegesScanner::SchemaTablePrivilegesScanner()
-        : SchemaScanner(_s_tbls_columns,
-                        sizeof(_s_tbls_columns) / sizeof(SchemaScanner::ColumnDesc)),
-          _priv_index(0) {}
+        : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_TABLE_PRIVILEGES) {}
 
 SchemaTablePrivilegesScanner::~SchemaTablePrivilegesScanner() {}
 
@@ -44,84 +52,12 @@ Status SchemaTablePrivilegesScanner::start(RuntimeState* state) {
     if (!_is_init) {
         return Status::InternalError("used before initialized.");
     }
-    RETURN_IF_ERROR(get_new_table());
+    RETURN_IF_ERROR(_get_new_table());
     return Status::OK();
 }
 
-Status SchemaTablePrivilegesScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
-    // set all bit to not null
-    memset((void*)tuple, 0, _tuple_desc->num_null_bytes());
-    const TPrivilegeStatus& priv_status = _priv_result.privileges[_priv_index];
-    // grantee
-    {
-        Status status = fill_one_col(&priv_status.grantee, pool,
-                                     tuple->get_slot(_tuple_desc->slots()[0]->tuple_offset()));
-        if (!status.ok()) {
-            return status;
-        }
-    }
-    // catalog
-    // This value is always def.
-    {
-        std::string definer = "def";
-        Status status = fill_one_col(&definer, pool,
-                                     tuple->get_slot(_tuple_desc->slots()[1]->tuple_offset()));
-        if (!status.ok()) {
-            return status;
-        }
-    }
-    // schema
-    {
-        Status status = fill_one_col(&priv_status.schema, pool,
-                                     tuple->get_slot(_tuple_desc->slots()[2]->tuple_offset()));
-        if (!status.ok()) {
-            return status;
-        }
-    }
-    // table name
-    {
-        Status status = fill_one_col(&priv_status.table_name, pool,
-                                     tuple->get_slot(_tuple_desc->slots()[3]->tuple_offset()));
-        if (!status.ok()) {
-            return status;
-        }
-    }
-    // privilege type
-    {
-        Status status = fill_one_col(&priv_status.privilege_type, pool,
-                                     tuple->get_slot(_tuple_desc->slots()[4]->tuple_offset()));
-        if (!status.ok()) {
-            return status;
-        }
-    }
-    // is grantable
-    {
-        Status status = fill_one_col(&priv_status.is_grantable, pool,
-                                     tuple->get_slot(_tuple_desc->slots()[5]->tuple_offset()));
-        if (!status.ok()) {
-            return status;
-        }
-    }
-    _priv_index++;
-    return Status::OK();
-}
-
-Status SchemaTablePrivilegesScanner::fill_one_col(const std::string* src, MemPool* pool,
-                                                  void* slot) {
-    if (nullptr == slot || nullptr == pool || nullptr == src) {
-        return Status::InternalError("input pointer is nullptr.");
-    }
-    StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-    str_slot->len = src->length();
-    str_slot->ptr = (char*)pool->allocate(str_slot->len);
-    if (nullptr == str_slot->ptr) {
-        return Status::InternalError("Allocate memcpy failed.");
-    }
-    memcpy(str_slot->ptr, src->c_str(), str_slot->len);
-    return Status::OK();
-}
-
-Status SchemaTablePrivilegesScanner::get_new_table() {
+Status SchemaTablePrivilegesScanner::_get_new_table() {
+    SCOPED_TIMER(_get_table_timer);
     TGetTablesParams table_params;
     if (nullptr != _param->wild) {
         table_params.__set_pattern(*(_param->wild));
@@ -143,23 +79,91 @@ Status SchemaTablePrivilegesScanner::get_new_table() {
     } else {
         return Status::InternalError("IP or port doesn't exists");
     }
-    _priv_index = 0;
     return Status::OK();
 }
 
-Status SchemaTablePrivilegesScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eos) {
+Status SchemaTablePrivilegesScanner::get_next_block(vectorized::Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }
-    if (nullptr == tuple || nullptr == pool || nullptr == eos) {
+    if (nullptr == block || nullptr == eos) {
         return Status::InternalError("input pointer is nullptr.");
     }
-    if (_priv_index >= _priv_result.privileges.size()) {
-        *eos = true;
+
+    *eos = true;
+    if (!_priv_result.privileges.size()) {
         return Status::OK();
     }
-    *eos = false;
-    return fill_one_row(tuple, pool);
+    return _fill_block_impl(block);
+}
+
+Status SchemaTablePrivilegesScanner::_fill_block_impl(vectorized::Block* block) {
+    SCOPED_TIMER(_fill_block_timer);
+    auto privileges_num = _priv_result.privileges.size();
+    std::vector<void*> datas(privileges_num);
+
+    // grantee
+    {
+        StringRef strs[privileges_num];
+        for (int i = 0; i < privileges_num; ++i) {
+            const TPrivilegeStatus& priv_status = _priv_result.privileges[i];
+            strs[i] = StringRef(priv_status.grantee.c_str(), priv_status.grantee.size());
+            datas[i] = strs + i;
+        }
+        fill_dest_column_for_range(block, 0, datas);
+    }
+    // catalog
+    // This value is always def.
+    {
+        std::string definer = "def";
+        StringRef str = StringRef(definer.c_str(), definer.size());
+        for (int i = 0; i < privileges_num; ++i) {
+            datas[i] = &str;
+        }
+        fill_dest_column_for_range(block, 1, datas);
+    }
+    // schema
+    {
+        StringRef strs[privileges_num];
+        for (int i = 0; i < privileges_num; ++i) {
+            const TPrivilegeStatus& priv_status = _priv_result.privileges[i];
+            strs[i] = StringRef(priv_status.schema.c_str(), priv_status.schema.size());
+            datas[i] = strs + i;
+        }
+        fill_dest_column_for_range(block, 2, datas);
+    }
+    // table name
+    {
+        StringRef strs[privileges_num];
+        for (int i = 0; i < privileges_num; ++i) {
+            const TPrivilegeStatus& priv_status = _priv_result.privileges[i];
+            strs[i] = StringRef(priv_status.table_name.c_str(), priv_status.table_name.size());
+            datas[i] = strs + i;
+        }
+        fill_dest_column_for_range(block, 3, datas);
+    }
+    // privilege type
+    {
+        StringRef strs[privileges_num];
+        for (int i = 0; i < privileges_num; ++i) {
+            const TPrivilegeStatus& priv_status = _priv_result.privileges[i];
+            strs[i] = StringRef(priv_status.privilege_type.c_str(),
+                                priv_status.privilege_type.size());
+            datas[i] = strs + i;
+        }
+        fill_dest_column_for_range(block, 4, datas);
+    }
+    // is grantable
+    {
+        StringRef strs[privileges_num];
+        for (int i = 0; i < privileges_num; ++i) {
+            const TPrivilegeStatus& priv_status = _priv_result.privileges[i];
+            strs[i] = StringRef(priv_status.is_grantable.c_str(), priv_status.is_grantable.size());
+            datas[i] = strs + i;
+        }
+        fill_dest_column_for_range(block, 5, datas);
+    }
+    return Status::OK();
 }
 
 } // namespace doris

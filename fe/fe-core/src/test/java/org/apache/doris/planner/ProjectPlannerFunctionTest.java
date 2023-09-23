@@ -67,7 +67,7 @@ public class ProjectPlannerFunctionTest {
     // keep a.k2 after a join b
     @Test
     public void projectByAgg() throws Exception {
-        String queryStr = "desc verbose select a.k2 from test.t1 a , test.t1 b where a.k1=b.k1 group by a.k2;";
+        String queryStr = "desc verbose select /*+ SET_VAR(enable_nereids_planner=false) */ a.k2 from test.t1 a , test.t1 b where a.k1=b.k1 group by a.k2;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("output slot ids: 0"));
     }
@@ -75,7 +75,7 @@ public class ProjectPlannerFunctionTest {
     // keep a.k2 after a join b
     @Test
     public void projectBySort() throws Exception {
-        String queryStr = "desc verbose select a.k2 from test.t1 a , test.t1 b where a.k1=b.k1 order by a.k2;";
+        String queryStr = "desc verbose select /*+ SET_VAR(enable_nereids_planner=false) */ a.k2 from test.t1 a , test.t1 b where a.k1=b.k1 order by a.k2;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("output slot ids: 0"));
     }
@@ -84,7 +84,7 @@ public class ProjectPlannerFunctionTest {
     // keep a.k1, a.k2 after a join b
     @Test
     public void projectByJoin() throws Exception {
-        String queryStr = "desc verbose select a.k2 from test.t1 a inner join test.t1 b on a.k1=b.k1 "
+        String queryStr = "desc verbose select /*+ SET_VAR(enable_nereids_planner=false) */ a.k2 from test.t1 a inner join test.t1 b on a.k1=b.k1 "
                 + "inner join test.t1 c on a.k1=c.k1;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("output slot ids: 8"));
@@ -94,7 +94,7 @@ public class ProjectPlannerFunctionTest {
     // keep a.k2 after a join b
     @Test
     public void projectByResultExprs() throws Exception {
-        String queryStr = "desc verbose select a.k2 from test.t1 a , test.t1 b where a.k1=b.k1;";
+        String queryStr = "desc verbose select /*+ SET_VAR(enable_nereids_planner=false) */ a.k2 from test.t1 a , test.t1 b where a.k1=b.k1;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("output slot ids: 0"));
     }
@@ -103,7 +103,7 @@ public class ProjectPlannerFunctionTest {
     // keep a.k2, b.k1, b.k2 after <a,b> hash table
     @Test
     public void projectHashTable() throws Exception {
-        String queryStr = "desc verbose select b.k1 from test.t1 a right join test.t1 b on a.k1=b.k1 and b.k2>1 where a.k2>1;";
+        String queryStr = "desc verbose select /*+ SET_VAR(enable_nereids_planner=false) */ b.k1 from test.t1 a right join test.t1 b on a.k1=b.k1 and b.k2>1 where a.k2>1;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("output slot ids: 1"));
         Assert.assertTrue(explainString.contains("hash output slot ids: 1 2 3"));

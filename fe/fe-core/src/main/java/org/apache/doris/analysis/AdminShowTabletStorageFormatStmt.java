@@ -37,7 +37,7 @@ public class AdminShowTabletStorageFormatStmt extends ShowStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         // check access first
-        if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_ACCESS_DENIED_ERROR,
                     toSql(),
                     ConnectContext.get().getQualifiedUser(),

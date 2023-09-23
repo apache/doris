@@ -45,6 +45,7 @@ import java.util.BitSet;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -70,6 +71,21 @@ public class RepeatNode extends PlanNode {
         this.groupingInfo = groupingInfo;
         this.input = input;
         this.groupByClause = groupByClause;
+    }
+
+    /**
+     * just for new Optimizer.
+     */
+    public RepeatNode(PlanNodeId id, PlanNode input, GroupingInfo groupingInfo,
+            List<Set<Integer>> repeatSlotIdList, Set<Integer> allSlotId, List<List<Long>> groupingList) {
+        super(id, groupingInfo.getOutputTupleDesc().getId().asList(), "REPEAT_NODE", StatisticalType.REPEAT_NODE);
+        this.children.add(input);
+        this.groupingInfo = Objects.requireNonNull(groupingInfo, "groupingInfo can not be null");
+        this.input = Objects.requireNonNull(input, "input can not bu null");
+        this.repeatSlotIdList = Objects.requireNonNull(repeatSlotIdList, "repeatSlotIdList can not be null");
+        this.allSlotId = Objects.requireNonNull(allSlotId, "allSlotId can not be null");
+        this.groupingList = Objects.requireNonNull(groupingList, "groupingList can not be null");
+        this.outputTupleDesc = groupingInfo.getOutputTupleDesc();
     }
 
     // only for unittest
@@ -102,7 +118,7 @@ public class RepeatNode extends PlanNode {
         numNodes = 1;
 
         StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = statsDeriveResult.getRowCount();
+        cardinality = (long) statsDeriveResult.getRowCount();
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("stats Sort: cardinality=" + cardinality);
@@ -183,10 +199,5 @@ public class RepeatNode extends PlanNode {
                     .collect(Collectors.joining(", ")) + "\n");
         }
         return output.toString();
-    }
-
-    @Override
-    public int getNumInstances() {
-        return children.get(0).getNumInstances();
     }
 }

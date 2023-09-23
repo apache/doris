@@ -36,7 +36,7 @@ pidfile="${PID_DIR}/apache_hdfs_broker.pid"
 
 if [[ -f "${pidfile}" ]]; then
     pid="$(cat "${pidfile}")"
-    pidcomm="$(ps -p "${pid}" -o comm=)"
+    pidcomm="$(basename "$(ps -p "${pid}" -o comm=)")"
 
     if [[ "java" != "${pidcomm}" ]]; then
         echo "ERROR: pid process may not broker. "

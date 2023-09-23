@@ -19,7 +19,10 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.NullType;
+
+import java.util.Objects;
 
 /**
  * Represents Null literal
@@ -30,6 +33,10 @@ public class NullLiteral extends Literal {
 
     public NullLiteral() {
         super(NullType.INSTANCE);
+    }
+
+    public NullLiteral(DataType dataType) {
+        super(dataType);
     }
 
     @Override
@@ -49,6 +56,31 @@ public class NullLiteral extends Literal {
 
     @Override
     public LiteralExpr toLegacyLiteral() {
-        return new org.apache.doris.analysis.NullLiteral();
+        return org.apache.doris.analysis.NullLiteral.create(dataType.toCatalogDataType());
+    }
+
+    @Override
+    public double getDouble() {
+        return 0;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        NullLiteral that = (NullLiteral) o;
+        return Objects.equals(dataType, that.dataType);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), dataType);
     }
 }

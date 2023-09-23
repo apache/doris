@@ -17,35 +17,43 @@
 
 #pragma once
 
-#include <string>
+#include <gen_cpp/FrontendService_types.h>
 
+#include <string>
+#include <vector>
+
+#include "common/status.h"
 #include "exec/schema_scanner.h"
-#include "gen_cpp/FrontendService_types.h"
 
 namespace doris {
+class RuntimeState;
+namespace vectorized {
+class Block;
+} // namespace vectorized
 
 class SchemaColumnsScanner : public SchemaScanner {
+    ENABLE_FACTORY_CREATOR(SchemaColumnsScanner);
+
 public:
     SchemaColumnsScanner();
-    virtual ~SchemaColumnsScanner();
-    virtual Status start(RuntimeState* state);
-    virtual Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos);
+    ~SchemaColumnsScanner() override;
+    Status start(RuntimeState* state) override;
+    Status get_next_block(vectorized::Block* block, bool* eos) override;
 
 private:
-    Status get_new_table();
-    Status fill_one_row(Tuple* tuple, MemPool* pool);
-    Status get_new_desc();
-    Status get_create_table(std::string* result);
-    std::string to_mysql_data_type_string(TColumnDesc& desc);
-    std::string type_to_string(TColumnDesc& desc);
+    Status _get_new_table();
+    Status _get_new_desc();
+    Status _get_create_table(std::string* result);
+    Status _fill_block_impl(vectorized::Block* block);
+    std::string _to_mysql_data_type_string(TColumnDesc& desc);
+    std::string _type_to_string(TColumnDesc& desc);
 
     int _db_index;
     int _table_index;
-    int _column_index;
     TGetDbsResult _db_result;
     TGetTablesResult _table_result;
-    TDescribeTableResult _desc_result;
-    static SchemaScanner::ColumnDesc _s_col_columns[];
+    TDescribeTablesResult _desc_result;
+    static std::vector<SchemaScanner::ColumnDesc> _s_col_columns;
 };
 
 } // namespace doris

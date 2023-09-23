@@ -18,18 +18,30 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/array/arrayAggregation.cpp
 // and modified by Doris
 
-#include <type_traits>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <memory>
+#include <type_traits>
+#include <utility>
+
+#include "common/status.h"
+#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_avg.h"
 #include "vec/aggregate_functions/aggregate_function_min_max.h"
-#include "vec/aggregate_functions/aggregate_function_null.h"
 #include "vec/aggregate_functions/aggregate_function_product.h"
 #include "vec/aggregate_functions/aggregate_function_sum.h"
 #include "vec/aggregate_functions/helpers.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_array.h"
+#include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/arena.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/functions/array/function_array_join.h"
 #include "vec/functions/array/function_array_mapped.h"
@@ -55,18 +67,18 @@ struct ArrayAggregateResultImpl<Element, AggregateOperation::MAX> {
 
 template <typename Element>
 struct ArrayAggregateResultImpl<Element, AggregateOperation::AVERAGE> {
-    using Result = std::conditional_t<IsDecimalNumber<Element>, Decimal128, Float64>;
+    using Result = DisposeDecimal<Element, Float64>;
 };
 
 template <typename Element>
 struct ArrayAggregateResultImpl<Element, AggregateOperation::PRODUCT> {
-    using Result = std::conditional_t<IsDecimalNumber<Element>, Decimal128, Float64>;
+    using Result = DisposeDecimal<Element, Float64>;
 };
 
 template <typename Element>
 struct ArrayAggregateResultImpl<Element, AggregateOperation::SUM> {
-    using Result = std::conditional_t<
-            IsDecimalNumber<Element>, Decimal128,
+    using Result = DisposeDecimal<
+            Element,
             std::conditional_t<IsFloatNumber<Element>, Float64,
                                std::conditional_t<std::is_same_v<Element, Int128>, Int128, Int64>>>;
 };
@@ -106,7 +118,7 @@ struct AggregateFunctionImpl<AggregateOperation::PRODUCT> {
     template <typename Element>
     struct TypeTraits {
         using ResultType = ArrayAggregateResult<Element, AggregateOperation::PRODUCT>;
-        using AggregateDataType = AggregateFunctionProductData<Element>;
+        using AggregateDataType = AggregateFunctionProductData<ResultType>;
         using Function = AggregateFunctionProduct<Element, ResultType, AggregateDataType>;
     };
 };
@@ -117,21 +129,7 @@ struct AggregateFunction {
     using Function = typename Derived::template TypeTraits<T>::Function;
 
     static auto create(const DataTypePtr& data_type_ptr) -> AggregateFunctionPtr {
-        DataTypes data_types = {remove_nullable(data_type_ptr)};
-        auto& data_type = *data_types.front();
-        AggregateFunctionPtr nested_function;
-        if (is_decimal(data_types.front())) {
-            nested_function = AggregateFunctionPtr(
-                    create_with_decimal_type<Function>(data_type, data_type, data_types));
-        } else {
-            nested_function =
-                    AggregateFunctionPtr(create_with_numeric_type<Function>(data_type, data_types));
-        }
-
-        AggregateFunctionPtr function;
-        function.reset(new AggregateFunctionNullUnary<true>(nested_function,
-                                                            {make_nullable(data_type_ptr)}, {}));
-        return function;
+        return creator_with_type::create<Function>(DataTypes {make_nullable(data_type_ptr)}, true);
     }
 };
 
@@ -159,14 +157,22 @@ struct ArrayAggregateImpl {
         const IColumn* data = array.get_data_ptr().get();
 
         const auto& offsets = array.get_offsets();
-        if (execute_type<Int8>(res, type, data, offsets) ||
+        if (execute_type<UInt8>(res, type, data, offsets) ||
+            execute_type<Int8>(res, type, data, offsets) ||
             execute_type<Int16>(res, type, data, offsets) ||
             execute_type<Int32>(res, type, data, offsets) ||
             execute_type<Int64>(res, type, data, offsets) ||
             execute_type<Int128>(res, type, data, offsets) ||
             execute_type<Float32>(res, type, data, offsets) ||
             execute_type<Float64>(res, type, data, offsets) ||
-            execute_type<Decimal128>(res, type, data, offsets)) {
+            execute_type<Decimal32>(res, type, data, offsets) ||
+            execute_type<Decimal64>(res, type, data, offsets) ||
+            execute_type<Decimal128>(res, type, data, offsets) ||
+            execute_type<Decimal128I>(res, type, data, offsets) ||
+            execute_type<Date>(res, type, data, offsets) ||
+            execute_type<DateTime>(res, type, data, offsets) ||
+            execute_type<DateV2>(res, type, data, offsets) ||
+            execute_type<DateTimeV2>(res, type, data, offsets)) {
             block.replace_by_position(result, std::move(res));
             return Status::OK();
         } else {
@@ -176,7 +182,7 @@ struct ArrayAggregateImpl {
 
     template <typename Element>
     static bool execute_type(ColumnPtr& res_ptr, const DataTypePtr& type, const IColumn* data,
-                             const ColumnArray::Offsets& offsets) {
+                             const ColumnArray::Offsets64& offsets) {
         using ColVecType = ColumnVectorOrDecimal<Element>;
         using ResultType = ArrayAggregateResult<Element, operation>;
         using ColVecResultType = ColumnVectorOrDecimal<ResultType>;
@@ -230,14 +236,8 @@ struct NameArrayMin {
 template <>
 struct AggregateFunction<AggregateFunctionImpl<AggregateOperation::MIN>> {
     static auto create(const DataTypePtr& data_type_ptr) -> AggregateFunctionPtr {
-        DataTypes data_types = {remove_nullable(data_type_ptr)};
-        auto nested_function = AggregateFunctionPtr(
-                create_aggregate_function_min(NameArrayMin::name, data_types, {}, false));
-
-        AggregateFunctionPtr function;
-        function.reset(new AggregateFunctionNullUnary<true>(nested_function,
-                                                            {make_nullable(data_type_ptr)}, {}));
-        return function;
+        return create_aggregate_function_single_value<AggregateFunctionMinData>(
+                NameArrayMin::name, {make_nullable(data_type_ptr)}, true);
     }
 };
 
@@ -248,14 +248,8 @@ struct NameArrayMax {
 template <>
 struct AggregateFunction<AggregateFunctionImpl<AggregateOperation::MAX>> {
     static auto create(const DataTypePtr& data_type_ptr) -> AggregateFunctionPtr {
-        DataTypes data_types = {remove_nullable(data_type_ptr)};
-        auto nested_function = AggregateFunctionPtr(
-                create_aggregate_function_max(NameArrayMax::name, data_types, {}, false));
-
-        AggregateFunctionPtr function;
-        function.reset(new AggregateFunctionNullUnary<true>(nested_function,
-                                                            {make_nullable(data_type_ptr)}, {}));
-        return function;
+        return create_aggregate_function_single_value<AggregateFunctionMaxData>(
+                NameArrayMax::name, {make_nullable(data_type_ptr)}, true);
     }
 };
 

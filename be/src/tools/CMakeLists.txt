@@ -25,6 +25,8 @@ add_executable(meta_tool
     meta_tool.cpp
 )
 
+pch_reuse(meta_tool)
+
 # This permits libraries loaded by dlopen to link to the symbols in the program.
 set_target_properties(meta_tool PROPERTIES ENABLE_EXPORTS 1)
 
@@ -35,13 +37,11 @@ target_link_libraries(meta_tool
 install(DIRECTORY DESTINATION ${OUTPUT_DIR}/lib/)
 install(TARGETS meta_tool DESTINATION ${OUTPUT_DIR}/lib/)
 
-if (${STRIP_DEBUG_INFO} STREQUAL "ON")
-    add_custom_command(TARGET meta_tool POST_BUILD
-        COMMAND ${CMAKE_OBJCOPY} --only-keep-debug $<TARGET_FILE:meta_tool> $<TARGET_FILE:meta_tool>.dbg
-        COMMAND ${CMAKE_STRIP} --strip-debug --strip-unneeded $<TARGET_FILE:meta_tool>
-        COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink=$<TARGET_FILE:meta_tool>.dbg $<TARGET_FILE:meta_tool>
-        )
-
-    install(DIRECTORY DESTINATION ${OUTPUT_DIR}/lib/debug_info/)
-    install(FILES $<TARGET_FILE:meta_tool>.dbg DESTINATION ${OUTPUT_DIR}/lib/debug_info/)
+if (NOT OS_MACOSX)
+# Meta tool never need debug info
+add_custom_command(TARGET meta_tool POST_BUILD
+    COMMAND ${CMAKE_OBJCOPY} --only-keep-debug $<TARGET_FILE:meta_tool> $<TARGET_FILE:meta_tool>.dbg
+    COMMAND ${CMAKE_STRIP} --strip-debug --strip-unneeded $<TARGET_FILE:meta_tool>
+    COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink=$<TARGET_FILE:meta_tool>.dbg $<TARGET_FILE:meta_tool>
+    )
 endif()

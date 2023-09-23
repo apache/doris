@@ -41,15 +41,11 @@ import java.util.stream.Collectors;
  * e.g. LogicalSelectHint (set_var(query_timeout='1800', exec_mem_limit='2147483648'))
  */
 public class LogicalSelectHint<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> {
+
     private final Map<String, SelectHint> hints;
 
     public LogicalSelectHint(Map<String, SelectHint> hints, CHILD_TYPE child) {
         this(hints, Optional.empty(), Optional.empty(), child);
-    }
-
-    public LogicalSelectHint(Map<String, SelectHint> hints,
-            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        this(hints, Optional.empty(), logicalProperties, child);
     }
 
     /**
@@ -78,26 +74,28 @@ public class LogicalSelectHint<CHILD_TYPE extends Plan> extends LogicalUnary<CHI
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitLogicalSelectHint((LogicalSelectHint<Plan>) this, context);
+        return visitor.visitLogicalSelectHint(this, context);
     }
 
     @Override
-    public List<Expression> getExpressions() {
+    public List<? extends Expression> getExpressions() {
         return ImmutableList.of();
     }
 
     @Override
     public LogicalSelectHint<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalSelectHint<>(hints, groupExpression, Optional.of(logicalProperties), child());
+        return new LogicalSelectHint<>(hints, groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override
-    public LogicalSelectHint<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalSelectHint<>(hints, Optional.empty(), logicalProperties, child());
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new LogicalSelectHint<>(hints, groupExpression, logicalProperties, children.get(0));
     }
 
     @Override
-    public List<Slot> computeOutput(Plan input) {
+    public List<Slot> computeOutput() {
         return child().getOutput();
     }
 

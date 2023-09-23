@@ -25,7 +25,10 @@
 
 #pragma once
 
+#ifndef __APPLE__
 #include <malloc.h>
+#endif
+
 #include <string.h>
 
 #include <algorithm>
@@ -34,7 +37,8 @@
 #include <cstdlib>
 #include <type_traits>
 
-#include "common/compiler_util.h"
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 
 namespace doris {
 

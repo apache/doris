@@ -17,30 +17,37 @@
 
 #include "vec/exprs/vexpr.h"
 
-#include <gtest/gtest.h>
-#include <thrift/protocol/TJSONProtocol.h>
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stdint.h>
+#include <string.h>
+#include <sys/types.h>
 
 #include <cmath>
-#include <iostream>
+#include <limits>
+#include <new>
+#include <type_traits>
 
+#include "common/object_pool.h"
 #include "exec/schema_scanner.h"
 #include "gen_cpp/Exprs_types.h"
 #include "gen_cpp/Types_types.h"
-#include "runtime/exec_env.h"
+#include "gtest/gtest_pred_impl.h"
+#include "runtime/descriptors.h"
+#include "runtime/jsonb_value.h"
 #include "runtime/large_int_value.h"
-#include "runtime/memory/chunk_allocator.h"
-#include "runtime/primitive_type.h"
-#include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
-#include "runtime/tuple.h"
-#include "runtime/tuple_row.h"
 #include "testutil/desc_tbl_builder.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vliteral.h"
 #include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/util.hpp"
 
 TEST(TEST_VEXPR, ABSTEST) {
-    doris::ChunkAllocator::init_instance(4096);
     doris::ObjectPool object_pool;
     doris::DescriptorTblBuilder builder(&object_pool);
     builder.declare_tuple() << doris::TYPE_INT << doris::TYPE_DOUBLE;
@@ -48,81 +55,116 @@ TEST(TEST_VEXPR, ABSTEST) {
 
     auto tuple_desc = const_cast<doris::TupleDescriptor*>(desc_tbl->get_tuple_descriptor(0));
     doris::RowDescriptor row_desc(tuple_desc, false);
-    doris::RowBatch row_batch(row_desc, 1024);
     std::string expr_json =
             R"|({"1":{"lst":["rec",2,{"1":{"i32":20},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]}}},"4":{"i32":1},"20":{"i32":-1},"26":{"rec":{"1":{"rec":{"2":{"str":"abs"}}},"2":{"i32":0},"3":{"lst":["rec",1,{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5}}}}]}}]},"4":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]}}},"5":{"tf":0},"7":{"str":"abs(INT)"},"9":{"rec":{"1":{"str":"_ZN5doris13MathFunctions3absEPN9doris_udf15FunctionContextERKNS1_6IntValE"}}},"11":{"i64":0}}}},{"1":{"i32":16},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5}}}}]}}},"4":{"i32":0},"15":{"rec":{"1":{"i32":0},"2":{"i32":0}}},"20":{"i32":-1},"23":{"i32":-1}}]}})|";
     doris::TExpr exprx = apache::thrift::from_json_string<doris::TExpr>(expr_json);
-    doris::vectorized::VExprContext* context = nullptr;
-    doris::vectorized::VExpr::create_expr_tree(&object_pool, exprx, &context);
-
-    int32_t k1 = -100;
-    for (int i = 0; i < 1024; ++i, k1++) {
-        auto idx = row_batch.add_row();
-        doris::TupleRow* tuple_row = row_batch.get_row(idx);
-        auto tuple =
-                (doris::Tuple*)(row_batch.tuple_data_pool()->allocate(tuple_desc->byte_size()));
-        auto slot_desc = tuple_desc->slots()[0];
-        memcpy(tuple->get_slot(slot_desc->tuple_offset()), &k1, slot_desc->slot_size());
-        tuple_row->set_tuple(0, tuple);
-        row_batch.commit_last_row();
-    }
+    doris::vectorized::VExprContextSPtr context;
+    doris::vectorized::VExpr::create_expr_tree(exprx, context);
 
     doris::RuntimeState runtime_stat(doris::TUniqueId(), doris::TQueryOptions(),
                                      doris::TQueryGlobals(), nullptr);
-    runtime_stat.init_instance_mem_tracker();
+    runtime_stat.init_mem_trackers();
     runtime_stat.set_desc_tbl(desc_tbl);
-    context->prepare(&runtime_stat, row_desc);
-    context->open(&runtime_stat);
+    auto state = doris::Status::OK();
+    state = context->prepare(&runtime_stat, row_desc);
+    ASSERT_TRUE(state.ok());
+    state = context->open(&runtime_stat);
+    ASSERT_TRUE(state.ok());
+}
 
-    auto block = row_batch.convert_to_vec_block();
-    int ts = -1;
-    context->execute(&block, &ts);
+// Only the unit test depend on this, but it is wrong, should not use TTupleDesc to create tuple desc, not
+// use columndesc
+static doris::TupleDescriptor* create_tuple_desc(
+        doris::ObjectPool* pool, std::vector<doris::SchemaScanner::ColumnDesc>& column_descs) {
+    using namespace doris;
+    int null_column = 0;
+    for (int i = 0; i < column_descs.size(); ++i) {
+        if (column_descs[i].is_null) {
+            null_column++;
+        }
+    }
 
-    context->close(&runtime_stat);
+    int offset = (null_column + 7) / 8;
+    std::vector<SlotDescriptor*> slots;
+    int null_byte = 0;
+    int null_bit = 0;
+
+    for (int i = 0; i < column_descs.size(); ++i) {
+        TSlotDescriptor t_slot_desc;
+        if (column_descs[i].type == TYPE_DECIMALV2) {
+            t_slot_desc.__set_slotType(TypeDescriptor::create_decimalv2_type(27, 9).to_thrift());
+        } else {
+            TypeDescriptor descriptor(column_descs[i].type);
+            if (column_descs[i].precision >= 0 && column_descs[i].scale >= 0) {
+                descriptor.precision = column_descs[i].precision;
+                descriptor.scale = column_descs[i].scale;
+            }
+            t_slot_desc.__set_slotType(descriptor.to_thrift());
+        }
+        t_slot_desc.__set_colName(column_descs[i].name);
+        t_slot_desc.__set_columnPos(i);
+        t_slot_desc.__set_byteOffset(offset);
+
+        if (column_descs[i].is_null) {
+            t_slot_desc.__set_nullIndicatorByte(null_byte);
+            t_slot_desc.__set_nullIndicatorBit(null_bit);
+            null_bit = (null_bit + 1) % 8;
+
+            if (0 == null_bit) {
+                null_byte++;
+            }
+        } else {
+            t_slot_desc.__set_nullIndicatorByte(0);
+            t_slot_desc.__set_nullIndicatorBit(-1);
+        }
+
+        t_slot_desc.id = i;
+        t_slot_desc.__set_slotIdx(i);
+        t_slot_desc.__set_isMaterialized(true);
+
+        SlotDescriptor* slot = pool->add(new (std::nothrow) SlotDescriptor(t_slot_desc));
+        slots.push_back(slot);
+        offset += column_descs[i].size;
+    }
+
+    TTupleDescriptor t_tuple_desc;
+    t_tuple_desc.__set_byteSize(offset);
+    t_tuple_desc.__set_numNullBytes((null_byte * 8 + null_bit + 7) / 8);
+    doris::TupleDescriptor* tuple_desc =
+            pool->add(new (std::nothrow) doris::TupleDescriptor(t_tuple_desc));
+
+    for (int i = 0; i < slots.size(); ++i) {
+        tuple_desc->add_slot(slots[i]);
+    }
+
+    return tuple_desc;
 }
 
 TEST(TEST_VEXPR, ABSTEST2) {
     using namespace doris;
-    SchemaScanner::ColumnDesc column_descs[] = {{"k1", TYPE_INT, sizeof(int32_t), false}};
-    SchemaScanner schema_scanner(column_descs, 1);
+    std::vector<doris::SchemaScanner::ColumnDesc> column_descs = {
+            {"k1", TYPE_INT, sizeof(int32_t), false}};
     ObjectPool object_pool;
-    SchemaScannerParam param;
-    schema_scanner.init(&param, &object_pool);
-    auto tuple_desc = const_cast<TupleDescriptor*>(schema_scanner.tuple_desc());
+    doris::TupleDescriptor* tuple_desc = create_tuple_desc(&object_pool, column_descs);
     RowDescriptor row_desc(tuple_desc, false);
-    RowBatch row_batch(row_desc, 1024);
     std::string expr_json =
             R"|({"1":{"lst":["rec",2,{"1":{"i32":20},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]}}},"4":{"i32":1},"20":{"i32":-1},"26":{"rec":{"1":{"rec":{"2":{"str":"abs"}}},"2":{"i32":0},"3":{"lst":["rec",1,{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5}}}}]}}]},"4":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]}}},"5":{"tf":0},"7":{"str":"abs(INT)"},"9":{"rec":{"1":{"str":"_ZN5doris13MathFunctions3absEPN9doris_udf15FunctionContextERKNS1_6IntValE"}}},"11":{"i64":0}}}},{"1":{"i32":16},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5}}}}]}}},"4":{"i32":0},"15":{"rec":{"1":{"i32":0},"2":{"i32":0}}},"20":{"i32":-1},"23":{"i32":-1}}]}})|";
     TExpr exprx = apache::thrift::from_json_string<TExpr>(expr_json);
 
-    doris::vectorized::VExprContext* context = nullptr;
-    doris::vectorized::VExpr::create_expr_tree(&object_pool, exprx, &context);
-
-    int32_t k1 = -100;
-    for (int i = 0; i < 1024; ++i, k1++) {
-        auto idx = row_batch.add_row();
-        doris::TupleRow* tuple_row = row_batch.get_row(idx);
-        auto tuple =
-                (doris::Tuple*)(row_batch.tuple_data_pool()->allocate(tuple_desc->byte_size()));
-        auto slot_desc = tuple_desc->slots()[0];
-        memcpy(tuple->get_slot(slot_desc->tuple_offset()), &k1, slot_desc->slot_size());
-        tuple_row->set_tuple(0, tuple);
-        row_batch.commit_last_row();
-    }
+    doris::vectorized::VExprContextSPtr context;
+    doris::vectorized::VExpr::create_expr_tree(exprx, context);
 
     doris::RuntimeState runtime_stat(doris::TUniqueId(), doris::TQueryOptions(),
                                      doris::TQueryGlobals(), nullptr);
-    runtime_stat.init_instance_mem_tracker();
+    runtime_stat.init_mem_trackers();
     DescriptorTbl desc_tbl;
     desc_tbl._slot_desc_map[0] = tuple_desc->slots()[0];
     runtime_stat.set_desc_tbl(&desc_tbl);
-    context->prepare(&runtime_stat, row_desc);
-    context->open(&runtime_stat);
-
-    auto block = row_batch.convert_to_vec_block();
-    int ts = -1;
-    context->execute(&block, &ts);
-    context->close(&runtime_stat);
+    auto state = Status::OK();
+    state = context->prepare(&runtime_stat, row_desc);
+    ASSERT_TRUE(state.ok());
+    state = context->open(&runtime_stat);
+    ASSERT_TRUE(state.ok());
 }
 
 namespace doris {
@@ -180,14 +222,39 @@ struct literal_traits<TYPE_DOUBLE> {
 
 template <>
 struct literal_traits<TYPE_DATETIME> {
+    const static TPrimitiveType::type ttype = TPrimitiveType::DATETIME;
+    const static TExprNodeType::type tnode_type = TExprNodeType::DATE_LITERAL;
+    using CXXType = std::string;
+};
+template <>
+struct literal_traits<TYPE_DATETIMEV2> {
+    const static TPrimitiveType::type ttype = TPrimitiveType::DATETIMEV2;
+    const static TExprNodeType::type tnode_type = TExprNodeType::DATE_LITERAL;
+    using CXXType = std::string;
+};
+template <>
+struct literal_traits<TYPE_DATE> {
     const static TPrimitiveType::type ttype = TPrimitiveType::DATE;
-    const static TExprNodeType::type tnode_type = TExprNodeType::STRING_LITERAL;
+    const static TExprNodeType::type tnode_type = TExprNodeType::DATE_LITERAL;
+    using CXXType = std::string;
+};
+template <>
+struct literal_traits<TYPE_DATEV2> {
+    const static TPrimitiveType::type ttype = TPrimitiveType::DATEV2;
+    const static TExprNodeType::type tnode_type = TExprNodeType::DATE_LITERAL;
     using CXXType = std::string;
 };
 
 template <>
-struct literal_traits<TYPE_DATEV2> {
-    const static TPrimitiveType::type ttype = TPrimitiveType::DATEV2;
+struct literal_traits<TYPE_JSONB> {
+    const static TPrimitiveType::type ttype = TPrimitiveType::JSONB;
+    const static TExprNodeType::type tnode_type = TExprNodeType::JSON_LITERAL;
+    using CXXType = std::string;
+};
+
+template <>
+struct literal_traits<TYPE_STRING> {
+    const static TPrimitiveType::type ttype = TPrimitiveType::STRING;
     const static TExprNodeType::type tnode_type = TExprNodeType::STRING_LITERAL;
     using CXXType = std::string;
 };
@@ -199,8 +266,9 @@ struct literal_traits<TYPE_DECIMALV2> {
     using CXXType = std::string;
 };
 
-template <PrimitiveType T, class U = typename literal_traits<T>::CXXType,
-          std::enable_if_t<std::is_integral<U>::value, bool> = true>
+//======================== set literal ===================================
+template <PrimitiveType T, class U = typename literal_traits<T>::CXXType>
+    requires std::is_integral_v<U>
 void set_literal(TExprNode& node, const U& value) {
     TIntLiteral int_literal;
     int_literal.__set_value(value);
@@ -221,32 +289,64 @@ void set_literal<TYPE_LARGEINT, __int128_t>(TExprNode& node, const __int128_t& v
     node.__set_large_int_literal(largeIntLiteral);
 }
 // std::is_same<U, std::string>::value
-template <PrimitiveType T, class U = typename literal_traits<T>::CXXType,
-          std::enable_if_t<T == TYPE_DATETIME, bool> = true>
+template <PrimitiveType T, class U = typename literal_traits<T>::CXXType>
+    requires(T == TYPE_DATETIME)
 void set_literal(TExprNode& node, const U& value) {
     TDateLiteral date_literal;
     date_literal.__set_value(value);
     node.__set_date_literal(date_literal);
 }
 
-template <PrimitiveType T, class U = typename literal_traits<T>::CXXType,
-          std::enable_if_t<T == TYPE_DATEV2, bool> = true>
+template <PrimitiveType T, class U = typename literal_traits<T>::CXXType>
+    requires(T == TYPE_DATETIMEV2)
 void set_literal(TExprNode& node, const U& value) {
     TDateLiteral date_literal;
     date_literal.__set_value(value);
     node.__set_date_literal(date_literal);
 }
 
-template <PrimitiveType T, class U = typename literal_traits<T>::CXXType,
-          std::enable_if_t<std::numeric_limits<U>::is_iec559, bool> = true>
+template <PrimitiveType T, class U = typename literal_traits<T>::CXXType>
+    requires(T == TYPE_DATE)
+void set_literal(TExprNode& node, const U& value) {
+    TDateLiteral date_literal;
+    date_literal.__set_value(value);
+    node.__set_date_literal(date_literal);
+}
+
+template <PrimitiveType T, class U = typename literal_traits<T>::CXXType>
+    requires(T == TYPE_DATEV2)
+void set_literal(TExprNode& node, const U& value) {
+    TDateLiteral date_literal;
+    date_literal.__set_value(value);
+    node.__set_date_literal(date_literal);
+}
+
+template <PrimitiveType T, class U = typename literal_traits<T>::CXXType>
+    requires(T == TYPE_JSONB)
+void set_literal(TExprNode& node, const U& value) {
+    TJsonLiteral jsonb_literal;
+    jsonb_literal.__set_value(value);
+    node.__set_json_literal(jsonb_literal);
+}
+
+template <PrimitiveType T, class U = typename literal_traits<T>::CXXType>
+    requires(T == TYPE_STRING)
+void set_literal(TExprNode& node, const U& value) {
+    TStringLiteral string_literal;
+    string_literal.__set_value(value);
+    node.__set_string_literal(string_literal);
+}
+
+template <PrimitiveType T, class U = typename literal_traits<T>::CXXType>
+    requires std::numeric_limits<U>::is_iec559
 void set_literal(TExprNode& node, const U& value) {
     TFloatLiteral floatLiteral;
     floatLiteral.__set_value(value);
     node.__set_float_literal(floatLiteral);
 }
 
-template <PrimitiveType T, class U = typename literal_traits<T>::CXXType,
-          std::enable_if_t<T == TYPE_DECIMALV2, bool> = true>
+template <PrimitiveType T, class U = typename literal_traits<T>::CXXType>
+    requires(T == TYPE_DECIMALV2)
 void set_literal(TExprNode& node, const U& value) {
     TDecimalLiteral decimal_literal;
     decimal_literal.__set_value(value);
@@ -254,7 +354,7 @@ void set_literal(TExprNode& node, const U& value) {
 }
 
 template <PrimitiveType T, class U = typename literal_traits<T>::CXXType>
-doris::TExprNode create_literal(const U& value) {
+doris::TExprNode create_literal(const U& value, int scale = 9) {
     TExprNode node;
     TTypeDesc type_desc;
     TTypeNode type_node;
@@ -262,7 +362,7 @@ doris::TExprNode create_literal(const U& value) {
     type_nodes.emplace_back();
     TScalarType scalar_type;
     scalar_type.__set_precision(27);
-    scalar_type.__set_scale(9);
+    scalar_type.__set_scale(scale);
     scalar_type.__set_len(20);
     scalar_type.__set_type(literal_traits<T>::ttype);
     type_nodes[0].__set_scalar_type(scalar_type);
@@ -277,15 +377,19 @@ doris::TExprNode create_literal(const U& value) {
 TEST(TEST_VEXPR, LITERALTEST) {
     using namespace doris;
     using namespace doris::vectorized;
+    // bool
     {
         VLiteral literal(create_literal<TYPE_BOOLEAN>(true));
+        std::cout << "data type: " << literal.data_type().get()->get_name() << std::endl;
         Block block;
         int ret = -1;
         literal.execute(nullptr, &block, &ret);
         auto ctn = block.safe_get_by_position(ret);
         bool v = ctn.column->get_bool(0);
         EXPECT_EQ(v, true);
+        EXPECT_EQ("1", literal.value());
     }
+    // smallint
     {
         VLiteral literal(create_literal<TYPE_SMALLINT>(1024));
         Block block;
@@ -294,7 +398,9 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto ctn = block.safe_get_by_position(ret);
         auto v = ctn.column->get64(0);
         EXPECT_EQ(v, 1024);
+        EXPECT_EQ("1024", literal.value());
     }
+    // int
     {
         VLiteral literal(create_literal<TYPE_INT>(1024));
         Block block;
@@ -303,7 +409,9 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto ctn = block.safe_get_by_position(ret);
         auto v = ctn.column->get64(0);
         EXPECT_EQ(v, 1024);
+        EXPECT_EQ("1024", literal.value());
     }
+    // bigint
     {
         VLiteral literal(create_literal<TYPE_BIGINT>(1024));
         Block block;
@@ -312,7 +420,9 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto ctn = block.safe_get_by_position(ret);
         auto v = ctn.column->get64(0);
         EXPECT_EQ(v, 1024);
+        EXPECT_EQ("1024", literal.value());
     }
+    // large int
     {
         VLiteral literal(create_literal<TYPE_LARGEINT, __int128_t>(1024));
         Block block;
@@ -321,7 +431,9 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<__int128_t>();
         EXPECT_EQ(v, 1024);
+        EXPECT_EQ("1024", literal.value());
     }
+    // float
     {
         VLiteral literal(create_literal<TYPE_FLOAT, float>(1024.0f));
         Block block;
@@ -330,7 +442,9 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<double>();
         EXPECT_FLOAT_EQ(v, 1024.0f);
+        EXPECT_EQ("1024", literal.value());
     }
+    // double
     {
         VLiteral literal(create_literal<TYPE_DOUBLE, double>(1024.0));
         Block block;
@@ -339,11 +453,14 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<double>();
         EXPECT_FLOAT_EQ(v, 1024.0);
+        EXPECT_EQ("1024", literal.value());
     }
+    // datetime
     {
         vectorized::VecDateTimeValue data_time_value;
-        const char* date = "20210407";
+        const char* date = "20210407000000";
         data_time_value.from_date_str(date, strlen(date));
+        std::cout << data_time_value.type() << std::endl;
         __int64_t dt;
         memcpy(&dt, &data_time_value, sizeof(__int64_t));
         VLiteral literal(create_literal<TYPE_DATETIME, std::string>(std::string(date)));
@@ -353,7 +470,49 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<__int64_t>();
         EXPECT_EQ(v, dt);
+        EXPECT_EQ("2021-04-07 00:00:00", literal.value());
     }
+    // datetimev2
+    {
+        uint16_t year = 1997;
+        uint8_t month = 11;
+        uint8_t day = 18;
+        uint8_t hour = 9;
+        uint8_t minute = 12;
+        uint8_t second = 46;
+        uint32_t microsecond = 999999;
+        DateV2Value<DateTimeV2ValueType> datetime_v2;
+        datetime_v2.set_time(year, month, day, hour, minute, second, microsecond);
+        std::string date = datetime_v2.debug_string();
+
+        __uint64_t dt;
+        memcpy(&dt, &datetime_v2, sizeof(__uint64_t));
+        VLiteral literal(create_literal<TYPE_DATETIMEV2, std::string>(date, 4));
+        Block block;
+        int ret = -1;
+        literal.execute(nullptr, &block, &ret);
+        auto ctn = block.safe_get_by_position(ret);
+        auto v = (*ctn.column)[0].get<__uint64_t>();
+        EXPECT_EQ(v, dt);
+        EXPECT_EQ("1997-11-18 09:12:46.9999", literal.value());
+    }
+    // date
+    {
+        vectorized::VecDateTimeValue data_time_value;
+        const char* date = "20210407";
+        data_time_value.from_date_str(date, strlen(date));
+        __int64_t dt;
+        memcpy(&dt, &data_time_value, sizeof(__int64_t));
+        VLiteral literal(create_literal<TYPE_DATE, std::string>(std::string(date)));
+        Block block;
+        int ret = -1;
+        literal.execute(nullptr, &block, &ret);
+        auto ctn = block.safe_get_by_position(ret);
+        auto v = (*ctn.column)[0].get<__int64_t>();
+        EXPECT_EQ(v, dt);
+        EXPECT_EQ("2021-04-07", literal.value());
+    }
+    // datev2
     {
         vectorized::DateV2Value<doris::vectorized::DateV2ValueType> data_time_value;
         const char* date = "20210407";
@@ -367,7 +526,31 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<uint32_t>();
         EXPECT_EQ(v, dt);
+        EXPECT_EQ("2021-04-07", literal.value());
     }
+    // jsonb
+    {
+        std::string j = R"([null,true,false,100,6.18,"abc"])";
+        VLiteral literal(create_literal<TYPE_JSONB, std::string>(j));
+        Block block;
+        int ret = -1;
+        literal.execute(nullptr, &block, &ret);
+        auto ctn = block.safe_get_by_position(ret);
+        EXPECT_EQ(j, literal.value());
+    }
+    // string
+    {
+        std::string s = "I am Amory, 24";
+        VLiteral literal(create_literal<TYPE_STRING, std::string>(std::string("I am Amory, 24")));
+        Block block;
+        int ret = -1;
+        literal.execute(nullptr, &block, &ret);
+        auto ctn = block.safe_get_by_position(ret);
+        auto v = (*ctn.column)[0].get<String>();
+        EXPECT_EQ(v, s);
+        EXPECT_EQ(s, literal.value());
+    }
+    // decimalv2
     {
         VLiteral literal(create_literal<TYPE_DECIMALV2, std::string>(std::string("1234.56")));
         Block block;
@@ -376,5 +559,6 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<DecimalField<Decimal128>>();
         EXPECT_FLOAT_EQ(((double)v.get_value()) / (std::pow(10, v.get_scale())), 1234.56);
+        EXPECT_EQ("1234.560000000", literal.value());
     }
 }

@@ -17,13 +17,17 @@
 
 #pragma once
 
+#include <butil/macros.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <stdint.h>
+
 #include <memory>
 #include <string>
 
-#include "olap/olap_define.h"
+#include "common/status.h"
+#include "olap/olap_common.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
-#include "olap/utils.h"
 #include "util/metrics.h"
 
 namespace doris {
@@ -33,7 +37,7 @@ class DataDir;
 // Base class for all tablet classes, currently only olap/Tablet
 // The fields and methods in this class is not final, it will change as memory
 // storage engine evolves.
-class BaseTablet : public std::enable_shared_from_this<BaseTablet> {
+class BaseTablet {
 public:
     BaseTablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir);
     virtual ~BaseTablet();
@@ -45,9 +49,8 @@ public:
     Status set_tablet_state(TabletState state);
 
     // Property encapsulated in TabletMeta
-    const TabletMetaSharedPtr tablet_meta();
+    const TabletMetaSharedPtr& tablet_meta();
 
-    bool is_memory() const;
     TabletUid tablet_uid() const;
     int64_t table_id() const;
     // Returns a string can be used to uniquely identify a tablet.
@@ -58,11 +61,10 @@ public:
     int64_t replica_id() const;
     int32_t schema_hash() const;
     int16_t shard_id() const;
-    bool equal(int64_t tablet_id, int32_t schema_hash) const;
 
-    const std::string& storage_policy() const { return _tablet_meta->storage_policy(); }
+    int64_t storage_policy_id() const { return _tablet_meta->storage_policy_id(); }
 
-    void set_storage_policy(const std::string& policy) { _tablet_meta->set_storage_policy(policy); }
+    void set_storage_policy_id(int64_t id) { _tablet_meta->set_storage_policy_id(id); }
 
     // properties encapsulated in TabletSchema
     virtual TabletSchemaSPtr tablet_schema() const;
@@ -74,7 +76,7 @@ protected:
 
 protected:
     TabletState _state;
-    TabletMetaSharedPtr _tablet_meta;
+    const TabletMetaSharedPtr _tablet_meta;
     TabletSchemaSPtr _schema;
 
     DataDir* _data_dir;
@@ -102,12 +104,8 @@ inline const std::string& BaseTablet::tablet_path() const {
     return _tablet_path;
 }
 
-inline const TabletMetaSharedPtr BaseTablet::tablet_meta() {
+inline const TabletMetaSharedPtr& BaseTablet::tablet_meta() {
     return _tablet_meta;
-}
-
-inline bool BaseTablet::is_memory() const {
-    return _tablet_meta->tablet_type() == TabletTypePB::TABLET_TYPE_MEMORY;
 }
 
 inline TabletUid BaseTablet::tablet_uid() const {
@@ -140,10 +138,6 @@ inline int32_t BaseTablet::schema_hash() const {
 
 inline int16_t BaseTablet::shard_id() const {
     return _tablet_meta->shard_id();
-}
-
-inline bool BaseTablet::equal(int64_t id, int32_t hash) const {
-    return (tablet_id() == id) && (schema_hash() == hash);
 }
 
 inline TabletSchemaSPtr BaseTablet::tablet_schema() const {

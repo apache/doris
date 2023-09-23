@@ -23,7 +23,6 @@
 
 #include "olap/rowset/segment_v2/options.h"
 #include "runtime/large_int_value.h"
-#include "runtime/mem_pool.h"
 
 using doris::segment_v2::PageBuilderOptions;
 using doris::segment_v2::PageDecoderOptions;
@@ -33,7 +32,7 @@ class FrameOfReferencePageTest : public testing::Test {
 public:
     template <FieldType type, class PageDecoderType>
     void copy_one(PageDecoderType* decoder, typename TypeTraits<type>::CppType* ret) {
-        MemPool pool;
+        vectorized::Arena pool;
         std::unique_ptr<ColumnVectorBatch> cvb;
         ColumnVectorBatch::create(1, true, get_scalar_type_info(type), nullptr, &cvb);
         ColumnBlock block(cvb.get(), &pool);
@@ -64,7 +63,7 @@ public:
         EXPECT_EQ(0, for_page_decoder.current_index());
         EXPECT_EQ(size, for_page_decoder.count());
 
-        MemPool pool;
+        vectorized::Arena pool;
         std::unique_ptr<ColumnVectorBatch> cvb;
         ColumnVectorBatch::create(size, true, get_scalar_type_info(Type), nullptr, &cvb);
         ColumnBlock block(cvb.get(), &pool);
@@ -78,7 +77,7 @@ public:
 
         for (uint i = 0; i < size; i++) {
             if (src[i] != values[i]) {
-                if constexpr (Type == OLAP_FIELD_TYPE_LARGEINT) {
+                if constexpr (Type == FieldType::OLAP_FIELD_TYPE_LARGEINT) {
                     FAIL() << "Fail at index " << i
                            << " inserted=" << LargeIntValue::to_string(src[i])
                            << " got=" << LargeIntValue::to_string(values[i]);
@@ -109,10 +108,11 @@ TEST_F(FrameOfReferencePageTest, TestInt32BlockEncoderRandom) {
         ints.get()[i] = random();
     }
 
-    test_encode_decode_page_template<OLAP_FIELD_TYPE_INT,
-                                     segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_INT>,
-                                     segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_INT>>(
-            ints.get(), size);
+    test_encode_decode_page_template<
+            FieldType::OLAP_FIELD_TYPE_INT,
+            segment_v2::FrameOfReferencePageBuilder<FieldType::OLAP_FIELD_TYPE_INT>,
+            segment_v2::FrameOfReferencePageDecoder<FieldType::OLAP_FIELD_TYPE_INT>>(ints.get(),
+                                                                                     size);
 }
 
 TEST_F(FrameOfReferencePageTest, TestInt32BlockEncoderEqual) {
@@ -123,10 +123,11 @@ TEST_F(FrameOfReferencePageTest, TestInt32BlockEncoderEqual) {
         ints.get()[i] = 12345;
     }
 
-    test_encode_decode_page_template<OLAP_FIELD_TYPE_INT,
-                                     segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_INT>,
-                                     segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_INT>>(
-            ints.get(), size);
+    test_encode_decode_page_template<
+            FieldType::OLAP_FIELD_TYPE_INT,
+            segment_v2::FrameOfReferencePageBuilder<FieldType::OLAP_FIELD_TYPE_INT>,
+            segment_v2::FrameOfReferencePageDecoder<FieldType::OLAP_FIELD_TYPE_INT>>(ints.get(),
+                                                                                     size);
 }
 
 TEST_F(FrameOfReferencePageTest, TestInt32BlockEncoderSequence) {
@@ -137,10 +138,11 @@ TEST_F(FrameOfReferencePageTest, TestInt32BlockEncoderSequence) {
         ints.get()[i] = 12345 + i;
     }
 
-    test_encode_decode_page_template<OLAP_FIELD_TYPE_INT,
-                                     segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_INT>,
-                                     segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_INT>>(
-            ints.get(), size);
+    test_encode_decode_page_template<
+            FieldType::OLAP_FIELD_TYPE_INT,
+            segment_v2::FrameOfReferencePageBuilder<FieldType::OLAP_FIELD_TYPE_INT>,
+            segment_v2::FrameOfReferencePageDecoder<FieldType::OLAP_FIELD_TYPE_INT>>(ints.get(),
+                                                                                     size);
 }
 
 TEST_F(FrameOfReferencePageTest, TestInt64BlockEncoderSequence) {
@@ -152,13 +154,16 @@ TEST_F(FrameOfReferencePageTest, TestInt64BlockEncoderSequence) {
     }
 
     test_encode_decode_page_template<
-            OLAP_FIELD_TYPE_BIGINT, segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_BIGINT>,
-            segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_BIGINT>>(ints.get(), size);
+            FieldType::OLAP_FIELD_TYPE_BIGINT,
+            segment_v2::FrameOfReferencePageBuilder<FieldType::OLAP_FIELD_TYPE_BIGINT>,
+            segment_v2::FrameOfReferencePageDecoder<FieldType::OLAP_FIELD_TYPE_BIGINT>>(ints.get(),
+                                                                                        size);
 
     test_encode_decode_page_template<
-            OLAP_FIELD_TYPE_DATETIME,
-            segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_DATETIME>,
-            segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_DATETIME>>(ints.get(), size);
+            FieldType::OLAP_FIELD_TYPE_DATETIME,
+            segment_v2::FrameOfReferencePageBuilder<FieldType::OLAP_FIELD_TYPE_DATETIME>,
+            segment_v2::FrameOfReferencePageDecoder<FieldType::OLAP_FIELD_TYPE_DATETIME>>(
+            ints.get(), size);
 }
 
 TEST_F(FrameOfReferencePageTest, TestInt24BlockEncoderSequence) {
@@ -171,10 +176,11 @@ TEST_F(FrameOfReferencePageTest, TestInt24BlockEncoderSequence) {
         ints.get()[i] = first_value + i;
     }
 
-    test_encode_decode_page_template<OLAP_FIELD_TYPE_DATE,
-                                     segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_DATE>,
-                                     segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_DATE>>(
-            ints.get(), size);
+    test_encode_decode_page_template<
+            FieldType::OLAP_FIELD_TYPE_DATE,
+            segment_v2::FrameOfReferencePageBuilder<FieldType::OLAP_FIELD_TYPE_DATE>,
+            segment_v2::FrameOfReferencePageDecoder<FieldType::OLAP_FIELD_TYPE_DATE>>(ints.get(),
+                                                                                      size);
 }
 
 TEST_F(FrameOfReferencePageTest, TestInt128BlockEncoderSequence) {
@@ -188,9 +194,10 @@ TEST_F(FrameOfReferencePageTest, TestInt128BlockEncoderSequence) {
     }
 
     test_encode_decode_page_template<
-            OLAP_FIELD_TYPE_LARGEINT,
-            segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_LARGEINT>,
-            segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_LARGEINT>>(ints.get(), size);
+            FieldType::OLAP_FIELD_TYPE_LARGEINT,
+            segment_v2::FrameOfReferencePageBuilder<FieldType::OLAP_FIELD_TYPE_LARGEINT>,
+            segment_v2::FrameOfReferencePageDecoder<FieldType::OLAP_FIELD_TYPE_LARGEINT>>(
+            ints.get(), size);
 }
 
 TEST_F(FrameOfReferencePageTest, TestInt24BlockEncoderMinMax) {
@@ -198,10 +205,11 @@ TEST_F(FrameOfReferencePageTest, TestInt24BlockEncoderMinMax) {
     ints.get()[0] = 0;
     ints.get()[1] = 0xFFFFFF;
 
-    test_encode_decode_page_template<OLAP_FIELD_TYPE_DATE,
-                                     segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_DATE>,
-                                     segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_DATE>>(
-            ints.get(), 2);
+    test_encode_decode_page_template<
+            FieldType::OLAP_FIELD_TYPE_DATE,
+            segment_v2::FrameOfReferencePageBuilder<FieldType::OLAP_FIELD_TYPE_DATE>,
+            segment_v2::FrameOfReferencePageDecoder<FieldType::OLAP_FIELD_TYPE_DATE>>(ints.get(),
+                                                                                      2);
 }
 
 TEST_F(FrameOfReferencePageTest, TestInt128BlockEncoderMinMax) {
@@ -210,9 +218,10 @@ TEST_F(FrameOfReferencePageTest, TestInt128BlockEncoderMinMax) {
     ints.get()[1] = numeric_limits<int128_t>::max();
 
     test_encode_decode_page_template<
-            OLAP_FIELD_TYPE_LARGEINT,
-            segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_LARGEINT>,
-            segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_LARGEINT>>(ints.get(), 2);
+            FieldType::OLAP_FIELD_TYPE_LARGEINT,
+            segment_v2::FrameOfReferencePageBuilder<FieldType::OLAP_FIELD_TYPE_LARGEINT>,
+            segment_v2::FrameOfReferencePageDecoder<FieldType::OLAP_FIELD_TYPE_LARGEINT>>(
+            ints.get(), 2);
 }
 
 TEST_F(FrameOfReferencePageTest, TestInt32SequenceBlockEncoderSize) {
@@ -223,7 +232,8 @@ TEST_F(FrameOfReferencePageTest, TestInt32SequenceBlockEncoderSize) {
     }
     PageBuilderOptions builder_options;
     builder_options.data_page_size = 256 * 1024;
-    segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_INT> page_builder(builder_options);
+    segment_v2::FrameOfReferencePageBuilder<FieldType::OLAP_FIELD_TYPE_INT> page_builder(
+            builder_options);
     page_builder.add(reinterpret_cast<const uint8_t*>(ints.get()), &size);
     OwnedSlice s = page_builder.finish();
     // body: 4 bytes min value + 128 * 1 /8 packing value = 20
@@ -239,7 +249,8 @@ TEST_F(FrameOfReferencePageTest, TestFirstLastValue) {
     }
     PageBuilderOptions builder_options;
     builder_options.data_page_size = 256 * 1024;
-    segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_INT> page_builder(builder_options);
+    segment_v2::FrameOfReferencePageBuilder<FieldType::OLAP_FIELD_TYPE_INT> page_builder(
+            builder_options);
     page_builder.add(reinterpret_cast<const uint8_t*>(ints.get()), &size);
     OwnedSlice s = page_builder.finish();
     int32_t first_value = -1;
@@ -258,7 +269,8 @@ TEST_F(FrameOfReferencePageTest, TestInt32NormalBlockEncoderSize) {
     }
     PageBuilderOptions builder_options;
     builder_options.data_page_size = 256 * 1024;
-    segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_INT> page_builder(builder_options);
+    segment_v2::FrameOfReferencePageBuilder<FieldType::OLAP_FIELD_TYPE_INT> page_builder(
+            builder_options);
     page_builder.add(reinterpret_cast<const uint8_t*>(ints.get()), &size);
     OwnedSlice s = page_builder.finish();
     // body: 4 bytes min value + 128 * 7 /8 packing value = 116

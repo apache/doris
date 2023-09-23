@@ -18,22 +18,23 @@
 package org.apache.doris.nereids.jobs.scheduler;
 
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.Job;
+
+import java.util.concurrent.TimeUnit;
 
 /**
  * Single thread, serial scheduler.
  */
 public class SimpleJobScheduler implements JobScheduler {
     @Override
-    public void executeJob(Job job, CascadesContext context) {
-
-    }
-
-    @Override
-    public void executeJobPool(CascadesContext cascadesContext) throws AnalysisException {
-        JobPool pool = cascadesContext.getJobPool();
+    public void executeJobPool(ScheduleContext scheduleContext) {
+        JobPool pool = scheduleContext.getJobPool();
         while (!pool.isEmpty()) {
+            CascadesContext context = (CascadesContext) scheduleContext;
+            if (context.getConnectContext().getSessionVariable().enableNereidsTimeout
+                    && context.getStatementContext().getStopwatch().elapsed(TimeUnit.MILLISECONDS) > 5000) {
+                throw new RuntimeException("Nereids cost too much time ( > 5s )");
+            }
             Job job = pool.pop();
             job.execute();
         }

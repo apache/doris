@@ -54,7 +54,7 @@ public class ModifyDynamicPartitionInfoTest {
         properties.put(DynamicPartitionProperty.END, "3");
         properties.put(DynamicPartitionProperty.PREFIX, "p");
         properties.put(DynamicPartitionProperty.BUCKETS, "30");
-        ModifyTablePropertyOperationLog modifyDynamicPartitionInfo = new ModifyTablePropertyOperationLog(100L, 200L, properties);
+        ModifyTablePropertyOperationLog modifyDynamicPartitionInfo = new ModifyTablePropertyOperationLog(100L, 200L, "test", properties);
         modifyDynamicPartitionInfo.write(out);
         out.flush();
         out.close();

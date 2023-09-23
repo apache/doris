@@ -17,29 +17,34 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.DataType;
 
+import com.google.common.base.Preconditions;
+
+import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Encapsulate LogicalPlan as Expression.
  * just for subquery.
  */
-public class ListQuery extends SubqueryExpr implements LeafExpression {
+public class ListQuery extends SubqueryExpr {
+
     public ListQuery(LogicalPlan subquery) {
         super(Objects.requireNonNull(subquery, "subquery can not be null"));
     }
 
+    public ListQuery(LogicalPlan subquery, List<Slot> correlateSlots, Optional<Expression> typeCoercionExpr) {
+        super(subquery, correlateSlots, typeCoercionExpr);
+    }
+
     @Override
-    public DataType getDataType() throws UnboundException {
-        // TODO:
-        // For multiple lines, struct type is returned, in the form of splicing,
-        // but it seems that struct type is not currently supported
-        throw new UnboundException("not support");
+    public DataType getDataType() {
+        Preconditions.checkArgument(queryPlan.getOutput().size() == 1);
+        return typeCoercionExpr.orElse(queryPlan.getOutput().get(0)).getDataType();
     }
 
     @Override
@@ -54,5 +59,13 @@ public class ListQuery extends SubqueryExpr implements LeafExpression {
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitListQuery(this, context);
+    }
+
+    @Override
+    public Expression withTypeCoercion(DataType dataType) {
+        return new ListQuery(queryPlan, correlateSlots,
+                dataType == queryPlan.getOutput().get(0).getDataType()
+                    ? Optional.of(queryPlan.getOutput().get(0))
+                    : Optional.of(new Cast(queryPlan.getOutput().get(0), dataType)));
     }
 }

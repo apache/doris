@@ -40,11 +40,6 @@
 
 #include "gutil/dynamic_annotations.h"
 
-#ifdef __GNUC__
-/* valgrind.h uses gcc extensions so it won't build with other compilers */
-#include "gutil/valgrind.h"
-#endif
-
 /* Compiler-based ThreadSanitizer defines
    DYNAMIC_ANNOTATIONS_EXTERNAL_IMPL = 1
    and provides its own definitions of the functions. */
@@ -130,44 +125,5 @@ void AnnotateFlushState(const char *file, int line){}
     && DYNAMIC_ANNOTATIONS_EXTERNAL_IMPL == 0 */
 
 #if DYNAMIC_ANNOTATIONS_EXTERNAL_IMPL == 0
-
-static int GetRunningOnValgrind(void) {
-#ifdef RUNNING_ON_VALGRIND
-  if (RUNNING_ON_VALGRIND) return 1;
-#endif
-  char *running_on_valgrind_str = getenv("RUNNING_ON_VALGRIND");
-  if (running_on_valgrind_str) {
-    return strcmp(running_on_valgrind_str, "0") != 0;
-  }
-  return 0;
-}
-
-/* See the comments in dynamic_annotations.h */
-int RunningOnValgrind(void) {
-  static volatile int running_on_valgrind = -1;
-  int local_running_on_valgrind = running_on_valgrind;
-  /* C doesn't have thread-safe initialization of statics, and we
-     don't want to depend on pthread_once here, so hack it. */
-  ANNOTATE_BENIGN_RACE(&running_on_valgrind, "safe hack");
-  if (local_running_on_valgrind == -1)
-    running_on_valgrind = local_running_on_valgrind = GetRunningOnValgrind();
-  return local_running_on_valgrind;
-}
-
-/* See the comments in dynamic_annotations.h */
-double ValgrindSlowdown(void) {
-  /* Same initialization hack as in RunningOnValgrind(). */
-  static volatile double slowdown = 0.0;
-  double local_slowdown = slowdown;
-  ANNOTATE_BENIGN_RACE(&slowdown, "safe hack");
-  if (RunningOnValgrind() == 0) {
-    return 1.0;
-  }
-  if (local_slowdown == 0.0) {
-    char *env = getenv("VALGRIND_SLOWDOWN");
-    slowdown = local_slowdown = env ? atof(env) : 50.0;
-  }
-  return local_slowdown;
-}
 
 #endif  /* DYNAMIC_ANNOTATIONS_EXTERNAL_IMPL == 0 */

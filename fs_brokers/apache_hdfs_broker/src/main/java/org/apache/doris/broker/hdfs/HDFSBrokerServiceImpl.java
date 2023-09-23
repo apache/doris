@@ -25,6 +25,8 @@ import org.apache.doris.thrift.TBrokerCloseReaderRequest;
 import org.apache.doris.thrift.TBrokerCloseWriterRequest;
 import org.apache.doris.thrift.TBrokerDeletePathRequest;
 import org.apache.doris.thrift.TBrokerFD;
+import org.apache.doris.thrift.TBrokerFileSizeRequest;
+import org.apache.doris.thrift.TBrokerFileSizeResponse;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TBrokerListPathRequest;
 import org.apache.doris.thrift.TBrokerListResponse;
@@ -262,5 +264,22 @@ public class HDFSBrokerServiceImpl implements TPaloBrokerService.Iface {
             return errorStatus;
         }
         return generateOKStatus();
+    }
+
+    @Override
+    public TBrokerFileSizeResponse fileSize(
+            TBrokerFileSizeRequest request) throws TException {
+        logger.debug("receive a file size request, request detail: " + request);
+        TBrokerFileSizeResponse response = new TBrokerFileSizeResponse();
+        try {
+            long fileSize = fileSystemManager.fileSize(request.path, request.properties);
+            response.setFileSize(fileSize);
+            response.setOpStatus(generateOKStatus());
+        } catch (BrokerException e) {
+            logger.warn("failed to get file size: " + request.path, e);
+            TBrokerOperationStatus errorStatus = e.generateFailedOperationStatus();
+            response.setOpStatus(errorStatus);
+        }
+        return response;
     }
 }

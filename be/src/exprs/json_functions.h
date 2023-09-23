@@ -17,12 +17,25 @@
 
 #pragma once
 
-#include <fmt/core.h>
+#include <fmt/format.h>
 #include <rapidjson/document.h>
+#include <simdjson.h> // IWYU pragma: keep
 
 #include <sstream>
+#include <string>
+#include <utility>
+#include <vector>
 
-#include "udf/udf.h"
+#include "common/status.h"
+
+namespace simdjson {
+namespace fallback {
+namespace ondemand {
+class object;
+class value;
+} // namespace ondemand
+} // namespace fallback
+} // namespace simdjson
 
 namespace doris {
 
@@ -33,10 +46,6 @@ enum JsonFunctionType {
 
     JSON_FUN_UNKNOWN //The last
 };
-
-class Expr;
-class OpcodeRegistry;
-class TupleRow;
 
 struct JsonPath {
     std::string key; // key of a json object
@@ -65,62 +74,13 @@ struct JsonPath {
         return ss.str();
     }
 
-    std::string to_simdjson_pointer(bool* valid) const {
-        std::stringstream ss;
-        if (!is_valid) {
-            *valid = false;
-            return "";
-        }
-        ss << "/";
-        if (!key.empty()) {
-            ss << key;
-        }
-        if (idx == -2) {
-            // not support [*]
-            *valid = false;
-            return "";
-        } else if (idx > -1) {
-            ss << "/" << idx;
-        }
-        return ss.str();
-    }
-
     std::string debug_string() const {
         return fmt::format("key:{}, idx:{}, valid:{}", key, idx, is_valid);
     }
 };
 
-struct JsonState {
-    std::vector<JsonPath> json_paths;
-    rapidjson::Document document;
-};
-
 class JsonFunctions {
 public:
-    static void init();
-    static doris_udf::IntVal get_json_int(doris_udf::FunctionContext* context,
-                                          const doris_udf::StringVal& json_str,
-                                          const doris_udf::StringVal& path);
-    static doris_udf::StringVal get_json_string(doris_udf::FunctionContext* context,
-                                                const doris_udf::StringVal& json_str,
-                                                const doris_udf::StringVal& path);
-    static doris_udf::DoubleVal get_json_double(doris_udf::FunctionContext* context,
-                                                const doris_udf::StringVal& json_str,
-                                                const doris_udf::StringVal& path);
-
-    static rapidjson::Value* get_json_object(FunctionContext* context,
-                                             const std::string_view& json_string,
-                                             const std::string_view& path_string,
-                                             const JsonFunctionType& fntype,
-                                             rapidjson::Document* document);
-
-    static doris_udf::StringVal json_array(doris_udf::FunctionContext* context, int num_args,
-                                           const doris_udf::StringVal* json_str);
-    static doris_udf::StringVal json_object(doris_udf::FunctionContext* context, int num_args,
-                                            const doris_udf::StringVal* json_str);
-    static doris_udf::StringVal json_quote(doris_udf::FunctionContext* context,
-                                           const doris_udf::StringVal& json_str);
-
     /**
      * The `document` parameter must be has parsed.
      * return Value Is Array object
@@ -140,14 +100,14 @@ public:
             const std::vector<JsonPath>& parsed_paths, rapidjson::Value* document,
             rapidjson::Document::AllocatorType& mem_allocator);
 
-    static void json_path_prepare(doris_udf::FunctionContext*,
-                                  doris_udf::FunctionContext::FunctionStateScope);
-
-    static void json_path_close(doris_udf::FunctionContext*,
-                                doris_udf::FunctionContext::FunctionStateScope);
-
     static void parse_json_paths(const std::string& path_strings,
                                  std::vector<JsonPath>* parsed_paths);
+    // extract_from_object extracts value from object according to the json path.
+    // Now, we do not support complete functions of json path.
+    // Eg. city[*].id is not supported in this function
+    static Status extract_from_object(simdjson::ondemand::object& obj,
+                                      const std::vector<JsonPath>& jsonpath,
+                                      simdjson::ondemand::value* value) noexcept;
 
 private:
     static rapidjson::Value* match_value(const std::vector<JsonPath>& parsed_paths,
@@ -156,8 +116,5 @@ private:
                                          bool is_insert_null = false);
     static void get_parsed_paths(const std::vector<std::string>& path_exprs,
                                  std::vector<JsonPath>* parsed_paths);
-    static rapidjson::Value parse_str_with_flag(const StringVal& arg, const StringVal& flag,
-                                                const int num,
-                                                rapidjson::Document::AllocatorType& allocator);
 };
 } // namespace doris

@@ -1,0 +1,5 @@
+SELECT *
+FROM nation
+UNION ALL
+SELECT *
+FROM nation

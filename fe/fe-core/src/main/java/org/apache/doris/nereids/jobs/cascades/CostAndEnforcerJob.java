@@ -18,20 +18,26 @@
 package org.apache.doris.nereids.jobs.cascades;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.minidump.NereidsTracer;
 import org.apache.doris.nereids.properties.ChildOutputPropertyDeriver;
+import org.apache.doris.nereids.properties.ChildrenPropertiesRegulator;
 import org.apache.doris.nereids.properties.EnforceMissingPropertiesHelper;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.RequestPropertyDeriver;
 import org.apache.doris.nereids.stats.StatsCalculator;
 
 import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -40,27 +46,34 @@ import java.util.Optional;
  * Inspired by NoisePage and ORCA-Paper.
  */
 public class CostAndEnforcerJob extends Job implements Cloneable {
+
+    private static final Logger LOG = LogManager.getLogger(CostAndEnforcerJob.class);
+
     // GroupExpression to optimize
     private final GroupExpression groupExpression;
-    // Current total cost
-    private double curTotalCost;
 
-    // Children properties from parent plan node.
+    // cost of current plan tree
+    private Cost curTotalCost;
+    // cost of current plan node
+    private Cost curNodeCost;
+
+    // List of request property to children
     // Example: Physical Hash Join
-    // [ child item: [leftProperties, rightPropertie]]
+    // [ child item: [leftProperties, rightProperties]]
     // [ [Properties {"", ANY}, Properties {"", BROADCAST}],
     //   [Properties {"", SHUFFLE_JOIN}, Properties {"", SHUFFLE_JOIN}]]
-    private List<List<PhysicalProperties>> requestChildrenPropertyList;
+    private List<List<PhysicalProperties>> requestChildrenPropertiesList;
+    private final List<List<PhysicalProperties>> outputChildrenPropertiesList = new ArrayList<>();
 
-    private List<GroupExpression> childrenBestGroupExprList;
-    private final List<PhysicalProperties> childrenOutputProperty = Lists.newArrayList();
+    // index of List<request property to children>
+    private int requestPropertiesIndex = 0;
 
-    // Current stage of enumeration through child groups
+    private final List<GroupExpression> lowestCostChildren = Lists.newArrayList();
+
+    // current child index of traversing all children
     private int curChildIndex = -1;
-    // Indicator of last child group that we waited for optimization
+    // child index in the last time of traversing all children
     private int prevChildIndex = -1;
-    // Current stage of enumeration through outputInputProperties
-    private int curPropertyPairIndex = 0;
 
     public CostAndEnforcerJob(GroupExpression groupExpression, JobContext context) {
         super(JobType.OPTIMIZE_CHILDREN, context);
@@ -97,127 +110,205 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
      */
     @Override
     public void execute() {
-        // Do init logic of root plan/groupExpr of `subplan`, only run once per task.
-        if (curChildIndex == -1) {
-            curTotalCost = 0;
-
-            // Get property from groupExpression plan (it's root of subplan).
-            RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(context);
-            requestChildrenPropertyList = requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
-
-            curChildIndex = 0;
+        if (groupExpression.isUnused()) {
+            return;
         }
 
-        for (; curPropertyPairIndex < requestChildrenPropertyList.size(); curPropertyPairIndex++) {
-            // children input properties
-            List<PhysicalProperties> requestChildrenProperty = requestChildrenPropertyList.get(curPropertyPairIndex);
+        countJobExecutionTimesOfGroupExpressions(groupExpression);
+        // Do init logic of root plan/groupExpr of `subplan`, only run once per task.
+        if (curChildIndex == -1) {
+            curNodeCost = Cost.zero();
+            curTotalCost = Cost.zero();
+            curChildIndex = 0;
+            // List<request property to children>
+            // [ child item: [leftProperties, rightProperties]]
+            // like :[ [Properties {"", ANY}, Properties {"", BROADCAST}],
+            //         [Properties {"", SHUFFLE_JOIN}, Properties {"", SHUFFLE_JOIN}] ]
+            RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(context);
+            requestChildrenPropertiesList = requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
+            for (List<PhysicalProperties> requestChildrenProperties : requestChildrenPropertiesList) {
+                outputChildrenPropertiesList.add(new ArrayList<>(requestChildrenProperties));
+            }
+        }
 
-            // Calculate cost of groupExpression and update total cost
+        for (; requestPropertiesIndex < requestChildrenPropertiesList.size(); requestPropertiesIndex++) {
+            // Get one from List<request property to children>
+            // like: [ Properties {"", ANY}, Properties {"", BROADCAST} ],
+            List<PhysicalProperties> requestChildrenProperties
+                    = requestChildrenPropertiesList.get(requestPropertiesIndex);
+            List<PhysicalProperties> outputChildrenProperties
+                    = outputChildrenPropertiesList.get(requestPropertiesIndex);
+            // Calculate cost
             if (curChildIndex == 0 && prevChildIndex == -1) {
-                curTotalCost += CostCalculator.calculateCost(groupExpression);
+                curNodeCost = CostCalculator.calculateCost(groupExpression, requestChildrenProperties);
+                groupExpression.setCost(curNodeCost);
+                curTotalCost = curNodeCost;
             }
 
-            // Handle all child plannode.
+            // Handle all child plan node.
             for (; curChildIndex < groupExpression.arity(); curChildIndex++) {
-                PhysicalProperties requestChildProperty = requestChildrenProperty.get(curChildIndex);
+                PhysicalProperties requestChildProperty = requestChildrenProperties.get(curChildIndex);
                 Group childGroup = groupExpression.child(curChildIndex);
 
                 // Whether the child group was optimized for this requestChildProperty according to
                 // the result of returning.
-                Optional<Pair<Double, GroupExpression>> lowestCostPlanOpt = childGroup.getLowestCostPlan(
-                        requestChildProperty);
+                Optional<Pair<Cost, GroupExpression>> lowestCostPlanOpt
+                        = childGroup.getLowestCostPlan(requestChildProperty);
 
                 if (!lowestCostPlanOpt.isPresent()) {
-                    // The child should be pruned due to cost prune.
+                    // prevChildIndex >= curChildIndex mean that it is the second time we come here.
+                    // So, we cannot get the lowest cost plan from current requested children properties.
+                    // This is mean we should prune the current set of child due to cost prune.
                     if (prevChildIndex >= curChildIndex) {
+                        // if run here, means that the child group will not generate the lowest cost plan map currently.
+                        // and lowest cost children's size will not be equals to arity().
                         break;
                     }
 
-                    // This child isn't optimized, create new tasks to optimize it.
-                    // Meaning that optimize recursively by derive tasks.
+                    // This child isn't optimized, create new job to optimize it.
+                    // Meaning that optimize recursively by derive job.
                     prevChildIndex = curChildIndex;
-                    pushTask((CostAndEnforcerJob) clone());
-                    double newCostUpperBound = context.getCostUpperBound() - curTotalCost;
-                    JobContext jobContext = new JobContext(context.getPlannerContext(), requestChildProperty,
-                            newCostUpperBound);
-                    pushTask(new OptimizeGroupJob(childGroup, jobContext));
+                    pushJob(clone());
+                    double newCostUpperBound = context.getCostUpperBound() - curTotalCost.getValue();
+                    JobContext jobContext = new JobContext(context.getCascadesContext(),
+                            requestChildProperty, newCostUpperBound);
+                    pushJob(new OptimizeGroupJob(childGroup, jobContext));
                     return;
                 }
 
+                // when the child group finish the optimizeGroupJob, the code will begin to run.
                 GroupExpression lowestCostExpr = lowestCostPlanOpt.get().second;
+                lowestCostChildren.add(lowestCostExpr);
+                PhysicalProperties outputProperties = lowestCostExpr.getOutputProperties(requestChildProperty);
 
-                PhysicalProperties childOutputProperty = lowestCostExpr.getPropertyFromMap(requestChildProperty);
-                // add childOutputProperty of children into childrenOutputProperty
-                childrenOutputProperty.add(childOutputProperty);
-                requestChildrenProperty.set(curChildIndex, childOutputProperty);
-
-                curTotalCost += lowestCostExpr.getLowestCostTable().get(requestChildProperty).first;
-                if (curTotalCost > context.getCostUpperBound()) {
-                    break;
+                // record child's outputProperties.this is safety because `childGroup.getLowestCostPlan(current
+                // plan's requestChildProperty).getOutputProperties(current plan's requestChildProperty) == child
+                // plan's outputProperties`, the outputProperties must satisfy the origin requestChildProperty
+                outputChildrenProperties.set(curChildIndex, outputProperties);
+                curTotalCost = CostCalculator.addChildCost(groupExpression.getPlan(),
+                        curNodeCost,
+                        lowestCostExpr.getCostValueByProperties(requestChildProperty),
+                        curChildIndex);
+                if (curTotalCost.getValue() > context.getCostUpperBound()) {
+                    curTotalCost = Cost.infinite();
                 }
+                // the request child properties will be covered by the output properties
+                // that corresponding to the request properties. so if we run a costAndEnforceJob of the same
+                // group expression, that request child properties will be different of this.
             }
 
-            // When we successfully optimize all child group, it's last child.
+            // This mean that we successfully optimize all child groups.
+            // if break when running the loop above, the condition must be false.
             if (curChildIndex == groupExpression.arity()) {
-                // Not need to do pruning here because it has been done when we get the
-                // best expr from the child group
-
-                ChildOutputPropertyDeriver childOutputPropertyDeriver = new ChildOutputPropertyDeriver(
-                        context.getRequiredProperties(), childrenOutputProperty, curTotalCost);
-                PhysicalProperties outputProperty = childOutputPropertyDeriver.getOutputProperties(groupExpression);
-                curTotalCost = childOutputPropertyDeriver.getCurTotalCost();
-
-                if (curTotalCost > context.getCostUpperBound()) {
-                    break;
+                if (!calculateEnforce(requestChildrenProperties, outputChildrenProperties)) {
+                    return; // if error exists, return
                 }
-
-                // update current group statistics and re-compute costs.
-                if (groupExpression.children().stream().anyMatch(group -> group.getStatistics() == null)) {
-                    return;
-                }
-                StatsCalculator.estimate(groupExpression);
-
-                // record map { outputProperty -> outputProperty }, { ANY -> outputProperty },
-                recordPropertyAndCost(groupExpression, outputProperty, outputProperty, requestChildrenProperty);
-                recordPropertyAndCost(groupExpression, outputProperty, PhysicalProperties.ANY, requestChildrenProperty);
-
-                enforce(outputProperty, requestChildrenProperty);
-
-                if (curTotalCost < context.getCostUpperBound()) {
-                    context.setCostUpperBound(curTotalCost);
+                if (curTotalCost.getValue() < context.getCostUpperBound()) {
+                    context.setCostUpperBound(curTotalCost.getValue());
                 }
             }
-
-            // Reset child idx and total cost
-            childrenOutputProperty.clear();
-            prevChildIndex = -1;
-            curChildIndex = 0;
-            curTotalCost = 0;
+            clear();
         }
     }
 
-    private void enforce(PhysicalProperties outputProperty, List<PhysicalProperties> requestChildrenProperty) {
-        EnforceMissingPropertiesHelper enforceMissingPropertiesHelper = new EnforceMissingPropertiesHelper(context,
-                groupExpression, curTotalCost);
+    /**
+     * calculate enforce
+     *
+     * @return false if error occurs, the caller will return.
+     */
+    private boolean calculateEnforce(List<PhysicalProperties> requestChildrenProperties,
+            List<PhysicalProperties> outputChildrenProperties) {
+        // to ensure distributionSpec has been added sufficiently.
+        // it's certain that lowestCostChildren is equals to arity().
+        ChildrenPropertiesRegulator regulator = new ChildrenPropertiesRegulator(groupExpression,
+                lowestCostChildren, outputChildrenProperties, requestChildrenProperties, context);
+        boolean success = regulator.adjustChildrenProperties();
+        if (!success) {
+            // invalid enforce, return.
+            return false;
+        }
 
-        PhysicalProperties requestedProperties = context.getRequiredProperties();
-        if (!outputProperty.satisfy(requestedProperties)) {
-            PhysicalProperties addEnforcedProperty = enforceMissingPropertiesHelper.enforceProperty(outputProperty,
-                    requestedProperties);
-            curTotalCost = enforceMissingPropertiesHelper.getCurTotalCost();
+        // Not need to do pruning here because it has been done when we get the
+        // best expr from the child group
+        ChildOutputPropertyDeriver childOutputPropertyDeriver
+                = new ChildOutputPropertyDeriver(outputChildrenProperties);
+        // the physical properties the group expression support for its parent.
+        PhysicalProperties outputProperty = childOutputPropertyDeriver.getOutputProperties(groupExpression);
 
-            // enforcedProperty is superset of requiredProperty
-            if (!addEnforcedProperty.equals(requestedProperties)) {
-                recordPropertyAndCost(groupExpression.getOwnerGroup().getBestPlan(addEnforcedProperty),
-                        requestedProperties, requestedProperties, Lists.newArrayList(outputProperty));
+        // update current group statistics and re-compute costs.
+        if (groupExpression.children().stream().anyMatch(group -> group.getStatistics() == null)) {
+            // TODO: If it's error, add some warning log at least.
+            // if we come here, mean that we have some error in stats calculator and should fix it.
+            return false;
+        }
+
+        StatsCalculator statsCalculator = StatsCalculator.estimate(groupExpression,
+                context.getCascadesContext().getConnectContext().getSessionVariable().getForbidUnknownColStats(),
+                context.getCascadesContext().getConnectContext().getTotalColumnStatisticMap(),
+                context.getCascadesContext().getConnectContext().getSessionVariable().isPlayNereidsDump(),
+                context.getCascadesContext());
+        if (!context.getCascadesContext().getConnectContext().getSessionVariable().isPlayNereidsDump()
+                && context.getCascadesContext().getConnectContext().getSessionVariable().isEnableMinidump()) {
+            context.getCascadesContext().getConnectContext().getTotalColumnStatisticMap()
+                    .putAll(statsCalculator.getTotalColumnStatisticMap());
+            context.getCascadesContext().getConnectContext().getTotalHistogramMap()
+                    .putAll(statsCalculator.getTotalHistogramMap());
+        }
+
+        // recompute cost after adjusting property
+        curNodeCost = CostCalculator.calculateCost(groupExpression, requestChildrenProperties);
+        groupExpression.setCost(curNodeCost);
+        curTotalCost = curNodeCost;
+        for (int i = 0; i < outputChildrenProperties.size(); i++) {
+            PhysicalProperties childProperties = outputChildrenProperties.get(i);
+            curTotalCost = CostCalculator.addChildCost(groupExpression.getPlan(),
+                    curTotalCost,
+                    groupExpression.child(i).getLowestCostPlan(childProperties).get().first,
+                    i);
+        }
+
+        // record map { outputProperty -> outputProperty }, { ANY -> outputProperty },
+        recordPropertyAndCost(groupExpression, outputProperty, PhysicalProperties.ANY, outputChildrenProperties);
+        recordPropertyAndCost(groupExpression, outputProperty, outputProperty, outputChildrenProperties);
+        enforce(outputProperty, outputChildrenProperties);
+        return true;
+    }
+
+    /**
+     * add enforce node
+     *
+     * @param outputProperty the group expression's out property
+     * @param outputChildrenProperty the children's output properties of this group expression.
+     */
+    private void enforce(PhysicalProperties outputProperty, List<PhysicalProperties> outputChildrenProperty) {
+        PhysicalProperties requiredProperties = context.getRequiredProperties();
+        if (outputProperty.satisfy(requiredProperties)) {
+            if (!outputProperty.equals(requiredProperties)) {
+                recordPropertyAndCost(groupExpression, outputProperty, requiredProperties, outputChildrenProperty);
             }
-        } else {
-            if (!outputProperty.equals(requestedProperties)) {
-                recordPropertyAndCost(groupExpression, outputProperty, requestedProperties, requestChildrenProperty);
-            }
+            return;
+        }
+        EnforceMissingPropertiesHelper enforceMissingPropertiesHelper
+                = new EnforceMissingPropertiesHelper(context, groupExpression, curTotalCost);
+        PhysicalProperties addEnforcedProperty = enforceMissingPropertiesHelper
+                .enforceProperty(outputProperty, requiredProperties);
+        curTotalCost = enforceMissingPropertiesHelper.getCurTotalCost();
+
+        // enforcedProperty is superset of requiredProperty
+        if (!addEnforcedProperty.equals(requiredProperties)) {
+            recordPropertyAndCost(groupExpression.getOwnerGroup().getBestPlan(addEnforcedProperty),
+                    addEnforcedProperty, requiredProperties, Lists.newArrayList(outputProperty));
         }
     }
 
+    /**
+     * record property and cost
+     *
+     * @param groupExpression the target group expression
+     * @param outputProperty the child output physical corresponding to the required property of the group expression.
+     * @param requestProperty mentioned above
+     * @param inputProperties request children output properties.
+     */
     private void recordPropertyAndCost(GroupExpression groupExpression,
             PhysicalProperties outputProperty,
             PhysicalProperties requestProperty,
@@ -226,23 +317,32 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
             // Each group expression need to save { outputProperty --> requestProperty }
             groupExpression.putOutputPropertiesMap(outputProperty, requestProperty);
         }
-        this.groupExpression.getOwnerGroup().setBestPlan(groupExpression,
-                curTotalCost, requestProperty);
+        this.groupExpression.getOwnerGroup().setBestPlan(groupExpression, curTotalCost, requestProperty);
+        NereidsTracer.logPropertyAndCostEvent(groupExpression.getOwnerGroup().getGroupId(),
+                groupExpression.children(), groupExpression.getPlan(), requestProperty, curTotalCost);
     }
 
+    private void clear() {
+        lowestCostChildren.clear();
+        prevChildIndex = -1;
+        curChildIndex = 0;
+        curTotalCost = Cost.zero();
+        curNodeCost = Cost.zero();
+    }
 
     /**
      * Shallow clone (ignore clone propertiesListList and groupExpression).
      */
     @Override
-    public Object clone() {
-        CostAndEnforcerJob task;
+    public CostAndEnforcerJob clone() {
+        CostAndEnforcerJob job;
         try {
-            task = (CostAndEnforcerJob) super.clone();
-        } catch (CloneNotSupportedException ignored) {
-            ignored.printStackTrace();
-            return null;
+            // TODO: need to implement this method
+            job = (CostAndEnforcerJob) super.clone();
+        } catch (CloneNotSupportedException e) {
+            LOG.warn("", e);
+            throw new RuntimeException("clone cost and enforcer job failed.");
         }
-        return task;
+        return job;
     }
 }

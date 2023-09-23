@@ -21,6 +21,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TIntLiteral;
@@ -267,6 +268,11 @@ public class IntLiteral extends LiteralExpr {
     }
 
     @Override
+    public String getStringValueForArray() {
+        return "\"" + getStringValue() + "\"";
+    }
+
+    @Override
     public long getLongValue() {
         return value;
     }
@@ -289,26 +295,44 @@ public class IntLiteral extends LiteralExpr {
 
     @Override
     protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
-        if (!targetType.isNumericType()) {
-            return super.uncheckedCastTo(targetType);
-        }
-        if (targetType.isFixedPointType()) {
-            if (!targetType.isScalarType(PrimitiveType.LARGEINT)) {
-                if (!type.equals(targetType)) {
-                    IntLiteral intLiteral = new IntLiteral(this);
-                    intLiteral.setType(targetType);
-                    return intLiteral;
+        if (targetType.isNumericType()) {
+            if (targetType.isFixedPointType()) {
+                if (!targetType.isScalarType(PrimitiveType.LARGEINT)) {
+                    if (!type.equals(targetType)) {
+                        IntLiteral intLiteral = new IntLiteral(this);
+                        intLiteral.setType(targetType);
+                        return intLiteral;
+                    }
+                    return this;
+                } else {
+                    return new LargeIntLiteral(Long.toString(value));
                 }
-                return this;
-            } else {
-                return new LargeIntLiteral(Long.toString(value));
+            } else if (targetType.isFloatingPointType()) {
+                return new FloatLiteral(new Double(value), targetType);
+            } else if (targetType.isDecimalV2() || targetType.isDecimalV3()) {
+                DecimalLiteral res = new DecimalLiteral(new BigDecimal(value));
+                res.setType(targetType);
+                return res;
             }
-        } else if (targetType.isFloatingPointType()) {
-            return new FloatLiteral(new Double(value), targetType);
-        } else if (targetType.isDecimalV2() || targetType.isDecimalV3()) {
-            return new DecimalLiteral(new BigDecimal(value));
+            return this;
+        } else if (targetType.isDateType()) {
+            try {
+                //int like 20200101 can be cast to date(2020,01,01)
+                DateLiteral res = new DateLiteral("" + value, targetType);
+                res.setType(targetType);
+                return res;
+            } catch (AnalysisException e) {
+                if (ConnectContext.get() != null) {
+                    ConnectContext.get().getState().reset();
+                }
+                //invalid date format. leave it to BE to cast it as NULL
+            }
+        } else if (targetType.isStringType()) {
+            StringLiteral res = new StringLiteral("" + value);
+            res.setType(targetType);
+            return res;
         }
-        return this;
+        return super.uncheckedCastTo(targetType);
     }
 
     @Override
@@ -337,5 +361,25 @@ public class IntLiteral extends LiteralExpr {
     @Override
     public int hashCode() {
         return 31 * super.hashCode() + Long.hashCode(value);
+    }
+
+    @Override
+    public void setupParamFromBinary(ByteBuffer data) {
+        switch (type.getPrimitiveType()) {
+            case TINYINT:
+                value = data.get();
+                break;
+            case SMALLINT:
+                value = data.getChar();
+                break;
+            case INT:
+                value = data.getInt();
+                break;
+            case BIGINT:
+                value = data.getLong();
+                break;
+            default:
+                Preconditions.checkState(false);
+        }
     }
 }

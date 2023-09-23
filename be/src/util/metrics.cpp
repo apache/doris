@@ -17,8 +17,15 @@
 
 #include "util/metrics.h"
 
+#include <glog/logging.h>
+#include <rapidjson/encodings.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
+
+#include <initializer_list>
+
+#include "common/config.h"
+
 namespace doris {
 
 std::ostream& operator<<(std::ostream& os, MetricType type) {

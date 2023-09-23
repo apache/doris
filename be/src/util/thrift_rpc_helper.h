@@ -17,14 +17,17 @@
 
 #pragma once
 
+#include <stdint.h>
+
+#include <functional>
+#include <string>
+
 #include "common/config.h"
 #include "common/status.h"
-#include "gen_cpp/FrontendService_types.h"
 
 namespace doris {
 
 class ExecEnv;
-class FrontendServiceClient;
 template <class T>
 class ClientConnection;
 

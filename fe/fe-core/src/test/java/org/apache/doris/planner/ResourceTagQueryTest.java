@@ -35,12 +35,11 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TDisk;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.UtFrameUtils;
@@ -108,7 +107,7 @@ public class ResourceTagQueryTest {
         Env.getCurrentEnv().createDb(createDbStmt);
 
         // must set disk info, or the tablet scheduler won't work
-        backends = Env.getCurrentSystemInfo().getClusterBackends(SystemInfoService.DEFAULT_CLUSTER);
+        backends = Env.getCurrentSystemInfo().getAllBackends();
         for (Backend be : backends) {
             Map<String, TDisk> backendDisks = Maps.newHashMap();
             TDisk tDisk1 = new TDisk();
@@ -194,13 +193,13 @@ public class ResourceTagQueryTest {
         Database db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
         OlapTable tbl = (OlapTable) db.getTableNullable("tbl1");
 
-        Set<Tag> userTags = Env.getCurrentEnv().getAuth().getResourceTags(PaloAuth.ROOT_USER);
+        Set<Tag> userTags = Env.getCurrentEnv().getAuth().getResourceTags(Auth.ROOT_USER);
         Assert.assertEquals(0, userTags.size());
 
         // set default tag for root
         String setPropStr = "set property for 'root' 'resource_tags.location' = 'default';";
         ExceptionChecker.expectThrowsNoException(() -> setProperty(setPropStr));
-        userTags = Env.getCurrentEnv().getAuth().getResourceTags(PaloAuth.ROOT_USER);
+        userTags = Env.getCurrentEnv().getAuth().getResourceTags(Auth.ROOT_USER);
         Assert.assertEquals(1, userTags.size());
 
         // update connection context and query
@@ -213,7 +212,7 @@ public class ResourceTagQueryTest {
         // set zone1 tag for root
         String setPropStr2 = "set property for 'root' 'resource_tags.location' = 'zone1';";
         ExceptionChecker.expectThrowsNoException(() -> setProperty(setPropStr2));
-        userTags = Env.getCurrentEnv().getAuth().getResourceTags(PaloAuth.ROOT_USER);
+        userTags = Env.getCurrentEnv().getAuth().getResourceTags(Auth.ROOT_USER);
         Assert.assertEquals(1, userTags.size());
         for (Tag tag : userTags) {
             Assert.assertEquals(tag1, tag);
@@ -275,16 +274,11 @@ public class ResourceTagQueryTest {
         // set user exec mem limit
         String setExecMemLimitStr = "set property for 'root' 'exec_mem_limit' = '1000000';";
         ExceptionChecker.expectThrowsNoException(() -> setProperty(setExecMemLimitStr));
-        long execMemLimit = Env.getCurrentEnv().getAuth().getExecMemLimit(PaloAuth.ROOT_USER);
+        long execMemLimit = Env.getCurrentEnv().getAuth().getExecMemLimit(Auth.ROOT_USER);
         Assert.assertEquals(1000000, execMemLimit);
 
-        String setLoadMemLimitStr = "set property for 'root' 'load_mem_limit' = '2000000';";
-        ExceptionChecker.expectThrowsNoException(() -> setProperty(setLoadMemLimitStr));
-        long loadMemLimit = Env.getCurrentEnv().getAuth().getLoadMemLimit(PaloAuth.ROOT_USER);
-        Assert.assertEquals(2000000, loadMemLimit);
-
-        List<List<String>> userProps = Env.getCurrentEnv().getAuth().getUserProperties(PaloAuth.ROOT_USER);
-        Assert.assertEquals(17, userProps.size());
+        List<List<String>> userProps = Env.getCurrentEnv().getAuth().getUserProperties(Auth.ROOT_USER);
+        Assert.assertEquals(10, userProps.size());
     }
 
     private void checkTableReplicaAllocation(OlapTable tbl) throws InterruptedException {

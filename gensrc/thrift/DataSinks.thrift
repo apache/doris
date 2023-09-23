@@ -34,11 +34,74 @@ enum TDataSinkType {
     MEMORY_SCRATCH_SINK,
     ODBC_TABLE_SINK,
     RESULT_FILE_SINK,
+    JDBC_TABLE_SINK,
+    MULTI_CAST_DATA_STREAM_SINK,
+    GROUP_COMMIT_OLAP_TABLE_SINK,
 }
 
 enum TResultSinkType {
     MYSQL_PROTOCAL,
+    ARROW_FLIGHT_PROTOCAL,
     FILE,    // deprecated, should not be used any more. FileResultSink is covered by TRESULT_FILE_SINK for concurrent purpose.
+}
+
+enum TParquetCompressionType {
+    SNAPPY,
+    GZIP,
+    BROTLI,
+    ZSTD,
+    LZ4,
+    LZO,
+    BZ2,
+    UNCOMPRESSED,
+}
+
+enum TParquetVersion {
+    PARQUET_1_0,
+    PARQUET_2_LATEST,
+}
+
+enum TParquetDataType {
+    BOOLEAN,
+    INT32,
+    INT64,
+    INT96,
+    BYTE_ARRAY,
+    FLOAT,
+    DOUBLE,
+    FIXED_LEN_BYTE_ARRAY,
+}
+
+enum TParquetDataLogicalType {
+      UNDEFINED = 0,  // Not a real logical type
+      STRING = 1,
+      MAP,
+      LIST,
+      ENUM,
+      DECIMAL,
+      DATE,
+      TIME,
+      TIMESTAMP,
+      INTERVAL,
+      INT,
+      NIL,  // Thrift NullType: annotates data that is always null
+      JSON,
+      BSON,
+      UUID,
+      NONE  // Not a real logical type; should always be last element
+    }
+
+enum TParquetRepetitionType {
+    REQUIRED,
+    REPEATED,
+    OPTIONAL,
+}
+
+struct TParquetSchema {
+    1: optional TParquetRepetitionType schema_repetition_type
+    2: optional TParquetDataType schema_data_type
+    3: optional string schema_column_name    
+    4: optional TParquetDataLogicalType schema_data_logical_type
 }
 
 struct TResultFileSinkOptions {
@@ -50,12 +113,34 @@ struct TResultFileSinkOptions {
     6: optional list<Types.TNetworkAddress> broker_addresses; // only for remote file
     7: optional map<string, string> broker_properties // only for remote file
     8: optional string success_file_name
-    9: optional list<list<string>> schema            // for parquet/orc file
-    10: optional map<string, string> file_properties // for parquet/orc file
+    9: optional list<list<string>> schema            // for orc file
+    10: optional map<string, string> file_properties // for orc file
+
+    //note: use outfile with parquet format, have deprecated 9:schema and 10:file_properties
+    //because when this info thrift to BE, BE hava to find useful info in string,
+    //have to check by use string directly, and maybe not so efficient
+    11: optional list<TParquetSchema> parquet_schemas
+    12: optional TParquetCompressionType parquet_compression_type
+    13: optional bool parquet_disable_dictionary
+    14: optional TParquetVersion parquet_version
+    15: optional string orc_schema
+
+    16: optional bool delete_existing_files;
+    17: optional string file_suffix;
 }
 
 struct TMemoryScratchSink {
 
+}
+
+// Specification of one output destination of a plan fragment
+struct TPlanFragmentDestination {
+  // the globally unique fragment instance id
+  1: required Types.TUniqueId fragment_instance_id
+
+  // ... which is being executed on this server
+  2: required Types.TNetworkAddress server
+  3: optional Types.TNetworkAddress brpc_server
 }
 
 // Sink which forwards data to a remote plan fragment,
@@ -71,11 +156,39 @@ struct TDataStreamSink {
   2: required Partitions.TDataPartition output_partition
 
   3: optional bool ignore_not_found
+
+    // per-destination projections
+    4: optional list<Exprs.TExpr> output_exprs
+
+    // project output tuple id
+    5: optional Types.TTupleId output_tuple_id
+
+    // per-destination filters
+    6: optional list<Exprs.TExpr> conjuncts
+
+    // per-destination runtime filters
+    7: optional list<PlanNodes.TRuntimeFilterDesc> runtime_filters
+}
+
+struct TMultiCastDataStreamSink {
+    1: optional list<TDataStreamSink> sinks;
+    2: optional list<list<TPlanFragmentDestination>> destinations;
+}
+
+struct TFetchOption {
+    1: optional bool use_two_phase_fetch;
+    // Nodes in this cluster, used for second phase fetch
+    2: optional Descriptors.TPaloNodesInfo nodes_info;
+    // Whether fetch row store
+    3: optional bool fetch_row_store;
+    // Fetch schema
+    4: optional list<Descriptors.TColumn> column_desc;
 }
 
 struct TResultSink {
     1: optional TResultSinkType type;
-    2: optional TResultFileSinkOptions file_options // deprecated
+    2: optional TResultFileSinkOptions file_options; // deprecated
+    3: optional TFetchOption fetch_option;
 }
 
 struct TResultFileSink {
@@ -101,6 +214,13 @@ struct TOdbcTableSink {
     1: optional string connect_string
     2: optional string table
     3: optional bool use_transaction
+}
+
+struct TJdbcTableSink {
+    1: optional Descriptors.TJdbcTable jdbc_table
+    2: optional bool use_transaction
+    3: optional Types.TOdbcTableType table_type
+    4: optional string insert_sql
 }
 
 struct TExportSink {
@@ -133,6 +253,8 @@ struct TOlapTableSink {
     16: optional bool load_to_single_tablet
     17: optional bool write_single_replica
     18: optional Descriptors.TOlapTableLocationParam slave_location
+    19: optional i64 txn_timeout_s // timeout of load txn in second
+    20: optional bool write_file_cache
 }
 
 struct TDataSink {
@@ -145,5 +267,7 @@ struct TDataSink {
   8: optional TMemoryScratchSink memory_scratch_sink
   9: optional TOdbcTableSink odbc_table_sink
   10: optional TResultFileSink result_file_sink
+  11: optional TJdbcTableSink jdbc_table_sink
+  12: optional TMultiCastDataStreamSink multi_cast_stream_sink
 }
 

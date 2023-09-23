@@ -18,24 +18,46 @@
 package org.apache.doris.nereids.jobs;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
+import org.apache.doris.nereids.jobs.scheduler.ScheduleContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.RuleType;
+
+import com.google.common.collect.Maps;
+
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Context for one job in Nereids' cascades framework.
  */
 public class JobContext {
-    private final CascadesContext cascadesContext;
-    private final PhysicalProperties requiredProperties;
-    private double costUpperBound;
 
-    public JobContext(CascadesContext cascadesContext, PhysicalProperties requiredProperties, double costUpperBound) {
-        this.cascadesContext = cascadesContext;
+    // use for optimizer
+    protected final ScheduleContext scheduleContext;
+    protected final PhysicalProperties requiredProperties;
+    protected double costUpperBound;
+
+    // use for rewriter
+    protected boolean rewritten = false;
+    protected List<RewriteJob> remainJobs = Collections.emptyList();
+
+    // user for trace
+    protected Map<RuleType, Integer> ruleInvokeTimes = Maps.newLinkedHashMap();
+
+    public JobContext(ScheduleContext scheduleContext, PhysicalProperties requiredProperties, double costUpperBound) {
+        this.scheduleContext = scheduleContext;
         this.requiredProperties = requiredProperties;
         this.costUpperBound = costUpperBound;
     }
 
-    public CascadesContext getPlannerContext() {
-        return cascadesContext;
+    public ScheduleContext getScheduleContext() {
+        return scheduleContext;
+    }
+
+    public CascadesContext getCascadesContext() {
+        return (CascadesContext) scheduleContext;
     }
 
     public PhysicalProperties getRequiredProperties() {
@@ -48,5 +70,33 @@ public class JobContext {
 
     public void setCostUpperBound(double costUpperBound) {
         this.costUpperBound = costUpperBound;
+    }
+
+    public boolean isRewritten() {
+        return rewritten;
+    }
+
+    public void setRewritten(boolean rewritten) {
+        this.rewritten = rewritten;
+    }
+
+    public List<RewriteJob> getRemainJobs() {
+        return remainJobs;
+    }
+
+    public void setRemainJobs(List<RewriteJob> remainJobs) {
+        this.remainJobs = remainJobs;
+    }
+
+    public void onInvokeRule(RuleType ruleType) {
+        addRuleInvokeTimes(ruleType);
+    }
+
+    private void addRuleInvokeTimes(RuleType ruleType) {
+        Integer times = ruleInvokeTimes.get(ruleType);
+        if (times == null) {
+            times = 0;
+        }
+        ruleInvokeTimes.put(ruleType, times + 1);
     }
 }

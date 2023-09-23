@@ -78,6 +78,7 @@ public class AlterTest {
         FeConstants.default_scheduler_interval_millisecond = 100;
         Config.dynamic_partition_check_interval_seconds = 1;
         Config.disable_storage_medium_check = true;
+        Config.enable_storage_policy = true;
         UtFrameUtils.createDorisCluster(runningDir);
 
         be = Env.getCurrentSystemInfo().getIdToBackend().values().asList().get(0);
@@ -116,13 +117,45 @@ public class AlterTest {
                 + "    PARTITION p2 values less than('2020-03-01')\n" + ")\n" + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n"
                 + "PROPERTIES('replication_num' = '1');");
 
+        createTable("CREATE TABLE test.colocate_tbl1\n" + "(\n" + "    k1 date,\n" + "    k2 int,\n" + "    v1 int \n"
+                + ") ENGINE=OLAP\n" + "UNIQUE KEY (k1,k2)\n"
+                + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n"
+                + "PROPERTIES('replication_num' = '1', 'colocate_with' = 'group_1');");
+
+        createTable("CREATE TABLE test.colocate_tbl2\n" + "(\n" + "    k1 date,\n" + "    k2 int,\n" + "    v1 int \n"
+                + ") ENGINE=OLAP\n" + "UNIQUE KEY (k1,k2)\n" + "PARTITION BY RANGE(k1)\n" + "(\n"
+                + "    PARTITION p1 values less than('2020-02-01'),\n"
+                + "    PARTITION p2 values less than('2020-03-01')\n" + ")\n" + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n"
+                + "PROPERTIES('replication_num' = '1', 'colocate_with' = 'group_2');");
+
+        createTable("CREATE TABLE test.colocate_tbl3 (\n"
+                + "`uuid` varchar(255) NULL,\n"
+                + "`action_datetime` date NULL\n"
+                + ")\n"
+                + "DUPLICATE KEY(uuid)\n"
+                + "PARTITION BY RANGE(action_datetime)()\n"
+                + "DISTRIBUTED BY HASH(uuid) BUCKETS 3\n"
+                + "PROPERTIES\n"
+                + "(\n"
+                + "\"colocate_with\" = \"group_3\",\n"
+                + "\"dynamic_partition.enable\" = \"true\",\n"
+                + "\"dynamic_partition.time_unit\" = \"DAY\",\n"
+                + "\"dynamic_partition.end\" = \"3\",\n"
+                + "\"dynamic_partition.prefix\" = \"p\",\n"
+                + "\"dynamic_partition.buckets\" = \"32\",\n"
+                + "\"dynamic_partition.replication_num\" = \"1\",\n"
+                + "\"dynamic_partition.create_history_partition\"=\"true\",\n"
+                + "\"dynamic_partition.start\" = \"-3\"\n"
+                + ");\n");
+
         createTable(
-                "CREATE TABLE test.tbl6\n" + "(\n" + "    k1 datetime(3),\n" + "    k2 time(3),\n" + "    v1 int \n,"
+                "CREATE TABLE test.tbl6\n" + "(\n" + "    k1 datetime(3),\n" + "    k2 datetime(3),\n"
+                        + "    v1 int \n,"
                         + "    v2 datetime(3)\n" + ") ENGINE=OLAP\n" + "UNIQUE KEY (k1,k2)\n"
                         + "PARTITION BY RANGE(k1)\n" + "(\n"
                         + "    PARTITION p1 values less than('2020-02-01 00:00:00'),\n"
                         + "    PARTITION p2 values less than('2020-03-01 00:00:00')\n" + ")\n"
-                        + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n" + "PROPERTIES('replication_num' = '1');");
+                        + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n" + "PROPERTIES('replication_num' = '1','enable_unique_key_merge_on_write' = 'false');");
 
         createTable("create external table test.odbc_table\n" + "(  `k1` bigint(20) COMMENT \"\",\n"
                 + "  `k2` datetime COMMENT \"\",\n" + "  `k3` varchar(20) COMMENT \"\",\n"
@@ -134,20 +167,20 @@ public class AlterTest {
         // s3 resource
         createRemoteStorageResource(
                 "create resource \"remote_s3\"\n" + "properties\n" + "(\n" + "   \"type\" = \"s3\", \n"
-                        + "   \"s3_endpoint\" = \"bj\",\n" + "   \"s3_region\" = \"bj\",\n"
-                        + "   \"s3_root_path\" = \"/path/to/root\",\n" + "   \"s3_access_key\" = \"bbb\",\n"
-                        + "   \"s3_secret_key\" = \"aaaa\",\n" + "   \"s3_max_connections\" = \"50\",\n"
-                        + "   \"s3_request_timeout_ms\" = \"3000\",\n" + "   \"s3_connection_timeout_ms\" = \"1000\",\n"
-                        + "   \"s3_bucket\" = \"test-bucket\"\n"
+                        + "   \"AWS_ENDPOINT\" = \"bj\",\n" + "   \"AWS_REGION\" = \"bj\",\n"
+                        + "   \"AWS_ROOT_PATH\" = \"/path/to/root\",\n" + "   \"AWS_ACCESS_KEY\" = \"bbb\",\n"
+                        + "   \"AWS_SECRET_KEY\" = \"aaaa\",\n" + "   \"AWS_MAX_CONNECTIONS\" = \"50\",\n"
+                        + "   \"AWS_REQUEST_TIMEOUT_MS\" = \"3000\",\n" + "   \"AWS_CONNECTION_TIMEOUT_MS\" = \"1000\",\n"
+                        + "   \"AWS_BUCKET\" = \"test-bucket\",  \"s3_validity_check\" = \"false\"\n"
                         + ");");
 
         createRemoteStorageResource(
                 "create resource \"remote_s3_1\"\n" + "properties\n" + "(\n" + "   \"type\" = \"s3\", \n"
-                        + "   \"s3_endpoint\" = \"bj\",\n" + "   \"s3_region\" = \"bj\",\n"
-                        + "   \"s3_root_path\" = \"/path/to/root\",\n" + "   \"s3_access_key\" = \"bbb\",\n"
-                        + "   \"s3_secret_key\" = \"aaaa\",\n" + "   \"s3_max_connections\" = \"50\",\n"
-                        + "   \"s3_request_timeout_ms\" = \"3000\",\n" + "   \"s3_connection_timeout_ms\" = \"1000\",\n"
-                        + "   \"s3_bucket\" = \"test-bucket\"\n"
+                        + "   \"AWS_ENDPOINT\" = \"bj\",\n" + "   \"AWS_REGION\" = \"bj\",\n"
+                        + "   \"AWS_ROOT_PATH\" = \"/path/to/root\",\n" + "   \"AWS_ACCESS_KEY\" = \"bbb\",\n"
+                        + "   \"AWS_SECRET_KEY\" = \"aaaa\",\n" + "   \"AWS_MAX_CONNECTIONS\" = \"50\",\n"
+                        + "   \"AWS_REQUEST_TIMEOUT_MS\" = \"3000\",\n" + "   \"AWS_CONNECTION_TIMEOUT_MS\" = \"1000\",\n"
+                        + "   \"AWS_BUCKET\" = \"test-bucket\", \"s3_validity_check\" = \"false\"\n"
                         + ");");
 
         createRemoteStoragePolicy(
@@ -158,6 +191,10 @@ public class AlterTest {
                 "CREATE STORAGE POLICY testPolicy2\n" + "PROPERTIES(\n" + "  \"storage_resource\" = \"remote_s3\",\n"
                         + "  \"cooldown_ttl\" = \"1\"\n" + ");");
 
+        createRemoteStoragePolicy(
+                "CREATE STORAGE POLICY testPolicyAnotherResource\n" + "PROPERTIES(\n" + "  \"storage_resource\" = \"remote_s3_1\",\n"
+                        + "  \"cooldown_ttl\" = \"1\"\n" + ");");
+
         createTable("CREATE TABLE test.tbl_remote\n" + "(\n" + "    k1 date,\n" + "    k2 int,\n" + "    v1 int sum\n"
                 + ")\n" + "PARTITION BY RANGE(k1)\n" + "(\n" + "    PARTITION p1 values less than('2020-02-01'),\n"
                 + "    PARTITION p2 values less than('2020-03-01'),\n"
@@ -165,10 +202,14 @@ public class AlterTest {
                 + "    PARTITION p4 values less than('2020-05-01')\n" + ")\n" + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n"
                 + "PROPERTIES" + "(" + "    'replication_num' = '1',\n" + "    'in_memory' = 'false',\n"
                 + "    'storage_medium' = 'SSD',\n" + "    'storage_cooldown_time' = '2100-05-09 00:00:00',\n"
-                + "    'remote_storage_policy' = 'testPolicy'\n" + ");");
+                + "    'storage_policy' = 'testPolicy'\n" + ");");
 
         createTable("create table test.show_test (k1 int, k2 int) distributed by hash(k1) "
                 + "buckets 1 properties(\"replication_num\" = \"1\");");
+
+        createTable("create table test.unique_sequence_col (k1 int, v1 int, v2 date) ENGINE=OLAP "
+                + " UNIQUE KEY(`k1`)  DISTRIBUTED BY HASH(`k1`) BUCKETS 1"
+                + " PROPERTIES (\"replication_num\" = \"1\", \"function_column.sequence_col\" = \"v1\");");
     }
 
     @AfterClass
@@ -178,6 +219,7 @@ public class AlterTest {
     }
 
     private static void createTable(String sql) throws Exception {
+        Config.enable_odbc_table = true;
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         Env.getCurrentEnv().createTable(createTableStmt);
     }
@@ -224,8 +266,8 @@ public class AlterTest {
     }
 
     private static void alterTableWithExceptionMsg(String sql, String msg) throws Exception {
-        AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         try {
+            AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
             Env.getCurrentEnv().alterTable(alterTableStmt);
         } catch (Exception e) {
             Assert.assertEquals(msg, e.getMessage());
@@ -239,6 +281,36 @@ public class AlterTest {
 
         stmt = "alter table test.tbl5 enable feature \"SEQUENCE_LOAD\" with properties (\"function_column.sequence_type\" = \"double\") ";
         alterTable(stmt, true);
+    }
+
+    @Test
+    public void alterTableModifyRepliaAlloc() throws Exception {
+        String[] tables = new String[]{"test.colocate_tbl1", "test.colocate_tbl2"};
+        final String errChangeReplicaAlloc = "Cannot change replication allocation of colocate table";
+        for (int i = 0; i < tables.length; i++) {
+            String sql = "alter table " + tables[i] + " set ('default.replication_allocation' = 'tag.location.default:1')";
+            AlterTableStmt alterTableStmt2 = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+            ExceptionChecker.expectThrowsWithMsg(DdlException.class, errChangeReplicaAlloc,
+                    () -> Env.getCurrentEnv().alterTable(alterTableStmt2));
+
+            sql = "alter table " + tables[i] + " modify partition (*) set (\n"
+                + "'replication_allocation' = 'tag.location.default:1')";
+            AlterTableStmt alterTableStmt3 = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+            ExceptionChecker.expectThrowsWithMsg(DdlException.class, errChangeReplicaAlloc,
+                    () -> Env.getCurrentEnv().alterTable(alterTableStmt3));
+        }
+
+        String sql = "alter table test.colocate_tbl1 set ('replication_allocation' = 'tag.location.default:1')";
+        AlterTableStmt alterTableStmt1 = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, errChangeReplicaAlloc,
+                () -> Env.getCurrentEnv().alterTable(alterTableStmt1));
+
+        sql = "alter table test.colocate_tbl3 set (\n"
+            + "'dynamic_partition.replication_allocation' = 'tag.location.default:1'\n"
+            + " );";
+        AlterTableStmt alterTableStmt4 = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, errChangeReplicaAlloc,
+                () -> Env.getCurrentEnv().alterTable(alterTableStmt4));
     }
 
     @Test
@@ -405,15 +477,15 @@ public class AlterTest {
         alterTable(stmt, true);
 
         // no conflict
-        stmt = "alter table test.tbl6 add column k3 int, add column k4 time(6)";
+        stmt = "alter table test.tbl6 add column k3 int, add column k4 datetime(6)";
         alterTable(stmt, false);
         waitSchemaChangeJobDone(false);
 
-        stmt = "alter table test.tbl6 add rollup r1 (k1, k2)";
+        stmt = "alter table test.tbl6 add rollup r1 (k2, k1)";
         alterTable(stmt, false);
         waitSchemaChangeJobDone(true);
 
-        stmt = "alter table test.tbl6 add rollup r2 (k1, k2), r3 (k1, k2)";
+        stmt = "alter table test.tbl6 add rollup r2 (k2, k1), r3 (k2, k1)";
         alterTable(stmt, false);
         waitSchemaChangeJobDone(true);
 
@@ -447,6 +519,10 @@ public class AlterTest {
         stmt = "alter table test.tbl6 set ('dynamic_partition.enable' = 'false')";
         alterTable(stmt, false);
         Assert.assertFalse(tbl.getTableProperty().getDynamicPartitionProperty().getEnable());
+
+        String alterStmt = "alter table test.tbl6 set ('in_memory' = 'true')";
+        String errorMsg = "errCode = 2, detailMessage = Not support set 'in_memory'='true' now!";
+        alterTableWithExceptionMsg(alterStmt, errorMsg);
 
         // add partition when dynamic partition is disable
         stmt = "alter table test.tbl6 add partition p3 values less than('2020-04-01 00:00:00') distributed"
@@ -492,29 +568,33 @@ public class AlterTest {
         Assert.assertEquals(Short.valueOf("1"), Short.valueOf(tbl4.getPartitionInfo().getReplicaAllocation(p3.getId()).getTotalReplicaNum()));
 
         // batch update in_memory property
-        stmt = "alter table test.tbl4 modify partition (p1, p2, p3) set ('in_memory' = 'true')";
+        stmt = "alter table test.tbl4 modify partition (p1, p2, p3) set ('in_memory' = 'false')";
         partitionList = Lists.newArrayList(p1, p2, p3);
         for (Partition partition : partitionList) {
             Assert.assertEquals(false, tbl4.getPartitionInfo().getIsInMemory(partition.getId()));
         }
         alterTable(stmt, false);
         for (Partition partition : partitionList) {
-            Assert.assertEquals(true, tbl4.getPartitionInfo().getIsInMemory(partition.getId()));
+            Assert.assertEquals(false, tbl4.getPartitionInfo().getIsInMemory(partition.getId()));
         }
         Assert.assertEquals(false, tbl4.getPartitionInfo().getIsInMemory(p4.getId()));
+
+        String alterStmt = "alter table test.tbl4 modify partition (p1, p2, p3) set ('in_memory' = 'true')";
+        String errorMsg = "errCode = 2, detailMessage = Not support set 'in_memory'='true' now!";
+        alterTableWithExceptionMsg(alterStmt, errorMsg);
 
         // batch update storage_medium and storage_cooldown properties
         // alter storage_medium
         stmt = "alter table test.tbl4 modify partition (p3, p4) set ('storage_medium' = 'HDD')";
         DateLiteral dateLiteral = new DateLiteral("2999-12-31 00:00:00", Type.DATETIME);
         long cooldownTimeMs = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
-        DataProperty oldDataProperty = new DataProperty(TStorageMedium.SSD, cooldownTimeMs, "", -1);
+        DataProperty oldDataProperty = new DataProperty(TStorageMedium.SSD, cooldownTimeMs, "");
         partitionList = Lists.newArrayList(p3, p4);
         for (Partition partition : partitionList) {
             Assert.assertEquals(oldDataProperty, tbl4.getPartitionInfo().getDataProperty(partition.getId()));
         }
         alterTable(stmt, false);
-        DataProperty newDataProperty = new DataProperty(TStorageMedium.HDD, DataProperty.MAX_COOLDOWN_TIME_MS, "", -1);
+        DataProperty newDataProperty = new DataProperty(TStorageMedium.HDD, DataProperty.MAX_COOLDOWN_TIME_MS, "");
         for (Partition partition : partitionList) {
             Assert.assertEquals(newDataProperty, tbl4.getPartitionInfo().getDataProperty(partition.getId()));
         }
@@ -527,7 +607,7 @@ public class AlterTest {
 
         dateLiteral = new DateLiteral("2100-12-31 00:00:00", Type.DATETIME);
         cooldownTimeMs = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
-        DataProperty newDataProperty1 = new DataProperty(TStorageMedium.SSD, cooldownTimeMs, "", -1);
+        DataProperty newDataProperty1 = new DataProperty(TStorageMedium.SSD, cooldownTimeMs, "");
         partitionList = Lists.newArrayList(p1, p2);
         for (Partition partition : partitionList) {
             Assert.assertEquals(newDataProperty1, tbl4.getPartitionInfo().getDataProperty(partition.getId()));
@@ -555,7 +635,7 @@ public class AlterTest {
 
         DateLiteral dateLiteral = new DateLiteral("2100-05-09 00:00:00", Type.DATETIME);
         long cooldownTimeMs = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
-        DataProperty oldDataProperty = new DataProperty(TStorageMedium.SSD, cooldownTimeMs, "testPolicy", -1);
+        DataProperty oldDataProperty = new DataProperty(TStorageMedium.SSD, cooldownTimeMs, "testPolicy");
         List<Partition> partitionList = Lists.newArrayList(p2, p3, p4);
         for (Partition partition : partitionList) {
             Assert.assertEquals(oldDataProperty, tblRemote.getPartitionInfo().getDataProperty(partition.getId()));
@@ -566,7 +646,7 @@ public class AlterTest {
         alterTable(stmt, false);
         DateLiteral newDateLiteral = new DateLiteral("2100-04-01 22:22:22", Type.DATETIME);
         long newCooldownTimeMs = newDateLiteral.unixTimestamp(TimeUtils.getTimeZone());
-        DataProperty dataProperty2 = new DataProperty(TStorageMedium.SSD, newCooldownTimeMs, "testPolicy", -1);
+        DataProperty dataProperty2 = new DataProperty(TStorageMedium.SSD, newCooldownTimeMs, "testPolicy");
         for (Partition partition : partitionList) {
             Assert.assertEquals(dataProperty2, tblRemote.getPartitionInfo().getDataProperty(partition.getId()));
         }
@@ -576,14 +656,19 @@ public class AlterTest {
         stmt = "alter table test.tbl_remote modify partition (p2, p3, p4) set ('storage_medium' = 'HDD')";
         alterTable(stmt, false);
         DataProperty dataProperty1 = new DataProperty(
-                TStorageMedium.HDD, DataProperty.MAX_COOLDOWN_TIME_MS, "testPolicy", -1);
+                TStorageMedium.HDD, DataProperty.MAX_COOLDOWN_TIME_MS, "testPolicy");
         for (Partition partition : partitionList) {
             Assert.assertEquals(dataProperty1, tblRemote.getPartitionInfo().getDataProperty(partition.getId()));
         }
         Assert.assertEquals(oldDataProperty, tblRemote.getPartitionInfo().getDataProperty(p1.getId()));
 
-        // alter remote_storage
-        stmt = "alter table test.tbl_remote modify partition (p2, p3, p4) set ('remote_storage_policy' = 'testPolicy3')";
+        // alter remote_storage to one not exist policy
+        stmt = "alter table test.tbl_remote modify partition (p2, p3, p4) set ('storage_policy' = 'testPolicy3')";
+        alterTable(stmt, true);
+        Assert.assertEquals(oldDataProperty, tblRemote.getPartitionInfo().getDataProperty(p1.getId()));
+
+        // alter remote_storage to one another one which points to another resource
+        stmt = "alter table test.tbl_remote modify partition (p2, p3, p4) set ('storage_policy' = 'testPolicyAnotherResource')";
         alterTable(stmt, true);
         Assert.assertEquals(oldDataProperty, tblRemote.getPartitionInfo().getDataProperty(p1.getId()));
 
@@ -1033,14 +1118,14 @@ public class AlterTest {
         // external table support reorder column
         db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
         odbcTable = db.getTableOrMetaException("odbc_table");
-        Assert.assertTrue(odbcTable.getBaseSchema().stream()
+        Assert.assertEquals(odbcTable.getBaseSchema().stream()
                 .map(column -> column.getName())
-                .reduce("", (totalName, columnName) -> totalName + columnName).equals("k1k2k3k4k5k6"));
+                .reduce("", (totalName, columnName) -> totalName + columnName), "k1k2k3k4k5k6");
         stmt = "alter table test.odbc_table order by (k6, k5, k4, k3, k2, k1)";
         alterTable(stmt, false);
-        Assert.assertTrue(odbcTable.getBaseSchema().stream()
+        Assert.assertEquals(odbcTable.getBaseSchema().stream()
                 .map(column -> column.getName())
-                .reduce("", (totalName, columnName) -> totalName + columnName).equals("k6k5k4k3k2k1"));
+                .reduce("", (totalName, columnName) -> totalName + columnName), "k6k5k4k3k2k1");
 
         // external table support drop column
         stmt = "alter table test.odbc_table drop column k6";
@@ -1119,7 +1204,7 @@ public class AlterTest {
 
     @Test
     public void testShowMV() throws Exception {
-        createMV("CREATE MATERIALIZED VIEW test_mv as select k1 from test.show_test;", false);
+        createMV("CREATE MATERIALIZED VIEW test_mv as select k1 from test.show_test group by k1;", false);
         waitSchemaChangeJobDone(true);
 
         String showMvSql = "SHOW CREATE MATERIALIZED VIEW test_mv on test.show_test;";
@@ -1127,7 +1212,7 @@ public class AlterTest {
                 showMvSql, connectContext);
         ShowExecutor executor = new ShowExecutor(connectContext, showStmt);
         Assert.assertEquals(executor.execute().getResultRows().get(0).get(2),
-                "CREATE MATERIALIZED VIEW test_mv as select k1 from test.show_test;");
+                "CREATE MATERIALIZED VIEW test_mv as select k1 from test.show_test group by k1;");
 
         showMvSql = "SHOW CREATE MATERIALIZED VIEW test_mv_empty on test.show_test;";
         showStmt = (ShowCreateMaterializedViewStmt) UtFrameUtils.parseAndAnalyzeStmt(showMvSql, connectContext);
@@ -1139,5 +1224,11 @@ public class AlterTest {
         executor = new ShowExecutor(connectContext, showStmt);
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "Unknown table 'table1_error'",
                 executor::execute);
+    }
+
+    @Test
+    public void testModifySequenceCol() {
+        String stmt = "alter table test.unique_sequence_col modify column v1 Date";
+        alterTable(stmt, true);
     }
 }

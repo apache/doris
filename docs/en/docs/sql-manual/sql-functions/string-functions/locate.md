@@ -1,6 +1,6 @@
 ---
 {
-    "title": "locate",
+    "title": "LOCATE",
     "language": "en"
 }
 ---
@@ -58,4 +58,4 @@ mysql> SELECT LOCATE('bar', 'foobarbar', 5);
 +-------------------------------+
 ```
 ### keywords
-LOCATE
+    LOCATE

@@ -16,33 +16,6 @@
 // under the License.
 
 suite("test_timestampdiff") {
-    // non vectorized
-    sql """ set enable_vectorized_engine = false """
-
-    qt_select """SELECT TIMESTAMPDIFF(YEAR,DATE('1981-09-11'),'2022-04-28') AS `date-str`,
-                        TIMESTAMPDIFF(YEAR,'1981-09-11','2022-04-28') AS `str-str`,
-                        TIMESTAMPDIFF(YEAR,DATE('1981-09-11'),DATE('2022-04-28')) AS `date-date`,
-                        TIMESTAMPDIFF(YEAR,'1981-09-11',DATE('2022-04-28')) AS `str-date`"""
-
-    qt_select """SELECT TIMESTAMPDIFF(YEAR,DATE('1981-09-11'),'2022-04-28') AS `date-str`,
-                        TIMESTAMPDIFF(YEAR,'1981-09-11','2022-04-28') AS `str-str`,
-                        TIMESTAMPDIFF(YEAR,DATE('1981-04-11'),DATE('2022-04-28')) AS `date-date`,
-                        TIMESTAMPDIFF(YEAR,'1981-04-11',DATE('2022-04-28')) AS `str-date`"""
-
-
-    qt_select """SELECT TIMESTAMPDIFF(MONTH,DATE('2020-04-27'),'2022-04-28') AS `date-str`,
-                        TIMESTAMPDIFF(MONTH,'2020-04-27','2022-04-28') AS `str-str`,
-                        TIMESTAMPDIFF(MONTH,DATE('2020-04-27'),DATE('2022-04-28')) AS `date-date`,
-                        TIMESTAMPDIFF(MONTH,'2020-04-27',DATE('2022-04-28')) AS `str-date`"""
-
-    qt_select """SELECT TIMESTAMPDIFF(MONTH,DATE('2020-04-29'),'2022-04-28') AS `date-str`,
-                        TIMESTAMPDIFF(MONTH,'2020-04-29','2022-04-28') AS `str-str`,
-                        TIMESTAMPDIFF(MONTH,DATE('2020-04-29'),DATE('2022-04-28')) AS `date-date`,
-                        TIMESTAMPDIFF(MONTH,'2020-04-29',DATE('2022-04-28')) AS `str-date`"""
-
-    // vectorized
-    sql """ set enable_vectorized_engine = true """
-
     qt_select """SELECT TIMESTAMPDIFF(YEAR,DATE('1981-09-11'),'2022-04-28') AS `date-str`,
                         TIMESTAMPDIFF(YEAR,'1981-09-11','2022-04-28') AS `str-str`,
                         TIMESTAMPDIFF(YEAR,DATE('1981-09-11'),DATE('2022-04-28')) AS `date-date`,

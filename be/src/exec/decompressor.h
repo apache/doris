@@ -18,8 +18,15 @@
 #pragma once
 
 #include <bzlib.h>
+#include <lz4/lz4.h>
 #include <lz4/lz4frame.h>
+#include <lz4/lz4hc.h>
+#include <snappy.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <zlib.h>
+
+#include <string>
 
 #ifdef DORIS_WITH_LZO
 #include <lzo/lzo1x.h>
@@ -30,7 +37,7 @@
 
 namespace doris {
 
-enum CompressType { UNCOMPRESSED, GZIP, DEFLATE, BZIP2, LZ4FRAME, LZOP };
+enum CompressType { UNCOMPRESSED, GZIP, DEFLATE, BZIP2, LZ4FRAME, LZOP, LZ4BLOCK, SNAPPYBLOCK };
 
 class Decompressor {
 public:
@@ -63,6 +70,8 @@ public:
 
 protected:
     virtual Status init() = 0;
+
+    static uint32_t _read_int32(uint8_t* buf);
 
     Decompressor(CompressType ctype) : _ctype(ctype) {}
 
@@ -136,6 +145,38 @@ private:
     const static unsigned DORIS_LZ4F_VERSION;
 };
 
+class Lz4BlockDecompressor : public Decompressor {
+public:
+    ~Lz4BlockDecompressor() override {}
+
+    Status decompress(uint8_t* input, size_t input_len, size_t* input_bytes_read, uint8_t* output,
+                      size_t output_max_len, size_t* decompressed_len, bool* stream_end,
+                      size_t* more_input_bytes, size_t* more_output_bytes) override;
+
+    std::string debug_info() override;
+
+private:
+    friend class Decompressor;
+    Lz4BlockDecompressor() : Decompressor(CompressType::LZ4FRAME) {}
+    Status init() override;
+};
+
+class SnappyBlockDecompressor : public Decompressor {
+public:
+    ~SnappyBlockDecompressor() override {}
+
+    Status decompress(uint8_t* input, size_t input_len, size_t* input_bytes_read, uint8_t* output,
+                      size_t output_max_len, size_t* decompressed_len, bool* stream_end,
+                      size_t* more_input_bytes, size_t* more_output_bytes) override;
+
+    std::string debug_info() override;
+
+private:
+    friend class Decompressor;
+    SnappyBlockDecompressor() : Decompressor(CompressType::SNAPPYBLOCK) {}
+    Status init() override;
+};
+
 #ifdef DORIS_WITH_LZO
 class LzopDecompressor : public Decompressor {
 public:
@@ -150,7 +191,7 @@ public:
 private:
     friend class Decompressor;
     LzopDecompressor()
-            : Decompressor(CompressType::LZOP), _header_info({0}), _is_header_loaded(false) {}
+            : Decompressor(CompressType::LZOP), _header_info(), _is_header_loaded(false) {}
     Status init() override;
 
 private:

@@ -59,4 +59,31 @@ std::vector<IColumn::MutablePtr> IColumn::scatter_impl(ColumnIndex num_columns,
     return columns;
 }
 
+template <typename Derived>
+void IColumn::append_data_by_selector_impl(MutablePtr& res, const Selector& selector) const {
+    size_t num_rows = size();
+
+    if (num_rows < selector.size()) {
+        LOG(FATAL) << fmt::format("Size of selector: {}, is larger than size of column:{}",
+                                  selector.size(), num_rows);
+    }
+
+    res->reserve(num_rows);
+
+    for (size_t i = 0; i < selector.size(); ++i)
+        static_cast<Derived&>(*res).insert_from(*this, selector[i]);
+}
+
+template <typename Derived>
+void IColumn::get_indices_of_non_default_rows_impl(IColumn::Offsets64& indices, size_t from,
+                                                   size_t limit) const {
+    size_t to = limit && from + limit < size() ? from + limit : size();
+    indices.reserve(indices.size() + to - from);
+    for (size_t i = from; i < to; ++i) {
+        if (!static_cast<const Derived&>(*this).is_default_at(i)) {
+            indices.push_back(i);
+        }
+    }
+}
+
 } // namespace doris::vectorized

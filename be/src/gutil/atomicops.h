@@ -18,7 +18,7 @@
 // alternative.  You should assume only properties explicitly guaranteed by the
 // specifications in this file.  You are almost certainly _not_ writing code
 // just for the x86; if you assume x86 semantics, x86 hardware bugs and
-// implementations on other archtectures will cause your code to break.  If you
+// implementations on other architectures will cause your code to break.  If you
 // do not know what you are doing, avoid these routines, and use a Mutex.
 //
 // These following lower-level operations are typically useful only to people
@@ -66,19 +66,20 @@
 // #endif
 // ------------------------------------------------------------------------
 
-#define GCC_VERSION (__GNUC__ * 10000 + __GNUC_MINOR__ * 100 + __GNUC_PATCHLEVEL__)
+#define GUTILS_GCC_VERSION (__GNUC__ * 10000 + __GNUC_MINOR__ * 100 + __GNUC_PATCHLEVEL__)
 
-#define CLANG_VERSION (__clang_major__ * 10000 + __clang_minor__ * 100 + __clang_patchlevel__)
+#define GUTILS_CLANG_VERSION \
+    (__clang_major__ * 10000 + __clang_minor__ * 100 + __clang_patchlevel__)
 
 // ThreadSanitizer provides own implementation of atomicops.
 #if defined(THREAD_SANITIZER)
-#include "gutil/atomicops-internals-tsan.h"
+#include "gutil/atomicops-internals-tsan.h" // IWYU pragma: export
 #elif defined(__GNUC__) && (defined(__i386) || defined(__x86_64__))
-#include "gutil/atomicops-internals-x86.h"
-#elif defined(__GNUC__) && GCC_VERSION >= 40700
-#include "gutil/atomicops-internals-gcc.h"
-#elif defined(__clang__) && CLANG_VERSION >= 30400
-#include "gutil/atomicops-internals-gcc.h"
+#include "gutil/atomicops-internals-x86.h" // IWYU pragma: export
+#elif defined(__GNUC__) && GUTILS_GCC_VERSION >= 40700
+#include "gutil/atomicops-internals-gcc.h" // IWYU pragma: export
+#elif defined(__clang__) && GUTILS_CLANG_VERSION >= 30400
+#include "gutil/atomicops-internals-gcc.h" // IWYU pragma: export
 #else
 #error You need to implement atomic operations for this architecture
 #endif

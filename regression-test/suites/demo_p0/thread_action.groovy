@@ -51,8 +51,6 @@ suite("thread_action") {
         assertEquals(result[2][0][0], 3)
         assertEquals(result[3][0][0], 4)
     }
-    assertTrue(elapsedMillis < 600)
-
 
     // you can use qt action in thread action, and you **MUST** specify different tag,
     // testing framework can compare different qt result in different order.

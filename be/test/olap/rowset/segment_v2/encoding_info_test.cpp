@@ -17,11 +17,11 @@
 
 #include "olap/rowset/segment_v2/encoding_info.h"
 
-#include <gtest/gtest.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
-#include <iostream>
-
-#include "common/logging.h"
+#include "gtest/gtest_pred_impl.h"
 #include "olap/olap_common.h"
 #include "olap/types.h"
 
@@ -35,7 +35,7 @@ public:
 };
 
 TEST_F(EncodingInfoTest, normal) {
-    const auto* type_info = get_scalar_type_info<OLAP_FIELD_TYPE_BIGINT>();
+    const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_BIGINT>();
     const EncodingInfo* encoding_info = nullptr;
     auto status = EncodingInfo::get(type_info, PLAIN_ENCODING, &encoding_info);
     EXPECT_TRUE(status.ok());
@@ -43,7 +43,7 @@ TEST_F(EncodingInfoTest, normal) {
 }
 
 TEST_F(EncodingInfoTest, no_encoding) {
-    const auto* type_info = get_scalar_type_info<OLAP_FIELD_TYPE_BIGINT>();
+    const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_BIGINT>();
     const EncodingInfo* encoding_info = nullptr;
     auto status = EncodingInfo::get(type_info, DICT_ENCODING, &encoding_info);
     EXPECT_FALSE(status.ok());

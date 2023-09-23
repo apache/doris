@@ -17,65 +17,74 @@
 
 package org.apache.doris.mysql;
 
-import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectScheduler;
+import org.apache.doris.service.FrontendOptions;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.xnio.OptionMap;
+import org.xnio.Options;
+import org.xnio.StreamConnection;
+import org.xnio.Xnio;
+import org.xnio.XnioWorker;
+import org.xnio.channels.AcceptingChannel;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
-import java.nio.channels.ServerSocketChannel;
-import java.nio.channels.SocketChannel;
-import java.util.concurrent.Future;
-import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.ExecutorService;
 
-// MySQL protocol network service
+/**
+ * mysql protocol implementation based on nio.
+ */
 public class MysqlServer {
     private static final Logger LOG = LogManager.getLogger(MysqlServer.class);
 
-    protected int port;
-    protected volatile boolean running;
-    private ServerSocketChannel serverChannel = null;
-    private ConnectScheduler scheduler = null;
-    // used to accept connect request from client
-    private ThreadPoolExecutor listener;
-    private Future listenerFuture;
+    private int port;
+    private volatile boolean running;
 
-    public MysqlServer(int port, ConnectScheduler scheduler) {
+    private XnioWorker xnioWorker;
+
+    private AcceptListener acceptListener;
+
+    private AcceptingChannel<StreamConnection> server;
+
+    // default task service.
+    private ExecutorService taskService = ThreadPoolManager.newDaemonCacheThreadPool(
+            Config.max_mysql_service_task_threads_num, "mysql-nio-pool", true);
+
+    public MysqlServer(int port, ConnectScheduler connectScheduler) {
         this.port = port;
-        this.scheduler = scheduler;
-    }
-
-    protected MysqlServer() {
+        this.xnioWorker = Xnio.getInstance().createWorkerBuilder()
+                .setWorkerName("doris-mysql-nio")
+                .setWorkerIoThreads(Config.mysql_service_io_threads_num)
+                .setExternalExecutorService(taskService).build();
+        // connectScheduler only used for idle check.
+        this.acceptListener = new AcceptListener(connectScheduler);
     }
 
     // start MySQL protocol service
     // return true if success, otherwise false
     public boolean start() {
-        if (scheduler == null) {
-            LOG.warn("scheduler is NULL.");
-            return false;
-        }
-
-        // open server socket
         try {
-            serverChannel = ServerSocketChannel.open();
-            serverChannel.socket().bind(new InetSocketAddress("0.0.0.0", port), 2048);
-            serverChannel.configureBlocking(true);
+            if (FrontendOptions.isBindIPV6()) {
+                server = xnioWorker.createStreamConnectionServer(new InetSocketAddress("::0", port), acceptListener,
+                    OptionMap.create(Options.TCP_NODELAY, true, Options.BACKLOG, Config.mysql_nio_backlog_num));
+
+            } else {
+                server = xnioWorker.createStreamConnectionServer(new InetSocketAddress(port), acceptListener,
+                    OptionMap.create(Options.TCP_NODELAY, true, Options.BACKLOG, Config.mysql_nio_backlog_num));
+
+            }
+            server.resumeAccepts();
+            running = true;
+            LOG.info("Open mysql server success on {}", port);
+            return true;
         } catch (IOException e) {
             LOG.warn("Open MySQL network service failed.", e);
             return false;
         }
-
-        // start accept thread
-        listener = ThreadPoolManager.newDaemonCacheThreadPool(1, "MySQL-Protocol-Listener", true);
-        running = true;
-        listenerFuture = listener.submit(new Listener());
-
-        return true;
     }
 
     public void stop() {
@@ -83,67 +92,10 @@ public class MysqlServer {
             running = false;
             // close server channel, make accept throw exception
             try {
-                serverChannel.close();
+                server.close();
             } catch (IOException e) {
                 LOG.warn("close server channel failed.", e);
             }
         }
     }
-
-    public void join() {
-        try {
-            listenerFuture.get();
-        } catch (Exception e) {
-            // just return
-            LOG.warn("Join MySQL server exception.", e);
-        }
-    }
-
-    private class Listener implements Runnable {
-        @Override
-        public void run() {
-            while (running && serverChannel.isOpen()) {
-                SocketChannel clientChannel;
-                try {
-                    clientChannel = serverChannel.accept();
-                    if (clientChannel == null) {
-                        continue;
-                    }
-                    // submit this context to scheduler
-                    ConnectContext context = new ConnectContext(clientChannel);
-                    // Set catalog here.
-                    context.setEnv(Env.getCurrentEnv());
-                    if (!scheduler.submit(context)) {
-                        LOG.warn("Submit one connect request failed. Client=" + clientChannel.toString());
-                        // clear up context
-                        context.cleanup();
-                    }
-                } catch (IOException e) {
-                    // ClosedChannelException
-                    // AsynchronousCloseException
-                    // ClosedByInterruptException
-                    // Other IOException, for example "to many open files" ...
-                    LOG.warn("Query server encounter exception.", e);
-                    try {
-                        Thread.sleep(100);
-                    } catch (InterruptedException e1) {
-                       // Do nothing
-                    }
-                } catch (Throwable e) {
-                    // NotYetBoundException
-                    // SecurityException
-                    LOG.warn("Query server failed when calling accept.", e);
-                }
-            }
-        }
-    }
-
-    public ConnectScheduler getScheduler() {
-        return scheduler;
-    }
-
-    public void setScheduler(ConnectScheduler scheduler) {
-        this.scheduler = scheduler;
-    }
-
 }

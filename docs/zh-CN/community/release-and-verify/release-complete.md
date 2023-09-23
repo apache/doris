@@ -33,6 +33,8 @@ under the License.
 当正式发布投票成功后，先发[Result]邮件，然后就准备 release package。
 将之前在dev下发布的对应文件夹下的源码包、签名文件和hash文件拷贝到另一个目录 1.1.0，注意文件名字中不要rcxx (可以rename，但不要重新计算签名，hash可以重新计算，结果不会变)
 
+> 这一步仅PMC成员有权限操作。
+
 ```
 From:
 https://dist.apache.org/repos/dist/dev/doris/

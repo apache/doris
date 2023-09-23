@@ -17,7 +17,9 @@
 
 #include "vec/functions/function_convert_tz.h"
 
+#include "vec/data_types/data_type_date.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
 

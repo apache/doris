@@ -17,18 +17,33 @@
 
 #include "util/thrift_rpc_helper.h"
 
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+#include <thrift/Thrift.h>
+#include <thrift/protocol/TBinaryProtocol.h>
+#include <thrift/transport/TTransportException.h>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
 #include <sstream>
 #include <thread>
 
 #include "common/status.h"
-#include "gen_cpp/FrontendService.h"
-#include "gen_cpp/FrontendService_types.h"
 #include "runtime/client_cache.h"
-#include "runtime/exec_env.h"
-#include "runtime/runtime_state.h"
+#include "runtime/exec_env.h" // IWYU pragma: keep
 #include "util/network_util.h"
-#include "util/runtime_profile.h"
-#include "util/thrift_util.h"
+
+namespace apache {
+namespace thrift {
+namespace protocol {
+class TProtocol;
+} // namespace protocol
+namespace transport {
+class TBufferedTransport;
+class TSocket;
+class TTransport;
+} // namespace transport
+} // namespace thrift
+} // namespace apache
 
 namespace doris {
 
@@ -51,8 +66,7 @@ Status ThriftRpcHelper::rpc(const std::string& ip, const int32_t port,
     Status status;
     ClientConnection<T> client(_s_exec_env->get_client_cache<T>(), address, timeout_ms, &status);
     if (!status.ok()) {
-        LOG(WARNING) << "Connect frontend failed, address=" << address
-                     << ", status=" << status.get_error_msg();
+        LOG(WARNING) << "Connect frontend failed, address=" << address << ", status=" << status;
         return status;
     }
     try {
@@ -67,7 +81,7 @@ Status ThriftRpcHelper::rpc(const std::string& ip, const int32_t port,
             status = client.reopen(timeout_ms);
             if (!status.ok()) {
                 LOG(WARNING) << "client reopen failed. address=" << address
-                             << ", status=" << status.get_error_msg();
+                             << ", status=" << status;
                 return status;
             }
             callback(client);
@@ -79,7 +93,7 @@ Status ThriftRpcHelper::rpc(const std::string& ip, const int32_t port,
                 std::chrono::milliseconds(config::thrift_client_retry_interval_ms * 2));
         // just reopen to disable this connection
         client.reopen(timeout_ms);
-        return Status::RpcError("failed to call frontend service");
+        return Status::RpcError("failed to call frontend service, reason: {}", e.what());
     }
     return Status::OK();
 }

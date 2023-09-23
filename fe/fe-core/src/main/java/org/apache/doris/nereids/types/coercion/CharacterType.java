@@ -24,9 +24,9 @@ import org.apache.doris.nereids.types.StringType;
 /**
  * Abstract type for all characters type in Nereids.
  */
-public class CharacterType extends PrimitiveType {
+public abstract class CharacterType extends PrimitiveType {
 
-    public static final CharacterType INSTANCE = new CharacterType(-1);
+    private static final int WIDTH = 16;
 
     protected final int len;
 
@@ -51,5 +51,10 @@ public class CharacterType extends PrimitiveType {
     @Override
     public DataType defaultConcreteType() {
         return StringType.INSTANCE;
+    }
+
+    @Override
+    public int width() {
+        return WIDTH;
     }
 }

@@ -58,10 +58,10 @@ struct ArrayReverseImpl {
     }
 
     static bool _execute_internal(const IColumn& src_column,
-                                  const ColumnArray::Offsets& src_offsets, IColumn& dest_column,
-                                  ColumnArray::Offsets& dest_offsets, const UInt8* src_null_map,
+                                  const ColumnArray::Offsets64& src_offsets, IColumn& dest_column,
+                                  ColumnArray::Offsets64& dest_offsets, const UInt8* src_null_map,
                                   ColumnUInt8::Container* dest_null_map) {
-        ColumnArray::Offset prev_src_offset = 0;
+        size_t prev_src_offset = 0;
 
         for (auto curr_src_offset : src_offsets) {
             size_t array_size = curr_src_offset - prev_src_offset;

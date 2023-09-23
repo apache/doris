@@ -16,15 +16,24 @@
 // under the License.
 #include "runtime/routine_load/data_consumer_group.h"
 
-#include "librdkafka/rdkafka.h"
+#include <gen_cpp/PlanNodes_types.h>
+#include <stddef.h>
+
+#include <map>
+#include <ostream>
+#include <string>
+#include <utility>
+
+#include "common/logging.h"
+#include "io/fs/kafka_consumer_pipe.h"
 #include "librdkafka/rdkafkacpp.h"
 #include "runtime/routine_load/data_consumer.h"
-#include "runtime/routine_load/kafka_consumer_pipe.h"
 #include "runtime/stream_load/stream_load_context.h"
+#include "util/stopwatch.hpp"
 
 namespace doris {
 
-Status KafkaDataConsumerGroup::assign_topic_partitions(StreamLoadContext* ctx) {
+Status KafkaDataConsumerGroup::assign_topic_partitions(std::shared_ptr<StreamLoadContext> ctx) {
     DCHECK(ctx->kafka_info);
     DCHECK(_consumers.size() >= 1);
 
@@ -63,7 +72,7 @@ KafkaDataConsumerGroup::~KafkaDataConsumerGroup() {
     DCHECK(_queue.get_size() == 0);
 }
 
-Status KafkaDataConsumerGroup::start_all(StreamLoadContext* ctx) {
+Status KafkaDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx) {
     Status result_st = Status::OK();
     // start all consumers
     for (auto& consumer : _consumers) {
@@ -96,8 +105,8 @@ Status KafkaDataConsumerGroup::start_all(StreamLoadContext* ctx) {
     int64_t left_rows = ctx->max_batch_rows;
     int64_t left_bytes = ctx->max_batch_size;
 
-    std::shared_ptr<KafkaConsumerPipe> kafka_pipe =
-            std::static_pointer_cast<KafkaConsumerPipe>(ctx->body_sink);
+    std::shared_ptr<io::KafkaConsumerPipe> kafka_pipe =
+            std::static_pointer_cast<io::KafkaConsumerPipe>(ctx->body_sink);
 
     LOG(INFO) << "start consumer group: " << _grp_id << ". max time(ms): " << left_time
               << ", batch rows: " << left_rows << ", batch size: " << left_bytes << ". "
@@ -107,11 +116,11 @@ Status KafkaDataConsumerGroup::start_all(StreamLoadContext* ctx) {
     std::map<int32_t, int64_t> cmt_offset = ctx->kafka_info->cmt_offset;
 
     //improve performance
-    Status (KafkaConsumerPipe::*append_data)(const char* data, size_t size);
+    Status (io::KafkaConsumerPipe::*append_data)(const char* data, size_t size);
     if (ctx->format == TFileFormatType::FORMAT_JSON) {
-        append_data = &KafkaConsumerPipe::append_json;
+        append_data = &io::KafkaConsumerPipe::append_json;
     } else {
-        append_data = &KafkaConsumerPipe::append_with_line_delimiter;
+        append_data = &io::KafkaConsumerPipe::append_with_line_delimiter;
     }
 
     MonotonicStopWatch watch;
@@ -140,7 +149,7 @@ Status KafkaDataConsumerGroup::start_all(StreamLoadContext* ctx) {
             _thread_pool.shutdown();
             _thread_pool.join();
             if (!result_st.ok()) {
-                kafka_pipe->cancel(result_st.get_error_msg());
+                kafka_pipe->cancel(result_st.to_string());
                 return result_st;
             }
             kafka_pipe->finish();

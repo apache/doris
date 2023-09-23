@@ -17,9 +17,9 @@
 
 CREATE TABLE IF NOT EXISTS hits (
     CounterID INT NOT NULL, 
-    EventDate Date NOT NULL, 
+    EventDate Date NOT NULL,
     UserID BIGINT NOT NULL, 
-    EventTime DateTime NOT NULL, 
+    EventTime DateTime NOT NULL,
     WatchID BIGINT NOT NULL, 
     JavaEnable SMALLINT NOT NULL,
     Title STRING NOT NULL,

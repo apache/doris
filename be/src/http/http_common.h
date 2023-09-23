@@ -29,6 +29,8 @@ static const std::string HTTP_COLUMNS = "columns";
 static const std::string HTTP_WHERE = "where";
 static const std::string HTTP_COLUMN_SEPARATOR = "column_separator";
 static const std::string HTTP_LINE_DELIMITER = "line_delimiter";
+static const std::string HTTP_ENCLOSE = "enclose";
+static const std::string HTTP_ESCAPE = "escape";
 static const std::string HTTP_MAX_FILTER_RATIO = "max_filter_ratio";
 static const std::string HTTP_TIMEOUT = "timeout";
 static const std::string HTTP_PARTITIONS = "partitions";
@@ -51,9 +53,15 @@ static const std::string HTTP_COMPRESS_TYPE = "compress_type";
 static const std::string HTTP_SEND_BATCH_PARALLELISM = "send_batch_parallelism";
 static const std::string HTTP_LOAD_TO_SINGLE_TABLET = "load_to_single_tablet";
 static const std::string HTTP_HIDDEN_COLUMNS = "hidden_columns";
-
+static const std::string HTTP_TRIM_DOUBLE_QUOTES = "trim_double_quotes";
+static const std::string HTTP_SKIP_LINES = "skip_lines";
+static const std::string HTTP_COMMENT = "comment";
+static const std::string HTTP_ENABLE_PROFILE = "enable_profile";
+static const std::string HTTP_PARTIAL_COLUMNS = "partial_columns";
+static const std::string HTTP_SQL = "sql";
 static const std::string HTTP_TWO_PHASE_COMMIT = "two_phase_commit";
 static const std::string HTTP_TXN_ID_KEY = "txn_id";
 static const std::string HTTP_TXN_OPERATION_KEY = "txn_operation";
+static const std::string HTTP_MEMTABLE_ON_SINKNODE = "memtable_on_sink_node";
 
 } // namespace doris

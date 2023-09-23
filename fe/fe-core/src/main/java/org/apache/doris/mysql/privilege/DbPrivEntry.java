@@ -25,7 +25,6 @@ import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.io.Text;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 
 public class DbPrivEntry extends CatalogPrivEntry {
@@ -38,12 +37,11 @@ public class DbPrivEntry extends CatalogPrivEntry {
     protected DbPrivEntry() {
     }
 
-    protected DbPrivEntry(PatternMatcher userPattern, String user,
-                          PatternMatcher hostPattern, String origHost,
-                          PatternMatcher ctlPattern, String origCtl,
-                          PatternMatcher dbPattern, String origDb,
-                          boolean isDomain, PrivBitSet privSet) {
-        super(userPattern, user, hostPattern, origHost, ctlPattern, origCtl, isDomain, privSet);
+    protected DbPrivEntry(
+            PatternMatcher ctlPattern, String origCtl,
+            PatternMatcher dbPattern, String origDb,
+            PrivBitSet privSet) {
+        super(ctlPattern, origCtl, privSet);
         this.dbPattern = dbPattern;
         this.origDb = origDb;
         if (origDb.equals(ANY_DB)) {
@@ -52,23 +50,17 @@ public class DbPrivEntry extends CatalogPrivEntry {
     }
 
     public static DbPrivEntry create(
-            String user, String host,
-            String ctl, String db,
-            boolean isDomain, PrivBitSet privs) throws AnalysisException {
-        PatternMatcher hostPattern = PatternMatcher.createMysqlPattern(host, CaseSensibility.HOST.getCaseSensibility());
-
+            String ctl, String db, PrivBitSet privs) throws AnalysisException {
         PatternMatcher ctlPattern = PatternMatcher.createFlatPattern(
                 ctl, CaseSensibility.CATALOG.getCaseSensibility(), ctl.equals(ANY_CTL));
 
         PatternMatcher dbPattern = createDbPatternMatcher(db);
 
-        PatternMatcher userPattern = PatternMatcher.createFlatPattern(user, CaseSensibility.USER.getCaseSensibility());
-
         if (privs.containsNodePriv() || privs.containsResourcePriv()) {
             throw new AnalysisException("Db privilege can not contains global or resource privileges: " + privs);
         }
 
-        return new DbPrivEntry(userPattern, user, hostPattern, host, ctlPattern, ctl, dbPattern, db, isDomain, privs);
+        return new DbPrivEntry(ctlPattern, ctl, dbPattern, db, privs);
     }
 
     private static PatternMatcher createDbPatternMatcher(String db) throws AnalysisException {
@@ -100,10 +92,9 @@ public class DbPrivEntry extends CatalogPrivEntry {
         }
 
         DbPrivEntry otherEntry = (DbPrivEntry) other;
-        return compareAssist(origUser, otherEntry.origUser,
-                             origHost, otherEntry.origHost,
-                             origCtl, otherEntry.origCtl,
-                             origDb, otherEntry.origDb);
+        return compareAssist(
+                origCtl, otherEntry.origCtl,
+                origDb, otherEntry.origDb);
     }
 
     @Override
@@ -113,29 +104,16 @@ public class DbPrivEntry extends CatalogPrivEntry {
         }
 
         DbPrivEntry otherEntry = (DbPrivEntry) other;
-        return origUser.equals(otherEntry.origUser) && origHost.equals(otherEntry.origHost)
-                && origCtl.equals(otherEntry.origCtl) && origDb.equals(otherEntry.origDb)
-                && isDomain == otherEntry.isDomain;
+        return origCtl.equals(otherEntry.origCtl) && origDb.equals(otherEntry.origDb);
     }
 
     @Override
     public String toString() {
-        return String.format("database privilege. user: %s, host: %s, ctl: %s, db: %s, priv: %s, set by resolver: %b",
-                origUser, origHost, origCtl, origDb, privSet.toString(), isSetByDomainResolver);
+        return String.format("database privilege.ctl: %s, db: %s, priv: %s",
+                origCtl, origDb, privSet.toString());
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        if (!isClassNameWrote) {
-            String className = DbPrivEntry.class.getCanonicalName();
-            Text.writeString(out, className);
-            isClassNameWrote = true;
-        }
-        super.write(out);
-        Text.writeString(out, origDb);
-        isClassNameWrote = false;
-    }
-
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 

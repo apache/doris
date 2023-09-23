@@ -17,6 +17,7 @@
 
 package org.apache.doris.httpv2.rest;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.metric.JsonMetricVisitor;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.metric.MetricVisitor;
@@ -24,6 +25,8 @@ import org.apache.doris.metric.PrometheusMetricVisitor;
 import org.apache.doris.metric.SimpleCoreMetricVisitor;
 
 import com.google.common.base.Strings;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -34,12 +37,16 @@ import javax.servlet.http.HttpServletResponse;
 //fehost:port/metrics
 //fehost:port/metrics?type=core
 @RestController
-public class MetricsAction {
-
+public class MetricsAction extends RestBaseController {
+    private static final Logger LOG = LogManager.getLogger(MetricsAction.class);
     private static final String TYPE_PARAM = "type";
 
     @RequestMapping(path = "/metrics")
     public void execute(HttpServletRequest request, HttpServletResponse response) {
+        if (Config.enable_all_http_auth) {
+            executeCheckPassword(request, response);
+        }
+
         String type = request.getParameter(TYPE_PARAM);
         MetricVisitor visitor = null;
         if (!Strings.isNullOrEmpty(type) && type.equalsIgnoreCase("core")) {
@@ -53,7 +60,7 @@ public class MetricsAction {
         try {
             response.getWriter().write(MetricRepo.getMetric(visitor));
         } catch (IOException e) {
-            e.printStackTrace();
+            LOG.warn("", e);
         }
 
     }

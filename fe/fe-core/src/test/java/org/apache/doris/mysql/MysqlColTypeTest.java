@@ -17,6 +17,8 @@
 
 package org.apache.doris.mysql;
 
+import org.apache.doris.catalog.MysqlColType;
+
 import org.junit.Assert;
 import org.junit.Test;
 

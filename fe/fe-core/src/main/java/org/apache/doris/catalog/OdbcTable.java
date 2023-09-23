@@ -71,20 +71,6 @@ public class OdbcTable extends Table {
         TABLE_TYPE_MAP = Collections.unmodifiableMap(tempMap);
     }
 
-    // For different databases, special characters need to be escaped
-    private static String mysqlProperName(String name) {
-        return "`" + name + "`";
-    }
-
-    public static String databaseProperName(TOdbcTableType tableType, String name) {
-        switch (tableType) {
-            case MYSQL:
-                return mysqlProperName(name);
-            default:
-                return name;
-        }
-    }
-
     private String odbcCatalogResourceName;
     private String host;
     private String port;
@@ -124,7 +110,7 @@ public class OdbcTable extends Table {
             }
 
             // 2. check resource usage privilege
-            if (!Env.getCurrentEnv().getAuth().checkResourcePriv(ConnectContext.get(),
+            if (!Env.getCurrentEnv().getAccessManager().checkResourcePriv(ConnectContext.get(),
                     odbcCatalogResourceName,
                     PrivPredicate.USAGE)) {
                 throw new DdlException("USAGE denied to user '" + ConnectContext.get().getQualifiedUser()

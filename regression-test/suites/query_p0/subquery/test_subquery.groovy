@@ -26,4 +26,32 @@ suite("test_subquery") {
                 ) t 
             where c1>0 order by 2 , 1 limit 3
             """
+
+        qt_sql2 """
+        with base as (select k1, k2 from test_query_db.test as t where k1 in (select k1 from test_query_db.baseall
+        where k7 = 'wangjuoo4' group by 1 having count(distinct k7) > 0)) select * from base limit 10;
+        """
+
+        qt_sql3 """
+        SELECT k1 FROM test_query_db.test GROUP BY k1 HAVING k1 IN (SELECT k1 FROM test_query_db.baseall WHERE
+        k2 >= (SELECT min(k3) FROM test_query_db.bigtable WHERE k2 = baseall.k2)) order by k1;
+        """
+
+        qt_sql4 """
+        select /*+SET_VAR(enable_projection=false) */
+        count() from (select k2, k1 from test_query_db.baseall order by k1 limit 1) a;
+        """
+
+        qt_sql5 """
+        select * from test_query_db.bigtable where exists (select k2, k1 from test_query_db.baseall order by k1) order by k1, k2, k3, k4 limit 10;
+        """
+
+        qt_sql6 "select k1 from (select k1, -1 as c from test_query_db.test) t where t.c = 1;"
+
+        qt_sql7 "select * from (select k1, -1 as c from test_query_db.test) t where t.c < 0 order by 1;"
+
+        qt_sql8 """
+        select * from (select k1, -1 as c from test_query_db.test union all select k1, -2 as c from test_query_db.baseall) t 
+        where t.c > 0;
+        """
 }

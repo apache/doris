@@ -1,0 +1,1 @@
+truncate table household_demographics;

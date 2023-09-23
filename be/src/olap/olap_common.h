@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
 #include <netinet/in.h>
 
 #include <cstdint>
@@ -31,8 +32,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include "env/env.h"
-#include "gen_cpp/Types_types.h"
+#include "io/io_common.h"
 #include "olap/olap_define.h"
 #include "util/hash_util.hpp"
 #include "util/uid_util.h"
@@ -48,7 +48,7 @@ using uint128_t = unsigned __int128;
 
 using TabletUid = UniqueId;
 
-enum CompactionType { BASE_COMPACTION = 1, CUMULATIVE_COMPACTION = 2 };
+enum CompactionType { BASE_COMPACTION = 1, CUMULATIVE_COMPACTION = 2, FULL_COMPACTION = 3 };
 
 struct DataDirInfo {
     std::string path;
@@ -57,10 +57,15 @@ struct DataDirInfo {
     int64_t available = 0;     // available space, in bytes unit
     int64_t local_used_capacity = 0;
     int64_t remote_used_capacity = 0;
+    int64_t trash_used_capacity = 0;
     bool is_used = false;                                      // whether available mark
     TStorageMedium::type storage_medium = TStorageMedium::HDD; // Storage medium type: SSD|HDD
 };
-
+struct PredicateFilterInfo {
+    int type = 0;
+    uint64_t input_row = 0;
+    uint64_t filtered_row = 0;
+};
 // Sort DataDirInfo by available space.
 struct DataDirInfoLessAvailability {
     bool operator()(const DataDirInfo& left, const DataDirInfo& right) const {
@@ -69,14 +74,12 @@ struct DataDirInfoLessAvailability {
 };
 
 struct TabletInfo {
-    TabletInfo(TTabletId in_tablet_id, TSchemaHash in_schema_hash, UniqueId in_uid)
-            : tablet_id(in_tablet_id), schema_hash(in_schema_hash), tablet_uid(in_uid) {}
+    TabletInfo(TTabletId in_tablet_id, UniqueId in_uid)
+            : tablet_id(in_tablet_id), tablet_uid(in_uid) {}
 
     bool operator<(const TabletInfo& right) const {
         if (tablet_id != right.tablet_id) {
             return tablet_id < right.tablet_id;
-        } else if (schema_hash != right.schema_hash) {
-            return schema_hash < right.schema_hash;
         } else {
             return tablet_uid < right.tablet_uid;
         }
@@ -84,40 +87,26 @@ struct TabletInfo {
 
     std::string to_string() const {
         std::stringstream ss;
-        ss << tablet_id << "." << schema_hash << "." << tablet_uid.to_string();
+        ss << tablet_id << "." << tablet_uid.to_string();
         return ss.str();
     }
 
     TTabletId tablet_id;
-    TSchemaHash schema_hash;
     UniqueId tablet_uid;
 };
 
 struct TabletSize {
-    TabletSize(TTabletId in_tablet_id, TSchemaHash in_schema_hash, size_t in_tablet_size)
-            : tablet_id(in_tablet_id), schema_hash(in_schema_hash), tablet_size(in_tablet_size) {}
+    TabletSize(TTabletId in_tablet_id, size_t in_tablet_size)
+            : tablet_id(in_tablet_id), tablet_size(in_tablet_size) {}
 
     TTabletId tablet_id;
-    TSchemaHash schema_hash;
     size_t tablet_size;
 };
 
-enum RangeCondition {
-    GT = 0, // greater than
-    GE = 1, // greater or equal
-    LT = 2, // less than
-    LE = 3, // less or equal
-};
-
-enum DelCondSatisfied {
-    DEL_SATISFIED = 0,         //satisfy delete condition
-    DEL_NOT_SATISFIED = 1,     //not satisfy delete condition
-    DEL_PARTIAL_SATISFIED = 2, //partially satisfy delete condition
-};
 // Define all data types supported by Field.
 // If new filed_type is defined, not only new TypeInfo may need be defined,
 // but also some functions like get_type_info in types.cpp need to be changed.
-enum FieldType {
+enum class FieldType {
     OLAP_FIELD_TYPE_TINYINT = 1, // MYSQL_TYPE_TINY
     OLAP_FIELD_TYPE_UNSIGNED_TINYINT = 2,
     OLAP_FIELD_TYPE_SMALLINT = 3, // MYSQL_TYPE_SHORT
@@ -151,14 +140,17 @@ enum FieldType {
     OLAP_FIELD_TYPE_TIMEV2 = 30,
     OLAP_FIELD_TYPE_DECIMAL32 = 31,
     OLAP_FIELD_TYPE_DECIMAL64 = 32,
-    OLAP_FIELD_TYPE_DECIMAL128 = 33
+    OLAP_FIELD_TYPE_DECIMAL128I = 33,
+    OLAP_FIELD_TYPE_JSONB = 34,
+    OLAP_FIELD_TYPE_VARIANT = 35,
+    OLAP_FIELD_TYPE_AGG_STATE = 36
 };
 
 // Define all aggregation methods supported by Field
 // Note that in practice, not all types can use all the following aggregation methods
 // For example, it is meaningless to use SUM for the string type (but it will not cause the program to crash)
 // The implementation of the Field class does not perform such checks, and should be constrained when creating the table
-enum FieldAggregationMethod {
+enum class FieldAggregationMethod {
     OLAP_FIELD_AGGREGATION_NONE = 0,
     OLAP_FIELD_AGGREGATION_SUM = 1,
     OLAP_FIELD_AGGREGATION_MIN = 2,
@@ -169,33 +161,44 @@ enum FieldAggregationMethod {
     OLAP_FIELD_AGGREGATION_BITMAP_UNION = 7,
     // Replace if and only if added value is not null
     OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL = 8,
-    OLAP_FIELD_AGGREGATION_QUANTILE_UNION = 9
+    OLAP_FIELD_AGGREGATION_QUANTILE_UNION = 9,
+    OLAP_FIELD_AGGREGATION_GENERIC = 10
 };
 
-// Compression algorithm type
-enum OLAPCompressionType {
-    // Compression algorithm used for network transmission, low compression rate, low cpu overhead
-    OLAP_COMP_TRANSPORT = 1,
-    // Compression algorithm used for hard disk data, with high compression rate and high CPU overhead
-    OLAP_COMP_STORAGE = 2,
-    // The compression algorithm used for storage, the compression rate is low, and the cpu overhead is low
-    OLAP_COMP_LZ4 = 3,
-};
-
-enum PushType {
-    PUSH_NORMAL = 1,          // for broker/hadoop load
+enum class PushType {
+    PUSH_NORMAL = 1,          // for broker/hadoop load, not used any more
     PUSH_FOR_DELETE = 2,      // for delete
-    PUSH_FOR_LOAD_DELETE = 3, // not use
+    PUSH_FOR_LOAD_DELETE = 3, // not used any more
     PUSH_NORMAL_V2 = 4,       // for spark load
 };
 
-enum ReaderType {
-    READER_QUERY = 0,
-    READER_ALTER_TABLE = 1,
-    READER_BASE_COMPACTION = 2,
-    READER_CUMULATIVE_COMPACTION = 3,
-    READER_CHECKSUM = 4,
-};
+constexpr bool field_is_slice_type(const FieldType& field_type) {
+    return field_type == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
+           field_type == FieldType::OLAP_FIELD_TYPE_CHAR ||
+           field_type == FieldType::OLAP_FIELD_TYPE_STRING;
+}
+
+constexpr bool field_is_numeric_type(const FieldType& field_type) {
+    return field_type == FieldType::OLAP_FIELD_TYPE_INT ||
+           field_type == FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT ||
+           field_type == FieldType::OLAP_FIELD_TYPE_BIGINT ||
+           field_type == FieldType::OLAP_FIELD_TYPE_SMALLINT ||
+           field_type == FieldType::OLAP_FIELD_TYPE_UNSIGNED_TINYINT ||
+           field_type == FieldType::OLAP_FIELD_TYPE_UNSIGNED_SMALLINT ||
+           field_type == FieldType::OLAP_FIELD_TYPE_TINYINT ||
+           field_type == FieldType::OLAP_FIELD_TYPE_DOUBLE ||
+           field_type == FieldType::OLAP_FIELD_TYPE_FLOAT ||
+           field_type == FieldType::OLAP_FIELD_TYPE_DATE ||
+           field_type == FieldType::OLAP_FIELD_TYPE_DATEV2 ||
+           field_type == FieldType::OLAP_FIELD_TYPE_DATETIME ||
+           field_type == FieldType::OLAP_FIELD_TYPE_DATETIMEV2 ||
+           field_type == FieldType::OLAP_FIELD_TYPE_LARGEINT ||
+           field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL ||
+           field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL32 ||
+           field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL64 ||
+           field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL128I ||
+           field_type == FieldType::OLAP_FIELD_TYPE_BOOL;
+}
 
 // <start_version_id, end_version_id>, such as <100, 110>
 //using Version = std::pair<TupleVersion, TupleVersion>;
@@ -222,12 +225,21 @@ struct Version {
     bool contains(const Version& other) const {
         return first <= other.first && second >= other.second;
     }
+
+    std::string to_string() const { return fmt::format("[{}-{}]", first, second); }
 };
 
 using Versions = std::vector<Version>;
 
 inline std::ostream& operator<<(std::ostream& os, const Version& version) {
-    return os << "[" << version.first << "-" << version.second << "]";
+    return os << version.to_string();
+}
+
+inline std::ostream& operator<<(std::ostream& os, const Versions& versions) {
+    for (auto& version : versions) {
+        os << version;
+    }
+    return os;
 }
 
 // used for hash-struct of hash_map<Version, Rowset*>.
@@ -252,8 +264,6 @@ class Field;
 class WrapperField;
 using KeyRange = std::pair<WrapperField*, WrapperField*>;
 
-static const int GENERAL_DEBUG_COUNT = 0;
-
 // ReaderStatistics used to collect statistics when scan data from storage
 struct OlapReaderStatistics {
     int64_t io_ns = 0;
@@ -276,6 +286,7 @@ struct OlapReaderStatistics {
     // block_load_ns
     //      block_init_ns
     //          block_init_seek_ns
+    //          block_conditions_filtered_ns
     //      first_read_ns
     //          block_first_read_seek_ns
     //      lazy_read_ns
@@ -284,6 +295,7 @@ struct OlapReaderStatistics {
     int64_t block_init_seek_num = 0;
     int64_t block_init_seek_ns = 0;
     int64_t first_read_ns = 0;
+    int64_t second_read_ns = 0;
     int64_t block_first_read_seek_num = 0;
     int64_t block_first_read_seek_ns = 0;
     int64_t lazy_read_ns = 0;
@@ -295,14 +307,21 @@ struct OlapReaderStatistics {
     int64_t raw_rows_read = 0;
 
     int64_t rows_vec_cond_filtered = 0;
+    int64_t rows_short_circuit_cond_filtered = 0;
+    int64_t vec_cond_input_rows = 0;
+    int64_t short_circuit_cond_input_rows = 0;
     int64_t rows_vec_del_cond_filtered = 0;
     int64_t vec_cond_ns = 0;
     int64_t short_cond_ns = 0;
+    int64_t expr_filter_ns = 0;
     int64_t output_col_ns = 0;
+
+    std::map<int, PredicateFilterInfo> filter_info;
 
     int64_t rows_key_range_filtered = 0;
     int64_t rows_stats_filtered = 0;
     int64_t rows_bf_filtered = 0;
+    int64_t rows_dict_filtered = 0;
     // Including the number of rows filtered out according to the Delete information in the Tablet,
     // and the number of rows filtered for marked deleted rows under the unique key model.
     // This metric is mainly used to record the number of rows filtered by the delete condition in Segment V1,
@@ -312,6 +331,7 @@ struct OlapReaderStatistics {
     int64_t rows_del_by_bitmap = 0;
     // the number of rows filtered by various column indexes.
     int64_t rows_conditions_filtered = 0;
+    int64_t block_conditions_filtered_ns = 0;
 
     int64_t index_load_ns = 0;
 
@@ -320,21 +340,25 @@ struct OlapReaderStatistics {
 
     int64_t rows_bitmap_index_filtered = 0;
     int64_t bitmap_index_filter_timer = 0;
+
+    int64_t rows_inverted_index_filtered = 0;
+    int64_t inverted_index_filter_timer = 0;
+    int64_t inverted_index_query_timer = 0;
+    int64_t inverted_index_query_cache_hit = 0;
+    int64_t inverted_index_query_cache_miss = 0;
+    int64_t inverted_index_query_bitmap_copy_timer = 0;
+    int64_t inverted_index_query_bitmap_op_timer = 0;
+    int64_t inverted_index_searcher_open_timer = 0;
+    int64_t inverted_index_searcher_search_timer = 0;
+
+    int64_t output_index_result_column_timer = 0;
     // number of segment filtered by column stat when creating seg iterator
     int64_t filtered_segment_number = 0;
     // total number of segment
     int64_t total_segment_number = 0;
-    // general_debug_ns is designed for the purpose of DEBUG, to record any infomations of debugging or profiling.
-    // different from specific meaningful timer such as index_load_ns, general_debug_ns can be used flexibly.
-    // general_debug_ns has associated with OlapScanNode's _general_debug_timer already.
-    // so general_debug_ns' values will update to _general_debug_timer automaticly,
-    // the timer result can be checked through QueryProfile web page easily.
-    // when search general_debug_ns, you can find that general_debug_ns has not been used,
-    // this is because such codes added for debug purpose should not commit, it's just for debuging.
-    // so, please do not delete general_debug_ns defined here
-    // usage example:
-    //               SCOPED_RAW_TIMER(&_stats->general_debug_ns[1]);
-    int64_t general_debug_ns[GENERAL_DEBUG_COUNT] = {};
+
+    io::FileCacheStatistics file_cache_stats;
+    int64_t load_segments_timer = 0;
 };
 
 using ColumnId = uint32_t;
@@ -431,5 +455,26 @@ struct HashOfRowsetId {
 };
 
 using RowsetIdUnorderedSet = std::unordered_set<RowsetId, HashOfRowsetId>;
+
+class DeleteBitmap;
+// merge on write context
+struct MowContext {
+    MowContext(int64_t version, int64_t txnid, const RowsetIdUnorderedSet& ids,
+               std::shared_ptr<DeleteBitmap> db)
+            : max_version(version), txn_id(txnid), rowset_ids(ids), delete_bitmap(db) {}
+    int64_t max_version;
+    int64_t txn_id;
+    const RowsetIdUnorderedSet& rowset_ids;
+    std::shared_ptr<DeleteBitmap> delete_bitmap;
+};
+
+// used in mow partial update
+struct RidAndPos {
+    uint32_t rid;
+    // pos in block
+    size_t pos;
+};
+
+using PartialUpdateReadPlan = std::map<RowsetId, std::map<uint32_t, std::vector<RidAndPos>>>;
 
 } // namespace doris

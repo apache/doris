@@ -17,7 +17,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Remote UDF Function Service In Python Demo
+# Remote UDAF Function Service In Python Demo
 
 ## Compile 
 1. `pip install grpcio-tools`

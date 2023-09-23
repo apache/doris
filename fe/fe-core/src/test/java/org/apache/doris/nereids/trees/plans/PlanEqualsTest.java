@@ -18,30 +18,36 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.properties.RequireProperties;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
-import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
@@ -50,180 +56,285 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.Optional;
 
-// TODO: need more detailed test
-public class PlanEqualsTest {
+class PlanEqualsTest {
     /* *************************** Logical *************************** */
     @Test
-    public void testLogicalAggregate(@Mocked Plan child) {
-        List<Expression> groupByExprList = Lists.newArrayList();
-        List<NamedExpression> outputExpressionList = ImmutableList.of(
-                new SlotReference("a", new BigIntType(), true, Lists.newArrayList())
-        );
+    void testLogicalAggregate(@Mocked Plan child) {
+        LogicalAggregate<Plan> actual = new LogicalAggregate<>(Lists.newArrayList(), ImmutableList.of(
+                new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList())),
+                child);
 
-        LogicalAggregate one = new LogicalAggregate(groupByExprList, outputExpressionList, child);
-        Assertions.assertEquals(one, one);
+        LogicalAggregate<Plan> expected = new LogicalAggregate<>(Lists.newArrayList(), ImmutableList.of(
+                new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList())),
+                child);
+        Assertions.assertEquals(expected, actual);
 
-        List<Expression> groupByExprList1 = Lists.newArrayList();
-        List<NamedExpression> outputExpressionList1 = ImmutableList.of(
-                new SlotReference("b", new BigIntType(), true, Lists.newArrayList())
-        );
+        LogicalAggregate<Plan> unexpected = new LogicalAggregate<>(Lists.newArrayList(), ImmutableList.of(
+                new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList())),
+                child);
+        Assertions.assertNotEquals(unexpected, actual);
 
-        LogicalAggregate two = new LogicalAggregate(groupByExprList1, outputExpressionList1, child);
-        Assertions.assertNotEquals(one, two);
+        unexpected = new LogicalAggregate<>(Lists.newArrayList(), ImmutableList.of(
+                new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList())),
+                false, Optional.empty(), child);
+        Assertions.assertNotEquals(unexpected, actual);
+
+        unexpected = new LogicalAggregate<>(Lists.newArrayList(), ImmutableList.of(
+                new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList())),
+                true, Optional.empty(), child);
+        Assertions.assertNotEquals(unexpected, actual);
+
+        unexpected = new LogicalAggregate<>(Lists.newArrayList(), ImmutableList.of(
+                new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList())),
+                false, Optional.empty(), child);
+        Assertions.assertNotEquals(unexpected, actual);
     }
 
     @Test
-    public void testLogicalFilter(@Mocked Plan child) {
-        Expression predicate = new EqualTo(Literal.of(1), Literal.of(2));
-        LogicalFilter logicalFilter = new LogicalFilter(predicate, child);
-        Assertions.assertEquals(logicalFilter, logicalFilter);
+    void testLogicalFilter(@Mocked Plan child) {
+        LogicalFilter<Plan> actual = new LogicalFilter<>(ImmutableSet.of(new EqualTo(Literal.of(1), Literal.of(1))), child);
 
-        Expression predicate1 = new EqualTo(Literal.of(1), Literal.of(1));
-        LogicalFilter logicalFilter1 = new LogicalFilter(predicate1, child);
-        Assertions.assertNotEquals(logicalFilter, logicalFilter1);
+        LogicalFilter<Plan> expected = new LogicalFilter<>(ImmutableSet.of(new EqualTo(Literal.of(1), Literal.of(1))), child);
+        Assertions.assertEquals(expected, actual);
+
+        LogicalFilter<Plan> unexpected = new LogicalFilter<>(ImmutableSet.of(new EqualTo(Literal.of(1), Literal.of(2))), child);
+        Assertions.assertNotEquals(unexpected, actual);
     }
 
     @Test
-    public void testLogicalJoin(@Mocked Plan left, @Mocked Plan right) {
-        Expression condition = new EqualTo(
-                new SlotReference("a", new BigIntType(), true, Lists.newArrayList()),
-                new SlotReference("b", new BigIntType(), true, Lists.newArrayList())
-        );
-        LogicalJoin innerJoin = new LogicalJoin(JoinType.INNER_JOIN, Optional.of(condition), left, right);
-        Assertions.assertEquals(innerJoin, innerJoin);
+    void testLogicalJoin(@Mocked Plan left, @Mocked Plan right) {
+        LogicalJoin<Plan, Plan> actual = new LogicalJoin<>(JoinType.INNER_JOIN, Lists.newArrayList(new EqualTo(
+                new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList()),
+                new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList()))),
+                left, right);
 
-        // Notice: condition1 != condition, so following is `assertNotEquals`.
-        // Because SlotReference.exprId is UUID.
-        Expression condition1 = new EqualTo(
-                new SlotReference("a", new BigIntType(), true, Lists.newArrayList()),
-                new SlotReference("b", new BigIntType(), true, Lists.newArrayList())
-        );
-        LogicalJoin innerJoin1 = new LogicalJoin(JoinType.INNER_JOIN, Optional.of(condition1), left, right);
-        Assertions.assertNotEquals(innerJoin, innerJoin1);
+        LogicalJoin<Plan, Plan> expected = new LogicalJoin<>(JoinType.INNER_JOIN, Lists.newArrayList(new EqualTo(
+                new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList()),
+                new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList()))),
+                left, right);
+        Assertions.assertEquals(expected, actual);
 
-        Expression condition2 = new EqualTo(
-                new SlotReference("a", new BigIntType(), false, Lists.newArrayList()),
-                new SlotReference("b", new BigIntType(), true, Lists.newArrayList())
-        );
-        LogicalJoin innerJoin2 = new LogicalJoin(JoinType.INNER_JOIN, Optional.of(condition2), left, right);
-        Assertions.assertNotEquals(innerJoin, innerJoin2);
+        LogicalJoin<Plan, Plan> unexpected = new LogicalJoin<>(JoinType.INNER_JOIN, Lists.newArrayList(new EqualTo(
+                new SlotReference(new ExprId(2), "a", BigIntType.INSTANCE, false, Lists.newArrayList()),
+                new SlotReference(new ExprId(3), "b", BigIntType.INSTANCE, true, Lists.newArrayList()))),
+                left, right);
+        Assertions.assertNotEquals(unexpected, actual);
     }
 
     @Test
-    public void testLogicalOlapScan() {
-        LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "table", 0);
-        LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(0, "table", 0);
+    void testLogicalProject(@Mocked Plan child) {
+        LogicalProject<Plan> actual = new LogicalProject<>(
+                ImmutableList.of(
+                        new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList())),
+                child);
 
-        Assertions.assertEquals(scan1, scan2);
+        LogicalProject<Plan> expected = new LogicalProject<>(
+                ImmutableList.of(
+                        new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList())),
+                child);
+        Assertions.assertEquals(expected, actual);
+
+        LogicalProject<Plan> unexpected1 = new LogicalProject<>(
+                ImmutableList.of(
+                        new SlotReference(new ExprId(1), "a", BigIntType.INSTANCE, true, Lists.newArrayList())),
+                child);
+        Assertions.assertNotEquals(unexpected1, actual);
+
+        LogicalProject<Plan> unexpected2 = new LogicalProject<>(
+                ImmutableList.of(
+                        new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList())),
+                child);
+        Assertions.assertNotEquals(unexpected2, actual);
     }
 
     @Test
-    public void testLogicalProject(@Mocked Plan child) {
-        // TODO: Depend on NamedExpression Equals
-        SlotReference aSlot = new SlotReference("a", new BigIntType(), true, Lists.newArrayList());
-        List<NamedExpression> projects = ImmutableList.of(aSlot);
-        LogicalProject logicalProject = new LogicalProject(projects, child);
-        Assertions.assertEquals(logicalProject, logicalProject);
+    void testLogicalSort(@Mocked Plan child) {
+        LogicalSort<Plan> actual = new LogicalSort<>(
+                ImmutableList.of(new OrderKey(
+                        new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList()), true,
+                        true)),
+                child);
 
-        LogicalProject logicalProjectWithSameSlot = new LogicalProject(ImmutableList.of(aSlot), child);
-        Assertions.assertEquals(logicalProject, logicalProjectWithSameSlot);
+        LogicalSort<Plan> expected = new LogicalSort<>(
+                ImmutableList.of(new OrderKey(
+                        new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList()), true,
+                        true)),
+                child);
+        Assertions.assertEquals(expected, actual);
 
-        SlotReference a1Slot = new SlotReference("a", new BigIntType(), true, Lists.newArrayList());
-        LogicalProject a1LogicalProject = new LogicalProject(ImmutableList.of(a1Slot), child);
-        Assertions.assertNotEquals(logicalProject, a1LogicalProject);
-
-        SlotReference bSlot = new SlotReference("b", new BigIntType(), true, Lists.newArrayList());
-        LogicalProject bLogicalProject1 = new LogicalProject(ImmutableList.of(bSlot), child);
-        Assertions.assertNotEquals(logicalProject, bLogicalProject1);
+        LogicalSort<Plan> unexpected = new LogicalSort<>(
+                ImmutableList.of(new OrderKey(
+                        new SlotReference(new ExprId(2), "a", BigIntType.INSTANCE, true, Lists.newArrayList()), true,
+                        true)),
+                child);
+        Assertions.assertNotEquals(unexpected, actual);
     }
 
     @Test
-    public void testLogicalSort(@Mocked Plan child) {
-        // TODO: Depend on List<OrderKey> Equals
-        List<OrderKey> orderKeyList = Lists.newArrayList();
-        LogicalSort logicalSort = new LogicalSort(orderKeyList, child);
-        Assertions.assertEquals(logicalSort, logicalSort);
+    void testLogicalResultSink(@Mocked Plan child) {
+        LogicalResultSink<Plan> actual = new LogicalResultSink<>(
+                ImmutableList.of(new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList())),
+                child);
 
-        List<OrderKey> orderKeyListClone = Lists.newArrayList();
-        LogicalSort logicalSortClone = new LogicalSort(orderKeyListClone, child);
-        Assertions.assertEquals(logicalSort, logicalSortClone);
+        LogicalResultSink<Plan> expected = new LogicalResultSink<>(
+                ImmutableList.of(new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList())),
+                child);
+        Assertions.assertEquals(expected, actual);
+
+        LogicalResultSink<Plan> unexpected = new LogicalResultSink<>(
+                ImmutableList.of(new SlotReference(new ExprId(1), "a", BigIntType.INSTANCE, true, Lists.newArrayList())),
+                child);
+        Assertions.assertNotEquals(unexpected, actual);
     }
 
     /* *************************** Physical *************************** */
     @Test
-    public void testPhysicalAggregate(@Mocked Plan child, @Mocked LogicalProperties logicalProperties) {
-        List<Expression> groupByExprList = Lists.newArrayList();
-        SlotReference slotReference = new SlotReference("a", new BigIntType(), true, Lists.newArrayList());
-        List<NamedExpression> outputExpressionList = ImmutableList.of(slotReference);
-        List<Expression> partitionExprList = Lists.newArrayList();
-        AggPhase aggPhase = AggPhase.LOCAL;
-        boolean usingStream = true;
+    void testPhysicalAggregate(@Mocked Plan child, @Mocked LogicalProperties logicalProperties) {
+        List<NamedExpression> outputExpressionList = ImmutableList.of(
+                new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList()));
+        PhysicalHashAggregate<Plan> actual = new PhysicalHashAggregate<>(Lists.newArrayList(), outputExpressionList,
+                new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_RESULT), true, logicalProperties,
+                RequireProperties.of(PhysicalProperties.GATHER), child);
 
-        PhysicalAggregate physicalAggregate = new PhysicalAggregate(groupByExprList, outputExpressionList,
-                partitionExprList, aggPhase, usingStream, logicalProperties, child);
-        Assertions.assertEquals(physicalAggregate, physicalAggregate);
+        List<NamedExpression> outputExpressionList1 = ImmutableList.of(
+                new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList()));
+        PhysicalHashAggregate<Plan> expected = new PhysicalHashAggregate<>(Lists.newArrayList(),
+                outputExpressionList1,
+                new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_RESULT), true, logicalProperties,
+                RequireProperties.of(PhysicalProperties.GATHER), child);
+        Assertions.assertEquals(expected, actual);
+
+        List<NamedExpression> outputExpressionList2 = ImmutableList.of(
+                new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList()));
+        PhysicalHashAggregate<Plan> unexpected = new PhysicalHashAggregate<>(Lists.newArrayList(),
+                outputExpressionList2,
+                new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_RESULT), false, logicalProperties,
+                RequireProperties.of(PhysicalProperties.GATHER), child);
+        Assertions.assertNotEquals(unexpected, actual);
     }
 
     @Test
-    public void testPhysicalFilter(@Mocked Plan child, @Mocked LogicalProperties logicalProperties) {
-        Expression predicate = new EqualTo(Literal.of(1), Literal.of(2));
+    void testPhysicalFilter(@Mocked Plan child, @Mocked LogicalProperties logicalProperties) {
+        PhysicalFilter<Plan> actual = new PhysicalFilter<>(ImmutableSet.of(new EqualTo(Literal.of(1), Literal.of(2))),
+                logicalProperties, child);
 
-        PhysicalFilter physicalFilter = new PhysicalFilter(predicate, logicalProperties, child);
-        Assertions.assertEquals(physicalFilter, physicalFilter);
+        PhysicalFilter<Plan> expected = new PhysicalFilter<>(ImmutableSet.of(new EqualTo(Literal.of(1), Literal.of(2))),
+                logicalProperties, child);
+        Assertions.assertEquals(expected, actual);
+
+        PhysicalFilter<Plan> unexpected = new PhysicalFilter<>(ImmutableSet.of(new EqualTo(Literal.of(1), Literal.of(1))),
+                logicalProperties, child);
+        Assertions.assertNotEquals(unexpected, actual);
     }
 
     @Test
-    public void testPhysicalJoin(@Mocked Plan left, @Mocked Plan right, @Mocked LogicalProperties logicalProperties) {
-        Expression expression = new EqualTo(Literal.of(1), Literal.of(2));
+    void testPhysicalJoin(@Mocked Plan left, @Mocked Plan right, @Mocked LogicalProperties logicalProperties) {
+        PhysicalHashJoin<Plan, Plan> actual = new PhysicalHashJoin<>(JoinType.INNER_JOIN,
+                Lists.newArrayList(new EqualTo(
+                        new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList()),
+                        new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList()))),
+                ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE, Optional.empty(), logicalProperties, left, right);
 
-        PhysicalHashJoin innerJoin = new PhysicalHashJoin(JoinType.INNER_JOIN, Optional.of(expression),
-                logicalProperties, left,
-                right);
-        Assertions.assertEquals(innerJoin, innerJoin);
+        PhysicalHashJoin<Plan, Plan> expected = new PhysicalHashJoin<>(JoinType.INNER_JOIN,
+                Lists.newArrayList(new EqualTo(
+                        new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList()),
+                        new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList()))),
+                ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE, Optional.empty(), logicalProperties, left, right);
+        Assertions.assertEquals(expected, actual);
+
+        PhysicalHashJoin<Plan, Plan> unexpected = new PhysicalHashJoin<>(JoinType.INNER_JOIN,
+                Lists.newArrayList(new EqualTo(
+                        new SlotReference(new ExprId(2), "a", BigIntType.INSTANCE, false, Lists.newArrayList()),
+                        new SlotReference(new ExprId(3), "b", BigIntType.INSTANCE, true, Lists.newArrayList()))),
+                ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE, Optional.empty(), logicalProperties, left, right);
+        Assertions.assertNotEquals(unexpected, actual);
     }
 
     @Test
-    public void testPhysicalOlapScan(
+    void testPhysicalOlapScan(
             @Mocked LogicalProperties logicalProperties,
             @Mocked OlapTable olapTable,
             @Mocked DistributionSpecHash distributionSpecHash) {
-        List<String> qualifier = Lists.newArrayList();
 
-        PhysicalOlapScan olapScan = new PhysicalOlapScan(olapTable, qualifier, distributionSpecHash, Optional.empty(),
-                logicalProperties);
+        List<Long> selectedTabletId = Lists.newArrayList();
+        for (Partition partition : olapTable.getAllPartitions()) {
+            selectedTabletId.addAll(partition.getBaseIndex().getTabletIdsInOrder());
+        }
 
-        Assertions.assertEquals(olapScan, olapScan);
+        RelationId id = StatementScopeIdGenerator.newRelationId();
+
+        PhysicalOlapScan actual = new PhysicalOlapScan(id, olapTable, Lists.newArrayList("a"),
+                1L, selectedTabletId, olapTable.getPartitionIds(), distributionSpecHash,
+                PreAggStatus.on(), ImmutableList.of(), Optional.empty(), logicalProperties,
+                Optional.empty());
+
+        PhysicalOlapScan expected = new PhysicalOlapScan(id, olapTable, Lists.newArrayList("a"),
+                1L, selectedTabletId, olapTable.getPartitionIds(), distributionSpecHash,
+                PreAggStatus.on(), ImmutableList.of(), Optional.empty(), logicalProperties,
+                Optional.empty());
+        Assertions.assertEquals(expected, actual);
+
+        PhysicalOlapScan unexpected = new PhysicalOlapScan(id, olapTable, Lists.newArrayList("b"),
+                12345L, selectedTabletId, olapTable.getPartitionIds(), distributionSpecHash,
+                PreAggStatus.on(), ImmutableList.of(), Optional.empty(), logicalProperties,
+                Optional.empty());
+        Assertions.assertNotEquals(unexpected, actual);
     }
 
     @Test
-    public void testPhysicalProject(@Mocked Plan child, @Mocked LogicalProperties logicalProperties) {
-
-        // TODO: Depend on NamedExpression Equals
-        SlotReference aSlot = new SlotReference("a", new BigIntType(), true, Lists.newArrayList());
-        List<NamedExpression> projects = ImmutableList.of(aSlot);
-        PhysicalProject physicalProject = new PhysicalProject(projects, logicalProperties, child);
-        Assertions.assertEquals(physicalProject, physicalProject);
-
-        PhysicalProject physicalProjectWithSameSlot = new PhysicalProject(ImmutableList.of(aSlot), logicalProperties,
+    void testPhysicalProject(@Mocked Plan child, @Mocked LogicalProperties logicalProperties) {
+        PhysicalProject<Plan> actual = new PhysicalProject<>(
+                ImmutableList.of(
+                        new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList())),
+                logicalProperties,
                 child);
-        Assertions.assertEquals(physicalProject, physicalProjectWithSameSlot);
 
-        SlotReference a1Slot = new SlotReference("a", new BigIntType(), true, Lists.newArrayList());
-        PhysicalProject a1PhysicalProject = new PhysicalProject(ImmutableList.of(a1Slot), logicalProperties, child);
-        Assertions.assertNotEquals(physicalProject, a1PhysicalProject);
+        PhysicalProject<Plan> expected = new PhysicalProject<>(
+                ImmutableList.of(
+                        new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList())),
+                logicalProperties,
+                child);
+        Assertions.assertEquals(expected, actual);
+
+        PhysicalProject<Plan> unexpected1 = new PhysicalProject<>(
+                ImmutableList.of(
+                        new SlotReference(new ExprId(1), "a", BigIntType.INSTANCE, true, Lists.newArrayList())),
+                logicalProperties,
+                child);
+        Assertions.assertNotEquals(unexpected1, actual);
+
+        PhysicalProject<Plan> unexpected2 = new PhysicalProject<>(
+                ImmutableList.of(
+                        new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList())),
+                logicalProperties,
+                child);
+        Assertions.assertNotEquals(unexpected2, actual);
     }
 
     @Test
-    public void testPhysicalSort(@Mocked Plan child, @Mocked LogicalProperties logicalProperties) {
-        // TODO: Depend on List<OrderKey> Equals
-        List<OrderKey> orderKeyList = Lists.newArrayList();
+    void testPhysicalSort(@Mocked Plan child, @Mocked LogicalProperties logicalProperties) {
 
-        PhysicalQuickSort physicalQuickSort = new PhysicalQuickSort(orderKeyList, logicalProperties, child);
-        Assertions.assertEquals(physicalQuickSort, physicalQuickSort);
-
-        List<OrderKey> orderKeyListClone = Lists.newArrayList();
-        PhysicalQuickSort physicalQuickSortClone = new PhysicalQuickSort(orderKeyListClone, logicalProperties,
+        PhysicalQuickSort<Plan> actual = new PhysicalQuickSort<>(
+                ImmutableList.of(new OrderKey(
+                        new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList()), true,
+                        true)),
+                SortPhase.LOCAL_SORT, logicalProperties,
                 child);
-        Assertions.assertEquals(physicalQuickSort, physicalQuickSortClone);
+
+        PhysicalQuickSort<Plan> expected = new PhysicalQuickSort<>(
+                ImmutableList.of(new OrderKey(
+                        new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList()), true,
+                        true)),
+                SortPhase.LOCAL_SORT, logicalProperties,
+                child);
+        Assertions.assertEquals(expected, actual);
+
+        PhysicalQuickSort<Plan> unexpected = new PhysicalQuickSort<>(
+                ImmutableList.of(new OrderKey(
+                        new SlotReference(new ExprId(2), "a", BigIntType.INSTANCE, true, Lists.newArrayList()), true,
+                        true)),
+                SortPhase.LOCAL_SORT, logicalProperties,
+                child);
+        Assertions.assertNotEquals(unexpected, actual);
     }
 }

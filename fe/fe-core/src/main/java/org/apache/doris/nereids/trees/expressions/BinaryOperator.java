@@ -19,7 +19,7 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ExpectsInputTypes;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.collect.ImmutableList;
 
@@ -33,15 +33,15 @@ public abstract class BinaryOperator extends Expression implements BinaryExpress
 
     protected final String symbol;
 
-    public BinaryOperator(Expression left, Expression right, String symbol) {
-        super(left, right);
+    public BinaryOperator(List<Expression> children, String symbol) {
+        super(children);
         this.symbol = symbol;
     }
 
-    public abstract AbstractDataType inputType();
+    public abstract DataType inputType();
 
     @Override
-    public List<AbstractDataType> expectedInputTypes() {
+    public List<DataType> expectedInputTypes() {
         return ImmutableList.of(inputType(), inputType());
     }
 
@@ -56,10 +56,14 @@ public abstract class BinaryOperator extends Expression implements BinaryExpress
     }
 
     @Override
+    public String shapeInfo() {
+        return "(" + left().shapeInfo() + " " + symbol + " " + right().shapeInfo() + ")";
+    }
+
+    @Override
     public int hashCode() {
         return Objects.hash(symbol, left(), right());
     }
-
 
     @Override
     public boolean equals(Object o) {

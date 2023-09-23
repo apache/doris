@@ -19,6 +19,8 @@ package org.apache.doris.nereids.analyzer;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.Function;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
 import com.google.common.base.Joiner;
@@ -30,29 +32,40 @@ import java.util.stream.Collectors;
 /**
  * Expression for unbound function.
  */
-public class UnboundFunction extends Expression implements Unbound {
-
+public class UnboundFunction extends Function implements Unbound, PropagateNullable {
+    private final String dbName;
     private final String name;
     private final boolean isDistinct;
-    private final boolean isStar;
 
-    public UnboundFunction(String name, boolean isDistinct, boolean isStar, List<Expression> arguments) {
-        super(arguments.toArray(new Expression[0]));
-        this.name = Objects.requireNonNull(name, "name can not be null");
+    public UnboundFunction(String name, List<Expression> arguments) {
+        this(null, name, false, arguments);
+    }
+
+    public UnboundFunction(String dbName, String name, List<Expression> arguments) {
+        this(dbName, name, false, arguments);
+    }
+
+    public UnboundFunction(String name, boolean isDistinct, List<Expression> arguments) {
+        this(null, name, isDistinct, arguments);
+    }
+
+    public UnboundFunction(String dbName, String name, boolean isDistinct, List<Expression> arguments) {
+        super(arguments);
+        this.dbName = dbName;
+        this.name = Objects.requireNonNull(name, "name cannot be null");
         this.isDistinct = isDistinct;
-        this.isStar = isStar;
     }
 
     public String getName() {
         return name;
     }
 
-    public boolean isDistinct() {
-        return isDistinct;
+    public String getDbName() {
+        return dbName;
     }
 
-    public boolean isStar() {
-        return isStar;
+    public boolean isDistinct() {
+        return isDistinct;
     }
 
     public List<Expression> getArguments() {
@@ -64,13 +77,13 @@ public class UnboundFunction extends Expression implements Unbound {
         String params = children.stream()
                 .map(Expression::toSql)
                 .collect(Collectors.joining(", "));
-        return name + "(" + (isDistinct ? "DISTINCT " : "")  + params + ")";
+        return name + "(" + (isDistinct ? "distinct " : "") + params + ")";
     }
 
     @Override
     public String toString() {
         String params = Joiner.on(", ").join(children);
-        return "'" + name + "(" + (isDistinct ? "DISTINCT " : "")  + params + ")";
+        return "'" + name + "(" + (isDistinct ? "distinct " : "") + params + ")";
     }
 
     @Override
@@ -80,7 +93,7 @@ public class UnboundFunction extends Expression implements Unbound {
 
     @Override
     public UnboundFunction withChildren(List<Expression> children) {
-        return new UnboundFunction(name, isDistinct, isStar, children);
+        return new UnboundFunction(dbName, name, isDistinct, children);
     }
 
     @Override

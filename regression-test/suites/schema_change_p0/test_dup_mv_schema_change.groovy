@@ -19,30 +19,34 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("test_dup_mv_schema_change") {
     def tableName = "schema_change_dup_mv_regression_test"
+    def getJobState = { tbName ->
+         def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='${tbName}' ORDER BY createtime DESC LIMIT 1 """
+         return jobStateResult[0][9]
+    }
 
+    def waitForJob =  (tbName, timeout) -> {
+        while (timeout--){
+            String result = getJobState(tbName)
+            if (result == "FINISHED") {
+                sleep(3000)
+                break
+            } else {
+                sleep(100)
+                if (timeout < 1){
+                    assertEquals(1,2)
+                }
+            }
+        }
+    }
     try {
-        String[][] backends = sql """ show backends; """
-        assertTrue(backends.size() > 0)
         String backend_id;
         def backendId_to_backendIP = [:]
         def backendId_to_backendHttpPort = [:]
-        for (String[] backend in backends) {
-            backendId_to_backendIP.put(backend[0], backend[2])
-            backendId_to_backendHttpPort.put(backend[0], backend[5])
-        }
+        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
         backend_id = backendId_to_backendIP.keySet()[0]
-        StringBuilder showConfigCommand = new StringBuilder();
-        showConfigCommand.append("curl -X GET http://")
-        showConfigCommand.append(backendId_to_backendIP.get(backend_id))
-        showConfigCommand.append(":")
-        showConfigCommand.append(backendId_to_backendHttpPort.get(backend_id))
-        showConfigCommand.append("/api/show_config")
-        logger.info(showConfigCommand.toString())
-        def process = showConfigCommand.toString().execute()
-        int code = process.waitFor()
-        String err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-        String out = process.getText()
+        def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
+        
         logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
         assertEquals(code, 0)
         def configList = parseJson(out.trim())
@@ -59,7 +63,7 @@ suite ("test_dup_mv_schema_change") {
         sql """ DROP TABLE IF EXISTS ${tableName} """
 
         sql """
-                CREATE TABLE ${tableName} (
+                CREATE TABLE IF NOT EXISTS ${tableName} (
                     `user_id` LARGEINT NOT NULL COMMENT "用户id",
                     `date` DATE NOT NULL COMMENT "数据灌入日期时间",
                     `city` VARCHAR(20) COMMENT "用户所在城市",
@@ -72,23 +76,9 @@ suite ("test_dup_mv_schema_change") {
                     `max_dwell_time` INT DEFAULT "0" COMMENT "用户最大停留时间",
                     `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
                 DUPLICATE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
-                BUCKETS 1
-                PROPERTIES ( "replication_num" = "1", "light_schema_change" = "true" );
+                BUCKETS 8
+                PROPERTIES ( "replication_num" = "1", "light_schema_change" = "false" );
             """
-
-        //add materialized view
-        def result = "null"
-        def mvName = "mv1"
-        sql "create materialized view ${mvName} as select user_id, date, city, age,sex from ${tableName};"
-        while (!result.contains("FINISHED")){
-            result = sql "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1;"
-            result = result.toString()
-            logger.info("result: ${result}")
-            if(result.contains("CANCELLED")){
-                return 
-            }
-            Thread.sleep(100)
-        }
 
         sql """ INSERT INTO ${tableName} VALUES
                 (1, '2017-10-01', 'Beijing', 10, 1, '2020-01-01', '2020-01-01', '2020-01-01', 1, 30, 20)
@@ -97,6 +87,15 @@ suite ("test_dup_mv_schema_change") {
         sql """ INSERT INTO ${tableName} VALUES
                 (1, '2017-10-01', 'Beijing', 10, 1, '2020-01-02', '2020-01-02', '2020-01-02', 1, 31, 19)
             """
+
+        //add materialized view
+        createMV("create materialized view mv1 as select date, user_id, city, age from ${tableName};")
+
+        // alter and test light schema change
+        sql """ALTER TABLE ${tableName} SET ("light_schema_change" = "true");"""
+
+        //add materialized view
+        createMV("create materialized view mv2 as select date, user_id, city, age, cost from ${tableName};")
 
         sql """ INSERT INTO ${tableName} VALUES
                 (2, '2017-10-01', 'Beijing', 10, 1, '2020-01-02', '2020-01-02', '2020-01-02', 1, 31, 21)
@@ -113,6 +112,7 @@ suite ("test_dup_mv_schema_change") {
         sql """
             ALTER table ${tableName} ADD COLUMN new_column INT default "1" 
             """
+        waitForJob(tableName, 3000)
 
         sql """ SELECT * FROM ${tableName} WHERE user_id=2 order by min_dwell_time """
 
@@ -136,17 +136,7 @@ suite ("test_dup_mv_schema_change") {
         sql """
             ALTER TABLE ${tableName} DROP COLUMN sex
             """
-        result = "null"
-        while (!result.contains("FINISHED")){
-            result = sql "SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY CreateTime DESC LIMIT 1;"
-            result = result.toString()
-            logger.info("result: ${result}")
-            if(result.contains("CANCELLED")) {
-                log.info("rollup job is cancelled, result: ${result}".toString())
-                return
-            }
-            Thread.sleep(100)
-        }
+        waitForJob(tableName, 3000)
 
         qt_sc """ select * from ${tableName} where user_id = 3 order by new_column """
 
@@ -181,20 +171,7 @@ suite ("test_dup_mv_schema_change") {
                 String tablet_id = tablet[0]
                 backend_id = tablet[2]
                 logger.info("run compaction:" + tablet_id)
-                StringBuilder sb = new StringBuilder();
-                sb.append("curl -X POST http://")
-                sb.append(backendId_to_backendIP.get(backend_id))
-                sb.append(":")
-                sb.append(backendId_to_backendHttpPort.get(backend_id))
-                sb.append("/api/compaction/run?tablet_id=")
-                sb.append(tablet_id)
-                sb.append("&compact_type=cumulative")
-
-                String command = sb.toString()
-                process = command.execute()
-                code = process.waitFor()
-                err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-                out = process.getText()
+                (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
                 logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
                 //assertEquals(code, 0)
         }
@@ -206,19 +183,7 @@ suite ("test_dup_mv_schema_change") {
                     Thread.sleep(100)
                     String tablet_id = tablet[0]
                     backend_id = tablet[2]
-                    StringBuilder sb = new StringBuilder();
-                    sb.append("curl -X GET http://")
-                    sb.append(backendId_to_backendIP.get(backend_id))
-                    sb.append(":")
-                    sb.append(backendId_to_backendHttpPort.get(backend_id))
-                    sb.append("/api/compaction/run_status?tablet_id=")
-                    sb.append(tablet_id)
-
-                    String command = sb.toString()
-                    process = command.execute()
-                    code = process.waitFor()
-                    err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-                    out = process.getText()
+                    (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
                     logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
                     assertEquals(code, 0)
                     def compactionStatus = parseJson(out.trim())
@@ -231,6 +196,11 @@ suite ("test_dup_mv_schema_change") {
 
 
         qt_sc """  SELECT * FROM ${tableName} WHERE user_id=2 order by min_dwell_time"""
+
+        sql "set enable_nereids_planner=true"
+        sql "set enable_fallback_to_original_planner=false"
+
+        qt_sql """ SELECT user_id from ${tableName} order by user_id; """
 
     } finally {
         //try_sql("DROP TABLE IF EXISTS ${tableName}")

@@ -28,7 +28,7 @@ under the License.
 
 Broker load 是一个异步的导入方式，支持的数据源取决于 [Broker](../../../advanced/broker.md) 进程支持的数据源。
 
-因为 Doris 表里的数据是有序的，所以 Broker load 在导入数据的时是要利用doris 集群资源对数据进行排序，想对于 Spark load 来完成海量历史数据迁移，对 Doris 的集群资源占用要比较大，这种方式是在用户没有 Spark 这种计算资源的情况下使用，如果有 Spark 计算资源建议使用   [Spark load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/SPARK-LOAD.md)。
+因为 Doris 表里的数据是有序的，所以 Broker load 在导入数据的时是要利用doris 集群资源对数据进行排序，相对于 Spark load 来完成海量历史数据迁移，对 Doris 的集群资源占用要比较大，这种方式是在用户没有 Spark 这种计算资源的情况下使用，如果有 Spark 计算资源建议使用   [Spark load](../../../data-operate/import/import-way/spark-load-manual.md)。
 
 用户需要通过 MySQL 协议 创建 [Broker load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD.md) 导入，并通过查看导入命令检查导入结果。
 
@@ -246,7 +246,7 @@ LOAD LABEL demo.label_20220402
         ) 
         with HDFS (
             "fs.defaultFS"="hdfs://10.220.147.151:8020",
-            "hdfs_user"="root"
+            "hadoop.username"="root"
         )
         PROPERTIES
         (
@@ -320,7 +320,7 @@ Broker Load 需要借助 Broker 进程访问远端存储，不同的 Broker 需�
   ```text
   参数名：min_bytes_per_broker_scanner， 默认 64MB，单位bytes。
   参数名：max_broker_concurrency， 默认 10。
-  参数名：max_bytes_per_broker_scanner，默认 3G，单位bytes。
+  参数名：max_bytes_per_broker_scanner，默认 500G，单位bytes。
   ```
 
 ## 最佳实践
@@ -419,7 +419,7 @@ FE 的配置参数 `async_loading_load_task_pool_size` 用于限制同时运行�
 
 - 导入报错：`LOAD_RUN_FAIL; msg:Invalid Column Name:xxx`
 
-  如果是PARQUET或者ORC格式的数据,需要再文件头的列名与doris表中的列名一致，如 :
+  如果是PARQUET或者ORC格式的数据，则文件头的列名需要与doris表中的列名保持一致，如:
 
   ```text
   (tmp_c1,tmp_c2)
@@ -433,6 +433,10 @@ FE 的配置参数 `async_loading_load_task_pool_size` 用于限制同时运行�
   代表获取在 parquet 或 orc 中以(tmp_c1, tmp_c2)为列名的列，映射到 doris 表中的(id, name)列。如果没有设置set, 则以column中的列作为映射。
 
   注：如果使用某些 hive 版本直接生成的 orc 文件，orc 文件中的表头并非 hive meta 数据，而是（_col0, _col1, _col2, ...）, 可能导致 Invalid Column Name 错误，那么则需要使用 set 进行映射
+
+- 导入报错：`Failed to get S3 FileSystem for bucket is null/empty`
+  1. bucket信息填写不正确或者不存在。
+  2. bucket的格式不受支持。使用GCS创建带`_`的桶名时，比如：`s3://gs_bucket/load_tbl`，S3 Client访问GCS会报错，建议创建bucket路径时不使用`_`。
 
 ## 更多帮助
 

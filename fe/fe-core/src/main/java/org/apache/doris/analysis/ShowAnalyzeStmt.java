@@ -18,30 +18,21 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.OrderByPair;
-import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
-import org.apache.doris.statistics.StatisticsJob;
+import org.apache.doris.statistics.AnalysisState;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Sets;
-
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Set;
-import java.util.stream.IntStream;
 
 /**
  * ShowAnalyzeStmt is used to show statistics job info.
@@ -50,154 +41,89 @@ import java.util.stream.IntStream;
  *        [TABLE | ID]
  *        [
  *            WHERE
- *            [STATE = ["PENDING"|"SCHEDULING"|"RUNNING"|"FINISHED"|"FAILED"|"CANCELLED"]]
+ *            [STATE = ["PENDING"|"RUNNING"|"FINISHED"|"FAILED"]]
  *        ]
  *        [ORDER BY ...]
- *        [LIMIT limit][OFFSET offset];
+ *        [LIMIT limit];
  */
 public class ShowAnalyzeStmt extends ShowStmt {
     private static final String STATE_NAME = "state";
     private static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("id")
-            .add("create_time")
-            .add("start_time")
-            .add("finish_time")
-            .add("error_msg")
-            .add("scope")
-            .add("progress")
+            .add("job_id")
+            .add("catalog_name")
+            .add("db_name")
+            .add("tbl_name")
+            .add("col_name")
+            .add("job_type")
+            .add("analysis_type")
+            .add("message")
+            .add("last_exec_time_in_ms")
             .add("state")
+            .add("progress")
+            .add("schedule_type")
             .build();
 
-    private List<Long> jobIds;
-    private TableName dbTableName;
-    private Expr whereClause;
-    private LimitElement limitElement;
-    private List<OrderByElement> orderByElements;
+    private long jobId;
+    private final TableName dbTableName;
+    private final Expr whereClause;
 
-    // after analyzed
-    private long dbId;
-    private final Set<Long> tblIds = Sets.newHashSet();
-
+    // extract from predicate
     private String stateValue;
-    private ArrayList<OrderByPair> orderByPairs;
 
-    public ShowAnalyzeStmt() {
-    }
+    private final boolean auto;
 
-    public ShowAnalyzeStmt(List<Long> jobIds) {
-        this.jobIds = jobIds;
-    }
 
     public ShowAnalyzeStmt(TableName dbTableName,
-                           Expr whereClause,
-                           List<OrderByElement> orderByElements,
-                           LimitElement limitElement) {
+                           Expr whereClause, boolean auto) {
         this.dbTableName = dbTableName;
         this.whereClause = whereClause;
-        this.orderByElements = orderByElements;
-        this.limitElement = limitElement;
+        this.auto = auto;
+
     }
 
-    public List<Long> getJobIds() {
-        return jobIds;
+    public ShowAnalyzeStmt(long jobId,
+            Expr whereClause) {
+        Preconditions.checkArgument(jobId > 0, "JobId must greater than 0.");
+        this.jobId = jobId;
+        this.dbTableName = null;
+        this.whereClause = whereClause;
+        this.auto = false;
     }
 
-    public long getDbId() {
-        Preconditions.checkArgument(isAnalyzed(),
-                "The dbId must be obtained after the parsing is complete");
-        return dbId;
-    }
-
-    public Set<Long> getTblIds() {
-        Preconditions.checkArgument(isAnalyzed(),
-                "The dbId must be obtained after the parsing is complete");
-        return tblIds;
+    public long getJobId() {
+        return jobId;
     }
 
     public String getStateValue() {
         Preconditions.checkArgument(isAnalyzed(),
-                "The tbl name must be obtained after the parsing is complete");
+                "The stateValue must be obtained after the parsing is complete");
         return stateValue;
     }
 
-    public ArrayList<OrderByPair> getOrderByPairs() {
+    public Expr getWhereClause() {
         Preconditions.checkArgument(isAnalyzed(),
-                "The tbl name must be obtained after the parsing is complete");
-        return orderByPairs;
-    }
+                "The whereClause must be obtained after the parsing is complete");
 
-    public long getLimit() {
-        if (limitElement != null && limitElement.hasLimit()) {
-            return limitElement.getLimit();
-        }
-        return -1L;
-    }
-
-    public long getOffset() {
-        if (limitElement != null && limitElement.hasOffset()) {
-            return limitElement.getOffset();
-        }
-        return -1L;
+        return whereClause;
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
+        if (!Config.enable_stats) {
+            throw new UserException("Analyze function is forbidden, you should add `enable_stats=true`"
+                    + "in your FE conf file");
+        }
         super.analyze(analyzer);
-
         if (dbTableName != null) {
             dbTableName.analyze(analyzer);
             String dbName = dbTableName.getDb();
             String tblName = dbTableName.getTbl();
             checkShowAnalyzePriv(dbName, tblName);
-
-            Database db = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(dbName);
-            Table table = db.getTableOrAnalysisException(tblName);
-            dbId = db.getId();
-            tblIds.add(table.getId());
-        } else {
-            // analyze the current default db
-            String dbName = analyzer.getDefaultDb();
-            if (Strings.isNullOrEmpty(dbName)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-            }
-
-            Database db = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(dbName);
-
-            db.readLock();
-            try {
-                List<Table> tables = db.getTables();
-                for (Table table : tables) {
-                    checkShowAnalyzePriv(dbName, table.getName());
-                }
-
-                dbId = db.getId();
-                for (Table table : tables) {
-                    long tblId = table.getId();
-                    tblIds.add(tblId);
-                }
-            } finally {
-                db.readUnlock();
-            }
         }
 
         // analyze where clause if not null
         if (whereClause != null) {
             analyzeSubPredicate(whereClause);
-        }
-
-        // analyze order by
-        if (orderByElements != null && !orderByElements.isEmpty()) {
-            orderByPairs = new ArrayList<>();
-            for (OrderByElement orderByElement : orderByElements) {
-                if (orderByElement.getExpr() instanceof SlotRef) {
-                    SlotRef slotRef = (SlotRef) orderByElement.getExpr();
-                    int index = analyzeColumn(slotRef.getColumnName());
-                    OrderByPair orderByPair = new OrderByPair(index, !orderByElement.getIsAsc());
-                    orderByPairs.add(orderByPair);
-                } else {
-                    throw new AnalysisException("Should order by column");
-                }
-            }
         }
     }
 
@@ -216,8 +142,8 @@ public class ShowAnalyzeStmt extends ShowStmt {
     }
 
     private void checkShowAnalyzePriv(String dbName, String tblName) throws AnalysisException {
-        PaloAuth auth = Env.getCurrentEnv().getAuth();
-        if (!auth.checkTblPriv(ConnectContext.get(), dbName, tblName, PrivPredicate.SHOW)) {
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), dbName, tblName, PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(
                     ErrorCode.ERR_TABLEACCESS_DENIED_ERROR,
                     "SHOW ANALYZE",
@@ -271,7 +197,7 @@ public class ShowAnalyzeStmt extends ShowStmt {
 
             stateValue = value.toUpperCase();
             try {
-                StatisticsJob.JobState.valueOf(stateValue);
+                AnalysisState.valueOf(stateValue);
             } catch (Exception e) {
                 valid = false;
             }
@@ -279,7 +205,7 @@ public class ShowAnalyzeStmt extends ShowStmt {
 
         if (!valid) {
             throw new AnalysisException("Where clause should looks like: "
-                    + "STATE = \"PENDING|SCHEDULING|RUNNING|FINISHED|FAILED|CANCELLED\"");
+                    + "STATE = \"PENDING|RUNNING|FINISHED|FAILED");
         }
     }
 
@@ -296,6 +222,12 @@ public class ShowAnalyzeStmt extends ShowStmt {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("SHOW ANALYZE");
+
+        if (jobId != 0) {
+            sb.append(" ");
+            sb.append(jobId);
+        }
+
         if (dbTableName != null) {
             sb.append(" ");
             sb.append(dbTableName.toSql());
@@ -308,37 +240,19 @@ public class ShowAnalyzeStmt extends ShowStmt {
             sb.append(whereClause.toSql());
         }
 
-        // Order By clause
-        if (orderByElements != null) {
-            sb.append(" ");
-            sb.append("ORDER BY");
-            sb.append(" ");
-            IntStream.range(0, orderByElements.size()).forEach(i -> {
-                sb.append(orderByElements.get(i).getExpr().toSql());
-                sb.append((orderByElements.get(i).getIsAsc()) ? " ASC" : " DESC");
-                sb.append((i + 1 != orderByElements.size()) ? ", " : "");
-            });
-        }
-
-        if (getLimit() != -1L) {
-            sb.append(" ");
-            sb.append("LIMIT");
-            sb.append(" ");
-            sb.append(getLimit());
-        }
-
-        if (getOffset() != -1L) {
-            sb.append(" ");
-            sb.append("OFFSET");
-            sb.append(" ");
-            sb.append(getOffset());
-        }
-
         return sb.toString();
     }
 
     @Override
     public String toString() {
         return toSql();
+    }
+
+    public TableName getDbTableName() {
+        return dbTableName;
+    }
+
+    public boolean isAuto() {
+        return auto;
     }
 }

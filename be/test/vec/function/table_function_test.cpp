@@ -15,7 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gmock/gmock-actions.h>
+#include <gmock/gmock-matchers.h>
+#include <gmock/gmock-spec-builders.h>
+#include <gtest/gtest-matchers.h>
+
+#include <algorithm>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
 #include "exprs/mock_vexpr.h"
+#include "gtest/gtest_pred_impl.h"
+#include "testutil/any_type.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
 #include "vec/exprs/table_function/vexplode.h"
 #include "vec/exprs/table_function/vexplode_numbers.h"
 #include "vec/exprs/table_function/vexplode_split.h"
@@ -44,21 +59,21 @@ protected:
     void init_expr_context(int child_num) {
         clear();
 
-        _root = std::make_unique<MockVExpr>();
+        _root = std::make_shared<MockVExpr>();
         for (int i = 0; i < child_num; ++i) {
             _column_ids.push_back(i);
-            _children.push_back(std::make_unique<MockVExpr>());
+            _children.push_back(std::make_shared<MockVExpr>());
             EXPECT_CALL(*_children[i], execute(_, _, _))
                     .WillRepeatedly(DoAll(SetArgPointee<2>(_column_ids[i]), Return(Status::OK())));
-            _root->add_child(_children[i].get());
+            _root->add_child(_children[i]);
         }
-        _ctx = std::make_unique<VExprContext>(_root.get());
+        _ctx = std::make_shared<VExprContext>(_root);
     }
 
 private:
-    std::unique_ptr<VExprContext> _ctx;
-    std::unique_ptr<MockVExpr> _root;
-    std::vector<std::unique_ptr<MockVExpr>> _children;
+    VExprContextSPtr _ctx;
+    std::shared_ptr<MockVExpr> _root;
+    std::vector<std::shared_ptr<MockVExpr>> _children;
     std::vector<int> _column_ids;
 };
 
@@ -66,7 +81,7 @@ TEST_F(TableFunctionTest, vexplode_outer) {
     init_expr_context(1);
     VExplodeTableFunction explode_outer;
     explode_outer.set_outer();
-    explode_outer.set_vexpr_context(_ctx.get());
+    explode_outer.set_expr_context(_ctx);
 
     // explode_outer(Array<Int32>)
     {
@@ -113,7 +128,7 @@ TEST_F(TableFunctionTest, vexplode_outer) {
 TEST_F(TableFunctionTest, vexplode) {
     init_expr_context(1);
     VExplodeTableFunction explode;
-    explode.set_vexpr_context(_ctx.get());
+    explode.set_expr_context(_ctx);
 
     // explode(Array<Int32>)
     {
@@ -156,7 +171,7 @@ TEST_F(TableFunctionTest, vexplode) {
 TEST_F(TableFunctionTest, vexplode_numbers) {
     init_expr_context(1);
     VExplodeNumbersTableFunction tfn;
-    tfn.set_vexpr_context(_ctx.get());
+    tfn.set_expr_context(_ctx);
 
     {
         InputTypeSet input_types = {TypeIndex::Int32};
@@ -172,24 +187,31 @@ TEST_F(TableFunctionTest, vexplode_numbers) {
 TEST_F(TableFunctionTest, vexplode_split) {
     init_expr_context(2);
     VExplodeSplitTableFunction tfn;
-    tfn.set_vexpr_context(_ctx.get());
+    tfn.set_expr_context(_ctx);
 
     {
         // Case 1: explode_split(null) --- null
         // Case 2: explode_split("a,b,c", ",") --> ["a", "b", "c"]
         // Case 3: explode_split("a,b,c", "a,")) --> ["", "b,c"]
         // Case 4: explode_split("", ",")) --> [""]
-        InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
-        InputDataSet input_set = {{Null(), Null()},
-                                  {std::string("a,b,c"), std::string(",")},
-                                  {std::string("a,b,c"), std::string("a,")},
-                                  {std::string(""), std::string(",")}};
+        InputTypeSet input_types = {TypeIndex::String, Consted {TypeIndex::String}};
+        InputDataSet input_sets = {{std::string("a,b,c"), std::string(",")},
+                                   {std::string("a,b,c"), std::string("a,")},
+                                   {std::string(""), std::string(",")}};
 
         InputTypeSet output_types = {TypeIndex::String};
-        InputDataSet output_set = {{std::string("a")}, {std::string("b")},   {std::string("c")},
-                                   {std::string("")},  {std::string("b,c")}, {std::string("")}};
+        InputDataSet output_sets = {{std::string("a"), std::string("b"), std::string("c")},
+                                    {std::string(""), std::string("b,c")},
+                                    {std::string("")}};
 
-        check_vec_table_function(&tfn, input_types, input_set, output_types, output_set);
+        for (int i = 0; i < input_sets.size(); ++i) {
+            InputDataSet input_set {input_sets[i]};
+            InputDataSet output_set {};
+            for (const auto& data : output_sets[i]) {
+                output_set.emplace_back(std::vector<AnyType> {data});
+            }
+            check_vec_table_function(&tfn, input_types, input_set, output_types, output_set);
+        }
     }
 }
 

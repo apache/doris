@@ -17,48 +17,115 @@
 
 package org.apache.doris.nereids.jobs;
 
-import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.memo.CopyInResult;
+import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.memo.Memo;
+import org.apache.doris.nereids.metrics.CounterType;
+import org.apache.doris.nereids.metrics.EventChannel;
+import org.apache.doris.nereids.metrics.EventProducer;
+import org.apache.doris.nereids.metrics.TracerSupplier;
+import org.apache.doris.nereids.metrics.consumer.LogConsumer;
+import org.apache.doris.nereids.metrics.enhancer.AddCounterEventEnhancer;
+import org.apache.doris.nereids.metrics.event.CounterEvent;
+import org.apache.doris.nereids.metrics.event.TransformEvent;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleSet;
+import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.statistics.Statistics;
+
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
-import java.util.Objects;
-import java.util.stream.Collectors;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 
 /**
  * Abstract class for all job using for analyze and optimize query plan in Nereids.
  */
-public abstract class Job {
+public abstract class Job implements TracerSupplier {
+    // counter tracer to count expression transform times.
+    protected static final EventProducer COUNTER_TRACER = new EventProducer(CounterEvent.class,
+            EventChannel.getDefaultChannel()
+                    .addEnhancers(new AddCounterEventEnhancer())
+                    .addConsumers(new LogConsumer(CounterEvent.class, EventChannel.LOG)));
     protected JobType type;
     protected JobContext context;
+    protected boolean once;
+    protected final Set<Integer> disableRules;
+
+    protected Map<CTEId, Statistics> cteIdToStats;
 
     public Job(JobType type, JobContext context) {
-        this.type = type;
-        this.context = context;
+        this(type, context, true);
     }
 
-    public void pushTask(Job job) {
-        context.getPlannerContext().pushJob(job);
+    /** job full parameter constructor */
+    public Job(JobType type, JobContext context, boolean once) {
+        this.type = type;
+        this.context = context;
+        this.once = once;
+        this.disableRules = getDisableRules(context);
+    }
+
+    public void pushJob(Job job) {
+        context.getScheduleContext().pushJob(job);
     }
 
     public RuleSet getRuleSet() {
-        return context.getPlannerContext().getRuleSet();
+        return context.getCascadesContext().getRuleSet();
+    }
+
+    public boolean isOnce() {
+        return once;
+    }
+
+    public abstract void execute();
+
+    public EventProducer getEventTracer() {
+        throw new UnsupportedOperationException("get_event_tracer is unsupported");
+    }
+
+    protected Optional<CopyInResult> invokeRewriteRuleWithTrace(Rule rule, Plan before, Group targetGroup) {
+        context.onInvokeRule(rule.getRuleType());
+        COUNTER_TRACER.log(CounterEvent.of(Memo.getStateId(),
+                CounterType.EXPRESSION_TRANSFORM, targetGroup, targetGroup.getLogicalExpression(), before));
+
+        List<Plan> afters = rule.transform(before, context.getCascadesContext());
+        Preconditions.checkArgument(afters.size() == 1);
+        Plan after = afters.get(0);
+        if (after == before) {
+            return Optional.empty();
+        }
+
+        CopyInResult result = context.getCascadesContext()
+                .getMemo()
+                .copyIn(after, targetGroup, rule.isRewrite());
+
+        if (result.generateNewExpression || result.correspondingExpression.getOwnerGroup() != targetGroup) {
+            getEventTracer().log(TransformEvent.of(targetGroup.getLogicalExpression(), before, afters,
+                            rule.getRuleType()), rule::isRewrite);
+        }
+
+        return Optional.of(result);
     }
 
     /**
-     * Get the rule set of this job. Filter out already applied rules and rules that are not matched on root node.
-     *
-     * @param groupExpression group expression to be applied on
-     * @param candidateRules rules to be applied
-     * @return all rules that can be applied on this group expression
+     * count the job execution times of groupExpressions, all groupExpressions will be inclusive.
+     * TODO: count a specific groupExpression.
+     * @param groupExpression the groupExpression at current job.
      */
-    public List<Rule> getValidRules(GroupExpression groupExpression,
-            List<Rule> candidateRules) {
-        return candidateRules.stream()
-                .filter(rule -> Objects.nonNull(rule) && rule.getPattern().matchRoot(groupExpression.getPlan())
-                        && groupExpression.notApplied(rule)).collect(Collectors.toList());
+    protected void countJobExecutionTimesOfGroupExpressions(GroupExpression groupExpression) {
+        COUNTER_TRACER.log(CounterEvent.of(Memo.getStateId(), CounterType.JOB_EXECUTION,
+                groupExpression.getOwnerGroup(), groupExpression, groupExpression.getPlan()));
     }
 
-    public abstract void execute() throws AnalysisException;
+    public static Set<Integer> getDisableRules(JobContext context) {
+        return context.getCascadesContext().getAndCacheSessionVariable(
+                "disableNereidsRules", ImmutableSet.of(), SessionVariable::getDisableNereidsRules);
+    }
 }

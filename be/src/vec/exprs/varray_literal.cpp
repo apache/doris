@@ -17,18 +17,40 @@
 
 #include "vec/exprs/varray_literal.h"
 
+#include <gen_cpp/Exprs_types.h>
+#include <glog/logging.h>
+
+#include <memory>
+#include <ostream>
+#include <vector>
+
+#include "runtime/types.h"
+#include "vec/columns/column.h"
+#include "vec/core/field.h"
+#include "vec/data_types/data_type.h"
+#include "vec/exprs/vexpr.h"
+
+namespace doris {
+class RowDescriptor;
+class RuntimeState;
+namespace vectorized {
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
+
 namespace doris::vectorized {
 
 Status VArrayLiteral::prepare(RuntimeState* state, const RowDescriptor& row_desc,
                               VExprContext* context) {
     DCHECK_EQ(type().children.size(), 1) << "array children type not 1";
 
-    RETURN_IF_ERROR(VExpr::prepare(state, row_desc, context));
+    RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, row_desc, context));
     bool is_null = (_node_type == TExprNodeType::NULL_LITERAL);
     Field array = is_null ? Field() : Array();
-    for (const auto child : _children) {
+    for (auto& child : _children) {
         Field item;
-        child->get_const_col(context)->column_ptr->get(0, item);
+        auto child_literal = std::dynamic_pointer_cast<const VLiteral>(child);
+        child_literal->get_column_ptr()->get(0, item);
         array.get<Array>().push_back(item);
     }
     _column_ptr = _data_type->create_column_const(1, array);

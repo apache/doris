@@ -17,7 +17,9 @@
 
 #include "olap/short_key_index.h"
 
-#include <string>
+#include <gen_cpp/segment_v2.pb.h>
+
+#include <ostream>
 
 #include "gutil/strings/substitute.h"
 #include "util/coding.h"

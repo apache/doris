@@ -28,7 +28,6 @@ import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TAggregationNode;
@@ -42,6 +41,7 @@ import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -176,6 +176,9 @@ public class AggregationNode extends PlanNode {
         // to our input; our conjuncts don't get substituted because they already
         // refer to our output
         outputSmap = getCombinedChildSmap();
+        if (aggInfo.isMerge()) {
+            aggInfo.substitute(aggInfo.getIntermediateSmap(), analyzer);
+        }
         aggInfo.substitute(outputSmap, analyzer);
 
         // assert consistent aggregate expr and slot materialization
@@ -190,7 +193,7 @@ public class AggregationNode extends PlanNode {
         }
 
         StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = statsDeriveResult.getRowCount();
+        cardinality = (long) statsDeriveResult.getRowCount();
     }
 
     @Override
@@ -224,7 +227,7 @@ public class AggregationNode extends PlanNode {
 
     private void updateplanNodeName() {
         StringBuilder sb = new StringBuilder();
-        sb.append(VectorizedUtil.isVectorized() ? "VAGGREGATE" : "AGGREGATE");
+        sb.append("VAGGREGATE");
         sb.append(" (");
         if (aggInfo.isMerge()) {
             sb.append("merge");
@@ -248,6 +251,7 @@ public class AggregationNode extends PlanNode {
 
     @Override
     protected void toThrift(TPlanNode msg) {
+        aggInfo.updateMaterializedSlots();
         msg.node_type = TPlanNodeType.AGGREGATION_NODE;
         List<TExpr> aggregateFunctions = Lists.newArrayList();
         List<TSortInfo> aggSortInfos = Lists.newArrayList();
@@ -273,7 +277,6 @@ public class AggregationNode extends PlanNode {
         msg.agg_node.setAggSortInfos(aggSortInfos);
         msg.agg_node.setUseStreamingPreaggregation(useStreamingPreagg);
         msg.agg_node.setIsFirstPhase(aggInfo.isFirstPhase());
-        msg.agg_node.setUseFixedLengthSerializationOpt(true);
         List<Expr> groupingExprs = aggInfo.getGroupingExprs();
         if (groupingExprs != null) {
             msg.agg_node.setGroupingExprs(Expr.treesToThrift(groupingExprs));
@@ -289,27 +292,38 @@ public class AggregationNode extends PlanNode {
 
     @Override
     public String getNodeExplainString(String detailPrefix, TExplainLevel detailLevel) {
+        aggInfo.updateMaterializedSlots();
         StringBuilder output = new StringBuilder();
         String nameDetail = getDisplayLabelDetail();
         if (nameDetail != null) {
-            output.append(detailPrefix + nameDetail + "\n");
+            output.append(detailPrefix).append(nameDetail).append("\n");
         }
 
         if (detailLevel == TExplainLevel.BRIEF) {
+            output.append(detailPrefix).append(String.format(
+                    "cardinality=%,d",  cardinality)).append("\n");
             return output.toString();
         }
 
         if (aggInfo.getAggregateExprs() != null && aggInfo.getMaterializedAggregateExprs().size() > 0) {
-            output.append(detailPrefix + "output: ").append(
-                    getExplainString(aggInfo.getAggregateExprs()) + "\n");
+            List<String> labels = aggInfo.getMaterializedAggregateExprLabels();
+            if (labels.isEmpty()) {
+                output.append(detailPrefix).append("output: ")
+                        .append(getExplainString(aggInfo.getMaterializedAggregateExprs())).append("\n");
+            } else {
+                output.append(detailPrefix).append("output: ")
+                        .append(StringUtils.join(labels, ", ")).append("\n");
+            }
         }
         // TODO: group by can be very long. Break it into multiple lines
-        output.append(detailPrefix + "group by: ").append(getExplainString(aggInfo.getGroupingExprs()) + "\n");
+        output.append(detailPrefix).append("group by: ")
+                .append(getExplainString(aggInfo.getGroupingExprs()))
+                .append("\n");
         if (!conjuncts.isEmpty()) {
-            output.append(detailPrefix + "having: ").append(getExplainString(conjuncts) + "\n");
+            output.append(detailPrefix).append("having: ").append(getExplainString(conjuncts)).append("\n");
         }
         output.append(detailPrefix).append(String.format(
-                "cardinality=%s", cardinality)).append("\n");
+                "cardinality=%,d", cardinality)).append("\n");
         return output.toString();
     }
 
@@ -320,11 +334,6 @@ public class AggregationNode extends PlanNode {
         // we indirectly reference all grouping slots (because we write them)
         // so they're all materialized.
         aggInfo.getRefdSlots(ids);
-    }
-
-    @Override
-    public int getNumInstances() {
-        return children.get(0).getNumInstances();
     }
 
     @Override
@@ -355,5 +364,15 @@ public class AggregationNode extends PlanNode {
             }
         }
         return result;
+    }
+
+    @Override
+    public void finalize(Analyzer analyzer) throws UserException {
+        super.finalize(analyzer);
+        List<Expr> groupingExprs = aggInfo.getGroupingExprs();
+        for (int i = 0; i < groupingExprs.size(); i++) {
+            aggInfo.getOutputTupleDesc().getSlots().get(i).setIsNullable(groupingExprs.get(i).isNullable());
+            aggInfo.getOutputTupleDesc().computeMemLayout();
+        }
     }
 }

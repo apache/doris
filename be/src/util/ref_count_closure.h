@@ -21,6 +21,8 @@
 
 #include <atomic>
 
+#include "runtime/exec_env.h"
+#include "runtime/thread_context.h"
 #include "service/brpc.h"
 
 namespace doris {
@@ -29,7 +31,7 @@ template <typename T>
 class RefCountClosure : public google::protobuf::Closure {
 public:
     RefCountClosure() : _refs(0) {}
-    ~RefCountClosure() {}
+    ~RefCountClosure() override = default;
 
     void ref() { _refs.fetch_add(1); }
 
@@ -37,6 +39,7 @@ public:
     bool unref() { return _refs.fetch_sub(1) == 1; }
 
     void Run() override {
+        SCOPED_TRACK_MEMORY_TO_UNKNOWN();
         if (unref()) {
             delete this;
         }

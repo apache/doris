@@ -1,6 +1,6 @@
 ---
 {
-    "title": "day",
+    "title": "DAY",
     "language": "en"
 }
 ---
@@ -46,4 +46,4 @@ mysql> select day('1987-01-31');
 +----------------------------+
 ```
 ### keywords
-DAY
+    DAY

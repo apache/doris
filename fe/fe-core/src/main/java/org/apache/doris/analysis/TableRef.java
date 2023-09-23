@@ -21,7 +21,10 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HudiUtils;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -29,6 +32,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.ExprRewriter.ClauseType;
 
@@ -47,6 +51,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import java.util.StringJoiner;
+import java.util.regex.Matcher;
 
 /**
  * Superclass of all table references, including references to views, base tables
@@ -79,8 +85,6 @@ import java.util.Set;
 public class TableRef implements ParseNode, Writable {
     private static final Logger LOG = LogManager.getLogger(TableRef.class);
     protected TableName name;
-    private PartitionNames partitionNames = null;
-
     // Legal aliases of this table ref. Contains the explicit alias as its sole element if
     // there is one. Otherwise, contains the two implicit aliases. Implicit aliases are set
     // in the c'tor of the corresponding resolved table ref (subclasses of TableRef) during
@@ -88,29 +92,26 @@ public class TableRef implements ParseNode, Writable {
     // contains the fully-qualified implicit alias to ensure that aliases_[0] always
     // uniquely identifies this table ref regardless of whether it has an explicit alias.
     protected String[] aliases;
-
+    protected List<Long> sampleTabletIds;
     // Indicates whether this table ref is given an explicit alias,
     protected boolean hasExplicitAlias;
-
     protected JoinOperator joinOp;
+    protected boolean isInBitmap;
+    // for mark join
+    protected boolean isMark;
+    // we must record mark tuple name for re-analyze
+    protected String markTupleName;
+
     protected List<String> usingColNames;
-    private ArrayList<String> joinHints;
-    private ArrayList<String> sortHints;
-    private ArrayList<String> commonHints; //The Hints is set by user
     protected ArrayList<LateralViewRef> lateralViewRefs;
-    private boolean isForcePreAggOpened;
-    // ///////////////////////////////////////
-    // BEGIN: Members that need to be reset()
-
     protected Expr onClause;
-
     // the ref to the left of us, if we're part of a JOIN clause
     protected TableRef leftTblRef;
+    protected TableSample tableSample;
 
     // true if this TableRef has been analyzed; implementing subclass should set it to true
     // at the end of analyze() call.
     protected boolean isAnalyzed;
-
     // Lists of table ref ids and materialized tuple ids of the full sequence of table
     // refs up to and including this one. These ids are cached during analysis because
     // we may alter the chain of table refs during plan generation, but we still rely
@@ -118,20 +119,26 @@ public class TableRef implements ParseNode, Writable {
     // Populated in analyzeJoin().
     protected List<TupleId> allTableRefIds = Lists.newArrayList();
     protected List<TupleId> allMaterializedTupleIds = Lists.newArrayList();
-
+    // ///////////////////////////////////////
+    // BEGIN: Members that need to be reset()
     // All physical tuple ids that this table ref is correlated with:
     // Tuple ids of root descriptors from outer query blocks that this table ref
     // (if a CollectionTableRef) or contained CollectionTableRefs (if an InlineViewRef)
     // are rooted at. Populated during analysis.
     protected List<TupleId> correlatedTupleIds = Lists.newArrayList();
-
     // analysis output
     protected TupleDescriptor desc;
-
+    private PartitionNames partitionNames = null;
+    private ArrayList<String> joinHints;
+    private ArrayList<String> sortHints;
+    private ArrayList<String> commonHints; //The Hints is set by user
+    private boolean isForcePreAggOpened;
     // set after analyzeJoinHints(); true if explicitly set via hints
     private boolean isBroadcastJoin;
     private boolean isPartitionJoin;
     private String sortColumn = null;
+
+    private TableSnapshot tableSnapshot;
 
     // END: Members that need to be reset()
     // ///////////////////////////////////////
@@ -149,6 +156,19 @@ public class TableRef implements ParseNode, Writable {
     }
 
     public TableRef(TableName name, String alias, PartitionNames partitionNames, ArrayList<String> commonHints) {
+        this(name, alias, partitionNames, null, null, commonHints);
+    }
+
+    /**
+     * This method construct TableRef.
+     */
+    public TableRef(TableName name, String alias, PartitionNames partitionNames, ArrayList<Long> sampleTabletIds,
+                    TableSample tableSample, ArrayList<String> commonHints) {
+        this(name, alias, partitionNames, sampleTabletIds, tableSample, commonHints, null);
+    }
+
+    public TableRef(TableName name, String alias, PartitionNames partitionNames, ArrayList<Long> sampleTabletIds,
+                    TableSample tableSample, ArrayList<String> commonHints, TableSnapshot tableSnapshot) {
         this.name = name;
         if (alias != null) {
             if (Env.isStoredTableNamesLowerCase()) {
@@ -160,7 +180,10 @@ public class TableRef implements ParseNode, Writable {
             hasExplicitAlias = false;
         }
         this.partitionNames = partitionNames;
+        this.sampleTabletIds = sampleTabletIds;
+        this.tableSample = tableSample;
         this.commonHints = commonHints;
+        this.tableSnapshot = tableSnapshot;
         isAnalyzed = false;
     }
 
@@ -171,6 +194,8 @@ public class TableRef implements ParseNode, Writable {
         aliases = other.aliases;
         hasExplicitAlias = other.hasExplicitAlias;
         joinOp = other.joinOp;
+        isMark = other.isMark;
+        markTupleName = other.markTupleName;
         // NOTE: joinHints and sortHints maybe changed after clone. so we new one List.
         joinHints =
                 (other.joinHints != null) ? Lists.newArrayList(other.joinHints) : null;
@@ -178,6 +203,8 @@ public class TableRef implements ParseNode, Writable {
                 (other.sortHints != null) ? Lists.newArrayList(other.sortHints) : null;
         onClause = (other.onClause != null) ? other.onClause.clone().reset() : null;
         partitionNames = (other.partitionNames != null) ? new PartitionNames(other.partitionNames) : null;
+        tableSnapshot = (other.tableSnapshot != null) ? new TableSnapshot(other.tableSnapshot) : null;
+        tableSample = (other.tableSample != null) ? new TableSample(other.tableSample) : null;
         commonHints = other.commonHints;
 
         usingColNames =
@@ -197,6 +224,7 @@ public class TableRef implements ParseNode, Writable {
                 lateralViewRefs.add((LateralViewRef) viewRef.clone());
             }
         }
+        this.sampleTabletIds = other.sampleTabletIds;
     }
 
     public PartitionNames getPartitionNames() {
@@ -206,6 +234,27 @@ public class TableRef implements ParseNode, Writable {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         ErrorReport.reportAnalysisException(ErrorCode.ERR_UNRESOLVED_TABLE_REF, tableRefToSql());
+    }
+
+    @Override
+    public String toSql() {
+        if (joinOp == null) {
+            // prepend "," if we're part of a sequence of table refs w/o an
+            // explicit JOIN clause
+            return (leftTblRef != null ? ", " : "") + tableRefToSql();
+        }
+
+        StringBuilder output = new StringBuilder(" " + joinOpToSql() + " ");
+        if (joinHints != null && !joinHints.isEmpty()) {
+            output.append("[").append(Joiner.on(", ").join(joinHints)).append("] ");
+        }
+        output.append(tableRefToSql()).append(" ");
+        if (usingColNames != null) {
+            output.append("USING (").append(Joiner.on(", ").join(usingColNames)).append(")");
+        } else if (onClause != null) {
+            output.append("ON ").append(onClause.toSql());
+        }
+        return output.toString();
     }
 
     /**
@@ -218,7 +267,6 @@ public class TableRef implements ParseNode, Writable {
         return null;
     }
 
-
     public JoinOperator getJoinOp() {
         // if it's not explicitly set, we're doing an inner join
         return (joinOp == null ? JoinOperator.INNER_JOIN : joinOp);
@@ -226,6 +274,31 @@ public class TableRef implements ParseNode, Writable {
 
     public void setJoinOp(JoinOperator op) {
         this.joinOp = op;
+    }
+
+    public boolean isInBitmap() {
+        return isInBitmap;
+    }
+
+    public void setInBitmap(boolean inBitmap) {
+        isInBitmap = inBitmap;
+    }
+
+    public boolean isMark() {
+        return isMark;
+    }
+
+    public String getMarkTupleName() {
+        return markTupleName;
+    }
+
+    public void setMark(TupleDescriptor markTuple) {
+        this.isMark = markTuple != null;
+        if (isMark) {
+            this.markTupleName = markTuple.getAlias();
+        } else {
+            this.markTupleName = null;
+        }
     }
 
     public Expr getOnClause() {
@@ -238,6 +311,22 @@ public class TableRef implements ParseNode, Writable {
 
     public TableName getName() {
         return name;
+    }
+
+    public List<Long> getSampleTabletIds() {
+        return sampleTabletIds;
+    }
+
+    public ArrayList<String> getCommonHints() {
+        return commonHints;
+    }
+
+    public TableSample getTableSample() {
+        return tableSample;
+    }
+
+    public TableSnapshot getTableSnapshot() {
+        return tableSnapshot;
     }
 
     /**
@@ -305,12 +394,12 @@ public class TableRef implements ParseNode, Writable {
         return desc.getTable();
     }
 
-    public void setUsingClause(List<String> colNames) {
-        this.usingColNames = colNames;
-    }
-
     public List<String> getUsingClause() {
         return this.usingColNames;
+    }
+
+    public void setUsingClause(List<String> colNames) {
+        this.usingColNames = colNames;
     }
 
     public TableRef getLeftTblRef() {
@@ -325,12 +414,12 @@ public class TableRef implements ParseNode, Writable {
         return joinHints;
     }
 
-    public boolean hasJoinHints() {
-        return CollectionUtils.isNotEmpty(joinHints);
-    }
-
     public void setJoinHints(ArrayList<String> hints) {
         this.joinHints = hints;
+    }
+
+    public boolean hasJoinHints() {
+        return CollectionUtils.isNotEmpty(joinHints);
     }
 
     public boolean isBroadcastJoin() {
@@ -353,12 +442,12 @@ public class TableRef implements ParseNode, Writable {
         return sortColumn;
     }
 
-    public void setLateralViewRefs(ArrayList<LateralViewRef> lateralViewRefs) {
-        this.lateralViewRefs = lateralViewRefs;
-    }
-
     public ArrayList<LateralViewRef> getLateralViewRefs() {
         return lateralViewRefs;
+    }
+
+    public void setLateralViewRefs(ArrayList<LateralViewRef> lateralViewRefs) {
+        this.lateralViewRefs = lateralViewRefs;
     }
 
     protected void analyzeLateralViewRef(Analyzer analyzer) throws UserException {
@@ -377,6 +466,20 @@ public class TableRef implements ParseNode, Writable {
         }
         for (String hint : sortHints) {
             sortColumn = hint;
+        }
+    }
+
+    protected void analyzeSample() throws AnalysisException {
+        if ((sampleTabletIds != null || tableSample != null)
+                && desc.getTable().getType() != TableIf.TableType.OLAP
+                && desc.getTable().getType() != TableIf.TableType.HMS_EXTERNAL_TABLE) {
+            throw new AnalysisException("Sample table " + desc.getTable().getName()
+                + " type " + desc.getTable().getType() + " is not supported");
+        }
+        if (tableSample != null && TableIf.TableType.HMS_EXTERNAL_TABLE.equals(desc.getTable().getType())) {
+            if (!tableSample.isPercent()) {
+                throw new AnalysisException("HMS table doesn't support sample rows, use percent instead.");
+            }
         }
     }
 
@@ -427,6 +530,49 @@ public class TableRef implements ParseNode, Writable {
                 isForcePreAggOpened = true;
                 break;
             }
+        }
+    }
+
+    protected void analyzeTableSnapshot(Analyzer analyzer) throws AnalysisException {
+        if (tableSnapshot == null) {
+            return;
+        }
+        TableIf.TableType tableType = this.getTable().getType();
+        if (tableType == TableIf.TableType.HMS_EXTERNAL_TABLE) {
+            HMSExternalTable extTable = (HMSExternalTable) this.getTable();
+            switch (extTable.getDlaType()) {
+                case ICEBERG:
+                    if (tableSnapshot.getType() == TableSnapshot.VersionType.TIME) {
+                        String asOfTime = tableSnapshot.getTime();
+                        Matcher matcher = TimeUtils.DATETIME_FORMAT_REG.matcher(asOfTime);
+                        if (!matcher.matches()) {
+                            throw new AnalysisException("Invalid datetime string: " + asOfTime);
+                        }
+                    }
+                    break;
+                case HUDI:
+                    if (tableSnapshot.getType() == TableSnapshot.VersionType.VERSION) {
+                        throw new AnalysisException("Hudi table only supports timestamp as snapshot ID");
+                    }
+                    try {
+                        tableSnapshot.setTime(HudiUtils.formatQueryInstant(tableSnapshot.getTime()));
+                    } catch (Exception e) {
+                        throw new AnalysisException("Failed to parse hudi timestamp: " + e.getMessage(), e);
+                    }
+                    break;
+                default:
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_NONSUPPORT_TIME_TRAVEL_TABLE);
+            }
+        } else if (tableType == TableIf.TableType.ICEBERG_EXTERNAL_TABLE) {
+            if (tableSnapshot.getType() == TableSnapshot.VersionType.TIME) {
+                String asOfTime = tableSnapshot.getTime();
+                Matcher matcher = TimeUtils.DATETIME_FORMAT_REG.matcher(asOfTime);
+                if (!matcher.matches()) {
+                    throw new AnalysisException("Invalid datetime string: " + asOfTime);
+                }
+            }
+        } else {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_NONSUPPORT_TIME_TRAVEL_TABLE);
         }
     }
 
@@ -490,10 +636,12 @@ public class TableRef implements ParseNode, Writable {
         if (joinOp == JoinOperator.LEFT_OUTER_JOIN
                 || joinOp == JoinOperator.FULL_OUTER_JOIN) {
             analyzer.registerOuterJoinedTids(getId().asList(), this);
+            analyzer.registerOuterJoinedRightSideTids(getId().asList());
         }
         if (joinOp == JoinOperator.RIGHT_OUTER_JOIN
                 || joinOp == JoinOperator.FULL_OUTER_JOIN) {
             analyzer.registerOuterJoinedTids(leftTblRef.getAllTableRefIds(), this);
+            analyzer.registerOuterJoinedLeftSideTids(leftTblRef.getAllTableRefIds());
         }
         // register the tuple ids of a full outer join
         if (joinOp == JoinOperator.FULL_OUTER_JOIN) {
@@ -531,6 +679,9 @@ public class TableRef implements ParseNode, Writable {
             analyzer.setVisibleSemiJoinedTuple(semiJoinedTupleId);
             onClause.analyze(analyzer);
             analyzer.setVisibleSemiJoinedTuple(null);
+            if (!onClause.getType().isBoolean()) {
+                onClause = onClause.castTo(Type.BOOLEAN);
+            }
             onClause.checkReturnsBool("ON clause", true);
             if (onClause.contains(Expr.isAggregatePredicate())) {
                 throw new AnalysisException(
@@ -560,6 +711,12 @@ public class TableRef implements ParseNode, Writable {
         } else {
             // Indicate that this table ref has an empty ON-clause.
             analyzer.registerOnClauseConjuncts(Collections.<Expr>emptyList(), this);
+        }
+
+        if (lateralViewRefs != null) {
+            for (LateralViewRef lateralViewRef : lateralViewRefs) {
+                allTableRefIds.add(lateralViewRef.getId());
+            }
         }
     }
 
@@ -598,8 +755,10 @@ public class TableRef implements ParseNode, Writable {
                 return "FULL OUTER JOIN";
             case CROSS_JOIN:
                 return "CROSS JOIN";
+            case NULL_AWARE_LEFT_ANTI_JOIN:
+                return "NULL AWARE LEFT ANTI JOIN";
             default:
-                return "bad join op: " + joinOp.toString();
+                return "bad join op: " + joinOp;
         }
     }
 
@@ -626,6 +785,13 @@ public class TableRef implements ParseNode, Writable {
                 tblName += " " + viewRef.toSql();
             }
         }
+        if (partitionNames != null) {
+            StringJoiner sj = new StringJoiner(",", "", " ");
+            for (String partName : partitionNames.getPartitionNames()) {
+                sj.add(partName);
+            }
+            return tblName + " PARTITION(" + sj.toString() + ")";
+        }
         return tblName;
     }
 
@@ -641,27 +807,6 @@ public class TableRef implements ParseNode, Writable {
 
     public String tableRefToDigest() {
         return tableRefToSql();
-    }
-
-    @Override
-    public String toSql() {
-        if (joinOp == null) {
-            // prepend "," if we're part of a sequence of table refs w/o an
-            // explicit JOIN clause
-            return (leftTblRef != null ? ", " : "") + tableRefToSql();
-        }
-
-        StringBuilder output = new StringBuilder(" " + joinOpToSql() + " ");
-        if (joinHints != null && !joinHints.isEmpty()) {
-            output.append("[").append(Joiner.on(", ").join(joinHints)).append("] ");
-        }
-        output.append(tableRefToSql()).append(" ");
-        if (usingColNames != null) {
-            output.append("USING (").append(Joiner.on(", ").join(usingColNames)).append(")");
-        } else if (onClause != null) {
-            output.append("ON ").append(onClause.toSql());
-        }
-        return output.toString();
     }
 
     public String toDigest() {
@@ -761,6 +906,8 @@ public class TableRef implements ParseNode, Writable {
      */
     protected void setJoinAttrs(TableRef other) {
         this.joinOp = other.joinOp;
+        this.isMark = other.isMark;
+        this.markTupleName = other.markTupleName;
         this.joinHints = other.joinHints;
         // this.tableHints_ = other.tableHints_;
         this.onClause = other.onClause;
@@ -840,5 +987,13 @@ public class TableRef implements ParseNode, Writable {
             String alias = Text.readString(in);
             aliases = new String[]{alias};
         }
+    }
+
+    public void setPartitionNames(PartitionNames partitionNames) {
+        this.partitionNames = partitionNames;
+    }
+
+    public void setName(TableName name) {
+        this.name = name;
     }
 }

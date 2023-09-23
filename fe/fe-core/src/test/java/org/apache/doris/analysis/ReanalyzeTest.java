@@ -36,12 +36,10 @@ public class ReanalyzeTest extends TestWithFeService {
     public void testTurnoffVectorizedEngineWhenCannotChangeSlotToNullable() throws Exception {
         String sql = "explain select * from test.tbl1 t1"
                 + " where (select count(*) from test.tbl1 t2 where t1.k1 = t2.k1) > 0";
-        connectContext.getSessionVariable().enableVectorizedEngine = true;
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
         connectContext.setExecutor(stmtExecutor);
         stmtExecutor.execute();
         connectContext.setExecutor(null);
         Assertions.assertEquals(MysqlStateType.EOF, connectContext.getState().getStateType());
-        Assertions.assertTrue(connectContext.getSessionVariable().enableVectorizedEngine());
     }
 }

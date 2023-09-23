@@ -17,82 +17,52 @@
 
 #include "runtime/fold_constant_executor.h"
 
-#include <map>
+#include <fmt/format.h>
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <gen_cpp/types.pb.h>
+#include <glog/logging.h>
+#include <stdint.h>
 
-#include "common/object_pool.h"
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <map>
+#include <ostream>
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
-#include "exprs/expr.h"
-#include "exprs/expr_context.h"
-#include "gen_cpp/PaloInternalService_types.h"
-#include "gen_cpp/internal_service.pb.h"
+#include "runtime/datetime_value.h"
+#include "runtime/decimalv2_value.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/large_int_value.h"
 #include "runtime/memory/mem_tracker.h"
+#include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
-#include "runtime/tuple_row.h"
+#include "util/binary_cast.hpp"
+#include "util/defer_op.h"
+#include "util/runtime_profile.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/runtime/vdatetime_value.h"
 
 using std::string;
 using std::map;
 
 namespace doris {
-
-TUniqueId FoldConstantExecutor::_dummy_id;
-
-Status FoldConstantExecutor::fold_constant_expr(const TFoldConstantParams& params,
-                                                PConstantExprResult* response) {
-    const auto& expr_map = params.expr_map;
-    auto expr_result_map = response->mutable_expr_result_map();
-
-    TQueryGlobals query_globals = params.query_globals;
-    // init
-    RETURN_IF_ERROR(_init(query_globals));
-    // only after init operation, _mem_tracker is ready
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-
-    for (const auto& m : expr_map) {
-        PExprResultMap pexpr_result_map;
-        for (const auto& n : m.second) {
-            ExprContext* ctx = nullptr;
-            const TExpr& texpr = n.second;
-            // create expr tree from TExpr
-            RETURN_IF_ERROR(Expr::create_expr_tree(&_pool, texpr, &ctx));
-            // prepare and open context
-            RETURN_IF_ERROR(_prepare_and_open(ctx));
-
-            TupleRow* row = nullptr;
-            // calc expr
-            void* src = ctx->get_value(row);
-            PrimitiveType root_type = ctx->root()->type().type;
-            // covert to thrift type
-            TPrimitiveType::type t_type = doris::to_thrift(root_type);
-
-            // collect result
-            PExprResult expr_result;
-            string result;
-            if (src == nullptr) {
-                expr_result.set_success(false);
-            } else {
-                expr_result.set_success(true);
-                result = _get_result(src, 0, ctx->root()->type().type);
-            }
-
-            expr_result.set_content(std::move(result));
-            expr_result.mutable_type()->set_type(t_type);
-            pexpr_result_map.mutable_map()->insert({n.first, expr_result});
-
-            // close context expr
-            ctx->close(_runtime_state.get());
-        }
-
-        expr_result_map->insert({m.first, pexpr_result_map});
-    }
-
-    return Status::OK();
-}
 
 Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& params,
                                                  PConstantExprResult* response) {
@@ -100,20 +70,21 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
     auto expr_result_map = response->mutable_expr_result_map();
 
     TQueryGlobals query_globals = params.query_globals;
+    _query_id = params.query_id;
     // init
-    RETURN_IF_ERROR(_init(query_globals));
+    RETURN_IF_ERROR(_init(query_globals, params.query_options));
     // only after init operation, _mem_tracker is ready
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
     for (const auto& m : expr_map) {
         PExprResultMap pexpr_result_map;
         for (const auto& n : m.second) {
-            vectorized::VExprContext* ctx = nullptr;
+            vectorized::VExprContextSPtr ctx;
             const TExpr& texpr = n.second;
             // create expr tree from TExpr
-            RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(&_pool, texpr, &ctx));
+            RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(texpr, ctx));
             // prepare and open context
-            RETURN_IF_ERROR(_prepare_and_open(ctx));
+            RETURN_IF_ERROR(_prepare_and_open(ctx.get()));
 
             vectorized::Block tmp_block;
             tmp_block.insert({vectorized::ColumnUInt8::create(1),
@@ -122,29 +93,32 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
             // calc vexpr
             RETURN_IF_ERROR(ctx->execute(&tmp_block, &result_column));
             DCHECK(result_column != -1);
-            PrimitiveType root_type = ctx->root()->type().type;
             // covert to thrift type
-            TPrimitiveType::type t_type = doris::to_thrift(root_type);
-
+            const TypeDescriptor& res_type = ctx->root()->type();
+            TPrimitiveType::type t_type = doris::to_thrift(res_type.type);
             // collect result
             PExprResult expr_result;
             string result;
             const auto& column_ptr = tmp_block.get_by_position(result_column).column;
+            const auto& column_type = tmp_block.get_by_position(result_column).type;
             if (column_ptr->is_null_at(0)) {
                 expr_result.set_success(false);
             } else {
                 expr_result.set_success(true);
-                auto string_ref = column_ptr->get_data_at(0);
-                result = _get_result<true>((void*)string_ref.data, string_ref.size,
-                                           ctx->root()->type().type);
+                StringRef string_ref;
+                if (!ctx->root()->type().is_complex_type()) {
+                    string_ref = column_ptr->get_data_at(0);
+                }
+                result = _get_result((void*)string_ref.data, string_ref.size, ctx->root()->type(),
+                                     column_ptr, column_type);
             }
 
             expr_result.set_content(std::move(result));
             expr_result.mutable_type()->set_type(t_type);
+            expr_result.mutable_type()->set_scale(res_type.scale);
+            expr_result.mutable_type()->set_precision(res_type.precision);
+            expr_result.mutable_type()->set_len(res_type.len);
             pexpr_result_map.mutable_map()->insert({n.first, expr_result});
-
-            // close context expr
-            ctx->close(_runtime_state.get());
         }
         expr_result_map->insert({m.first, pexpr_result_map});
     }
@@ -152,36 +126,30 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
     return Status::OK();
 }
 
-Status FoldConstantExecutor::_init(const TQueryGlobals& query_globals) {
+Status FoldConstantExecutor::_init(const TQueryGlobals& query_globals,
+                                   const TQueryOptions& query_options) {
     // init runtime state, runtime profile
     TPlanFragmentExecParams params;
-    params.fragment_instance_id = FoldConstantExecutor::_dummy_id;
-    params.query_id = FoldConstantExecutor::_dummy_id;
+    params.fragment_instance_id = _query_id;
+    params.query_id = _query_id;
     TExecPlanFragmentParams fragment_params;
     fragment_params.params = params;
     fragment_params.protocol_version = PaloInternalServiceVersion::V1;
-    TQueryOptions query_options;
-    _runtime_state.reset(new RuntimeState(fragment_params.params, query_options, query_globals,
-                                          ExecEnv::GetInstance()));
+    _runtime_state = RuntimeState::create_unique(fragment_params.params, query_options,
+                                                 query_globals, ExecEnv::GetInstance());
     DescriptorTbl* desc_tbl = nullptr;
     Status status =
             DescriptorTbl::create(_runtime_state->obj_pool(), TDescriptorTable(), &desc_tbl);
     if (UNLIKELY(!status.ok())) {
-        LOG(WARNING) << "Failed to create descriptor table, msg: " << status.get_error_msg();
-        return Status::Uninitialized(status.get_error_msg());
+        LOG(WARNING) << "Failed to create descriptor table, msg: " << status;
+        return status;
     }
     _runtime_state->set_desc_tbl(desc_tbl);
-    status = _runtime_state->init_mem_trackers(FoldConstantExecutor::_dummy_id);
-    if (UNLIKELY(!status.ok())) {
-        LOG(WARNING) << "Failed to init mem trackers, msg: " << status.get_error_msg();
-        return Status::Uninitialized(status.get_error_msg());
-    }
+    _runtime_state->init_mem_trackers(_query_id, "FoldConstant");
 
     _runtime_profile = _runtime_state->runtime_profile();
     _runtime_profile->set_name("FoldConstantExpr");
-    SCOPED_ATTACH_TASK(_runtime_state.get());
     _mem_tracker = std::make_unique<MemTracker>("FoldConstantExpr");
-    _mem_pool.reset(new MemPool(_mem_tracker.get()));
 
     return Status::OK();
 }
@@ -192,9 +160,10 @@ Status FoldConstantExecutor::_prepare_and_open(Context* ctx) {
     return ctx->open(_runtime_state.get());
 }
 
-template <bool is_vec>
-string FoldConstantExecutor::_get_result(void* src, size_t size, PrimitiveType slot_type) {
-    switch (slot_type) {
+string FoldConstantExecutor::_get_result(void* src, size_t size, const TypeDescriptor& type,
+                                         const vectorized::ColumnPtr column_ptr,
+                                         const vectorized::DataTypePtr column_type) {
+    switch (type.type) {
     case TYPE_BOOLEAN: {
         bool val = *reinterpret_cast<const bool*>(src);
         return val ? "true" : "false";
@@ -220,42 +189,62 @@ string FoldConstantExecutor::_get_result(void* src, size_t size, PrimitiveType s
     }
     case TYPE_FLOAT: {
         float val = *reinterpret_cast<const float*>(src);
-        return fmt::format("{:.9g}", val);
+        return fmt::format("{}", val);
     }
     case TYPE_TIME:
     case TYPE_DOUBLE: {
         double val = *reinterpret_cast<double*>(src);
-        return fmt::format("{:.17g}", val);
+        return fmt::format("{}", val);
     }
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_STRING:
     case TYPE_HLL:
     case TYPE_OBJECT: {
-        if constexpr (is_vec) {
-            return std::string((char*)src, size);
-        }
-        return (reinterpret_cast<StringValue*>(src))->to_string();
+        return std::string((char*)src, size);
     }
     case TYPE_DATE:
     case TYPE_DATETIME: {
-        if constexpr (is_vec) {
-            auto date_value = reinterpret_cast<vectorized::VecDateTimeValue*>(src);
-            char str[MAX_DTVALUE_STR_LEN];
-            date_value->to_string(str);
-            return str;
-        } else {
-            const DateTimeValue date_value = *reinterpret_cast<DateTimeValue*>(src);
-            char str[MAX_DTVALUE_STR_LEN];
-            date_value.to_string(str);
-            return str;
-        }
+        auto date_value = reinterpret_cast<vectorized::VecDateTimeValue*>(src);
+        char str[MAX_DTVALUE_STR_LEN];
+        date_value->to_string(str);
+        return str;
+    }
+    case TYPE_DATEV2: {
+        vectorized::DateV2Value<vectorized::DateV2ValueType> value =
+                binary_cast<uint32_t, doris::vectorized::DateV2Value<vectorized::DateV2ValueType>>(
+                        *(int32_t*)src);
+
+        char buf[64];
+        char* pos = value.to_string(buf);
+        return std::string(buf, pos - buf - 1);
+    }
+    case TYPE_DATETIMEV2: {
+        vectorized::DateV2Value<vectorized::DateTimeV2ValueType> value =
+                binary_cast<uint64_t,
+                            doris::vectorized::DateV2Value<vectorized::DateTimeV2ValueType>>(
+                        *(int64_t*)src);
+
+        char buf[64];
+        char* pos = value.to_string(buf, type.scale);
+        return std::string(buf, pos - buf - 1);
     }
     case TYPE_DECIMALV2: {
-        return reinterpret_cast<DecimalV2Value*>(src)->to_string();
+        return reinterpret_cast<DecimalV2Value*>(src)->to_string(type.scale);
+    }
+    case TYPE_DECIMAL32:
+    case TYPE_DECIMAL64:
+    case TYPE_DECIMAL128I: {
+        return column_type->to_string(*column_ptr, 0);
+    }
+    case TYPE_ARRAY:
+    case TYPE_JSONB:
+    case TYPE_MAP:
+    case TYPE_STRUCT: {
+        return column_type->to_string(*column_ptr, 0);
     }
     default:
-        DCHECK(false) << "Type not implemented: " << slot_type;
+        DCHECK(false) << "Type not implemented: " << type.debug_string();
         return "";
     }
 }

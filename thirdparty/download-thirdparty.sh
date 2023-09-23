@@ -221,13 +221,31 @@ echo "===== Patching thirdparty archives..."
 ###################################################################################
 PATCHED_MARK="patched_mark"
 
-# glog patch
-cd "${TP_SOURCE_DIR}/${GLOG_SOURCE}"
+# abseil patch
+cd "${TP_SOURCE_DIR}/${ABSEIL_SOURCE}"
 if [[ ! -f "${PATCHED_MARK}" ]]; then
-    patch -p1 <"${TP_PATCH_DIR}/glog-0.4.0.patch"
+    patch -p1 <"${TP_PATCH_DIR}/absl.patch"
     touch "${PATCHED_MARK}"
 fi
 cd -
+echo "Finished patching ${ABSEIL_SOURCE}"
+
+# glog patch
+if [[ "${GLOG_SOURCE}" == "glog-0.4.0" ]]; then
+    cd "${TP_SOURCE_DIR}/${GLOG_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/glog-0.4.0.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+elif [[ "${GLOG_SOURCE}" == "glog-0.6.0" ]]; then
+    cd "${TP_SOURCE_DIR}/${GLOG_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/glog-0.6.0.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+fi
 echo "Finished patching ${GLOG_SOURCE}"
 
 # gtest patch
@@ -257,15 +275,6 @@ fi
 cd -
 echo "Finished patching ${LIBEVENT_SOURCE}"
 
-# s2 patch to disable shared library
-cd "${TP_SOURCE_DIR}/${S2_SOURCE}"
-if [[ ! -f "${PATCHED_MARK}" ]]; then
-    patch -p1 <"${TP_PATCH_DIR}/s2geometry-0.9.0.patch"
-    touch "${PATCHED_MARK}"
-fi
-cd -
-echo "Finished patching ${S2_SOURCE}"
-
 # gsasl2 patch to fix link error such as mutilple func defination
 # when link target with kerberos
 cd "${TP_SOURCE_DIR}/${GSASL_SOURCE}"
@@ -275,6 +284,25 @@ if [[ ! -f ${PATCHED_MARK} ]]; then
 fi
 cd -
 echo "Finished patching ${GSASL_SOURCE}"
+
+# cyrus-sasl patch to force compile gssapi plugin when static linking
+# this is for librdkafka with sasl
+cd "${TP_SOURCE_DIR}/${CYRUS_SASL_SOURCE}"
+if [[ ! -f ${PATCHED_MARK} ]]; then
+    patch -p1 <"${TP_PATCH_DIR}/cyrus-sasl-2.1.27.patch"
+    touch "${PATCHED_MARK}"
+fi
+cd -
+echo "Finished patching ${CYRUS_SASL_SOURCE}"
+
+#patch sqltypes.h, change TCAHR to TWCHAR to avoid conflict with clucene TCAHR
+cd "${TP_SOURCE_DIR}/${ODBC_SOURCE}"
+if [[ ! -f ${PATCHED_MARK} ]]; then
+    patch -p1 <"${TP_PATCH_DIR}/sqltypes.h.patch"
+    touch "${PATCHED_MARK}"
+fi
+cd -
+echo "Finished patching ${ODBC_SOURCE}"
 
 # rocksdb patch to fix compile error
 if [[ "${ROCKSDB_SOURCE}" == "rocksdb-5.14.2" ]]; then
@@ -288,15 +316,16 @@ fi
 echo "Finished patching ${ROCKSDB_SOURCE}"
 
 # opentelemetry patch is used to solve the problem that threadlocal depends on GLIBC_2.18
+# fix error: unknown type name 'uint64_t'
 # see: https://github.com/apache/doris/pull/7911
-if [[ "${OPENTELEMETRY_SOURCE}" == "opentelemetry-cpp-1.4.0" ]]; then
+if [[ "${OPENTELEMETRY_SOURCE}" == "opentelemetry-cpp-1.10.0" ]]; then
     rm -rf "${TP_SOURCE_DIR}/${OPENTELEMETRY_SOURCE}/third_party/opentelemetry-proto"/*
     cp -r "${TP_SOURCE_DIR}/${OPENTELEMETRY_PROTO_SOURCE}"/* "${TP_SOURCE_DIR}/${OPENTELEMETRY_SOURCE}/third_party/opentelemetry-proto"
     mkdir -p "${TP_SOURCE_DIR}/${OPENTELEMETRY_SOURCE}/third_party/opentelemetry-proto/.git"
 
     cd "${TP_SOURCE_DIR}/${OPENTELEMETRY_SOURCE}"
     if [[ ! -f "${PATCHED_MARK}" ]]; then
-        patch -p1 <"${TP_PATCH_DIR}/opentelemetry-cpp-1.4.0.patch"
+        patch -p1 <"${TP_PATCH_DIR}/opentelemetry-cpp-1.10.0.patch"
         touch "${PATCHED_MARK}"
     fi
     cd -
@@ -304,10 +333,10 @@ fi
 echo "Finished patching ${OPENTELEMETRY_SOURCE}"
 
 # arrow patch is used to get the raw orc reader for filter prune.
-if [[ "${ARROW_SOURCE}" == "apache-arrow-7.0.0" ]]; then
+if [[ "${ARROW_SOURCE}" == "arrow-apache-arrow-13.0.0" ]]; then
     cd "${TP_SOURCE_DIR}/${ARROW_SOURCE}"
     if [[ ! -f "${PATCHED_MARK}" ]]; then
-        patch -p1 <"${TP_PATCH_DIR}/apache-arrow-7.0.0.patch"
+        patch -p1 <"${TP_PATCH_DIR}/apache-arrow-13.0.0.patch"
         touch "${PATCHED_MARK}"
     fi
     cd -
@@ -324,6 +353,17 @@ if [[ "${LIBRDKAFKA_SOURCE}" == "librdkafka-1.8.2" ]]; then
     cd -
 fi
 echo "Finished patching ${LIBRDKAFKA_SOURCE}"
+
+# patch jemalloc, disable JEMALLOC_MANGLE for overloading the memory API.
+if [[ "${JEMALLOC_DORIS_SOURCE}" = "jemalloc-5.3.0" ]]; then
+    cd "${TP_SOURCE_DIR}/${JEMALLOC_DORIS_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        patch -p0 <"${TP_PATCH_DIR}/jemalloc_hook.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+fi
+echo "Finished patching ${JEMALLOC_DORIS_SOURCE}"
 
 # patch hyperscan
 # https://github.com/intel/hyperscan/issues/292
@@ -346,9 +386,9 @@ echo "Finished patching ${HYPERSCAN_SOURCE}"
 
 cd "${TP_SOURCE_DIR}/${AWS_SDK_SOURCE}"
 if [[ ! -f "${PATCHED_MARK}" ]]; then
-    if [[ "${AWS_SDK_SOURCE}" == "aws-sdk-cpp-1.9.211" ]]; then
-        if wget --no-check-certificate -q https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/aws-crt-cpp-1.9.211.tar.gz -O aws-crt-cpp-1.9.211.tar.gz; then
-            tar xzf aws-crt-cpp-1.9.211.tar.gz
+    if [[ "${AWS_SDK_SOURCE}" == "aws-sdk-cpp-1.9.272" ]]; then
+        if wget --no-check-certificate -q https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/aws-crt-cpp-1.9.272.tar.gz -O aws-crt-cpp-1.9.272.tar.gz; then
+            tar xzf aws-crt-cpp-1.9.272.tar.gz
         else
             bash ./prefetch_crt_dependency.sh
         fi
@@ -360,10 +400,25 @@ fi
 cd -
 echo "Finished patching ${AWS_SDK_SOURCE}"
 
-cd "${TP_SOURCE_DIR}/${BRPC_SOURCE}"
-if [[ ! -f "${PATCHED_MARK}" ]]; then
-    patch -p1 <"${TP_PATCH_DIR}/brpc-1.2.0.patch"
-    touch "${PATCHED_MARK}"
+# patch jemalloc, change simdjson::dom::element_type::BOOL to BOOLEAN to avoid conflict with odbc macro BOOL
+if [[ "${SIMDJSON_SOURCE}" = "simdjson-3.0.1" ]]; then
+    cd "${TP_SOURCE_DIR}/${SIMDJSON_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/simdjson-3.0.1.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
 fi
-cd -
+echo "Finished patching ${SIMDJSON_SOURCE}"
+
+if [[ "${BRPC_SOURCE}" == 'brpc-1.4.0' ]]; then
+    cd "${TP_SOURCE_DIR}/${BRPC_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        for patch_file in "${TP_PATCH_DIR}"/brpc-*; do
+            patch -p1 <"${patch_file}"
+        done
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+fi
 echo "Finished patching ${BRPC_SOURCE}"

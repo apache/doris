@@ -20,11 +20,22 @@ package org.apache.doris.nereids.types;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 
+import java.math.BigInteger;
+
 /**
  * LargeInt type in Nereids.
  */
 public class LargeIntType extends IntegralType {
-    public static LargeIntType INSTANCE = new LargeIntType();
+    public static final LargeIntType INSTANCE = new LargeIntType();
+
+    public static final BigInteger MAX_VALUE = new BigInteger("170141183460469231731687303715884105727");
+
+    public static final BigInteger MIN_VALUE = new BigInteger("-170141183460469231731687303715884105728");
+
+    private static final int WIDTH = 16;
+
+    private LargeIntType() {
+    }
 
     @Override
     public Type toCatalogDataType() {
@@ -49,5 +60,10 @@ public class LargeIntType extends IntegralType {
     @Override
     public DataType defaultConcreteType() {
         return this;
+    }
+
+    @Override
+    public int width() {
+        return WIDTH;
     }
 }

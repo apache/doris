@@ -17,21 +17,20 @@
 
 #pragma once
 
+#include <glog/logging.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <string.h>
 
-#include <map>
-#include <string>
 #include <vector>
 
+#include "common/status.h"
 #include "olap/rowset/segment_v2/options.h"
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
-#include "runtime/mem_pool.h"
 #include "util/coding.h"
 #include "util/faststring.h"
 #include "util/slice.h"
+#include "vec/columns/column.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -73,7 +72,7 @@ public:
     Status get_first_value(void* value) const override {
         DCHECK(_finished);
         if (_count == 0) {
-            return Status::NotFound("page is empty");
+            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
         }
         *reinterpret_cast<Slice*>(value) = Slice(_first_entry);
         return Status::OK();
@@ -82,7 +81,7 @@ public:
     Status get_last_value(void* value) const override {
         DCHECK(_finished);
         if (_count == 0) {
-            return Status::NotFound("page is empty");
+            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
         }
         *reinterpret_cast<Slice*>(value) = Slice(_last_entry);
         return Status::OK();
@@ -111,11 +110,7 @@ public:
 
     Status seek_at_or_after_value(const void* value, bool* exact_match) override;
 
-    Status next_batch(size_t* n, ColumnBlockView* dst) override;
-
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
-        return Status::NotSupported("binary prefix page not implement vec op now");
-    };
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override;
 
     size_t count() const override {
         DCHECK(_parsed);
@@ -142,18 +137,12 @@ private:
 
     // read next value at `_cur_pos` and `_next_ptr` into `_current_value`.
     // return OK and advance `_next_ptr` on success. `_cur_pos` is not modified.
-    // return NotFound when no more entry can be read.
+    // return EndOfFile when no more entry can be read.
     // return other error status otherwise.
     Status _read_next_value();
 
     // seek to the first value at the given restart point
     Status _seek_to_restart_point(size_t restart_point_index);
-
-    // like _read_next_value, but directly copy next value to output, not _current_value
-    Status _read_next_value_to_output(Slice prev, MemPool* mem_pool, Slice* output);
-
-    // copy `_current_value` into `output`.
-    Status _copy_current_to_output(MemPool* mem_pool, Slice* output);
 
     Slice _data;
     bool _parsed = false;

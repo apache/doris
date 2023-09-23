@@ -18,7 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.util.MasterDaemon;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.Auth;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
@@ -44,9 +44,9 @@ public class DomainResolver extends MasterDaemon {
     // this is only available in BAIDU, for resolving BNS
     private static final String BNS_RESOLVER_TOOLS_PATH = "/usr/bin/get_instance_by_service";
 
-    private PaloAuth auth;
+    private Auth auth;
 
-    public DomainResolver(PaloAuth auth) {
+    public DomainResolver(Auth auth) {
         super("domain resolver", 10 * 1000);
         this.auth = auth;
     }

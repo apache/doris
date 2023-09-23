@@ -15,14 +15,39 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <memory>
+#include <string>
+#include <string_view>
+#include <utility>
+
+#include "common/status.h"
+#include "olap/hll.h"
 #include "util/simd/vstring_function.h" //place this header file at last to compile
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_complex.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_hll.h"
-#include "vec/functions/function_const.h"
+#include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_string.h"
+#include "vec/functions/function.h"
 #include "vec/functions/function_string.h"
-#include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
+
+namespace doris {
+class FunctionContext;
+} // namespace doris
 
 namespace doris::vectorized {
 template <typename Impl>
@@ -44,12 +69,9 @@ public:
         return Impl::get_variadic_argument_types();
     }
 
-    bool use_default_implementation_for_constants() const override { return true; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        ColumnPtr argument_column =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        ColumnPtr& argument_column = block.get_by_position(arguments[0]).column;
 
         auto result_data_column = ColumnString::create();
         auto& result_data = result_data_column->get_chars();
@@ -63,17 +85,11 @@ public:
 
 static void hex_encode(const unsigned char* source, size_t srclen, unsigned char*& dst_data_ptr,
                        size_t& offset) {
-    if (srclen == 0) {
-        DCHECK(*source == '\0');
-        *dst_data_ptr = '\0';
-        dst_data_ptr++;
-        offset++;
-    } else {
+    if (srclen != 0) {
         doris::simd::VStringFunctions::hex_encode(source, srclen,
                                                   reinterpret_cast<char*>(dst_data_ptr));
-        dst_data_ptr[srclen * 2] = '\0';
-        dst_data_ptr += (srclen * 2 + 1);
-        offset += (srclen * 2 + 1);
+        dst_data_ptr += (srclen * 2);
+        offset += (srclen * 2);
     }
 }
 
@@ -92,7 +108,7 @@ struct HexStringImpl {
         auto dst_data_ptr = dst_data.data();
         for (int i = 0; i < input_rows_count; ++i) {
             auto source = reinterpret_cast<const unsigned char*>(&data[offsets[i - 1]]);
-            size_t srclen = offsets[i] - offsets[i - 1] - 1;
+            size_t srclen = offsets[i] - offsets[i - 1];
             hex_encode(source, srclen, dst_data_ptr, offset);
             dst_offsets[i] = offset;
         }

@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.alter.SchemaChangeHandler;
+import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IndexDef;
@@ -29,11 +30,11 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SqlUtils;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TColumnType;
 
-import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
@@ -52,12 +53,24 @@ import java.util.Set;
 /**
  * This class represents the column-related metadata.
  */
-public class Column implements Writable {
+public class Column implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(Column.class);
     public static final String DELETE_SIGN = "__DORIS_DELETE_SIGN__";
+    public static final String WHERE_SIGN = "__DORIS_WHERE_SIGN__";
     public static final String SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
+    public static final String ROWID_COL = "__DORIS_ROWID_COL__";
+    public static final String ROW_STORE_COL = "__DORIS_ROW_STORE_COL__";
+    public static final String DYNAMIC_COLUMN_NAME = "__DORIS_DYNAMIC_COL__";
+    public static final String VERSION_COL = "__DORIS_VERSION_COL__";
     private static final String COLUMN_ARRAY_CHILDREN = "item";
+    private static final String COLUMN_STRUCT_CHILDREN = "field";
+    private static final String COLUMN_AGG_ARGUMENT_CHILDREN = "argument";
     public static final int COLUMN_UNIQUE_ID_INIT_VALUE = -1;
+    private static final String COLUMN_MAP_KEY = "key";
+    private static final String COLUMN_MAP_VALUE = "value";
+
+    public static final Column UNSUPPORTED_COLUMN = new Column("unknown", Type.UNSUPPORTED, true, null, true, false,
+            null, "invalid", true, null, -1, null);
 
     @SerializedName(value = "name")
     private String name;
@@ -78,6 +91,8 @@ public class Column implements Writable {
     private boolean isKey;
     @SerializedName(value = "isAllowNull")
     private boolean isAllowNull;
+    @SerializedName(value = "isAutoInc")
+    private boolean isAutoInc;
     @SerializedName(value = "defaultValue")
     private String defaultValue;
     @SerializedName(value = "comment")
@@ -86,11 +101,22 @@ public class Column implements Writable {
     private ColumnStats stats;     // cardinality and selectivity etc.
     @SerializedName(value = "children")
     private List<Column> children;
+    /**
+     * This is similar as `defaultValue`. Differences are:
+     * 1. `realDefaultValue` indicates the **default underlying literal**.
+     * 2. Instead, `defaultValue` indicates the **original expression** which is specified by users.
+     *
+     * For example, if user create a table with (columnA, DATETIME, DEFAULT CURRENT_TIMESTAMP)
+     * `realDefaultValue` here is current date time while `defaultValue` is `CURRENT_TIMESTAMP`.
+     */
+    @SerializedName(value = "realDefaultValue")
+    private String realDefaultValue;
     // Define expr may exist in two forms, one is analyzed, and the other is not analyzed.
     // Currently, analyzed define expr is only used when creating materialized views,
     // so the define expr in RollupJob must be analyzed.
     // In other cases, such as define expr in `MaterializedIndexMeta`, it may not be analyzed after being replayed.
     private Expr defineExpr; // use to define column in materialize view
+    private String defineName = null;
     @SerializedName(value = "visible")
     private boolean visible;
     @SerializedName(value = "defaultValueExprDef")
@@ -98,6 +124,11 @@ public class Column implements Writable {
 
     @SerializedName(value = "uniqueId")
     private int uniqueId;
+
+    @SerializedName(value = "genericAggregationName")
+    private String genericAggregationName;
+
+    private boolean isCompoundKey = false;
 
     public Column() {
         this.name = "";
@@ -107,7 +138,7 @@ public class Column implements Writable {
         this.stats = new ColumnStats();
         this.visible = true;
         this.defineExpr = null;
-        this.children = new ArrayList<>(Type.MAX_NESTING_DEPTH);
+        this.children = new ArrayList<>();
         this.uniqueId = -1;
     }
 
@@ -116,7 +147,15 @@ public class Column implements Writable {
     }
 
     public Column(String name, PrimitiveType dataType, boolean isAllowNull) {
-        this(name, ScalarType.createType(dataType), false, null, isAllowNull, null, "");
+        this(name, ScalarType.createType(dataType), isAllowNull);
+    }
+
+    public Column(String name, PrimitiveType dataType, int len, int precision, int scale, boolean isAllowNull) {
+        this(name, ScalarType.createType(dataType, len, precision, scale), isAllowNull);
+    }
+
+    public Column(String name, Type type, boolean isAllowNull) {
+        this(name, type, false, null, isAllowNull, null, "");
     }
 
     public Column(String name, Type type) {
@@ -130,13 +169,25 @@ public class Column implements Writable {
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
             String defaultValue, String comment) {
-        this(name, type, isKey, aggregateType, isAllowNull, defaultValue, comment, true, null,
-                COLUMN_UNIQUE_ID_INIT_VALUE);
+        this(name, type, isKey, aggregateType, isAllowNull, false, defaultValue, comment, true, null,
+                COLUMN_UNIQUE_ID_INIT_VALUE, defaultValue);
+    }
+
+    public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
+            String comment, boolean visible, int colUniqueId) {
+        this(name, type, isKey, aggregateType, isAllowNull, false, null, comment, visible, null, colUniqueId, null);
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
             String defaultValue, String comment, boolean visible, DefaultValueExprDef defaultValueExprDef,
-            int colUniqueId) {
+            int colUniqueId, String realDefaultValue) {
+        this(name, type, isKey, aggregateType, isAllowNull, false, defaultValue, comment, visible, defaultValueExprDef,
+                colUniqueId, realDefaultValue);
+    }
+
+    public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
+            boolean isAutoInc, String defaultValue, String comment, boolean visible,
+            DefaultValueExprDef defaultValueExprDef, int colUniqueId, String realDefaultValue) {
         this.name = name;
         if (this.name == null) {
             this.name = "";
@@ -151,14 +202,27 @@ public class Column implements Writable {
         this.isAggregationTypeImplicit = false;
         this.isKey = isKey;
         this.isAllowNull = isAllowNull;
+        this.isAutoInc = isAutoInc;
         this.defaultValue = defaultValue;
+        this.realDefaultValue = realDefaultValue;
         this.defaultValueExprDef = defaultValueExprDef;
         this.comment = comment;
         this.stats = new ColumnStats();
         this.visible = visible;
-        this.children = new ArrayList<>(Type.MAX_NESTING_DEPTH);
+        this.children = new ArrayList<>();
         createChildrenColumn(this.type, this);
         this.uniqueId = colUniqueId;
+
+        if (type.isAggStateType()) {
+            AggStateType aggState = (AggStateType) type;
+            for (int i = 0; i < aggState.getSubTypes().size(); i++) {
+                Column c = new Column(COLUMN_AGG_ARGUMENT_CHILDREN, aggState.getSubTypes().get(i));
+                c.setIsAllowNull(aggState.getSubTypeNullables().get(i));
+                addChildrenColumn(c);
+            }
+            this.genericAggregationName = aggState.getFunctionName();
+            this.aggregationType = AggregateType.GENERIC_AGGREGATION;
+        }
     }
 
     public Column(Column column) {
@@ -167,14 +231,19 @@ public class Column implements Writable {
         this.aggregationType = column.getAggregationType();
         this.isAggregationTypeImplicit = column.isAggregationTypeImplicit();
         this.isKey = column.isKey();
+        this.isCompoundKey = column.isCompoundKey();
         this.isAllowNull = column.isAllowNull();
+        this.isAutoInc = column.isAutoInc();
         this.defaultValue = column.getDefaultValue();
+        this.realDefaultValue = column.realDefaultValue;
         this.defaultValueExprDef = column.defaultValueExprDef;
         this.comment = column.getComment();
         this.stats = column.getStats();
         this.visible = column.visible;
         this.children = column.getChildren();
         this.uniqueId = column.getUniqueId();
+        this.defineExpr = column.getDefineExpr();
+        this.defineName = column.getDefineName();
     }
 
     public void createChildrenColumn(Type type, Column column) {
@@ -182,6 +251,20 @@ public class Column implements Writable {
             Column c = new Column(COLUMN_ARRAY_CHILDREN, ((ArrayType) type).getItemType());
             c.setIsAllowNull(((ArrayType) type).getContainsNull());
             column.addChildrenColumn(c);
+        } else if (type.isMapType()) {
+            Column k = new Column(COLUMN_MAP_KEY, ((MapType) type).getKeyType());
+            Column v = new Column(COLUMN_MAP_VALUE, ((MapType) type).getValueType());
+            k.setIsAllowNull(((MapType) type).getIsKeyContainsNull());
+            v.setIsAllowNull(((MapType) type).getIsValueContainsNull());
+            column.addChildrenColumn(k);
+            column.addChildrenColumn(v);
+        } else if (type.isStructType()) {
+            ArrayList<StructField> fields = ((StructType) type).getFields();
+            for (StructField field : fields) {
+                Column c = new Column(field.getName(), field.getType());
+                c.setIsAllowNull(field.getContainsNull());
+                column.addChildrenColumn(c);
+            }
         }
     }
 
@@ -193,6 +276,17 @@ public class Column implements Writable {
         this.children.add(column);
     }
 
+    public void setDefineName(String defineName) {
+        this.defineName = defineName;
+    }
+
+    public String getDefineName() {
+        if (defineName != null) {
+            return defineName;
+        }
+        return name;
+    }
+
     public void setName(String newName) {
         this.name = newName;
     }
@@ -201,11 +295,23 @@ public class Column implements Writable {
         return this.name;
     }
 
+    public String getNonShadowName() {
+        return removeNamePrefix(name);
+    }
+
+    public String getNameWithoutMvPrefix() {
+        return CreateMaterializedViewStmt.mvColumnBreaker(name);
+    }
+
+    public static String getNameWithoutMvPrefix(String originalName) {
+        return CreateMaterializedViewStmt.mvColumnBreaker(originalName);
+    }
+
     public String getDisplayName() {
         if (defineExpr == null) {
-            return name;
+            return getNameWithoutMvPrefix();
         } else {
-            return defineExpr.toSql();
+            return MaterializedIndexMeta.normalizeName(defineExpr.toSql());
         }
     }
 
@@ -252,6 +358,18 @@ public class Column implements Writable {
                 || aggregationType == AggregateType.NONE) && nameEquals(SEQUENCE_COL, true);
     }
 
+    public boolean isRowStoreColumn() {
+        return !visible && (aggregationType == AggregateType.REPLACE
+                || aggregationType == AggregateType.NONE || aggregationType == null)
+                && nameEquals(ROW_STORE_COL, true);
+    }
+
+    public boolean isVersionColumn() {
+        // aggregationType is NONE for unique table with merge on write.
+        return !visible && (aggregationType == AggregateType.REPLACE
+                || aggregationType == AggregateType.NONE) && nameEquals(VERSION_COL, true);
+    }
+
     public PrimitiveType getDataType() {
         return type.getPrimitiveType();
     }
@@ -284,6 +402,14 @@ public class Column implements Writable {
         return this.aggregationType;
     }
 
+    public String getAggregationString() {
+        if (getAggregationType() == AggregateType.GENERIC_AGGREGATION) {
+            return getGenericAggregationString();
+        } else {
+            return getAggregationType().name();
+        }
+    }
+
     public boolean isAggregated() {
         return aggregationType != null && aggregationType != AggregateType.NONE;
     }
@@ -303,6 +429,10 @@ public class Column implements Writable {
 
     public boolean isAllowNull() {
         return isAllowNull;
+    }
+
+    public boolean isAutoInc() {
+        return isAutoInc;
     }
 
     public void setIsAllowNull(boolean isAllowNull) {
@@ -375,13 +505,25 @@ public class Column implements Writable {
         if (null != this.aggregationType) {
             tColumn.setAggregationType(this.aggregationType.toThrift());
         }
+
         tColumn.setIsKey(this.isKey);
         tColumn.setIsAllowNull(this.isAllowNull);
-        tColumn.setDefaultValue(this.defaultValue);
+        tColumn.setIsAutoIncrement(this.isAutoInc);
+        // keep compatibility
+        tColumn.setDefaultValue(this.realDefaultValue == null ? this.defaultValue : this.realDefaultValue);
         tColumn.setVisible(visible);
         toChildrenThrift(this, tColumn);
 
         tColumn.setColUniqueId(uniqueId);
+
+        if (type.isAggStateType()) {
+            AggStateType aggState = (AggStateType) type;
+            tColumn.setAggregation(aggState.getFunctionName());
+            tColumn.setResultIsNullable(aggState.getResultIsNullable());
+            for (Column column : children) {
+                tColumn.addToChildrenColumn(column.toThrift());
+            }
+        }
         // ATTN:
         // Currently, this `toThrift()` method is only used from CreateReplicaTask.
         // And CreateReplicaTask does not need `defineExpr` field.
@@ -392,36 +534,50 @@ public class Column implements Writable {
         return tColumn;
     }
 
+    private void setChildrenTColumn(Column children, TColumn tColumn) {
+        TColumn childrenTColumn = new TColumn();
+        childrenTColumn.setColumnName(children.name);
+
+        TColumnType childrenTColumnType = new TColumnType();
+        childrenTColumnType.setType(children.getDataType().toThrift());
+        childrenTColumnType.setLen(children.getStrLen());
+        childrenTColumnType.setPrecision(children.getPrecision());
+        childrenTColumnType.setScale(children.getScale());
+        childrenTColumnType.setIndexLen(children.getOlapColumnIndexSize());
+
+        childrenTColumn.setColumnType(childrenTColumnType);
+        childrenTColumn.setIsAllowNull(children.isAllowNull());
+        // TODO: If we don't set the aggregate type for children, the type will be
+        //  considered as TAggregationType::SUM after deserializing in BE.
+        //  For now, we make children inherit the aggregate type from their parent.
+        if (tColumn.getAggregationType() != null) {
+            childrenTColumn.setAggregationType(tColumn.getAggregationType());
+        }
+
+        tColumn.children_column.add(childrenTColumn);
+        toChildrenThrift(children, childrenTColumn);
+    }
+
     private void toChildrenThrift(Column column, TColumn tColumn) {
         if (column.type.isArrayType()) {
             Column children = column.getChildren().get(0);
-
-            TColumn childrenTColumn = new TColumn();
-            childrenTColumn.setColumnName(children.name);
-
-            TColumnType childrenTColumnType = new TColumnType();
-            childrenTColumnType.setType(children.getDataType().toThrift());
-            childrenTColumnType.setType(children.getDataType().toThrift());
-            childrenTColumnType.setLen(children.getStrLen());
-            childrenTColumnType.setPrecision(children.getPrecision());
-            childrenTColumnType.setScale(children.getScale());
-
-            childrenTColumnType.setIndexLen(children.getOlapColumnIndexSize());
-            childrenTColumn.setColumnType(childrenTColumnType);
-            childrenTColumn.setIsAllowNull(children.isAllowNull());
-            // TODO: If we don't set the aggregate type for children, the type will be
-            //  considered as TAggregationType::SUM after deserializing in BE.
-            //  For now, we make children inherit the aggregate type from their parent.
-            if (tColumn.getAggregationType() != null) {
-                childrenTColumn.setAggregationType(tColumn.getAggregationType());
-            }
-
             tColumn.setChildrenColumn(new ArrayList<>());
-            tColumn.children_column.add(childrenTColumn);
-
-            toChildrenThrift(children, childrenTColumn);
+            setChildrenTColumn(children, tColumn);
+        } else if (column.type.isMapType()) {
+            Column k = column.getChildren().get(0);
+            Column v = column.getChildren().get(1);
+            tColumn.setChildrenColumn(new ArrayList<>());
+            setChildrenTColumn(k, tColumn);
+            setChildrenTColumn(v, tColumn);
+        } else if (column.type.isStructType()) {
+            List<Column> childrenColumns = column.getChildren();
+            tColumn.setChildrenColumn(new ArrayList<>());
+            for (Column children : childrenColumns) {
+                setChildrenTColumn(children, tColumn);
+            }
         }
     }
+
 
     public void checkSchemaChangeAllowed(Column other) throws DdlException {
         if (Strings.isNullOrEmpty(other.name)) {
@@ -433,11 +589,16 @@ public class Column implements Writable {
         }
 
         if (type.isNumericType() && other.type.isStringType()) {
-            Integer lSize = type.getColumnStringRepSize();
-            Integer rSize = other.type.getColumnStringRepSize();
-            if (rSize < lSize) {
-                throw new DdlException(
-                        "Can not change from wider type " + type.toSql() + " to narrower type " + other.type.toSql());
+            try {
+                Integer lSize = type.getColumnStringRepSize();
+                Integer rSize = other.type.getColumnStringRepSize();
+                if (rSize < lSize) {
+                    throw new DdlException(
+                            "Can not change from wider type " + type.toSql() + " to narrower type "
+                                    + other.type.toSql());
+                }
+            } catch (TypeException e) {
+                throw new DdlException(e.getMessage());
             }
         }
 
@@ -491,8 +652,8 @@ public class Column implements Writable {
     }
 
     public static String removeNamePrefix(String colName) {
-        if (colName.startsWith(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
-            return colName.substring(SchemaChangeHandler.SHADOW_NAME_PRFIX.length());
+        if (colName.startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
+            return colName.substring(SchemaChangeHandler.SHADOW_NAME_PREFIX.length());
         }
         return colName;
     }
@@ -501,11 +662,11 @@ public class Column implements Writable {
         if (isShadowColumn(colName)) {
             return colName;
         }
-        return SchemaChangeHandler.SHADOW_NAME_PRFIX + colName;
+        return SchemaChangeHandler.SHADOW_NAME_PREFIX + colName;
     }
 
     public static boolean isShadowColumn(String colName) {
-        return colName.startsWith(SchemaChangeHandler.SHADOW_NAME_PRFIX);
+        return colName.startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX);
     }
 
     public Expr getDefineExpr() {
@@ -520,27 +681,73 @@ public class Column implements Writable {
         return defaultValueExprDef;
     }
 
-    public SlotRef getRefColumn() {
-        List<Expr> slots = new ArrayList<>();
+    public List<SlotRef> getRefColumns() {
         if (defineExpr == null) {
             return null;
         } else {
+            List<SlotRef> slots = new ArrayList<>();
             defineExpr.collect(SlotRef.class, slots);
-            Preconditions.checkArgument(slots.size() == 1);
-            return (SlotRef) slots.get(0);
+            return slots;
         }
     }
 
     public String toSql() {
-        return toSql(false);
+        return toSql(false, false);
     }
 
     public String toSql(boolean isUniqueTable) {
+        return toSql(isUniqueTable, false);
+    }
+
+    public String getGenericAggregationString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(genericAggregationName).append("(");
+        for (int i = 0; i < children.size(); i++) {
+            if (i != 0) {
+                sb.append(", ");
+            }
+            sb.append(children.get(i).getType().toSql());
+            if (children.get(i).isAllowNull()) {
+                sb.append(" NULL");
+            }
+        }
+        sb.append(")");
+        return sb.toString();
+    }
+
+    public String toSql(boolean isUniqueTable, boolean isCompatible) {
         StringBuilder sb = new StringBuilder();
         sb.append("`").append(name).append("` ");
         String typeStr = type.toSql();
-        sb.append(typeStr);
-        if (aggregationType != null && aggregationType != AggregateType.NONE && !isUniqueTable
+
+        // show change datetimeV2/dateV2 to datetime/date
+        if (isCompatible) {
+            if (type.isDatetimeV2()) {
+                sb.append("datetime");
+                if (((ScalarType) type).getScalarScale() > 0) {
+                    sb.append("(").append(((ScalarType) type).getScalarScale()).append(")");
+                }
+            } else if (type.isDateV2()) {
+                sb.append("date");
+            } else if (type.isDecimalV3()) {
+                sb.append("DECIMAL");
+                ScalarType sType = (ScalarType) type;
+                int scale = sType.getScalarScale();
+                int precision = sType.getScalarPrecision();
+                // not default
+                if (scale > 0 && precision != 9) {
+                    sb.append("(").append(precision).append(", ").append(scale)
+                            .append(")");
+                }
+            } else {
+                sb.append(typeStr);
+            }
+        } else {
+            sb.append(typeStr);
+        }
+        if (aggregationType == AggregateType.GENERIC_AGGREGATION) {
+            sb.append(" ").append(getGenericAggregationString());
+        } else if (aggregationType != null && aggregationType != AggregateType.NONE && !isUniqueTable
                 && !isAggregationTypeImplicit) {
             sb.append(" ").append(aggregationType.name());
         }
@@ -549,8 +756,15 @@ public class Column implements Writable {
         } else {
             sb.append(" NOT NULL");
         }
+        if (isAutoInc) {
+            sb.append(" AUTO_INCREMENT");
+        }
         if (defaultValue != null && getDataType() != PrimitiveType.HLL && getDataType() != PrimitiveType.BITMAP) {
-            sb.append(" DEFAULT \"").append(defaultValue).append("\"");
+            if (defaultValueExprDef != null) {
+                sb.append(" DEFAULT ").append(defaultValue).append("");
+            } else {
+                sb.append(" DEFAULT \"").append(defaultValue).append("\"");
+            }
         }
         if (StringUtils.isNotBlank(comment)) {
             sb.append(" COMMENT '").append(getComment(true)).append("'");
@@ -566,7 +780,8 @@ public class Column implements Writable {
     @Override
     public int hashCode() {
         return Objects.hash(name, getDataType(), getStrLen(), getPrecision(), getScale(), aggregationType,
-                isAggregationTypeImplicit, isKey, isAllowNull, defaultValue, comment, children, visible);
+                isAggregationTypeImplicit, isKey, isAllowNull, isAutoInc, defaultValue, comment, children, visible,
+                realDefaultValue);
     }
 
     @Override
@@ -586,14 +801,52 @@ public class Column implements Writable {
                 && isAggregationTypeImplicit == other.isAggregationTypeImplicit
                 && isKey == other.isKey
                 && isAllowNull == other.isAllowNull
+                && isAutoInc == other.isAutoInc
                 && getDataType().equals(other.getDataType())
                 && getStrLen() == other.getStrLen()
                 && getPrecision() == other.getPrecision()
                 && getScale() == other.getScale()
-                && comment.equals(other.comment)
+                && Objects.equals(comment, other.comment)
                 && visible == other.visible
-                && children.size() == other.children.size()
-                && children.equals(other.children);
+                && Objects.equals(children, other.children)
+                && Objects.equals(realDefaultValue, other.realDefaultValue);
+    }
+
+    // distribution column compare only care about attrs which affect data,
+    // do not care about attrs, such as comment
+    public boolean equalsForDistribution(Column other) {
+        if (other == this) {
+            return true;
+        }
+
+        boolean ok = name.equalsIgnoreCase(other.name)
+                && Objects.equals(getDefaultValue(), other.getDefaultValue())
+                && Objects.equals(aggregationType, other.aggregationType)
+                && isAggregationTypeImplicit == other.isAggregationTypeImplicit
+                && isKey == other.isKey
+                && isAllowNull == other.isAllowNull
+                && getDataType().equals(other.getDataType())
+                && getStrLen() == other.getStrLen()
+                && getPrecision() == other.getPrecision()
+                && getScale() == other.getScale()
+                && visible == other.visible
+                && Objects.equals(children, other.children)
+                && Objects.equals(realDefaultValue, other.realDefaultValue);
+
+        if (!ok) {
+            LOG.info("this column: name {} default value {} aggregationType {} isAggregationTypeImplicit {} "
+                     + "isKey {}, isAllowNull {}, datatype {}, strlen {}, precision {}, scale {}, visible {} "
+                     + "children {} realDefaultValue {}",
+                     name, getDefaultValue(), aggregationType, isAggregationTypeImplicit, isKey, isAllowNull,
+                     getDataType(), getStrLen(), getPrecision(), getScale(), visible, children, realDefaultValue);
+            LOG.info("other column: name {} default value {} aggregationType {} isAggregationTypeImplicit {} "
+                     + "isKey {}, isAllowNull {}, datatype {}, strlen {}, precision {}, scale {}, visible {} "
+                     + "children {} realDefaultValue {}",
+                     other.name, other.getDefaultValue(), other.aggregationType, other.isAggregationTypeImplicit,
+                     other.isKey, other.isAllowNull, other.getDataType(), other.getStrLen(), other.getPrecision(),
+                     other.getScale(), other.visible, other.children, other.realDefaultValue);
+        }
+        return ok;
     }
 
     @Override
@@ -616,6 +869,7 @@ public class Column implements Writable {
         notNull = in.readBoolean();
         if (notNull) {
             defaultValue = Text.readString(in);
+            realDefaultValue = defaultValue;
         }
         stats = ColumnStats.read(in);
 
@@ -636,6 +890,9 @@ public class Column implements Writable {
             case CHAR:
             case VARCHAR:
                 sb.append(String.format(typeStringMap.get(dataType), getStrLen()));
+                break;
+            case JSONB:
+                sb.append(type.toString());
                 break;
             case DECIMALV2:
             case DECIMAL32:
@@ -681,5 +938,34 @@ public class Column implements Writable {
         if (bfColumns != null && bfColumns.contains(tColumn.getColumnName())) {
             tColumn.setIsBloomFilterColumn(true);
         }
+    }
+
+    public boolean isCompoundKey() {
+        return isCompoundKey;
+    }
+
+    public void setCompoundKey(boolean compoundKey) {
+        isCompoundKey = compoundKey;
+    }
+
+    public boolean hasDefaultValue() {
+        return defaultValue != null || realDefaultValue != null || defaultValueExprDef != null;
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        // This just for bugfix. Because when user upgrade from 0.x to 1.1.x,
+        // the length of String type become 1. The reason is not very clear and maybe fixed by #14275.
+        // Here we try to rectify the error string length, by setting all String' length to MAX_STRING_LENGTH
+        // when replaying edit log.
+        if (type.isScalarType() && type.getPrimitiveType() == PrimitiveType.STRING
+                && type.getLength() != ScalarType.MAX_STRING_LENGTH) {
+            ((ScalarType) type).setLength(ScalarType.MAX_STRING_LENGTH);
+        }
+    }
+
+    public boolean isMaterializedViewColumn() {
+        return getName().startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX)
+                || getName().startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_AGGREGATE_NAME_PREFIX);
     }
 }

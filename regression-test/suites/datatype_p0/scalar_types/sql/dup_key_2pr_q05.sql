@@ -1,0 +1,1 @@
+SELECT * FROM tbl_scalar_types_dup_3keys where 885770666 > 1024 ORDER BY c_double, c_datetimev2, c_decimal  LIMIT 60;

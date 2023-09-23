@@ -30,6 +30,7 @@ public final class QueryStatisticsItem {
     private final String queryId;
     private final String user;
     private final String sql;
+    private final String catalog;
     private final String db;
     private final String connId;
     private final long queryStartTime;
@@ -42,6 +43,7 @@ public final class QueryStatisticsItem {
         this.queryId = builder.queryId;
         this.user = builder.user;
         this.sql = builder.sql;
+        this.catalog = builder.catalog;
         this.db = builder.db;
         this.connId = builder.connId;
         this.queryStartTime = builder.queryStartTime;
@@ -52,6 +54,10 @@ public final class QueryStatisticsItem {
 
     public String getDb() {
         return db;
+    }
+
+    public String getCatalog() {
+        return catalog;
     }
 
     public String getUser() {
@@ -89,6 +95,7 @@ public final class QueryStatisticsItem {
 
     public static final class Builder {
         private String queryId;
+        private String catalog;
         private String db;
         private String user;
         private String sql;
@@ -109,6 +116,11 @@ public final class QueryStatisticsItem {
 
         public Builder db(String db) {
             this.db = db;
+            return this;
+        }
+
+        public Builder catalog(String catalog) {
+            this.catalog = catalog;
             return this;
         }
 

@@ -17,7 +17,15 @@
 
 package org.apache.doris.nereids.properties;
 
+import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
+import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+
+import java.util.Collection;
+import java.util.List;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * Physical properties used in cascades.
@@ -26,20 +34,30 @@ public class PhysicalProperties {
 
     public static PhysicalProperties ANY = new PhysicalProperties();
 
+    public static PhysicalProperties STORAGE_ANY = new PhysicalProperties(DistributionSpecStorageAny.INSTANCE);
+
+    public static PhysicalProperties EXECUTION_ANY = new PhysicalProperties(DistributionSpecExecutionAny.INSTANCE);
+
     public static PhysicalProperties REPLICATED = new PhysicalProperties(DistributionSpecReplicated.INSTANCE);
 
     public static PhysicalProperties GATHER = new PhysicalProperties(DistributionSpecGather.INSTANCE);
 
+    public static PhysicalProperties STORAGE_GATHER = new PhysicalProperties(DistributionSpecStorageGather.INSTANCE);
+
+    public static PhysicalProperties MUST_SHUFFLE = new PhysicalProperties(DistributionSpecMustShuffle.INSTANCE);
+
     private final OrderSpec orderSpec;
 
     private final DistributionSpec distributionSpec;
+
+    private Integer hashCode = null;
 
     private PhysicalProperties() {
         this.orderSpec = new OrderSpec();
         this.distributionSpec = DistributionSpecAny.INSTANCE;
     }
 
-    private PhysicalProperties(DistributionSpec distributionSpec) {
+    public PhysicalProperties(DistributionSpec distributionSpec) {
         this.distributionSpec = distributionSpec;
         this.orderSpec = new OrderSpec();
     }
@@ -54,8 +72,25 @@ public class PhysicalProperties {
         this.orderSpec = orderSpec;
     }
 
+    public static PhysicalProperties createHash(
+            Collection<? extends Expression> orderedShuffledColumns, ShuffleType shuffleType) {
+        List<ExprId> partitionedSlots = orderedShuffledColumns.stream()
+                .map(SlotReference.class::cast)
+                .map(SlotReference::getExprId)
+                .collect(Collectors.toList());
+        return createHash(partitionedSlots, shuffleType);
+    }
+
+    public static PhysicalProperties createHash(List<ExprId> orderedShuffledColumns, ShuffleType shuffleType) {
+        return new PhysicalProperties(new DistributionSpecHash(orderedShuffledColumns, shuffleType));
+    }
+
     public static PhysicalProperties createHash(DistributionSpecHash distributionSpecHash) {
         return new PhysicalProperties(distributionSpecHash);
+    }
+
+    public PhysicalProperties withOrderSpec(OrderSpec orderSpec) {
+        return new PhysicalProperties(distributionSpec, orderSpec);
     }
 
     // Current properties satisfies other properties.
@@ -80,12 +115,33 @@ public class PhysicalProperties {
             return false;
         }
         PhysicalProperties that = (PhysicalProperties) o;
+        if (this.hashCode() != that.hashCode()) {
+            return false;
+        }
         return orderSpec.equals(that.orderSpec)
                 && distributionSpec.equals(that.distributionSpec);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(orderSpec, distributionSpec);
+        if (hashCode == null) {
+            hashCode = Objects.hash(orderSpec, distributionSpec);
+        }
+        return hashCode;
     }
+
+    @Override
+    public String toString() {
+        if (this.equals(ANY)) {
+            return "ANY";
+        }
+        if (this.equals(REPLICATED)) {
+            return "REPLICATED";
+        }
+        if (this.equals(GATHER)) {
+            return "GATHER";
+        }
+        return distributionSpec.toString() + " " + orderSpec.toString();
+    }
+
 }

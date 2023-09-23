@@ -32,7 +32,7 @@ struct AuthInfo {
     std::string user_ip;
     // -1 as unset
     int64_t auth_code = -1;
-    std::string auth_code_uuid = "";
+    std::string token;
 };
 
 template <class T>
@@ -44,9 +44,9 @@ void set_request_auth(T* req, const AuthInfo& auth) {
         // so they have to be set.
         req->user = "";
         req->passwd = "";
-    } else if (auth.auth_code_uuid != "") {
-        req->__isset.auth_code_uuid = true;
-        req->auth_code_uuid = auth.auth_code_uuid;
+    } else if (auth.token != "") {
+        req->__isset.token = true;
+        req->token = auth.token;
     } else {
         req->user = auth.user;
         req->passwd = auth.passwd;
@@ -66,7 +66,7 @@ static_assert((RELEASE_CONTEXT_COUNTER & (RELEASE_CONTEXT_COUNTER - 1)) == 0,
               "should be power of 2");
 
 template <typename To, typename From>
-static inline To convert_to(From from) {
+To convert_to(From from) {
     union {
         From _from;
         To _to;

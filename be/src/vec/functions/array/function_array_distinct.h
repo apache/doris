@@ -19,16 +19,41 @@
 // and modified by Doris
 #pragma once
 
+#include <fmt/format.h>
+#include <glog/logging.h>
+#include <string.h>
+
+#include <boost/iterator/iterator_facade.hpp>
+#include <memory>
+#include <ostream>
+#include <string>
+#include <utility>
+
+#include "common/status.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
-#include "vec/columns/column_const.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/hash_set.h"
-#include "vec/common/hash_table/hash_table.h"
-#include "vec/common/sip_hash.h"
+#include "vec/common/pod_array_fwd.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
-#include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/functions/function.h"
-#include "vec/functions/function_helpers.h"
-#include "vec/io/io_helper.h"
+
+namespace doris {
+class FunctionContext;
+} // namespace doris
+template <typename, typename>
+struct DefaultHash;
 
 namespace doris::vectorized {
 
@@ -71,7 +96,7 @@ public:
         auto dest_column_ptr = ColumnArray::create(nested_type->create_column(),
                                                    ColumnArray::ColumnOffsets::create());
         IColumn* dest_nested_column = &dest_column_ptr->get_data();
-        ColumnArray::Offsets& dest_offsets = dest_column_ptr->get_offsets();
+        auto& dest_offsets = dest_column_ptr->get_offsets();
         DCHECK(dest_nested_column != nullptr);
         dest_nested_column->reserve(src_nested_column->size());
         dest_offsets.reserve(input_rows_count);
@@ -109,8 +134,8 @@ private:
     static constexpr size_t INITIAL_SIZE_DEGREE = 5;
 
     template <typename ColumnType>
-    bool _execute_number(const IColumn& src_column, const ColumnArray::Offsets& src_offsets,
-                         IColumn& dest_column, ColumnArray::Offsets& dest_offsets,
+    bool _execute_number(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
+                         IColumn& dest_column, ColumnArray::Offsets64& dest_offsets,
                          const NullMapType* src_null_map, NullMapType* dest_null_map) {
         using NestType = typename ColumnType::value_type;
         using ElementNativeType = typename NativeType<NestType>::Type;
@@ -128,13 +153,17 @@ private:
                                            INITIAL_SIZE_DEGREE>;
         Set set;
 
-        ColumnArray::Offset prev_src_offset = 0;
-        ColumnArray::Offset res_offset = 0;
+        size_t prev_src_offset = 0;
+        size_t res_offset = 0;
 
         for (auto curr_src_offset : src_offsets) {
             set.clear();
             size_t null_size = 0;
-            for (ColumnArray::Offset j = prev_src_offset; j < curr_src_offset; ++j) {
+            for (size_t j = prev_src_offset; j < curr_src_offset; ++j) {
+                if (null_size != 0 && src_null_map && (*src_null_map)[j]) {
+                    // ignore duplicated nulls
+                    continue;
+                }
                 if (src_null_map && (*src_null_map)[j]) {
                     DCHECK(dest_null_map != nullptr);
                     (*dest_null_map).push_back(true);
@@ -162,8 +191,8 @@ private:
         return true;
     }
 
-    bool _execute_string(const IColumn& src_column, const ColumnArray::Offsets& src_offsets,
-                         IColumn& dest_column, ColumnArray::Offsets& dest_offsets,
+    bool _execute_string(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
+                         IColumn& dest_column, ColumnArray::Offsets64& dest_offsets,
                          const NullMapType* src_null_map, NullMapType* dest_null_map) {
         const ColumnString* src_data_concrete = reinterpret_cast<const ColumnString*>(&src_column);
         if (!src_data_concrete) {
@@ -178,13 +207,17 @@ private:
         using Set = HashSetWithStackMemory<StringRef, DefaultHash<StringRef>, INITIAL_SIZE_DEGREE>;
         Set set;
 
-        ColumnArray::Offset prev_src_offset = 0;
-        ColumnArray::Offset res_offset = 0;
+        size_t prev_src_offset = 0;
+        size_t res_offset = 0;
 
         for (auto curr_src_offset : src_offsets) {
             set.clear();
             size_t null_size = 0;
-            for (ColumnArray::Offset j = prev_src_offset; j < curr_src_offset; ++j) {
+            for (size_t j = prev_src_offset; j < curr_src_offset; ++j) {
+                if (null_size != 0 && src_null_map && (*src_null_map)[j]) {
+                    // ignore duplicated nulls
+                    continue;
+                }
                 if (src_null_map && (*src_null_map)[j]) {
                     DCHECK(dest_null_map != nullptr);
                     // Note: here we need to update the offset of ColumnString
@@ -199,13 +232,12 @@ private:
                     set.insert(src_str_ref);
                     // copy the src data to column_string_chars
                     const size_t old_size = column_string_chars.size();
-                    const size_t new_size = old_size + src_str_ref.size + 1;
+                    const size_t new_size = old_size + src_str_ref.size;
                     column_string_chars.resize(new_size);
                     if (src_str_ref.size > 0) {
                         memcpy(column_string_chars.data() + old_size, src_str_ref.data,
                                src_str_ref.size);
                     }
-                    column_string_chars[old_size + src_str_ref.size] = 0;
                     column_string_offsets.push_back(new_size);
 
                     if (dest_null_map) {
@@ -221,8 +253,8 @@ private:
         return true;
     }
 
-    bool _execute_by_type(const IColumn& src_column, const ColumnArray::Offsets& src_offsets,
-                          IColumn& dest_column, ColumnArray::Offsets& dest_offsets,
+    bool _execute_by_type(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
+                          IColumn& dest_column, ColumnArray::Offsets64& dest_offsets,
                           const NullMapType* src_null_map, NullMapType* dest_null_map,
                           DataTypePtr& nested_type) {
         bool res = false;
@@ -257,6 +289,21 @@ private:
         } else if (which.is_date_time()) {
             res = _execute_number<ColumnDateTime>(src_column, src_offsets, dest_column,
                                                   dest_offsets, src_null_map, dest_null_map);
+        } else if (which.is_date_v2()) {
+            res = _execute_number<ColumnDateV2>(src_column, src_offsets, dest_column, dest_offsets,
+                                                src_null_map, dest_null_map);
+        } else if (which.is_date_time_v2()) {
+            res = _execute_number<ColumnDateTimeV2>(src_column, src_offsets, dest_column,
+                                                    dest_offsets, src_null_map, dest_null_map);
+        } else if (which.is_decimal32()) {
+            res = _execute_number<ColumnDecimal32>(src_column, src_offsets, dest_column,
+                                                   dest_offsets, src_null_map, dest_null_map);
+        } else if (which.is_decimal64()) {
+            res = _execute_number<ColumnDecimal64>(src_column, src_offsets, dest_column,
+                                                   dest_offsets, src_null_map, dest_null_map);
+        } else if (which.is_decimal128i()) {
+            res = _execute_number<ColumnDecimal128I>(src_column, src_offsets, dest_column,
+                                                     dest_offsets, src_null_map, dest_null_map);
         } else if (which.is_decimal128()) {
             res = _execute_number<ColumnDecimal128>(src_column, src_offsets, dest_column,
                                                     dest_offsets, src_null_map, dest_null_map);

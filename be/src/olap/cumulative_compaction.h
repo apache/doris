@@ -17,16 +17,23 @@
 
 #pragma once
 
-#include <string>
+#include <butil/macros.h>
 
+#include <string>
+#include <vector>
+
+#include "common/status.h"
+#include "io/io_common.h"
 #include "olap/compaction.h"
-#include "olap/cumulative_compaction_policy.h"
+#include "olap/olap_common.h"
+#include "olap/rowset/rowset.h"
+#include "olap/tablet.h"
 
 namespace doris {
 
 class CumulativeCompaction : public Compaction {
 public:
-    CumulativeCompaction(TabletSharedPtr tablet);
+    CumulativeCompaction(const TabletSharedPtr& tablet);
     ~CumulativeCompaction() override;
 
     Status prepare_compact() override;

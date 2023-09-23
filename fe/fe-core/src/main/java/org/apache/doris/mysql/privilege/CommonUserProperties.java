@@ -21,6 +21,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
@@ -50,9 +51,15 @@ public class CommonUserProperties implements Writable {
     // user level exec_mem_limit, if > 0, will overwrite the exec_mem_limit in session variable
     @SerializedName("execMemLimit")
     private long execMemLimit = -1;
-    // user level load_mem_limit, if > 0, will overwrite the load_mem_limit in session variable
-    @SerializedName("loadMemLimit")
-    private long loadMemLimit = -1;
+
+    @SerializedName("queryTimeout")
+    private int queryTimeout = -1;
+
+    @SerializedName("insertTimeout")
+    private int insertTimeout = -1;
+
+    @SerializedName("workloadGroup")
+    private String workloadGroup = WorkloadGroupMgr.DEFAULT_GROUP_NAME;
 
     private String[] sqlBlockRulesSplit = {};
 
@@ -114,12 +121,28 @@ public class CommonUserProperties implements Writable {
         this.execMemLimit = execMemLimit;
     }
 
-    public long getLoadMemLimit() {
-        return loadMemLimit;
+    public int getQueryTimeout() {
+        return queryTimeout;
     }
 
-    public void setLoadMemLimit(long loadMemLimit) {
-        this.loadMemLimit = loadMemLimit;
+    public void setQueryTimeout(int timeout) {
+        this.queryTimeout = timeout;
+    }
+
+    public int getInsertTimeout() {
+        return insertTimeout;
+    }
+
+    public void setInsertTimeout(int insertTimeout) {
+        this.insertTimeout = insertTimeout;
+    }
+
+    public String getWorkloadGroup() {
+        return workloadGroup;
+    }
+
+    public void setWorkloadGroup(String workloadGroup) {
+        this.workloadGroup = workloadGroup;
     }
 
     public static CommonUserProperties read(DataInput in) throws IOException {

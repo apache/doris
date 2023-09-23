@@ -31,6 +31,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPlanFragment;
+import org.apache.doris.thrift.TResultSinkType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -83,6 +84,12 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     // id for this plan fragment
     private PlanFragmentId fragmentId;
+    // nereids planner and original planner generate fragments in different order.
+    // This makes nereids fragment id different from that of original planner, and
+    // hence different from that in profile.
+    // in original planner, fragmentSequenceNum is fragmentId, and in nereids planner,
+    // fragmentSequenceNum is the id displayed in profile
+    private int fragmentSequenceNum;
     // private PlanId planId_;
     // private CohortId cohortId_;
 
@@ -96,7 +103,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     private ArrayList<Expr> outputExprs;
 
     // created in finalize() or set in setSink()
-    private DataSink sink;
+    protected DataSink sink;
 
     // data source(or sender) of specific partition in the fragment;
     // an UNPARTITIONED fragment is executed on only a single node
@@ -116,7 +123,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     // specification of how the output of this fragment is partitioned (i.e., how
     // it's sent to its destination);
     // if the output is UNPARTITIONED, it is being broadcast
-    private DataPartition outputPartition;
+    protected DataPartition outputPartition;
 
     // Whether query statistics is sent with every batch. In order to get the query
     // statistics correctly when query contains limit, it is necessary to send query
@@ -139,6 +146,8 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     // has colocate plan node
     private boolean hasColocatePlanNode = false;
 
+    private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCAL;
+
     /**
      * C'tor for fragment with specific partition; the output is by default broadcast.
      */
@@ -157,6 +166,13 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     public PlanFragment(PlanFragmentId id, PlanNode root, DataPartition partition, DataPartition partitionForThrift) {
         this(id, root, partition);
         this.dataPartitionForThrift = partitionForThrift;
+    }
+
+    public PlanFragment(PlanFragmentId id, PlanNode root, DataPartition partition,
+            Set<RuntimeFilterId> builderRuntimeFilterIds, Set<RuntimeFilterId> targetRuntimeFilterIds) {
+        this(id, root, partition);
+        this.builderRuntimeFilterIds = new HashSet<>(builderRuntimeFilterIds);
+        this.targetRuntimeFilterIds = new HashSet<>(targetRuntimeFilterIds);
     }
 
     /**
@@ -221,8 +237,16 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         this.hasColocatePlanNode = hasColocatePlanNode;
     }
 
+    public void setResultSinkType(TResultSinkType resultSinkType) {
+        this.resultSinkType = resultSinkType;
+    }
+
     public boolean hasColocatePlanNode() {
         return hasColocatePlanNode;
+    }
+
+    public void setDataPartition(DataPartition dataPartition) {
+        this.dataPartition = dataPartition;
     }
 
     /**
@@ -236,7 +260,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
             Preconditions.checkState(sink == null);
             // we're streaming to an exchange node
             DataStreamSink streamSink = new DataStreamSink(destNode.getId());
-            streamSink.setPartition(outputPartition);
+            streamSink.setOutputPartition(outputPartition);
             streamSink.setFragment(this);
             sink = streamSink;
         } else {
@@ -252,7 +276,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
             } else {
                 // add ResultSink
                 // we're streaming to an result sink
-                sink = new ResultSink(planRoot.getId());
+                sink = new ResultSink(planRoot.getId(), resultSinkType);
             }
         }
     }
@@ -413,5 +437,17 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     public boolean isTransferQueryStatisticsWithEveryBatch() {
         return transferQueryStatisticsWithEveryBatch;
+    }
+
+    public int getFragmentSequenceNum() {
+        if (ConnectContext.get().getSessionVariable().isEnableNereidsPlanner()) {
+            return fragmentSequenceNum;
+        } else {
+            return fragmentId.asInt();
+        }
+    }
+
+    public void setFragmentSequenceNum(int seq) {
+        fragmentSequenceNum = seq;
     }
 }

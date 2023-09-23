@@ -25,7 +25,6 @@ import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -37,7 +36,6 @@ import java.io.InputStreamReader;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.util.List;
-import java.util.Map;
 
 /*
  * This for Boxer2 Baidu BCC agent
@@ -54,21 +52,20 @@ public class LocalFileDeployManager extends DeployManager {
     public static final String ENV_FE_OBSERVER_SERVICE = "FE_OBSERVER_SERVICE";
     public static final String ENV_BE_SERVICE = "BE_SERVICE";
     public static final String ENV_BROKER_SERVICE = "BROKER_SERVICE";
-
-    public static final String ENV_BROKER_NAME = "BROKER_NAME";
+    public static final String ENV_CN_SERVICE = "CN_SERVICE";
 
     private String clusterInfoFile;
 
     public LocalFileDeployManager(Env env, long intervalMs) {
         super(env, intervalMs);
-        initEnvVariables(ENV_FE_SERVICE, ENV_FE_OBSERVER_SERVICE, ENV_BE_SERVICE, ENV_BROKER_SERVICE);
+        initEnvVariables(ENV_FE_SERVICE, ENV_FE_OBSERVER_SERVICE, ENV_BE_SERVICE, ENV_BROKER_SERVICE, ENV_CN_SERVICE);
     }
 
     @Override
     protected void initEnvVariables(String envElectableFeServiceGroup, String envObserverFeServiceGroup,
-            String envBackendServiceGroup, String envBrokerServiceGroup) {
+            String envBackendServiceGroup, String envBrokerServiceGroup, String envCnServiceGroup) {
         super.initEnvVariables(envElectableFeServiceGroup, envObserverFeServiceGroup, envBackendServiceGroup,
-                               envBrokerServiceGroup);
+                envBrokerServiceGroup, envCnServiceGroup);
 
         // namespace
         clusterInfoFile = Strings.nullToEmpty(System.getenv(ENV_APP_NAMESPACE));
@@ -82,15 +79,15 @@ public class LocalFileDeployManager extends DeployManager {
     }
 
     @Override
-    public List<Pair<String, Integer>> getGroupHostPorts(String groupName) {
-        List<Pair<String, Integer>> result = Lists.newArrayList();
+    public List<SystemInfoService.HostInfo> getGroupHostInfos(NodeType nodeType) {
+        String groupName = nodeTypeAttrMap.get(nodeType).getServiceName();
+        List<SystemInfoService.HostInfo> result = Lists.newArrayList();
         LOG.info("begin to get group: {} from file: {}", groupName, clusterInfoFile);
 
         FileChannel channel = null;
         FileLock lock = null;
         BufferedReader bufferedReader = null;
-        try {
-            FileInputStream stream = new FileInputStream(clusterInfoFile);
+        try (FileInputStream stream = new FileInputStream(clusterInfoFile)) {
             channel = stream.getChannel();
             lock = channel.lock(0, Long.MAX_VALUE, true);
 
@@ -110,7 +107,7 @@ public class LocalFileDeployManager extends DeployManager {
 
                 for (String endpoint : endpoints) {
                     Pair<String, Integer> hostPorts = SystemInfoService.validateHostAndPort(endpoint);
-                    result.add(hostPorts);
+                    result.add(new SystemInfoService.HostInfo(hostPorts.first, hostPorts.second));
                 }
 
                 // only need one line
@@ -133,7 +130,7 @@ public class LocalFileDeployManager extends DeployManager {
                     LOG.warn("failed to close buffered reader after reading file: {}", clusterInfoFile, e);
                 }
             }
-            if (lock != null && channel.isOpen()) {
+            if (lock != null) {
                 try {
                     lock.release();
                 } catch (IOException e) {
@@ -151,23 +148,5 @@ public class LocalFileDeployManager extends DeployManager {
 
         LOG.info("get hosts from {}: {}", groupName, result);
         return result;
-    }
-
-    @Override
-    protected Map<String, List<Pair<String, Integer>>> getBrokerGroupHostPorts() {
-        List<Pair<String, Integer>> hostPorts = getGroupHostPorts(brokerServiceGroup);
-        if (hostPorts == null) {
-            return null;
-        }
-        final String brokerName = System.getenv(ENV_BROKER_NAME);
-        if (Strings.isNullOrEmpty(brokerName)) {
-            LOG.error("failed to get broker name from env: {}", ENV_BROKER_NAME);
-            System.exit(-1);
-        }
-
-        Map<String, List<Pair<String, Integer>>> brokers = Maps.newHashMap();
-        brokers.put(brokerName, hostPorts);
-        LOG.info("get brokers from file: {}", brokers);
-        return brokers;
     }
 }

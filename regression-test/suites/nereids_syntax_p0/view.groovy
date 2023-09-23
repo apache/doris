@@ -17,11 +17,11 @@
 
 suite("view") {
     sql """
-        SET enable_vectorized_engine=true
+        SET enable_nereids_planner=true
     """
 
     sql """
-        SET enable_nereids_planner=true
+        SET enable_bucket_shuffle_join=false
     """
 
     sql """
@@ -43,8 +43,10 @@ suite("view") {
             select *
             from v2
             ) t 
-        on v1.c_custkey = t.lo_custkey;
+        on v1.c_custkey = t.lo_custkey
     """
+
+    sql "SET enable_fallback_to_original_planner=false"
 
     qt_select_1 """
         select * 
@@ -81,7 +83,7 @@ suite("view") {
             from v2
             ) t 
         on l.lo_custkey = t.lo_custkey
-        order by l.lo_custkey, t.lo_custkey
+        order by l.lo_custkey, t.lo_custkey, l.lo_linenumber, l.lo_tax
     """
 
     qt_select_6 """

@@ -31,46 +31,55 @@ import io.grpc.ForwardingClientCall;
 import io.grpc.ManagedChannel;
 import io.grpc.Metadata;
 import io.grpc.MethodDescriptor;
-import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
+import io.grpc.netty.NettyChannelBuilder;
 import io.opentelemetry.context.Context;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 public class BackendServiceClient {
     public static final Logger LOG = LogManager.getLogger(BackendServiceClient.class);
 
-    private static final int MAX_RETRY_NUM = 0;
+    private static final int MAX_RETRY_NUM = 10;
     private final TNetworkAddress address;
     private final PBackendServiceGrpc.PBackendServiceFutureStub stub;
     private final PBackendServiceGrpc.PBackendServiceBlockingStub blockingStub;
     private final ManagedChannel channel;
+    private final long execPlanTimeout;
 
-    public BackendServiceClient(TNetworkAddress address) {
+    public BackendServiceClient(TNetworkAddress address, Executor executor) {
         this.address = address;
         channel = NettyChannelBuilder.forAddress(address.getHostname(), address.getPort())
+                .executor(executor)
                 .flowControlWindow(Config.grpc_max_message_size_bytes)
+                .keepAliveWithoutCalls(true)
                 .maxInboundMessageSize(Config.grpc_max_message_size_bytes).enableRetry().maxRetryAttempts(MAX_RETRY_NUM)
                 .intercept(new OpenTelemetryClientInterceptor()).usePlaintext().build();
         stub = PBackendServiceGrpc.newFutureStub(channel);
         blockingStub = PBackendServiceGrpc.newBlockingStub(channel);
+        // execPlanTimeout should be greater than future.get timeout, otherwise future will throw ExecutionException
+        execPlanTimeout = Config.remote_fragment_exec_timeout_ms + 5000;
     }
 
     public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentAsync(
             InternalService.PExecPlanFragmentRequest request) {
-        return stub.execPlanFragment(request);
+        return stub.withDeadlineAfter(execPlanTimeout, TimeUnit.MILLISECONDS)
+                .execPlanFragment(request);
     }
 
     public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentPrepareAsync(
             InternalService.PExecPlanFragmentRequest request) {
-        return stub.execPlanFragmentPrepare(request);
+        return stub.withDeadlineAfter(execPlanTimeout, TimeUnit.MILLISECONDS)
+                .execPlanFragmentPrepare(request);
     }
 
     public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentStartAsync(
             InternalService.PExecPlanFragmentStartRequest request) {
-        return stub.execPlanFragmentStart(request);
+        return stub.withDeadlineAfter(execPlanTimeout, TimeUnit.MILLISECONDS)
+                .execPlanFragmentStart(request);
     }
 
     public Future<InternalService.PCancelPlanFragmentResult> cancelPlanFragmentAsync(
@@ -82,8 +91,23 @@ public class BackendServiceClient {
         return stub.fetchData(request);
     }
 
+    public Future<InternalService.PTabletKeyLookupResponse> fetchTabletDataAsync(
+            InternalService.PTabletKeyLookupRequest request) {
+        return stub.tabletFetchData(request);
+    }
+
     public InternalService.PFetchDataResult fetchDataSync(InternalService.PFetchDataRequest request) {
         return blockingStub.fetchData(request);
+    }
+
+    public Future<InternalService.PFetchArrowFlightSchemaResult> fetchArrowFlightSchema(
+            InternalService.PFetchArrowFlightSchemaRequest request) {
+        return stub.fetchArrowFlightSchema(request);
+    }
+
+    public Future<InternalService.PFetchTableSchemaResult> fetchTableStructureAsync(
+            InternalService.PFetchTableSchemaRequest request) {
+        return stub.fetchTableSchema(request);
     }
 
     public Future<InternalService.PCacheResponse> updateCache(InternalService.PUpdateCacheRequest request) {
@@ -116,6 +140,25 @@ public class BackendServiceClient {
 
     public Future<InternalService.PConstantExprResult> foldConstantExpr(InternalService.PConstantExprRequest request) {
         return stub.foldConstantExpr(request);
+    }
+
+    public Future<InternalService.PFetchColIdsResponse> getColIdsByTabletIds(
+            InternalService.PFetchColIdsRequest request) {
+        return stub.getColumnIdsByTabletIds(request);
+    }
+
+    public Future<InternalService.PReportStreamLoadStatusResponse> reportStreamLoadStatus(
+                            InternalService.PReportStreamLoadStatusRequest request) {
+        return stub.reportStreamLoadStatus(request);
+    }
+
+    public Future<InternalService.PGlobResponse> glob(InternalService.PGlobRequest request) {
+        return stub.glob(request);
+    }
+
+    public Future<InternalService.PGroupCommitInsertResponse> groupCommitInsert(
+            InternalService.PGroupCommitInsertRequest request) {
+        return stub.groupCommitInsert(request);
     }
 
     public void shutdown() {

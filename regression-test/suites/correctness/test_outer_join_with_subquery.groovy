@@ -19,7 +19,7 @@
      sql """ DROP TABLE IF EXISTS dim_comp_tags """
      sql """ DROP TABLE IF EXISTS ods_comp_info_q """
      sql """
-        CREATE TABLE `dim_comp_tags`
+        CREATE TABLE IF NOT EXISTS `dim_comp_tags`
         (
             `stock_code` varchar(100) NULL COMMENT "",
             `first_tag`  varchar(100) NULL COMMENT "",
@@ -35,7 +35,7 @@
         );
      """
      sql """
-        CREATE TABLE `ods_comp_info_q`
+        CREATE TABLE IF NOT EXISTS `ods_comp_info_q`
         (
             `stock_code`             varchar(100) NULL COMMENT "",
             `data_time`              date NOT NULL COMMENT "",
@@ -44,21 +44,21 @@
             `datatimev2_2`           datetimev2(3) NOT NULL COMMENT "",
             `datatimev2_3`           datetimev2(6) NOT NULL COMMENT "",
             `employee`               int(11) NULL COMMENT "",
-            `oper_rev`               decimal(27, 2) NULL COMMENT "",
-            `net_profit`             decimal(27, 2) NULL COMMENT "",
-            `roe_diluted`            decimal(27, 2) NULL COMMENT "",
-            `roe_forecast1`          decimal(27, 2) NULL COMMENT "",
-            `roe_forecast2`          decimal(27, 2) NULL COMMENT "",
-            `roe_forecast3`          decimal(27, 2) NULL COMMENT "",
+            `oper_rev`               decimal(20, 2) NULL COMMENT "",
+            `net_profit`             decimal(20, 2) NULL COMMENT "",
+            `roe_diluted`            decimal(20, 2) NULL COMMENT "",
+            `roe_forecast1`          decimal(20, 2) NULL COMMENT "",
+            `roe_forecast2`          decimal(20, 2) NULL COMMENT "",
+            `roe_forecast3`          decimal(20, 2) NULL COMMENT "",
             `segment_sales_industry` varchar(2000) NULL COMMENT "",
             `segment_sales_product`  varchar(2000) NULL COMMENT "",
             `segment_sales_region`   varchar(2000) NULL COMMENT "",
-            `cont_liab`              decimal(27, 2) NULL COMMENT "",
-            `rd_exp`                 decimal(27, 2) NULL COMMENT "",
-            `cash_end_bal_cf`        decimal(27, 2) NULL COMMENT "",
-            `deductedprofit`         decimal(27, 2) NULL COMMENT "",
-            `extraordinary`          decimal(27, 2) NULL COMMENT "",
-            `capex`                  decimal(27, 2) NULL COMMENT "",
+            `cont_liab`              decimal(20, 2) NULL COMMENT "",
+            `rd_exp`                 decimal(20, 2) NULL COMMENT "",
+            `cash_end_bal_cf`        decimal(20, 2) NULL COMMENT "",
+            `deductedprofit`         decimal(20, 2) NULL COMMENT "",
+            `extraordinary`          decimal(20, 2) NULL COMMENT "",
+            `capex`                  decimal(20, 2) NULL COMMENT "",
             `update_time`            datetime NULL COMMENT ""
         ) ENGINE=OLAP
         UNIQUE KEY(`stock_code`, `data_time`, `datev2`, `datatimev2_1`, `datatimev2_2`, `datatimev2_3`)

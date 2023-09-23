@@ -60,10 +60,9 @@ public class ExpressionParserTest extends ParserTestBase {
     public void testExprBetweenPredicate() {
         parseExpression("c BETWEEN a AND b")
                 .assertEquals(
-                        new Between(
-                                new UnboundSlot("c"),
-                                new UnboundSlot("a"),
-                                new UnboundSlot("b")
+                        new And(
+                                new GreaterThanEqual(new UnboundSlot("c"), new UnboundSlot("a")),
+                                new LessThanEqual(new UnboundSlot("c"), new UnboundSlot("b"))
                         )
                 );
     }
@@ -149,6 +148,12 @@ public class ExpressionParserTest extends ParserTestBase {
 
         String min = "select min(a), min(b) as m from test1";
         assertSql(min);
+
+        String max = "select max(a), max(b) as m from test1";
+        assertSql(max);
+
+        String maxAndMin = "select max(a), min(b) from test1";
+        assertSql(maxAndMin);
     }
 
     @Test
@@ -159,7 +164,6 @@ public class ExpressionParserTest extends ParserTestBase {
 
         String groupByWithFun1 = "select sum(a), b from test1 group by b";
         assertSql(groupByWithFun1);
-
 
         String groupByWithFun2 = "select sum(a), b, c+1 from test1 group by b, c";
         assertSql(groupByWithFun2);
@@ -266,5 +270,22 @@ public class ExpressionParserTest extends ParserTestBase {
 
         String cast2 = "SELECT CAST(A AS INT) AS I FROM TEST;";
         assertSql(cast2);
+    }
+
+    @Test
+    public void testIsNull() {
+        String e1 = "a is null";
+        assertExpr(e1);
+
+        String e2 = "a is not null";
+        assertExpr(e2);
+    }
+
+    @Test
+    public void testMatch() {
+        String sql = "select * from test "
+                + "where (a match 'hello' or a match_any 'world') "
+                + "and b match_all 'yes ok' or c match_phrase 'nice day';";
+        assertSql(sql);
     }
 }

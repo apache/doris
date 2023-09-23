@@ -17,19 +17,20 @@
 
 #pragma once
 
+#include <butil/macros.h>
+#include <glog/logging.h>
+
 #include <cstdint>
 #include <memory>
-#include <string>
+#include <utility>
+#include <vector>
 
 #include "common/status.h"
-#include "env/env.h"
-#include "gutil/macros.h"
-#include "io/fs/file_reader.h"
+#include "io/fs/file_reader_writer_fwd.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/index_page.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
-#include "util/coding.h"
-#include "util/slice.h"
+#include "util/once.h"
 
 namespace doris {
 
@@ -38,6 +39,8 @@ class FileWriter;
 }
 
 namespace segment_v2 {
+class ColumnIndexMetaPB;
+class OrdinalIndexPB;
 
 // Ordinal index is implemented by one IndexPage that stores the first value ordinal
 // and file pointer for each data page.
@@ -63,11 +66,11 @@ class OrdinalPageIndexIterator;
 
 class OrdinalIndexReader {
 public:
-    explicit OrdinalIndexReader(io::FileReaderSPtr file_reader, const OrdinalIndexPB* index_meta,
-                                ordinal_t num_values)
-            : _file_reader(std::move(file_reader)),
-              _index_meta(index_meta),
-              _num_values(num_values) {}
+    explicit OrdinalIndexReader(io::FileReaderSPtr file_reader, ordinal_t num_values,
+                                const OrdinalIndexPB& meta_pb)
+            : _file_reader(std::move(file_reader)), _num_values(num_values) {
+        _meta_pb.reset(new OrdinalIndexPB(meta_pb));
+    }
 
     // load and parse the index page into memory
     Status load(bool use_page_cache, bool kept_in_memory);
@@ -88,10 +91,17 @@ public:
     int32_t num_data_pages() const { return _num_pages; }
 
 private:
+    Status _load(bool use_page_cache, bool kept_in_memory,
+                 std::unique_ptr<OrdinalIndexPB> index_meta);
+
+private:
     friend OrdinalPageIndexIterator;
 
     io::FileReaderSPtr _file_reader;
-    const OrdinalIndexPB* _index_meta;
+    DorisCallOnce<Status> _load_once;
+
+    std::unique_ptr<OrdinalIndexPB> _meta_pb;
+
     // total number of values (including NULLs) in the indexed column,
     // equals to 1 + 'last ordinal of last data pages'
     ordinal_t _num_values;
@@ -115,8 +125,8 @@ public:
         DCHECK_LT(_cur_idx, _index->_num_pages);
         _cur_idx++;
     }
-    int32_t page_index() const { return _cur_idx; };
-    const PagePointer& page() const { return _index->_pages[_cur_idx]; };
+    int32_t page_index() const { return _cur_idx; }
+    const PagePointer& page() const { return _index->_pages[_cur_idx]; }
     ordinal_t first_ordinal() const { return _index->get_first_ordinal(_cur_idx); }
     ordinal_t last_ordinal() const { return _index->get_last_ordinal(_cur_idx); }
 

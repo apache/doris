@@ -22,7 +22,6 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 
-
 /**
  * Represents Boolean literal
  */
@@ -33,9 +32,21 @@ public class BooleanLiteral extends Literal {
 
     private final boolean value;
 
-    public BooleanLiteral(boolean value) {
+    private BooleanLiteral(boolean value) {
         super(BooleanType.INSTANCE);
         this.value = value;
+    }
+
+    public static BooleanLiteral of(boolean value) {
+        if (value) {
+            return TRUE;
+        } else {
+            return FALSE;
+        }
+    }
+
+    public static BooleanLiteral of(Boolean value) {
+        return of(value.booleanValue());
     }
 
     @Override
@@ -56,5 +67,14 @@ public class BooleanLiteral extends Literal {
     @Override
     public LiteralExpr toLegacyLiteral() {
         return new BoolLiteral(value);
+    }
+
+    @Override
+    public double getDouble() {
+        if (value) {
+            return 1.0;
+        } else {
+            return 0;
+        }
     }
 }

@@ -40,6 +40,8 @@ under the License.
 
 ```
 git clone https://github.com/<your_github_name>/doris.git
+cd doris
+git submodule update --init --recursive
 ```
 
 注意：请将 \<your\_github\_name\> 替换为您的 github 名字。

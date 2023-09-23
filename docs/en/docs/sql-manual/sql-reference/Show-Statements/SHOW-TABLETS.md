@@ -48,9 +48,10 @@ SHOW TABLETS FROM [database.]table [PARTITIONS(p1,p2)]
 
 where_condition could be one of:
 ```
-    Version = version
-    state = "NORMAL|ROLLUP|CLONE|DECOMMISSION"
-    BackendId = backend_id
+Version = version
+state = "NORMAL|ROLLUP|CLONE|DECOMMISSION"
+BackendId = backend_id
+IndexName = rollup_name
 ```
 or compound them with operator `AND`.
 

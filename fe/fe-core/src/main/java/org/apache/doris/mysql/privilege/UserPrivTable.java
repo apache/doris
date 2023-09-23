@@ -18,164 +18,21 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.mysql.MysqlPassword;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataOutput;
 import java.io.IOException;
-import java.util.LinkedList;
-import java.util.List;
 
 /*
  * UserPrivTable saves all global privs and also password for users
  */
+@Deprecated
 public class UserPrivTable extends PrivTable {
     private static final Logger LOG = LogManager.getLogger(UserPrivTable.class);
 
     public UserPrivTable() {
-    }
-
-    public void getPrivs(UserIdentity currentUser, PrivBitSet savedPrivs) {
-        GlobalPrivEntry matchedEntry = null;
-        for (PrivEntry entry : entries) {
-            GlobalPrivEntry globalPrivEntry = (GlobalPrivEntry) entry;
-
-            if (!globalPrivEntry.match(currentUser, true)) {
-                continue;
-            }
-
-            matchedEntry = globalPrivEntry;
-            break;
-        }
-        if (matchedEntry == null) {
-            return;
-        }
-
-        savedPrivs.or(matchedEntry.getPrivSet());
-    }
-
-    // validate the connection by host, user and password.
-    // return true if this connection is valid, and 'savedPrivs' save all global privs got from user table.
-    // if currentUser is not null, save the current user identity
-    public boolean checkPassword(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString,
-            List<UserIdentity> currentUser) {
-        LOG.debug("check password for user: {} from {}, password: {}, random string: {}",
-                  remoteUser, remoteHost, remotePasswd, randomString);
-
-        // TODO(cmy): for now, we check user table from first entry to last,
-        // This may not efficient, but works.
-        for (PrivEntry entry : entries) {
-            GlobalPrivEntry globalPrivEntry = (GlobalPrivEntry) entry;
-
-            // check host
-            if (!globalPrivEntry.isAnyHost() && !globalPrivEntry.getHostPattern().match(remoteHost)) {
-                continue;
-            }
-
-            // check user
-            if (!globalPrivEntry.isAnyUser() && !globalPrivEntry.getUserPattern().match(remoteUser)) {
-                continue;
-            }
-
-            // check password
-            byte[] saltPassword = MysqlPassword.getSaltFromPassword(globalPrivEntry.getPassword());
-            // when the length of password is zero, the user has no password
-            if ((remotePasswd.length == saltPassword.length)
-                    && (remotePasswd.length == 0
-                            || MysqlPassword.checkScramble(remotePasswd, randomString, saltPassword))) {
-                // found the matched entry
-                if (currentUser != null) {
-                    currentUser.add(globalPrivEntry.getDomainUserIdent());
-                }
-                return true;
-            } else {
-                // case A. this means we already matched a entry by user@host, but password is incorrect.
-                // return false, NOT continue matching other entries.
-                // For example, there are 2 entries in order:
-                // 1. cmy@"192.168.%" identified by '123';
-                // 2. cmy@"%" identified by 'abc';
-                // if user cmy@'192.168.1.1' try to login with password 'abc', it will be denied.
-                return false;
-            }
-        }
-
-        return false;
-    }
-
-    public boolean checkPlainPassword(String remoteUser, String remoteHost, String remotePasswd,
-            List<UserIdentity> currentUser) {
-        for (PrivEntry entry : entries) {
-            GlobalPrivEntry globalPrivEntry = (GlobalPrivEntry) entry;
-
-            // check host
-            if (!globalPrivEntry.isAnyHost() && !globalPrivEntry.getHostPattern().match(remoteHost)) {
-                continue;
-            }
-
-            // check user
-            if (!globalPrivEntry.isAnyUser() && !globalPrivEntry.getUserPattern().match(remoteUser)) {
-                continue;
-            }
-
-            if (MysqlPassword.checkPlainPass(globalPrivEntry.getPassword(), remotePasswd)) {
-                if (currentUser != null) {
-                    currentUser.add(globalPrivEntry.getDomainUserIdent());
-                }
-                return true;
-            } else {
-                // set case A. in checkPassword()
-                return false;
-            }
-        }
-
-        return false;
-    }
-
-    /*
-     * set password for specified entry. It is same as adding an entry to the user priv table.
-     */
-    public void setPassword(GlobalPrivEntry passwdEntry, boolean errOnNonExist) throws DdlException {
-        GlobalPrivEntry addedEntry = (GlobalPrivEntry) addEntry(passwdEntry, false /* err on exist */,
-                errOnNonExist /* err on non exist */);
-        addedEntry.setPassword(passwdEntry.getPassword());
-    }
-
-    // return true only if user exist and not set by domain
-    // user set by domain should be checked in property manager
-    public boolean doesUserExist(UserIdentity userIdent) {
-        for (PrivEntry privEntry : entries) {
-            if (privEntry.match(userIdent, true /* exact match */) && !privEntry.isSetByDomainResolver()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    // Check whether the user exists and return the UserIdentity.
-    public UserIdentity getCurrentUserIdentity(UserIdentity userIdent) {
-        for (PrivEntry privEntry : entries) {
-            GlobalPrivEntry globalPrivEntry = (GlobalPrivEntry) privEntry;
-            if (globalPrivEntry.match(userIdent, false)) {
-                return globalPrivEntry.getDomainUserIdent();
-            }
-        }
-        return null;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        if (!isClassNameWrote) {
-            String className = UserPrivTable.class.getCanonicalName();
-            Text.writeString(out, className);
-            isClassNameWrote = true;
-        }
-
-        super.write(out);
     }
 
     /**
@@ -184,25 +41,28 @@ public class UserPrivTable extends PrivTable {
      */
     public CatalogPrivTable degradeToInternalCatalogPriv() throws IOException {
         CatalogPrivTable catalogPrivTable = new CatalogPrivTable();
-        List<PrivEntry> degradedEntries = new LinkedList<>();
         for (PrivEntry privEntry : entries) {
             GlobalPrivEntry globalPrivEntry = (GlobalPrivEntry) privEntry;
             if (!globalPrivEntry.match(UserIdentity.ROOT, true)
                     && !globalPrivEntry.match(UserIdentity.ADMIN, true)
                     && !globalPrivEntry.privSet.isEmpty()) {
                 try {
+                    // USAGE_PRIV, NODE_PRIV and ADMIN_PRIV are no need to degrade.
+                    PrivBitSet privsAfterRemoved = globalPrivEntry.privSet.copy();
+                    privsAfterRemoved.unset(Privilege.USAGE_PRIV.getIdx());
+                    privsAfterRemoved.unset(Privilege.NODE_PRIV.getIdx());
+                    privsAfterRemoved.unset(Privilege.ADMIN_PRIV.getIdx());
                     CatalogPrivEntry entry = CatalogPrivEntry.create(globalPrivEntry.origUser, globalPrivEntry.origHost,
-                            InternalCatalog.INTERNAL_CATALOG_NAME, globalPrivEntry.isDomain, globalPrivEntry.privSet);
+                            InternalCatalog.INTERNAL_CATALOG_NAME, globalPrivEntry.isDomain, privsAfterRemoved);
                     entry.setSetByDomainResolver(false);
                     catalogPrivTable.addEntry(entry, false, false);
-                    degradedEntries.add(globalPrivEntry);
+                    // only keep USAGE_PRIV, NODE_PRIV and ADMIN_PRIV in global entry, if they exist before.
+                    globalPrivEntry.privSet.and(
+                            PrivBitSet.of(Privilege.USAGE_PRIV, Privilege.NODE_PRIV, Privilege.ADMIN_PRIV));
                 } catch (Exception e) {
                     throw new IOException(e.getMessage());
                 }
             }
-        }
-        for (PrivEntry degraded : degradedEntries) {
-            dropEntry(degraded);
         }
         return catalogPrivTable;
     }

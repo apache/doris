@@ -55,7 +55,7 @@ public class CreateRoleStmt extends DdlStmt {
         role = ClusterNamespace.getFullName(analyzer.getClusterName(), role);
 
         // check if current user has GRANT priv on GLOBAL level.
-        if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CREATE ROLE");
         }
     }

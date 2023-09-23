@@ -16,8 +16,13 @@
 // under the License.
 
 suite("test_string_function") {
-    sql "set enable_vectorized_engine = true;"
     sql "set batch_size = 4096;"
+
+    qt_sql "select elt(0, \"hello\", \"doris\");"
+    qt_sql "select elt(1, \"hello\", \"doris\");"
+    qt_sql "select elt(2, \"hello\", \"doris\");"
+    qt_sql "select elt(3, \"hello\", \"doris\");"
+    qt_sql "select c1, c2, elt(c1, c2) from (select number as c1, 'varchar' as c2 from numbers('number'='5') where number > 0) a;"
 
     qt_sql "select append_trailing_char_if_absent('a','c');"
     qt_sql "select append_trailing_char_if_absent('ac','c');"
@@ -64,21 +69,27 @@ suite("test_string_function") {
     qt_sql "select unhex('41');"
     qt_sql "select unhex('4142');"
 
-    qt_sql "select instr(\"abc\", \"b\");"
-    qt_sql "select instr(\"abc\", \"d\");"
-    qt_sql "select instr(\"abc\", null);"
-    qt_sql "select instr(null, \"a\");"
+    qt_sql_instr "select instr(\"abc\", \"b\");"
+    qt_sql_instr "select instr(\"abc\", \"d\");"
+    qt_sql_instr "select instr(\"abc\", null);"
+    qt_sql_instr "select instr(null, \"a\");"
+    qt_sql_instr "SELECT instr('foobar', '');"
+    qt_sql_instr "SELECT instr('上海天津北京杭州', '北京');"
 
     qt_sql "SELECT lcase(\"AbC123\");"
     qt_sql "SELECT lower(\"AbC123\");"
+
+    qt_sql "SELECT initcap(\"AbC123abc abc.abc,?|abc\");"
 
     qt_sql "select left(\"Hello doris\",5);"
     qt_sql "select right(\"Hello doris\",5);"
 
     qt_sql "select length(\"abc\");"
 
-    qt_sql "SELECT LOCATE('bar', 'foobarbar');"
-    qt_sql "SELECT LOCATE('xbar', 'foobar');"
+    qt_sql_locate "SELECT LOCATE('bar', 'foobarbar');"
+    qt_sql_locate "SELECT LOCATE('xbar', 'foobar');"
+    qt_sql_locate "SELECT LOCATE('', 'foobar');"
+    qt_sql_locate "SELECT LOCATE('北京', '上海天津北京杭州');"
 
     qt_sql "SELECT lpad(\"hi\", 5, \"xy\");"
     qt_sql "SELECT lpad(\"hi\", 1, \"xy\");"
@@ -90,10 +101,15 @@ suite("test_string_function") {
     qt_sql "select money_format(17014116);"
     qt_sql "select money_format(1123.456);"
     qt_sql "select money_format(1123.4);"
+    qt_sql "select money_format(truncate(1000,10))"
 
     qt_sql "select null_or_empty(null);"
     qt_sql "select null_or_empty(\"\");"
     qt_sql "select null_or_empty(\"a\");"
+
+    qt_sql "select not_null_or_empty(null);"
+    qt_sql "select not_null_or_empty(\"\");"
+    qt_sql "select not_null_or_empty(\"a\");"
 
     qt_sql "SELECT repeat(\"a\", 3);"
     qt_sql "SELECT repeat(\"a\", -1);"
@@ -102,11 +118,23 @@ suite("test_string_function") {
     qt_sql "SELECT repeat(null,1);"
 
     qt_sql "select replace(\"https://doris.apache.org:9090\", \":9090\", \"\");"
+    qt_sql "select replace(\"https://doris.apache.org:9090\", \"\", \"new_str\");"
 
     qt_sql "SELECT REVERSE('hello');"
 
-    qt_sql "select split_part(\"hello world\", \" \", 1);"
-    qt_sql "select split_part(\"hello world\", \" \", 2);"
+    qt_sql "select split_part('hello world', ' ', 1)"
+    qt_sql "select split_part('hello world', ' ', 2)"
+    qt_sql "select split_part('hello world', ' ', 0)"
+    qt_sql "select split_part('hello world', ' ', -1)"
+    qt_sql "select split_part('hello world', ' ', -2)"
+    qt_sql "select split_part('hello world', ' ', -3)"
+    qt_sql "select split_part('abc##123###xyz', '##', 0)"
+    qt_sql "select split_part('abc##123###xyz', '##', 1)"
+    qt_sql "select split_part('abc##123###xyz', '##', 3)"
+    qt_sql "select split_part('abc##123###xyz', '##', 5)"
+    qt_sql "select split_part('abc##123###xyz', '##', -1)"
+    qt_sql "select split_part('abc##123###xyz', '##', -2)"
+    qt_sql "select split_part('abc##123###xyz', '##', -4)"
 
     qt_sql "select starts_with(\"hello world\",\"hello\");"
     qt_sql "select starts_with(\"hello world\",\"world\");"
@@ -119,5 +147,138 @@ suite("test_string_function") {
     qt_sql "select substring('abc1', -2);"
     qt_sql "select substring('abc1', 5);"
     qt_sql "select substring('abc1def', 2, 2);"
+
+    sql """ drop table if exists test_string_function; """
+    sql """ create table test_string_function (
+        k1 varchar(16),
+        v1 int
+    ) distributed by hash (k1) buckets 1
+    properties ("replication_num"="1");
+    """
+    sql """ insert into test_string_function values
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1),
+        ("aaaaaaaa", 1)
+    """
+    // bug fix
+    qt_sql_substring1 """ select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ substring(k1, cast(null as int), cast(null as int)) from test_string_function; """
+
+    qt_sql "select substr('a',3,1);"
+    qt_sql "select substr('a',2,1);"
+    qt_sql "select substr('a',1,1);"
+    qt_sql "select substr('a',0,1);"
+    qt_sql "select substr('a',-1,1);"
+    qt_sql "select substr('a',-2,1);"
+    qt_sql "select substr('a',-3,1);"
+
+    qt_sql "select sub_replace(\"this is origin str\",\"NEW-STR\",1);"
+    qt_sql "select sub_replace(\"doris\",\"***\",1,2);"
+
+    qt_sql "select substring_index(\"hello world\", \" \", 1);"
+    qt_sql "select substring_index(\"hello world\", \" \", 2);"
+    qt_sql "select substring_index(\"hello world\", \" \", 3);"
+    qt_sql "select substring_index(\"hello world\", \" \", -1);"
+    qt_sql "select substring_index(\"hello world\", \" \", -2);"
+    qt_sql "select substring_index(\"hello world\", \" \", -3);"
+    qt_sql "select substring_index(\"prefix__string2\", \"__\", 2);"
+    qt_sql "select substring_index(\"prefix__string2\", \"_\", 2);"
+    qt_sql "select substring_index(\"prefix_string2\", \"__\", 1);"
+    qt_sql "select substring_index(null, \"__\", 1);"
+    qt_sql "select substring_index(\"prefix_string\", null, 1);"
+    qt_sql "select substring_index(\"prefix_string\", \"_\", null);"
+    qt_sql "select substring_index(\"prefix_string\", \"__\", -1);"
+
+    sql 'set enable_nereids_planner=true'
+    sql 'set enable_fallback_to_original_planner=false'
+
+    qt_sql "select elt(0, \"hello\", \"doris\");"
+    qt_sql "select elt(1, \"hello\", \"doris\");"
+    qt_sql "select elt(2, \"hello\", \"doris\");"
+    qt_sql "select elt(3, \"hello\", \"doris\");"
+
+    qt_sql "select sub_replace(\"this is origin str\",\"NEW-STR\",1);"
+    qt_sql "select sub_replace(\"doris\",\"***\",1,2);"
+
+    // test function char
+    sql 'set enable_nereids_planner=false'
+    def success = false
+    try {
+        sql """ select char(68 using abc); """
+        success = true
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("only support charset name 'utf8'"), e.getMessage())
+    }
+    assertFalse(success)
+
+    // const
+    qt_sql_func_char_const1 """ select char(68); """
+    qt_sql_func_char_const2 """ select char(68, 111, 114, 105, 115); """
+    qt_sql_func_char_const3 """ select char(0, 68, 111, 114, 105, 115); """
+    qt_sql_func_char_const4 """ select char(68, 111, 114, 105, 115, 0); """
+    qt_sql_func_char_const5 """ select length(char(68, 111, 114, 105, 115, 0)); """
+    qt_sql_func_char_const6 """ select char(68, 111, 114, 0, 105, null, 115 using utf8); """
+    qt_sql_func_char_const7 """ select char(229, 164, 154); """
+    qt_sql_func_char_const8 """ select length(char(229, 164, 154 using utf8)); """
+    qt_sql_func_char_const9 """ select char(15049882, 15179199, 14989469); """
+
+    sql "drop table if exists test_function_char;";
+    sql """ create table test_function_char (
+        k1 tinyint not null,
+        k2 smallint,
+        k3 int,
+        k4 bigint
+    ) distributed by hash (k1) buckets 1
+    properties ("replication_num"="1");
+    """
+
+    sql """ insert into test_function_char values
+        (97, 98, 99, 100),
+        (97, null, 99, 100),
+        (97, 98, null, 100),
+        (97, 98, 99, null),
+        (0, 98, 99, 100),
+        (97, 0, 99, 100),
+        (97, 98, 0, 100),
+        (97, 98, 99, 0)
+    """
+    qt_sql_func_char1 """ select char(k1) from test_function_char order by k1; """
+    qt_sql_func_char2 """ select char(k1, k2, k3, k4) from test_function_char order by k1, k2, k3, k4; """
+    qt_sql_func_char3 """ select char(65, k1, k2, k3, k4) from test_function_char order by k1, k2, k3, k4; """
+    qt_sql_func_char4 """ select char(k1, 15049882, k2, k3, k4) from test_function_char order by k1, k2, k3, k4; """
+    qt_sql_func_char5 """ select char(k1, k2, k3, k4, 15049882) from test_function_char order by k1, k2, k3, k4; """
+
+    sql "drop table if exists test_function_char;";
+    sql """ create table test_function_char (
+        k1 int not null,
+        k2 int,
+        k3 int,
+        k4 int
+    ) distributed by hash (k1) buckets 1
+    properties ("replication_num"="1");
+    """
+
+    sql """ insert into test_function_char values
+        (229, 164, 154, 0),
+        (15049882, null, 15179199, 14989469),
+        (15049882, 15179199, null, 14989469),
+        (15049882, 15179199, 14989469, null)
+    """
+    qt_sql_func_char6 """ select char(k1) from test_function_char order by k1; """
+    qt_sql_func_char7 """ select char(k1, k2, k3, k4) from test_function_char order by k1, k2, k3, k4; """
+    qt_sql_func_char8 """ select char(k1, k2, k3, k4, 65) from test_function_char order by k1, k2, k3, k4; """
 
 }

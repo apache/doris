@@ -17,11 +17,30 @@
 
 #pragma once
 
+#include <atomic>
+#include <memory>
+
 #include "common/status.h"
-#include "util/blocking_queue.hpp"
-#include "vec/exec/scan/scanner_context.h"
+#include "scan_task_queue.h"
+#include "util/threadpool.h"
+#include "vec/exec/scan/vscanner.h"
+
+namespace doris {
+class ExecEnv;
+
+namespace vectorized {
+class VScanner;
+} // namespace vectorized
+namespace taskgroup {
+class ScanTaskTaskGroupQueue;
+}
+template <typename T>
+class BlockingQueue;
+} // namespace doris
 
 namespace doris::vectorized {
+
+class ScannerContext;
 
 // Responsible for the scheduling and execution of all Scanners of a BE node.
 // ScannerScheduler has two types of thread pools:
@@ -40,22 +59,22 @@ namespace doris::vectorized {
 //     Each Scanner will act as a producer, read a group of blocks and put them into
 //     the corresponding block queue.
 //     The corresponding ScanNode will act as a consumer to consume blocks from the block queue.
-
-using ContextMap = phmap::parallel_flat_hash_map<
-        std::string, std::shared_ptr<ScannerContext>, phmap::priv::hash_default_hash<std::string>,
-        phmap::priv::hash_default_eq<std::string>,
-        std::allocator<std::pair<const std::string, std::shared_ptr<ScannerContext>>>, 12,
-        std::mutex>;
-
-class Env;
 class ScannerScheduler {
 public:
     ScannerScheduler();
     ~ScannerScheduler();
 
-    Status init(ExecEnv* env);
+    [[nodiscard]] Status init(ExecEnv* env);
 
-    Status submit(ScannerContext* ctx);
+    [[nodiscard]] Status submit(ScannerContext* ctx);
+
+    void stop();
+
+    std::unique_ptr<ThreadPoolToken> new_limited_scan_pool_token(ThreadPool::ExecutionMode mode,
+                                                                 int max_concurrency);
+    taskgroup::ScanTaskTaskGroupQueue* local_scan_task_queue() {
+        return _task_group_local_scan_queue.get();
+    }
 
 private:
     // scheduling thread function
@@ -63,9 +82,11 @@ private:
     // schedule scanners in a certain ScannerContext
     void _schedule_scanners(ScannerContext* ctx);
     // execution thread function
-    void _scanner_scan(ScannerScheduler* scheduler, ScannerContext* ctx, VScanner* scanner);
+    void _scanner_scan(ScannerScheduler* scheduler, ScannerContext* ctx, VScannerSPtr scanner);
 
-private:
+    void _task_group_scanner_scan(ScannerScheduler* scheduler,
+                                  taskgroup::ScanTaskTaskGroupQueue* scan_queue);
+
     // Scheduling queue number.
     // TODO: make it configurable.
     static const int QUEUE_NUM = 4;
@@ -82,13 +103,17 @@ private:
     // execution thread pool
     // _local_scan_thread_pool is for local scan task(typically, olap scanner)
     // _remote_scan_thread_pool is for remote scan task(cold data on s3, hdfs, etc.)
-    PriorityThreadPool* _local_scan_thread_pool;
-    PriorityThreadPool* _remote_scan_thread_pool;
+    // _limited_scan_thread_pool is a special pool for queries with resource limit
+    std::unique_ptr<PriorityThreadPool> _local_scan_thread_pool;
+    std::unique_ptr<ThreadPool> _remote_scan_thread_pool;
+    std::unique_ptr<ThreadPool> _limited_scan_thread_pool;
+
+    std::unique_ptr<taskgroup::ScanTaskTaskGroupQueue> _task_group_local_scan_queue;
+    std::unique_ptr<ThreadPool> _group_local_scan_thread_pool;
 
     // true is the scheduler is closed.
     std::atomic_bool _is_closed = {false};
-
-    ContextMap _context_map;
+    bool _is_init = false;
 };
 
 } // namespace doris::vectorized

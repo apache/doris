@@ -17,18 +17,25 @@
 
 #include "http/action/stream_load_2pc.h"
 
+#include <glog/logging.h>
+#include <rapidjson/encodings.h>
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>
 
+#include <exception>
+#include <memory>
+#include <new>
+#include <ostream>
+
 #include "common/status.h"
 #include "http/http_channel.h"
-#include "http/http_headers.h"
+#include "http/http_common.h"
 #include "http/http_request.h"
 #include "http/http_status.h"
 #include "http/utils.h"
+#include "runtime/exec_env.h"
 #include "runtime/stream_load/stream_load_context.h"
 #include "runtime/stream_load/stream_load_executor.h"
-#include "util/json_util.h"
 
 namespace doris {
 
@@ -40,22 +47,14 @@ void StreamLoad2PCAction::handle(HttpRequest* req) {
     Status status = Status::OK();
     std::string status_result;
 
-    if (config::disable_stream_load_2pc) {
-        status = Status::InternalError("Two phase commit (2PC) for stream load was disabled");
-        status_result = status.to_json();
-        HttpChannel::send_reply(req, HttpStatus::OK, status_result);
-        return;
-    }
-
-    StreamLoadContext* ctx = new StreamLoadContext(_exec_env);
-    ctx->ref();
-    req->set_handler_ctx(ctx);
+    std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
     ctx->db = req->param(HTTP_DB_KEY);
     std::string req_txn_id = req->header(HTTP_TXN_ID_KEY);
     try {
         ctx->txn_id = std::stoull(req_txn_id);
     } catch (const std::exception& e) {
-        status = Status::InternalError("convert txn_id [{}] failed", req_txn_id);
+        status = Status::InternalError("convert txn_id [{}] failed, reason={}", req_txn_id,
+                                       e.what());
         status_result = status.to_json();
         HttpChannel::send_reply(req, HttpStatus::OK, status_result);
         return;
@@ -73,7 +72,7 @@ void StreamLoad2PCAction::handle(HttpRequest* req) {
         status = Status::InternalError("no valid Basic authorization");
     }
 
-    status = _exec_env->stream_load_executor()->operate_txn_2pc(ctx);
+    status = _exec_env->stream_load_executor()->operate_txn_2pc(ctx.get());
 
     if (!status.ok()) {
         status_result = status.to_json();

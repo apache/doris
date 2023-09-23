@@ -21,6 +21,7 @@ package org.apache.doris.nereids.trees;
  * Abstract class for all tree node that have no child.
  */
 public interface LeafNode<NODE_TYPE extends TreeNode<NODE_TYPE>> extends TreeNode<NODE_TYPE> {
+
     @Override
     default int arity() {
         return 0;

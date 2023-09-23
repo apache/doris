@@ -18,7 +18,6 @@
 package org.apache.doris.common;
 
 import org.apache.doris.thrift.BackendService;
-import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TAgentPublishRequest;
 import org.apache.doris.thrift.TAgentResult;
 import org.apache.doris.thrift.TAgentTaskRequest;
@@ -30,10 +29,9 @@ import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TExecPlanFragmentResult;
 import org.apache.doris.thrift.TExportStatusResult;
 import org.apache.doris.thrift.TExportTaskRequest;
-import org.apache.doris.thrift.TFetchDataParams;
-import org.apache.doris.thrift.TFetchDataResult;
+import org.apache.doris.thrift.TIngestBinlogRequest;
+import org.apache.doris.thrift.TIngestBinlogResult;
 import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.thrift.TResultBatch;
 import org.apache.doris.thrift.TRoutineLoadTask;
 import org.apache.doris.thrift.TScanBatchResult;
 import org.apache.doris.thrift.TScanCloseParams;
@@ -59,8 +57,6 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.util.ArrayList;
 import java.util.List;
 
 public class GenericPoolTest {
@@ -126,15 +122,6 @@ public class GenericPoolTest {
         @Override
         public TTransmitDataResult transmitData(TTransmitDataParams params) {
             return new TTransmitDataResult();
-        }
-
-        @Override
-        public TFetchDataResult fetchData(TFetchDataParams params) {
-            TFetchDataResult result = new TFetchDataResult();
-            result.setPacketNum(123);
-            result.setResultBatch(new TResultBatch(new ArrayList<ByteBuffer>(), false, 0));
-            result.setEos(true);
-            return result;
         }
 
         @Override
@@ -230,18 +217,11 @@ public class GenericPoolTest {
         public TCheckStorageFormatResult checkStorageFormat() throws TException {
             return new TCheckStorageFormatResult();
         }
-    }
 
-    @Test
-    public void testNormal() throws Exception {
-        TNetworkAddress address = new TNetworkAddress(ip, port);
-        BackendService.Client object = backendService.borrowObject(address);
-
-        TFetchDataResult result = object.fetchData(new TFetchDataParams(
-                PaloInternalServiceVersion.V1, new TUniqueId()));
-        Assert.assertEquals(result.getPacketNum(), 123);
-
-        backendService.returnObject(address, object);
+        @Override
+        public TIngestBinlogResult ingestBinlog(TIngestBinlogRequest ingestBinlogRequest) throws TException {
+            return null;
+        }
     }
 
     @Test

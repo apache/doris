@@ -52,11 +52,11 @@ public class ConstantExpressTest {
                 "'1601'");
 
         testConstantExpressResult(
-                "select date_format('2020-02-19 16:01:12','%Y%m%d');",
+                "select /*+ SET_VAR(enable_nereids_planner=false) */ date_format('2020-02-19 16:01:12','%Y%m%d');",
                 "'20200219'");
 
         testConstantExpressResult(
-                "select date_format(date_sub('2018-07-24 07:16:19',1),'yyyyMMdd');",
+                "select /*+ SET_VAR(enable_nereids_planner=false) */ date_format(date_sub('2018-07-24 07:16:19',1),'yyyyMMdd');",
                 "'20180723'");
 
         testConstantExpressResult(
@@ -64,11 +64,11 @@ public class ConstantExpressTest {
                 "24223");
 
         testConstantExpressResult(
-                "select date_format('2018-08-08 07:16:19', 'yyyyMMdd');",
+                "select /*+ SET_VAR(enable_nereids_planner=false) */ date_format('2018-08-08 07:16:19', 'yyyyMMdd');",
                 "'20180808'");
 
         testConstantExpressResult(
-                "select date_format('2018-08-08 07:16:19', 'yyyy-MM-dd HH:mm:ss');",
+                "select /*+ SET_VAR(enable_nereids_planner=false) */ date_format('2018-08-08 07:16:19', 'yyyy-MM-dd HH:mm:ss');",
                 "'2018-08-08 07:16:19'");
 
         testConstantExpressResult(
@@ -122,6 +122,10 @@ public class ConstantExpressTest {
         testConstantExpressResult(
                 "select current_time();",
                 "");
+
+        testConstantExpressResult(
+                "select current_date();",
+                "");
     }
 
     @Test
@@ -155,18 +159,7 @@ public class ConstantExpressTest {
 
         testConstantExpressResult(
                 "select 1 * 10.0;",
-                "10.0");
-
-        testConstantExpressResult(
-                "select 1 / 10.0;",
-                "0.1");
-    }
-
-    @Test
-    public void testMath() throws Exception {
-        testConstantExpressResult(
-                "select floor(2.3);",
-                "2");
+                "10");
     }
 
     @Test

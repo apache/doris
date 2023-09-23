@@ -17,25 +17,20 @@
 
 #pragma once
 
-#include <cassert>
 #include <cstdio>
-#include <cstdlib>
-#include <exception>
-#include <iostream>
-#include <list>
-#include <map>
-#include <mutex>
 #include <shared_mutex>
-#include <thread>
+#include <unordered_map>
 
-#include "common/config.h"
-#include "runtime/cache/cache_utils.h"
+#include "gutil/integral_types.h"
 #include "runtime/cache/result_node.h"
-#include "runtime/mem_pool.h"
-#include "runtime/row_batch.h"
-#include "runtime/tuple_row.h"
+#include "util/uid_util.h"
 
 namespace doris {
+class PCacheResponse;
+class PClearCacheRequest;
+class PFetchCacheRequest;
+class PFetchCacheResult;
+class PUpdateCacheRequest;
 
 typedef std::unordered_map<UniqueId, ResultNode*> ResultNodeMap;
 
@@ -77,8 +72,8 @@ private:
 class ResultCache {
 public:
     ResultCache(int32 max_size, int32 elasticity_size) {
-        _max_size = max_size * 1024 * 1024;
-        _elasticity_size = elasticity_size * 1024 * 1024;
+        _max_size = static_cast<size_t>(max_size) * 1024 * 1024;
+        _elasticity_size = static_cast<size_t>(elasticity_size) * 1024 * 1024;
         _cache_size = 0;
         _node_count = 0;
         _partition_count = 0;

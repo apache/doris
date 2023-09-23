@@ -17,7 +17,26 @@
 
 #include "util/uid_util.h"
 
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/types.pb.h>
+#include <glog/logging.h>
+
+#include <cstdlib>
+
+#include "util/hash_util.hpp"
+
 namespace doris {
+
+size_t UniqueId::hash(size_t seed) const {
+    return doris::HashUtil::hash(this, sizeof(*this), seed);
+}
+
+std::size_t hash_value(const doris::TUniqueId& id) {
+    std::size_t seed = 0;
+    HashUtil::hash_combine(seed, id.lo);
+    HashUtil::hash_combine(seed, id.hi);
+    return seed;
+}
 
 std::ostream& operator<<(std::ostream& os, const UniqueId& uid) {
     os << uid.to_string();

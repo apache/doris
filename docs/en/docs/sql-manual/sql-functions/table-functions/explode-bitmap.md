@@ -1,6 +1,6 @@
 ---
 {
-    "title": "explode_bitmap",
+    "title": "EXPLODE_BITMAP",
     "language": "en"
 }
 ---
@@ -32,11 +32,9 @@ Table functions must be used in conjunction with Lateral View.
 
 Expand a bitmap type.
 
-grammar:
+#### syntax
 
-```
-explode_bitmap(bitmap)
-```
+`explode_bitmap(bitmap)`
 
 ### example
 

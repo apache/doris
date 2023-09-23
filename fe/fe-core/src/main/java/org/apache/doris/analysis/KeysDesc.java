@@ -60,7 +60,7 @@ public class KeysDesc implements Writable {
             throw new AnalysisException("Keys type is null.");
         }
 
-        if (keysColumnNames == null || keysColumnNames.size() == 0) {
+        if ((keysColumnNames == null || keysColumnNames.size() == 0) && type != KeysType.DUP_KEYS) {
             throw new AnalysisException("The number of key columns is 0.");
         }
 
@@ -104,7 +104,7 @@ public class KeysDesc implements Writable {
 
     public String toSql() {
         StringBuilder stringBuilder = new StringBuilder();
-        stringBuilder.append(type.name()).append("(");
+        stringBuilder.append(type.toSql()).append("(");
         int i = 0;
         for (String columnName : keysColumnNames) {
             if (i != 0) {

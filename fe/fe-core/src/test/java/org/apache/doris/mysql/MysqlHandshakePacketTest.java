@@ -62,7 +62,7 @@ public class MysqlHandshakePacketTest {
         // assert protocol version
         Assert.assertEquals(10, MysqlProto.readInt1(buffer));
         // server version
-        Assert.assertEquals("5.7.37", new String(MysqlProto.readNulTerminateString(buffer)));
+        Assert.assertEquals("5.7.99", new String(MysqlProto.readNulTerminateString(buffer)));
         // connection id
         Assert.assertEquals(1090, MysqlProto.readInt4(buffer));
         // plugin data 1
@@ -76,7 +76,8 @@ public class MysqlHandshakePacketTest {
         Assert.assertEquals(0, MysqlProto.readInt2(buffer));
         // capability flags
         flags |= MysqlProto.readInt2(buffer) << 16;
-        Assert.assertEquals(MysqlCapability.DEFAULT_CAPABILITY.getFlags(), flags);
+        Assert.assertEquals(MysqlProto.SERVER_USE_SSL
+                ? MysqlCapability.SSL_CAPABILITY.getFlags() : MysqlCapability.DEFAULT_CAPABILITY.getFlags(), flags);
         // length of plugin data
         Assert.assertEquals(21, MysqlProto.readInt1(buffer));
         // length of plugin data

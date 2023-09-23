@@ -28,10 +28,10 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 
@@ -54,6 +54,21 @@ public class TableName implements Writable {
 
     }
 
+    public TableName(String alias) {
+        String[] parts = alias.split("\\.");
+        Preconditions.checkArgument(parts.length > 0, "table name can't be empty");
+        tbl = parts[parts.length - 1];
+        if (Env.isStoredTableNamesLowerCase() && !Strings.isNullOrEmpty(tbl)) {
+            tbl = tbl.toLowerCase();
+        }
+        if (parts.length >= 2) {
+            db = parts[parts.length - 2];
+        }
+        if (parts.length >= 3) {
+            ctl = parts[parts.length - 3];
+        }
+    }
+
     public TableName(String ctl, String db, String tbl) {
         if (Env.isStoredTableNamesLowerCase() && !Strings.isNullOrEmpty(tbl)) {
             tbl = tbl.toLowerCase();
@@ -69,9 +84,6 @@ public class TableName implements Writable {
             if (Strings.isNullOrEmpty(ctl)) {
                 ctl = InternalCatalog.INTERNAL_CATALOG_NAME;
             }
-        }
-        if (!ctl.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-            Util.checkCatalogEnabled();
         }
         if (Strings.isNullOrEmpty(db)) {
             db = analyzer.getDefaultDb();
@@ -108,6 +120,10 @@ public class TableName implements Writable {
 
     public String getTbl() {
         return tbl;
+    }
+
+    public void setTbl(String tbl) {
+        this.tbl = tbl;
     }
 
     public boolean isEmpty() {
@@ -164,6 +180,11 @@ public class TableName implements Writable {
             return toString().equals(other.toString());
         }
         return false;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(ctl, tbl, db);
     }
 
     public String toSql() {

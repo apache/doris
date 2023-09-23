@@ -26,10 +26,10 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Sort;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Objects;
@@ -56,12 +56,12 @@ public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
     public LogicalSort(List<OrderKey> orderKeys, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_SORT, groupExpression, logicalProperties, child);
-        this.orderKeys = Objects.requireNonNull(orderKeys, "orderKeys can not be null");
+        this.orderKeys = ImmutableList.copyOf(Objects.requireNonNull(orderKeys, "orderKeys can not be null"));
     }
 
     @Override
-    public List<Slot> computeOutput(Plan input) {
-        return input.getOutput();
+    public List<Slot> computeOutput() {
+        return child().getOutput();
     }
 
     public List<OrderKey> getOrderKeys() {
@@ -70,7 +70,8 @@ public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
 
     @Override
     public String toString() {
-        return "LogicalSort (" + StringUtils.join(orderKeys, ", ") + ")";
+        return Utils.toSqlString("LogicalSort[" + id.asInt() + "]",
+                "orderKeys", orderKeys);
     }
 
     @Override
@@ -81,7 +82,7 @@ public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        LogicalSort that = (LogicalSort) o;
+        LogicalSort<?> that = (LogicalSort<?>) o;
         return Objects.equals(orderKeys, that.orderKeys);
     }
 
@@ -90,32 +91,42 @@ public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
         return Objects.hash(orderKeys);
     }
 
-
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitLogicalSort((LogicalSort<Plan>) this, context);
+        return visitor.visitLogicalSort(this, context);
     }
 
     @Override
-    public List<Expression> getExpressions() {
+    public List<? extends Expression> getExpressions() {
         return orderKeys.stream()
                 .map(OrderKey::getExpr)
                 .collect(ImmutableList.toImmutableList());
     }
 
     @Override
-    public LogicalUnary<Plan> withChildren(List<Plan> children) {
+    public LogicalSort<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new LogicalSort<>(orderKeys, children.get(0));
     }
 
     @Override
-    public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalSort<>(orderKeys, groupExpression, Optional.of(logicalProperties), child());
+    public LogicalSort<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
+        return new LogicalSort<>(orderKeys, groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalSort<>(orderKeys, Optional.empty(), logicalProperties, child());
+    public LogicalSort<Plan> withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new LogicalSort<>(orderKeys, groupExpression, logicalProperties, children.get(0));
+    }
+
+    public LogicalSort<Plan> withOrderKeys(List<OrderKey> orderKeys) {
+        return new LogicalSort<>(orderKeys, Optional.empty(),
+                Optional.of(getLogicalProperties()), child());
+    }
+
+    public LogicalSort<Plan> withOrderKeysAndChild(List<OrderKey> orderKeys, Plan child) {
+        return new LogicalSort<>(orderKeys, child);
     }
 }

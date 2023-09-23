@@ -17,31 +17,38 @@
 
 #pragma once
 
-#include "vec/columns/column.h"
-#include "vec/columns/column_const.h"
+#include <memory>
+#include <string>
+
+#include "common/object_pool.h"
+#include "common/status.h"
+#include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr.h"
 
 namespace doris {
 class TExprNode;
 
 namespace vectorized {
+class Block;
+class VExprContext;
+
 class VLiteral : public VExpr {
+    ENABLE_FACTORY_CREATOR(VLiteral);
+
 public:
     VLiteral(const TExprNode& node, bool should_init = true)
             : VExpr(node), _expr_name(_data_type->get_name()) {
         if (should_init) {
             init(node);
         }
-    };
-    virtual ~VLiteral() = default;
-    virtual Status execute(VExprContext* context, vectorized::Block* block,
-                           int* result_column_id) override;
-    virtual const std::string& expr_name() const override { return _expr_name; }
-    virtual VExpr* clone(doris::ObjectPool* pool) const override {
-        return pool->add(new VLiteral(*this));
     }
+    Status execute(VExprContext* context, Block* block, int* result_column_id) override;
+    const std::string& expr_name() const override { return _expr_name; }
+    std::string debug_string() const override;
 
-    virtual std::string debug_string() const override;
+    std::string value() const;
+
+    const ColumnPtr& get_column_ptr() const { return _column_ptr; }
 
 protected:
     ColumnPtr _column_ptr;

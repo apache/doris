@@ -17,6 +17,18 @@
 
 #pragma once
 
+#include <opentelemetry/nostd/shared_ptr.h>
+#include <opentelemetry/trace/noop.h>
+#include <opentelemetry/trace/scope.h>
+#include <opentelemetry/trace/span.h>
+#include <opentelemetry/trace/span_context.h>
+#include <opentelemetry/trace/tracer.h>
+#include <opentelemetry/trace/tracer_provider.h>
+
+#include <string>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "opentelemetry/trace/provider.h"
 
 /// A trace represents the execution process of a single request in the system, span represents a
@@ -27,18 +39,6 @@ namespace doris {
 using OpentelemetryTracer = opentelemetry::nostd::shared_ptr<opentelemetry::trace::Tracer>;
 using OpentelemetrySpan = opentelemetry::nostd::shared_ptr<opentelemetry::trace::Span>;
 using OpentelemetryScope = opentelemetry::trace::Scope;
-
-/// Used to initialize get_next_span and add Scope.
-#define INIT_AND_SCOPE_GET_NEXT_SPAN(tracer, get_next_span, name) \
-    do {                                                          \
-        if (UNLIKELY(!get_next_span)) {                           \
-            get_next_span = tracer->StartSpan(name);              \
-        }                                                         \
-    } while (false);                                              \
-    OpentelemetryScope scope {get_next_span};
-
-#define INIT_AND_SCOPE_SEND_SPAN(tracer, send_span, name) \
-    INIT_AND_SCOPE_GET_NEXT_SPAN(tracer, send_span, name)
 
 /// Start a span with the specified tracer, name, and variable name, and create a Scope for this
 /// span.

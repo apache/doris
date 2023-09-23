@@ -17,21 +17,27 @@
 
 #include "olap/rowset/rowset_meta_manager.h"
 
-#include <boost/algorithm/string.hpp>
+#include <gen_cpp/olap_file.pb.h>
+#include <glog/logging.h>
+#include <gmock/gmock-actions.h>
+#include <gmock/gmock-matchers.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+
+#include <boost/algorithm/string/replace.hpp>
 #include <filesystem>
 #include <fstream>
-#include <sstream>
+#include <new>
 #include <string>
 
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
-#include "json2pb/json_to_pb.h"
+#include "common/config.h"
+#include "gtest/gtest_pred_impl.h"
+#include "olap/olap_define.h"
 #include "olap/olap_meta.h"
+#include "olap/options.h"
 #include "olap/storage_engine.h"
-
-#ifndef BE_TEST
-#define BE_TEST
-#endif
+#include "runtime/exec_env.h"
+#include "util/uid_util.h"
 
 using ::testing::_;
 using ::testing::Return;
@@ -55,6 +61,7 @@ public:
         if (k_engine == nullptr) {
             k_engine = new StorageEngine(options);
         }
+        ExecEnv::GetInstance()->set_storage_engine(k_engine);
 
         std::string meta_path = "./meta";
         EXPECT_TRUE(std::filesystem::create_directory(meta_path));
@@ -78,6 +85,7 @@ public:
 
     virtual void TearDown() {
         SAFE_DELETE(_meta);
+        ExecEnv::GetInstance()->set_storage_engine(nullptr);
         SAFE_DELETE(k_engine);
         EXPECT_TRUE(std::filesystem::remove_all("./meta"));
         LOG(INFO) << "TearDown";

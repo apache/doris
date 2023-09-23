@@ -17,16 +17,17 @@
 
 #pragma once
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <algorithm>
 #include <memory>
-#include <string>
 #include <vector>
 
 #include "slice.h"
-#include "tdigest.h"
 
 namespace doris {
 
-struct Slice;
 class TDigest;
 
 const static int QUANTILE_STATE_EXPLICIT_NUM = 2048;
@@ -40,7 +41,6 @@ enum QuantileStateType {
     TDIGEST = 3   // TDIGEST object
 };
 
-template <typename T>
 class QuantileState {
 public:
     QuantileState();
@@ -49,20 +49,20 @@ public:
     void set_compression(float compression);
     bool deserialize(const Slice& slice);
     size_t serialize(uint8_t* dst) const;
-    void merge(QuantileState<T>& other);
-    void add_value(const T& value);
+    void merge(const QuantileState& other);
+    void add_value(const double& value);
     void clear();
     bool is_valid(const Slice& slice);
     size_t get_serialized_size();
-    T get_value_by_percentile(float percentile);
-    T get_explicit_value_by_percentile(float percentile);
+    double get_value_by_percentile(float percentile) const;
+    double get_explicit_value_by_percentile(float percentile) const;
     ~QuantileState() = default;
 
 private:
     QuantileStateType _type = EMPTY;
-    std::unique_ptr<TDigest> _tdigest_ptr;
-    T _single_data;
-    std::vector<T> _explicit_data;
+    std::shared_ptr<TDigest> _tdigest_ptr;
+    double _single_data;
+    std::vector<double> _explicit_data;
     float _compression;
 };
 

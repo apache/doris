@@ -64,8 +64,14 @@ struct NoFilter {
 // The two-argument constructor is used to split the given text using the given
 // delimiter.
 template <typename Delimiter, typename Predicate = NoFilter>
-class SplitIterator : public std::iterator<std::input_iterator_tag, StringPiece> {
+class SplitIterator {
 public:
+    using iterator_category = std::input_iterator_tag;
+    using value_type = StringPiece;
+    using difference_type = ptrdiff_t;
+    using pointer = StringPiece*;
+    using reference = StringPiece&;
+
     // Two constructors for "end" iterators.
     explicit SplitIterator(Delimiter d) : delimiter_(std::move(d)), predicate_(), is_end_(true) {}
     SplitIterator(Delimiter d, Predicate p)
@@ -171,6 +177,17 @@ struct IsNotInitializerList {
 template <typename T>
 struct IsNotInitializerList<std::initializer_list<T>> {};
 #endif // LANG_CXX11
+
+namespace base {
+
+// Types small_ and big_ are guaranteed such that sizeof(small_) <
+// sizeof(big_)
+using small_ = char;
+
+struct big_ {
+    char dummy[2];
+};
+}
 
 // This class implements the behavior of the split API by giving callers access
 // to the underlying split substrings in various convenient ways, such as

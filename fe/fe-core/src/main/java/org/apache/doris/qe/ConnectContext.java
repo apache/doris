@@ -20,33 +20,47 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FunctionRegistry;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.UserException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.telemetry.Telemetry;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.mysql.DummyMysqlChannel;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
-import org.apache.doris.mysql.MysqlSerializer;
-import org.apache.doris.mysql.privilege.PaloRole;
+import org.apache.doris.mysql.MysqlSslContext;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.resource.Tag;
-import org.apache.doris.thrift.TResourceInfo;
+import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.Histogram;
+import org.apache.doris.system.Backend;
+import org.apache.doris.task.LoadTaskInfo;
+import org.apache.doris.thrift.TResultSinkType;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionStatus;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import io.opentelemetry.api.trace.Tracer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.json.JSONObject;
+import org.xnio.StreamConnection;
 
-import java.nio.channels.SocketChannel;
+import java.io.IOException;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -56,13 +70,21 @@ import java.util.Set;
 // Use `volatile` to make the reference change atomic.
 public class ConnectContext {
     private static final Logger LOG = LogManager.getLogger(ConnectContext.class);
-    protected static ThreadLocal<ConnectContext> threadLocalInfo = new ThreadLocal<ConnectContext>();
+    protected static ThreadLocal<ConnectContext> threadLocalInfo = new ThreadLocal<>();
+
+    private static final String SSL_PROTOCOL = "TLS";
 
     // set this id before analyze
     protected volatile long stmtId;
     protected volatile long forwardedStmtId;
 
+    // set for http_stream
+    protected volatile TUniqueId loadId;
+    protected volatile long backendId;
+    protected volatile LoadTaskInfo streamLoadInfo;
+
     protected volatile TUniqueId queryId;
+    protected volatile String traceId;
     // id for this connection
     protected volatile int connectionId;
     // mysql net
@@ -88,15 +110,11 @@ public class ConnectContext {
     // LDAP authenticated but the Doris account does not exist,
     // set the flag, and the user login Doris as Temporary user.
     protected volatile boolean isTempUser = false;
-    // Save the privs from the ldap groups.
-    protected volatile PaloRole ldapGroupsPrivs = null;
     // username@host combination for the Doris account
     // that the server used to authenticate the current client.
     // In other word, currentUserIdentity is the entry that matched in Doris auth table.
     // This account determines user's access privileges.
     protected volatile UserIdentity currentUserIdentity;
-    // Serializer used to pack MySQL packet.
-    protected volatile MysqlSerializer serializer;
     // Variables belong to this session.
     protected volatile SessionVariable sessionVariable;
     // Scheduler this connection belongs to
@@ -125,7 +143,7 @@ public class ConnectContext {
     // This is used to statistic the current query details.
     // This property will only be set when the query starts to execute.
     // So in the query planning stage, do not use any value in this attribute.
-    protected QueryDetail queryDetail;
+    protected QueryDetail queryDetail = null;
 
     // If set to true, the nondeterministic function will not be rewrote to constant.
     private boolean notEvalNondeterministicFunction = false;
@@ -140,6 +158,8 @@ public class ConnectContext {
 
     private String sqlHash;
 
+    private JSONObject minidump = null;
+
     // The FE ip current connected
     private String currentConnectedFEIp = "";
 
@@ -147,12 +167,69 @@ public class ConnectContext {
 
     private SessionContext sessionContext;
 
+    // This context is used for SSL connection between server and mysql client.
+    private final MysqlSslContext mysqlSslContext = new MysqlSslContext(SSL_PROTOCOL);
+
+    private StatsErrorEstimator statsErrorEstimator;
+
+    private Map<String, String> resultAttachedInfo;
+
+    private String workloadGroupName = "";
+    private Map<Long, Backend> insertGroupCommitTableToBeMap = new HashMap<>();
+
+    private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCAL;
+
+    public void setUserQueryTimeout(int queryTimeout) {
+        if (queryTimeout > 0) {
+            sessionVariable.setQueryTimeoutS(queryTimeout);
+        }
+    }
+
+    public void setUserInsertTimeout(int insertTimeout) {
+        if (insertTimeout > 0) {
+            sessionVariable.setInsertTimeoutS(insertTimeout);
+        }
+    }
+
+    private StatementContext statementContext;
+    private Map<String, PrepareStmtContext> preparedStmtCtxs = Maps.newHashMap();
+
+    private List<TableIf> tables = null;
+
+    private Map<String, ColumnStatistic> totalColumnStatisticMap = new HashMap<>();
+
+    public Map<String, ColumnStatistic> getTotalColumnStatisticMap() {
+        return totalColumnStatisticMap;
+    }
+
+    public void setTotalColumnStatisticMap(Map<String, ColumnStatistic> totalColumnStatisticMap) {
+        this.totalColumnStatisticMap = totalColumnStatisticMap;
+    }
+
+    private Map<String, Histogram> totalHistogramMap = new HashMap<>();
+
+    public Map<String, Histogram> getTotalHistogramMap() {
+        return totalHistogramMap;
+    }
+
+    public void setTotalHistogramMap(Map<String, Histogram> totalHistogramMap) {
+        this.totalHistogramMap = totalHistogramMap;
+    }
+
     public SessionContext getSessionContext() {
         return sessionContext;
     }
 
+    public MysqlSslContext getMysqlSslContext() {
+        return mysqlSslContext;
+    }
+
+    public TResultSinkType getResultSinkType() {
+        return resultSinkType;
+    }
+
     public void setOrUpdateInsertResult(long txnId, String label, String db, String tbl,
-                                        TransactionStatus txnStatus, long loadedRows, int filteredRows) {
+            TransactionStatus txnStatus, long loadedRows, int filteredRows) {
         if (isTxnModel() && insertResult != null) {
             insertResult.updateResult(txnStatus, loadedRows, filteredRows);
         } else {
@@ -189,28 +266,24 @@ public class ConnectContext {
     }
 
     public ConnectContext() {
-        state = new QueryState();
-        returnRows = 0;
-        serverCapability = MysqlCapability.DEFAULT_CAPABILITY;
-        isKilled = false;
-        serializer = MysqlSerializer.newInstance();
-        sessionVariable = VariableMgr.newSessionVariable();
-        command = MysqlCommand.COM_SLEEP;
+        this(null);
     }
 
-    public ConnectContext(SocketChannel channel) {
+    public ConnectContext(StreamConnection connection) {
         state = new QueryState();
         returnRows = 0;
         serverCapability = MysqlCapability.DEFAULT_CAPABILITY;
         isKilled = false;
-        mysqlChannel = new MysqlChannel(channel);
-        serializer = MysqlSerializer.newInstance();
+        if (connection != null) {
+            mysqlChannel = new MysqlChannel(connection);
+        } else {
+            mysqlChannel = new DummyMysqlChannel();
+        }
         sessionVariable = VariableMgr.newSessionVariable();
         command = MysqlCommand.COM_SLEEP;
-        if (channel != null) {
-            remoteIP = mysqlChannel.getRemoteIp();
+        if (Config.use_fuzzy_session_variable) {
+            sessionVariable.initFuzzyModeVariables();
         }
-        queryDetail = null;
     }
 
     public boolean isTxnModel() {
@@ -225,13 +298,33 @@ public class ConnectContext {
         return txnEntry != null && txnEntry.isTxnBegin();
     }
 
+    public void addPreparedStmt(String stmtName, PrepareStmtContext ctx) {
+        this.preparedStmtCtxs.put(stmtName, ctx);
+    }
+
+    public void removePrepareStmt(String stmtName) {
+        this.preparedStmtCtxs.remove(stmtName);
+    }
+
+    public PrepareStmtContext getPreparedStmt(String stmtName) {
+        return this.preparedStmtCtxs.get(stmtName);
+    }
+
+    public List<TableIf> getTables() {
+        return tables;
+    }
+
+    public void setTables(List<TableIf> tables) {
+        this.tables = tables;
+    }
+
     public void closeTxn() {
         if (isTxnModel()) {
             if (isTxnBegin()) {
                 try {
-                    Env.getCurrentGlobalTransactionMgr().abortTransaction(
-                            currentDbId, txnEntry.getTxnConf().getTxnId(), "timeout");
-                } catch (UserException e) {
+                    InsertStreamTxnExecutor executor = new InsertStreamTxnExecutor(getTxnEntry());
+                    executor.abortTransaction();
+                } catch (Exception e) {
                     LOG.error("db: {}, txnId: {}, rollback error.", currentDb,
                             txnEntry.getTxnConf().getTxnId(), e);
                 }
@@ -242,6 +335,30 @@ public class ConnectContext {
 
     public long getStmtId() {
         return stmtId;
+    }
+
+    public long getBackendId() {
+        return backendId;
+    }
+
+    public void setBackendId(long backendId) {
+        this.backendId = backendId;
+    }
+
+    public TUniqueId getLoadId() {
+        return loadId;
+    }
+
+    public void setLoadId(TUniqueId loadId) {
+        this.loadId = loadId;
+    }
+
+    public void setStreamLoadInfo(LoadTaskInfo streamLoadInfo) {
+        this.streamLoadInfo = streamLoadInfo;
+    }
+
+    public LoadTaskInfo getStreamLoadInfo() {
+        return streamLoadInfo;
     }
 
     public void setStmtId(long stmtId) {
@@ -292,10 +409,6 @@ public class ConnectContext {
         this.txnEntry = txnEntry;
     }
 
-    public TResourceInfo toResourceCtx() {
-        return new TResourceInfo(qualifiedUser, sessionVariable.getResourceGroup());
-    }
-
     public void setEnv(Env env) {
         this.env = env;
         defaultCatalog = env.getInternalCatalog().getName();
@@ -321,14 +434,6 @@ public class ConnectContext {
         this.isTempUser = isTempUser;
     }
 
-    public PaloRole getLdapGroupsPrivs() {
-        return ldapGroupsPrivs;
-    }
-
-    public void setLdapGroupsPrivs(PaloRole ldapGroupsPrivs) {
-        this.ldapGroupsPrivs = ldapGroupsPrivs;
-    }
-
     // for USER() function
     public UserIdentity getUserIdentity() {
         return new UserIdentity(qualifiedUser, remoteIP);
@@ -344,6 +449,10 @@ public class ConnectContext {
 
     public SessionVariable getSessionVariable() {
         return sessionVariable;
+    }
+
+    public void setSessionVariable(SessionVariable sessionVariable) {
+        this.sessionVariable = sessionVariable;
     }
 
     public ConnectScheduler getConnectScheduler() {
@@ -381,10 +490,6 @@ public class ConnectContext {
 
     public void resetReturnRows() {
         returnRows = 0;
-    }
-
-    public MysqlSerializer getSerializer() {
-        return serializer;
     }
 
     public int getConnectionId() {
@@ -439,6 +544,13 @@ public class ConnectContext {
         return env.getCatalogMgr().getCatalog(realCatalogName);
     }
 
+    public FunctionRegistry getFunctionRegistry() {
+        if (env == null) {
+            return Env.getCurrentEnv().getFunctionRegistry();
+        }
+        return env.getFunctionRegistry();
+    }
+
     public void changeDefaultCatalog(String catalogName) {
         defaultCatalog = catalogName;
         currentDb = "";
@@ -464,7 +576,9 @@ public class ConnectContext {
     }
 
     public void cleanup() {
-        mysqlChannel.close();
+        if (mysqlChannel != null) {
+            mysqlChannel.close();
+        }
         threadLocalInfo.remove();
         returnRows = 0;
     }
@@ -480,6 +594,17 @@ public class ConnectContext {
 
     public void setQueryId(TUniqueId queryId) {
         this.queryId = queryId;
+        if (connectScheduler != null && !Strings.isNullOrEmpty(traceId)) {
+            connectScheduler.putTraceId2QueryId(traceId, queryId);
+        }
+    }
+
+    public void setTraceId(String traceId) {
+        this.traceId = traceId;
+    }
+
+    public String traceId() {
+        return traceId;
     }
 
     public TUniqueId queryId() {
@@ -502,12 +627,32 @@ public class ConnectContext {
         this.sqlHash = sqlHash;
     }
 
+    public JSONObject getMinidump() {
+        return minidump;
+    }
+
+    public void setMinidump(JSONObject minidump) {
+        this.minidump = minidump;
+    }
+
     public Tracer getTracer() {
         return tracer;
     }
 
     public void initTracer(String name) {
         this.tracer = Telemetry.getOpenTelemetry().getTracer(name);
+    }
+
+    public StatementContext getStatementContext() {
+        return statementContext;
+    }
+
+    public void setStatementContext(StatementContext statementContext) {
+        this.statementContext = statementContext;
+    }
+
+    public void setResultSinkType(TResultSinkType resultSinkType) {
+        this.resultSinkType = resultSinkType;
     }
 
     // kill operation with no protect.
@@ -540,7 +685,7 @@ public class ConnectContext {
         boolean killFlag = false;
         boolean killConnection = false;
         if (command == MysqlCommand.COM_SLEEP) {
-            if (delta > sessionVariable.getWaitTimeoutS() * 1000) {
+            if (delta > sessionVariable.getWaitTimeoutS() * 1000L) {
                 // Need kill this connection.
                 LOG.warn("kill wait timeout connection, remote: {}, wait timeout: {}",
                         getMysqlChannel().getRemoteHostPortString(), sessionVariable.getWaitTimeoutS());
@@ -549,14 +694,20 @@ public class ConnectContext {
                 killConnection = true;
             }
         } else {
-            if (delta > sessionVariable.getQueryTimeoutS() * 1000) {
-                LOG.warn("kill query timeout, remote: {}, query timeout: {}",
-                        getMysqlChannel().getRemoteHostPortString(), sessionVariable.getQueryTimeoutS());
-
-                // Only kill
+            String timeoutTag = "query";
+            // insert stmt particularly
+            if (executor != null && executor.isInsertStmt()) {
+                timeoutTag = "insert";
+            }
+            //to ms
+            long timeout = getExecTimeout() * 1000L;
+            if (delta > timeout) {
+                LOG.warn("kill {} timeout, remote: {}, query timeout: {}",
+                        timeoutTag, getMysqlChannel().getRemoteHostPortString(), timeout);
                 killFlag = true;
             }
         }
+
         if (killFlag) {
             kill(killConnection);
         }
@@ -592,15 +743,40 @@ public class ConnectContext {
         return currentConnectedFEIp;
     }
 
-    public String getRemoteIp() {
-        return mysqlChannel == null ? "" : mysqlChannel.getRemoteIp();
+    /**
+     * We calculate and get the exact execution timeout here, rather than setting
+     * execution timeout in many other places.
+     *
+     * @return exact execution timeout
+     */
+    public int getExecTimeout() {
+        if (executor != null && executor.isInsertStmt()) {
+            // particular for insert stmt, we can expand other type of timeout in the same way
+            return Math.max(sessionVariable.getInsertTimeoutS(), sessionVariable.getQueryTimeoutS());
+        } else if (executor != null && executor.isAnalyzeStmt()) {
+            return sessionVariable.getAnalyzeTimeoutS();
+        } else {
+            // normal query stmt
+            return sessionVariable.getQueryTimeoutS();
+        }
+    }
+
+    public void setResultAttachedInfo(Map<String, String> resultAttachedInfo) {
+        this.resultAttachedInfo = resultAttachedInfo;
+    }
+
+    public Map<String, String> getResultAttachedInfo() {
+        return resultAttachedInfo;
     }
 
     public class ThreadInfo {
         public boolean isFull;
 
-        public List<String> toRow(long nowMs) {
+        public List<String> toRow(long nowMs, boolean showFe) {
             List<String> row = Lists.newArrayList();
+            if (showFe) {
+                row.add(Env.getCurrentEnv().getSelfNode().getHost());
+            }
             row.add("" + connectionId);
             row.add(ClusterNamespace.getNameFromFullName(qualifiedUser));
             row.add(getMysqlChannel().getRemoteHostPortString());
@@ -622,9 +798,49 @@ public class ConnectContext {
         }
     }
 
+
+    public void startAcceptQuery(ConnectProcessor connectProcessor) {
+        mysqlChannel.startAcceptQuery(this, connectProcessor);
+    }
+
+    public void suspendAcceptQuery() {
+        mysqlChannel.suspendAcceptQuery();
+    }
+
+    public void resumeAcceptQuery() {
+        mysqlChannel.resumeAcceptQuery();
+    }
+
+    public void stopAcceptQuery() throws IOException {
+        mysqlChannel.stopAcceptQuery();
+    }
+
     public String getQueryIdentifier() {
         return "stmt[" + stmtId + ", " + DebugUtil.printId(queryId) + "]";
     }
 
+    public StatsErrorEstimator getStatsErrorEstimator() {
+        return statsErrorEstimator;
+    }
+
+    public void setStatsErrorEstimator(StatsErrorEstimator statsErrorEstimator) {
+        this.statsErrorEstimator = statsErrorEstimator;
+    }
+
+    public void setWorkloadGroupName(String workloadGroupName) {
+        this.workloadGroupName = workloadGroupName;
+    }
+
+    public String getWorkloadGroupName() {
+        return this.workloadGroupName;
+    }
+
+    public void setInsertGroupCommit(long tableId, Backend backend) {
+        insertGroupCommitTableToBeMap.put(tableId, backend);
+    }
+
+    public Backend getInsertGroupCommit(long tableId) {
+        return insertGroupCommitTableToBeMap.get(tableId);
+    }
 }
 

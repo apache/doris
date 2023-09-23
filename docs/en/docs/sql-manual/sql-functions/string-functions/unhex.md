@@ -1,6 +1,6 @@
 ---
 {
-    "title": "unhex",
+    "title": "UNHEX",
     "language": "en"
 }
 ---
@@ -60,4 +60,4 @@ mysql> select unhex('4142');
 +---------------+
 ```
 ### keywords
-UNHEX
+    UNHEX

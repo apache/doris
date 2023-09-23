@@ -21,47 +21,72 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Logical filter plan.
  */
 public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements Filter {
-    private final Expression predicates;
 
+    private final Set<Expression> conjuncts;
 
-    public LogicalFilter(Expression predicates, CHILD_TYPE child) {
-        this(predicates, Optional.empty(), Optional.empty(), child);
+    public LogicalFilter(Set<Expression> conjuncts, CHILD_TYPE child) {
+        this(conjuncts, Optional.empty(), Optional.empty(), child);
     }
 
-    public LogicalFilter(Expression predicates, Optional<GroupExpression> groupExpression,
+    private LogicalFilter(Set<Expression> conjuncts, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_FILTER, groupExpression, logicalProperties, child);
-        this.predicates = Objects.requireNonNull(predicates, "predicates can not be null");
-    }
-
-    public Expression getPredicates() {
-        return predicates;
+        this.conjuncts = ImmutableSet.copyOf(Objects.requireNonNull(conjuncts, "conjuncts can not be null"));
     }
 
     @Override
-    public List<Slot> computeOutput(Plan input) {
-        return input.getOutput();
+    public Set<Expression> getConjuncts() {
+        return conjuncts;
+    }
+
+    public List<Expression> getExpressions() {
+        return ImmutableList.of(getPredicate());
+    }
+
+    @Override
+    public List<? extends Plan> extraPlans() {
+        return conjuncts.stream().map(Expression::children).flatMap(Collection::stream).flatMap(m -> {
+            if (m instanceof SubqueryExpr) {
+                return Stream.of(new LogicalSubQueryAlias<>(m.toSql(), ((SubqueryExpr) m).getQueryPlan()));
+            } else {
+                return new LogicalFilter<Plan>(ImmutableSet.of(m), child()).extraPlans().stream();
+            }
+        }).collect(Collectors.toList());
+    }
+
+    @Override
+    public List<Slot> computeOutput() {
+        return child().getOutput();
     }
 
     @Override
     public String toString() {
-        return "LogicalFilter (" + predicates + ")";
+        return Utils.toSqlString("LogicalFilter[" + id.asInt() + "]",
+                "predicates", getPredicate()
+        );
     }
 
     @Override
@@ -73,37 +98,42 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
             return false;
         }
         LogicalFilter that = (LogicalFilter) o;
-        return predicates.equals(that.predicates);
+        return conjuncts.equals(that.conjuncts);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(predicates);
+        return Objects.hash(conjuncts);
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitLogicalFilter((LogicalFilter<Plan>) this, context);
+        return visitor.visitLogicalFilter(this, context);
+    }
+
+    public LogicalFilter<Plan> withConjuncts(Set<Expression> conjuncts) {
+        return new LogicalFilter<>(conjuncts, Optional.empty(), Optional.of(getLogicalProperties()), child());
     }
 
     @Override
-    public List<Expression> getExpressions() {
-        return ImmutableList.of(predicates);
-    }
-
-    @Override
-    public LogicalUnary<Plan> withChildren(List<Plan> children) {
+    public LogicalFilter<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalFilter<>(predicates, children.get(0));
+        return new LogicalFilter<>(conjuncts, children.get(0));
     }
 
     @Override
-    public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalFilter<>(predicates, groupExpression, Optional.of(logicalProperties), child());
+    public LogicalFilter<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
+        return new LogicalFilter<>(conjuncts, groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalFilter<>(predicates, Optional.empty(), logicalProperties, child());
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new LogicalFilter<>(conjuncts, groupExpression, logicalProperties, children.get(0));
+    }
+
+    public LogicalFilter<Plan> withConjunctsAndChild(Set<Expression> conjuncts, Plan child) {
+        return new LogicalFilter<>(conjuncts, child);
     }
 }

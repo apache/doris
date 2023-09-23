@@ -17,8 +17,12 @@
 
 #pragma once
 
-#include <atomic>
+#include <stdint.h>
 
+#include <atomic>
+#include <unordered_set>
+
+#include "olap/olap_common.h"
 #include "olap/rowset/rowset_id_generator.h"
 #include "util/spinlock.h"
 #include "util/uid_util.h"
@@ -28,7 +32,10 @@ namespace doris {
 class UniqueRowsetIdGenerator : public RowsetIdGenerator {
 public:
     UniqueRowsetIdGenerator(const UniqueId& backend_uid);
-    ~UniqueRowsetIdGenerator();
+    ~UniqueRowsetIdGenerator() override;
+
+    UniqueRowsetIdGenerator(const UniqueRowsetIdGenerator&) = delete;
+    UniqueRowsetIdGenerator& operator=(const UniqueRowsetIdGenerator&) = delete;
 
     RowsetId next_id() override;
 
@@ -48,8 +55,6 @@ private:
     // to determine whether the rowset id is being used.
     // But to use id_in_use() and release_id() to check it.
     std::unordered_set<int64_t> _valid_rowset_id_hi;
-
-    DISALLOW_COPY_AND_ASSIGN(UniqueRowsetIdGenerator);
 }; // UniqueRowsetIdGenerator
 
 } // namespace doris

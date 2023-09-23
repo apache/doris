@@ -15,10 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// The cases is copied from https://github.com/trinodb/trino/tree/master
-// /testing/trino-product-tests/src/main/resources/sql-tests/testcases/window_functions
-// and modified by Doris.
-
 suite("drop_policy") {
     def storage_exist = { name ->
         def show_storage_policy = sql """
@@ -32,70 +28,123 @@ suite("drop_policy") {
         return false;
     }
 
-    if (!storage_exist.call("drop_policy_test")) {
+    def resource_not_table_use = "resource_not_table_use"
+    def use_policy = "use_policy"
+
+    if (!storage_exist.call(use_policy)) {
         def has_resouce_policy_drop = sql """
-            SHOW RESOURCES WHERE NAME = "resouce_policy_drop";
+            SHOW RESOURCES WHERE NAME = "${resource_not_table_use}";
         """
         if(has_resouce_policy_drop.size() == 0) {
             sql """
-            CREATE RESOURCE "resouce_policy_drop"
+            CREATE RESOURCE "${resource_not_table_use}"
             PROPERTIES(
                 "type"="s3",
-                "s3_endpoint" = "http://bj.s3.comaaaa",
-                "s3_region" = "bj",
-                "s3_root_path" = "path/to/rootaaaa",
-                "s3_access_key" = "bbba",
-                "s3_secret_key" = "aaaa",
-                "s3_max_connections" = "50",
-                "s3_request_timeout_ms" = "3000",
-                "s3_connection_timeout_ms" = "1000",
-                "s3_bucket" = "test-bucket"
+                "AWS_ENDPOINT" = "bj.s3.comaaaa",
+                "AWS_REGION" = "bj",
+                "AWS_ROOT_PATH" = "path/to/rootaaaa",
+                "AWS_ACCESS_KEY" = "bbba",
+                "AWS_SECRET_KEY" = "aaaa",
+                "AWS_MAX_CONNECTIONS" = "50",
+                "AWS_REQUEST_TIMEOUT_MS" = "3000",
+                "AWS_CONNECTION_TIMEOUT_MS" = "1000",
+                "AWS_BUCKET" = "test-bucket",
+                "s3_validity_check" = "false"
             );
             """
         }
 
+
         def drop_result = try_sql """
-            DROP RESOURCE 'resouce_policy_drop'
+            DROP RESOURCE ${resource_not_table_use}
         """
         // can drop, no policy use
         assertEquals(drop_result.size(), 1)
 
+        def resource_table_use = "resource_table_use"
         sql """
-        CREATE RESOURCE "resouce_policy_drop"
+        CREATE RESOURCE IF NOT EXISTS "${resource_table_use}"
         PROPERTIES(
             "type"="s3",
-            "s3_endpoint" = "http://bj.s3.comaaaa",
-            "s3_region" = "bj",
-            "s3_root_path" = "path/to/rootaaaa",
-            "s3_access_key" = "bbba",
-            "s3_secret_key" = "aaaa",
-            "s3_max_connections" = "50",
-            "s3_request_timeout_ms" = "3000",
-            "s3_connection_timeout_ms" = "1000",
-            "s3_bucket" = "test-bucket"
+            "AWS_ENDPOINT" = "bj.s3.comaaaa",
+            "AWS_REGION" = "bj",
+            "AWS_ROOT_PATH" = "path/to/rootaaaa",
+            "AWS_ACCESS_KEY" = "bbba",
+            "AWS_SECRET_KEY" = "aaaa",
+            "AWS_MAX_CONNECTIONS" = "50",
+            "AWS_REQUEST_TIMEOUT_MS" = "3000",
+            "AWS_CONNECTION_TIMEOUT_MS" = "1000",
+            "AWS_BUCKET" = "test-bucket",
+            "s3_validity_check" = "false"
         );
         """
 
+
         def create_succ_1 = try_sql """
-            CREATE STORAGE POLICY drop_policy_test
+            CREATE STORAGE POLICY ${use_policy}
             PROPERTIES(
-            "storage_resource" = "resouce_policy_drop",
-            "cooldown_datetime" = "2022-06-08 00:00:00"
+            "storage_resource" = "${resource_table_use}",
+            "cooldown_datetime" = "2025-06-08 00:00:00"
             );
         """
-        assertEquals(storage_exist.call("drop_policy_test"), true)
+        assertEquals(storage_exist.call(use_policy), true)
 
         def drop_s3_resource_result_1 = try_sql """
-            DROP RESOURCE 'resouce_policy_drop'
+            DROP RESOURCE ${resource_table_use}
         """
         // errCode = 2, detailMessage = S3 resource used by policy, can't drop it.
         assertEquals(drop_s3_resource_result_1, null)
 
         def drop_policy_ret = try_sql """
-            DROP STORAGE POLICY drop_policy_test
+            DROP STORAGE POLICY ${use_policy}
         """
-        // errCode = 2, detailMessage = current not support drop storage policy.
-        assertEquals(drop_policy_ret, null)
+        // can drop, no table use
+        assertEquals(drop_policy_ret.size(), 1)
+
+        def create_succ_2 = try_sql """
+            CREATE STORAGE POLICY IF NOT EXISTS drop_policy_test_has_table_binded
+            PROPERTIES(
+            "storage_resource" = "${resource_table_use}",
+            "cooldown_datetime" = "2025-06-08 00:00:00"
+            );
+        """
+        assertEquals(storage_exist.call("drop_policy_test_has_table_binded"), true)
+
+        // success
+        def create_table_use_created_policy = try_sql """
+            CREATE TABLE IF NOT EXISTS create_table_binding_created_policy
+            (
+                k1 BIGINT,
+                k2 LARGEINT,
+                v1 VARCHAR(2048)
+            )
+            UNIQUE KEY(k1)
+            DISTRIBUTED BY HASH (k1) BUCKETS 3
+            PROPERTIES(
+                "storage_policy" = "drop_policy_test_has_table_binded",
+                "replication_num" = "1"
+            );
+        """
+
+        assertEquals(create_table_use_created_policy.size(), 1);
+
+        def drop_policy_fail_ret = try_sql """
+            DROP STORAGE POLICY drop_policy_test_has_table_binded
+        """
+        // fail to drop, there are tables using this policy
+        assertEquals(drop_policy_fail_ret, null)
+
+        sql """
+        DROP TABLE create_table_binding_created_policy;
+        """
+
+        sql """
+        DROP STORAGE POLICY drop_policy_test_has_table_binded;
+        """
+
+        sql """
+        DROP RESOURCE ${resource_table_use};
+        """
     }
 
 }

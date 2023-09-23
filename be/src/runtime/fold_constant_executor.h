@@ -17,46 +17,49 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+#include <stddef.h>
+
+#include <memory>
+#include <string>
+
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "exprs/expr.h"
-#include "exprs/expr_context.h"
-#include "gen_cpp/PaloInternalService_types.h"
-#include "gen_cpp/internal_service.pb.h"
-#include "runtime/exec_env.h"
-#include "runtime/tuple_row.h"
-#include "util/runtime_profile.h"
+#include "runtime/memory/mem_tracker.h"
+#include "runtime/runtime_state.h"
+#include "runtime/types.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
 
 class TFoldConstantParams;
-class TExpr;
 class TQueryGlobals;
+class PConstantExprResult;
+class RuntimeProfile;
+class TQueryOptions;
 
 // This class used to fold constant expr from fe
 class FoldConstantExecutor {
 public:
-    // fold constant expr
-    Status fold_constant_expr(const TFoldConstantParams& params, PConstantExprResult* response);
-
     // fold constant vexpr
     Status fold_constant_vexpr(const TFoldConstantParams& params, PConstantExprResult* response);
 
 private:
     // init runtime_state and mem_tracker
-    Status _init(const TQueryGlobals& query_globals);
+    Status _init(const TQueryGlobals& query_globals, const TQueryOptions& query_options);
     // prepare expr
     template <typename Context>
     Status _prepare_and_open(Context* ctx);
 
-    template <bool is_vec = false>
-    std::string _get_result(void* src, size_t size, PrimitiveType slot_type);
+    std::string _get_result(void* src, size_t size, const TypeDescriptor& type,
+                            const vectorized::ColumnPtr column_ptr,
+                            const vectorized::DataTypePtr column_type);
 
     std::unique_ptr<RuntimeState> _runtime_state;
     std::unique_ptr<MemTracker> _mem_tracker;
     RuntimeProfile* _runtime_profile = nullptr;
-    std::unique_ptr<MemPool> _mem_pool;
     ObjectPool _pool;
-    static TUniqueId _dummy_id;
+    TUniqueId _query_id;
 };
 } // namespace doris

@@ -20,20 +20,21 @@ package org.apache.doris.analysis;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 
 public class SetLdapPassVar extends SetVar {
-    private final String passwd;
+    private final PassVar passVar;
 
-    public SetLdapPassVar(String passwd) {
-        this.passwd = passwd;
+    public SetLdapPassVar(PassVar passVar) {
+        this.passVar = passVar;
+        this.varType = SetVarType.SET_LDAP_PASS_VAR;
     }
 
     public String getLdapPassword() {
-        return passwd;
+        return passVar.getText();
     }
 
     @Override
@@ -42,10 +43,15 @@ public class SetLdapPassVar extends SetVar {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_SELECT_CLUSTER);
         }
 
-        if (!ConnectContext.get().getCurrentUserIdentity().getQualifiedUser().equals(PaloAuth.ROOT_USER)
-                && !ConnectContext.get().getCurrentUserIdentity().getQualifiedUser().equals(PaloAuth.ADMIN_USER)) {
+        if (!ConnectContext.get().getCurrentUserIdentity().getQualifiedUser().equals(Auth.ROOT_USER)
+                && !ConnectContext.get().getCurrentUserIdentity().getQualifiedUser().equals(Auth.ADMIN_USER)) {
             throw new AnalysisException("Only root and admin user can set ldap admin password.");
         }
+
+        if (!passVar.isPlain()) {
+            throw new AnalysisException("Only support set ldap password with plain text");
+        }
+        passVar.analyze();
     }
 
     @Override

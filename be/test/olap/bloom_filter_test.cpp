@@ -17,12 +17,13 @@
 
 #include "olap/bloom_filter.hpp"
 
-#include <gtest/gtest.h>
+#include <glog/logging.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
 #include <string>
 
-#include "common/configbase.h"
-#include "util/logging.h"
+#include "gtest/gtest_pred_impl.h"
 
 using std::string;
 

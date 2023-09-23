@@ -26,7 +26,9 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
+import org.apache.doris.thrift.TQueryOptions;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -98,6 +100,8 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
      */
     protected final ExprSubstitutionMap aliasSMap;
 
+    protected final ExprSubstitutionMap mvSMap;
+
     /**
      * Select list item alias does not have to be unique.
      * This list contains all the non-unique aliases. For example,
@@ -164,10 +168,15 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
      */
     private Set<TupleId> disableTuplesMVRewriter = Sets.newHashSet();
 
+    protected boolean toSQLWithSelectList;
+    protected boolean isPointQuery;
+    protected boolean toSQLWithHint;
+
     QueryStmt(ArrayList<OrderByElement> orderByElements, LimitElement limitElement) {
         this.orderByElements = orderByElements;
         this.limitElement = limitElement;
         this.aliasSMap = new ExprSubstitutionMap();
+        this.mvSMap = new ExprSubstitutionMap();
         this.ambiguousAliasList = Lists.newArrayList();
         this.sortInfo = null;
     }
@@ -185,11 +194,6 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
     }
 
     private void analyzeLimit(Analyzer analyzer) throws AnalysisException {
-        // TODO chenhao
-        if (limitElement.getOffset() > 0 && !hasOrderByClause()) {
-            throw new AnalysisException("OFFSET requires an ORDER BY clause: "
-                    + limitElement.toSql().trim());
-        }
         limitElement.analyze(analyzer);
     }
 
@@ -263,16 +267,24 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
         this.needToSql = needToSql;
     }
 
-    protected Expr rewriteQueryExprByMvColumnExpr(Expr expr, Analyzer analyzer) throws AnalysisException {
-        if (forbiddenMVRewrite) {
-            return expr;
+    public boolean isDisableTuplesMVRewriter(Expr expr) {
+        if (disableTuplesMVRewriter.isEmpty()) {
+            return false;
         }
-        if (expr.isBoundByTupleIds(disableTuplesMVRewriter.stream().collect(Collectors.toList()))) {
+        return expr.isBoundByTupleIds(disableTuplesMVRewriter.stream().collect(Collectors.toList()));
+    }
+
+    protected Expr rewriteQueryExprByMvColumnExpr(Expr expr, Analyzer analyzer) throws AnalysisException {
+        if (analyzer == null || analyzer.getMVExprRewriter() == null || forbiddenMVRewrite) {
             return expr;
         }
         ExprRewriter rewriter = analyzer.getMVExprRewriter();
         rewriter.reset();
-        return rewriter.rewrite(expr, analyzer);
+        rewriter.setInfoMVRewriter(disableTuplesMVRewriter, mvSMap, aliasSMap);
+        rewriter.setUpBottom();
+
+        Expr result = rewriter.rewrite(expr, analyzer);
+        return result;
     }
 
     /**
@@ -302,7 +314,7 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
             isAscOrder.add(Boolean.valueOf(orderByElement.getIsAsc()));
             nullsFirstParams.add(orderByElement.getNullsFirstParam());
         }
-        substituteOrdinalsAliases(orderingExprs, "ORDER BY", analyzer);
+        substituteOrdinalsAliases(orderingExprs, "ORDER BY", analyzer, true);
 
         // save the order by element after analyzed
         orderByElementsAfterAnalyzed = Lists.newArrayList();
@@ -415,7 +427,7 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
      * Modifies exprs list in-place.
      */
     protected void substituteOrdinalsAliases(List<Expr> exprs, String errorPrefix,
-                                             Analyzer analyzer) throws AnalysisException {
+                                             Analyzer analyzer, boolean aliasFirst) throws AnalysisException {
         Expr ambiguousAlias = getFirstAmbiguousAlias(exprs);
         if (ambiguousAlias != null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NON_UNIQ_ERROR, ambiguousAlias.toColumnLabel());
@@ -430,7 +442,21 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
             // alias substitution is not performed in the same way.
             Expr substituteExpr = trySubstituteOrdinal(expr, errorPrefix, analyzer);
             if (substituteExpr == null) {
-                substituteExpr = expr.trySubstitute(aliasSMap, analyzer, false);
+                if (aliasFirst) {
+                    substituteExpr = expr.trySubstitute(aliasSMap, analyzer, false);
+                } else {
+                    try {
+                        // use col name from tableRefs first
+                        substituteExpr = expr.clone();
+                        substituteExpr.analyze(analyzer);
+                    } catch (AnalysisException ex) {
+                        if (ConnectContext.get() != null) {
+                            ConnectContext.get().getState().reset();
+                        }
+                        // then consider alias name
+                        substituteExpr = expr.trySubstitute(aliasSMap, analyzer, false);
+                    }
+                }
             }
             i.set(substituteExpr);
         }
@@ -454,18 +480,17 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
         }
         if (pos > resultExprs.size()) {
             throw new AnalysisException(
-                    errorPrefix + ": ordinal exceeds number of items in select list: "
-                            + expr.toSql());
+                    errorPrefix + ": ordinal exceeds number of items in select list: " + expr.toSql());
         }
 
         // Create copy to protect against accidentally shared state.
         return resultExprs.get((int) pos - 1).clone();
     }
 
-    public void getWithClauseTables(Analyzer analyzer, Map<Long, TableIf> tableMap, Set<String> parentViewNameSet)
-            throws AnalysisException {
+    public void getWithClauseTables(Analyzer analyzer, boolean expandView, Map<Long, TableIf> tableMap,
+            Set<String> parentViewNameSet) throws AnalysisException {
         if (withClause != null) {
-            withClause.getTables(analyzer, tableMap, parentViewNameSet);
+            withClause.getTables(analyzer, expandView, tableMap, parentViewNameSet);
         }
     }
 
@@ -491,11 +516,11 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
 
 
     @Override
-    public void foldConstant(ExprRewriter rewriter) throws AnalysisException {
+    public void foldConstant(ExprRewriter rewriter, TQueryOptions tQueryOptions) throws AnalysisException {
         Preconditions.checkState(isAnalyzed());
         Map<String, Expr> exprMap = new HashMap<>();
         collectExprs(exprMap);
-        rewriter.rewriteConstant(exprMap, analyzer);
+        rewriter.rewriteConstant(exprMap, analyzer, tQueryOptions);
         if (rewriter.changed()) {
             putBackExprs(exprMap);
         }
@@ -534,6 +559,18 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
         return false;
     }
 
+    public Expr getExprFromAliasSMapDirect(Expr expr) throws AnalysisException {
+        return expr.trySubstitute(aliasSMap, analyzer, false);
+    }
+
+
+    public Expr getExprFromAliasSMap(Expr expr) throws AnalysisException {
+        if (!analyzer.getContext().getSessionVariable().isGroupByAndHavingUseAliasFirst()) {
+            return expr;
+        }
+        return getExprFromAliasSMapDirect(expr);
+    }
+
     // get tables used by this query.
     // Set<String> parentViewNameSet contain parent stmt view name
     // to make sure query like "with tmp as (select * from db1.table1) " +
@@ -542,8 +579,8 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
     // tmp in child stmt "(select siteid, citycode from tmp)" do not contain with_Clause
     // so need to check is view name by parentViewNameSet.
     // issue link: https://github.com/apache/doris/issues/4598
-    public abstract void getTables(Analyzer analyzer, Map<Long, TableIf> tables, Set<String> parentViewNameSet)
-            throws AnalysisException;
+    public abstract void getTables(Analyzer analyzer, boolean expandView, Map<Long, TableIf> tables,
+            Set<String> parentViewNameSet) throws AnalysisException;
 
     // get TableRefs in this query, including physical TableRefs of this statement and
     // nested statements of inline views and with_Clause.
@@ -609,10 +646,11 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
         return limitElement.getLimit();
     }
 
-    public void setLimit(long limit) throws AnalysisException {
+    public void setLimit(long limit) {
         Preconditions.checkState(limit >= 0);
         long newLimit = hasLimitClause() ? Math.min(limit, getLimit()) : limit;
-        limitElement = new LimitElement(newLimit);
+        long offset = hasLimitClause() ? getOffset() : 0;
+        limitElement = new LimitElement(offset, newLimit);
     }
 
     public void removeLimitElement() {
@@ -746,10 +784,12 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
         resultExprs = Expr.cloneList(other.resultExprs);
         baseTblResultExprs = Expr.cloneList(other.baseTblResultExprs);
         aliasSMap = other.aliasSMap.clone();
+        mvSMap = other.mvSMap.clone();
         ambiguousAliasList = Expr.cloneList(other.ambiguousAliasList);
         sortInfo = (other.sortInfo != null) ? other.sortInfo.clone() : null;
         analyzer = other.analyzer;
         evaluateOrderBy = other.evaluateOrderBy;
+        disableTuplesMVRewriter = other.disableTuplesMVRewriter;
     }
 
     @Override
@@ -794,5 +834,23 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
 
     public boolean hasOutFileClause() {
         return outFileClause != null;
+    }
+
+    public String toSqlWithSelectList() {
+        toSQLWithSelectList = true;
+        return toSql();
+    }
+
+    public boolean isPointQuery() {
+        return isPointQuery;
+    }
+
+    public String toSqlWithHint() {
+        toSQLWithHint = true;
+        return toSql();
+    }
+
+    public void setToSQLWithHint(boolean enableSqlSqlWithHint) {
+        this.toSQLWithHint = enableSqlSqlWithHint;
     }
 }

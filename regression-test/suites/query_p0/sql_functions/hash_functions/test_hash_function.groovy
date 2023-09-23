@@ -15,10 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 suite("test_hash_function") {
-    sql "set enable_vectorized_engine = true;"
     sql "set batch_size = 4096;"
+    sql "set enable_profile = true;"
 
     qt_sql "SELECT murmur_hash3_32(null);"
     qt_sql "SELECT murmur_hash3_32(\"hello\");"
     qt_sql "SELECT murmur_hash3_32(\"hello\", \"world\");"
+
+    qt_sql "SELECT murmur_hash3_64(null);"
+    qt_sql "SELECT murmur_hash3_64(\"hello\");"
+    qt_sql "SELECT murmur_hash3_64(\"hello\", \"world\");"
 }

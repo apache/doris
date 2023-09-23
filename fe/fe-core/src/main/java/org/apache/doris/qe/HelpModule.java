@@ -70,7 +70,7 @@ public class HelpModule {
     private ImmutableListMultimap.Builder<String, String> topicByKeyBuilder;
     private ImmutableMap.Builder<String, HelpTopic> topicBuilder;
 
-    private static final String HELP_ZIP_FILE_NAME = "help-resource.zip";
+    public static final String HELP_ZIP_FILE_NAME = "help-resource.zip";
     private static final long HELP_ZIP_CHECK_INTERVAL_MS = 10 * 60 * 1000L;
 
     private static Charset CHARSET_UTF_8;
@@ -104,12 +104,12 @@ public class HelpModule {
                 String line;
                 List<String> lines = Lists.newArrayList();
                 if (size > 0) {
-                    BufferedReader reader = new BufferedReader(new InputStreamReader(zf.getInputStream(entry),
-                                                                                     CHARSET_UTF_8));
-                    while ((line = reader.readLine()) != null) {
-                        lines.add(line);
+                    try (BufferedReader reader =
+                             new BufferedReader(new InputStreamReader(zf.getInputStream(entry), CHARSET_UTF_8))) {
+                        while ((line = reader.readLine()) != null) {
+                            lines.add(line);
+                        }
                     }
-                    reader.close();
 
                     // note that we only need basename
                     String parentPathStr = null;
@@ -262,11 +262,13 @@ public class HelpModule {
         return EMPTY_LIST;
     }
 
-    public void setUpModule() throws IOException, UserException {
-        URL helpResource = instance.getClass().getClassLoader()
-                .getResource(HELP_ZIP_FILE_NAME);
+    public void setUpModule(String targetHelpZip) throws IOException, UserException {
+        if (Strings.isNullOrEmpty(targetHelpZip)) {
+            throw new IOException("Help zip file is null");
+        }
+        URL helpResource = instance.getClass().getClassLoader().getResource(targetHelpZip);
         if (helpResource == null) {
-            throw new IOException("Can not find help zip file: " + HELP_ZIP_FILE_NAME);
+            throw new IOException("Can not find help zip file: " + targetHelpZip);
         }
         zipFilePath = helpResource.getPath();
         setUpByZip(zipFilePath);

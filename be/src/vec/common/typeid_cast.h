@@ -25,27 +25,36 @@
 #include <typeindex>
 #include <typeinfo>
 
+#include "common/exception.h"
 #include "common/status.h"
 #include "vec/common/demangle.h"
-#include "vec/common/exception.h"
+
+#define TYPEID_MAP(_A)                                              \
+    template <>                                                     \
+    inline constexpr TypeIndex TypeToTypeIndex<_A> = TypeIndex::_A; \
+    template <>                                                     \
+    struct TypeIndexToTypeHelper<TypeIndex::_A> : std::true_type {  \
+        using T = _A;                                               \
+    };
 
 /** Checks type by comparing typeid.
   * The exact match of the type is checked. That is, cast to the ancestor will be unsuccessful.
   * In the rest, behaves like a dynamic_cast.
   */
 template <typename To, typename From>
-std::enable_if_t<std::is_reference_v<To>, To> typeid_cast(From& from) {
+    requires std::is_reference_v<To>
+To typeid_cast(From& from) {
     try {
         if (typeid(from) == typeid(To)) {
             return static_cast<To>(from);
         }
     } catch (const std::exception& e) {
-        throw doris::vectorized::Exception(e.what(), doris::TStatusCode::VEC_BAD_CAST);
+        throw doris::Exception(doris::ErrorCode::BAD_CAST, e.what());
     }
 
-    throw doris::vectorized::Exception("Bad cast from type " + demangle(typeid(from).name()) +
-                                               " to " + demangle(typeid(To).name()),
-                                       doris::TStatusCode::VEC_BAD_CAST);
+    throw doris::Exception(doris::ErrorCode::BAD_CAST,
+                           "Bad cast from type " + demangle(typeid(from).name()) + " to " +
+                                   demangle(typeid(To).name()));
 }
 
 template <typename To, typename From>
@@ -57,6 +66,6 @@ To typeid_cast(From* from) {
             return nullptr;
         }
     } catch (const std::exception& e) {
-        throw doris::vectorized::Exception(e.what(), doris::TStatusCode::VEC_BAD_CAST);
+        throw doris::Exception(doris::ErrorCode::BAD_CAST, e.what());
     }
 }

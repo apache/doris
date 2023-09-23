@@ -16,16 +16,47 @@
 // under the License.
 #pragma once
 
-#include <string_view>
+#include <fmt/format.h>
+#include <glog/logging.h>
+#include <sys/types.h>
 
-#include "vec/columns/column_array.h"
-#include "vec/columns/column_string.h"
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <memory>
+#include <new>
+#include <ostream>
+#include <string>
+#include <utility>
+
+#include "common/status.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/hash_set.h"
 #include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/array/function_array_utils.h"
 #include "vec/functions/function.h"
+
+namespace doris {
+class FunctionContext;
+
+namespace vectorized {
+class ColumnString;
+} // namespace vectorized
+} // namespace doris
+template <typename, typename>
+struct DefaultHash;
 
 namespace doris::vectorized {
 
@@ -140,6 +171,14 @@ public:
             ret = _execute_internal<ColumnDateTime>(left_exec_data, right_exec_data,
                                                     dst_null_map_data,
                                                     dst_nested_col->get_data().data());
+        } else if (check_column<ColumnDateV2>(left_exec_data.nested_col)) {
+            ret = _execute_internal<ColumnDateV2>(left_exec_data, right_exec_data,
+                                                  dst_null_map_data,
+                                                  dst_nested_col->get_data().data());
+        } else if (check_column<ColumnDateTimeV2>(left_exec_data.nested_col)) {
+            ret = _execute_internal<ColumnDateTimeV2>(left_exec_data, right_exec_data,
+                                                      dst_null_map_data,
+                                                      dst_nested_col->get_data().data());
         } else if (left_exec_data.nested_col->is_numeric()) {
             if (check_column<ColumnUInt8>(*left_exec_data.nested_col)) {
                 ret = _execute_internal<ColumnUInt8>(left_exec_data, right_exec_data,
@@ -175,14 +214,26 @@ public:
                                                        dst_nested_col->get_data().data());
             }
         } else if (left_exec_data.nested_col->is_column_decimal()) {
-            if (check_column<ColumnDecimal128>(*left_exec_data.nested_col)) {
+            if (check_column<ColumnDecimal32>(*left_exec_data.nested_col)) {
+                ret = _execute_internal<ColumnDecimal32>(left_exec_data, right_exec_data,
+                                                         dst_null_map_data,
+                                                         dst_nested_col->get_data().data());
+            } else if (check_column<ColumnDecimal64>(*left_exec_data.nested_col)) {
+                ret = _execute_internal<ColumnDecimal64>(left_exec_data, right_exec_data,
+                                                         dst_null_map_data,
+                                                         dst_nested_col->get_data().data());
+            } else if (check_column<ColumnDecimal128I>(*left_exec_data.nested_col)) {
+                ret = _execute_internal<ColumnDecimal128I>(left_exec_data, right_exec_data,
+                                                           dst_null_map_data,
+                                                           dst_nested_col->get_data().data());
+            } else if (check_column<ColumnDecimal128>(*left_exec_data.nested_col)) {
                 ret = _execute_internal<ColumnDecimal128>(left_exec_data, right_exec_data,
                                                           dst_null_map_data,
                                                           dst_nested_col->get_data().data());
             }
         }
 
-        if (ret == Status::OK()) {
+        if (ret.ok()) {
             block.replace_by_position(result, ColumnNullable::create(std::move(dst_nested_col),
                                                                      std::move(dst_null_map)));
         }

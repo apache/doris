@@ -28,9 +28,9 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 public class ColumnTypeTest {
     private FakeEnv fakeEnv;
@@ -86,21 +86,15 @@ public class ColumnTypeTest {
         Assert.assertNotEquals(type.getType(), type4.getType());
     }
 
-    @Test(expected = AnalysisException.class)
-    public void testCharInvalid() throws AnalysisException {
-        TypeDef type = TypeDef.createVarchar(-1);
-        type.analyze(null);
-        Assert.fail("No Exception throws");
-    }
-
     @Test
     public void testDecimal() throws AnalysisException {
         TypeDef type = TypeDef.createDecimal(12, 5);
         type.analyze(null);
-        Assert.assertEquals("decimal(12, 5)", type.toString());
-        if (Config.enable_decimalv3 && Config.enable_decimal_conversion) {
+        if (Config.enable_decimal_conversion) {
+            Assert.assertEquals("decimalv3(12, 5)", type.toString());
             Assert.assertEquals(PrimitiveType.DECIMAL64, type.getType().getPrimitiveType());
         } else {
+            Assert.assertEquals("decimal(12, 5)", type.toString());
             Assert.assertEquals(PrimitiveType.DECIMALV2, type.getType().getPrimitiveType());
         }
         Assert.assertEquals(12, ((ScalarType) type.getType()).getScalarPrecision());
@@ -125,7 +119,7 @@ public class ColumnTypeTest {
     public void testDatetimeV2() throws AnalysisException {
         TypeDef type = TypeDef.createDatetimeV2(3);
         type.analyze(null);
-        Assert.assertEquals("datetime(3)", type.toString());
+        Assert.assertEquals("datetimev2(3)", type.toString());
         Assert.assertEquals(PrimitiveType.DATETIMEV2, type.getType().getPrimitiveType());
         Assert.assertEquals(ScalarType.DATETIME_PRECISION, ((ScalarType) type.getType()).getScalarPrecision());
         Assert.assertEquals(3, ((ScalarType) type.getType()).getScalarScale());
@@ -194,7 +188,7 @@ public class ColumnTypeTest {
     @Test(expected = AnalysisException.class)
     public void testDecimalPreFail() throws AnalysisException {
         TypeDef type;
-        if (Config.enable_decimalv3 && Config.enable_decimal_conversion) {
+        if (Config.enable_decimal_conversion) {
             type = TypeDef.createDecimal(39, 3);
         } else {
             type = TypeDef.createDecimal(28, 3);
@@ -205,7 +199,7 @@ public class ColumnTypeTest {
     @Test(expected = AnalysisException.class)
     public void testDecimalScaleFail() throws AnalysisException {
         TypeDef type;
-        if (Config.enable_decimalv3 && Config.enable_decimal_conversion) {
+        if (Config.enable_decimal_conversion) {
             type = TypeDef.createDecimal(27, 28);
         } else {
             type = TypeDef.createDecimal(27, 10);
@@ -222,9 +216,8 @@ public class ColumnTypeTest {
     @Test
     public void testSerialization() throws Exception {
         // 1. Write objects to file
-        File file = new File("./columnType");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        Path path = Files.createFile(Paths.get("./columnType"));
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
         ScalarType type1 = Type.NULL;
         ColumnType.write(dos, type1);
@@ -239,22 +232,22 @@ public class ColumnTypeTest {
         ColumnType.write(dos, type4);
 
         // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
         Type rType1 = ColumnType.read(dis);
-        Assert.assertTrue(rType1.equals(type1));
+        Assert.assertEquals(rType1, type1);
 
         Type rType2 = ColumnType.read(dis);
-        Assert.assertTrue(rType2.equals(type2));
+        Assert.assertEquals(rType2, type2);
 
         Type rType3 = ColumnType.read(dis);
 
         // Change it when remove DecimalV2
         Assert.assertTrue(rType3.equals(type3) || rType3.equals(type4));
 
-        Assert.assertFalse(type1.equals(this));
+        Assert.assertNotEquals(type1, this);
 
         // 3. delete files
         dis.close();
-        file.delete();
+        Files.deleteIfExists(path);
     }
 }

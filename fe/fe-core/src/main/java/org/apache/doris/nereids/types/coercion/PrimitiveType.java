@@ -29,4 +29,5 @@ public abstract class PrimitiveType extends DataType {
     public String toSql() {
         return simpleString().toUpperCase(Locale.ROOT);
     }
+
 }

@@ -17,20 +17,26 @@
 
 #include "util/disk_info.h"
 
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <sys/stat.h>
 #include <sys/sysmacros.h>
 #include <sys/types.h>
-#include <sys/vfs.h>
-#include <unistd.h>
 
-#include <boost/algorithm/string.hpp>
-#include <boost/algorithm/string/join.hpp>
+#include <algorithm>
+#include <boost/algorithm/string/classification.hpp>
+#include <boost/algorithm/string/detail/classification.hpp>
+#include <boost/algorithm/string/trim.hpp>
 #include <fstream>
-#include <iostream>
-#include <sstream>
+#include <iterator>
+#include <memory>
+#include <utility>
 
 #include "gutil/strings/split.h"
-#include "util/file_utils.h"
+#include "io/fs/local_file_system.h"
 
 namespace doris {
 
@@ -162,8 +168,11 @@ Status DiskInfo::get_disk_devices(const std::vector<std::string>& paths,
     std::vector<std::string> real_paths;
     for (auto& path : paths) {
         std::string p;
-        WARN_IF_ERROR(FileUtils::canonicalize(path, &p),
-                      "canonicalize path " + path + " failed, skip disk monitoring of this path");
+        Status st = io::global_local_filesystem()->canonicalize(path, &p);
+        if (!st.ok()) {
+            LOG(WARNING) << "skip disk monitoring of path. " << st;
+            continue;
+        }
         real_paths.emplace_back(std::move(p));
     }
 

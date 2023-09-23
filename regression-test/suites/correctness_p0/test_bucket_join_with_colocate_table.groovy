@@ -23,7 +23,7 @@
      sql """ DROP TABLE IF EXISTS ${colocateTableName} """
      sql """ DROP TABLE IF EXISTS ${rightTable} """
      sql """
-         CREATE TABLE `${colocateTableName}` (
+         CREATE TABLE IF NOT EXISTS `${colocateTableName}` (
            `c1` int(11) NULL COMMENT "",
            `c2` int(11) NULL COMMENT "",
            `c3` int(11) NULL COMMENT ""
@@ -42,7 +42,7 @@
          )
      """
      sql """
-         CREATE TABLE `${rightTable}` (
+         CREATE TABLE IF NOT EXISTS `${rightTable}` (
            `k1` int(11) NOT NULL COMMENT "",
            `v1` int(11) NOT NULL COMMENT ""
          ) ENGINE=OLAP
@@ -72,9 +72,6 @@
          ;
      """
 
-     // test_vectorized
-     sql """ set enable_vectorized_engine = true; """
-
-     order_qt_select """  select * from ${colocateTableName} right outer join ${rightTable} on ${colocateTableName}.c1 = ${rightTable}.k1; """
+     order_qt_select """  select * from ${colocateTableName} right outer join ${rightTable} on ${colocateTableName}.c1 = ${rightTable}.k1 order by c1; """
  }
 

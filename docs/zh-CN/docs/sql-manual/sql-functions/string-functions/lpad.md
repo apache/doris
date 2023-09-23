@@ -1,6 +1,6 @@
 ---
 {
-    "title": "lpad",
+    "title": "LPAD",
     "language": "zh-CN"
 }
 ---
@@ -51,4 +51,4 @@ mysql> SELECT lpad("hi", 1, "xy");
 +---------------------+
 ```
 ### keywords
-LPAD
+    LPAD

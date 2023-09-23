@@ -17,18 +17,18 @@
 
 #pragma once
 
+#include <type_traits>
+
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/hash_table/hash_set.h"
 #include "vec/data_types/data_type_array.h"
-#include "vec/data_types/data_type_number.h"
 #include "vec/functions/array/function_array_utils.h"
-#include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
 
 namespace doris::vectorized {
 
-enum class SetOperation { UNION, EXCEPT, INTERSECT };
+enum class SetOperation { UNION, EXCEPT };
 
 template <typename Set, typename Element>
 struct UnionAction;
@@ -36,25 +36,12 @@ struct UnionAction;
 template <typename Set, typename Element>
 struct ExceptAction;
 
-template <typename Set, typename Element>
-struct IntersectAction;
-
 template <typename Set, typename Element, SetOperation operation>
 struct ActionImpl;
 
 template <typename Set, typename Element>
-struct ActionImpl<Set, Element, SetOperation::UNION> {
-    using Action = UnionAction<Set, Element>;
-};
-
-template <typename Set, typename Element>
 struct ActionImpl<Set, Element, SetOperation::EXCEPT> {
     using Action = ExceptAction<Set, Element>;
-};
-
-template <typename Set, typename Element>
-struct ActionImpl<Set, Element, SetOperation::INTERSECT> {
-    using Action = IntersectAction<Set, Element>;
 };
 
 template <SetOperation operation, typename ColumnType>
@@ -69,6 +56,7 @@ struct OpenSetImpl {
     void reset() {
         set.clear();
         result_set.clear();
+        action.reset();
     }
     template <bool is_left>
     void apply(const ColumnArrayExecutionData& src, size_t off, size_t len,
@@ -105,6 +93,7 @@ struct OpenSetImpl<operation, ColumnString> {
     void reset() {
         set.clear();
         result_set.clear();
+        action.reset();
     }
     template <bool is_left>
     void apply(const ColumnArrayExecutionData& src, size_t off, size_t len,
@@ -150,7 +139,8 @@ public:
     }
 
     static Status execute(ColumnPtr& res_ptr, const ColumnArrayExecutionData& left_data,
-                          const ColumnArrayExecutionData& right_data) {
+                          const ColumnArrayExecutionData& right_data, bool left_const,
+                          bool right_const) {
         ColumnArrayMutableData dst;
         if (left_data.nested_nullmap_data || right_data.nested_nullmap_data) {
             dst = create_mutable_data(left_data.nested_col, true);
@@ -158,30 +148,29 @@ public:
             dst = create_mutable_data(left_data.nested_col, false);
         }
         ColumnPtr res_column;
-        if (_execute_internal<ColumnString>(dst, left_data, right_data) ||
-            _execute_internal<ColumnDate>(dst, left_data, right_data) ||
-            _execute_internal<ColumnDateTime>(dst, left_data, right_data) ||
-            _execute_internal<ColumnUInt8>(dst, left_data, right_data) ||
-            _execute_internal<ColumnInt8>(dst, left_data, right_data) ||
-            _execute_internal<ColumnInt16>(dst, left_data, right_data) ||
-            _execute_internal<ColumnInt32>(dst, left_data, right_data) ||
-            _execute_internal<ColumnInt64>(dst, left_data, right_data) ||
-            _execute_internal<ColumnInt128>(dst, left_data, right_data) ||
-            _execute_internal<ColumnFloat32>(dst, left_data, right_data) ||
-            _execute_internal<ColumnFloat64>(dst, left_data, right_data) ||
-            _execute_internal<ColumnDecimal128>(dst, left_data, right_data)) {
-            res_column = assemble_column_array(dst);
-            if (res_column) {
-                res_ptr = std::move(res_column);
-                return Status::OK();
+        if (left_const) {
+            if (_execute_internal<true, false, ALL_COLUMNS_SIMPLE>(dst, left_data, right_data)) {
+                res_column = assemble_column_array(dst);
             }
+        } else if (right_const) {
+            if (_execute_internal<false, true, ALL_COLUMNS_SIMPLE>(dst, left_data, right_data)) {
+                res_column = assemble_column_array(dst);
+            }
+        } else {
+            if (_execute_internal<false, false, ALL_COLUMNS_SIMPLE>(dst, left_data, right_data)) {
+                res_column = assemble_column_array(dst);
+            }
+        }
+        if (res_column) {
+            res_ptr = std::move(res_column);
+            return Status::OK();
         }
         return Status::RuntimeError("Unexpected columns: {}, {}", left_data.nested_col->get_name(),
                                     right_data.nested_col->get_name());
     }
 
 private:
-    template <typename ColumnType>
+    template <bool LCONST, bool RCONST, typename ColumnType>
     static bool _execute_internal(ColumnArrayMutableData& dst,
                                   const ColumnArrayExecutionData& left_data,
                                   const ColumnArrayExecutionData& right_data) {
@@ -194,10 +183,11 @@ private:
         Impl impl;
         for (size_t row = 0; row < left_data.offsets_ptr->size(); ++row) {
             size_t count = 0;
-            size_t left_off = (*left_data.offsets_ptr)[row - 1];
-            size_t left_len = (*left_data.offsets_ptr)[row] - left_off;
-            size_t right_off = (*right_data.offsets_ptr)[row - 1];
-            size_t right_len = (*right_data.offsets_ptr)[row] - right_off;
+            size_t left_off = (*left_data.offsets_ptr)[index_check_const(row, LCONST) - 1];
+            size_t left_len = (*left_data.offsets_ptr)[index_check_const(row, LCONST)] - left_off;
+            size_t right_off = (*right_data.offsets_ptr)[index_check_const(row, RCONST) - 1];
+            size_t right_len =
+                    (*right_data.offsets_ptr)[index_check_const(row, RCONST)] - right_off;
             if constexpr (execute_left_column_first) {
                 impl.template apply<true>(left_data, left_off, left_len, dst, &count);
                 impl.template apply<false>(right_data, right_off, right_len, dst, &count);
@@ -210,6 +200,14 @@ private:
             impl.reset();
         }
         return true;
+    }
+    template <bool LCONST, bool RCONST, typename T, typename... Ts>
+        requires(sizeof...(Ts) > 0)
+    static bool _execute_internal(ColumnArrayMutableData& dst,
+                                  const ColumnArrayExecutionData& left_data,
+                                  const ColumnArrayExecutionData& right_data) {
+        return _execute_internal<LCONST, RCONST, T>(dst, left_data, right_data) ||
+               _execute_internal<LCONST, RCONST, Ts...>(dst, left_data, right_data);
     }
 };
 

@@ -19,19 +19,19 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Pair;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.google.common.base.Preconditions;
-import org.apache.commons.lang.NotImplementedException;
+import com.google.common.collect.Lists;
+import org.apache.commons.lang3.NotImplementedException;
 
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 
 public class BackendClause extends AlterClause {
     protected List<String> hostPorts;
-    protected List<Pair<String, Integer>> hostPortPairs;
+    protected List<HostInfo> hostInfos;
 
     public static final String MUTLI_TAG_DISABLED_MSG = "Not support multi tags for Backend now. "
             + "You can set 'enable_multi_tags=true' in fe.conf to enable this feature.";
@@ -41,30 +41,29 @@ public class BackendClause extends AlterClause {
     protected BackendClause(List<String> hostPorts) {
         super(AlterOpType.ALTER_OTHER);
         this.hostPorts = hostPorts;
-        this.hostPortPairs = new LinkedList<Pair<String, Integer>>();
+        this.hostInfos = Lists.newArrayList();
     }
 
-    public List<Pair<String, Integer>> getHostPortPairs() {
-        return hostPortPairs;
+    public List<HostInfo> getHostInfos() {
+        return hostInfos;
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
         for (String hostPort : hostPorts) {
-            Pair<String, Integer> pair = SystemInfoService.validateHostAndPort(hostPort);
-            hostPortPairs.add(pair);
+            HostInfo hostInfo = SystemInfoService.getHostAndPort(hostPort);
+            hostInfos.add(hostInfo);
         }
-
-        Preconditions.checkState(!hostPortPairs.isEmpty());
+        Preconditions.checkState(!hostInfos.isEmpty());
     }
 
     @Override
     public String toSql() {
-        throw new NotImplementedException();
+        throw new NotImplementedException("Not support toSql for BackendClause");
     }
 
     @Override
     public Map<String, String> getProperties() {
-        throw new NotImplementedException();
+        throw new NotImplementedException("Not support getProperties for BackendClause");
     }
 }

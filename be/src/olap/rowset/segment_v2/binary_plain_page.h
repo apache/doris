@@ -35,7 +35,6 @@
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
 #include "olap/types.h"
-#include "runtime/mem_pool.h"
 #include "util/coding.h"
 #include "util/faststring.h"
 #include "vec/columns/column_complex.h"
@@ -53,8 +52,14 @@ public:
     }
 
     bool is_page_full() override {
-        // data_page_size is 0, do not limit the page size
-        return _options.data_page_size != 0 && _size_estimate > _options.data_page_size;
+        bool ret = false;
+        if (_options.is_dict_page) {
+            // dict_page_size is 0, do not limit the page size
+            ret = _options.dict_page_size != 0 && _size_estimate > _options.dict_page_size;
+        } else {
+            ret = _options.data_page_size != 0 && _size_estimate > _options.data_page_size;
+        }
+        return ret;
     }
 
     Status add(const uint8_t* vals, size_t* count) override {
@@ -65,7 +70,7 @@ public:
         // If the page is full, should stop adding more items.
         while (!is_page_full() && i < *count) {
             auto src = reinterpret_cast<const Slice*>(vals);
-            if constexpr (Type == OLAP_FIELD_TYPE_OBJECT) {
+            if constexpr (Type == FieldType::OLAP_FIELD_TYPE_OBJECT) {
                 if (_options.need_check_bitmap) {
                     RETURN_IF_ERROR(BitmapTypeCode::validate(*(src->data)));
                 }
@@ -104,7 +109,9 @@ public:
     void reset() override {
         _offsets.clear();
         _buffer.clear();
-        _buffer.reserve(_options.data_page_size == 0 ? 1024 : _options.data_page_size);
+        _buffer.reserve(_options.data_page_size == 0
+                                ? 1024
+                                : std::min(_options.data_page_size, _options.dict_page_size));
         _size_estimate = sizeof(uint32_t);
         _finished = false;
         _last_value_size = 0;
@@ -117,7 +124,7 @@ public:
     Status get_first_value(void* value) const override {
         DCHECK(_finished);
         if (_offsets.size() == 0) {
-            return Status::NotFound("page is empty");
+            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
         }
         *reinterpret_cast<Slice*>(value) = Slice(_first_value);
         return Status::OK();
@@ -125,7 +132,7 @@ public:
     Status get_last_value(void* value) const override {
         DCHECK(_finished);
         if (_offsets.size() == 0) {
-            return Status::NotFound("page is empty");
+            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
         }
         *reinterpret_cast<Slice*>(value) = Slice(_last_value);
         return Status::OK();
@@ -187,6 +194,12 @@ public:
         _num_elems = decode_fixed32_le((const uint8_t*)&_data[_data.get_size() - sizeof(uint32_t)]);
         _offsets_pos = _data.get_size() - (_num_elems + 1) * sizeof(uint32_t);
 
+        if (_offsets_pos > _data.get_size() - sizeof(uint32_t)) {
+            return Status::Corruption(
+                    "file corruption: offsets pos beyonds data_size: {}, num_element: {}"
+                    ", offset_pos: {}",
+                    _data.size, _num_elems, _offsets_pos);
+        }
         _parsed = true;
 
         return Status::OK();
@@ -198,49 +211,6 @@ public:
         return Status::OK();
     }
 
-    Status next_batch(size_t* n, ColumnBlockView* dst) override {
-        DCHECK(_parsed);
-        if (PREDICT_FALSE(*n == 0 || _cur_idx >= _num_elems)) {
-            *n = 0;
-            return Status::OK();
-        }
-        const size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elems - _cur_idx));
-
-        Slice* out = reinterpret_cast<Slice*>(dst->data());
-        size_t mem_len[max_fetch];
-        for (size_t i = 0; i < max_fetch; i++, out++, _cur_idx++) {
-            *out = string_at_index(_cur_idx);
-            if constexpr (Type == OLAP_FIELD_TYPE_OBJECT) {
-                if (_options.need_check_bitmap) {
-                    RETURN_IF_ERROR(BitmapTypeCode::validate(*(out->data)));
-                }
-            }
-            mem_len[i] = out->size;
-        }
-
-        // use SIMD instruction to speed up call function `RoundUpToPowerOfTwo`
-        size_t mem_size = 0;
-        for (int i = 0; i < max_fetch; ++i) {
-            mem_len[i] = BitUtil::RoundUpToPowerOf2Int32(mem_len[i], MemPool::DEFAULT_ALIGNMENT);
-            mem_size += mem_len[i];
-        }
-
-        // allocate a batch of memory and do memcpy
-        out = reinterpret_cast<Slice*>(dst->data());
-        char* destination = (char*)dst->column_block()->pool()->allocate(mem_size);
-        if (destination == nullptr) {
-            return Status::MemoryAllocFailed("memory allocate failed, size:{}", mem_size);
-        }
-        for (int i = 0; i < max_fetch; ++i) {
-            out->relocate(destination);
-            destination += mem_len[i];
-            ++out;
-        }
-
-        *n = max_fetch;
-        return Status::OK();
-    }
-
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
         DCHECK(_parsed);
         if (PREDICT_FALSE(*n == 0 || _cur_idx >= _num_elems)) {
@@ -249,25 +219,31 @@ public:
         }
         const size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elems - _cur_idx));
 
-        uint32_t len_array[max_fetch];
-        uint32_t start_offset_array[max_fetch];
-        for (int i = 0; i < max_fetch; i++, _cur_idx++) {
-            const uint32_t start_offset = offset(_cur_idx);
-            uint32_t len = offset(_cur_idx + 1) - start_offset;
-            len_array[i] = len;
-            start_offset_array[i] = start_offset;
-            if constexpr (Type == OLAP_FIELD_TYPE_OBJECT) {
+        uint32_t last_offset = guarded_offset(_cur_idx);
+        uint32_t offsets[max_fetch + 1];
+        offsets[0] = last_offset;
+        for (int i = 0; i < max_fetch - 1; i++, _cur_idx++) {
+            const uint32_t start_offset = last_offset;
+            last_offset = guarded_offset(_cur_idx + 1);
+            offsets[i + 1] = last_offset;
+            if constexpr (Type == FieldType::OLAP_FIELD_TYPE_OBJECT) {
                 if (_options.need_check_bitmap) {
                     RETURN_IF_ERROR(BitmapTypeCode::validate(*(_data.data + start_offset)));
                 }
             }
         }
-        dst->insert_many_binary_data(_data.mutable_data(), len_array, start_offset_array,
-                                     max_fetch);
+        _cur_idx++;
+        offsets[max_fetch] = offset(_cur_idx);
+        if constexpr (Type == FieldType::OLAP_FIELD_TYPE_OBJECT) {
+            if (_options.need_check_bitmap) {
+                RETURN_IF_ERROR(BitmapTypeCode::validate(*(_data.data + last_offset)));
+            }
+        }
+        dst->insert_many_continuous_binary_data(_data.data, offsets, max_fetch);
 
         *n = max_fetch;
         return Status::OK();
-    };
+    }
 
     Status read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal, size_t* n,
                           vectorized::MutableColumnPtr& dst) override {
@@ -340,13 +316,20 @@ public:
     }
 
 private:
+    static constexpr size_t SIZE_OF_INT32 = sizeof(uint32_t);
     // Return the offset within '_data' where the string value with index 'idx' can be found.
     uint32_t offset(size_t idx) const {
         if (idx >= _num_elems) {
             return _offsets_pos;
         }
         const uint8_t* p =
-                reinterpret_cast<const uint8_t*>(&_data[_offsets_pos + idx * sizeof(uint32_t)]);
+                reinterpret_cast<const uint8_t*>(&_data[_offsets_pos + idx * SIZE_OF_INT32]);
+        return decode_fixed32_le(p);
+    }
+
+    uint32_t guarded_offset(size_t idx) const {
+        const uint8_t* p =
+                reinterpret_cast<const uint8_t*>(&_data[_offsets_pos + idx * SIZE_OF_INT32]);
         return decode_fixed32_le(p);
     }
 

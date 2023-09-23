@@ -114,8 +114,8 @@ public final class RollupSelector {
         return selectedIndexId;
     }
 
-    private List<Long> selectBestPrefixIndexRollup(List<Expr> conjuncts, boolean isPreAggregation) {
-
+    private List<Long> selectBestPrefixIndexRollup(List<Expr> conjuncts, boolean isPreAggregation)
+            throws UserException {
         final List<String> outputColumns = Lists.newArrayList();
         for (SlotDescriptor slot : tupleDesc.getMaterializedSlots()) {
             Column col = slot.getColumn();
@@ -131,7 +131,7 @@ public final class RollupSelector {
         for (MaterializedIndex rollup : rollups) {
             final Set<String> rollupColumns = Sets.newHashSet();
             table.getSchemaByIndexId(rollup.getId(), true)
-                    .stream().forEach(column -> rollupColumns.add(column.getName()));
+                    .forEach(column -> rollupColumns.add(column.getName()));
 
             if (rollupColumns.containsAll(outputColumns)) {
                 // If preAggregation is off, so that we only can use base table
@@ -151,11 +151,12 @@ public final class RollupSelector {
             }
         }
 
-        Preconditions.checkArgument(rollupsContainsOutput.size() > 0,
-                "Can't find candicate rollup contains all output columns.");
+        if (rollupsContainsOutput.size() == 0) {
+            throw new UserException("Can't find candicate rollup contains all output columns.");
+        }
 
-
-        // 2. find all rollups which match the prefix most based on predicates column from containTupleIndices.
+        // 2. find all rollups which match the prefix most based on predicates column
+        // from containTupleIndices.
         final Set<String> equivalenceColumns = Sets.newHashSet();
         final Set<String> unequivalenceColumns = Sets.newHashSet();
         collectColumns(conjuncts, equivalenceColumns, unequivalenceColumns);
@@ -164,7 +165,7 @@ public final class RollupSelector {
                          equivalenceColumns, unequivalenceColumns);
 
         if (rollupsMatchingBestPrefixIndex.isEmpty()) {
-            rollupsContainsOutput.stream().forEach(n -> rollupsMatchingBestPrefixIndex.add(n.getId()));
+            rollupsContainsOutput.forEach(n -> rollupsMatchingBestPrefixIndex.add(n.getId()));
         }
 
         // 3. sorted the final candidate indexes by index id

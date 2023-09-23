@@ -19,11 +19,8 @@
 
 #include <math.h>
 
-#include <exception>
 #include <memory>
 #include <sstream>
-
-#include "common/logging.h"
 
 namespace doris {
 
@@ -243,6 +240,7 @@ int64_t base64_decode(const char* data, size_t length, char* decoded_data) {
             return 0;
         case 2:
             k++;
+            [[fallthrough]];
         case 3:
             decoded_data[k] = 0;
         default:

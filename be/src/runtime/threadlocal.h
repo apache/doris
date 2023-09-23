@@ -41,6 +41,8 @@
 
 #pragma once
 
+#include <stddef.h>
+
 #include "gutil/port.h"
 
 #define BLOCK_STATIC_THREAD_LOCAL(T, t, ...) \
@@ -119,7 +121,7 @@ void add_destructor(void (*destructor)(void*), void* arg);
 
 // Destroy the passed object of type T.
 template <class T>
-static void destroy(void* t) {
+void destroy(void* t) {
     // With tcmalloc, this should be pretty cheap (same thread as new).
     delete reinterpret_cast<T*>(t);
 }

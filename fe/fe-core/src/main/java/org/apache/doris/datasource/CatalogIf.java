@@ -18,14 +18,22 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import javax.annotation.Nullable;
 
@@ -33,6 +41,7 @@ import javax.annotation.Nullable;
  * The interface of Catalog
  */
 public interface CatalogIf<T extends DatabaseIf> {
+    Logger LOG = LogManager.getLogger(CatalogIf.class);
 
     // Type of this catalog
     String getType();
@@ -44,6 +53,21 @@ public interface CatalogIf<T extends DatabaseIf> {
 
     List<String> getDbNames();
 
+    default boolean isInternalCatalog() {
+        return this instanceof InternalCatalog;
+    }
+
+    // Will be used when querying the information_schema table
+    // Unable to get db for uninitialized catalog to avoid query timeout
+    default List<String> getDbNamesOrEmpty() {
+        try {
+            return getDbNames();
+        } catch (Exception e) {
+            LOG.warn("failed to get db names in catalog {}", getName(), e);
+            return Lists.newArrayList();
+        }
+    }
+
     List<Long> getDbIds();
 
     @Nullable
@@ -53,6 +77,16 @@ public interface CatalogIf<T extends DatabaseIf> {
     T getDbNullable(long dbId);
 
     Map<String, String> getProperties();
+
+    default String getResource() {
+        return null;
+    }
+
+    default void notifyPropertiesUpdated(Map<String, String> updatedProps) {
+        if (this instanceof ExternalCatalog) {
+            ((ExternalCatalog) this).setUninitialized(false);
+        }
+    }
 
     void modifyCatalogName(String name);
 
@@ -111,4 +145,33 @@ public interface CatalogIf<T extends DatabaseIf> {
         return getDbOrException(dbId,
                 s -> new AnalysisException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s), ErrorCode.ERR_BAD_DB_ERROR));
     }
+
+    // Called when catalog is dropped
+    default void onClose() {
+        Env.getCurrentEnv().getRefreshManager().removeFromRefreshMap(getId());
+    }
+
+    String getComment();
+
+    default long getLastUpdateTime() {
+        return -1L;
+    }
+
+    default CatalogLog constructEditLog() {
+        CatalogLog log = new CatalogLog();
+        log.setCatalogId(getId());
+        log.setCatalogName(getName());
+        log.setResource(Strings.nullToEmpty(getResource()));
+        log.setComment(getComment());
+        log.setProps(getProperties());
+        return log;
+    }
+
+    // Return a copy of all db collection.
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    public Collection<DatabaseIf> getAllDbs();
+
+    public boolean enableAutoAnalyze();
+
+    public ConcurrentHashMap<Long, DatabaseIf> getIdToDb();
 }

@@ -17,54 +17,39 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
-import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.algebra.Scan;
+import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Sets;
+import org.json.JSONObject;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Logical relation plan.
  */
-public abstract class LogicalRelation extends LogicalLeaf implements Scan {
+public abstract class LogicalRelation extends LogicalLeaf implements Relation {
 
-    protected final Table table;
-    protected final List<String> qualifier;
+    protected final RelationId relationId;
 
-    public LogicalRelation(PlanType type, Table table, List<String> qualifier) {
-        this(type, table, qualifier, Optional.empty(), Optional.empty());
+    public LogicalRelation(RelationId relationId, PlanType type) {
+        this(relationId, type, Optional.empty(), Optional.empty());
     }
 
-    /**
-     * Constructor for LogicalRelationPlan.
-     *
-     * @param table Doris table
-     * @param qualifier qualified relation name
-     */
-    public LogicalRelation(PlanType type, Table table, List<String> qualifier,
+    public LogicalRelation(RelationId relationId, PlanType type,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
         super(type, groupExpression, logicalProperties);
-        this.table = Objects.requireNonNull(table, "table can not be null");
-        this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier, "qualifier can not be null"));
-    }
+        this.relationId = relationId;
 
-    public Table getTable() {
-        return table;
-    }
-
-    public List<String> getQualifier() {
-        return qualifier;
     }
 
     @Override
@@ -76,20 +61,12 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
             return false;
         }
         LogicalRelation that = (LogicalRelation) o;
-        return Objects.equals(table.getId(), that.table.getId()) && Objects.equals(qualifier, that.qualifier);
+        return this.relationId.equals(that.getRelationId());
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(table.getId(), qualifier);
-    }
-
-    @Override
-    public List<Slot> computeOutput() {
-        return table.getBaseSchema()
-                .stream()
-                .map(col -> SlotReference.fromColumn(col, qualified()))
-                .collect(ImmutableList.toImmutableList());
+        return Objects.hash(relationId);
     }
 
     @Override
@@ -98,21 +75,27 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
     }
 
     @Override
-    public List<Expression> getExpressions() {
+    public List<? extends Expression> getExpressions() {
         return ImmutableList.of();
     }
 
-    /**
-     * Full qualified name parts, i.e., concat qualifier and name into a list.
-     */
-    public List<String> qualified() {
-        return Utils.qualifiedNameParts(qualifier, table.getName());
+    public RelationId getRelationId() {
+        return relationId;
     }
 
-    /**
-     * Full qualified table name, concat qualifier and name with `.` as separator.
-     */
-    public String qualifiedName() {
-        return Utils.qualifiedName(qualifier, table.getName());
+    @Override
+    public JSONObject toJson() {
+        JSONObject logicalRelation = super.toJson();
+        JSONObject properties = new JSONObject();
+        properties.put("RelationId", relationId.toString());
+        logicalRelation.put("Properties", properties);
+        return logicalRelation;
+    }
+
+    @Override
+    public Set<RelationId> getInputRelations() {
+        Set<RelationId> relationIdSet = Sets.newHashSet();
+        relationIdSet.add(relationId);
+        return relationIdSet;
     }
 }

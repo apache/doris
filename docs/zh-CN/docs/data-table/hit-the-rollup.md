@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Rollup与查询",
+    "title": "Rollup 与查询",
     "language": "zh-CN"
 }
 ---
@@ -44,7 +44,7 @@ ROLLUP 表的基本作用，在于在 Base 表的基础上，获得更粗粒度�
 
 1. 示例1：获得每个用户的总消费
 
-接 **[数据模型Aggregate 模型](./data-model.html#Aggregate模型)**小节的**示例2**，Base 表结构如下：
+接 **[数据模型Aggregate 模型](./data-model.md)**小节的**示例2**，Base 表结构如下：
 
 | ColumnName      | Type        | AggregationType | Comment                |
 | --------------- | ----------- | --------------- | ---------------------- |
@@ -126,7 +126,7 @@ mysql> SELECT city, sum(cost), max(max_dwell_time), min(min_dwell_time) FROM tab
 mysql> SELECT city, age, sum(cost), min(min_dwell_time) FROM table GROUP BY city, age;
 ```
 
-Doris 会执行这些sql时会自动命中这个 ROLLUP 表。
+Doris 执行这些sql时会自动命中这个 ROLLUP 表。
 
 ### Duplicate 模型中的 ROLLUP
 
@@ -327,7 +327,7 @@ SELECT * FROM test WHERE k4 = 1 AND k5 > 3;
 SELECT * FROM test WHERE k9 IN ("xxx", "yyyy") AND k1 = 10;
 ```
 
-有 k9 以及 k1 两个条件，rollup_index1 以及 rollup_index2 的第一列都含有 k9，按理说这里选择这两个 rollup 都可以命中前缀索引并且效果是一样的随机选择一个即可（因为这里 varchar 刚好20个字节，前缀索引不足36个字节被截断），但是当前策略这里还会继续匹配 k1，因为 rollup_index1 的第二列为 k1，所以选择了 rollup_index1，其实后面的 k1 条件并不会起到加速的作用。(如果对于前缀索引外的条件需要其可以起到加速查询的目的，可以通过建立 Bloom Filter 过滤器加速。一般对于字符串类型建立即可，因为 Doris 针对列存在 Block 级别对于整形、日期已经有 Min/Max 索引) 以下是 explain 的结果。
+有 k9 以及 k1 两个条件，rollup_index1 以及 rollup_index2 的第一列都含有 k9，按理说这里选择这两个 rollup 都可以命中前缀索引并且效果是一样的随机选择一个即可（因为这里 varchar 刚好20个字节，前缀索引不足36个字节被截断），但是当前策略这里还会继续匹配 k1，因为 rollup_index1 的第二列为 k1，所以选择了 rollup_index1，其实后面的 k1 条件并不会起到加速的作用。(如果对于前缀索引外的条件需要其可以起到加速查询的目的，可以通过建立 Bloom Filter 过滤器加速。一般对于字符串类型建立即可，因为 Doris 针对列存在 Block 级别对于整型、日期已经有 Min/Max 索引) 以下是 explain 的结果。
 
 ```text
 |   0:OlapScanNode                                                                                                                                                                                                                                                                                                                                                                                                  

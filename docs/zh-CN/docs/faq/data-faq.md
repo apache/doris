@@ -36,11 +36,13 @@ under the License.
 
 ### Q2. Doris 是否支持修改列名？
 
-不支持修改列名。
+在 1.2.0 版本之后, 开启 `"light_schema_change"="true"` 选项时，可以支持修改列名。
+
+在 1.2.0 版本之前或未开启 `"light_schema_change"="true"` 选项时，不支持修改列名, 原因如下：
 
 Doris支持修改数据库名、表名、分区名、物化视图（Rollup）名称，以及列的类型、注释、默认值等等。但遗憾的是，目前不支持修改列名。
 
-因为一些历史原因，目前列名称是直接写入到数据文件中的。Doris在查询时，也是通过类名查找到对应的列的。所以修改列名不仅是简单的元数据修改，还会涉及到数据的重写，是一个非常重的操作。
+因为一些历史原因，目前列名称是直接写入到数据文件中的。Doris在查询时，也是通过列名查找到对应的列的。所以修改列名不仅是简单的元数据修改，还会涉及到数据的重写，是一个非常重的操作。
 
 我们不排除后续通过一些兼容手段来支持轻量化的列名修改操作。
 
@@ -52,13 +54,13 @@ Unique Key模型的表是一个对业务比较友好的表，因为其特有的�
 
 但遗憾的是，Unique Key模型的表是无法建立物化视图的。原因在于，物化视图的本质，是通过预计算来将数据“预先算好”，这样在查询时直接返回已经计算好的数据，来加速查询。在物化视图中，“预计算”的数据通常是一些聚合指标，比如求和、求count。这时，如果数据发生变更，如update或delete，因为预计算的数据已经丢失了明细信息，因此无法同步的进行更新。比如一个求和值5，可能是 1+4，也可能是2+3。因为明细信息的丢失，我们无法区分这个求和值是如何计算出来的，因此也就无法满足更新的需求。
 
-### Q4. tablet writer write failed, tablet_id=27306172, txn_id=28573520, err=-235 or -215 or -238
+### Q4. tablet writer write failed, tablet_id=27306172, txn_id=28573520, err=-235 or -238
 
-这个错误通常发生在数据导入操作中。新版错误码为 -235，老版本错误码可能是 -215。这个错误的含义是，对应tablet的数据版本超过了最大限制（默认500，由 BE 参数 `max_tablet_version_num` 控制），后续写入将被拒绝。比如问题中这个错误，即表示 27306172 这个tablet的数据版本超过了限制。
+这个错误通常发生在数据导入操作中。错误码为 -235。这个错误的含义是，对应tablet的数据版本超过了最大限制（默认500，由 BE 参数 `max_tablet_version_num` 控制），后续写入将被拒绝。比如问题中这个错误，即表示 27306172 这个tablet的数据版本超过了限制。
 
-这个错误通常是因为导入的频率过高，大于后台数据的compaction速度，导致版本堆积并最终超过了限制。此时，我们可以先通过show tablet 27306172 语句，然后执行结果中的 show proc 语句，查看tablet各个副本的情况。结果中的 versionCount即表示版本数量。如果发现某个副本的版本数量过多，则需要降低导入频率或停止导入，并观察版本数是否有下降。如果停止导入后，版本数依然没有下降，则需要去对应的BE节点查看be.INFO日志，搜索tablet id以及 compaction关键词，检查compaction是否正常运行。关于compaction调优相关，可以参阅 ApacheDoris 公众号文章：Doris 最佳实践-Compaction调优(3)
+这个错误通常是因为导入的频率过高，大于后台数据的compaction速度，导致版本堆积并最终超过了限制。此时，我们可以先通过show tablet 27306172 语句，然后执行结果中的 show proc 语句，查看tablet各个副本的情况。结果中的 versionCount即表示版本数量。如果发现某个副本的版本数量过多，则需要降低导入频率或停止导入，并观察版本数是否有下降。如果停止导入后，版本数依然没有下降，则需要去对应的BE节点查看be.INFO日志，搜索tablet id以及 compaction关键词，检查compaction是否正常运行。关于compaction调优相关，可以参阅 ApacheDoris 公众号文章：[Doris 最佳实践-Compaction调优(3)](https://mp.weixin.qq.com/s/cZmXEsNPeRMLHp379kc2aA)
 
--238 错误通常出现在同一批导入数据量过大的情况，从而导致某一个 tablet 的 Segment 文件过多（默认是 200，由 BE 参数 `max_segment_num_per_rowset` 控制）。此时建议减少一批次导入的数据量，或者适当提高 BE 配置参数值来解决。
+-238 错误通常出现在同一批导入数据量过大的情况，从而导致某一个 tablet 的 Segment 文件过多（默认是 200，由 BE 参数 `max_segment_num_per_rowset` 控制）。此时建议减少一批次导入的数据量，或者适当提高 BE 配置参数值来解决。在2.0版本及以后，可以通过打开 segment compaction 功能来减少 Segment 文件数量(BE config 中 `enable_segcompaction=true`)。
 
 ### Q5. tablet 110309738 has few replicas: 1, alive backends: [10003]
 
@@ -90,7 +92,7 @@ Unique Key模型的表是一个对业务比较友好的表，因为其特有的�
 
    可以升级到 Doris 0.15 及之后的版本，已修复这个问题。
 
-### Q8. 执行导入、查询时报错-214 
+### Q8. 执行导入、查询时报错-214
 
 在执行导入、查询等操作时，可能会遇到如下错误：
 
@@ -147,3 +149,26 @@ broker_timeout_ms = 10000
 ```
 
 这里添加参数，需要重启 FE 服务。
+
+### Q11.[ Routine load ] ReasonOfStateChanged: ErrorReason{code=errCode = 104, msg='be 10004 abort task with reason: fetch failed due to requested offset not available on the broker: Broker: Offset out of range'}
+
+出现这个问题的原因是因为kafka的清理策略默认为7天，当某个routine load任务因为某种原因导致任务暂停，长时间没有恢复，当重新恢复任务的时候routine load记录了消费的offset,而kafka的清理策略已经清理了对应的offset,就会出现这个问题
+
+所以这个问题可以用alter routine load解决方式：
+
+查看kafka最小的offset ,使用ALTER ROUTINE LOAD命令修改offset,重新恢复任务即可
+
+```sql
+ALTER ROUTINE LOAD FOR db.tb
+FROM kafka
+(
+ "kafka_partitions" = "0",
+ "kafka_offsets" = "xxx",
+ "property.group.id" = "xxx"
+);
+```
+### Q12. ERROR 1105 (HY000): errCode = 2, detailMessage = (192.168.90.91)[CANCELLED][INTERNAL_ERROR]error setting certificate verify locations:  CAfile: /etc/ssl/certs/ca-certificates.crt CApath: none
+```
+yum install -y ca-certificates
+ln -s /etc/pki/ca-trust/extracted/openssl/ca-bundle.trust.crt /etc/ssl/certs/ca-certificates.crt
+```

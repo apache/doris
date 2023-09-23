@@ -23,7 +23,7 @@ under the License.
     <parent>
         <groupId>org.apache</groupId>
         <artifactId>apache</artifactId>
-        <version>23</version>
+        <version>29</version>
     </parent>
     <groupId>org.apache.doris</groupId>
     <artifactId>fe-plugins</artifactId>
@@ -68,7 +68,7 @@ under the License.
     </modules>
     <properties>
         <log4j2.version>2.18.0</log4j2.version>
-        <doris.version>1.0-SNAPSHOT</doris.version>
+        <doris.version>1.2-SNAPSHOT</doris.version>
         <project.scm.id>github</project.scm.id>
     </properties>
     <profiles>
@@ -101,7 +101,11 @@ under the License.
                 </property>
             </activation>
             <repositories>
-                <!-- for java-cup -->
+                <repository>
+                    <id>snapshots</id>
+                    <name>apache snapshots maven repo https</name>
+                    <url>https://repository.apache.org/content/repositories/snapshots/</url>
+                </repository>
                 <repository>
                     <id>cloudera-public</id>
                     <url>https://repository.cloudera.com/artifactory/public/</url>

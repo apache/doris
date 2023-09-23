@@ -38,7 +38,7 @@ public class PlanPreprocessors {
     public LogicalPlan process(LogicalPlan logicalPlan) {
         LogicalPlan resultPlan = logicalPlan;
         for (PlanPreprocessor processor : getProcessors()) {
-            resultPlan = (LogicalPlan) logicalPlan.accept(processor, statementContext);
+            resultPlan = (LogicalPlan) resultPlan.accept(processor, statementContext);
         }
         return resultPlan;
     }
@@ -46,7 +46,8 @@ public class PlanPreprocessors {
     public List<PlanPreprocessor> getProcessors() {
         // add processor if we need
         return ImmutableList.of(
-                new EliminateLogicalSelectHint()
+                new EliminateLogicalSelectHint(),
+                new TurnOffPipelineForDml()
         );
     }
 }

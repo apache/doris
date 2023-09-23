@@ -22,15 +22,13 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.Pair;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.system.SystemInfoService.HostInfo;
 
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
-import org.apache.commons.lang.NotImplementedException;
+import org.apache.commons.lang3.NotImplementedException;
 
 import java.util.Map;
 
@@ -46,6 +44,10 @@ public class FrontendClause extends AlterClause {
         this.role = role;
     }
 
+    public String getIp() {
+        return host;
+    }
+
     public String getHost() {
         return host;
     }
@@ -56,25 +58,24 @@ public class FrontendClause extends AlterClause {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
-        if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.OPERATOR)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.OPERATOR)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
                                                 analyzer.getQualifiedUser());
         }
 
-        Pair<String, Integer> pair = SystemInfoService.validateHostAndPort(hostPort);
-        this.host = pair.first;
-        this.port = pair.second;
-        Preconditions.checkState(!Strings.isNullOrEmpty(host));
+        HostInfo hostInfo = SystemInfoService.getHostAndPort(hostPort);
+        this.host = hostInfo.getHost();
+        this.port = hostInfo.getPort();
     }
 
     @Override
     public String toSql() {
-        throw new NotImplementedException();
+        throw new NotImplementedException("FrontendClause.toSql() not implemented");
     }
 
     @Override
     public Map<String, String> getProperties() {
-        throw new NotImplementedException();
+        throw new NotImplementedException("FrontendClause.getProperties() not implemented");
     }
 
 }

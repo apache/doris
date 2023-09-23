@@ -18,10 +18,12 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_H
 
+#include <gen_cpp/olap_file.pb.h>
+
 #include <memory>
 #include <unordered_map>
 
-#include "gen_cpp/olap_file.pb.h"
+#include "olap/iterators.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader_context.h"
 #include "vec/core/block.h"
@@ -32,25 +34,37 @@ namespace vectorized {
 class Block;
 }
 
-class RowBlock;
 class RowsetReader;
 using RowsetReaderSharedPtr = std::shared_ptr<RowsetReader>;
 
+struct RowSetSplits {
+    RowsetReaderSharedPtr rs_reader;
+
+    // if segment_offsets is not empty, means we only scan
+    // [pair.first, pair.second) segment in rs_reader, only effective in dup key
+    // and pipeline
+    std::pair<int, int> segment_offsets;
+
+    RowSetSplits(RowsetReaderSharedPtr rs_reader_)
+            : rs_reader(rs_reader_), segment_offsets({0, 0}) {}
+    RowSetSplits() = default;
+};
+
 class RowsetReader {
 public:
-    virtual ~RowsetReader() {}
+    virtual ~RowsetReader() = default;
 
-    // reader init
-    virtual Status init(RowsetReaderContext* read_context) = 0;
+    virtual Status init(RowsetReaderContext* read_context, const RowSetSplits& rs_splits = {}) = 0;
 
-    // read next block data into *block.
-    // Returns
-    //      OLAP_SUCCESS when read successfully.
-    //      Status::OLAPInternalError(OLAP_ERR_DATA_EOF) and set *block to null when there is no more block.
-    //      Others when error happens.
-    virtual Status next_block(RowBlock** block) = 0;
+    virtual Status get_segment_iterators(RowsetReaderContext* read_context,
+                                         std::vector<RowwiseIteratorUPtr>* out_iters,
+                                         bool use_cache = false) = 0;
+    virtual void reset_read_options() = 0;
 
     virtual Status next_block(vectorized::Block* block) = 0;
+
+    virtual Status next_block_view(vectorized::BlockView* block_view) = 0;
+    virtual bool support_return_data_by_ref() { return false; }
 
     virtual bool delete_flag() = 0;
 
@@ -62,7 +76,6 @@ public:
 
     virtual RowsetTypePB type() const = 0;
 
-    virtual int64_t oldest_write_timestamp() = 0;
     virtual int64_t newest_write_timestamp() = 0;
     virtual Status current_block_row_locations(std::vector<RowLocation>* locations) {
         return Status::NotSupported("to be implemented");
@@ -71,6 +84,10 @@ public:
     virtual Status get_segment_num_rows(std::vector<uint32_t>* segment_num_rows) {
         return Status::NotSupported("to be implemented");
     }
+
+    virtual bool update_profile(RuntimeProfile* profile) = 0;
+
+    virtual RowsetReaderSharedPtr clone() = 0;
 };
 
 } // namespace doris

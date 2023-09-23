@@ -7,13 +7,18 @@
 
 #include "gutil/strings/util.h"
 
+// IWYU pragma: no_include <pstl/glue_algorithm_defs.h>
+
 #include <assert.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h> // for FastTimeToBuffer()
-
 #include <algorithm>
+#include <iterator>
+#include <mutex>
+#include <ostream>
+
 using std::copy;
 using std::max;
 using std::min;
@@ -21,17 +26,20 @@ using std::reverse;
 using std::sort;
 using std::swap;
 #include <string>
+
 using std::string;
 #include <vector>
+
 using std::vector;
 
-#include <common/logging.h>
+#include "common/logging.h"
 
 #include "gutil/stl_util.h" // for string_as_array, STLAppendToString
 #include "gutil/strings/ascii_ctype.h"
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/stringpiece.h"
 #include "gutil/utf/utf.h"
+#include "gutil/stringprintf.h"
 
 #ifdef OS_WINDOWS
 #ifdef min // windows.h defines this to something silly
@@ -776,8 +784,8 @@ static bool IsWildcard(Rune character) {
 
 // Move the strings pointers to the point where they start to differ.
 template <typename CHAR, typename NEXT>
-static void EatSameChars(const CHAR** pattern, const CHAR* pattern_end, const CHAR** string,
-                         const CHAR* string_end, NEXT next) {
+void EatSameChars(const CHAR** pattern, const CHAR* pattern_end, const CHAR** string,
+                  const CHAR* string_end, NEXT next) {
     const CHAR* escape = nullptr;
     while (*pattern != pattern_end && *string != string_end) {
         if (!escape && IsWildcard(**pattern)) {
@@ -818,7 +826,7 @@ static void EatSameChars(const CHAR** pattern, const CHAR* pattern_end, const CH
 }
 
 template <typename CHAR, typename NEXT>
-static void EatWildcard(const CHAR** pattern, const CHAR* end, NEXT next) {
+void EatWildcard(const CHAR** pattern, const CHAR* end, NEXT next) {
     while (*pattern != end) {
         if (!IsWildcard(**pattern)) return;
         next(pattern, end);
@@ -826,8 +834,8 @@ static void EatWildcard(const CHAR** pattern, const CHAR* end, NEXT next) {
 }
 
 template <typename CHAR, typename NEXT>
-static bool MatchPatternT(const CHAR* eval, const CHAR* eval_end, const CHAR* pattern,
-                          const CHAR* pattern_end, int depth, NEXT next) {
+bool MatchPatternT(const CHAR* eval, const CHAR* eval_end, const CHAR* pattern,
+                   const CHAR* pattern_end, int depth, NEXT next) {
     const int kMaxDepth = 16;
     if (depth > kMaxDepth) return false;
 

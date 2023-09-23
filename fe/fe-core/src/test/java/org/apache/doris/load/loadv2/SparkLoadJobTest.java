@@ -24,6 +24,7 @@ import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.ResourceDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -49,9 +50,9 @@ import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.SparkLoadJob.SparkLoadJobStateUpdateInfo;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.sparkdpp.EtlJobConfig;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.MasterTaskExecutor;
@@ -337,7 +338,8 @@ public class SparkLoadJobTest {
         long fileSize = 6L;
         filePathToSize.put(filePath, fileSize);
         PartitionInfo partitionInfo = new RangePartitionInfo();
-        partitionInfo.addPartition(partitionId, null, new ReplicaAllocation((short) 1), false);
+        partitionInfo.addPartition(partitionId, new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM),
+                new ReplicaAllocation((short) 1), false, true);
 
         new Expectations() {
             {
@@ -500,7 +502,7 @@ public class SparkLoadJobTest {
             @Mocked ResourceMgr resourceMgr) throws Exception {
         long dbId = 1000L;
         SparkResource sparkResource = new SparkResource("my_spark", Maps.newHashMap(), "/path/to/", "bos",
-                Maps.newHashMap());
+                Maps.newHashMap(), Maps.newHashMap());
         new Expectations() {
             {
                 env.getResourceMgr();

@@ -33,11 +33,11 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListComparator;
@@ -68,6 +68,7 @@ public class PartitionsProcDir implements ProcDirInterface {
             .add("State").add("PartitionKey").add("Range").add("DistributionKey")
             .add("Buckets").add("ReplicationNum").add("StorageMedium").add("CooldownTime").add("RemoteStoragePolicy")
             .add("LastConsistencyCheckTime").add("DataSize").add("IsInMemory").add("ReplicaAllocation")
+            .add("IsMutable")
             .build();
 
     private Database db;
@@ -217,7 +218,7 @@ public class PartitionsProcDir implements ProcDirInterface {
     private List<List<Comparable>> getPartitionInfos() {
         Preconditions.checkNotNull(db);
         Preconditions.checkNotNull(olapTable);
-        Preconditions.checkState(olapTable.getType() == TableType.OLAP);
+        Preconditions.checkState(olapTable.isManagedTable());
 
         // get info
         List<List<Comparable>> partitionInfos = new ArrayList<List<Comparable>>();
@@ -287,11 +288,11 @@ public class PartitionsProcDir implements ProcDirInterface {
                 DataProperty dataProperty = tblPartitionInfo.getDataProperty(partitionId);
                 partitionInfo.add(dataProperty.getStorageMedium().name());
                 partitionInfo.add(TimeUtils.longToTimeString(dataProperty.getCooldownTimeMs()));
-                partitionInfo.add(dataProperty.getRemoteStoragePolicy());
+                partitionInfo.add(dataProperty.getStoragePolicy());
 
                 partitionInfo.add(TimeUtils.longToTimeString(partition.getLastCheckTime()));
 
-                long dataSize = partition.getDataSize();
+                long dataSize = partition.getDataSize(false);
                 Pair<Double, String> sizePair = DebugUtil.getByteUint(dataSize);
                 String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(sizePair.first) + " "
                         + sizePair.second;
@@ -299,6 +300,8 @@ public class PartitionsProcDir implements ProcDirInterface {
                 partitionInfo.add(tblPartitionInfo.getIsInMemory(partitionId));
                 // replica allocation
                 partitionInfo.add(tblPartitionInfo.getReplicaAllocation(partitionId).toCreateStmt());
+
+                partitionInfo.add(tblPartitionInfo.getIsMutable(partitionId));
 
                 partitionInfos.add(partitionInfo);
             }
@@ -347,7 +350,8 @@ public class PartitionsProcDir implements ProcDirInterface {
                 return i;
             }
         }
-        ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME, columnName);
+        ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
+                columnName, FeNameFormat.getColumnNameRegex());
         return -1;
     }
 }

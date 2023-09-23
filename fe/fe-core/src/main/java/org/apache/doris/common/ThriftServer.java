@@ -17,6 +17,7 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.collect.Sets;
@@ -106,11 +107,19 @@ public class ThriftServer {
     }
 
     private void createThreadPoolServer() throws TTransportException {
-        TServerSocket.ServerSocketTransportArgs socketTransportArgs =
-                new TServerSocket.ServerSocketTransportArgs()
-                        .bindAddr(new InetSocketAddress(port))
-                        .clientTimeout(Config.thrift_client_timeout_ms)
-                        .backlog(Config.thrift_backlog_num);
+        TServerSocket.ServerSocketTransportArgs socketTransportArgs;
+
+        if (FrontendOptions.isBindIPV6()) {
+            socketTransportArgs = new TServerSocket.ServerSocketTransportArgs()
+                .bindAddr(new InetSocketAddress("::0", port))
+                .clientTimeout(Config.thrift_client_timeout_ms)
+                .backlog(Config.thrift_backlog_num);
+        } else {
+            socketTransportArgs = new TServerSocket.ServerSocketTransportArgs()
+                .bindAddr(new InetSocketAddress("0.0.0.0", port))
+                .clientTimeout(Config.thrift_client_timeout_ms)
+                .backlog(Config.thrift_backlog_num);
+        }
 
         TThreadPoolServer.Args serverArgs =
                 new TThreadPoolServer.Args(new TServerSocket(socketTransportArgs)).protocolFactory(
@@ -141,12 +150,7 @@ public class ThriftServer {
         ThriftServerEventProcessor eventProcessor = new ThriftServerEventProcessor(this);
         server.setServerEventHandler(eventProcessor);
 
-        serverThread = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                server.serve();
-            }
-        });
+        serverThread = new Thread(() -> server.serve());
         serverThread.setDaemon(true);
         serverThread.start();
     }

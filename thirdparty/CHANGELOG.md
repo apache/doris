@@ -2,6 +2,117 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## v20230824
+- Modified: protobuf 3.15.0 -> 21.11
+- Modified: glog 0.4.0 -> 0.6.0
+- Modified: lz4 1.9.3 -> 1.9.4
+- Modified: curl 7.79.0 -> 8.2.1
+- Modified: zstd 1.5.2 -> 1.5.5
+- Modified: arrow 7.0.0 -> 13.0.0
+- Modified: abseil 20220623.1 -> 20230125.3
+- Modified: orc 1.7.2 -> 1.9.0
+- Modified: jemalloc for arrow 5.2.1 -> 5.3.0
+- Modified: xsimd 7.0.0 -> 13.0.0
+- Modified: opentelemetry-proto 0.19.0 -> 1.0.0
+- Modified: opentelemetry 1.8.3 -> 1.10.0
+- Added: c-ares -> 1.19.1
+- Added: grpc -> 1.54.3
+
+## v20230721
+
+- Modified hadoop libhdfs 3.3.4.4 -> 3.3.4.5
+
+## v20230625
+
+- Modified benchmark 1.5.6 -> 1.8.0
+
+## v20230531
+
+- Modified hadoop libhdfs 3.3.4.2 -> 3.3.4.3
+- Modified aws sdk 1.9.211 -> 1.9.272
+
+## v20230525
+
+- Removed:  clucene changed to submodule
+- Modified: hadoop libhdfs 3.3.4.2
+
+## v20230517
+- Modified: opentelemetry-proto 0.18 -> 0.19 
+- Modified: opentelemetry-cpp 1.4.0 -> 1.8.3
+
+## v20230425
+- Modified: clucene 2.4.9 -> 2.4.11
+
+## v20230412
+- Modified: sse2neon 1.5.1 -> 1.6.0
+- Modified: libhdfs3 2.3.8 -> 2.3.9
+
+## v20230411
+- Modified: clucene 2.4.8 -> 2.4.9
+- Modified: sse2neon 1.5.1 -> 1.6.0
+- Modified: libhdfs3 2.3.8 -> 2.3.9
+
+## v20230328
+- Modified: brpc 1.2.0 -> 1.4.0
+- Modified: boost 1.73.0 -> 1.81.0
+- Modified: clucene 2.4.6 -> 2.4.8
+
+## v20230228
+- Modified: thrift 0.13 -> 0.16
+
+## v20230221
+- Modified: clucene 2.4.4 -> 2.4.6
+
+## v20230218
+- Modified: libhdfs3 2.3.7 -> 2.3.8
+- Modified: jemalloc 5.2.1 -> 5.3.0
+
+## v20230130
+- Modified: libhdfs3 2.3.6 -> 2.3.7
+
+## v20230120
+- Modified: libhdfs3 2.3.5 -> 2.3.6
+
+## v20230117
+- Modified: bitshuffle 0.3.5 -> 0.5.1
+
+## v20230112
+- Added: clucene 2.4.4
+
+## v20230111
+- Fixed: libgsasl enable GSSAPI
+
+## v20230110
+- Modified: libhdfs3 2.3.4 -> 2.3.5
+
+## v20230105
+- Modified: openssl 1.1.1m -> 1.1.1s fix CVE-2022-1292
+
+## v20221230
+- Modified: libhdfs3 2.3.2 -> 2.3.4
+
+## v20221228
+- Modified: simdjson 1.0.2 -> 3.0.1
+
+## v20221213
+- Modified: protobuf 3.14.0 -> 3.15.0
+
+## v20221212
+- Modified: s2geometry 0.9.0 -> 0.10.0
+- Added: Abseil, it is dependency of new s2geometry
+
+## v20221209
+- Modified: update parallel-hashmap from 1.33 to 1.3.8
+
+## v20221015
+
+- Modified: zstd 1.5.0 -> 1.5.2
+
+## v20220914
+
+- Added: xxhash 0.8.1
+- Added: jemalloc 5.2.1, Build jemalloc separately, and name it as jemalloc_doris, to distinguish it from jemalloc in arrow.
+
 ## v20220811
 - Modified: brpc 1.1.0 -> 1.2.0 fix _dl_sym undefined reference on Ubuntu22.04
 

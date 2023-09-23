@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
@@ -29,6 +28,7 @@ import java.util.BitSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.ListIterator;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -61,6 +61,17 @@ public class GroupingInfo {
         preRepeatExprs = Lists.newArrayList();
     }
 
+    /**
+     * Used by new optimizer.
+     */
+    public GroupingInfo(GroupByClause.GroupingType groupingType, TupleDescriptor virtualTuple,
+            TupleDescriptor outputTupleDesc, List<Expr> preRepeatExprs) {
+        this.groupingType = groupingType;
+        this.virtualTuple = Objects.requireNonNull(virtualTuple, "virtualTuple can not be null");
+        this.outputTupleDesc = Objects.requireNonNull(outputTupleDesc, "outputTupleDesc can not be null");
+        this.preRepeatExprs = Objects.requireNonNull(preRepeatExprs, "preRepeatExprs can not be null");
+    }
+
     public Set<VirtualSlotRef> getVirtualSlotRefs() {
         return virtualSlotRefs;
     }
@@ -90,7 +101,29 @@ public class GroupingInfo {
     }
 
     public void substitutePreRepeatExprs(ExprSubstitutionMap smap, Analyzer analyzer) {
+        ArrayList<Expr> originalPreRepeatExprs = new ArrayList<>(preRepeatExprs);
         preRepeatExprs = Expr.substituteList(preRepeatExprs, smap, analyzer, true);
+
+        // remove unmaterialized slotRef from preRepeatExprs
+        ArrayList<Expr> materializedPreRepeatExprs = new ArrayList<>();
+        ArrayList<Expr> unMaterializedSlotRefs = new ArrayList<>();
+        for (int i = 0; i < preRepeatExprs.size(); ++i) {
+            Expr expr = preRepeatExprs.get(i);
+            if (expr instanceof SlotRef && !((SlotRef) expr).getDesc().isMaterialized()) {
+                unMaterializedSlotRefs.add(originalPreRepeatExprs.get(i));
+            } else {
+                materializedPreRepeatExprs.add(expr);
+            }
+        }
+        preRepeatExprs = materializedPreRepeatExprs;
+
+        // set slotRef unmaterialized in outputTupleSmap
+        for (Expr expr : unMaterializedSlotRefs) {
+            Expr rExpr = outputTupleSmap.get(expr);
+            if (rExpr instanceof SlotRef) {
+                ((SlotRef) rExpr).getDesc().setIsMaterialized(false);
+            }
+        }
     }
 
     // generate virtual slots for grouping or grouping_id functions
@@ -270,20 +303,6 @@ public class GroupingInfo {
 
     public void substituteGroupingFn(Expr expr, Analyzer analyzer) throws AnalysisException {
         if (expr instanceof GroupingFunctionCallExpr) {
-            // TODO(yangzhengguo) support expression in grouping functions
-            for (Expr child : expr.getChildren()) {
-                if (!(child instanceof SlotRef)) {
-                    throw new AnalysisException("grouping functions only support column in current version.");
-                    // expr from inline view
-                } else if (((SlotRef) child).getDesc().getParent().getTable().getType()
-                        == Table.TableType.INLINE_VIEW) {
-                    InlineViewRef ref = (InlineViewRef) ((SlotRef) child).getDesc().getParent().getRef();
-                    int colIndex = ref.getColLabels().indexOf(((SlotRef) child).getColumnName());
-                    if (colIndex != -1 && !(ref.getViewStmt().getResultExprs().get(colIndex) instanceof SlotRef)) {
-                        throw new AnalysisException("grouping functions only support column in current version.");
-                    }
-                }
-            }
             // if is substituted skip
             if (expr.getChildren().size() == 1 && expr.getChild(0) instanceof VirtualSlotRef) {
                 return;

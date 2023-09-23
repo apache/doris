@@ -19,11 +19,10 @@ package org.apache.doris.qe;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.mysql.MysqlCapability;
-import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.thrift.TUniqueId;
 
-import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
@@ -34,8 +33,6 @@ import java.util.List;
 
 public class ConnectContextTest {
     @Mocked
-    private MysqlChannel channel;
-    @Mocked
     private StmtExecutor executor;
     @Mocked
     private SocketChannel socketChannel;
@@ -43,31 +40,18 @@ public class ConnectContextTest {
     private Env env;
     @Mocked
     private ConnectScheduler connectScheduler;
+    @Mocked
+    private Auth auth;
+    @Mocked
+    private String qualifiedUser;
 
     @Before
     public void setUp() throws Exception {
-        new Expectations() {
-            {
-                channel.getRemoteHostPortString();
-                minTimes = 0;
-                result = "127.0.0.1:12345";
-
-                channel.close();
-                minTimes = 0;
-
-                channel.getRemoteIp();
-                minTimes = 0;
-                result = "192.168.1.1";
-
-                executor.cancel();
-                minTimes = 0;
-            }
-        };
     }
 
     @Test
     public void testNormal() {
-        ConnectContext ctx = new ConnectContext(socketChannel);
+        ConnectContext ctx = new ConnectContext();
 
         // State
         Assert.assertNotNull(ctx.getState());
@@ -97,7 +81,7 @@ public class ConnectContextTest {
         Assert.assertEquals("testCluster:testUser", ctx.getQualifiedUser());
 
         // Serializer
-        Assert.assertNotNull(ctx.getSerializer());
+        Assert.assertNotNull(ctx.getMysqlChannel().getSerializer());
 
         // Session variable
         Assert.assertNotNull(ctx.getSessionVariable());
@@ -117,11 +101,11 @@ public class ConnectContextTest {
 
         // Thread info
         Assert.assertNotNull(ctx.toThreadInfo(false));
-        List<String> row = ctx.toThreadInfo(false).toRow(1000);
+        List<String> row = ctx.toThreadInfo(false).toRow(1000, false);
         Assert.assertEquals(9, row.size());
         Assert.assertEquals("101", row.get(0));
         Assert.assertEquals("testUser", row.get(1));
-        Assert.assertEquals("127.0.0.1:12345", row.get(2));
+        Assert.assertEquals("", row.get(2));
         Assert.assertEquals("testCluster", row.get(3));
         Assert.assertEquals("testDb", row.get(4));
         Assert.assertEquals("Ping", row.get(5));
@@ -149,19 +133,26 @@ public class ConnectContextTest {
 
     @Test
     public void testSleepTimeout() {
-        ConnectContext ctx = new ConnectContext(socketChannel);
+        ConnectContext ctx = new ConnectContext();
         ctx.setCommand(MysqlCommand.COM_SLEEP);
 
         // sleep no time out
         ctx.setStartTime();
         Assert.assertFalse(ctx.isKilled());
-        long now = ctx.getStartTime() + ctx.getSessionVariable().getWaitTimeoutS() * 1000 - 1;
+        long now = ctx.getStartTime() + ctx.getSessionVariable().getWaitTimeoutS() * 1000L - 1;
         ctx.checkTimeout(now);
         Assert.assertFalse(ctx.isKilled());
 
         // Timeout
         ctx.setStartTime();
-        now = ctx.getStartTime() + ctx.getSessionVariable().getWaitTimeoutS() * 1000 + 1;
+        now = ctx.getStartTime() + ctx.getSessionVariable().getWaitTimeoutS() * 1000L + 1;
+        ctx.setExecutor(executor);
+        ctx.checkTimeout(now);
+        Assert.assertTrue(ctx.isKilled());
+
+        // user query timeout
+        ctx.setStartTime();
+        now = ctx.getStartTime() + auth.getQueryTimeout(qualifiedUser) * 1000L + 1;
         ctx.setExecutor(executor);
         ctx.checkTimeout(now);
         Assert.assertTrue(ctx.isKilled());
@@ -178,17 +169,19 @@ public class ConnectContextTest {
 
     @Test
     public void testOtherTimeout() {
-        ConnectContext ctx = new ConnectContext(socketChannel);
+        ConnectContext ctx = new ConnectContext();
         ctx.setCommand(MysqlCommand.COM_QUERY);
 
         // sleep no time out
         Assert.assertFalse(ctx.isKilled());
-        long now = ctx.getSessionVariable().getQueryTimeoutS() * 1000 - 1;
+        ctx.setExecutor(executor);
+        long now = ctx.getExecTimeout() * 1000L - 1;
         ctx.checkTimeout(now);
         Assert.assertFalse(ctx.isKilled());
 
         // Timeout
-        now = ctx.getSessionVariable().getQueryTimeoutS() * 1000 + 1;
+        ctx.setExecutor(executor);
+        now = ctx.getExecTimeout() * 1000L + 1;
         ctx.checkTimeout(now);
         Assert.assertFalse(ctx.isKilled());
 
@@ -202,7 +195,7 @@ public class ConnectContextTest {
 
     @Test
     public void testThreadLocal() {
-        ConnectContext ctx = new ConnectContext(socketChannel);
+        ConnectContext ctx = new ConnectContext();
         Assert.assertNull(ConnectContext.get());
         ctx.setThreadLocalInfo();
         Assert.assertNotNull(ConnectContext.get());

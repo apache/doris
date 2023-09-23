@@ -17,19 +17,23 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
-import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.ColumnStats;
+import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.StatsType;
 
 import com.google.common.collect.ImmutableSet;
@@ -40,33 +44,41 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * Manually inject statistics for columns.
- * For partitioned tables, partitions must be specified, or statistics cannot be updated,
- * and only OLAP table statistics are supported.
- * e.g.
+ * Only OLAP table statistics are supported.
+ *
+ * Syntax:
  *   ALTER TABLE table_name MODIFY COLUMN columnName
- *   SET STATS ('k1' = 'v1', ...) [ PARTITIONS(p_name1, p_name2...) ]
+ *   SET STATS ('k1' = 'v1', ...);
+ *
+ * e.g.
+ *   ALTER TABLE stats_test.example_tbl MODIFY COLUMN age
+ *   SET STATS ('row_count'='6001215');
+ *
+ * Note: partition stats injection is mainly convenient for test cost estimation,
+ * and can be removed after the related functions are completed.
  */
 public class AlterColumnStatsStmt extends DdlStmt {
 
     private static final ImmutableSet<StatsType> CONFIGURABLE_PROPERTIES_SET = new ImmutableSet.Builder<StatsType>()
-            .add(ColumnStats.NDV)
-            .add(ColumnStats.AVG_SIZE)
-            .add(ColumnStats.MAX_SIZE)
-            .add(ColumnStats.NUM_NULLS)
-            .add(ColumnStats.MIN_VALUE)
-            .add(ColumnStats.MAX_VALUE)
+            .add(StatsType.ROW_COUNT)
+            .add(ColumnStatistic.NDV)
+            .add(ColumnStatistic.AVG_SIZE)
+            .add(ColumnStatistic.MAX_SIZE)
+            .add(ColumnStatistic.NUM_NULLS)
+            .add(ColumnStatistic.MIN_VALUE)
+            .add(ColumnStatistic.MAX_VALUE)
+            .add(StatsType.DATA_SIZE)
             .build();
 
     private final TableName tableName;
-    private final PartitionNames optPartitionNames;
     private final String columnName;
     private final Map<String, String> properties;
+    private final PartitionNames optPartitionNames;
 
-    private final List<String> partitionNames = Lists.newArrayList();
+    private final List<Long> partitionIds = Lists.newArrayList();
     private final Map<StatsType, String> statsTypeToValue = Maps.newHashMap();
 
     public AlterColumnStatsStmt(TableName tableName, String columnName,
@@ -85,8 +97,8 @@ public class AlterColumnStatsStmt extends DdlStmt {
         return columnName;
     }
 
-    public List<String> getPartitionNames() {
-        return partitionNames;
+    public List<Long> getPartitionIds() {
+        return partitionIds;
     }
 
     public Map<StatsType, String> getStatsTypeToValue() {
@@ -95,16 +107,17 @@ public class AlterColumnStatsStmt extends DdlStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
+        if (!Config.enable_stats) {
+            throw new UserException("Analyze function is forbidden, you should add `enable_stats=true`"
+                    + "in your FE conf file");
+        }
         super.analyze(analyzer);
 
         // check table name
         tableName.analyze(analyzer);
 
-        // disallow external catalog
-        Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
-
         // check partition & column
-        checkPartitionAndColumnNames();
+        checkPartitionAndColumn();
 
         // check properties
         Optional<StatsType> optional = properties.keySet().stream().map(StatsType::fromString)
@@ -115,7 +128,7 @@ public class AlterColumnStatsStmt extends DdlStmt {
         }
 
         // check auth
-        if (!Env.getCurrentEnv().getAuth()
+        if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.ALTER)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER COLUMN STATS",
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
@@ -129,39 +142,30 @@ public class AlterColumnStatsStmt extends DdlStmt {
         });
     }
 
-    /**
-     * TODO(wzt): Support for external tables
-     */
-    private void checkPartitionAndColumnNames() throws AnalysisException {
-        Database db = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(tableName.getDb());
-        Table table = db.getTableOrAnalysisException(tableName.getTbl());
+    private void checkPartitionAndColumn() throws AnalysisException {
+        CatalogIf catalog = analyzer.getEnv().getCatalogMgr().getCatalog(tableName.getCtl());
+        DatabaseIf db = catalog.getDbOrAnalysisException(tableName.getDb());
+        TableIf table = db.getTableOrAnalysisException(tableName.getTbl());
 
-        if (table.getType() != Table.TableType.OLAP) {
-            throw new AnalysisException("Only OLAP table statistics are supported");
+        if (table.getColumn(columnName) == null) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
+                    columnName, FeNameFormat.getColumnNameRegex());
         }
 
-        OlapTable olapTable = (OlapTable) table;
-        if (olapTable.getColumn(columnName) == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME, columnName);
-        }
-
-        if (optPartitionNames != null) {
-            if (!olapTable.isPartitioned()) {
+        if (optPartitionNames != null && table instanceof OlapTable) {
+            OlapTable olapTable = (OlapTable) table;
+            if (olapTable.getPartitionInfo().getType().equals(PartitionType.UNPARTITIONED)) {
                 throw new AnalysisException("Not a partitioned table: " + olapTable.getName());
             }
 
             optPartitionNames.analyze(analyzer);
-            Set<String> olapPartitionNames = olapTable.getPartitionNames();
-            Optional<String> optional = optPartitionNames.getPartitionNames().stream()
-                    .filter(name -> !olapPartitionNames.contains(name))
-                    .findFirst();
-            if (optional.isPresent()) {
-                throw new AnalysisException("Partition does not exist: " + optional.get());
-            }
-            partitionNames.addAll(optPartitionNames.getPartitionNames());
-        } else {
-            if (olapTable.isPartitioned()) {
-                throw new AnalysisException("For partitioned tables, partitions should be specified");
+            List<String> partitionNames = optPartitionNames.getPartitionNames();
+            for (String partitionName : partitionNames) {
+                Partition partition = olapTable.getPartition(partitionName);
+                if (partition == null) {
+                    throw new AnalysisException("Partition does not exist: " + partitionName);
+                }
+                partitionIds.add(partition.getId());
             }
         }
     }
@@ -183,5 +187,14 @@ public class AlterColumnStatsStmt extends DdlStmt {
             sb.append(optPartitionNames.toSql());
         }
         return sb.toString();
+    }
+
+    public String getValue(StatsType statsType) {
+        return statsTypeToValue.get(statsType);
+    }
+
+    @Override
+    public RedirectStatus getRedirectStatus() {
+        return RedirectStatus.NO_FORWARD;
     }
 }

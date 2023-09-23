@@ -68,10 +68,6 @@ public class ErrorReport {
         throw new DdlException(reportCommon(pattern, errorCode, objs));
     }
 
-    public static void report(String pattern, Object... objs) {
-        report(pattern, ErrorCode.ERR_UNKNOWN_ERROR, objs);
-    }
-
     public static void report(ErrorCode errorCode, Object... objs) {
         report(null, errorCode, objs);
     }

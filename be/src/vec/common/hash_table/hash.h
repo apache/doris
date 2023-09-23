@@ -23,8 +23,12 @@
 #include <type_traits>
 
 #include "parallel_hashmap/phmap_utils.h"
+#include "vec/common/string_ref.h"
 #include "vec/common/uint128.h"
 #include "vec/core/types.h"
+
+// Here is an empirical value.
+static constexpr size_t HASH_MAP_PREFETCH_DIST = 16;
 
 /** Hash functions that are better than the trivial function std::hash.
   *
@@ -56,13 +60,7 @@ inline doris::vectorized::UInt64 int_hash64(doris::vectorized::UInt64 x) {
   *  due to high speed (latency 3 + 1 clock cycle, throughput 1 clock cycle).
   * Works only with SSE 4.2 support.
   */
-#ifdef __SSE4_2__
-#include <nmmintrin.h>
-#endif
-
-#if defined(__aarch64__)
-#include <sse2neon.h>
-#endif
+#include "util/sse_util.hpp"
 
 inline doris::vectorized::UInt64 int_hash_crc32(doris::vectorized::UInt64 x) {
 #if defined(__SSE4_2__) || (defined(__aarch64__) && defined(__ARM_FEATURE_CRC32))
@@ -88,12 +86,13 @@ template <typename T, typename Enable = void>
 struct DefaultHash;
 
 template <typename T>
-struct DefaultHash<T, std::enable_if_t<std::is_arithmetic_v<T>>> {
+    requires std::is_arithmetic_v<T>
+struct DefaultHash<T> {
     size_t operator()(T key) const { return default_hash64<T>(key); }
 };
 
 template <>
-struct DefaultHash<StringRef> : public StringRefHash {};
+struct DefaultHash<doris::StringRef> : public doris::StringRefHash {};
 
 template <typename T>
 struct HashCRC32;
@@ -120,10 +119,12 @@ inline size_t hash_crc32(doris::vectorized::Int128 u) {
             doris::vectorized::UInt128((u >> 64) & int64_t(-1), u & int64_t(-1)));
 }
 
-#define DEFINE_HASH(T)                                                \
-    template <>                                                       \
-    struct HashCRC32<T> {                                             \
-        size_t operator()(T key) const { return hash_crc32<T>(key); } \
+#define DEFINE_HASH(T)                   \
+    template <>                          \
+    struct HashCRC32<T> {                \
+        size_t operator()(T key) const { \
+            return hash_crc32<T>(key);   \
+        }                                \
     };
 
 DEFINE_HASH(doris::vectorized::UInt8)
@@ -162,47 +163,17 @@ struct HashCRC32<doris::vectorized::UInt256> {
     }
 };
 
-/// It is reasonable to use for UInt8, UInt16 with sufficient hash table size.
-struct TrivialHash {
-    template <typename T>
-    size_t operator()(T key) const {
-        return key;
+template <>
+struct HashCRC32<doris::vectorized::UInt136> {
+    size_t operator()(const doris::vectorized::UInt136& x) const {
+#if defined(__SSE4_2__) || defined(__aarch64__)
+        doris::vectorized::UInt64 crc = -1ULL;
+        crc = _mm_crc32_u8(crc, x.a);
+        crc = _mm_crc32_u64(crc, x.b);
+        crc = _mm_crc32_u64(crc, x.c);
+        return crc;
+#else
+        return Hash128to64({Hash128to64({x.a, x.b}), x.c});
+#endif
     }
-};
-
-/** A relatively good non-cryptographic hash function from UInt64 to UInt32.
-  * But worse (both in quality and speed) than just cutting int_hash64.
-  * Taken from here: http://www.concentric.net/~ttwang/tech/inthash.htm
-  *
-  * Slightly changed compared to the function by link: shifts to the right are accidentally replaced by a cyclic shift to the right.
-  * This change did not affect the smhasher test results.
-  *
-  * It is recommended to use different salt for different tasks.
-  * That was the case that in the database values were sorted by hash (for low-quality pseudo-random spread),
-  *  and in another place, in the aggregate function, the same hash was used in the hash table,
-  *  as a result, this aggregate function was monstrously slowed due to collisions.
-  *
-  * NOTE Salting is far from perfect, because it commutes with first steps of calculation.
-  *
-  * NOTE As mentioned, this function is slower than int_hash64.
-  * But occasionally, it is faster, when written in a loop and loop is vectorized.
-  */
-template <doris::vectorized::UInt64 salt>
-inline doris::vectorized::UInt32 int_hash32(doris::vectorized::UInt64 key) {
-    key ^= salt;
-
-    key = (~key) + (key << 18);
-    key = key ^ ((key >> 31) | (key << 33));
-    key = key * 21;
-    key = key ^ ((key >> 11) | (key << 53));
-    key = key + (key << 6);
-    key = key ^ ((key >> 22) | (key << 42));
-
-    return key;
-}
-
-/// For containers.
-template <typename T, doris::vectorized::UInt64 salt = 0>
-struct IntHash32 {
-    size_t operator()(const T& key) const { return int_hash32<salt>(key); }
 };

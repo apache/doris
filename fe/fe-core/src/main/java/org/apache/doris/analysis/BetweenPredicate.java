@@ -76,11 +76,6 @@ public class BetweenPredicate extends Predicate {
     }
 
     @Override
-    public boolean isVectorized() {
-        return false;
-    }
-
-    @Override
     protected void toThrift(TExprNode msg) {
         throw new IllegalStateException(
                 "BetweenPredicate needs to be rewritten into a CompoundPredicate.");
@@ -123,10 +118,5 @@ public class BetweenPredicate extends Predicate {
     @Override
     public int hashCode() {
         return 31 * super.hashCode() + Boolean.hashCode(isNotBetween);
-    }
-
-    @Override
-    public void finalizeImplForNereids() throws AnalysisException {
-        throw new AnalysisException("analyze between predicate for Nereids do not implementation.");
     }
 }

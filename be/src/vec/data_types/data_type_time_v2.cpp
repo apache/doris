@@ -17,9 +17,30 @@
 
 #include "vec/data_types/data_type_time_v2.h"
 
+#include <gen_cpp/data.pb.h>
+
+#include <memory>
+#include <ostream>
+#include <string>
+#include <typeinfo>
+#include <utility>
+
 #include "util/binary_cast.hpp"
+#include "vec/columns/column_const.h"
+#include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/string_buffer.hpp"
+#include "vec/core/types.h"
+#include "vec/io/io_helper.h"
+#include "vec/io/reader_buffer.h"
 #include "vec/runtime/vdatetime_value.h"
+
+namespace doris {
+namespace vectorized {
+class IColumn;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 bool DataTypeDateV2::equals(const IDataType& rhs) const {
@@ -27,25 +48,41 @@ bool DataTypeDateV2::equals(const IDataType& rhs) const {
 }
 
 std::string DataTypeDateV2::to_string(const IColumn& column, size_t row_num) const {
-    UInt32 int_val =
-            assert_cast<const ColumnUInt32&>(*column.convert_to_full_column_if_const().get())
-                    .get_data()[row_num];
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
+
+    UInt32 int_val = assert_cast<const ColumnUInt32&>(*ptr).get_element(row_num);
     DateV2Value<DateV2ValueType> val = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(int_val);
-    std::stringstream ss;
-    ss << val;
-    return ss.str();
+
+    char buf[64];
+    val.to_string(buf); // DateTime to_string the end is /0
+    return std::string {buf};
 }
 
 void DataTypeDateV2::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
-    UInt32 int_val =
-            assert_cast<const ColumnUInt32&>(*column.convert_to_full_column_if_const().get())
-                    .get_data()[row_num];
-    DateV2Value<DateV2ValueType> value = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(int_val);
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
+
+    UInt32 int_val = assert_cast<const ColumnUInt32&>(*ptr).get_element(row_num);
+    DateV2Value<DateV2ValueType> val = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(int_val);
 
     char buf[64];
-    char* pos = value.to_string(buf);
+    char* pos = val.to_string(buf);
     // DateTime to_string the end is /0
     ostr.write(buf, pos - buf - 1);
+}
+
+Status DataTypeDateV2::from_string(ReadBuffer& rb, IColumn* column) const {
+    auto* column_data = static_cast<ColumnUInt32*>(column);
+    UInt32 val = 0;
+    if (!read_date_v2_text_impl<UInt32>(val, rb)) {
+        return Status::InvalidArgument("parse date fail, string: '{}'",
+                                       std::string(rb.position(), rb.count()).c_str());
+    }
+    column_data->insert_value(val);
+    return Status::OK();
 }
 
 MutableColumnPtr DataTypeDateV2::create_column() const {
@@ -85,28 +122,48 @@ bool DataTypeDateTimeV2::equals(const IDataType& rhs) const {
 }
 
 std::string DataTypeDateTimeV2::to_string(const IColumn& column, size_t row_num) const {
-    UInt64 int_val =
-            assert_cast<const ColumnUInt64&>(*column.convert_to_full_column_if_const().get())
-                    .get_data()[row_num];
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
+
+    UInt64 int_val = assert_cast<const ColumnUInt64&>(*ptr).get_element(row_num);
     DateV2Value<DateTimeV2ValueType> val =
             binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(int_val);
-    std::stringstream ss;
-    ss << val;
-    return ss.str();
+
+    char buf[64];
+    val.to_string(buf, _scale);
+    return buf; // DateTime to_string the end is /0
 }
 
 void DataTypeDateTimeV2::to_string(const IColumn& column, size_t row_num,
                                    BufferWritable& ostr) const {
-    UInt64 int_val =
-            assert_cast<const ColumnUInt64&>(*column.convert_to_full_column_if_const().get())
-                    .get_data()[row_num];
-    DateV2Value<DateTimeV2ValueType> value =
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
+
+    UInt64 int_val = assert_cast<const ColumnUInt64&>(*ptr).get_element(row_num);
+    DateV2Value<DateTimeV2ValueType> val =
             binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(int_val);
 
     char buf[64];
-    char* pos = value.to_string(buf);
-    // DateTime to_string the end is /0
+    char* pos = val.to_string(buf, _scale);
     ostr.write(buf, pos - buf - 1);
+}
+
+Status DataTypeDateTimeV2::from_string(ReadBuffer& rb, IColumn* column) const {
+    auto* column_data = static_cast<ColumnUInt64*>(column);
+    UInt64 val = 0;
+    if (!read_datetime_v2_text_impl<UInt64>(val, rb)) {
+        return Status::InvalidArgument("parse date fail, string: '{}'",
+                                       std::string(rb.position(), rb.count()).c_str());
+    }
+    column_data->insert_value(val);
+    return Status::OK();
+}
+
+void DataTypeDateTimeV2::to_pb_column_meta(PColumnMeta* col_meta) const {
+    IDataType::to_pb_column_meta(col_meta);
+    col_meta->mutable_decimal_param()->set_scale(_scale);
 }
 
 MutableColumnPtr DataTypeDateTimeV2::create_column() const {
@@ -142,4 +199,13 @@ void DataTypeDateTimeV2::cast_from_date_time(const Int64 from, UInt64& to) {
 void DataTypeDateTimeV2::cast_to_date_v2(const UInt64 from, UInt32& to) {
     to = from >> TIME_PART_LENGTH;
 }
+
+DataTypePtr create_datetimev2(UInt64 scale_value) {
+    if (scale_value > 6) {
+        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "scale_value {} > 6",
+                               scale_value);
+    }
+    return std::make_shared<DataTypeDateTimeV2>(scale_value);
+}
+
 } // namespace doris::vectorized

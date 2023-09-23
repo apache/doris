@@ -29,7 +29,7 @@ under the License.
 
 Doris can easily expand and shrink FE, BE, Broker instances.
 
-## FE Expansion and Compression
+## FE Scaling
 
 High availability of FE can be achieved by expanding FE to three top-one nodes.
 
@@ -47,17 +47,17 @@ The process of FE node expansion and contraction does not affect the current sys
 
 ### Adding FE nodes
 
-FE is divided into three roles: Leader, Follower and Observer. By default, a cluster can have only one Leader and multiple Followers and Observers. Leader and Follower form a Paxos selection group. If the Leader goes down, the remaining Followers will automatically select a new Leader to ensure high write availability. Observer synchronizes Leader data, but does not participate in the election. If only one FE is deployed, FE defaults to Leader.
+FE is divided into two roles: Follower and Observer. The Follower role will elect a Follower node as the Master. By default, a cluster can only have one Follower role in the Master state, and there can be multiple Followers and Observers. At the same time, it is necessary to ensure that there are an odd number of Follower roles. All Follower roles form an election group. If the Follower in the Master state goes down, the remaining Followers will automatically elect a new Master to ensure high write availability. Observer synchronizes the data of Master, but does not participate in the election. If only one FE is deployed, the FE is the Master by default.
 
-The first FE to start automatically becomes Leader. On this basis, several Followers and Observers can be added.
+The first FE to start automatically becomes Master. On this basis, several Followers and Observers can be added.
 
 #### Configure and start Follower or Observer.
 
- Follower and Observer are configured with Leader. The following commands need to be executed at the first startup:
+ Follower and Observer are configured with Master. The following commands need to be executed at the first startup:
 
 `bin/start_fe.sh --helper host:edit_log_port --daemon`
 
-The host is the node IP of Leader, and the edit\_log\_port in Lead's configuration file fe.conf. The --helper is only required when follower/observer is first startup.
+The host is the node IP of Master, and the edit\_log\_port in Lead's configuration file fe.conf. The --helper is only required when follower/observer is first startup.
 
 #### Add Follower or Observer to the cluster
 
@@ -79,8 +79,8 @@ You can view the FE currently joined the cluster and its corresponding roles.
 
 > Notes for FE expansion:
 >
-> 1. The number of Follower FEs (including Leaders) must be odd. It is recommended that a maximum of three constituent high availability (HA) modes be deployed.
-> 2. When FE is in a highly available deployment (1 Leader, 2 Follower), we recommend that the reading service capability of FE be extended by adding Observer FE. Of course, you can continue to add Follower FE, but it's almost unnecessary.
+> 1. The number of Follower FEs (including Masters) must be odd. It is recommended that a maximum of three constituent high availability (HA) modes be deployed.
+> 2. When FE is in a highly available deployment (1 Master, 2 Follower), we recommend that the reading service capability of FE be extended by adding Observer FE. Of course, you can continue to add Follower FE, but it's almost unnecessary.
 > 3. Usually a FE node can handle 10-20 BE nodes. It is suggested that the total number of FE nodes should be less than 10. Usually three can meet most of the needs.
 > 4. The helper cannot point to the FE itself, it must point to one or more existing running Master/Follower FEs.
 
@@ -92,11 +92,11 @@ Delete the corresponding FE node using the following command:
 
 > Notes for FE contraction:
 >
-> 1. When deleting Follower FE, make sure that the remaining Follower (including Leader) nodes are odd.
+> 1. When deleting Follower FE, make sure that the remaining Follower (including Master) nodes are odd.
 
-## BE Expansion and Compression
+## BE Scaling
 
-Users can login to Leader FE through mysql-client. By:
+Users can login to Master FE through mysql-client. By:
 
 ```SHOW PROC '/backends';```
 
@@ -106,7 +106,7 @@ You can also view the BE node through the front-end page connection: ``http://fe
 
 All of the above methods require Doris's root user rights.
 
-The expansion and scaling process of BE nodes does not affect the current system operation and the tasks being performed, and does not affect the performance of the current system. Data balancing is done automatically. Depending on the amount of data available in the cluster, the cluster will be restored to load balancing in a few hours to a day. For cluster load, see the [Tablet Load Balancing Document](../maint-monitor/tablet-meta-tool.md).
+The expansion and scaling process of BE nodes does not affect the current system operation and the tasks being performed, and does not affect the performance of the current system. Data balancing is done automatically. Depending on the amount of data available in the cluster, the cluster will be restored to load balancing in a few hours to a day. For cluster load, see the [Tablet Load Balancing Document](../maint-monitor/tablet-repair-and-balance.md).
 
 ### Add BE nodes
 
@@ -142,7 +142,7 @@ DECOMMISSION clause:
 
 **For expansion and scaling of BE nodes in multi-tenant deployment environments, please refer to the [Multi-tenant Design Document](../multi-tenant.md).**
 
-## Broker Expansion and Shrinkage
+## Broker Scaling
 
 There is no rigid requirement for the number of Broker instances. Usually one physical machine is deployed. Broker addition and deletion can be accomplished by following commands:
 

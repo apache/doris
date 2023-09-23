@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource.ResourceType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
@@ -36,15 +37,22 @@ public class CreateResourceStmt extends DdlStmt {
     private static final String TYPE = "type";
 
     private final boolean isExternal;
+    private final boolean ifNotExists;
     private final String resourceName;
     private final Map<String, String> properties;
     private ResourceType resourceType;
 
-    public CreateResourceStmt(boolean isExternal, String resourceName, Map<String, String> properties) {
+    public CreateResourceStmt(boolean isExternal, boolean ifNotExists, String resourceName,
+            Map<String, String> properties) {
         this.isExternal = isExternal;
+        this.ifNotExists = ifNotExists;
         this.resourceName = resourceName;
         this.properties = properties;
         this.resourceType = ResourceType.UNKNOWN;
+    }
+
+    public boolean isIfNotExists() {
+        return ifNotExists;
     }
 
     public String getResourceName() {
@@ -64,7 +72,7 @@ public class CreateResourceStmt extends DdlStmt {
         super.analyze(analyzer);
 
         // check auth
-        if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
 
@@ -85,6 +93,10 @@ public class CreateResourceStmt extends DdlStmt {
         }
         if (resourceType == ResourceType.SPARK && !isExternal) {
             throw new AnalysisException("Spark is external resource");
+        }
+        if (resourceType == ResourceType.ODBC_CATALOG && !Config.enable_odbc_table) {
+            throw new AnalysisException("ODBC table is deprecated, use JDBC instead. Or you can set "
+                + "`enable_odbc_table=true` in fe.conf to enable ODBC again.");
         }
     }
 

@@ -17,11 +17,16 @@
 
 package org.apache.doris.nereids.glue;
 
+import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import java.util.ArrayList;
@@ -34,12 +39,15 @@ import java.util.List;
  */
 public class LogicalPlanAdapter extends StatementBase implements Queriable {
 
+    private final StatementContext statementContext;
     private final LogicalPlan logicalPlan;
     private List<Expr> resultExprs;
     private ArrayList<String> colLabels;
+    private List<String> viewDdlSqls;
 
-    public LogicalPlanAdapter(LogicalPlan logicalPlan) {
+    public LogicalPlanAdapter(LogicalPlan logicalPlan, StatementContext statementContext) {
         this.logicalPlan = logicalPlan;
+        this.statementContext = statementContext;
     }
 
     @Override
@@ -53,7 +61,7 @@ public class LogicalPlanAdapter extends StatementBase implements Queriable {
 
     @Override
     public boolean hasOutFileClause() {
-        return false;
+        return logicalPlan instanceof LogicalFileSink;
     }
 
     @Override
@@ -62,12 +70,23 @@ public class LogicalPlanAdapter extends StatementBase implements Queriable {
     }
 
     @Override
-    public List<Expr> getResultExprs() {
-        return resultExprs;
+    public ExplainOptions getExplainOptions() {
+        return logicalPlan instanceof ExplainCommand
+                ? new ExplainOptions(((ExplainCommand) logicalPlan).getLevel())
+                : super.getExplainOptions();
     }
 
     public ArrayList<String> getColLabels() {
         return colLabels;
+    }
+
+    public List<String> getViewDdlSqls() {
+        return viewDdlSqls;
+    }
+
+    @Override
+    public List<Expr> getResultExprs() {
+        return resultExprs;
     }
 
     public void setResultExprs(List<Expr> resultExprs) {
@@ -78,8 +97,20 @@ public class LogicalPlanAdapter extends StatementBase implements Queriable {
         this.colLabels = colLabels;
     }
 
+    public void setViewDdlSqls(List<String> viewDdlSqls) {
+        this.viewDdlSqls = viewDdlSqls;
+    }
+
+    public StatementContext getStatementContext() {
+        return statementContext;
+    }
+
     public String toDigest() {
         // TODO: generate real digest
         return "";
+    }
+
+    public static LogicalPlanAdapter of(Plan plan) {
+        return new LogicalPlanAdapter((LogicalPlan) plan, null);
     }
 }

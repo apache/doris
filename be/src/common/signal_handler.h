@@ -40,7 +40,7 @@
 #include <csignal>
 #include <ctime>
 
-#include "gen_cpp/version.h"
+#include "common/version_internal.h"
 #ifdef HAVE_UCONTEXT_H
 #include <ucontext.h>
 #endif
@@ -216,21 +216,6 @@ public:
         cursor_ += i;
     }
 
-    // Formats "number" as hexadecimal number, and updates the internal
-    // cursor.  Padding will be added in front if needed.
-    void AppendHexWithPadding(uint64 number, int width) {
-        char* start = cursor_;
-        AppendString("0x");
-        AppendUint64(number, 16);
-        // Move to right and add padding in front if needed.
-        if (cursor_ < start + width) {
-            const int64 delta = start + width - cursor_;
-            std::copy(start, cursor_, start + delta);
-            std::fill(start, start + delta, ' ');
-            cursor_ = start + width;
-        }
-    }
-
 private:
     char* buffer_;
     char* cursor_;
@@ -250,7 +235,7 @@ void (*g_failure_writer)(const char* data, size_t size) = WriteToStderr;
 // Dumps time information.  We don't dump human-readable time information
 // as localtime() is not guaranteed to be async signal safe.
 void DumpTimeInfo() {
-    time_t time_in_sec = time(NULL);
+    time_t time_in_sec = time(nullptr);
     char buf[256]; // Big enough for time info.
     MinimalFormatter formatter(buf, sizeof(buf));
     formatter.AppendString("*** Query id: ");
@@ -265,7 +250,7 @@ void DumpTimeInfo() {
     formatter.AppendUint64(static_cast<uint64>(time_in_sec), 10);
     formatter.AppendString("\" if you are using GNU date ***\n");
     formatter.AppendString("*** Current BE git commitID: ");
-    formatter.AppendString(DORIS_BUILD_SHORT_HASH);
+    formatter.AppendString(version::doris_build_short_hash());
     formatter.AppendString(" ***\n");
     g_failure_writer(buf, formatter.num_bytes_written());
 }
@@ -273,8 +258,8 @@ void DumpTimeInfo() {
 // Dumps information about the signal to STDERR.
 void DumpSignalInfo(int signal_number, siginfo_t* siginfo) {
     // Get the signal name.
-    const char* signal_name = NULL;
-    for (size_t i = 0; i < ARRAYSIZE(kFailureSignals); ++i) {
+    const char* signal_name = nullptr;
+    for (size_t i = 0; i < ARRAYSIZE_UNSAFE(kFailureSignals); ++i) {
         if (signal_number == kFailureSignals[i].number) {
             signal_name = kFailureSignals[i].name;
         }
@@ -300,14 +285,22 @@ void DumpSignalInfo(int signal_number, siginfo_t* siginfo) {
     if (reason != nullptr) {
         formatter.AppendString(reason);
     } else {
-        formatter.AppendString("unkown detail explain");
+        formatter.AppendString("unknown detail explain");
     }
     formatter.AppendString(" (@0x");
     formatter.AppendUint64(reinterpret_cast<uintptr_t>(siginfo->si_addr), 16);
     formatter.AppendString(")");
     formatter.AppendString(" received by PID ");
     formatter.AppendUint64(static_cast<uint64>(getpid()), 10);
-    formatter.AppendString(" (TID 0x");
+    formatter.AppendString(" (TID ");
+    uint64_t tid;
+#ifdef __APPLE__
+    pthread_threadid_np(nullptr, &tid);
+#else
+    tid = syscall(SYS_gettid);
+#endif
+    formatter.AppendUint64(tid, 10);
+    formatter.AppendString(" OR 0x");
     // We assume pthread_t is an integral number or a pointer, rather
     // than a complex struct.  In some environments, pthread_self()
     // returns an uint64 but in some other environments pthread_self()
@@ -329,7 +322,7 @@ void InvokeDefaultSignalHandler(int signal_number) {
     memset(&sig_action, 0, sizeof(sig_action));
     sigemptyset(&sig_action.sa_mask);
     sig_action.sa_handler = SIG_DFL;
-    sigaction(signal_number, &sig_action, NULL);
+    sigaction(signal_number, &sig_action, nullptr);
     kill(getpid(), signal_number);
 }
 
@@ -337,14 +330,14 @@ void InvokeDefaultSignalHandler(int signal_number) {
 // dumping stuff while another thread is doing it.  Our policy is to let
 // the first thread dump stuff and let other threads wait.
 // See also comments in FailureSignalHandler().
-static pthread_t* g_entered_thread_id_pointer = NULL;
+static pthread_t* g_entered_thread_id_pointer = nullptr;
 
 // Wrapper of __sync_val_compare_and_swap. If the GCC extension isn't
 // defined, we try the CPU specific logics (we only support x86 and
 // x86_64 for now) first, then use a naive implementation, which has a
 // race condition.
 template <typename T>
-inline T sync_val_compare_and_swap(T* ptr, T oldval, T newval) {
+T sync_val_compare_and_swap(T* ptr, T oldval, T newval) {
 #if defined(HAVE___SYNC_VAL_COMPARE_AND_SWAP)
     return __sync_val_compare_and_swap(ptr, oldval, newval);
 #elif defined(__GNUC__) && (defined(__i386__) || defined(__x86_64__))
@@ -383,8 +376,8 @@ void FailureSignalHandler(int signal_number, siginfo_t* signal_info, void* ucont
     // old value (value returned from __sync_val_compare_and_swap) is
     // different from the original value (in this case NULL).
     pthread_t* old_thread_id_pointer = sync_val_compare_and_swap(
-            &g_entered_thread_id_pointer, static_cast<pthread_t*>(NULL), &my_thread_id);
-    if (old_thread_id_pointer != NULL) {
+            &g_entered_thread_id_pointer, static_cast<pthread_t*>(nullptr), &my_thread_id);
+    if (old_thread_id_pointer != nullptr) {
         // We've already entered the signal handler.  What should we do?
         if (pthread_equal(my_thread_id, *g_entered_thread_id_pointer)) {
             // It looks the current thread is reentering the signal handler.
@@ -429,6 +422,16 @@ void FailureSignalHandler(int signal_number, siginfo_t* signal_info, void* ucont
 
 } // namespace
 
+inline void set_signal_task_id(PUniqueId tid) {
+    query_id_hi = tid.hi();
+    query_id_lo = tid.lo();
+}
+
+inline void set_signal_task_id(TUniqueId tid) {
+    query_id_hi = tid.hi;
+    query_id_lo = tid.lo;
+}
+
 inline void InstallFailureSignalHandler() {
     // Build the sigaction struct.
     struct sigaction sig_action;
@@ -437,8 +440,8 @@ inline void InstallFailureSignalHandler() {
     sig_action.sa_flags |= SA_SIGINFO;
     sig_action.sa_sigaction = &FailureSignalHandler;
 
-    for (size_t i = 0; i < ARRAYSIZE(kFailureSignals); ++i) {
-        CHECK_ERR(sigaction(kFailureSignals[i].number, &sig_action, NULL));
+    for (size_t i = 0; i < ARRAYSIZE_UNSAFE(kFailureSignals); ++i) {
+        CHECK_ERR(sigaction(kFailureSignals[i].number, &sig_action, nullptr));
     }
     kFailureSignalHandlerInstalled = true;
 }

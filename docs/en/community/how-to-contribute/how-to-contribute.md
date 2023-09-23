@@ -26,9 +26,9 @@ under the License.
 
 # Contribute to Doris
 
-Thank you very much for your interest in the Doris project. We welcome your suggestions, comments (including criticisms), comments and contributions to the Doris project.
+Thank you very much for your interest in the Doris project. We welcome your suggestions, comments (including criticisms) and contributions to the Doris project.
 
-Your suggestions, comments and comments on Doris can be made directly through GitHub's [Issues](https://github.com/apache/doris/issues/new/choose).
+Your suggestions, comments and contributions on Doris can be made directly through GitHub's [Issues](https://github.com/apache/doris/issues/new/choose).
 
 There are many ways to participate in and contribute to Doris projects: code implementation, test writing, process tool improvement, document improvement, and so on. Any contribution will be welcomed and you will be added to the list of contributors. Further, with sufficient contributions, you will have the opportunity to become a Committer of Apache with Apache mailbox and be included in the list of [Apache Committers](http://people.apache.org/committer-index.html).
 
@@ -39,7 +39,7 @@ Any questions, you can contact us to get timely answers, including Wechat, Gitte
 For the first time in Doris community, you can:
 
 * Follow [Doris Github](https://github.com/apache/doris)
-* Subscribe to our [mailing list](./subscribe-mail-list);
+* Subscribe to our [mailing list](../subscribe-mail-list.md);
 * Join Doris Wechat Group (add WeChat-ID: morningman-cmy, note: join Doris Group) and ask questions at any time.
 * Enter Doris's [Slack](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-11jb8gesh-7IukzSrdea6mqoG0HB4gZg)
 
@@ -68,18 +68,18 @@ Browse the document, you can deepen your understanding of Doris, can also help y
 
 If you are interested in improving the quality of documents, whether it is revising the address of a page, correcting a link, and writing a better introductory document, we are very welcome!
 
-Most of our documents are written in markdown format, and you can modify and submit document changes directly through `docs/` in [GitHub](https://github.com/apache/doris). If you submit code changes, you can refer to [Pull Request](./pull-request).
+Most of our documents are written in markdown format, and you can modify and submit document changes directly through `docs/` in [GitHub](https://github.com/apache/doris). If you submit code changes, you can refer to [Pull Request](./pull-request.md).
 
 ## If a Bug or problem is found
 
 If a Bug or problem is found, you can directly raise a new Issue through GitHub's [Issues](https://github.com/apache/doris/issues/new/choose), and we will have someone deal with it regularly.
 
-You can also fix it yourself by reading the analysis code (of course, it's better to talk to us before that, maybe someone has fixed the same problem) and submit a [Pull Request](./pull-request).
+You can also fix it yourself by reading the analysis code (of course, it's better to talk to us before that, maybe someone has fixed the same problem) and submit a [Pull Request](./pull-request.md).
 
 ## Modify the code and submit PR (Pull Request)
 
-You can download the code, compile and install it, deploy and run it for a try (refer to the [compilation document](/docs/install/source-install/compilation) to see if it works as you expected. If you have problems, you can contact us directly, ask questions or fix them by reading and analyzing the source code.
+You can download the code, compile and install it, deploy and run it for a try (refer to the [compilation document](/docs/dev/install/source-install/compilation-general) to see if it works as you expected. If you have problems, you can contact us directly, ask questions or fix them by reading and analyzing the source code.
 
 Whether it's fixing Bugs or adding Features, we're all very welcome. If you want to submit code to Doris, you need to create a new branch for your submitted code from the fork code library on GitHub to your project space, add the source project upstream, and submit PR.
 
-About how to submit a PR refer to [Pull Request](./pull-request).
+About how to submit a PR refer to [Pull Request](./pull-request.md).

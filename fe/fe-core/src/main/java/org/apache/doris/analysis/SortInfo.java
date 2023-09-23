@@ -51,6 +51,7 @@ public class SortInfo {
     private static final float SORT_MATERIALIZATION_COST_THRESHOLD = Expr.FUNCTION_CALL_COST;
 
     private List<Expr> orderingExprs;
+    private List<Expr> origOrderingExprs;
     private final List<Boolean> isAscOrder;
     // True if "NULLS FIRST", false if "NULLS LAST", null if not specified.
     private final List<Boolean> nullsFirstParams;
@@ -63,6 +64,7 @@ public class SortInfo {
     // Input expressions materialized into sortTupleDesc_. One expr per slot in
     // sortTupleDesc_.
     private List<Expr> sortTupleSlotExprs;
+    private boolean useTwoPhaseRead = false;
 
     public SortInfo(List<Expr> orderingExprs, List<Boolean> isAscOrder,
                     List<Boolean> nullsFirstParams) {
@@ -121,6 +123,10 @@ public class SortInfo {
         return orderingExprs;
     }
 
+    public List<Expr> getOrigOrderingExprs() {
+        return origOrderingExprs;
+    }
+
     public List<Boolean> getIsAscOrder() {
         return isAscOrder;
     }
@@ -133,6 +139,13 @@ public class SortInfo {
         return materializedOrderingExprs;
     }
 
+    public void addMaterializedOrderingExpr(Expr expr) {
+        if (materializedOrderingExprs == null) {
+            materializedOrderingExprs = Lists.newArrayList();
+        }
+        materializedOrderingExprs.add(expr);
+    }
+
     public List<Expr> getSortTupleSlotExprs() {
         return sortTupleSlotExprs;
     }
@@ -143,6 +156,14 @@ public class SortInfo {
 
     public void setSortTupleDesc(TupleDescriptor tupleDesc) {
         sortTupleDesc = tupleDesc;
+    }
+
+    public void setUseTwoPhaseRead() {
+        useTwoPhaseRead = true;
+    }
+
+    public boolean useTwoPhaseRead() {
+        return useTwoPhaseRead;
     }
 
     public TupleDescriptor getSortTupleDescriptor() {
@@ -242,11 +263,18 @@ public class SortInfo {
                 SlotDescriptor origSlotDesc = origSlotRef.getDesc();
                 SlotDescriptor materializedDesc =
                         analyzer.copySlotDescriptor(origSlotDesc, sortTupleDesc);
+                // set to nullable if the origSlot is outer joined
+                if (analyzer.isOuterJoined(origSlotDesc.getParent().getId())) {
+                    materializedDesc.setIsNullable(true);
+                }
                 SlotRef cloneRef = new SlotRef(materializedDesc);
                 substOrderBy.put(origSlotRef, cloneRef);
                 sortTupleExprs.add(origSlotRef);
             }
         }
+
+        // backup before substitute orderingExprs
+        origOrderingExprs = orderingExprs;
 
         // The ordering exprs are evaluated against the sort tuple, so they must reflect the
         // materialization decision above.
@@ -254,6 +282,7 @@ public class SortInfo {
 
         // Update the tuple descriptor used to materialize the input of the sort.
         setMaterializedTupleInfo(sortTupleDesc, sortTupleExprs);
+        LOG.debug("sortTupleDesc {}", sortTupleDesc);
 
         return substOrderBy;
     }
@@ -271,15 +300,28 @@ public class SortInfo {
      */
     public ExprSubstitutionMap createMaterializedOrderExprs(
             TupleDescriptor sortTupleDesc, Analyzer analyzer) {
+        // the sort node exprs may come from the child outer join node
+        // we need change the slots to nullable from all outer join nullable side temporarily
+        // then the sort node expr would have correct nullable info
+        // after create the output tuple we need revert the change by call analyzer.changeSlotsToNotNullable(slots)
+        List<SlotDescriptor> slots = analyzer.changeSlotToNullableOfOuterJoinedTuples();
         ExprSubstitutionMap substOrderBy = new ExprSubstitutionMap();
         for (Expr origOrderingExpr : orderingExprs) {
             SlotDescriptor materializedDesc = analyzer.addSlotDescriptor(sortTupleDesc);
             materializedDesc.initFromExpr(origOrderingExpr);
             materializedDesc.setIsMaterialized(true);
+            SlotRef origSlotRef = origOrderingExpr.getSrcSlotRef();
+            LOG.debug("origOrderingExpr {}", origOrderingExpr);
+            if (origSlotRef != null) {
+                // need do this for two phase read of topn query optimization
+                // check https://github.com/apache/doris/pull/15642 for detail
+                materializedDesc.setSrcColumn(origSlotRef.getColumn());
+            }
             SlotRef materializedRef = new SlotRef(materializedDesc);
             substOrderBy.put(origOrderingExpr, materializedRef);
             materializedOrderingExprs.add(origOrderingExpr);
         }
+        analyzer.changeSlotsToNotNullable(slots);
         return substOrderBy;
     }
 
@@ -291,6 +333,9 @@ public class SortInfo {
                 Expr.treesToThrift(orderingExprs),
                 isAscOrder,
                 nullsFirstParams);
+        if (useTwoPhaseRead) {
+            sortInfo.setUseTwoPhaseRead(true);
+        }
         return sortInfo;
     }
 }

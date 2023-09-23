@@ -33,6 +33,7 @@ public class DropTableStmt extends DdlStmt {
     private final TableName tableName;
     private final boolean isView;
     private boolean forceDrop;
+    private boolean isMaterializedView;
 
     public DropTableStmt(boolean ifExists, TableName tableName, boolean forceDrop) {
         this.ifExists = ifExists;
@@ -68,6 +69,14 @@ public class DropTableStmt extends DdlStmt {
         return this.forceDrop;
     }
 
+    public void setMaterializedView(boolean value) {
+        isMaterializedView = value;
+    }
+
+    public boolean isMaterializedView() {
+        return isMaterializedView;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         if (Strings.isNullOrEmpty(tableName.getDb())) {
@@ -78,7 +87,7 @@ public class DropTableStmt extends DdlStmt {
         Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
 
         // check access
-        if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), tableName.getDb(),
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), tableName.getDb(),
                                                                 tableName.getTbl(), PrivPredicate.DROP)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "DROP");
         }

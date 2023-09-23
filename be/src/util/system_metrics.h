@@ -17,8 +17,14 @@
 
 #pragma once
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <map>
 #include <memory>
+#include <set>
+#include <string>
+#include <vector>
 
 #include "util/metrics.h"
 
@@ -50,6 +56,12 @@ public:
     void get_max_net_traffic(const std::map<std::string, int64_t>& lst_send_map,
                              const std::map<std::string, int64_t>& lst_rcv_map,
                              int64_t interval_sec, int64_t* send_rate, int64_t* rcv_rate);
+
+    void update_max_disk_io_util_percent(const std::map<std::string, int64_t>& lst_value,
+                                         int64_t interval_sec);
+    void update_max_network_send_bytes_rate(int64_t max_send_bytes_rate);
+    void update_max_network_receive_bytes_rate(int64_t max_receive_bytes_rate);
+    void update_allocator_metrics();
 
 private:
     void _install_cpu_metrics();
@@ -99,6 +111,10 @@ private:
     size_t _line_buf_size = 0;
     MetricRegistry* _registry = nullptr;
     std::shared_ptr<MetricEntity> _server_entity = nullptr;
+
+    IntGauge* max_disk_io_util_percent;
+    IntGauge* max_network_send_bytes_rate;
+    IntGauge* max_network_receive_bytes_rate;
 };
 
 } // namespace doris

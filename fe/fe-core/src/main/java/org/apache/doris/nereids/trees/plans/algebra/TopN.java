@@ -22,7 +22,7 @@ package org.apache.doris.nereids.trees.plans.algebra;
  */
 public interface TopN extends Sort {
 
-    int getOffset();
+    long getOffset();
 
-    int getLimit();
+    long getLimit();
 }

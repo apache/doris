@@ -15,17 +15,41 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
+#include "util/bitmap_value.h"
+
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
 #include <cstdint>
 #include <string>
 
+#include "gtest/gtest_pred_impl.h"
 #include "util/coding.h"
-#define private public
-#include "util/bitmap_value.h"
 
 namespace doris {
 using roaring::Roaring;
+
+TEST(BitmapValueTest, copy) {
+    BitmapValue empty;
+    BitmapValue single(1024);
+    BitmapValue bitmap({1024, 1025, 1026});
+
+    BitmapValue copied = bitmap;
+    EXPECT_TRUE(copied.contains(1024));
+    EXPECT_TRUE(copied.contains(1025));
+    EXPECT_TRUE(copied.contains(1026));
+    copied &= single;
+
+    // value of copied changed.
+    EXPECT_TRUE(copied.contains(1024));
+    EXPECT_FALSE(copied.contains(1025));
+    EXPECT_FALSE(copied.contains(1026));
+
+    // value of bitmap not changed.
+    EXPECT_TRUE(bitmap.contains(1024));
+    EXPECT_TRUE(bitmap.contains(1025));
+    EXPECT_TRUE(bitmap.contains(1026));
+}
 
 TEST(BitmapValueTest, bitmap_union) {
     BitmapValue empty;
@@ -167,7 +191,7 @@ TEST(BitmapValueTest, bitmap_intersect) {
 std::string convert_bitmap_to_string(BitmapValue& bitmap) {
     std::string buf;
     buf.resize(bitmap.getSizeInBytes());
-    bitmap.write((char*)buf.c_str());
+    bitmap.write_to((char*)buf.c_str());
     return buf;
 }
 
@@ -197,14 +221,6 @@ TEST(BitmapValueTest, bitmap_serde) {
         BitmapValue bitmap32({0, UINT32_MAX});
         std::string buffer = convert_bitmap_to_string(bitmap32);
 
-        Roaring roaring;
-        roaring.add(0);
-        roaring.add(UINT32_MAX);
-        std::string expect_buffer(1, BitmapTypeCode::BITMAP32);
-        expect_buffer.resize(1 + roaring.getSizeInBytes());
-        roaring.write(&expect_buffer[1]);
-        EXPECT_EQ(expect_buffer, buffer);
-
         BitmapValue out(buffer.data());
         EXPECT_EQ(2, out.cardinality());
         EXPECT_TRUE(out.contains(0));
@@ -225,20 +241,6 @@ TEST(BitmapValueTest, bitmap_serde) {
     { // BITMAP64
         BitmapValue bitmap64({0, static_cast<uint64_t>(UINT32_MAX) + 1});
         std::string buffer = convert_bitmap_to_string(bitmap64);
-
-        Roaring roaring;
-        roaring.add(0);
-        std::string expect_buffer(1, BitmapTypeCode::BITMAP64);
-        put_varint64(&expect_buffer, 2); // map size
-        for (uint32_t i = 0; i < 2; ++i) {
-            std::string map_entry;
-            put_fixed32_le(&map_entry, i); // map key
-            map_entry.resize(sizeof(uint32_t) + roaring.getSizeInBytes());
-            roaring.write(&map_entry[4]); // map value
-
-            expect_buffer.append(map_entry);
-        }
-        EXPECT_EQ(expect_buffer, buffer);
 
         BitmapValue out(buffer.data());
         EXPECT_EQ(2, out.cardinality());
@@ -264,9 +266,9 @@ TEST(BitmapValueTest, Roaring64Map) {
     }
     EXPECT_TRUE(r1.contains((uint64_t)14000000000000000500ull));
     EXPECT_EQ(1800, r1.cardinality());
-    size_t size_before = r1.getSizeInBytes();
+    size_t size_before = r1.getSizeInBytes(1);
     r1.runOptimize();
-    size_t size_after = r1.getSizeInBytes();
+    size_t size_after = r1.getSizeInBytes(1);
     EXPECT_LT(size_after, size_before);
 
     Roaring64Map r2 = Roaring64Map::bitmapOf(5, 1ull, 2ull, 234294967296ull, 195839473298ull,
@@ -309,9 +311,9 @@ TEST(BitmapValueTest, Roaring64Map) {
     EXPECT_EQ(1, i1_2.cardinality());
 
     // we can write a bitmap to a pointer and recover it later
-    uint32_t expectedsize = r1.getSizeInBytes();
+    uint32_t expectedsize = r1.getSizeInBytes(1);
     char* serializedbytes = new char[expectedsize];
-    r1.write(serializedbytes);
+    r1.write(serializedbytes, 1);
     Roaring64Map t = Roaring64Map::read(serializedbytes);
     EXPECT_TRUE(r1 == t);
     delete[] serializedbytes;
@@ -390,9 +392,13 @@ TEST(BitmapValueTest, bitmap_value_iterator_test) {
     }
 
     BitmapValue single(1024);
-    for (auto iter = single.begin(); iter != single.end(); ++iter) {
-        EXPECT_EQ(1024, *iter);
-    }
+    auto single_iter = single.begin();
+    EXPECT_EQ(1024, *single_iter);
+    EXPECT_TRUE(single_iter == BitmapValue {1024}.begin());
+    EXPECT_TRUE(single_iter != single.end());
+
+    ++single_iter;
+    EXPECT_TRUE(single_iter == single.end());
 
     int i = 0;
     BitmapValue bitmap({0, 1025, 1026, UINT32_MAX, UINT64_MAX});

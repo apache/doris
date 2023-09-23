@@ -100,6 +100,7 @@ public class OdbcCatalogResource extends Resource {
         replaceIfEffectiveValue(this.configs, PASSWORD, properties.get(PASSWORD));
         replaceIfEffectiveValue(this.configs, TYPE, properties.get(TYPE));
         replaceIfEffectiveValue(this.configs, DRIVER, properties.get(DRIVER));
+        super.modifyProperties(properties);
     }
 
     @Override

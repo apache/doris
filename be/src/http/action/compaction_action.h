@@ -17,15 +17,20 @@
 
 #pragma once
 
+#include <stdint.h>
+
+#include <string>
+
 #include "common/status.h"
-#include "http/http_handler.h"
-#include "olap/base_compaction.h"
-#include "olap/storage_engine.h"
+#include "http/http_handler_with_auth.h"
 #include "olap/tablet.h"
 
 namespace doris {
+class HttpRequest;
 
-enum CompactionActionType {
+class ExecEnv;
+
+enum class CompactionActionType {
     SHOW_INFO = 1,
     RUN_COMPACTION = 2,
     RUN_COMPACTION_STATUS = 3,
@@ -34,14 +39,16 @@ enum CompactionActionType {
 const std::string PARAM_COMPACTION_TYPE = "compact_type";
 const std::string PARAM_COMPACTION_BASE = "base";
 const std::string PARAM_COMPACTION_CUMULATIVE = "cumulative";
+const std::string PARAM_COMPACTION_FULL = "full";
 
 /// This action is used for viewing the compaction status.
 /// See compaction-action.md for details.
-class CompactionAction : public HttpHandler {
+class CompactionAction : public HttpHandlerWithAuth {
 public:
-    CompactionAction(CompactionActionType type) : _type(type) {}
+    CompactionAction(CompactionActionType ctype, ExecEnv* exec_env, TPrivilegeHier::type hier,
+                     TPrivilegeType::type ptype);
 
-    virtual ~CompactionAction() {}
+    ~CompactionAction() override = default;
 
     void handle(HttpRequest* req) override;
 
@@ -59,17 +66,10 @@ private:
     Status _handle_run_status_compaction(HttpRequest* req, std::string* json_result);
 
     /// check param and fetch tablet_id from req
-    Status _check_param(HttpRequest* req, uint64_t* tablet_id);
-
-    std::shared_ptr<CumulativeCompactionPolicy> _create_cumulative_compaction_policy();
+    Status _check_param(HttpRequest* req, uint64_t* tablet_id, uint64_t* table_id);
 
 private:
     CompactionActionType _type;
-
-    /// running check mutex
-    static std::mutex _compaction_running_mutex;
-    /// whether there is manual compaction running
-    static bool _is_compaction_running;
 };
 
 } // end namespace doris

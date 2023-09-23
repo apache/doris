@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Rollup and query",
+    "title": "Rollup and Query",
     "language": "en"
 }
 ---
@@ -24,17 +24,17 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Rollup and query
+# Rollup and Query
 
-ROLLUP in multidimensional analysis means "scroll up", which means that data is aggregated further at a specified granularity.
+In multidimensional analysis, Rollups refers to data tables that are aggregated at a specified granular level.
 
-### Basic concepts
+### Basic Concepts
 
-In Doris, we make the table created by the user through the table building statement a Base table. Base table holds the basic data stored in the way specified by the user's table-building statement.
+In Doris, tables that are created by users via the CREATE TABLE statement are called "Base Tables". Base Tables contains the basic data stored in the way specified by the user in the the CREATE TABLE statement.
 
-On top of the Base table, we can create any number of ROLLUP tables. These ROLLUP data are generated based on the Base table and physically **stored independently**.
+On top of Base Tables, you can create any number of Rollups. Data in Rollups are generated based on the Base Tables and are physically **independent in storage**.
 
-The basic function of ROLLUP tables is to obtain coarser aggregated data on the basis of Base tables.
+Rollups are created to  aggregated versions of Base Tables.
 
 Let's illustrate the ROLLUP tables and their roles in different data models with examples.
 

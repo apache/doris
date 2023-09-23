@@ -17,47 +17,12 @@
 
 #include "exec/olap_common.h"
 
-#include <boost/lexical_cast.hpp>
-#include <set>
-#include <sstream>
-#include <string>
 #include <utility>
 #include <vector>
 
 #include "exec/olap_utils.h"
-#include "runtime/large_int_value.h"
 
 namespace doris {
-
-template <>
-void ColumnValueRange<PrimitiveType::TYPE_STRING>::convert_to_fixed_value() {
-    return;
-}
-
-template <>
-void ColumnValueRange<PrimitiveType::TYPE_CHAR>::convert_to_fixed_value() {
-    return;
-}
-
-template <>
-void ColumnValueRange<PrimitiveType::TYPE_VARCHAR>::convert_to_fixed_value() {
-    return;
-}
-
-template <>
-void ColumnValueRange<PrimitiveType::TYPE_HLL>::convert_to_fixed_value() {
-    return;
-}
-
-template <>
-void ColumnValueRange<PrimitiveType::TYPE_DECIMALV2>::convert_to_fixed_value() {
-    return;
-}
-
-template <>
-void ColumnValueRange<PrimitiveType::TYPE_LARGEINT>::convert_to_fixed_value() {
-    return;
-}
 
 Status OlapScanKeys::get_key_range(std::vector<std::unique_ptr<OlapScanRange>>* key_range) {
     key_range->clear();

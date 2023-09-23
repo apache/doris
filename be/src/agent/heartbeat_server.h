@@ -17,24 +17,27 @@
 
 #pragma once
 
+#include <butil/macros.h>
+#include <gen_cpp/HeartbeatService.h>
+#include <stdint.h>
+
 #include <mutex>
 
 #include "common/status.h"
-#include "gen_cpp/HeartbeatService.h"
-#include "olap/olap_define.h"
-#include "runtime/exec_env.h"
 
 namespace doris {
+class ExecEnv;
+class THeartbeatResult;
+class TMasterInfo;
 
 const uint32_t HEARTBEAT_INTERVAL = 10;
 class StorageEngine;
-class Status;
 class ThriftServer;
 
 class HeartbeatServer : public HeartbeatServiceIf {
 public:
     explicit HeartbeatServer(TMasterInfo* master_info);
-    virtual ~HeartbeatServer() {};
+    ~HeartbeatServer() override = default;
 
     virtual void init_cluster_id();
 
@@ -45,7 +48,7 @@ public:
     //
     // Output parameters:
     // * heartbeat_result: The result of heartbeat set
-    virtual void heartbeat(THeartbeatResult& heartbeat_result, const TMasterInfo& master_info);
+    void heartbeat(THeartbeatResult& heartbeat_result, const TMasterInfo& master_info) override;
 
 private:
     Status _heartbeat(const TMasterInfo& master_info);
@@ -63,6 +66,6 @@ private:
 }; // class HeartBeatServer
 
 Status create_heartbeat_server(ExecEnv* exec_env, uint32_t heartbeat_server_port,
-                               ThriftServer** heart_beat_server, uint32_t worker_thread_num,
-                               TMasterInfo* local_master_info);
+                               std::unique_ptr<ThriftServer>* heart_beat_server,
+                               uint32_t worker_thread_num, TMasterInfo* local_master_info);
 } // namespace doris

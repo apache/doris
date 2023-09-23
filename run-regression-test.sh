@@ -41,7 +41,7 @@ Usage: $0 <shell_options> <framework_options>
      -xg                               exclude the specified group
      -xd                               exclude the specified directory
      -genOut                           generate .out file if not exist
-     -forceGenOut                      delete and generate .out file if not exist
+     -forceGenOut                      delete and generate .out file
      -parallel                         run tests using specified threads
      -randomOrder                      run tests in a random order
      -times                            rum tests {times} times
@@ -90,6 +90,11 @@ else
             TEAMCITY=1
             shift
             ;;
+        --conf)
+            CUSTOM_CONFIG_FILE="$2"
+            shift
+            shift
+            ;;
         --run)
             RUN=1
             shift
@@ -104,9 +109,8 @@ else
     done
 fi
 
-if [[ "${WRONG_CMD}" -eq 1 ]]; then
+if [[ ${WRONG_CMD} -eq 1 ]]; then
     usage
-    exit 1
 fi
 
 # set maven
@@ -121,15 +125,26 @@ fi
 export MVN_CMD
 
 CONF_DIR="${DORIS_HOME}/regression-test/conf"
-CONFIG_FILE="${CONF_DIR}/regression-conf.groovy"
+if [[ -n "${CUSTOM_CONFIG_FILE}" ]] && [[ -f "${CUSTOM_CONFIG_FILE}" ]]; then
+    CONFIG_FILE="${CUSTOM_CONFIG_FILE}"
+    echo "Using custom config file ${CONFIG_FILE}"
+else
+    CONFIG_FILE="${CONF_DIR}/regression-conf.groovy"
+fi
 LOG_CONFIG_FILE="${CONF_DIR}/logback.xml"
 
 FRAMEWORK_SOURCE_DIR="${DORIS_HOME}/regression-test/framework"
 REGRESSION_TEST_BUILD_DIR="${FRAMEWORK_SOURCE_DIR}/target"
+FRAMEWORK_APACHE_DIR="${FRAMEWORK_SOURCE_DIR}/src/main/groovy/org/apache"
 
 OUTPUT_DIR="${DORIS_HOME}/output/regression-test"
 LOG_OUTPUT_FILE="${OUTPUT_DIR}/log"
 RUN_JAR="${OUTPUT_DIR}/lib/regression-test-*.jar"
+if [[ -z "${DORIS_THIRDPARTY}" ]]; then
+    export DORIS_THIRDPARTY="${DORIS_HOME}/thirdparty"
+fi
+
+rm -rf "${FRAMEWORK_APACHE_DIR}/doris/thrift"
 
 if [[ "${CLEAN}" -eq 1 ]]; then
     rm -rf "${REGRESSION_TEST_BUILD_DIR}"
@@ -143,12 +158,26 @@ fi
 
 if ! test -f ${RUN_JAR:+${RUN_JAR}}; then
     echo "===== Build Regression Test Framework ====="
+
+    # echo "Build generated code"
+    cd "${DORIS_HOME}/gensrc/thrift"
+    make
+
+    cp -rf "${DORIS_HOME}/gensrc/build/gen_java/org/apache/doris/thrift" "${FRAMEWORK_APACHE_DIR}/doris/"
+
     cd "${DORIS_HOME}/regression-test/framework"
     "${MVN_CMD}" package
     cd "${DORIS_HOME}"
 
     mkdir -p "${OUTPUT_DIR}"/{lib,log}
     cp -r "${REGRESSION_TEST_BUILD_DIR}"/regression-test-*.jar "${OUTPUT_DIR}/lib"
+
+    echo "===== BUILD JAVA_UDF_SRC TO GENERATE JAR ====="
+    mkdir -p "${DORIS_HOME}"/regression-test/suites/javaudf_p0/jars
+    cd "${DORIS_HOME}"/regression-test/java-udf-src
+    "${MVN_CMD}" package
+    cp target/java-udf-case-jar-with-dependencies.jar "${DORIS_HOME}"/regression-test/suites/javaudf_p0/jars/
+    cd "${DORIS_HOME}"
 fi
 
 # check java home
@@ -177,6 +206,7 @@ fi
 
 "${JAVA}" -DDORIS_HOME="${DORIS_HOME}" \
     -DLOG_PATH="${LOG_OUTPUT_FILE}" \
+    -Dfile.encoding="UTF-8" \
     -Dlogback.configurationFile="${LOG_CONFIG_FILE}" \
     ${JAVA_OPTS:+${JAVA_OPTS}} \
     -jar ${RUN_JAR:+${RUN_JAR}} \

@@ -40,7 +40,6 @@ Doris 提供多种数据导入方案，可以针对不同的数据源进行选�
 | Mysql、PostgreSQL，Oracle，SQLServer | [通过外部表同步数据](./import-scenes/external-table-load.md) |
 | 通过JDBC导入                         | [使用JDBC同步数据](./import-scenes/jdbc-load.md)           |
 | 导入JSON格式数据                     | [JSON格式数据导入](./import-way/load-json-format.md)       |
-| MySQL Binlog                         | [Binlog Load](./import-way/binlog-load-manual.md)          |
 
 ### 按导入方式划分
 
@@ -50,19 +49,20 @@ Doris 提供多种数据导入方案，可以针对不同的数据源进行选�
 | Broker Load  | [通过Broker导入外部存储数据](./import-way/broker-load-manual.md) |
 | Stream Load  | [流式导入数据(本地文件及内存数据)](./import-way/stream-load-manual.md) |
 | Routine Load | [导入Kafka数据](./import-way/routine-load-manual.md)       |
-| Binlog Load  | [采集Mysql Binlog 导入数据](./import-way/binlog-load-manual.md) |
 | Insert Into  | [外部表通过INSERT方式导入数据](./import-way/insert-into-manual.md) |
 | S3 Load      | [S3协议的对象存储数据导入](./import-way/s3-load-manual.md) |
+| MySQL Load   | [MySQL客户端导入本地数据](./import-way/mysql-load-manual.md) |
 
 ## 支持的数据格式
 
 不同的导入方式支持的数据格式略有不同。
 
-| 导入方式     | 支持的格式              |
+| 导入方式     | 支持的格式                |
 | ------------ | ----------------------- |
-| Broker Load  | Parquet，ORC，csv，gzip |
-| Stream Load  | csv, gzip, json         |
-| Routine Load | csv, json               |
+| Broker Load  | parquet、orc、csv、gzip |
+| Stream Load  | csv、json、parquet、orc |
+| Routine Load | csv、json               |
+| MySQL Load   | csv                    |
 
 ## 导入说明
 
@@ -81,4 +81,22 @@ Label 是用于保证对应的导入作业，仅能成功导入一次。一个�
 ## 同步及异步导入
 
 导入方式分为同步和异步。对于同步导入方式，返回结果即表示导入成功还是失败。而对于异步导入方式，返回成功仅代表作业提交成功，不代表数据导入成功，需要使用对应的命令查看导入作业的运行状态。
+
+## 导入array类型
+
+向量化场景才能支持array函数，非向量化场景不支持。
+
+如果想要应用array函数导入数据，则应先启用向量化功能；然后需要根据array函数的参数类型将输入参数列转换为array类型；最后，就可以继续使用array函数了。
+
+例如以下导入，需要先将列b14和列a13先cast成`array<string>`类型，再运用`array_union`函数。
+
+```sql
+LOAD LABEL label_03_14_49_34_898986_19090452100 ( 
+  DATA INFILE("hdfs://test.hdfs.com:9000/user/test/data/sys/load/array_test.data") 
+  INTO TABLE `test_array_table` 
+  COLUMNS TERMINATED BY "|" (`k1`, `a1`, `a2`, `a3`, `a4`, `a5`, `a6`, `a7`, `a8`, `a9`, `a10`, `a11`, `a12`, `a13`, `b14`) 
+  SET(a14=array_union(cast(b14 as array<string>), cast(a13 as array<string>))) WHERE size(a2) > 270) 
+  WITH BROKER "hdfs" ("username"="test_array", "password"="") 
+  PROPERTIES( "max_filter_ratio"="0.8" );
+```
 

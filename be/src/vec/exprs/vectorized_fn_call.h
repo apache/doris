@@ -16,31 +16,57 @@
 // under the License.
 
 #pragma once
-#include "runtime/runtime_state.h"
+#include <stddef.h>
+
+#include <string>
+#include <vector>
+
+#include "common/object_pool.h"
+#include "common/status.h"
+#include "udf/udf.h"
+#include "vec/core/column_numbers.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/functions/function.h"
 
+namespace doris {
+class RowDescriptor;
+class RuntimeState;
+class TExprNode;
+
+namespace vectorized {
+class Block;
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
+
 namespace doris::vectorized {
 class VectorizedFnCall : public VExpr {
+    ENABLE_FACTORY_CREATOR(VectorizedFnCall);
+
 public:
-    VectorizedFnCall(const doris::TExprNode& node);
-    virtual doris::Status execute(VExprContext* context, doris::vectorized::Block* block,
-                                  int* result_column_id) override;
-    virtual doris::Status prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
-                                  VExprContext* context) override;
-    virtual doris::Status open(doris::RuntimeState* state, VExprContext* context,
-                               FunctionContext::FunctionStateScope scope) override;
-    virtual void close(doris::RuntimeState* state, VExprContext* context,
-                       FunctionContext::FunctionStateScope scope) override;
-    virtual VExpr* clone(doris::ObjectPool* pool) const override {
-        return pool->add(new VectorizedFnCall(*this));
+    VectorizedFnCall(const TExprNode& node);
+    Status execute(VExprContext* context, Block* block, int* result_column_id) override;
+    Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
+    Status open(RuntimeState* state, VExprContext* context,
+                FunctionContext::FunctionStateScope scope) override;
+    void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
+    const std::string& expr_name() const override;
+    std::string debug_string() const override;
+    bool is_constant() const override {
+        if (!_function->is_use_default_implementation_for_constants()) {
+            return false;
+        }
+        return VExpr::is_constant();
     }
-    virtual const std::string& expr_name() const override;
-    virtual std::string debug_string() const override;
     static std::string debug_string(const std::vector<VectorizedFnCall*>& exprs);
 
-private:
+    bool fast_execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                      size_t result, size_t input_rows_count);
+
+protected:
     FunctionBasePtr _function;
+    bool _can_fast_execute = false;
     std::string _expr_name;
+    std::string _function_name;
 };
 } // namespace doris::vectorized

@@ -28,14 +28,14 @@ public class FieldChecker {
             Field field;
             try {
                 field = o.getClass().getDeclaredField(fieldName);
-            } catch (NoSuchFieldException e) {
-                throw new RuntimeException(e);
+            } catch (Throwable e) {
+                throw new RuntimeException("Check " + fieldName + " failed", e);
             }
             field.setAccessible(true);
             try {
                 Assertions.assertEquals(value, field.get(o));
-            } catch (IllegalAccessException e) {
-                throw new RuntimeException(e);
+            } catch (Throwable e) {
+                throw new RuntimeException("Check " + fieldName + " failed", e);
             }
             return true;
         };

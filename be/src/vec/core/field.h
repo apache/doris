@@ -20,27 +20,83 @@
 
 #pragma once
 
+#include <fmt/format.h>
+#include <glog/logging.h>
+#include <stdint.h>
+#include <string.h>
+
 #include <algorithm>
 #include <cassert>
 #include <functional>
+#include <map>
+#include <new>
+#include <ostream>
+#include <string>
+#include <string_view>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
-#include "vec/common/exception.h"
-#include "vec/common/int_exp.h"
-#include "vec/common/strong_typedef.h"
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "olap/hll.h"
+#include "util/bitmap_value.h"
+#include "util/quantile_state.h"
 #include "vec/common/uint128.h"
 #include "vec/core/types.h"
+
+namespace doris {
+namespace vectorized {
+template <typename T>
+struct TypeId;
+template <typename T>
+struct TypeName;
+} // namespace vectorized
+struct PackedInt128;
+} // namespace doris
 
 namespace doris::vectorized {
 
 template <typename T>
-struct NearestFieldTypeImpl;
+struct NearestFieldTypeImpl {
+    using Type = T;
+};
 
 template <typename T>
 using NearestFieldType = typename NearestFieldTypeImpl<T>::Type;
 
+template <typename T>
+struct AvgNearestFieldTypeTrait {
+    using Type = typename NearestFieldTypeImpl<T>::Type;
+};
+
+template <>
+struct AvgNearestFieldTypeTrait<Decimal32> {
+    using Type = Decimal128I;
+};
+
+template <>
+struct AvgNearestFieldTypeTrait<Decimal64> {
+    using Type = Decimal128I;
+};
+
+template <>
+struct AvgNearestFieldTypeTrait<Decimal128> {
+    using Type = Decimal128;
+};
+
+template <>
+struct AvgNearestFieldTypeTrait<Decimal128I> {
+    using Type = Decimal128;
+};
+
+template <>
+struct AvgNearestFieldTypeTrait<Int64> {
+    using Type = double;
+};
+
 class Field;
+
 using FieldVector = std::vector<Field>;
 
 /// Array and Tuple use the same storage type -- FieldVector, but we declare
@@ -55,38 +111,101 @@ using FieldVector = std::vector<Field>;
 
 DEFINE_FIELD_VECTOR(Array);
 DEFINE_FIELD_VECTOR(Tuple);
-
+DEFINE_FIELD_VECTOR(Map);
 #undef DEFINE_FIELD_VECTOR
 
-struct AggregateFunctionStateData {
-    String name; /// Name with arguments.
-    String data;
-
-    bool operator<(const AggregateFunctionStateData&) const {
-        LOG(FATAL) << "Operator < is not implemented for AggregateFunctionStateData.";
+using FieldMap = std::map<String, Field, std::less<String>>;
+#define DEFINE_FIELD_MAP(X)       \
+    struct X : public FieldMap {  \
+        using FieldMap::FieldMap; \
     }
+DEFINE_FIELD_MAP(VariantMap);
+#undef DEFINE_FIELD_MAP
 
-    bool operator<=(const AggregateFunctionStateData&) const {
-        LOG(FATAL) << "Operator <= is not implemented for AggregateFunctionStateData.";
-    }
+class JsonbField {
+public:
+    JsonbField() = default;
 
-    bool operator>(const AggregateFunctionStateData&) const {
-        LOG(FATAL) << "Operator <= is not implemented for AggregateFunctionStateData.";
-    }
-
-    bool operator>=(const AggregateFunctionStateData&) const {
-        LOG(FATAL) << "Operator >= is not implemented for AggregateFunctionStateData.";
-    }
-
-    bool operator==(const AggregateFunctionStateData& rhs) const {
-        if (name != rhs.name) {
-            LOG(FATAL) << fmt::format(
-                    "Comparing aggregate functions with different types: {} and {}", name,
-                    rhs.name);
+    JsonbField(const char* ptr, uint32_t len) : size(len) {
+        data = new char[size];
+        if (!data) {
+            LOG(FATAL) << "new data buffer failed, size: " << size;
         }
-
-        return data == rhs.data;
+        memcpy(data, ptr, size);
     }
+
+    JsonbField(const JsonbField& x) : size(x.size) {
+        data = new char[size];
+        if (!data) {
+            LOG(FATAL) << "new data buffer failed, size: " << size;
+        }
+        memcpy(data, x.data, size);
+    }
+
+    JsonbField(JsonbField&& x) : data(x.data), size(x.size) {
+        x.data = nullptr;
+        x.size = 0;
+    }
+
+    JsonbField& operator=(const JsonbField& x) {
+        data = new char[size];
+        if (!data) {
+            LOG(FATAL) << "new data buffer failed, size: " << size;
+        }
+        memcpy(data, x.data, size);
+        return *this;
+    }
+
+    JsonbField& operator=(JsonbField&& x) {
+        if (data) {
+            delete[] data;
+        }
+        data = x.data;
+        size = x.size;
+        x.data = nullptr;
+        x.size = 0;
+        return *this;
+    }
+
+    ~JsonbField() {
+        if (data) {
+            delete[] data;
+        }
+    }
+
+    const char* get_value() const { return data; }
+    uint32_t get_size() const { return size; }
+
+    bool operator<(const JsonbField& r) const {
+        LOG(FATAL) << "comparing between JsonbField is not supported";
+    }
+    bool operator<=(const JsonbField& r) const {
+        LOG(FATAL) << "comparing between JsonbField is not supported";
+    }
+    bool operator==(const JsonbField& r) const {
+        LOG(FATAL) << "comparing between JsonbField is not supported";
+    }
+    bool operator>(const JsonbField& r) const {
+        LOG(FATAL) << "comparing between JsonbField is not supported";
+    }
+    bool operator>=(const JsonbField& r) const {
+        LOG(FATAL) << "comparing between JsonbField is not supported";
+    }
+    bool operator!=(const JsonbField& r) const {
+        LOG(FATAL) << "comparing between JsonbField is not supported";
+    }
+
+    const JsonbField& operator+=(const JsonbField& r) {
+        LOG(FATAL) << "Not support plus opration on JsonbField";
+    }
+
+    const JsonbField& operator-=(const JsonbField& r) {
+        LOG(FATAL) << "Not support minus opration on JsonbField";
+    }
+
+private:
+    char* data = nullptr;
+    uint32_t size = 0;
 };
 
 template <typename T>
@@ -193,6 +312,13 @@ public:
             Decimal64 = 20,
             Decimal128 = 21,
             AggregateFunctionState = 22,
+            JSONB = 23,
+            Decimal128I = 24,
+            Map = 25,
+            VariantMap = 26,
+            Bitmap = 27,
+            HyperLogLog = 28,
+            QuantileState = 29,
         };
 
         static const int MIN_NON_POD = 16;
@@ -213,24 +339,36 @@ public:
                 return "Float64";
             case String:
                 return "String";
+            case JSONB:
+                return "JSONB";
             case Array:
                 return "Array";
             case Tuple:
                 return "Tuple";
+            case Map:
+                return "Map";
             case Decimal32:
                 return "Decimal32";
             case Decimal64:
                 return "Decimal64";
             case Decimal128:
                 return "Decimal128";
-            case AggregateFunctionState:
-                return "AggregateFunctionState";
+            case Decimal128I:
+                return "Decimal128I";
             case FixedLengthObject:
                 return "FixedLengthObject";
+            case VariantMap:
+                return "VariantMap";
+            case Bitmap:
+                return "Bitmap";
+            case HyperLogLog:
+                return "HyperLogLog";
+            case QuantileState:
+                return "QuantileState";
+            default:
+                LOG(FATAL) << "type not supported, type=" << Types::to_string(which);
+                break;
             }
-
-            LOG(FATAL) << "Bad type of Field";
-            return nullptr;
         }
     };
 
@@ -241,10 +379,14 @@ public:
     struct EnumToType;
 
     static bool is_decimal(Types::Which which) {
-        return which >= Types::Decimal32 && which <= Types::Decimal128;
+        return (which >= Types::Decimal32 && which <= Types::Decimal128) ||
+               which == Types::Decimal128I;
     }
 
     Field() : which(Types::Null) {}
+
+    // set Types::Null explictly and avoid other types
+    Field(Types::Which w) : which(w) { DCHECK_EQ(Types::Null, which); }
 
     /** Despite the presence of a template constructor, this constructor is still needed,
       *  since, in its absence, the compiler will still generate the default constructor.
@@ -254,7 +396,8 @@ public:
     Field(Field&& rhs) { create(std::move(rhs)); }
 
     template <typename T>
-    Field(T&& rhs, std::enable_if_t<!std::is_same_v<std::decay_t<T>, Field>, void*> = nullptr);
+        requires(!std::is_same_v<std::decay_t<T>, Field>)
+    Field(T&& rhs);
 
     /// Create a string inplace.
     Field(const char* data, size_t size) { create(data, size); }
@@ -270,6 +413,16 @@ public:
     void assign_string(const unsigned char* data, size_t size) {
         destroy();
         create(data, size);
+    }
+
+    void assign_jsonb(const char* data, size_t size) {
+        destroy();
+        create_jsonb(data, size);
+    }
+
+    void assign_jsonb(const unsigned char* data, size_t size) {
+        destroy();
+        create_jsonb(data, size);
     }
 
     Field& operator=(const Field& rhs) {
@@ -295,7 +448,8 @@ public:
     }
 
     template <typename T>
-    std::enable_if_t<!std::is_same_v<std::decay_t<T>, Field>, Field&> operator=(T&& rhs);
+        requires(!std::is_same_v<std::decay_t<T>, Field>)
+    Field& operator=(T&& rhs);
 
     ~Field() { destroy(); }
 
@@ -350,129 +504,65 @@ public:
         return get<T>();
     }
 
-    bool operator<(const Field& rhs) const {
-        if (which < rhs.which) return true;
-        if (which > rhs.which) return false;
-
-        switch (which) {
-        case Types::Null:
-            return false;
-        case Types::UInt64:
-            return get<UInt64>() < rhs.get<UInt64>();
-        case Types::UInt128:
-            return get<UInt128>() < rhs.get<UInt128>();
-        case Types::Int64:
-            return get<Int64>() < rhs.get<Int64>();
-        case Types::Int128:
-            return get<Int128>() < rhs.get<Int128>();
-        case Types::Float64:
-            return get<Float64>() < rhs.get<Float64>();
-        case Types::String:
-            return get<String>() < rhs.get<String>();
-        case Types::Array:
-            return get<Array>() < rhs.get<Array>();
-        case Types::Tuple:
-            return get<Tuple>() < rhs.get<Tuple>();
-        case Types::Decimal32:
-            return get<DecimalField<Decimal32>>() < rhs.get<DecimalField<Decimal32>>();
-        case Types::Decimal64:
-            return get<DecimalField<Decimal64>>() < rhs.get<DecimalField<Decimal64>>();
-        case Types::Decimal128:
-            return get<DecimalField<Decimal128>>() < rhs.get<DecimalField<Decimal128>>();
-        case Types::AggregateFunctionState:
-            return get<AggregateFunctionStateData>() < rhs.get<AggregateFunctionStateData>();
-        case Types::FixedLengthObject:
-            break;
-        }
-
-        LOG(FATAL) << "Bad type of Field";
-        return {};
-    }
-
-    bool operator>(const Field& rhs) const { return rhs < *this; }
-
-    bool operator<=(const Field& rhs) const {
-        if (which < rhs.which) return true;
-        if (which > rhs.which) return false;
-
-        switch (which) {
-        case Types::Null:
-            return true;
-        case Types::UInt64:
-            return get<UInt64>() <= rhs.get<UInt64>();
-        case Types::UInt128:
-            return get<UInt128>() <= rhs.get<UInt128>();
-        case Types::Int64:
-            return get<Int64>() <= rhs.get<Int64>();
-        case Types::Int128:
-            return get<Int128>() <= rhs.get<Int128>();
-        case Types::Float64:
-            return get<Float64>() <= rhs.get<Float64>();
-        case Types::String:
-            return get<String>() <= rhs.get<String>();
-        case Types::Array:
-            return get<Array>() <= rhs.get<Array>();
-        case Types::Tuple:
-            return get<Tuple>() <= rhs.get<Tuple>();
-        case Types::Decimal32:
-            return get<DecimalField<Decimal32>>() <= rhs.get<DecimalField<Decimal32>>();
-        case Types::Decimal64:
-            return get<DecimalField<Decimal64>>() <= rhs.get<DecimalField<Decimal64>>();
-        case Types::Decimal128:
-            return get<DecimalField<Decimal128>>() <= rhs.get<DecimalField<Decimal128>>();
-        case Types::AggregateFunctionState:
-            return get<AggregateFunctionStateData>() <= rhs.get<AggregateFunctionStateData>();
-        case Types::FixedLengthObject:
-            break;
-        }
-        LOG(FATAL) << "Bad type of Field";
-        return {};
-    }
-
-    bool operator>=(const Field& rhs) const { return rhs <= *this; }
-
     bool operator==(const Field& rhs) const {
-        if (which != rhs.which) return false;
-
-        switch (which) {
-        case Types::Null:
-            return true;
-        case Types::UInt64:
-        case Types::Int64:
-        case Types::Float64:
-            return get<UInt64>() == rhs.get<UInt64>();
-        case Types::String:
-            return get<String>() == rhs.get<String>();
-        case Types::Array:
-            return get<Array>() == rhs.get<Array>();
-        case Types::Tuple:
-            return get<Tuple>() == rhs.get<Tuple>();
-        case Types::UInt128:
-            return get<UInt128>() == rhs.get<UInt128>();
-        case Types::Int128:
-            return get<Int128>() == rhs.get<Int128>();
-        case Types::Decimal32:
-            return get<DecimalField<Decimal32>>() == rhs.get<DecimalField<Decimal32>>();
-        case Types::Decimal64:
-            return get<DecimalField<Decimal64>>() == rhs.get<DecimalField<Decimal64>>();
-        case Types::Decimal128:
-            return get<DecimalField<Decimal128>>() == rhs.get<DecimalField<Decimal128>>();
-        case Types::AggregateFunctionState:
-            return get<AggregateFunctionStateData>() == rhs.get<AggregateFunctionStateData>();
-        case Types::FixedLengthObject:
-            break;
-        }
-
-        CHECK(false) << "Bad type of Field";
+        return operator<=>(rhs) == std::strong_ordering::equal;
     }
 
-    bool operator!=(const Field& rhs) const { return !(*this == rhs); }
+    std::strong_ordering operator<=>(const Field& rhs) const {
+        if (which == Types::Null || rhs == Types::Null) {
+            return std::strong_ordering::equal;
+        }
+        if (which != rhs.which) {
+            LOG(FATAL) << "lhs type not equal with rhs, lhs=" << Types::to_string(which)
+                       << ", rhs=" << Types::to_string(rhs.which);
+        }
+
+        switch (which) {
+        case Types::Bitmap:
+        case Types::HyperLogLog:
+        case Types::QuantileState:
+        case Types::FixedLengthObject:
+        case Types::JSONB:
+        case Types::Null:
+        case Types::Array:
+        case Types::Tuple:
+        case Types::Map:
+        case Types::VariantMap:
+            return std::strong_ordering::equal;
+        case Types::UInt64:
+            return get<UInt64>() <=> rhs.get<UInt64>();
+        case Types::UInt128:
+            return get<UInt128>() <=> rhs.get<UInt128>();
+        case Types::Int64:
+            return get<Int64>() <=> rhs.get<Int64>();
+        case Types::Int128:
+            return get<Int128>() <=> rhs.get<Int128>();
+        case Types::Float64:
+            return get<Float64>() < rhs.get<Float64>()    ? std::strong_ordering::less
+                   : get<Float64>() == rhs.get<Float64>() ? std::strong_ordering::equal
+                                                          : std::strong_ordering::greater;
+        case Types::String:
+            return get<String>() <=> rhs.get<String>();
+        case Types::Decimal32:
+            return get<Decimal32>() <=> rhs.get<Decimal32>();
+        case Types::Decimal64:
+            return get<Decimal64>() <=> rhs.get<Decimal64>();
+        case Types::Decimal128:
+            return get<Decimal128>() <=> rhs.get<Decimal128>();
+        case Types::Decimal128I:
+            return get<Decimal128I>() <=> rhs.get<Decimal128I>();
+        default:
+            LOG(FATAL) << "lhs type not equal with rhs, lhs=" << Types::to_string(which)
+                       << ", rhs=" << Types::to_string(rhs.which);
+            break;
+        }
+    }
 
 private:
     std::aligned_union_t<DBMS_MIN_FIELD_SIZE - sizeof(Types::Which), Null, UInt64, UInt128, Int64,
-                         Int128, Float64, String, Array, Tuple, DecimalField<Decimal32>,
-                         DecimalField<Decimal64>, DecimalField<Decimal128>,
-                         AggregateFunctionStateData>
+                         Int128, Float64, String, JsonbField, Array, Tuple, Map, VariantMap,
+                         DecimalField<Decimal32>, DecimalField<Decimal64>, DecimalField<Decimal128>,
+                         DecimalField<Decimal128I>, BitmapValue, HyperLogLog, QuantileState>
             storage;
 
     Types::Which which;
@@ -508,12 +598,6 @@ private:
         case Types::Null:
             f(field.template get<Null>());
             return;
-
-// gcc 7.3.0
-#if !__clang__
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
-#endif
         case Types::UInt64:
             f(field.template get<UInt64>());
             return;
@@ -529,17 +613,20 @@ private:
         case Types::Float64:
             f(field.template get<Float64>());
             return;
-#if !__clang__
-#pragma GCC diagnostic pop
-#endif
         case Types::String:
             f(field.template get<String>());
+            return;
+        case Types::JSONB:
+            f(field.template get<JsonbField>());
             return;
         case Types::Array:
             f(field.template get<Array>());
             return;
         case Types::Tuple:
             f(field.template get<Tuple>());
+            return;
+        case Types::Map:
+            f(field.template get<Map>());
             return;
         case Types::Decimal32:
             f(field.template get<DecimalField<Decimal32>>());
@@ -550,11 +637,23 @@ private:
         case Types::Decimal128:
             f(field.template get<DecimalField<Decimal128>>());
             return;
-        case Types::AggregateFunctionState:
-            f(field.template get<AggregateFunctionStateData>());
+        case Types::Decimal128I:
+            f(field.template get<DecimalField<Decimal128I>>());
             return;
-        case Types::FixedLengthObject:
-            LOG(FATAL) << "FixedLengthObject not supported";
+        case Types::VariantMap:
+            f(field.template get<VariantMap>());
+            return;
+        case Types::Bitmap:
+            f(field.template get<BitmapValue>());
+            return;
+        case Types::HyperLogLog:
+            f(field.template get<HyperLogLog>());
+            return;
+        case Types::QuantileState:
+            f(field.template get<QuantileState>());
+            return;
+        default:
+            LOG(FATAL) << "type not supported, type=" << Types::to_string(field.which);
             break;
         }
     }
@@ -584,6 +683,16 @@ private:
         create(reinterpret_cast<const char*>(data), size);
     }
 
+    void create_jsonb(const char* data, size_t size) {
+        new (&storage) JsonbField(data, size);
+        which = Types::JSONB;
+    }
+
+    void create_jsonb(const unsigned char* data, size_t size) {
+        new (&storage) JsonbField(reinterpret_cast<const char*>(data), size);
+        which = Types::JSONB;
+    }
+
     ALWAYS_INLINE void destroy() {
         if (which < Types::MIN_NON_POD) return;
 
@@ -591,14 +700,20 @@ private:
         case Types::String:
             destroy<String>();
             break;
+        case Types::JSONB:
+            destroy<JsonbField>();
+            break;
         case Types::Array:
             destroy<Array>();
             break;
         case Types::Tuple:
             destroy<Tuple>();
             break;
-        case Types::AggregateFunctionState:
-            destroy<AggregateFunctionStateData>();
+        case Types::Map:
+            destroy<Map>();
+            break;
+        case Types::VariantMap:
+            destroy<VariantMap>();
             break;
         default:
             break;
@@ -618,56 +733,103 @@ private:
 #undef DBMS_MIN_FIELD_SIZE
 
 template <>
+struct TypeId<Tuple> {
+    static constexpr const TypeIndex value = TypeIndex::Tuple;
+};
+template <>
+struct TypeId<DecimalField<Decimal32>> {
+    static constexpr const TypeIndex value = TypeIndex::Decimal32;
+};
+template <>
+struct TypeId<DecimalField<Decimal64>> {
+    static constexpr const TypeIndex value = TypeIndex::Decimal64;
+};
+template <>
+struct TypeId<DecimalField<Decimal128>> {
+    static constexpr const TypeIndex value = TypeIndex::Decimal128;
+};
+template <>
+struct TypeId<DecimalField<Decimal128I>> {
+    static constexpr const TypeIndex value = TypeIndex::Decimal128I;
+};
+template <>
 struct Field::TypeToEnum<Null> {
-    static const Types::Which value = Types::Null;
+    static constexpr Types::Which value = Types::Null;
 };
 template <>
 struct Field::TypeToEnum<UInt64> {
-    static const Types::Which value = Types::UInt64;
+    static constexpr Types::Which value = Types::UInt64;
 };
 template <>
 struct Field::TypeToEnum<UInt128> {
-    static const Types::Which value = Types::UInt128;
+    static constexpr Types::Which value = Types::UInt128;
 };
 template <>
 struct Field::TypeToEnum<Int64> {
-    static const Types::Which value = Types::Int64;
+    static constexpr Types::Which value = Types::Int64;
 };
 template <>
 struct Field::TypeToEnum<Int128> {
-    static const Types::Which value = Types::Int128;
+    static constexpr Types::Which value = Types::Int128;
 };
 template <>
 struct Field::TypeToEnum<Float64> {
-    static const Types::Which value = Types::Float64;
+    static constexpr Types::Which value = Types::Float64;
 };
 template <>
 struct Field::TypeToEnum<String> {
-    static const Types::Which value = Types::String;
+    static constexpr Types::Which value = Types::String;
+};
+template <>
+struct Field::TypeToEnum<JsonbField> {
+    static const Types::Which value = Types::JSONB;
 };
 template <>
 struct Field::TypeToEnum<Array> {
-    static const Types::Which value = Types::Array;
+    static constexpr Types::Which value = Types::Array;
 };
 template <>
 struct Field::TypeToEnum<Tuple> {
-    static const Types::Which value = Types::Tuple;
+    static constexpr Types::Which value = Types::Tuple;
+};
+template <>
+struct Field::TypeToEnum<Map> {
+    static const Types::Which value = Types::Map;
 };
 template <>
 struct Field::TypeToEnum<DecimalField<Decimal32>> {
-    static const Types::Which value = Types::Decimal32;
+    static constexpr Types::Which value = Types::Decimal32;
 };
 template <>
 struct Field::TypeToEnum<DecimalField<Decimal64>> {
-    static const Types::Which value = Types::Decimal64;
+    static constexpr Types::Which value = Types::Decimal64;
 };
 template <>
 struct Field::TypeToEnum<DecimalField<Decimal128>> {
-    static const Types::Which value = Types::Decimal128;
+    static constexpr Types::Which value = Types::Decimal128;
 };
 template <>
-struct Field::TypeToEnum<AggregateFunctionStateData> {
-    static const Types::Which value = Types::AggregateFunctionState;
+struct Field::TypeToEnum<DecimalField<Decimal128I>> {
+    static constexpr Types::Which value = Types::Decimal128I;
+};
+template <>
+struct Field::TypeToEnum<VariantMap> {
+    static constexpr Types::Which value = Types::VariantMap;
+};
+
+template <>
+struct Field::TypeToEnum<BitmapValue> {
+    static constexpr Types::Which value = Types::Bitmap;
+};
+
+template <>
+struct Field::TypeToEnum<HyperLogLog> {
+    static constexpr Types::Which value = Types::HyperLogLog;
+};
+
+template <>
+struct Field::TypeToEnum<QuantileState> {
+    static constexpr Types::Which value = Types::QuantileState;
 };
 
 template <>
@@ -699,12 +861,20 @@ struct Field::EnumToType<Field::Types::String> {
     using Type = String;
 };
 template <>
+struct Field::EnumToType<Field::Types::JSONB> {
+    using Type = JsonbField;
+};
+template <>
 struct Field::EnumToType<Field::Types::Array> {
     using Type = Array;
 };
 template <>
 struct Field::EnumToType<Field::Types::Tuple> {
     using Type = Tuple;
+};
+template <>
+struct Field::EnumToType<Field::Types::Map> {
+    using Type = Map;
 };
 template <>
 struct Field::EnumToType<Field::Types::Decimal32> {
@@ -719,8 +889,12 @@ struct Field::EnumToType<Field::Types::Decimal128> {
     using Type = DecimalField<Decimal128>;
 };
 template <>
-struct Field::EnumToType<Field::Types::AggregateFunctionState> {
-    using Type = DecimalField<AggregateFunctionStateData>;
+struct Field::EnumToType<Field::Types::Decimal128I> {
+    using Type = DecimalField<Decimal128I>;
+};
+template <>
+struct Field::EnumToType<Field::Types::VariantMap> {
+    using Type = VariantMap;
 };
 
 template <typename T>
@@ -751,9 +925,14 @@ template <>
 struct TypeName<Tuple> {
     static std::string get() { return "Tuple"; }
 };
+
 template <>
-struct TypeName<AggregateFunctionStateData> {
-    static std::string get() { return "AggregateFunctionState"; }
+struct TypeName<VariantMap> {
+    static std::string get() { return "VariantMap"; }
+};
+template <>
+struct TypeName<Map> {
+    static std::string get() { return "Map"; }
 };
 
 /// char may be signed or unsigned, and behave identically to signed char or unsigned char,
@@ -769,7 +948,7 @@ struct NearestFieldTypeImpl<signed char> {
 };
 template <>
 struct NearestFieldTypeImpl<unsigned char> {
-    using Type = UInt64;
+    using Type = Int64;
 };
 
 template <>
@@ -781,11 +960,6 @@ struct NearestFieldTypeImpl<UInt32> {
     using Type = UInt64;
 };
 
-template <>
-struct NearestFieldTypeImpl<UInt128> {
-    using Type = UInt128;
-};
-//template <> struct NearestFieldTypeImpl<UUID> { using Type = UInt128; };
 template <>
 struct NearestFieldTypeImpl<Int16> {
     using Type = Int64;
@@ -801,23 +975,7 @@ template <>
 struct NearestFieldTypeImpl<long> {
     using Type = Int64;
 };
-template <>
-struct NearestFieldTypeImpl<long long> {
-    using Type = Int64;
-};
-template <>
-struct NearestFieldTypeImpl<unsigned long> {
-    using Type = UInt64;
-};
-template <>
-struct NearestFieldTypeImpl<unsigned long long> {
-    using Type = UInt64;
-};
 
-template <>
-struct NearestFieldTypeImpl<Int128> {
-    using Type = Int128;
-};
 template <>
 struct NearestFieldTypeImpl<Decimal32> {
     using Type = DecimalField<Decimal32>;
@@ -829,6 +987,10 @@ struct NearestFieldTypeImpl<Decimal64> {
 template <>
 struct NearestFieldTypeImpl<Decimal128> {
     using Type = DecimalField<Decimal128>;
+};
+template <>
+struct NearestFieldTypeImpl<Decimal128I> {
+    using Type = DecimalField<Decimal128I>;
 };
 template <>
 struct NearestFieldTypeImpl<DecimalField<Decimal32>> {
@@ -843,11 +1005,11 @@ struct NearestFieldTypeImpl<DecimalField<Decimal128>> {
     using Type = DecimalField<Decimal128>;
 };
 template <>
-struct NearestFieldTypeImpl<Float32> {
-    using Type = Float64;
+struct NearestFieldTypeImpl<DecimalField<Decimal128I>> {
+    using Type = DecimalField<Decimal128I>;
 };
 template <>
-struct NearestFieldTypeImpl<Float64> {
+struct NearestFieldTypeImpl<Float32> {
     using Type = Float64;
 };
 template <>
@@ -855,38 +1017,35 @@ struct NearestFieldTypeImpl<const char*> {
     using Type = String;
 };
 template <>
-struct NearestFieldTypeImpl<String> {
-    using Type = String;
-};
-template <>
-struct NearestFieldTypeImpl<Array> {
-    using Type = Array;
-};
-template <>
-struct NearestFieldTypeImpl<Tuple> {
-    using Type = Tuple;
-};
-template <>
 struct NearestFieldTypeImpl<bool> {
     using Type = UInt64;
 };
+
 template <>
-struct NearestFieldTypeImpl<Null> {
-    using Type = Null;
+struct NearestFieldTypeImpl<std::string_view> {
+    using Type = String;
 };
 
 template <>
-struct NearestFieldTypeImpl<AggregateFunctionStateData> {
-    using Type = AggregateFunctionStateData;
+struct Field::TypeToEnum<PackedInt128> {
+    static const Types::Which value = Types::Int128;
+};
+
+template <>
+struct NearestFieldTypeImpl<PackedInt128> {
+    using Type = Int128;
 };
 
 template <typename T>
 decltype(auto) cast_to_nearest_field_type(T&& x) {
     using U = NearestFieldType<std::decay_t<T>>;
-    if constexpr (std::is_same_v<std::decay_t<T>, U>)
+    if constexpr (std::is_same_v<PackedInt128, std::decay_t<T>>) {
+        return U(x.value);
+    } else if constexpr (std::is_same_v<std::decay_t<T>, U>) {
         return std::forward<T>(x);
-    else
+    } else {
         return U(x);
+    }
 }
 
 /// This (rather tricky) code is to avoid ambiguity in expressions like
@@ -897,25 +1056,25 @@ decltype(auto) cast_to_nearest_field_type(T&& x) {
 /// 1. float <--> int needs explicit cast
 /// 2. customized types needs explicit cast
 template <typename T>
-Field::Field(T&& rhs, std::enable_if_t<!std::is_same_v<std::decay_t<T>, Field>, void*>) {
+    requires(!std::is_same_v<std::decay_t<T>, Field>)
+Field::Field(T&& rhs) {
     auto&& val = cast_to_nearest_field_type(std::forward<T>(rhs));
     create_concrete(std::forward<decltype(val)>(val));
 }
 
 template <typename T>
-std::enable_if_t<!std::is_same_v<std::decay_t<T>, Field>, Field&> Field::operator=(T&& rhs) {
+    requires(!std::is_same_v<std::decay_t<T>, Field>)
+Field& Field::operator=(T&& rhs) {
     auto&& val = cast_to_nearest_field_type(std::forward<T>(rhs));
     using U = decltype(val);
     if (which != TypeToEnum<std::decay_t<U>>::value) {
         destroy();
         create_concrete(std::forward<U>(val));
-    } else
+    } else {
         assign_concrete(std::forward<U>(val));
+    }
 
     return *this;
 }
-
-class ReadBuffer;
-class WriteBuffer;
 
 } // namespace doris::vectorized

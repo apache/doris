@@ -38,17 +38,33 @@ public class DropPartitionInfo implements Writable {
     private boolean isTempPartition = false;
     @SerializedName(value = "forceDrop")
     private boolean forceDrop = false;
+    @SerializedName(value = "recycleTime")
+    private long recycleTime = 0;
+    @SerializedName(value = "sql")
+    private String sql;
 
     private DropPartitionInfo() {
     }
 
     public DropPartitionInfo(Long dbId, Long tableId, String partitionName,
-            boolean isTempPartition, boolean forceDrop) {
+            boolean isTempPartition, boolean forceDrop, long recycleTime) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.partitionName = partitionName;
         this.isTempPartition = isTempPartition;
         this.forceDrop = forceDrop;
+        this.recycleTime = recycleTime;
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("DROP PARTITION ");
+        if (isTempPartition) {
+            sb.append("TEMPORARY ");
+        }
+        sb.append("`").append(partitionName).append("`");
+        if (forceDrop) {
+            sb.append(" FORCE");
+        }
+        this.sql = sb.toString();
     }
 
     public Long getDbId() {
@@ -71,6 +87,10 @@ public class DropPartitionInfo implements Writable {
         return forceDrop;
     }
 
+    public Long getRecycleTime() {
+        return  recycleTime;
+    }
+
     @Deprecated
     private void readFields(DataInput in) throws IOException {
         dbId = in.readLong();
@@ -89,6 +109,15 @@ public class DropPartitionInfo implements Writable {
         Text.writeString(out, json);
     }
 
+    public String toJson() {
+        return GsonUtils.GSON.toJson(this);
+    }
+
+    @Override
+    public String toString() {
+        return toJson();
+    }
+
     @Override
     public boolean equals(Object obj) {
         if (this == obj) {
@@ -104,6 +133,7 @@ public class DropPartitionInfo implements Writable {
                 && (tableId.equals(info.tableId))
                 && (partitionName.equals(info.partitionName))
                 && (isTempPartition == info.isTempPartition)
-                && (forceDrop == info.forceDrop);
+                && (forceDrop == info.forceDrop)
+                && (recycleTime == info.recycleTime);
     }
 }

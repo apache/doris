@@ -35,7 +35,7 @@ public class PlanParseChecker extends ParseChecker {
     }
 
     public PlanParseChecker matches(PatternDescriptor<? extends Plan> patternDesc) {
-        assertMatches(() -> GroupMatchingUtils.topDownFindMatching(
+        assertMatches(() -> MatchingUtils.topDownFindMatching(
                 new Memo(parsedSupplier.get()).getRoot(), patternDesc.pattern));
         return this;
     }

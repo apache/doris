@@ -59,8 +59,12 @@ INSERT INTO table_name
 >
 > query: 一个普通查询，查询的结果会写入到目标中
 >
-> hint: 用于指示 `INSERT` 执行行为的一些指示符。`streaming` 和 默认的非 `streaming` 方式均会使用同步方式完成 `INSERT` 语句执行
->    非 `streaming` 方式在执行完成后会返回一个 label 方便用户通过 `SHOW LOAD` 查询导入的状态
+> hint: 用于指示 `INSERT` 执行行为的一些指示符。目前 hint 有三个可选值`/*+ STREAMING */`、`/*+ SHUFFLE */`或`/*+ NOSHUFFLE */`
+> 1. STREAMING：目前无实际作用，只是为了兼容之前的版本，因此保留。（之前的版本加上这个 hint 会返回 label，现在默认都会返回 label）
+> 2. SHUFFLE：当目标表是分区表，开启这个 hint 会进行 repartiiton。
+> 3. NOSHUFFLE：即使目标表是分区表，也不会进行 repartiiton，但会做一些其他操作以保证数据正确落到各个分区中。
+
+对于开启了merge-on-write的Unique表，还可以使用insert语句进行部分列更新的操作。要使用insert语句进行部分列更新，需要将会话变量enable_uniuqe_key_partial_update的值设置为true(该变量默认值为false，即默认无法通过insert语句进行部分列更新)。进行部分列更新时，插入的列必须至少包含所有的Key列，同时指定需要更新的列。如果插入行Key列的值在原表中存在，则将更新具有相同key列值那一行的数据。如果插入行Key列的值在原表中不存在，则将向表中插入一条新的数据，此时insert语句中没有指定的列必须有默认值或可以为null，这些缺失列会首先尝试用默认值填充，如果该列没有默认值，则尝试使用null值填充，如果该列不能为null，则本次插入失败。
 
 注意：
 
@@ -108,9 +112,6 @@ INSERT INTO test PARTITION(p1, p2) WITH LABEL `label1` SELECT * FROM test2;
 INSERT INTO test WITH LABEL `label1` (c1, c2) SELECT * from test2;
 ```
 
-异步的导入其实是，一个同步的导入封装成了异步。填写 streaming 和不填写的**执行效率是一样**的。
-
-由于Doris之前的导入方式都是异步导入方式，为了兼容旧有的使用习惯，不加 streaming 的 `INSERT` 语句依旧会返回一个 label，用户需要通过`SHOW LOAD`命令查看此`label`导入作业的状态。
 
 ### Keywords
 
@@ -126,8 +127,6 @@ INSERT INTO test WITH LABEL `label1` (c1, c2) SELECT * from test2;
 
       如果 insert 对应 select 语句的结果集为空，则返回如下：
 
-      
-
       ```sql
       mysql> insert into tbl1 select * from empty_tbl;
       Query OK, 0 rows affected (0.02 sec)
@@ -140,8 +139,6 @@ INSERT INTO test WITH LABEL `label1` (c1, c2) SELECT * from test2;
       在结果集不为空的情况下。返回结果分为如下几种情况：
 
       1. Insert 执行成功并可见：
-
-         
 
          ```sql
          mysql> insert into tbl1 select * from tbl2;
@@ -165,8 +162,6 @@ INSERT INTO test WITH LABEL `label1` (c1, c2) SELECT * from test2;
 
          同时会返回一个 json 串：
 
-         
-
          ```json
          {'label':'my_label1', 'status':'visible', 'txnId':'4005'}
          {'label':'insert_f0747f0e-7a35-46e2-affa-13a235f4020d', 'status':'committed', 'txnId':'4005'}
@@ -183,8 +178,6 @@ INSERT INTO test WITH LABEL `label1` (c1, c2) SELECT * from test2;
 
          当需要查看被过滤的行时，用户可以通过如下语句
 
-         
-
          ```sql
          show load where label="xxx";
          ```
@@ -194,8 +187,6 @@ INSERT INTO test WITH LABEL `label1` (c1, c2) SELECT * from test2;
          **数据不可见是一个临时状态，这批数据最终是一定可见的**
 
          可以通过如下语句查看这批数据的可见状态：
-
-         
 
          ```sql
          show transaction where id=4005;
@@ -207,16 +198,12 @@ INSERT INTO test WITH LABEL `label1` (c1, c2) SELECT * from test2;
 
       执行失败表示没有任何数据被成功导入，并返回如下：
 
-      
-
       ```sql
       mysql> insert into tbl1 select * from tbl2 where k1 = "a";
       ERROR 1064 (HY000): all partitions have no load data. url: http://10.74.167.16:8042/api/_load_error_log?file=__shard_2/error_log_insert_stmt_ba8bb9e158e4879-ae8de8507c0bf8a2_ba8bb9e158e4879_ae8de8507c0bf8a2
       ```
 
       其中 `ERROR 1064 (HY000): all partitions have no load data` 显示失败原因。后面的 url 可以用于查询错误的数据：
-
-      
 
       ```sql
       show load warnings on "url";
@@ -226,7 +213,8 @@ INSERT INTO test WITH LABEL `label1` (c1, c2) SELECT * from test2;
 
 2. 超时时间
 
-   INSERT 操作的超时时间由 [会话变量](../../../../advanced/variables.md) `query_timeout` 控制。默认为5分钟。超时则作业会被取消。
+   <version since="dev"></version>
+   INSERT 操作的超时时间由 [会话变量](../../../../advanced/variables.md) `insert_timeout` 控制。默认为4小时。超时则作业会被取消。
 
 3. Label 和原子性
 
@@ -242,4 +230,4 @@ INSERT INTO test WITH LABEL `label1` (c1, c2) SELECT * from test2;
 
 5. 性能问题
 
-   不见使用 `VALUES` 方式进行单行的插入。如果必须这样使用，请将多行数据合并到一个 INSERT 语句中进行批量提交。
+   不建议使用 `VALUES` 方式进行单行的插入。如果必须这样使用，请将多行数据合并到一个 INSERT 语句中进行批量提交。

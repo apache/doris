@@ -42,7 +42,9 @@ Config Action 用于获取当前 FE 的配置信息
 
 ## Query parameters
 
-无
+* `conf_item`
+
+    可选参数。返回 FE 的配置信息中的指定项。
 
 ## Request body
 

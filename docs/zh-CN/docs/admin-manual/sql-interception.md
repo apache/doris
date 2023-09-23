@@ -26,7 +26,7 @@ under the License.
 
 # SQL黑名单
 
-该功能仅用于限制查询语句，并且不会限制 explain 语句的执行。
+该功能用于限制执行 sql 语句（DDL / DML 都可限制）。
 支持按用户配置SQL黑名单:
 
 1. 通过正则匹配的方式拒绝指定SQL
@@ -48,13 +48,18 @@ under the License.
 ```sql
 CREATE SQL_BLOCK_RULE test_rule 
 PROPERTIES(
-  "sql"="select * from order_analysis",
+  "sql"="select \\* from order_analysis",
   "global"="false",
   "enable"="true",
   "sqlHash"=""
 )
 ```
+>注意：
+>
+>这里sql 语句最后不要带分号
+
 当我们去执行刚才我们定义在规则里的sql时就会返回异常错误，示例如下：
+
 ```sql
 mysql> select * from order_analysis;
 ERROR 1064 (HY000): errCode = 2, detailMessage = sql match regex sql block rule: order_analysis_rule

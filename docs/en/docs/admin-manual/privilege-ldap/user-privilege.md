@@ -38,7 +38,7 @@ Doris's new privilege management system refers to Mysql's privilege management m
 
 2. Privilege
 
-	The objects of permissions are nodes, databases or tables. Different permissions represent different operating permissions.
+	The objects of permissions are nodes, catalogs, databases or tables. Different permissions represent different operating permissions.
 
 3. Role
 
@@ -50,18 +50,62 @@ Doris's new privilege management system refers to Mysql's privilege management m
 
 	User attributes include, but are not limited to, the maximum number of user connections, import cluster configuration, and so on.
 
+## Permission framework
+
+Doris permission design is based on RBAC (Role-Based Access Control) permission management model. Users are associated with roles, roles and permissions, and users are associated with permissions indirectly through roles.
+
+When a role is deleted, the user automatically loses all permissions of the role.
+
+When a user and a role are disassociated, the user automatically loses all permissions of the role.
+
+When the role's permissions are added or deleted, the user's permissions will also change.
+
+```
+┌────────┐        ┌────────┐         ┌────────┐
+│  user1 ├────┬───►  role1 ├────┬────►  priv1 │
+└────────┘    │   └────────┘    │    └────────┘
+              │                 │
+              │                 │
+              │   ┌────────┐    │
+              │   │  role2 ├────┤
+┌────────┐    │   └────────┘    │    ┌────────┐
+│  user2 ├────┘                 │  ┌─►  priv2 │
+└────────┘                      │  │ └────────┘
+                  ┌────────┐    │  │
+           ┌──────►  role3 ├────┘  │
+           │      └────────┘       │
+           │                       │
+           │                       │
+┌────────┐ │      ┌────────┐       │ ┌────────┐
+│  userN ├─┴──────►  roleN ├───────┴─►  privN │
+└────────┘        └────────┘         └────────┘
+```
+
+As shown in the figure above:
+
+Both user1 and user2 have priv1 permissions through role1.
+
+UserN has priv1 permissions through role3, priv2 and privN permissions through roleN, so userN has priv1, priv2 and privN permissions at the same time.
+
+In order to facilitate user operation, users can be authorized directly. In the underlying implementation, a default role dedicated to the user is created for each user. When authorizing a user, it is actually authorizing the user's default role.
+
+The default role cannot be deleted or assigned to others. When a user is deleted, the default role will also be deleted automatically.
+
 ## Supported operations
 
-1. Create users: CREATE USER
-2. Delete users: DROP USER
-3. Authorization: GRANT
-4. Withdrawal: REVOKE
-5. Create role: CREATE ROLE
-6. Delete Roles: DROP ROLE
-7. View current user privileges: SHOW GRANTS
-8. View all user privilegesSHOW ALL GRANTS;
-9. View the created roles: SHOW ROLES
-10. View user attributes: SHOW PROPERTY
+1. Create users: [CREATE USER](../../sql-manual/sql-reference/Account-Management-Statements/CREATE-USER.md)
+2. Alter users: [ALTER USER](../../sql-manual/sql-reference/Account-Management-Statements/ALTER-USER.md)
+3. Delete users: [DROP USER](../../sql-manual/sql-reference/Account-Management-Statements/DROP-USER.md)
+4. Authorization/Assign roles: [GRANT](../../sql-manual/sql-reference/Account-Management-Statements/GRANT.md)
+5. Withdrawal/REVOKE roles: [REVOKE](../../sql-manual/sql-reference/Account-Management-Statements/REVOKE.md)
+6. Create role: [CREATE ROLE](../../sql-manual/sql-reference/Account-Management-Statements/CREATE-ROLE.md)
+7. Delete roles: [DROP ROLE](../../sql-manual/sql-reference/Account-Management-Statements/DROP-ROLE.md)
+8. View current user privileges: [SHOW GRANTS](../../sql-manual/sql-reference/Show-Statements/SHOW-GRANTS.md)
+9. View all user privileges: [SHOW ALL GRANTS](../../sql-manual/sql-reference/Show-Statements/SHOW-GRANTS.md)
+10. View the created roles: [SHOW ROLES](../../sql-manual/sql-reference/Show-Statements/SHOW-ROLES.md)
+11. Set user properties: [SET PROPERTY](../../sql-manual/sql-reference/Account-Management-Statements/SET-PROPERTY.md)
+12. View user properties: [SHOW PROPERTY](../../sql-manual/sql-reference/Show-Statements/SHOW-PROPERTY.md)
+13. Change password ：[SET PASSWORD](../../sql-manual/sql-reference/Account-Management-Statements/SET-PASSWORD.md)
 
 For detailed help with the above commands, you can use help + command to get help after connecting Doris through the MySQL client. For example `HELP CREATE USER`.
 
@@ -71,7 +115,7 @@ Doris currently supports the following permissions
 
 1. Node_priv
 
-	Nodes change permissions. Including FE, BE, BROKER node addition, deletion, offline operations. Currently, this permission can only be granted to Root users.
+	Nodes change permissions. Including FE, BE, BROKER node addition, deletion, offline operations. User who has Node_priv and Grant_priv permission, can grant Node_priv to other users.
 
     The root user has this permission by default.
 
@@ -105,6 +149,10 @@ Doris currently supports the following permissions
 
 	Delete permissions for databases, tables, and views.
 
+8. Usage_priv
+
+   Use of resources <version since="dev" type="inline" >and workload groups</version>.
+
 ## Permission hierarchy
 
 At the same time, according to the scope of application of permissions, we divide them into four levels:
@@ -114,6 +162,15 @@ At the same time, according to the scope of application of permissions, we divid
 3. DATABASE LEVEL: Database-level permissions. That is, the permissions on `ctl.db.*` granted through the GRANT statement. The privileges granted apply to any table in the specified database.
 4. TABLE LEVEL: Table-level permissions. That is, the permissions on `ctl.db.tbl` granted through the GRANT statement. The privileges granted apply to the specified table in the specified database.
 
+The privileges of the resources are divided into two levels as follows:
+
+1. GLOBAL LEVEL: Global privileges. That is, the privileges granted on `*` by the GRANT statement. The privileges granted apply to the resource.
+2. RESOURCE LEVEL: Resource-level privileges. This is the permission on `resource_name` granted by the GRANT statement. The privilege granted applies to the specified resource.
+
+<version since="dev">
+The workload group has only one level:
+1. WORKLOAD GROUP LEVEL: privileges on `workload_group_name` that can be granted with the GRANT statement. The privileges granted apply to the specified workload group. workload_group_name supports `%` and `_` match characters, `%` can match any string and `_` matches any single character.
+</version>
 
 ## ADMIN /GRANT
 
@@ -192,9 +249,9 @@ ADMIN_PRIV and GRANT_PRIV have the authority of **"grant authority"** at the sam
 
 5. Forget passwords
 
-	If you forget your password and cannot log in to Doris, you can log in to Doris without a password using the following command on the machine where the Doris FE node is located:
+	If you forget your password and cannot log in to Doris, you can add `skip_localhost_auth_check` in fe config and restart FE so that logging to Doris without a password in localhost.
 
-	`mysql-client -h 127.0.0.1 -P query_port -uroot`
+	`skip_localhost_auth_check = true`
 
 	After login, the password can be reset through the SET PASSWORD command.
 
@@ -206,11 +263,15 @@ ADMIN_PRIV and GRANT_PRIV have the authority of **"grant authority"** at the sam
 
 9. `current_user()` and `user()`
 
-    Users can view `current_user` and `user` respectively by `SELECT current_user();` and `SELECT user();`. Where `current_user` indicates which identity the current user is passing through the authentication system, and `user` is the user's current actual `user_identity`.
+	Users can view `current_user` and `user` respectively by `SELECT current_user();` and `SELECT user();`. Where `current_user` indicates which identity the current user is passing through the authentication system, and `user` is the user's current actual `user_identity`.
 
-    For example, suppose the user `user1@'192.%'` is created, and then a user user1 from 192.168.10.1 is logged into the system. At this time, `current_user` is `user1@'192.%'`, and `user` is `user1@'192.168.10.1'`.
+	For example, suppose the user `user1@'192.%'` is created, and then a user user1 from 192.168.10.1 is logged into the system. At this time, `current_user` is `user1@'192.%'`, and `user` is `user1@'192.168.10.1'`.
 
-    All privileges are given to a `current_user`, and the real user has all the privileges of the corresponding `current_user`.
+	All privileges are given to a `current_user`, and the real user has all the privileges of the corresponding `current_user`.
+
+10. Password Validation
+
+	In version 1.2, the verification function of user password strength has been added. This feature is controlled by the global variable `validate_password_policy`. Defaults to `NONE/0`, i.e. password strength is not checked. If set to `STRONG/2`, the password must contain 3 items of "uppercase letters", "lowercase letters", "numbers" and "special characters", and the length must be greater than or equal to 8.
 
 ## Best Practices
 

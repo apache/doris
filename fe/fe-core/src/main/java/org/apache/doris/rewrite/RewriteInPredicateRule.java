@@ -19,6 +19,7 @@ package org.apache.doris.rewrite;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BoolLiteral;
+import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.LiteralExpr;
@@ -26,7 +27,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.Subquery;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter.ClauseType;
 
 import com.google.common.collect.Lists;
@@ -61,7 +62,7 @@ public class RewriteInPredicateRule implements ExprRewriteRule {
         // The newly added InPredicteRewriteRule requires that expr must be analyzed before being rewritten
         if (!inPredicate.isAnalyzed() || inPredicate.contains(Subquery.class) || !inPredicate.isLiteralChildren()
                 || inPredicate.isNotIn() || !(inPredicate.getChild(0).unwrapExpr(false) instanceof SlotRef)
-                || (slotRef = inPredicate.getChild(0).getSrcSlotRef()) == null || slotRef.getColumn() == null) {
+                || (slotRef = inPredicate.getChild(0).tryGetSrcSlotRef()) == null || slotRef.getColumn() == null) {
             return expr;
         }
         Type columnType = slotRef.getColumn().getType();
@@ -69,8 +70,17 @@ public class RewriteInPredicateRule implements ExprRewriteRule {
             return expr;
         }
 
-        Expr newColumnExpr = expr.getChild(0).getType().getPrimitiveType() == columnType.getPrimitiveType()
-                ? expr.getChild(0) : expr.getChild(0).castTo(columnType);
+        Expr newColumnExpr;
+        if (expr.getChild(0).getType().getPrimitiveType() == columnType.getPrimitiveType()) {
+            newColumnExpr = expr.getChild(0);
+        } else {
+            if (inPredicate.getChild(0) instanceof CastExpr && inPredicate.getChild(0).getChild(0).getType()
+                    .equals(columnType)) {
+                newColumnExpr = inPredicate.getChild(0).getChild(0);
+            } else {
+                newColumnExpr = expr.getChild(0).castTo(columnType);
+            }
+        }
         List<Expr> newInList = Lists.newArrayList();
         boolean isCast = false;
         for (int i = 1; i < inPredicate.getChildren().size(); ++i) {
@@ -87,9 +97,11 @@ public class RewriteInPredicateRule implements ExprRewriteRule {
             // cannot be directly converted to LargeIntLiteral, so it is converted to decimal first.
             if (childExpr.getType().getPrimitiveType().isCharFamily() || childExpr.getType().isFloatingPointType()) {
                 try {
-                    childExpr = (LiteralExpr) childExpr.castTo(Config.enable_decimalv3
-                            ? Type.DECIMAL32 : Type.DECIMALV2);
+                    childExpr = (LiteralExpr) childExpr.castTo(Type.DECIMALV2);
                 } catch (AnalysisException e) {
+                    if (ConnectContext.get() != null) {
+                        ConnectContext.get().getState().reset();
+                    }
                     continue;
                 }
             }
@@ -108,6 +120,9 @@ public class RewriteInPredicateRule implements ExprRewriteRule {
                     newInList.add(newExpr);
                 }
             } catch (AnalysisException ignored) {
+                if (ConnectContext.get() != null) {
+                    ConnectContext.get().getState().reset();
+                }
                 // pass
             }
         }

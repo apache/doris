@@ -9,7 +9,8 @@
 #include <utility> // IWYU pragma: keep
 
 #include "gutil/atomicops.h"
-#include "gutil/macros.h"
+// IWYU pragma: no_include <butil/macros.h>
+#include "gutil/macros.h" // IWYU pragma: keep
 #include "gutil/threading/thread_collision_warner.h"
 
 namespace doris {
@@ -78,7 +79,7 @@ private:
 //   };
 //
 // You should always make your destructor private, to avoid any code deleting
-// the object accidently while there are references to it.
+// the object accidentally while there are references to it.
 template <class T>
 class RefCounted : public subtle::RefCountedBase {
 public:
@@ -94,9 +95,6 @@ public:
 
 protected:
     ~RefCounted() {}
-
-private:
-    DISALLOW_COPY_AND_ASSIGN(RefCounted<T>);
 };
 
 // Forward declaration.

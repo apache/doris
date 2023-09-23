@@ -252,46 +252,6 @@ be/src/gutil/utf/*: licensed under the following terms:
 
 --------------------------------------------------------------------------------
 
-be/src/gutil/valgrind.h: licensed under the following terms:
-
-   This file is part of Valgrind, a dynamic binary instrumentation
-   framework.
-
-   Copyright (C) 2000-2008 Julian Seward.  All rights reserved.
-
-   Redistribution and use in source and binary forms, with or without
-   modification, are permitted provided that the following conditions
-   are met:
-
-   1. Redistributions of source code must retain the above copyright
-      notice, this list of conditions and the following disclaimer.
-
-   2. The origin of this software must not be misrepresented; you must
-      not claim that you wrote the original software.  If you use this
-      software in a product, an acknowledgment in the product
-      documentation would be appreciated but is not required.
-
-   3. Altered source versions must be plainly marked as such, and must
-      not be misrepresented as being the original software.
-
-   4. The name of the author may not be used to endorse or promote
-      products derived from this software without specific prior written
-      permission.
-
-   THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS
-   OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-   WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-   ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
-   DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-   DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE
-   GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-   INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
-   WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
-   NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-   SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
---------------------------------------------------------------------------------
-
 be/src/gutil: 3-clause BSD
 
 Except above files in this module, other files of this module are derived from code in
@@ -680,25 +640,19 @@ The Apache Software License, Version 2.0
     * Apache Directory LDAP API Utilities:
         - org.apache.directory.api:api-util:1.0.0-M20 (http://directory.apache.org/api-parent/api-util/)
     * Apache Hadoop Amazon Web Services support:
-        - org.apache.hadoop:hadoop-aws:2.7.3 (no url defined)
-        - org.apache.hadoop:hadoop-aws:2.8.0 (no url defined)
+        - org.apache.hadoop:hadoop-aws:3.3.3 (no url defined)
     * Apache Hadoop Annotations:
-        - org.apache.hadoop:hadoop-annotations:2.6.5 (no url defined)
-        - org.apache.hadoop:hadoop-annotations:2.7.3 (no url defined)
-        - org.apache.hadoop:hadoop-annotations:2.8.0 (no url defined)
+        - org.apache.hadoop:hadoop-annotations:3.3.3 (no url defined)
     * Apache Hadoop Auth:
-        - org.apache.hadoop:hadoop-auth:2.7.3 (no url defined)
-        - org.apache.hadoop:hadoop-auth:2.8.0 (no url defined)
+        - org.apache.hadoop:hadoop-auth:3.3.3 (no url defined)
     * Apache Hadoop Client:
-        - org.apache.hadoop:hadoop-client:2.6.5 (no url defined)
+        - org.apache.hadoop:hadoop-client:3.3.3 (no url defined)
     * Apache Hadoop Common:
-        - org.apache.hadoop:hadoop-common:2.7.3 (no url defined)
-        - org.apache.hadoop:hadoop-common:2.8.0 (no url defined)
+        - org.apache.hadoop:hadoop-common:3.3.3 (no url defined)
     * Apache Hadoop HDFS:
-        - org.apache.hadoop:hadoop-hdfs:2.7.3 (no url defined)
-        - org.apache.hadoop:hadoop-hdfs:2.8.0 (no url defined)
+        - org.apache.hadoop:hadoop-hdfs:3.3.3 (no url defined)
     * Apache Hadoop HDFS Client:
-        - org.apache.hadoop:hadoop-hdfs-client:2.8.0 (no url defined)
+        - org.apache.hadoop:hadoop-hdfs-client:3.3.3 (no url defined)
     * Apache HttpClient:
         - org.apache.httpcomponents:httpclient:4.5.13 (http://hc.apache.org/httpcomponents-client)
     * Apache HttpCore:
@@ -821,8 +775,6 @@ The Apache Software License, Version 2.0
     * Curator Recipes:
         - org.apache.curator:curator-recipes:2.6.0 (http://curator.apache.org/curator-recipes)
         - org.apache.curator:curator-recipes:2.7.1 (http://curator.apache.org/curator-recipes)
-    * Data Mapper for Jackson:
-        - org.codehaus.jackson:jackson-mapper-asl:1.9.13 (http://jackson.codehaus.org)
     * DataNucleus Core:
         - org.datanucleus:datanucleus-core:4.1.17 (http://www.datanucleus.org/#/datanucleus-core)
     * DataNucleus JDO API plugin:
@@ -882,35 +834,37 @@ The Apache Software License, Version 2.0
     * Hibernate Validator Engine:
         - org.hibernate:hibernate-validator:5.1.0.Final (http://validator.hibernate.org/hibernate-validator)
     * HikariCP:
-        - com.zaxxer:HikariCP:4.0.3 (https://github.com/brettwooldridge/HikariCP)
+        - com.zaxxer:HikariCP:3.4.5 (https://github.com/brettwooldridge/HikariCP)
+    * velocity:
+        - org.apache.velocity:velocity-engine-core:2.3 (https://velocity.apache.org/engine/2.3/)        
     * Hive Common:
-        - org.apache.hive:hive-common:2.3.7 (https://hive.apache.org/hive-common)
+        - org.apache.hive:hive-common:3.1.3 (https://hive.apache.org/hive-common)
     * Hive Llap Client:
-        - org.apache.hive:hive-llap-client:2.3.7 (https://hive.apache.org/hive-llap-client)
+        - org.apache.hive:hive-llap-client:3.1.3 (https://hive.apache.org/hive-llap-client)
     * Hive Llap Common:
-        - org.apache.hive:hive-llap-common:2.3.7 (https://hive.apache.org/hive-llap-common)
+        - org.apache.hive:hive-llap-common:3.1.3 (https://hive.apache.org/hive-llap-common)
     * Hive Llap Tez:
-        - org.apache.hive:hive-llap-tez:2.3.7 (https://hive.apache.org/hive-llap-tez)
+        - org.apache.hive:hive-llap-tez:3.1.3 (https://hive.apache.org/hive-llap-tez)
     * Hive Metastore:
-        - org.apache.hive:hive-metastore:2.3.7 (https://hive.apache.org/hive-metastore)
+        - org.apache.hive:hive-metastore:3.1.3 (https://hive.apache.org/hive-metastore)
     * Hive Query Language:
-        - org.apache.hive:hive-exec:2.3.7 (https://hive.apache.org/hive-exec)
+        - org.apache.hive:hive-exec:3.1.3 (https://hive.apache.org/hive-exec)
     * Hive Serde:
-        - org.apache.hive:hive-serde:2.3.7 (https://hive.apache.org/hive-serde)
+        - org.apache.hive:hive-serde:3.1.3 (https://hive.apache.org/hive-serde)
     * Hive Service RPC:
-        - org.apache.hive:hive-service-rpc:2.3.7 (https://hive.apache.org/hive-service-rpc)
+        - org.apache.hive:hive-service-rpc:3.1.3 (https://hive.apache.org/hive-service-rpc)
     * Hive Shims:
-        - org.apache.hive:hive-shims:2.3.7 (https://hive.apache.org/hive-shims)
+        - org.apache.hive:hive-shims:3.1.3 (https://hive.apache.org/hive-shims)
     * Hive Shims 0.23:
-        - org.apache.hive.shims:hive-shims-0.23:2.3.7 (https://hive.apache.org/hive-shims-0.23)
+        - org.apache.hive.shims:hive-shims-0.23:3.1.3 (https://hive.apache.org/hive-shims-0.23)
     * Hive Shims Common:
-        - org.apache.hive.shims:hive-shims-common:2.3.7 (https://hive.apache.org/hive-shims-common)
+        - org.apache.hive.shims:hive-shims-common:3.1.3 (https://hive.apache.org/hive-shims-common)
     * Hive Shims Scheduler:
-        - org.apache.hive.shims:hive-shims-scheduler:2.3.7 (https://hive.apache.org/hive-shims-scheduler)
+        - org.apache.hive.shims:hive-shims-scheduler:3.1.3 (https://hive.apache.org/hive-shims-scheduler)
     * Hive Storage API:
         - org.apache.hive:hive-storage-api:2.4.0 (https://www.apache.org/hive-storage-api/)
     * Hive Vector-Code-Gen Utilities:
-        - org.apache.hive:hive-vector-code-gen:2.3.7 (https://hive.apache.org/hive-vector-code-gen)
+        - org.apache.hive:hive-vector-code-gen:3.1.3 (https://hive.apache.org/hive-vector-code-gen)
     * HttpClient:
         - commons-httpclient:commons-httpclient:3.0.1 (http://jakarta.apache.org/commons/httpclient/)
         - commons-httpclient:commons-httpclient:3.1 (http://jakarta.apache.org/httpcomponents/httpclient-3.x/)
@@ -938,8 +892,6 @@ The Apache Software License, Version 2.0
     * JVM Integration for Metrics:
         - io.dropwizard.metrics:metrics-jvm:3.1.5 (http://metrics.codahale.com/metrics-jvm/)
         - io.dropwizard.metrics:metrics-jvm:4.2.7 (https://metrics.dropwizard.io/metrics-jvm)
-    * Jackson:
-        - org.codehaus.jackson:jackson-core-asl:1.9.13 (http://jackson.codehaus.org)
     * Jackson Integration for Metrics:
         - io.dropwizard.metrics:metrics-json:3.1.5 (http://metrics.codahale.com/metrics-json/)
         - io.dropwizard.metrics:metrics-json:4.2.7 (https://metrics.dropwizard.io/metrics-json)
@@ -950,15 +902,15 @@ The Apache Software License, Version 2.0
     * Jackson datatype: jdk8:
         - com.fasterxml.jackson.datatype:jackson-datatype-jdk8:2.13.1 (https://github.com/FasterXML/jackson-modules-java8/jackson-datatype-jdk8)
     * Jackson module: JAXB Annotations:
-        - com.fasterxml.jackson.module:jackson-module-jaxb-annotations:2.12.1 (https://github.com/FasterXML/jackson-modules-base)
+        - com.fasterxml.jackson.module:jackson-module-jaxb-annotations:2.12.3 (https://github.com/FasterXML/jackson-modules-base)
     * Jackson module: Paranamer:
         - com.fasterxml.jackson.module:jackson-module-paranamer:2.7.9 (https://github.com/FasterXML/jackson-modules-base)
     * Jackson-annotations:
-        - com.fasterxml.jackson.core:jackson-annotations:2.12.1 (http://github.com/FasterXML/jackson)
+        - com.fasterxml.jackson.core:jackson-annotations:2.12.3 (http://github.com/FasterXML/jackson)
     * Jackson-core:
-        - com.fasterxml.jackson.core:jackson-core:2.12.1 (https://github.com/FasterXML/jackson-core)
+        - com.fasterxml.jackson.core:jackson-core:2.12.3 (https://github.com/FasterXML/jackson-core)
     * Jackson-dataformat-YAML:
-        - com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.12.1 (https://github.com/FasterXML/jackson-dataformats-text)
+        - com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.12.3 (https://github.com/FasterXML/jackson-dataformats-text)
     * Jackson-module-parameter-names:
         - com.fasterxml.jackson.module:jackson-module-parameter-names:2.13.1 (https://github.com/FasterXML/jackson-modules-java8/jackson-module-parameter-names)
     * Jakarta Bean Validation API:
@@ -983,6 +935,14 @@ The Apache Software License, Version 2.0
         - org.lz4:lz4-java:1.4.0 (https://github.com/lz4/lz4-java)
     * Metrics Core:
         - io.dropwizard.metrics:metrics-core:4.0.2 (http://metrics.dropwizard.io/metrics-core)
+    * avatica:
+        - org.apache.calcite.avatica:avatica:1.22.0 (https://calcite.apache.org/avatica/)        
+    * calcite-core:
+        - org.apache.calcite:calcite-core:1.32.0 (https://calcite.apache.org/avatica/)        
+    * calcite-core:
+        - org.apache.calcite:calcite-linq4j:1.32.0 (https://calcite.apache.org/avatica/)        
+    * calcite-core:
+        - org.apache.calcite.:calcite-druid:1.32.0 (https://calcite.apache.org/avatica/)        
     * Netty:
         - io.netty:netty:3.9.9.Final (http://netty.io/)
     * Netty Reactive Streams HTTP support:
@@ -990,8 +950,7 @@ The Apache Software License, Version 2.0
     * Netty Reactive Streams Implementation:
         - com.typesafe.netty:netty-reactive-streams:2.0.4 (https://github.com/playframework/netty-reactive-streams/netty-reactive-streams)
     * Netty/All-in-One:
-        - io.netty:netty-all:4.0.23.Final (http://netty.io/netty-all/)
-        - io.netty:netty-all:4.1.42.Final (https://netty.io/netty-all/)
+        - io.netty:netty-all:4.1.65.Final (https://netty.io/netty-all/)
     * Netty/Buffer:
         - io.netty:netty-buffer:4.1.72.Final (https://netty.io/netty-buffer/)
     * Netty/Codec:
@@ -1072,31 +1031,31 @@ The Apache Software License, Version 2.0
     * Spark Project Unsafe:
         - org.apache.spark:spark-unsafe_2.12:2.4.6 (http://spark.apache.org/)
     * Spring AOP:
-        - org.springframework:spring-aop:5.3.14 (https://github.com/spring-projects/spring-framework)
+        - org.springframework:spring-aop:5.3.25 (https://github.com/spring-projects/spring-framework)
     * Spring Beans:
-        - org.springframework:spring-beans:5.3.14 (https://github.com/spring-projects/spring-framework)
+        - org.springframework:spring-beans:5.3.25 (https://github.com/spring-projects/spring-framework)
     * Spring Commons Logging Bridge:
-        - org.springframework:spring-jcl:5.3.14 (https://github.com/spring-projects/spring-framework)
+        - org.springframework:spring-jcl:5.3.25 (https://github.com/spring-projects/spring-framework)
     * Spring Context:
-        - org.springframework:spring-context:5.3.14 (https://github.com/spring-projects/spring-framework)
+        - org.springframework:spring-context:5.3.25 (https://github.com/spring-projects/spring-framework)
     * Spring Core:
-        - org.springframework:spring-core:5.3.14 (https://github.com/spring-projects/spring-framework)
+        - org.springframework:spring-core:5.3.25 (https://github.com/spring-projects/spring-framework)
     * Spring Data Core:
-        - org.springframework.data:spring-data-commons:2.6.0 (https://www.spring.io/spring-data/spring-data-commons)
+        - org.springframework.data:spring-data-commons:2.7.7 (https://www.spring.io/spring-data/spring-data-commons)
     * Spring Data LDAP:
-        - org.springframework.data:spring-data-ldap:2.6.0 (https://github.com/spring-projects/spring-data-ldap)
+        - org.springframework.data:spring-data-ldap:2.7.7 (https://github.com/spring-projects/spring-data-ldap)
     * Spring Expression Language (SpEL):
-        - org.springframework:spring-expression:5.3.14 (https://github.com/spring-projects/spring-framework)
+        - org.springframework:spring-expression:5.3.25 (https://github.com/spring-projects/spring-framework)
     * Spring JDBC:
-        - org.springframework:spring-jdbc:5.3.14 (https://github.com/spring-projects/spring-framework)
+        - org.springframework:spring-jdbc:5.3.25 (https://github.com/spring-projects/spring-framework)
     * Spring Object/Relational Mapping:
-        - org.springframework:spring-orm:5.3.14 (https://github.com/spring-projects/spring-framework)
+        - org.springframework:spring-orm:5.3.25 (https://github.com/spring-projects/spring-framework)
     * Spring Transaction:
-        - org.springframework:spring-tx:5.3.14 (https://github.com/spring-projects/spring-framework)
+        - org.springframework:spring-tx:5.3.25 (https://github.com/spring-projects/spring-framework)
     * Spring Web:
-        - org.springframework:spring-web:5.3.14 (https://github.com/spring-projects/spring-framework)
+        - org.springframework:spring-web:5.3.25 (https://github.com/spring-projects/spring-framework)
     * Spring Web MVC:
-        - org.springframework:spring-webmvc:5.3.14 (https://github.com/spring-projects/spring-framework)
+        - org.springframework:spring-webmvc:5.3.25 (https://github.com/spring-projects/spring-framework)
     * Springloaded:
         - org.springframework:springloaded:1.2.6.RELEASE (https://github.com/spring-projects/spring-loaded)
     * StAX API:
@@ -1188,7 +1147,7 @@ The Apache Software License, Version 2.0
     * io.grpc:grpc-stub:
         - io.grpc:grpc-stub:1.30.0 (https://github.com/grpc/grpc-java)
     * jackson-databind:
-        - com.fasterxml.jackson.core:jackson-databind:2.12.1 (http://github.com/FasterXML/jackson)
+        - com.fasterxml.jackson.core:jackson-databind:2.14.1 (http://github.com/FasterXML/jackson)
     * jackson-module-scala:
         - com.fasterxml.jackson.module:jackson-module-scala_2.12:2.13.1 (http://wiki.fasterxml.com/JacksonModuleScala)
         - com.fasterxml.jackson.module:jackson-module-scala_2.12:2.6.7.1 (http://wiki.fasterxml.com/JacksonModuleScala)
@@ -1243,27 +1202,27 @@ The Apache Software License, Version 2.0
     * spark-dpp:
         - org.apache.doris:spark-dpp:0.15-SNAPSHOT (https://doris.apache.org/spark-dpp/)
     * spring-boot:
-        - org.springframework.boot:spring-boot:2.6.6 (https://spring.io/projects/spring-boot)
+        - org.springframework.boot:spring-boot:2.7.8 (https://spring.io/projects/spring-boot)
     * spring-boot-autoconfigure:
-        - org.springframework.boot:spring-boot-autoconfigure:2.6.6 (https://spring.io/projects/spring-boot)
+        - org.springframework.boot:spring-boot-autoconfigure:2.7.8 (https://spring.io/projects/spring-boot)
     * spring-boot-configuration-processor:
-        - org.springframework.boot:spring-boot-configuration-processor:2.6.6 (https://spring.io/projects/spring-boot)
+        - org.springframework.boot:spring-boot-configuration-processor:2.7.8 (https://spring.io/projects/spring-boot)
     * spring-boot-devtools:
-        - org.springframework.boot:spring-boot-devtools:2.6.6 (https://spring.io/projects/spring-boot)
+        - org.springframework.boot:spring-boot-devtools:2.7.8 (https://spring.io/projects/spring-boot)
     * spring-boot-starter:
-        - org.springframework.boot:spring-boot-starter:2.6.6 (https://spring.io/projects/spring-boot)
+        - org.springframework.boot:spring-boot-starter:2.7.8 (https://spring.io/projects/spring-boot)
     * spring-boot-starter-data-ldap:
-        - org.springframework.boot:spring-boot-starter-data-ldap:2.6.6 (https://spring.io/projects/spring-boot)
+        - org.springframework.boot:spring-boot-starter-data-ldap:2.7.8 (https://spring.io/projects/spring-boot)
     * spring-boot-starter-jetty:
-        - org.springframework.boot:spring-boot-starter-jetty:2.6.6 (https://spring.io/projects/spring-boot)
+        - org.springframework.boot:spring-boot-starter-jetty:2.7.8 (https://spring.io/projects/spring-boot)
     * spring-boot-starter-json:
-        - org.springframework.boot:spring-boot-starter-json:2.6.6 (https://spring.io/projects/spring-boot)
+        - org.springframework.boot:spring-boot-starter-json:2.7.8 (https://spring.io/projects/spring-boot)
     * spring-boot-starter-logging:
-        - org.springframework.boot:spring-boot-starter-logging:2.6.6 (https://spring.io/projects/spring-boot)
+        - org.springframework.boot:spring-boot-starter-logging:2.7.8 (https://spring.io/projects/spring-boot)
     * spring-boot-starter-web:
-        - org.springframework.boot:spring-boot-starter-web:2.6.6 (https://spring.io/projects/spring-boot)
+        - org.springframework.boot:spring-boot-starter-web:2.7.8 (https://spring.io/projects/spring-boot)
     * spring-ldap-core:
-        - org.springframework.ldap:spring-ldap-core:2.3.5.RELEASE (https://www.springframework.org/ldap)
+        - org.springframework.ldap:spring-ldap-core:2.4.1.RELEASE (https://www.springframework.org/ldap)
     * stream-lib:
         - com.clearspring.analytics:stream:2.7.0 (https://github.com/addthis/stream-lib)
     * tomcat-embed-el:
@@ -1282,6 +1241,8 @@ The Apache Software License, Version 2.0
         - org.apache.zookeeper:zookeeper:3.4.6 (no url defined)
     * commons-beanutils:
         - commons-beanutils:commons-beanutils:1.7.0 (no url defined)
+    * commons-text:
+        - corg.apache.commons:commons-text:1.10.0 (no url defined) 
     * oro:
         - oro:oro:2.0.8 (no url defined)
     * je:
@@ -1447,7 +1408,7 @@ The 3-Clause BSD License
     * MinLog -- licenses/LICENSE-minlog.txt
         - com.esotericsoftware:minlog:1.3.0 (https://github.com/EsotericSoftware/minlog)
     * Protocol Buffers [Core] -- licenses/LICENSE-protobuf.txt
-        - com.google.protobuf:protobuf-java:3.14.0 (https://developers.google.com/protocol-buffers/protobuf-java/)
+        - com.google.protobuf:protobuf-java:3.15.0 (https://developers.google.com/protocol-buffers/protobuf-java/)
     * Py4J -- licenses/LICENSE-py4j.txt
         - net.sf.py4j:py4j:0.10.7 (http://nexus.sonatype.org/oss-repository-hosting.html/py4j)
     * asm -- licenses/LICENSE-asm.txt
@@ -1516,22 +1477,24 @@ The Apache Software License, Version 2.0
     * brpc: 1.1.0
     * rocksdb: 5.14.2
     * arrow: 7.0.0
-    * S2: 0.9.0
+    * S2: 0.10.0
     * croaringbitmap: 0.4.0
-    * parallel-hashmap: 1.33
+    * Abseil LTS 20220623
+    * parallel-hashmap: 1.3.8
     * orc: 1.7.2
     * cctz: 2.3
     * aws sdk: 1.9.211
-    * benchmark: 1.5.6
-    * simdjson: 1.0.2
-    * libhdfs3: 2.3.0
-    * libhdfs3: commit 5fccd36
+    * benchmark: 1.8.0
+    * simdjson: 3.0.1
+    * libhdfs3: 2.3.8
     * opentelemetry-proto: 0.18.0
     * opentelemetry-cpp: 1.4.0
+    * clucene: 2.4.6
 
 The MIT License -- licenses/LICENSE-MIT.txt
-    * datatables: 1.10.25
-    * bootstrap: 1.17.1
+    * datatables: 1.12.1
+    * bootstrap: 3.3.7
+    * jquery: 3.6.0
     * libxml2: 2.9.10
     * krb5: 1.19
     * nlohmann/json 3.10.1
@@ -1541,7 +1504,7 @@ LGPL -- licenes/LICENSE-LGPL.txt
 
 Other dependencies:
     * libevent: 2.1.12 -- license/LICENSE-libevent.txt
-    * openssl: 1.1.1m -- license/LICENSE-openssl.txt
+    * openssl: 1.1.1s -- license/LICENSE-openssl.txt
     * gflag: 2.2.2 -- license/LICENSE-gflag.txt
     * glog: 0.4.0 -- license/LICENSE-glog.txt
     * gtest: 1.11.0 -- license/LICENSE-gtest.txt
@@ -1560,13 +1523,15 @@ Other dependencies:
     * leveldb: 1.23 -- license/LICENSE-leveldb.txt
     * cyrus-sasl: 2.1.27 -- license/LICENSE-cyrus-sasl.txt
     * librdkafka: 1.8.2 -- license/LICENSE-librdkafka.txt
-    * zstd: 1.5.0 -- license/LICENSE-zstd.txt
+    * zstd: 1.5.2 -- license/LICENSE-zstd.txt
     * brotli: 1.0.9 -- license/LICENSE-brotli.txt
-    * bitshuffle: 0.3.5 -- license/LICENSE-bigshuffle.txt
+    * bitshuffle: 0.5.1 -- license/LICENSE-bigshuffle.txt
     * fmt: 7.1.3 -- license/LICENSE-fmt.txt
-    * jemalloc: 5.2.1 -- license/LICENSE-jemolloc.txt
+    * jemalloc: 5.3.0 -- license/LICENSE-jemolloc.txt
     * lzma@master -- license/LICENSE-lzma.txt
     * libdivide: 5.0 -- license/LICENSE-libdivide.txt
     * pdqsort: 0.0.0+git20180419 -- license/LICENSE-pdqsort.txt
     * breakpad@38ee0be -- license/LICENSE-breakpod.txt
     * xsimd: xmid@e9234cd6  -- license/LICENSE-xsimd.txt
+    * xxhash: 0.8.1  -- license/LICENSE-xxhash.txt
+    * concurrentqueue: 1.0.3  -- license/LICENSE-concurrentqueue.txt

@@ -17,21 +17,16 @@
 
 package org.apache.doris.catalog.external;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.HMSExternalCatalog;
+import org.apache.doris.datasource.InitDatabaseLog;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -39,11 +34,6 @@ import java.util.stream.Collectors;
  */
 public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
     private static final Logger LOG = LogManager.getLogger(HMSExternalDatabase.class);
-
-    // Cache of table name to table id.
-    private final Map<String, Long> tableNameToId = Maps.newConcurrentMap();
-    private final Map<Long, HMSExternalTable> idToTbl = Maps.newHashMap();
-    private boolean initialized = false;
 
     /**
      * Create HMS external database.
@@ -53,31 +43,16 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
      * @param name database name.
      */
     public HMSExternalDatabase(ExternalCatalog extCatalog, long id, String name) {
-        super(extCatalog, id, name);
+        super(extCatalog, id, name, InitDatabaseLog.Type.HMS);
     }
 
-    private synchronized void makeSureInitialized() {
-        if (!initialized) {
-            init();
-            initialized = true;
-        }
-    }
-
-    private void init() {
-        List<String> tableNames = extCatalog.listTableNames(null, name);
-        if (tableNames != null) {
-            for (String tableName : tableNames) {
-                long tblId = Env.getCurrentEnv().getNextId();
-                tableNameToId.put(tableName, tblId);
-                idToTbl.put(tblId, new HMSExternalTable(tblId, tableName, name, (HMSExternalCatalog) extCatalog));
-            }
-        }
+    public HMSExternalDatabase(ExternalCatalog extCatalog, long id, String name, InitDatabaseLog.Type type) {
+        super(extCatalog, id, name, type);
     }
 
     @Override
-    public List<HMSExternalTable> getTables() {
-        makeSureInitialized();
-        return Lists.newArrayList(idToTbl.values());
+    protected HMSExternalTable getExternalTable(String tableName, long tblId, ExternalCatalog catalog) {
+        return new HMSExternalTable(tblId, tableName, name, (HMSExternalCatalog) extCatalog);
     }
 
     @Override
@@ -86,24 +61,38 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
         return getTables().stream().sorted(Comparator.comparing(TableIf::getName)).collect(Collectors.toList());
     }
 
-    @Override
-    public Set<String> getTableNamesWithLock() {
-        makeSureInitialized();
-        return Sets.newHashSet(tableNameToId.keySet());
+    public void addTableForTest(HMSExternalTable tbl) {
+        idToTbl.put(tbl.getId(), tbl);
+        tableNameToId.put(tbl.getName(), tbl.getId());
     }
 
     @Override
-    public HMSExternalTable getTableNullable(String tableName) {
+    public void dropTable(String tableName) {
+        LOG.debug("drop table [{}]", tableName);
         makeSureInitialized();
-        if (!tableNameToId.containsKey(tableName)) {
-            return null;
+        Long tableId = tableNameToId.remove(tableName);
+        if (tableId == null) {
+            LOG.warn("drop table [{}] failed", tableName);
         }
-        return idToTbl.get(tableNameToId.get(tableName));
+        idToTbl.remove(tableId);
     }
 
     @Override
-    public HMSExternalTable getTableNullable(long tableId) {
-        makeSureInitialized();
-        return idToTbl.get(tableId);
+    public void dropTableForReplay(String tableName) {
+        LOG.debug("replayDropTableFromEvent [{}]", tableName);
+        Long tableId = tableNameToId.remove(tableName);
+        if (tableId == null) {
+            LOG.warn("replayDropTableFromEvent [{}] failed", tableName);
+            return;
+        }
+        idToTbl.remove(tableId);
+    }
+
+    @Override
+    public void createTableForReplay(String tableName, long tableId) {
+        LOG.debug("create table [{}]", tableName);
+        tableNameToId.put(tableName, tableId);
+        HMSExternalTable table = getExternalTable(tableName, tableId, extCatalog);
+        idToTbl.put(tableId, table);
     }
 }

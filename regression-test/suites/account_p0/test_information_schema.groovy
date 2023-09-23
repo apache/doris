@@ -45,9 +45,9 @@ suite("test_information_schema") {
                 `qqq` varchar(130) NULL COMMENT "",
                 `rrr` bigint(20) NULL COMMENT "",
                 `sss` bigint(20) NULL COMMENT "",
-                `ttt` decimal(24, 2) NULL COMMENT "",
-                `uuu` decimal(24, 2) NULL COMMENT "",
-                `vvv` decimal(24, 2) NULL COMMENT "",
+                `ttt` decimal(20, 2) NULL COMMENT "",
+                `uuu` decimal(20, 2) NULL COMMENT "",
+                `vvv` decimal(20, 2) NULL COMMENT "",
                 `www` varchar(50) NULL COMMENT "",
                 `xxx` varchar(190) NULL COMMENT "",
                 `yyy` varchar(190) NULL COMMENT "",
@@ -74,14 +74,6 @@ suite("test_information_schema") {
         }
     }
 
-    sql "set enable_vectorized_engine=true"
-    for (int i = 1; i <= 5; i++) {
-        def dbName = dbPrefix + i.toString()
-        sql "USE information_schema"
-        qt_sql "SELECT COUNT(*) FROM `columns` WHERE TABLE_SCHEMA='${dbName}'"
-    }
-
-    sql "set enable_vectorized_engine=false"
     for (int i = 1; i <= 5; i++) {
         def dbName = dbPrefix + i.toString()
         sql "USE information_schema"

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "sequence 列",
+    "title": "Sequence 列",
     "language": "zh-CN"
 }
 ---
@@ -26,9 +26,11 @@ under the License.
 
 # sequence 列
 
-sequence列目前只支持Uniq模型，Uniq模型主要针对需要唯一主键的场景，可以保证主键唯一性约束，但是由于使用REPLACE聚合方式，在同一批次中导入的数据，替换顺序不做保证，详细介绍可以参考[数据模型](../../data-table/data-model.md)。替换顺序无法保证则无法确定最终导入到表中的具体数据，存在了不确定性。
+Uniq模型主要针对需要唯一主键的场景，可以保证主键唯一性约束，但是由于使用REPLACE聚合方式，在同一批次中导入的数据，替换顺序不做保证，详细介绍可以参考[数据模型](../../data-table/data-model.md)。替换顺序无法保证则无法确定最终导入到表中的具体数据，存在了不确定性。
 
 为了解决这个问题，Doris支持了sequence列，通过用户在导入时指定sequence列，相同key列下，REPLACE聚合类型的列将按照sequence列的值进行替换，较大值可以替换较小值，反之则无法替换。该方法将顺序的确定交给了用户，由用户控制替换顺序。
+
+sequence列目前只支持Uniq模型。
 
 ## 适用场景
 
@@ -60,11 +62,24 @@ Base Compaction 时读取过程原理相同。
 
 ## 使用语法
 
-Sequence列建表时在property中增加了一个属性，用来标识`__DORIS_SEQUENCE_COL__`的类型 导入的语法设计方面主要是增加一个从sequence列的到其他column的映射，各个导种方式设置的将在下面分别介绍
+Sequence列建表时有两种方式，一种是建表时设置`sequence_col`属性，一种是建表时设置`sequence_type`属性。
 
-**建表**
+### 设置`sequence_col`（推荐）
 
-创建Uniq表时，可以指定sequence列类型
+创建Uniq表时，指定sequence列到表中其他column的映射
+
+```text
+PROPERTIES (
+    "function_column.sequence_col" = 'column_name',
+);
+```
+sequence_col用来指定sequence列到表中某一列的映射，该列可以为整型和时间类型（DATE、DATETIME），创建后不能更改该列的类型。
+
+导入方式和没有sequence列时一样，使用相对比较简单，推荐使用。
+
+### 设置`sequence_type`
+
+创建Uniq表时，指定sequence列类型
 
 ```text
 PROPERTIES (
@@ -73,6 +88,8 @@ PROPERTIES (
 ```
 
 sequence_type用来指定sequence列的类型，可以为整型和时间类型（DATE、DATETIME）。
+
+导入时需要指定sequence列到其他列的映射。
 
 **Stream Load**
 
@@ -135,7 +152,7 @@ PROPERTIES
 
 ## 启用sequence column支持
 
-在新建表时如果设置了`function_column.sequence_type` ，则新建表将支持sequence column。 对于一个不支持sequence column的表，如果想要使用该功能，可以使用如下语句： `ALTER TABLE example_db.my_table ENABLE FEATURE "SEQUENCE_LOAD" WITH PROPERTIES ("function_column.sequence_type" = "Date")` 来启用。 如果不确定一个表是否支持sequence column，可以通过设置一个session variable来显示隐藏列 `SET show_hidden_columns=true` ，之后使用`desc tablename`，如果输出中有`__DORIS_SEQUENCE_COL__` 列则支持，如果没有则不支持。
+在新建表时如果设置了`function_column.sequence_col`或者`function_column.sequence_type` ，则新建表将支持sequence column。 对于一个不支持sequence column的表，如果想要使用该功能，可以使用如下语句： `ALTER TABLE example_db.my_table ENABLE FEATURE "SEQUENCE_LOAD" WITH PROPERTIES ("function_column.sequence_type" = "Date")` 来启用。 如果不确定一个表是否支持sequence column，可以通过设置一个session variable来显示隐藏列 `SET show_hidden_columns=true` ，之后使用`desc tablename`，如果输出中有`__DORIS_SEQUENCE_COL__` 列则支持，如果没有则不支持。
 
 ## 使用示例
 
@@ -143,7 +160,7 @@ PROPERTIES
 
 1. 创建支持sequence column的表
 
-创建unique模型的test_table数据表，并指定指定sequence列的类型为Date
+创建unique模型的test_table数据表，并指定sequence列映射到表中的modify_date列。
 
 ```sql
 CREATE TABLE test.test_table
@@ -157,7 +174,7 @@ CREATE TABLE test.test_table
 UNIQUE KEY(user_id, date, group_id)
 DISTRIBUTED BY HASH (user_id) BUCKETS 32
 PROPERTIES(
-    "function_column.sequence_type" = 'Date',
+    "function_column.sequence_col" = 'modify_date',
     "replication_num" = "1",
     "in_memory" = "false"
 );
@@ -191,10 +208,10 @@ MySQL > desc test_table;
 1       2020-02-22      1       2020-02-24      b
 ```
 
-此处以stream load为例， 将sequence column映射为modify_date列
+此处以stream load为例
 
 ```bash
-curl --location-trusted -u root: -H "function_column.sequence_col: modify_date" -T testData http://host:port/api/test/test_table/_stream_load
+curl --location-trusted -u root: -T testData http://host:port/api/test/test_table/_stream_load
 ```
 
 结果为
@@ -251,5 +268,9 @@ MySQL [test]> select * from test_table;
 
 此时就可以替换表中原有的数据。综上，在导入过程中，会比较所有批次的sequence列值，选择值最大的记录导入Doris表中。
 
-
-
+## 注意
+1. 为防止误用，在StreamLoad/BrokerLoad等导入任务中，必须要指定sequence列，不然会收到以下报错信息：
+```
+Table test_tbl has sequence column, need to specify the sequence column
+```
+2. 自版本2.0起，Doris对Unique Key表的Merge-on-Write实现支持了部分列更新能力，在部分列更新导入中，用户每次可以只更新一部分列，因此并不是必须要包含sequence列。若用户提交的导入任务中，包含sequence列，则行为无影响；若用户提交的导入任务不包含sequence列，Doris会使用匹配的历史数据中的sequence列作为更新后该行的sequence列的值。如果历史数据中不存在相同key的列，则会自动用null或默认值填充。 

@@ -63,12 +63,9 @@ public class SchemaTable extends Table {
                                     .column("INDEX_LENGTH", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("DATA_FREE", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("AUTO_INCREMENT", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("CREATE_TIME", ScalarType.createType(PrimitiveType
-                                            .getDatePrimitiveType(PrimitiveType.DATETIME)))
-                                    .column("UPDATE_TIME", ScalarType.createType(PrimitiveType
-                                            .getDatePrimitiveType(PrimitiveType.DATETIME)))
-                                    .column("CHECK_TIME", ScalarType.createType(PrimitiveType
-                                            .getDatePrimitiveType(PrimitiveType.DATETIME)))
+                                    .column("CREATE_TIME", ScalarType.createType(PrimitiveType.DATETIME))
+                                    .column("UPDATE_TIME", ScalarType.createType(PrimitiveType.DATETIME))
+                                    .column("CHECK_TIME", ScalarType.createType(PrimitiveType.DATETIME))
                                     .column("TABLE_COLLATION", ScalarType.createVarchar(MY_CS_NAME_SIZE))
                                     .column("CHECKSUM", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("CREATE_OPTIONS", ScalarType.createVarchar(255))
@@ -137,10 +134,8 @@ public class SchemaTable extends Table {
                             .column("SQL_DATA_ACCESS", ScalarType.createVarchar(NAME_CHAR_LEN))
                             .column("SQL_PATH", ScalarType.createVarchar(NAME_CHAR_LEN))
                             .column("SECURITY_TYPE", ScalarType.createVarchar(NAME_CHAR_LEN))
-                            .column("CREATED", ScalarType.createType(PrimitiveType
-                                    .getDatePrimitiveType(PrimitiveType.DATETIME)))
-                            .column("LAST_ALTERED", ScalarType.createType(PrimitiveType
-                                    .getDatePrimitiveType(PrimitiveType.DATETIME)))
+                            .column("CREATED", ScalarType.createType(PrimitiveType.DATETIME))
+                            .column("LAST_ALTERED", ScalarType.createType(PrimitiveType.DATETIME))
                             .column("SQL_MODE", ScalarType.createVarchar(NAME_CHAR_LEN))
                             .column("ROUTINE_COMMENT", ScalarType.createVarchar(NAME_CHAR_LEN))
                             .column("DEFINER", ScalarType.createVarchar(NAME_CHAR_LEN))
@@ -156,11 +151,16 @@ public class SchemaTable extends Table {
             .put("session_variables",
                     new SchemaTable(SystemIdGenerator.getNextId(), "session_variables", TableType.SCHEMA,
                             builder().column("VARIABLE_NAME", ScalarType.createVarchar(64))
-                                    .column("VARIABLE_VALUE", ScalarType.createVarchar(1024)).build()))
+                                    .column("VARIABLE_VALUE", ScalarType.createVarchar(1024))
+                                    .column("DEFAULT_VALUE", ScalarType.createVarchar(1024))
+                                    .column("CHANGED", ScalarType.createVarchar(4))
+                                    .build()))
             .put("global_variables",
                     new SchemaTable(SystemIdGenerator.getNextId(), "global_variables", TableType.SCHEMA,
                             builder().column("VARIABLE_NAME", ScalarType.createVarchar(64))
-                                    .column("VARIABLE_VALUE", ScalarType.createVarchar(1024)).build()))
+                                    .column("VARIABLE_VALUE", ScalarType.createVarchar(1024))
+                                    .column("DEFAULT_VALUE", ScalarType.createVarchar(1024))
+                                    .column("CHANGED", ScalarType.createVarchar(4)).build()))
             .put("columns",
                     new SchemaTable(SystemIdGenerator.getNextId(), "columns", TableType.SCHEMA,
                             builder().column("TABLE_CATALOG", ScalarType.createVarchar(512))
@@ -247,6 +247,13 @@ public class SchemaTable extends Table {
                             .column("COMMENT", ScalarType.createVarchar(16))
                             // for datagrip
                             .column("INDEX_COMMENT", ScalarType.createVarchar(1024)).build()))
+            // Compatible with mysql for mysqldump
+            .put("column_statistics",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "column_statistics", TableType.SCHEMA,
+                            builder().column("SCHEMA_NAME", ScalarType.createVarchar(64))
+                                    .column("TABLE_NAME", ScalarType.createVarchar(64))
+                                    .column("COLUMN_NAME", ScalarType.createVarchar(64))
+                                    .column("HISTOGRAM", ScalarType.createJsonbType()).build()))
             .put("files",
                     new SchemaTable(SystemIdGenerator.getNextId(), "files", TableType.SCHEMA,
                             builder().column("FILE_ID", ScalarType.createType(PrimitiveType.BIGINT))
@@ -308,10 +315,8 @@ public class SchemaTable extends Table {
                                     .column("INDEX_LENGTH", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("DATA_FREE", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("CREATE_TIME", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("UPDATE_TIME", ScalarType.createType(PrimitiveType
-                                            .getDatePrimitiveType(PrimitiveType.DATETIME)))
-                                    .column("CHECK_TIME", ScalarType.createType(PrimitiveType
-                                            .getDatePrimitiveType(PrimitiveType.DATETIME)))
+                                    .column("UPDATE_TIME", ScalarType.createType(PrimitiveType.DATETIME))
+                                    .column("CHECK_TIME", ScalarType.createType(PrimitiveType.DATETIME))
                                     .column("CHECKSUM", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("PARTITION_COMMENT", ScalarType.createStringType())
                                     .column("NODEGROUP", ScalarType.createVarchar(256))
@@ -345,8 +350,7 @@ public class SchemaTable extends Table {
                                     .column("ACTION_REFERENCE_NEW_TABLE", ScalarType.createVarchar(64))
                                     .column("ACTION_REFERENCE_OLD_ROW", ScalarType.createVarchar(3))
                                     .column("ACTION_REFERENCE_NEW_ROW", ScalarType.createVarchar(3))
-                                    .column("CREATED", ScalarType.createType(PrimitiveType
-                                            .getDatePrimitiveType(PrimitiveType.DATETIME)))
+                                    .column("CREATED", ScalarType.createType(PrimitiveType.DATETIME))
                                     .column("SQL_MODE", ScalarType.createVarchar(8192))
                                     .column("DEFINER", ScalarType.createVarchar(77))
                                     .column("CHARACTER_SET_CLIENT", ScalarType.createVarchar(32))
@@ -363,44 +367,84 @@ public class SchemaTable extends Table {
                                     .column("EVENT_BODY", ScalarType.createVarchar(8))
                                     .column("EVENT_DEFINITION", ScalarType.createVarchar(512))
                                     .column("EVENT_TYPE", ScalarType.createVarchar(9))
-                                    .column("EXECUTE_AT", ScalarType.createType(PrimitiveType
-                                            .getDatePrimitiveType(PrimitiveType.DATETIME)))
+                                    .column("EXECUTE_AT", ScalarType.createType(PrimitiveType.DATETIME))
                                     .column("INTERVAL_VALUE", ScalarType.createVarchar(256))
                                     .column("INTERVAL_FIELD", ScalarType.createVarchar(18))
                                     .column("SQL_MODE", ScalarType.createVarchar(8192))
-                                    .column("STARTS", ScalarType.createType(PrimitiveType
-                                            .getDatePrimitiveType(PrimitiveType.DATETIME)))
-                                    .column("ENDS", ScalarType.createType(PrimitiveType
-                                            .getDatePrimitiveType(PrimitiveType.DATETIME)))
+                                    .column("STARTS", ScalarType.createType(PrimitiveType.DATETIME))
+                                    .column("ENDS", ScalarType.createType(PrimitiveType.DATETIME))
                                     .column("STATUS", ScalarType.createVarchar(18))
                                     .column("ON_COMPLETION", ScalarType.createVarchar(12))
-                                    .column("CREATED", ScalarType.createType(PrimitiveType
-                                            .getDatePrimitiveType(PrimitiveType.DATETIME)))
-                                    .column("LAST_ALTERED", ScalarType.createType(PrimitiveType
-                                            .getDatePrimitiveType(PrimitiveType.DATETIME)))
-                                    .column("LAST_EXECUTED", ScalarType.createType(PrimitiveType
-                                            .getDatePrimitiveType(PrimitiveType.DATETIME)))
+                                    .column("CREATED", ScalarType.createType(PrimitiveType.DATETIME))
+                                    .column("LAST_ALTERED", ScalarType.createType(PrimitiveType.DATETIME))
+                                    .column("LAST_EXECUTED", ScalarType.createType(PrimitiveType.DATETIME))
                                     .column("EVENT_COMMENT", ScalarType.createVarchar(64))
                                     .column("ORIGINATOR", ScalarType.createType(PrimitiveType.INT))
                                     .column("CHARACTER_SET_CLIENT", ScalarType.createVarchar(32))
                                     .column("COLLATION_CONNECTION", ScalarType.createVarchar(32))
                                     .column("DATABASE_COLLATION", ScalarType.createVarchar(32)).build()))
             .put("rowsets", new SchemaTable(SystemIdGenerator.getNextId(), "rowsets", TableType.SCHEMA,
-                            builder().column("BACKEND_ID", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("ROWSET_ID", ScalarType.createVarchar(64))
-                                    .column("TABLET_ID", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("ROWSET_NUM_ROWS", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("TXN_ID", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("NUM_SEGMENTS", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("START_VERSION", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("END_VERSION", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("INDEX_DISK_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("DATA_DISK_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("CREATION_TIME", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("OLDEST_WRITE_TIMESTAMP", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("NEWEST_WRITE_TIMESTAMP", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .build())).build();
-    private SchemaTableType schemaTableType;
+                    builder().column("BACKEND_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("ROWSET_ID", ScalarType.createVarchar(64))
+                            .column("TABLET_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("ROWSET_NUM_ROWS", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("TXN_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("NUM_SEGMENTS", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("START_VERSION", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("END_VERSION", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("INDEX_DISK_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("DATA_DISK_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("CREATION_TIME", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("NEWEST_WRITE_TIMESTAMP", ScalarType.createType(PrimitiveType.BIGINT))
+                            .build()))
+            .put("parameters", new SchemaTable(SystemIdGenerator.getNextId(), "parameters", TableType.SCHEMA,
+                    builder().column("SPECIFIC_CATALOG", ScalarType.createVarchar(64))
+                            .column("SPECIFIC_SCHEMA", ScalarType.createVarchar(64))
+                            .column("SPECIFIC_NAME", ScalarType.createVarchar(64))
+                            .column("ORDINAL_POSITION", ScalarType.createVarchar(77))
+                            .column("PARAMETER_MODE", ScalarType.createVarchar(77))
+                            .column("PARAMETER_NAME", ScalarType.createVarchar(77))
+                            .column("DATA_TYPE", ScalarType.createVarchar(64))
+                            .column("CHARACTER_OCTET_LENGTH", ScalarType.createVarchar(64))
+                            .column("NUMERIC_PRECISION", ScalarType.createVarchar(512))
+                            .column("NUMERIC_SCALE", ScalarType.createVarchar(64))
+                            .column("DATETIME_PRECISION", ScalarType.createVarchar(64))
+                            .column("CHARACTER_SET_NAME", ScalarType.createVarchar(256))
+                            .column("COLLATION_NAME", ScalarType.createVarchar(64))
+                            .column("DTD_IDENTIFIER", ScalarType.createVarchar(64))
+                            .column("ROUTINE_TYPE", ScalarType.createVarchar(64))
+                            .column("DATA_TYPEDTD_IDENDS", ScalarType.createVarchar(64))
+                            .build()))
+            .put("metadata_name_ids", new SchemaTable(SystemIdGenerator.getNextId(),
+                        "metadata_name_ids", TableType.SCHEMA,
+                    builder().column("CATALOG_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("CATALOG_NAME", ScalarType.createVarchar(FN_REFLEN))
+                            .column("DATABASE_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("DATABASE_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
+                            .column("TABLE_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("TABLE_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
+                            .build()))
+            .put("profiling", new SchemaTable(SystemIdGenerator.getNextId(), "profiling", TableType.SCHEMA,
+                    builder().column("QUERY_ID", ScalarType.createType(PrimitiveType.INT))
+                            .column("SEQ", ScalarType.createType(PrimitiveType.INT))
+                            .column("STATE", ScalarType.createVarchar(30))
+                            .column("DURATION", ScalarType.createType(PrimitiveType.DOUBLE))
+                            .column("CPU_USER", ScalarType.createType(PrimitiveType.DOUBLE))
+                            .column("CPU_SYSTEM", ScalarType.createType(PrimitiveType.DOUBLE))
+                            .column("CONTEXT_VOLUNTARY", ScalarType.createType(PrimitiveType.INT))
+                            .column("CONTEXT_INVOLUNTARY", ScalarType.createType(PrimitiveType.INT))
+                            .column("BLOCK_OPS_IN", ScalarType.createType(PrimitiveType.INT))
+                            .column("BLOCK_OPS_OUT", ScalarType.createType(PrimitiveType.INT))
+                            .column("MESSAGES_SENT", ScalarType.createType(PrimitiveType.INT))
+                            .column("MESSAGES_RECEIVED", ScalarType.createType(PrimitiveType.INT))
+                            .column("PAGE_FAULTS_MAJOR", ScalarType.createType(PrimitiveType.INT))
+                            .column("PAGE_FAULTS_MINOR", ScalarType.createType(PrimitiveType.INT))
+                            .column("SWAPS", ScalarType.createType(PrimitiveType.INT))
+                            .column("SOURCE_FUNCTION", ScalarType.createVarchar(30))
+                            .column("SOURCE_FILE", ScalarType.createVarchar(20))
+                            .column("SOURCE_LINE", ScalarType.createType(PrimitiveType.INT))
+                            .build()))
+            .build();
 
     protected SchemaTable(long id, String name, TableType type, List<Column> baseSchema) {
         super(id, name, type, baseSchema);
@@ -430,7 +474,7 @@ public class SchemaTable extends Table {
         }
 
         public Builder column(String name, ScalarType type) {
-            columns.add(new Column(name, type.getPrimitiveType(), true));
+            columns.add(new Column(name, type, true));
             return this;
         }
 

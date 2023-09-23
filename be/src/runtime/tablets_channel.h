@@ -17,24 +17,47 @@
 
 #pragma once
 
+#include <gen_cpp/internal_service.pb.h>
+#include <glog/logging.h>
+
+#include <atomic>
 #include <cstdint>
+#include <functional>
+#include <map>
+#include <mutex>
+#include <ostream>
+#include <shared_mutex>
+#include <string>
 #include <unordered_map>
-#include <utility>
+#include <unordered_set>
 #include <vector>
 
-#include "gen_cpp/PaloInternalService_types.h"
-#include "gen_cpp/Types_types.h"
-#include "gen_cpp/internal_service.pb.h"
-#include "gutil/strings/substitute.h"
-#include "runtime/descriptors.h"
-#include "runtime/memory/mem_tracker.h"
-#include "runtime/thread_context.h"
+#include "common/status.h"
 #include "util/bitmap.h"
-#include "util/priority_thread_pool.hpp"
+#include "util/runtime_profile.h"
+#include "util/spinlock.h"
 #include "util/uid_util.h"
-#include "vec/core/block.h"
+
+namespace google {
+namespace protobuf {
+template <typename Element>
+class RepeatedField;
+template <typename Key, typename T>
+class Map;
+template <typename T>
+class RepeatedPtrField;
+} // namespace protobuf
+} // namespace google
 
 namespace doris {
+class PSlaveTabletNodes;
+class PSuccessSlaveTabletNodeIds;
+class PTabletError;
+class PTabletInfo;
+class PTabletWriterOpenRequest;
+class PUniqueId;
+class TupleDescriptor;
+class OpenPartitionRequest;
 
 struct TabletsChannelKey {
     UniqueId id;
@@ -54,23 +77,25 @@ struct TabletsChannelKey {
 std::ostream& operator<<(std::ostream& os, const TabletsChannelKey& key);
 
 class DeltaWriter;
+class MemTableWriter;
 class OlapTableSchemaParam;
 class LoadChannel;
 
 // Write channel for a particular (load, index).
 class TabletsChannel {
 public:
-    TabletsChannel(const TabletsChannelKey& key,
-                   const std::shared_ptr<MemTrackerLimiter>& parent_tracker, bool is_high_priority,
-                   bool is_vec);
+    TabletsChannel(const TabletsChannelKey& key, const UniqueId& load_id, bool is_high_priority,
+                   RuntimeProfile* profile);
 
     ~TabletsChannel();
 
     Status open(const PTabletWriterOpenRequest& request);
+    // open + open writers
+    Status incremental_open(const PTabletWriterOpenRequest& params);
 
     // no-op when this channel has been closed or cancelled
-    template <typename TabletWriterAddRequest, typename TabletWriterAddResult>
-    Status add_batch(const TabletWriterAddRequest& request, TabletWriterAddResult* response);
+    Status add_batch(const PTabletWriterAddBlockRequest& request,
+                     PTabletWriterAddBlockResult* response);
 
     // Mark sender with 'sender_id' as closed.
     // If all senders are closed, close this channel, set '*finished' to true, update 'tablet_vec'
@@ -88,13 +113,7 @@ public:
     // no-op when this channel has been closed or cancelled
     Status cancel();
 
-    // upper application may call this to try to reduce the mem usage of this channel.
-    // eg. flush the largest memtable immediately.
-    // return Status::OK if mem is reduced.
-    // no-op when this channel has been closed or cancelled
-    Status reduce_mem_usage(int64_t mem_limit);
-
-    int64_t mem_consumption() const { return _mem_tracker->consumption(); }
+    void refresh_profile();
 
 private:
     template <typename Request>
@@ -103,17 +122,25 @@ private:
     // open all writer
     Status _open_all_writers(const PTabletWriterOpenRequest& request);
 
-    // deal with DeltaWriter close_wait(), add tablet to list for return.
-    void _close_wait(DeltaWriter* writer,
+    // deal with DeltaWriter commit_txn(), add tablet to list for return.
+    void _commit_txn(DeltaWriter* writer,
                      google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
-                     google::protobuf::RepeatedPtrField<PTabletError>* tablet_error,
+                     google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors,
                      PSlaveTabletNodes slave_tablet_nodes, const bool write_single_replica);
+
+    void _add_broken_tablet(int64_t tablet_id);
+    void _add_error_tablet(google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors,
+                           int64_t tablet_id, Status error) const;
+    bool _is_broken_tablet(int64_t tablet_id);
+    void _init_profile(RuntimeProfile* profile);
 
     // id of this load channel
     TabletsChannelKey _key;
 
     // make execute sequence
     std::mutex _lock;
+
+    SpinLock _tablet_writers_lock;
 
     enum State {
         kInitialized,
@@ -122,14 +149,14 @@ private:
     };
     State _state;
 
+    UniqueId _load_id;
+
     // initialized in open function
     int64_t _txn_id = -1;
     int64_t _index_id = -1;
     OlapTableSchemaParam* _schema = nullptr;
 
     TupleDescriptor* _tuple_desc = nullptr;
-    // row_desc used to construct
-    RowDescriptor* _row_desc = nullptr;
 
     // next sequence we expect
     int _num_remaining_senders = 0;
@@ -146,17 +173,29 @@ private:
     // So that following batch will not handle this tablet anymore.
     std::unordered_set<int64_t> _broken_tablets;
 
+    std::shared_mutex _broken_tablets_lock;
+
+    std::unordered_set<int64_t> _reducing_tablets;
+
     std::unordered_set<int64_t> _partition_ids;
 
     static std::atomic<uint64_t> _s_tablet_writer_count;
 
-    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
-
     bool _is_high_priority = false;
 
-    bool _is_vec = false;
-
     bool _write_single_replica = false;
+
+    RuntimeProfile* _profile;
+    RuntimeProfile::Counter* _add_batch_number_counter = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _memory_usage_counter = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _write_memory_usage_counter = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _flush_memory_usage_counter = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _max_tablet_memory_usage_counter = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _max_tablet_write_memory_usage_counter = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _max_tablet_flush_memory_usage_counter = nullptr;
+    RuntimeProfile::Counter* _slave_replica_timer = nullptr;
+    RuntimeProfile::Counter* _add_batch_timer = nullptr;
+    RuntimeProfile::Counter* _write_block_timer = nullptr;
 };
 
 template <typename Request>

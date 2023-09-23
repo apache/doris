@@ -20,45 +20,40 @@
 
 #include "vec/aggregate_functions/aggregate_function_uniq.h"
 
-#include "common/logging.h"
+#include <string>
+
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
-#include "vec/aggregate_functions/factory_helpers.h"
 #include "vec/aggregate_functions/helpers.h"
-#include "vec/data_types/data_type_string.h"
+#include "vec/common/hash_table/hash.h" // IWYU pragma: keep
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
 
-template <template <typename> class Data, typename DataForVariadic>
+template <template <typename> class Data>
 AggregateFunctionPtr create_aggregate_function_uniq(const std::string& name,
                                                     const DataTypes& argument_types,
-                                                    const Array& params,
                                                     const bool result_is_nullable) {
-    assert_no_parameters(name, params);
-
-    if (argument_types.empty()) {
-        LOG(WARNING) << "Incorrect number of arguments for aggregate function " << name;
-        return nullptr;
-    }
-
     if (argument_types.size() == 1) {
-        const IDataType& argument_type = *argument_types[0];
-
-        AggregateFunctionPtr res(create_with_numeric_type<AggregateFunctionUniq, Data>(
-                *argument_types[0], argument_types));
-
+        const IDataType& argument_type = *remove_nullable(argument_types[0]);
         WhichDataType which(argument_type);
-        // TODO: DateType
+
+        AggregateFunctionPtr res(creator_with_numeric_type::create<AggregateFunctionUniq, Data>(
+                argument_types, result_is_nullable));
         if (res) {
             return res;
         } else if (which.is_decimal32()) {
-            return std::make_shared<AggregateFunctionUniq<Decimal32, Data<Int32>>>(argument_types);
+            return creator_without_type::create<AggregateFunctionUniq<Decimal32, Data<Int32>>>(
+                    argument_types, result_is_nullable);
         } else if (which.is_decimal64()) {
-            return std::make_shared<AggregateFunctionUniq<Decimal64, Data<Int64>>>(argument_types);
-        } else if (which.is_decimal128()) {
-            return std::make_shared<AggregateFunctionUniq<Decimal128, Data<Int128>>>(
-                    argument_types);
+            return creator_without_type::create<AggregateFunctionUniq<Decimal64, Data<Int64>>>(
+                    argument_types, result_is_nullable);
+        } else if (which.is_decimal128() || which.is_decimal128i()) {
+            return creator_without_type::create<AggregateFunctionUniq<Decimal128, Data<Int128>>>(
+                    argument_types, result_is_nullable);
         } else if (which.is_string_or_fixed_string()) {
-            return std::make_shared<AggregateFunctionUniq<String, Data<String>>>(argument_types);
+            return creator_without_type::create<AggregateFunctionUniq<String, Data<String>>>(
+                    argument_types, result_is_nullable);
         }
     }
 
@@ -67,9 +62,8 @@ AggregateFunctionPtr create_aggregate_function_uniq(const std::string& name,
 
 void register_aggregate_function_uniq(AggregateFunctionSimpleFactory& factory) {
     AggregateFunctionCreator creator =
-            create_aggregate_function_uniq<AggregateFunctionUniqExactData,
-                                           AggregateFunctionUniqExactData<String>>;
-    factory.register_function("multi_distinct_count", creator);
+            create_aggregate_function_uniq<AggregateFunctionUniqExactData>;
+    factory.register_function_both("multi_distinct_count", creator);
 }
 
 } // namespace doris::vectorized

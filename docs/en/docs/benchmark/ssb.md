@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Star-Schema-Benchmark",
+    "title": "Star Schema Benchmark",
     "language": "en"
 }
 ---
@@ -26,93 +26,118 @@ under the License.
 
 # Star Schema Benchmark
 
-[Star Schema Benchmark(SSB)](https://www.cs.umb.edu/~poneil/StarSchemaB.PDF) is a performance test set in a lightweight data warehouse scenario. Based on [TPC-H](http://www.tpc.org/tpch/), SSB provides a simplified version of the star schema dataset, which is mainly used to test the performance of multi-table association queries under the star schema. . In addition, the industry usually flattens SSB as a wide table model (hereinafter referred to as: SSB flat) to test the performance of the query engine, refer to [Clickhouse](https://clickhouse.com/docs/zh/getting-started /example-datasets/star-schema).
+[Star Schema Benchmark(SSB)](https://www.cs.umb.edu/~poneil/StarSchemaB.PDF) is a lightweight performance test set in the data warehouse scenario. SSB provides a simplified star schema data based on [TPC-H](http://www.tpc.org/tpch/), which is mainly used to test the performance of multi-table JOIN query under star schema.  In addition, the industry usually flattens SSB into a wide table model (Referred as: SSB flat) to test the performance of the query engine, refer to [Clickhouse](https://clickhouse.com/docs/zh/getting-started).
 
-This document mainly introduces the performance of Doris on the SSB test set.
+This document mainly introduces the performance of Doris on the SSB 100G test set.
 
-> Note 1: The standard test set including SSB is usually far from the actual business scenario, and some tests will perform parameter tuning for the test set. Therefore, the test results of the standard test set can only reflect the performance of the database in specific scenarios. Users are advised to conduct further testing with actual business data.
+> Note 1: The standard test set including SSB usually has a large gap with the actual business scenario, and some tests will perform parameter tuning for the test set. Therefore, the test results of the standard test set can only reflect the performance of the database in a specific scenario. It is recommended that users use actual business data for further testing.
 >
-> Note 2: The operations involved in this document are all performed in the Ubuntu Server 20.04 environment, and CentOS 7 can also be tested.
+> Note 2: The operations involved in this document are all performed in the Ubuntu Server 20.04 environment, and CentOS 7 as well.
+>
+> Note 3: Doris starting from version 1.2.2, the page cache is turned off by default to reduce memory usage, which has a certain impact on performance. For performance testing, enable the page cache by adding disable_storage_page_cache=false to be.conf.
 
-On 13 queries on the SSB standard test dataset, we tested the upcoming Doris 1.1 version and Doris 0.15.0 RC04 version peer-to-peer, and the overall performance improved by 2-3 times.
+With 13 queries on the SSB standard test data set, we conducted a comparison test based on Apache Doris 1.2.0-rc01, Apache Doris 1.1.3 and Apache Doris 0.15.0 RC04 versions.
 
-![ssb_v11_v015_compare](/images/ssb_v11_v015_compare.png)
+On the SSB flat wide table, the overall performance of Apache Doris 1.2.0-rc01 has been improved by nearly 4 times compared with Apache Doris 1.1.3, and nearly 10 times compared with Apache Doris 0.15.0 RC04.
+
+On the SQL test with standard SSB, the overall performance of Apache Doris 1.2.0-rc01 has been improved by nearly 2 times compared with Apache Doris 1.1.3, and nearly 31 times compared with Apache Doris 0.15.0 RC04.
 
 ## 1. Hardware Environment
 
-| Number of machines | 4 Tencent Cloud hosts (1 FE, 3 BE)        |
+| Number of machines | 4 Tencent Cloud Hosts (1 FE, 3 BEs)        |
 | ------------------ | ----------------------------------------- |
-| CPU                | AMD EPYC™ Milan (2.55GHz/3.5GHz) 16 cores |
+| CPU                | AMD EPYC™ Milan (2.55GHz/3.5GHz) 16 Cores |
 | Memory             | 64G                                       |
 | Network Bandwidth  | 7Gbps                                     |
-| Disk               | High-performance cloud disk               |
+| Disk               | High-performance Cloud Disk               |
 
 ## 2. Software Environment
 
-- Doris deploys 3BE 1FE;
+- Doris deployed 3BEs and 1FE;
 - Kernel version: Linux version 5.4.0-96-generic (buildd@lgw01-amd64-051)
-- OS version: Ubuntu Server 20.04 LTS 64 bit
-- Doris software version: Apache Doris 1.1, Apache Doris 0.15.0 RC04
+- OS version: Ubuntu Server 20.04 LTS 64-bit
+- Doris software versions: Apache Doris 1.2.0-rc01, Apache Doris 1.1.3 and Apache Doris 0.15.0 RC04
 - JDK: openjdk version "11.0.14" 2022-01-18
 
-## 3. Test data volume
+## 3. Test Data Volume
 
-| SSB table name | number of rows | remarks                          |
+| SSB Table Name | Rows | Annotation                          |
 | :------------- | :------------- | :------------------------------- |
-| lineorder      | 600,037,902    | Commodity order list             |
-| customer       | 3,000,000      | Customer Information Sheet       |
-| part           | 1,400,000      | Parts Information Sheet          |
-| supplier       | 200,000        | Supplier Information Sheet       |
-| date           | 2,556          | Date table                       |
-| lineorder_flat | 600,037,902    | Wide table after data flattening |
+| lineorder      | 600,037,902    | Commodity Order Details             |
+| customer       | 3,000,000      | Customer Information        |
+| part           | 1,400,000      | Parts Information          |
+| supplier       | 200,000        | Supplier Information        |
+| dates          | 2,556          | Date                        |
+| lineorder_flat | 600,037,902    | Wide Table after Data Flattening |
 
 ## 4. Test Results
 
-Here we use the upcoming Doris-1.1 version and Doris-0.15.0 RC04 version for comparative testing. The test results are as follows:
+We use Apache Doris 1.2.0-rc01, Apache Doris 1.1.3 and Apache Doris 0.15.0 RC04 for comparative testing. The test results are as follows:
 
-| Query | Doris-1.1(ms) | Doris-0.15.0 RC04(ms) |
-| ----- | ------------- | --------------------- |
-| Q1.1  | 90            | 250                   |
-| Q1.2  | 10            | 30                    |
-| Q1.3  | 70            | 120                   |
-| Q2.1  | 360           | 900                   |
-| Q2.2  | 340           | 1020                  |
-| Q2.3  | 260           | 770                   |
-| Q3.1  | 550           | 1710                  |
-| Q3.2  | 290           | 670                   |
-| Q3.3  | 240           | 550                   |
-| Q3.4  | 20            | 30                    |
-| Q4.1  | 480           | 1250                  |
-| Q4.2  | 240           | 400                   |
-| Q4.3  | 200           | 330                   |
+| Query | Apache Doris 1.2.0-rc01(ms) | Apache Doris 1.1.3 (ms) |  Doris 0.15.0 RC04 (ms) |
+| ----- | ------------- | ------------- | ----------------- |
+| Q1.1  | 20            | 90            | 250               |
+| Q1.2  | 10            | 10            | 30                |
+| Q1.3  | 30            | 70            | 120               |
+| Q2.1  | 90            | 360           | 900               |
+| Q2.2  | 90            | 340           | 1,020              |
+| Q2.3  | 60            | 260           | 770               |
+| Q3.1  | 160           | 550           | 1,710              |
+| Q3.2  | 80            | 290           | 670               |
+| Q3.3  | 90            | 240           | 550               |
+| Q3.4  | 20            | 20            | 30                |
+| Q4.1  | 140           | 480           | 1,250              |
+| Q4.2  | 50            | 240           | 400               |
+| Q4.3  | 30            | 200           | 330               |
+| Total  | 880           | 3,150          | 8,030              |
 
-**Interpretation of results**
+![ssb_v11_v015_compare](/images/ssb_flat.png)
+
+**Interpretation of Results**
 
 - The data set corresponding to the test results is scale 100, about 600 million.
-- The test environment is configured to be commonly used by users, including 4 cloud servers, 16-core 64G SSD, and 1 FE and 3 BE deployment.
-- Use common user configuration tests to reduce user selection and evaluation costs, but will not consume so many hardware resources during the entire test process.
-- The test results are averaged over 3 executions. And the data has been fully compacted (if the data is tested immediately after the data is imported, the query delay may be higher than the test result, and the speed of compaction is being continuously optimized and will be significantly reduced in the future).
+- The test environment is configured as the user's common configuration, with 4 cloud servers, 16-core 64G SSD, and 1 FE, 3 BEs deployment.
+- We select the user's common configuration test to reduce the cost of user selection and evaluation, but the entire test process will not consume so many hardware resources.
 
-## 5. Environment Preparation
 
-Please refer to the [official document](../install/install-deploy.md) to install and deploy Doris to obtain a normal running Doris cluster (at least 1 FE 1 BE, 1 FE 3 BE is recommended).
+## 5. Standard SSB Test Results
 
-You can modify BE's configuration file be.conf to add the following configuration items and restart BE for better query performance.
+Here we use Apache Doris 1.2.0-rc01, Apache Doris 1.1.3 and Apache Doris 0.15.0 RC04 for comparative testing. In the test, we use Query Time（ms） as the main performance indicator. The test results are as follows:
 
-```shell
-enable_storage_vectorization=true
-enable_low_cardinality_optimize=true
-```
+| Query | Apache Doris 1.2.0-rc01 (ms) | Apache Doris 1.1.3 (ms) | Doris 0.15.0 RC04 (ms) |
+| ----- | ------- | ---------------------- | ------------------------------- |
+| Q1.1  | 40      | 18                    | 350                           |
+| Q1.2  | 30      | 100                    | 80                             |
+| Q1.3  | 20      | 70                     | 80                            |
+| Q2.1  | 350     | 940                  | 20,680                     |
+| Q2.2  | 320     | 750                  | 18,250                    |
+| Q2.3  | 300     | 720                  | 14,760                   |
+| Q3.1  | 650     | 2,150                 | 22,190                   |
+| Q3.2  | 260     | 510                 | 8,360                          |
+| Q3.3  | 220     | 450                  | 6,200                        |
+| Q3.4  | 60      | 70                   | 160                            |
+| Q4.1  | 840     | 1,480                   | 24,320                      |
+| Q4.2  | 460     | 560                 | 6,310                          |
+| Q4.3  | 610     | 660                  | 10,170                    |
+| Total  | 4,160    | 8,478                | 131,910 |
 
-The scripts covered in the following documents are stored in `tools/ssb-tools/` in the Doris codebase.
+![ssb_12_11_015](/images/ssb.png)
 
-> **Notice:**
->
-> The above two parameters do not have these two parameters in version 0.15.0 RC04 and do not need to be configured.
+**Interpretation of Results**
 
-## 6. Data Preparation
+- The data set corresponding to the test results is scale 100, about 600 million.
+- The test environment is configured as the user's common configuration, with 4 cloud servers, 16-core 64G SSD, and 1 FE 3 BEs deployment.
+- We select the user's common configuration test to reduce the cost of user selection and evaluation, but the entire test process will not consume so many hardware resources.
 
-### 6.1 Download and install the SSB data generation tool.
+## 6. Environment Preparation
+
+Please first refer to the [official documentation](. /install/install-deploy.md) to install and deploy Apache Doris first to obtain a Doris cluster which is working well(including at least 1 FE 1 BE, 1 FE 3 BEs is recommended).
+
+The scripts mentioned in the following documents are stored in the Apache Doris codebase: [ssb-tools](https://github.com/apache/doris/tree/master/tools/ssb-tools)
+
+## 7. Data Preparation
+
+### 7.1 Download and Install the SSB Data Generation Tool.
 
 Execute the following script to download and compile the [ssb-dbgen](https://github.com/electrum/ssb-dbgen.git) tool.
 
@@ -120,9 +145,9 @@ Execute the following script to download and compile the [ssb-dbgen](https://git
 sh build-ssb-dbgen.sh
 ````
 
-After successful installation, the `dbgen` binary will be generated in the `ssb-dbgen/` directory.
+After successful installation, the `dbgen` binary will be generated under the `ssb-dbgen/` directory.
 
-### 6.2 Generate SSB test set
+### 7.2 Generate SSB Test Set
 
 Execute the following script to generate the SSB dataset:
 
@@ -130,31 +155,31 @@ Execute the following script to generate the SSB dataset:
 sh gen-ssb-data.sh -s 100 -c 100
 ````
 
-> Note 1: See script help with `sh gen-ssb-data.sh -h`.
+> Note 1: Check the script help via `sh gen-ssb-data.sh -h`.
 >
-> Note 2: The data will be generated in the `ssb-data/` directory with the suffix `.tbl`. The total file size is about 60GB. The generation time may vary from a few minutes to an hour.
+> Note 2: The data will be generated under the `ssb-data/` directory with the suffix `.tbl`. The total file size is about 60GB and may need a few minutes to an hour to generate.
 >
-> Note 3: `-s 100` indicates that the test set size factor is 100, `-c 100` indicates that 100 concurrent threads generate data for the lineorder table. The `-c` parameter also determines the number of files in the final lineorder table. The larger the parameter, the larger the number of files and the smaller each file.
+> Note 3: `-s 100` indicates that the test set size factor is 100, `-c 100` indicates that 100 concurrent threads generate the data of the lineorder table. The `-c` parameter also determines the number of files in the final lineorder table. The larger the parameter, the larger the number of files and the smaller each file.
 
 With the `-s 100` parameter, the resulting dataset size is:
 
 | Table     | Rows             | Size | File Number |
 | --------- | ---------------- | ---- | ----------- |
-| lineorder | 6亿（600037902） | 60GB | 100         |
-| customer  | 300万（3000000） | 277M | 1           |
-| part      | 140万（1400000） | 116M | 1           |
-| supplier  | 20万（200000）   | 17M  | 1           |
-| dates     | 2556            | 228K | 1           |
+| lineorder | 600,037,902 | 60GB | 100         |
+| customer  | 3,000,000 | 277M | 1           |
+| part      | 1,400,000 | 116M | 1           |
+| supplier  | 200,000   | 17M  | 1           |
+| dates     | 2,556     | 228K | 1           |
 
-### 6.3 Create table
+### 7.3 Create Table
 
-#### 6.3.1 Prepare the `doris-cluster.conf` file.
+#### 7.3.1 Prepare the `doris-cluster.conf` File.
 
-Before calling the import script, you need to write the FE's ip port and other information in the `doris-cluster.conf` file.
+Before import the script, you need to write the FE’s ip port and other information in the `doris-cluster.conf` file.
 
-File location and `load-ssb-dimension-data.sh` level.
+The file is located under `${DORIS_HOME}/tools/ssb-tools/conf/`.
 
-The contents of the file include FE's ip, HTTP port, user name, password and the DB name of the data to be imported:
+The content of the file includes FE's ip, HTTP port, user name, password and the DB name of the data to be imported:
 
 ```shell
 export FE_HOST="xxx"
@@ -163,25 +188,17 @@ export FE_QUERY_PORT="9030"
 export USER="root"
 export PASSWORD='xxx'
 export DB="ssb"
-````
+```
 
-#### 6.3.2 Execute the following script to generate and create the SSB table:
+#### 7.3.2 Execute the Following Script to Generate and Create the SSB Table:
 
 ```shell
 sh create-ssb-tables.sh
 ````
 
-Or copy the build table in [create-ssb-tables.sql](https://github.com/apache/incubator-doris/tree/master/tools/ssb-tools/ddl/create-ssb-tables.sql) Statement, executed in Doris.
+Or copy the table creation statements in [create-ssb-tables.sql](https://github.com/apache/incubator-doris/tree/master/tools/ssb-tools/ddl/create-ssb-tables.sql) and [ create-ssb-flat-table.sql](https://github.com/apache/incubator-doris/tree/master/tools/ssb-tools/ddl/create-ssb-flat-table.sql) and then execute them in the MySQL client.
 
-#### 6.3.3 Execute the following script to generate and create an SSB flat table:
-
-```shell
-sh create-ssb-flat-table.sh
-````
-
-Or copy [create-ssb-flat-table.sql](https://github.com/apache/incubator-doris/tree/master/tools/ssb-tools/ddl/create-ssb-flat-table.sql) The table building statement in , executed in Doris.
-
-Below is the `lineorder_flat` table building statement. The "lineorder_flat" table is created in the above `create-ssb-flat-table.sh` script with the default number of buckets (48 buckets). You can delete this table and adjust the number of buckets according to your cluster size node configuration, so as to obtain a better test effect.
+The following is the `lineorder_flat` table build statement. Create the `lineorder_flat` table in the above `create-ssb-flat-table.sh` script, and perform the default number of buckets (48 buckets). You can delete this table and adjust the number of buckets according to your cluster scale node configuration, so as to obtain a better test result.
 
 ```sql
 CREATE TABLE `lineorder_flat` (
@@ -243,39 +260,24 @@ PROPERTIES (
 );
 ```
 
-> ### 6.4 Import data
->
-> #### 6.4.1 Import 4 dimension table data
->
-> Because the data volume of these four dimension tables (customer, part, supplier and date) is small, the import is relatively simple. We use the following command to import the data of these four tables first:
->
-> ```shell
-> sh load-ssb-dimension-data.sh
-> ````
->
-> #### 6.4.2 Import fact table lineorder.
->
-> Import the lineorder table data by the following command
->
-> ````shell
-> sh load-ssb-fact-data.sh -c 5
-> ````
->
-> `-c 5` means start 5 concurrent thread imports (default is 3). In the case of a single BE node, the import time of the lineorder data generated by `sh gen-ssb-data.sh -s 100 -c 100` using `sh load-ssb-fact-data.sh -c 3` is about 10min. Memory overhead is about 5-6GB. If you start more threads, you can speed up the import, but it will add additional memory overhead.
->
-> > Note: For faster import speed, you can restart BE after adding `flush_thread_num_per_store=5` in be.conf. This configuration indicates the number of disk write threads for each data directory, and the default is 2. Larger data can improve write data throughput, but may increase IO Util. (Reference value: 1 mechanical disk, when the default is 2, the IO Util during the import process is about 12%, and when it is set to 5, the IO Util is about 26%. If it is an SSD disk, it is almost 0) .
->
-> #### 6.4.3 Import flat table
->
-> Import the lineorder_flat table data with the following command:
->
-> ```shell
-> sh load-ssb-flat-data.sh
-> ````
->
-> > Note: Flat table data is imported in the way of 'INSERT INTO ... SELECT ... '.
+### 7.4 Import data
 
-### 6.5 Check imported data
+We use the following command to complete all data import of SSB test set and SSB FLAT wide table data synthesis and then import into the table.
+
+```shell
+ sh bin/load-ssb-data.sh -c 10
+```
+
+`-c 5` means start 10 concurrent threads to import (5 by default). In the case of a single BE node, the lineorder data generated by `sh gen-ssb-data.sh -s 100 -c 100` will also generate the data of the ssb-flat table in the end. If more threads are enabled, the import speed can be accelerated. But it will cost extra memory.
+
+> Notes.
+>
+> 1. To get faster import speed, you can add `flush_thread_num_per_store=10` in be.conf and then restart BE. This configuration indicates the number of disk writing threads for each data directory, 6 by default. Larger data can improve write data throughput, but may increase IO Util. (Reference value: 1 mechanical disk, with 2 by default, the IO Util during the import process is about 12%. When it is set to 5, the IO Util is about 26%. If it is an SSD disk, it is almost 0%) .
+>
+> 2. The flat table data is imported by 'INSERT INTO ... SELECT ... '.
+
+### 7.5 Checking Imported data
+
 
 ```sql
 select count(*) from part;
@@ -286,20 +288,23 @@ select count(*) from lineorder;
 select count(*) from lineorder_flat;
 ```
 
-The amount of data should be the same as the number of rows that generate the data.
+The amount of data should be consistent with the number of rows of generated data.
 
 | Table          | Rows             | Origin Size | Compacted Size(1 Replica) |
 | -------------- | ---------------- | ----------- | ------------------------- |
-| lineorder_flat | 6亿（600037902） |             | 59.709 GB                 |
-| lineorder      | 6亿（600037902） | 60 GB       | 14.514 GB                 |
-| customer       | 300万（3000000） | 277 MB      | 138.247 MB                |
-| part           | 140万（1400000） | 116 MB      | 12.759 MB                 |
-| supplier       | 20万（200000）   | 17 MB       | 9.143 MB                  |
-| dates          | 2556            | 228 KB      | 34.276 KB                 |
+| lineorder_flat | 600,037,902 |             | 59.709 GB                 |
+| lineorder      | 600,037,902 | 60 GB       | 14.514 GB                 |
+| customer       | 3,000,000 | 277 MB      | 138.247 MB                |
+| part           | 1,400,000 | 116 MB      | 12.759 MB                 |
+| supplier       | 200,000   | 17 MB       | 9.143 MB                  |
+| dates          | 2,556     | 228 KB      | 34.276 KB                 |
 
-### 6.6 Query test
+### 7.6 Query Test
 
-#### 6.6.1 Test SQL
+- SSB-Flat Query Statement: [ ssb-flat-queries](https://github.com/apache/doris/tree/master/tools/ssb-tools/ssb-flat-queries)
+- Standard SSB Queries: [ ssb-queries](https://github.com/apache/doris/tree/master/tools/ssb-tools/ssb-queries)
+
+#### 7.6.1 SSB FLAT Test for SQL
 
 ```sql
 --Q1.1
@@ -386,3 +391,219 @@ GROUP BY YEAR, S_CITY, P_BRAND
 ORDER BY YEAR ASC, S_CITY ASC, P_BRAND ASC;
 ```
 
+#### 7.6.2 SSB Standard Test for SQL
+
+```SQL
+--Q1.1
+SELECT SUM(lo_extendedprice * lo_discount) AS REVENUE
+FROM lineorder, dates
+WHERE
+    lo_orderdate = d_datekey
+    AND d_year = 1993
+    AND lo_discount BETWEEN 1 AND 3
+    AND lo_quantity < 25;
+--Q1.2
+SELECT SUM(lo_extendedprice * lo_discount) AS REVENUE
+FROM lineorder, dates
+WHERE
+    lo_orderdate = d_datekey
+    AND d_yearmonth = 'Jan1994'
+    AND lo_discount BETWEEN 4 AND 6
+    AND lo_quantity BETWEEN 26 AND 35;
+    
+--Q1.3
+SELECT
+    SUM(lo_extendedprice * lo_discount) AS REVENUE
+FROM lineorder, dates
+WHERE
+    lo_orderdate = d_datekey
+    AND d_weeknuminyear = 6
+    AND d_year = 1994
+    AND lo_discount BETWEEN 5 AND 7
+    AND lo_quantity BETWEEN 26 AND 35;
+    
+--Q2.1
+SELECT SUM(lo_revenue), d_year, p_brand
+FROM lineorder, dates, part, supplier
+WHERE
+    lo_orderdate = d_datekey
+    AND lo_partkey = p_partkey
+    AND lo_suppkey = s_suppkey
+    AND p_category = 'MFGR#12'
+    AND s_region = 'AMERICA'
+GROUP BY d_year, p_brand
+ORDER BY p_brand;
+
+--Q2.2
+SELECT SUM(lo_revenue), d_year, p_brand
+FROM lineorder, dates, part, supplier
+WHERE
+    lo_orderdate = d_datekey
+    AND lo_partkey = p_partkey
+    AND lo_suppkey = s_suppkey
+    AND p_brand BETWEEN 'MFGR#2221' AND 'MFGR#2228'
+    AND s_region = 'ASIA'
+GROUP BY d_year, p_brand
+ORDER BY d_year, p_brand;
+
+--Q2.3
+SELECT SUM(lo_revenue), d_year, p_brand
+FROM lineorder, dates, part, supplier
+WHERE
+    lo_orderdate = d_datekey
+    AND lo_partkey = p_partkey
+    AND lo_suppkey = s_suppkey
+    AND p_brand = 'MFGR#2239'
+    AND s_region = 'EUROPE'
+GROUP BY d_year, p_brand
+ORDER BY d_year, p_brand;
+
+--Q3.1
+SELECT
+    c_nation,
+    s_nation,
+    d_year,
+    SUM(lo_revenue) AS REVENUE
+FROM customer, lineorder, supplier, dates
+WHERE
+    lo_custkey = c_custkey
+    AND lo_suppkey = s_suppkey
+    AND lo_orderdate = d_datekey
+    AND c_region = 'ASIA'
+    AND s_region = 'ASIA'
+    AND d_year >= 1992
+    AND d_year <= 1997
+GROUP BY c_nation, s_nation, d_year
+ORDER BY d_year ASC, REVENUE DESC;
+
+--Q3.2
+SELECT
+    c_city,
+    s_city,
+    d_year,
+    SUM(lo_revenue) AS REVENUE
+FROM customer, lineorder, supplier, dates
+WHERE
+    lo_custkey = c_custkey
+    AND lo_suppkey = s_suppkey
+    AND lo_orderdate = d_datekey
+    AND c_nation = 'UNITED STATES'
+    AND s_nation = 'UNITED STATES'
+    AND d_year >= 1992
+    AND d_year <= 1997
+GROUP BY c_city, s_city, d_year
+ORDER BY d_year ASC, REVENUE DESC;
+
+--Q3.3
+SELECT
+    c_city,
+    s_city,
+    d_year,
+    SUM(lo_revenue) AS REVENUE
+FROM customer, lineorder, supplier, dates
+WHERE
+    lo_custkey = c_custkey
+    AND lo_suppkey = s_suppkey
+    AND lo_orderdate = d_datekey
+    AND (
+        c_city = 'UNITED KI1'
+        OR c_city = 'UNITED KI5'
+    )
+    AND (
+        s_city = 'UNITED KI1'
+        OR s_city = 'UNITED KI5'
+    )
+    AND d_year >= 1992
+    AND d_year <= 1997
+GROUP BY c_city, s_city, d_year
+ORDER BY d_year ASC, REVENUE DESC;
+
+--Q3.4
+SELECT
+    c_city,
+    s_city,
+    d_year,
+    SUM(lo_revenue) AS REVENUE
+FROM customer, lineorder, supplier, dates
+WHERE
+    lo_custkey = c_custkey
+    AND lo_suppkey = s_suppkey
+    AND lo_orderdate = d_datekey
+    AND (
+        c_city = 'UNITED KI1'
+        OR c_city = 'UNITED KI5'
+    )
+    AND (
+        s_city = 'UNITED KI1'
+        OR s_city = 'UNITED KI5'
+    )
+    AND d_yearmonth = 'Dec1997'
+GROUP BY c_city, s_city, d_year
+ORDER BY d_year ASC, REVENUE DESC;
+
+--Q4.1
+SELECT /*+SET_VAR(parallel_fragment_exec_instance_num=4, enable_vectorized_engine=true, batch_size=4096, enable_cost_based_join_reorder=true, enable_projection=true) */
+    d_year,
+    c_nation,
+    SUM(lo_revenue - lo_supplycost) AS PROFIT
+FROM dates, customer, supplier, part, lineorder
+WHERE
+    lo_custkey = c_custkey
+    AND lo_suppkey = s_suppkey
+    AND lo_partkey = p_partkey
+    AND lo_orderdate = d_datekey
+    AND c_region = 'AMERICA'
+    AND s_region = 'AMERICA'
+    AND (
+        p_mfgr = 'MFGR#1'
+        OR p_mfgr = 'MFGR#2'
+    )
+GROUP BY d_year, c_nation
+ORDER BY d_year, c_nation;
+
+--Q4.2
+SELECT /*+SET_VAR(parallel_fragment_exec_instance_num=2, enable_vectorized_engine=true, batch_size=4096, enable_cost_based_join_reorder=true, enable_projection=true) */  
+    d_year,
+    s_nation,
+    p_category,
+    SUM(lo_revenue - lo_supplycost) AS PROFIT
+FROM dates, customer, supplier, part, lineorder
+WHERE
+    lo_custkey = c_custkey
+    AND lo_suppkey = s_suppkey
+    AND lo_partkey = p_partkey
+    AND lo_orderdate = d_datekey
+    AND c_region = 'AMERICA'
+    AND s_region = 'AMERICA'
+    AND (
+        d_year = 1997
+        OR d_year = 1998
+    )
+    AND (
+        p_mfgr = 'MFGR#1'
+        OR p_mfgr = 'MFGR#2'
+    )
+GROUP BY d_year, s_nation, p_category
+ORDER BY d_year, s_nation, p_category;
+
+--Q4.3
+SELECT /*+SET_VAR(parallel_fragment_exec_instance_num=2, enable_vectorized_engine=true, batch_size=4096, enable_cost_based_join_reorder=true, enable_projection=true) */
+    d_year,
+    s_city,
+    p_brand,
+    SUM(lo_revenue - lo_supplycost) AS PROFIT
+FROM dates, customer, supplier, part, lineorder
+WHERE
+    lo_custkey = c_custkey
+    AND lo_suppkey = s_suppkey
+    AND lo_partkey = p_partkey
+    AND lo_orderdate = d_datekey
+    AND s_nation = 'UNITED STATES'
+    AND (
+        d_year = 1997
+        OR d_year = 1998
+    )
+    AND p_category = 'MFGR#14'
+GROUP BY d_year, s_city, p_brand
+ORDER BY d_year, s_city, p_brand;
+```

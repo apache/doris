@@ -31,6 +31,7 @@ public class SetNamesVar extends SetVar {
 
     public SetNamesVar(String charsetName) {
         this(charsetName, null);
+        this.varType = SetVarType.SET_NAMES_VAR;
     }
 
     public SetNamesVar(String charsetName, String collate) {

@@ -32,6 +32,7 @@ import org.apache.doris.regression.suite.event.TeamcityEventListener
 import org.apache.doris.regression.util.Recorder
 import groovy.util.logging.Slf4j
 import org.apache.commons.cli.*
+import org.apache.commons.lang3.concurrent.BasicThreadFactory;
 import org.codehaus.groovy.control.CompilerConfiguration
 
 import java.beans.Introspector
@@ -82,9 +83,24 @@ class RegressionTest {
         compileConfig = new CompilerConfiguration()
         compileConfig.setScriptBaseClass((SuiteScript as Class).name)
         shell = new GroovyShell(classloader, new Binding(), compileConfig)
-        scriptExecutors = Executors.newFixedThreadPool(config.parallel)
-        suiteExecutors = Executors.newFixedThreadPool(config.suiteParallel)
-        actionExecutors = Executors.newFixedThreadPool(config.actionParallel)
+
+        BasicThreadFactory scriptFactory = new BasicThreadFactory.Builder()
+            .namingPattern("script-thread-%d")
+            .priority(Thread.MAX_PRIORITY)
+            .build();
+        scriptExecutors = Executors.newFixedThreadPool(config.parallel, scriptFactory)
+
+        BasicThreadFactory suiteFactory = new BasicThreadFactory.Builder()
+            .namingPattern("suite-thread-%d")
+            .priority(Thread.MAX_PRIORITY)
+            .build();
+        suiteExecutors = Executors.newFixedThreadPool(config.suiteParallel, suiteFactory)
+
+        BasicThreadFactory actionFactory = new BasicThreadFactory.Builder()
+            .namingPattern("action-thread-%d")
+            .priority(Thread.MAX_PRIORITY)
+            .build();
+        actionExecutors = Executors.newFixedThreadPool(config.actionParallel, actionFactory)
 
         loadPlugins(config)
     }
@@ -120,7 +136,13 @@ class RegressionTest {
             canRun(config, suiteName, groupName)
         }
         def file = source.getFile()
-        log.info("run ${file}")
+        int failureLimit = Integer.valueOf(config.otherConfigs.getOrDefault("max_failure_num", "-1").toString());
+        if (Recorder.isFailureExceedLimit(failureLimit)) {
+            // too much failure, skip all following suits
+            log.warn("too much failure ${Recorder.getFailureOrFatalNum()}, limit ${failureLimit}, skip following suits: ${file}")
+            recorder.onSkip(file.absolutePath);
+            return;
+        }
         def eventListeners = getEventListeners(config, recorder)
         new ScriptContext(file, suiteExecutors, actionExecutors,
                 config, eventListeners, suiteFilter).start { scriptContext ->
@@ -172,7 +194,6 @@ class RegressionTest {
         log.info('Start to run scripts')
         runScripts(config, recorder, directoryFilter,
                 { fileName -> fileName.substring(0, fileName.lastIndexOf(".")) != "load" })
-
         return recorder
     }
 
@@ -240,10 +261,10 @@ class RegressionTest {
     }
 
     static boolean printResult(Config config, Recorder recorder) {
-        int allSuiteNum = recorder.successList.size() + recorder.failureList.size()
+        int allSuiteNum = recorder.successList.size() + recorder.failureList.size() + recorder.skippedList.size()
         int failedSuiteNum = recorder.failureList.size()
         int fatalScriptNum = recorder.fatalScriptList.size()
-        log.info("Test ${allSuiteNum} suites, failed ${failedSuiteNum} suites, fatal ${fatalScriptNum} scripts".toString())
+        int skippedNum = recorder.skippedList.size()
 
         // print success list
         if (!recorder.successList.isEmpty()) {
@@ -253,6 +274,13 @@ class RegressionTest {
             log.info("Success suites:\n${successList}".toString())
         }
 
+        // print skipped list
+        if (!recorder.skippedList.isEmpty()) {
+            String skippedList = recorder.skippedList.collect { info -> "${info}" }.join('\n')
+            log.info("Skipped suites:\n${skippedList}".toString())
+        }
+
+        boolean pass = false;
         // print failure list
         if (!recorder.failureList.isEmpty() || !recorder.fatalScriptList.isEmpty()) {
             if (!recorder.failureList.isEmpty()) {
@@ -268,11 +296,13 @@ class RegressionTest {
                 log.info("Fatal scripts:\n${failureList}".toString())
             }
             printFailed()
-            return false
         } else {
             printPassed()
-            return true
+            pass = true;
         }
+
+        log.info("Test ${allSuiteNum} suites, failed ${failedSuiteNum} suites, fatal ${fatalScriptNum} scripts, skipped ${skippedNum} scripts".toString())
+        return pass;
     }
 
     static void loadPlugins(Config config) {
@@ -283,12 +313,12 @@ class RegressionTest {
         if (!pluginPath.exists() || !pluginPath.isDirectory()) {
             return
         }
-        pluginPath.eachFileRecurse { it ->
+        pluginPath.eachFileRecurse({ it ->
             if (it.name.endsWith(".groovy")) {
                 ScriptContext context = new ScriptContext(it, suiteExecutors, actionExecutors,
                         config, [], { name -> true })
                 File pluginFile = it
-                context.start {
+                context.start({
                     try {
                         SuiteScript pluginScript = new GroovyFileSource(pluginFile).toScript(context, shell)
                         log.info("Begin to load plugin: ${pluginFile.getCanonicalPath()}")
@@ -297,9 +327,9 @@ class RegressionTest {
                     } catch (Throwable t) {
                         log.error("Load plugin failed: ${pluginFile.getCanonicalPath()}", t)
                     }
-                }
+                })
             }
-        }
+        })
     }
 
     static void printPassed() {

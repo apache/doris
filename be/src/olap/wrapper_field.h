@@ -17,13 +17,20 @@
 
 #pragma once
 
+#include <stdint.h>
+#include <stdlib.h>
+
+#include <memory>
+#include <string>
+
+#include "common/status.h"
 #include "olap/field.h"
-#include "olap/olap_define.h"
 #include "olap/row_cursor_cell.h"
 #include "olap/tablet_schema.h"
-#include "util/hash_util.hpp"
+#include "util/slice.h"
 
 namespace doris {
+enum class FieldType;
 
 class WrapperField {
 public:
@@ -32,10 +39,6 @@ public:
     static WrapperField* create_by_type(const FieldType& type, int32_t var_length);
 
     WrapperField(Field* rep, size_t variable_len, bool is_string_type);
-
-    // Only used to wrapped content of row cursor cell to find element in wrapped field set
-    // do not delete rep, should call release_field before deconstructed.
-    WrapperField(Field* rep, const RowCursorCell& row_cursor_cell);
 
     virtual ~WrapperField() {
         delete _rep;
@@ -67,17 +70,6 @@ public:
         return _rep->from_string(_field_buf + 1, value_string, precision, scale);
     }
 
-    // Attach to a buf.
-    void attach_buf(char* buf) {
-        _field_buf = _owned_buf;
-
-        // Set null byte.
-        *_field_buf = 0;
-        memcpy(_field_buf + 1, buf, size());
-    }
-
-    void attach_field(char* field) { _field_buf = field; }
-
     bool is_string_type() const { return _is_string_type; }
     char* ptr() const { return _field_buf + 1; }
     size_t size() const { return _rep->size(); }
@@ -89,13 +81,9 @@ public:
     char* nullable_cell_ptr() const { return _field_buf; }
     void set_to_max() { _rep->set_to_max(_field_buf + 1); }
     void set_to_min() { _rep->set_to_min(_field_buf + 1); }
-    uint32_t hash_code() const { return _rep->hash_code(*this, 0); }
     void* cell_ptr() const { return _field_buf + 1; }
     void* mutable_cell_ptr() const { return _field_buf + 1; }
     const Field* field() const { return _rep; }
-
-    // Should be only called by 'WrapperField' which constructed by 'RowCursorCell'.
-    void release_field() { _rep = nullptr; }
 
     int cmp(const WrapperField* field) const { return _rep->compare_cell(*this, *field); }
 

@@ -81,7 +81,7 @@ public class AnalyticEvalNode extends PlanNode {
             AnalyticWindow analyticWindow, TupleDescriptor intermediateTupleDesc,
             TupleDescriptor outputTupleDesc, ExprSubstitutionMap logicalToPhysicalSmap,
             Expr partitionByEq, Expr orderByEq, TupleDescriptor bufferedTupleDesc) {
-        super(id, input.getTupleIds(), "ANALYTIC", StatisticalType.ANALYTIC_EVAL_NODE);
+        super(id, Lists.newArrayList(input.getOutputTupleIds()), "ANALYTIC", StatisticalType.ANALYTIC_EVAL_NODE);
         Preconditions.checkState(!tupleIds.contains(outputTupleDesc.getId()));
         // we're materializing the input row augmented with the analytic output tuple
         tupleIds.add(outputTupleDesc.getId());
@@ -92,6 +92,36 @@ public class AnalyticEvalNode extends PlanNode {
         this.intermediateTupleDesc = intermediateTupleDesc;
         this.outputTupleDesc = outputTupleDesc;
         this.logicalToPhysicalSmap = logicalToPhysicalSmap;
+        this.partitionByEq = partitionByEq;
+        this.orderByEq = orderByEq;
+        this.bufferedTupleDesc = bufferedTupleDesc;
+        children.add(input);
+        nullableTupleIds = Sets.newHashSet(input.getNullableTupleIds());
+    }
+
+    // constructor used in Nereids
+    public AnalyticEvalNode(
+            PlanNodeId id, PlanNode input, List<Expr> analyticFnCalls,
+            List<Expr> partitionExprs, List<OrderByElement> orderByElements,
+            AnalyticWindow analyticWindow, TupleDescriptor intermediateTupleDesc,
+            TupleDescriptor outputTupleDesc, Expr partitionByEq, Expr orderByEq,
+            TupleDescriptor bufferedTupleDesc) {
+        super(id,
+                (input.getOutputTupleDesc() != null
+                        ? Lists.newArrayList(input.getOutputTupleDesc().getId()) :
+                        input.getTupleIds()),
+                "ANALYTIC", StatisticalType.ANALYTIC_EVAL_NODE);
+        Preconditions.checkState(!tupleIds.contains(outputTupleDesc.getId()));
+        // we're materializing the input row augmented with the analytic output tuple
+        tupleIds.add(outputTupleDesc.getId());
+        this.analyticFnCalls = analyticFnCalls;
+        this.partitionExprs = partitionExprs;
+        this.substitutedPartitionExprs = partitionExprs;
+        this.orderByElements = orderByElements;
+        this.analyticWindow = analyticWindow;
+        this.intermediateTupleDesc = intermediateTupleDesc;
+        this.outputTupleDesc = outputTupleDesc;
+        this.logicalToPhysicalSmap = new ExprSubstitutionMap();
         this.partitionByEq = partitionByEq;
         this.orderByEq = orderByEq;
         this.bufferedTupleDesc = bufferedTupleDesc;
@@ -143,7 +173,7 @@ public class AnalyticEvalNode extends PlanNode {
             return;
         }
         StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = statsDeriveResult.getRowCount();
+        cardinality = (long) statsDeriveResult.getRowCount();
     }
 
     @Override
@@ -214,20 +244,18 @@ public class AnalyticEvalNode extends PlanNode {
             return "";
         }
         StringBuilder output = new StringBuilder();
-        output.append(prefix + "functions: ");
+        output.append(prefix).append("functions: ");
         List<String> strings = Lists.newArrayList();
 
         for (Expr fnCall : analyticFnCalls) {
-            strings.add("[");
-            strings.add(fnCall.toSql());
-            strings.add("]");
+            strings.add("[" + fnCall.toSql() + "]");
         }
 
         output.append(Joiner.on(", ").join(strings));
         output.append("\n");
 
         if (!partitionExprs.isEmpty()) {
-            output.append(prefix + "partition by: ");
+            output.append(prefix).append("partition by: ");
             strings.clear();
 
             for (Expr partitionExpr : partitionExprs) {
@@ -239,7 +267,7 @@ public class AnalyticEvalNode extends PlanNode {
         }
 
         if (!orderByElements.isEmpty()) {
-            output.append(prefix + "order by: ");
+            output.append(prefix).append("order by: ");
             strings.clear();
 
             for (OrderByElement element : orderByElements) {

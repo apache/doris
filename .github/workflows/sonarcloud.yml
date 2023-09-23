@@ -16,43 +16,39 @@
 # under the License.
 #
 ---
-name: Code Quality Analysis
-on:
-  push:
-    branches:
-      - master
-    types: [closed]
+name: SonarClout Analysis
+on: [push]
 
 jobs:
-  build:
-    name: Build
+  sonar-cloud-java:
+    name: "SonarCloud on java"
     runs-on: ubuntu-latest
-    if: ${{ github.event.pull_request.merged }}
     env:
-      SONAR_SCANNER_VERSION: 4.7.0.2747
-      SONAR_SERVER_URL: "https://sonarcloud.io"
       BUILD_WRAPPER_OUT_DIR: build_wrapper_output_directory # Directory where build-wrapper output will be placed
     steps:
-      - uses: actions/checkout@v3
+      - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
+        uses: actions/checkout@v3
         with:
-          fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
+          persist-credentials: false
+          submodules: recursive
 
-      - name: Changed Java Files
-        id: java-changes
-        uses: tj-actions/changed-files@a59f800cbb60ed483623848e31be67659a2940f8
+      - name: Paths Filter
+        uses: ./.github/actions/paths-filter
+        id: filter
         with:
-          sha: "${{ github.pull_request.sha }}"
-          base_sha: "${{ github.sha }}"
-          files: |
-            **/*.java
-            **/*.xml
-
+          filters: |
+            fe_changes:
+              - 'fe/**'
+              - 'gensrc/proto/**'
+              - 'gensrc/thrift/**'
       - name: Set up JDK 11
+        if: ${{ steps.filter.outputs.fe_changes == 'true' }}
         uses: actions/setup-java@v3
-        if: steps.java-changes.outputs.any_changed == 'true'
         with:
           java-version: 11
+          distribution: 'adopt'
       - name: Cache SonarCloud packages
+        if: ${{ steps.filter.outputs.fe_changes == 'true' }}
         uses: actions/cache@v3
         with:
           path: ~/.sonar/cache
@@ -60,49 +56,103 @@ jobs:
           restore-keys: ${{ runner.os }}-sonar
 
       - name: Cache Maven packages
+        if: ${{ steps.filter.outputs.fe_changes == 'true' }}
         uses: actions/cache@v3
         with:
           path: ~/.m2
           key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
           restore-keys: ${{ runner.os }}-m2
       - name: Setup thrift
-        if: steps.java-changes.outputs.any_changed == 'true'
+        if: ${{ steps.filter.outputs.fe_changes == 'true' }}
         run: |
           sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y thrift-compiler=0.13.0-2build2
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y thrift-compiler=0.16.0-2
           thrift --version
           mkdir -p thirdparty/installed/bin/
           cd thirdparty/installed/bin/ && ln -s /usr/bin/thrift thrift
+      - name: Install protoc
+        if: ${{ steps.filter.outputs.fe_changes == 'true' }}
+        run: |
+           sudo apt-get update
+           sudo apt-get install -y protobuf-compiler libprotobuf-dev
+           cd thirdparty/installed/bin/ && ln -s /usr/bin/protoc protoc
+      - name: Set up environment
+        if: ${{ steps.filter.outputs.fe_changes == 'true' }}
+        run: |
+          # Install Bash if necessary
+          sudo apt-get update
+          sudo apt-get install -y bash  
+      - name: Generated Source Code
+        if: ${{ steps.filter.outputs.fe_changes == 'true' }}
+        shell: bash
+        run: |
+           bash generated-source.sh
+      - name: Cache local Maven repository
+        if: ${{ steps.filter.outputs.fe_changes == 'true' }}
+        uses: actions/cache@v3
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+              ${{ runner.os }}-maven-           
       - name: Analyze FE
-        if: steps.java-changes.outputs.any_changed == 'true'
+        if: ${{ steps.filter.outputs.fe_changes == 'true' }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          MAVEN_OPTS: -Xmx4g
         run: |
           cd fe
-          mvn -B verify org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectKey=apache_incubator-doris -DskipTests
-# scanner be
-#      - name: Download and set up sonar-scanner
-#        env:
-#          SONAR_SCANNER_DOWNLOAD_URL: https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-${{ env.SONAR_SCANNER_VERSION }}-linux.zip
-#        run: |
-#          mkdir -p $HOME/.sonar
-#          curl -sSLo $HOME/.sonar/sonar-scanner.zip ${{ env.SONAR_SCANNER_DOWNLOAD_URL }}
-#          unzip -o $HOME/.sonar/sonar-scanner.zip -d $HOME/.sonar/
-#          echo "$HOME/.sonar/sonar-scanner-${{ env.SONAR_SCANNER_VERSION }}-linux/bin" >> $GITHUB_PATH
-#      - name: Download and set up build-wrapper
-#        env:
-#          BUILD_WRAPPER_DOWNLOAD_URL: ${{ env.SONAR_SERVER_URL }}/static/cpp/build-wrapper-linux-x86.zip
-#        run: |
-#          curl -sSLo $HOME/.sonar/build-wrapper-linux-x86.zip ${{ env.BUILD_WRAPPER_DOWNLOAD_URL }}
-#          unzip -o $HOME/.sonar/build-wrapper-linux-x86.zip -d $HOME/.sonar/
-#          echo "$HOME/.sonar/build-wrapper-linux-x86" >> $GITHUB_PATH
-#      - name: Run build-wrapper
-#        run: |
-#          build-wrapper-linux-x86-64 --out-dir ${{ env.BUILD_WRAPPER_OUT_DIR }}<insert_your_clean_build_command>
-#      - name: Analyze BE
-#          env:
-#            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-#            SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-#          run: |
-#            sonar-scanner --define sonar.host.url="${{ env.SONAR_SERVER_URL }}" --define sonar.cfamily.build-wrapper-output="${{ env.BUILD_WRAPPER_OUT_DIR }}"
+          mvn --batch-mode verify sonar:sonar -DskipTests -Dsonar.organization=apache -Dsonar.projectKey=apache_incubator-doris -Dhttp.keepAlive=false -Dmaven.wagon.http.pool=false -Dmaven.wagon.httpconnectionManager.ttlSeconds=120
+  sonar-cloud-cpp:
+    name: "SonarCloud on cpp"
+    runs-on: ubuntu-22.04
+    steps:
+      - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
+        uses: actions/checkout@v3
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Paths Filter
+        uses: ./.github/actions/paths-filter
+        id: filter
+        with:
+          filters: |
+            be_changes:
+              - 'be/**'
+              - 'gensrc/proto/**'
+              - 'gensrc/thrift/**'
+
+      - name: Generate compile_commands.json
+        if: ${{ steps.filter.outputs.be_changes == 'true' }}
+        run: |
+          export DEFAULT_DIR='/opt/doris'
+
+          mkdir "${DEFAULT_DIR}"
+          wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.18/ldb_toolchain_gen.sh \
+            -q -O /tmp/ldb_toolchain_gen.sh
+          bash /tmp/ldb_toolchain_gen.sh "${DEFAULT_DIR}/ldb-toolchain"
+
+          sudo DEBIAN_FRONTEND=noninteractive apt install --yes tzdata byacc
+
+          pushd thirdparty
+          curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-linux-x86_64.tar.xz \
+            -o doris-thirdparty-prebuilt-linux-x86_64.tar.xz
+          tar -xvf doris-thirdparty-prebuilt-linux-x86_64.tar.xz
+          popd
+
+          export PATH="${DEFAULT_DIR}/ldb-toolchain/bin/:$(pwd)/thirdparty/installed/bin/:${PATH}"
+          DISABLE_JAVA_UDF=ON ENABLE_PCH=OFF DORIS_TOOLCHAIN=clang OUTPUT_BE_BINARY=0 ./build.sh --be
+
+      - name:  Install sonar-scanner and build-wrapper
+        if: ${{ steps.filter.outputs.be_changes == 'true' }}
+        uses: sonarsource/sonarcloud-github-c-cpp@v2
+
+      - name: Run sonar-scanner
+        if: ${{ steps.filter.outputs.be_changes == 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: sonar-scanner -Dsonar.cfamily.compile-commands=be/build_Release/compile_commands.json -Dsonar.sources=be
+

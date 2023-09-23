@@ -20,26 +20,34 @@
 
 #pragma once
 
-#include <boost/noncopyable.hpp>
-#include <memory>
+#include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/Types_types.h>
+#include <stddef.h>
+#include <stdint.h>
 
-#include "gen_cpp/data.pb.h"
-#include "runtime/primitive_type.h"
+#include <boost/core/noncopyable.hpp>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "common/exception.h"
+#include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/common/cow.h"
-#include "vec/common/string_buffer.hpp"
 #include "vec/core/types.h"
-#include "vec/io/reader_buffer.h"
+#include "vec/data_types/serde/data_type_serde.h"
 
 namespace doris {
-class PBlock;
-class PColumn;
-enum FieldType;
+class PColumnMeta;
+enum PGenericType_TypeId : int;
 
 namespace vectorized {
 
 class IDataType;
-
 class IColumn;
+class BufferWritable;
+class ReadBuffer;
+
 using ColumnPtr = COW<IColumn>::Ptr;
 using MutableColumnPtr = COW<IColumn>::MutablePtr;
 
@@ -69,9 +77,16 @@ public:
     /// Data type id. It's used for runtime type checks.
     virtual TypeIndex get_type_id() const = 0;
 
+    virtual PrimitiveType get_type_as_primitive_type() const = 0;
+    virtual TPrimitiveType::type get_type_as_tprimitive_type() const = 0;
+
     virtual void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const;
     virtual std::string to_string(const IColumn& column, size_t row_num) const;
+    // only for compound type now.
     virtual Status from_string(ReadBuffer& rb, IColumn* column) const;
+
+    // get specific serializer or deserializer
+    virtual DataTypeSerDeSPtr get_serde() const = 0;
 
 protected:
     virtual String do_get_name() const;
@@ -91,17 +106,10 @@ public:
       */
     virtual Field get_default() const = 0;
 
-    /** The data type can be promoted in order to try to avoid overflows.
-      * Data types which can be promoted are typically Number or Decimal data types.
-      */
-    virtual bool can_be_promoted() const { return false; }
-
-    /** Return the promoted numeric data type of the current data type. Throw an exception if `can_be_promoted() == false`.
-      */
-    virtual DataTypePtr promote_numeric_type() const;
+    virtual Field get_field(const TExprNode& node) const = 0;
 
     /** Directly insert default value into a column. Default implementation use method IColumn::insert_default.
-      * This should be overriden if data type default value differs from column default value (example: Enum data types).
+      * This should be overridden if data type default value differs from column default value (example: Enum data types).
       */
     virtual void insert_default_into(IColumn& column) const;
 
@@ -121,11 +129,6 @@ public:
       */
     virtual bool have_subtypes() const = 0;
 
-    /** Can appear in table definition.
-      * Counterexamples: Interval, Nothing.
-      */
-    virtual bool cannot_be_stored_in_tables() const { return false; }
-
     /** In text formats that render "pretty" tables,
       *  is it better to align value right in table cell.
       * Examples: numbers, even nullable.
@@ -144,18 +147,6 @@ public:
       * The same for nullable of comparable types: they are comparable (but not totally-comparable).
       */
     virtual bool is_comparable() const { return false; }
-
-    /** Does it make sense to use this type with COLLATE modifier in ORDER BY.
-      * Example: String, but not FixedString.
-      */
-    virtual bool can_be_compared_with_collation() const { return false; }
-
-    /** If the type is totally comparable (Ints, Date, DateTime, not nullable, not floats)
-      *  and "simple" enough (not String, FixedString) to be used as version number
-      *  (to select rows with maximum version).
-      */
-    virtual bool can_be_used_as_version() const { return false; }
-
     /** Values of data type can be summed (possibly with overflow, within the same data type).
       * Example: numbers, even nullable. Not Date/DateTime. Not Enum.
       * Enums can be passed to aggregate function 'sum', but the result is Int64, not Enum, so they are not summable.
@@ -178,6 +169,8 @@ public:
     /** Integers, Enums, Date, DateTime. Not nullable.
       */
     virtual bool is_value_represented_by_integer() const { return false; }
+
+    virtual bool is_object() const { return false; }
 
     /** Unsigned Integers, Date, DateTime. Not nullable.
       */
@@ -214,15 +207,14 @@ public:
       */
     virtual size_t get_size_of_value_in_memory() const;
 
-    /** Integers (not floats), Enum, String, FixedString.
-      */
-    virtual bool is_categorial() const { return false; }
-
     virtual bool is_nullable() const { return false; }
 
     /** Is this type can represent only NULL value? (It also implies is_nullable)
       */
     virtual bool only_null() const { return false; }
+
+    /* the data type create from type_null, NULL literal*/
+    virtual bool is_null_literal() const { return false; }
 
     /** If this data type cannot be wrapped in Nullable data type.
       */
@@ -236,13 +228,22 @@ public:
     /// Updates avg_value_size_hint for newly read column. Uses to optimize deserialization. Zero expected for first column.
     static void update_avg_value_size_hint(const IColumn& column, double& avg_value_size_hint);
 
-    virtual int64_t get_uncompressed_serialized_bytes(const IColumn& column) const = 0;
-    virtual char* serialize(const IColumn& column, char* buf) const = 0;
-    virtual const char* deserialize(const char* buf, IColumn* column) const = 0;
+    virtual int64_t get_uncompressed_serialized_bytes(const IColumn& column,
+                                                      int be_exec_version) const = 0;
+    virtual char* serialize(const IColumn& column, char* buf, int be_exec_version) const = 0;
+    virtual const char* deserialize(const char* buf, IColumn* column,
+                                    int be_exec_version) const = 0;
 
     virtual void to_pb_column_meta(PColumnMeta* col_meta) const;
 
     static PGenericType_TypeId get_pdata_type(const IDataType* data_type);
+
+    [[nodiscard]] virtual UInt32 get_precision() const {
+        throw Exception(ErrorCode::INTERNAL_ERROR, "type {} not support get_precision", get_name());
+    }
+    [[nodiscard]] virtual UInt32 get_scale() const {
+        throw Exception(ErrorCode::INTERNAL_ERROR, "type {} not support get_scale", get_name());
+    }
 
 private:
     friend class DataTypeFactory;
@@ -278,20 +279,20 @@ struct WhichDataType {
     bool is_int() const {
         return is_int8() || is_int16() || is_int32() || is_int64() || is_int128();
     }
+    bool is_int_or_uint() const { return is_int() || is_uint(); }
     bool is_native_int() const { return is_int8() || is_int16() || is_int32() || is_int64(); }
 
     bool is_decimal32() const { return idx == TypeIndex::Decimal32; }
     bool is_decimal64() const { return idx == TypeIndex::Decimal64; }
     bool is_decimal128() const { return idx == TypeIndex::Decimal128; }
-    bool is_decimal() const { return is_decimal32() || is_decimal64() || is_decimal128(); }
+    bool is_decimal128i() const { return idx == TypeIndex::Decimal128I; }
+    bool is_decimal() const {
+        return is_decimal32() || is_decimal64() || is_decimal128() || is_decimal128i();
+    }
 
     bool is_float32() const { return idx == TypeIndex::Float32; }
     bool is_float64() const { return idx == TypeIndex::Float64; }
     bool is_float() const { return is_float32() || is_float64(); }
-
-    bool is_enum8() const { return idx == TypeIndex::Enum8; }
-    bool is_enum16() const { return idx == TypeIndex::Enum16; }
-    bool is_enum() const { return is_enum8() || is_enum16(); }
 
     bool is_date() const { return idx == TypeIndex::Date; }
     bool is_date_time() const { return idx == TypeIndex::DateTime; }
@@ -304,16 +305,20 @@ struct WhichDataType {
     bool is_fixed_string() const { return idx == TypeIndex::FixedString; }
     bool is_string_or_fixed_string() const { return is_string() || is_fixed_string(); }
 
-    bool is_uuid() const { return idx == TypeIndex::UUID; }
+    bool is_json() const { return idx == TypeIndex::JSONB; }
+
     bool is_array() const { return idx == TypeIndex::Array; }
     bool is_tuple() const { return idx == TypeIndex::Tuple; }
+    bool is_struct() const { return idx == TypeIndex::Struct; }
+    bool is_map() const { return idx == TypeIndex::Map; }
     bool is_set() const { return idx == TypeIndex::Set; }
-    bool is_interval() const { return idx == TypeIndex::Interval; }
 
     bool is_nothing() const { return idx == TypeIndex::Nothing; }
     bool is_nullable() const { return idx == TypeIndex::Nullable; }
     bool is_function() const { return idx == TypeIndex::Function; }
     bool is_aggregate_function() const { return idx == TypeIndex::AggregateFunction; }
+    bool is_variant_type() const { return idx == TypeIndex::VARIANT; }
+    bool is_simple() const { return is_int() || is_uint() || is_float() || is_string(); }
 };
 
 /// IDataType helpers (alternative for IDataType virtual methods with single point of truth)
@@ -333,11 +338,11 @@ inline bool is_date_or_datetime(const DataTypePtr& data_type) {
 inline bool is_date_v2_or_datetime_v2(const DataTypePtr& data_type) {
     return WhichDataType(data_type).is_date_v2_or_datetime_v2();
 }
-inline bool is_enum(const DataTypePtr& data_type) {
-    return WhichDataType(data_type).is_enum();
-}
 inline bool is_decimal(const DataTypePtr& data_type) {
     return WhichDataType(data_type).is_decimal();
+}
+inline bool is_decimal_v2(const DataTypePtr& data_type) {
+    return WhichDataType(data_type).is_decimal128();
 }
 inline bool is_tuple(const DataTypePtr& data_type) {
     return WhichDataType(data_type).is_tuple();
@@ -345,64 +350,69 @@ inline bool is_tuple(const DataTypePtr& data_type) {
 inline bool is_array(const DataTypePtr& data_type) {
     return WhichDataType(data_type).is_array();
 }
-
+inline bool is_map(const DataTypePtr& data_type) {
+    return WhichDataType(data_type).is_map();
+}
+inline bool is_struct(const DataTypePtr& data_type) {
+    return WhichDataType(data_type).is_struct();
+}
 inline bool is_nothing(const DataTypePtr& data_type) {
     return WhichDataType(data_type).is_nothing();
 }
 
 template <typename T>
-inline bool is_uint8(const T& data_type) {
+bool is_uint8(const T& data_type) {
     return WhichDataType(data_type).is_uint8();
 }
 
 template <typename T>
-inline bool is_unsigned_integer(const T& data_type) {
+bool is_unsigned_integer(const T& data_type) {
     return WhichDataType(data_type).is_uint();
 }
 
 template <typename T>
-inline bool is_integer(const T& data_type) {
+bool is_integer(const T& data_type) {
     WhichDataType which(data_type);
     return which.is_int() || which.is_uint();
 }
 
 template <typename T>
-inline bool is_float(const T& data_type) {
+bool is_float(const T& data_type) {
     WhichDataType which(data_type);
     return which.is_float();
 }
 
 template <typename T>
-inline bool is_native_number(const T& data_type) {
+bool is_native_number(const T& data_type) {
     WhichDataType which(data_type);
     return which.is_native_int() || which.is_native_uint() || which.is_float();
 }
 
 template <typename T>
-inline bool is_number(const T& data_type) {
+bool is_number(const T& data_type) {
     WhichDataType which(data_type);
     return which.is_int() || which.is_uint() || which.is_float() || which.is_decimal();
 }
 
 template <typename T>
-inline bool is_columned_as_number(const T& data_type) {
+bool is_columned_as_number(const T& data_type) {
     WhichDataType which(data_type);
     return which.is_int() || which.is_uint() || which.is_float() || which.is_date_or_datetime() ||
-           which.is_uuid() || which.is_date_v2_or_datetime_v2();
+           which.is_date_v2_or_datetime_v2();
 }
 
 template <typename T>
-inline bool is_string(const T& data_type) {
+bool is_string(const T& data_type) {
     return WhichDataType(data_type).is_string();
 }
 
 template <typename T>
-inline bool is_fixed_string(const T& data_type) {
+bool is_fixed_string(const T& data_type) {
     return WhichDataType(data_type).is_fixed_string();
 }
 
 template <typename T>
-inline bool is_string_or_fixed_string(const T& data_type) {
+bool is_string_or_fixed_string(const T& data_type) {
     return WhichDataType(data_type).is_string_or_fixed_string();
 }
 
@@ -413,6 +423,11 @@ inline bool is_not_decimal_but_comparable_to_decimal(const DataTypePtr& data_typ
 
 inline bool is_compilable_type(const DataTypePtr& data_type) {
     return data_type->is_value_represented_by_number() && !is_decimal(data_type);
+}
+
+inline bool is_complex_type(const DataTypePtr& data_type) {
+    WhichDataType which(data_type);
+    return which.is_array() || which.is_map() || which.is_struct();
 }
 
 } // namespace vectorized

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "yearweek",
+    "title": "YEARWEEK",
     "language": "en"
 }
 ---
@@ -28,14 +28,14 @@ under the License.
 ### Description
 #### Syntax
 
-`INT YEARWEEK(DATE date)`
-`INT YEARWEEK(DATE date, INT mode)`
+`INT YEARWEEK(DATE date[, INT mode])`
 
 Returns year and week for a date.The value of the mode argument defaults to 0.
 When the week of the date belongs to the previous year, the year and week of the previous year are returned; 
 when the week of the date belongs to the next year, the year of the next year is returned and the week is 1.
 
 The following table describes how the mode argument works.
+
 |Mode |First day of week |Range   |Week 1 is the first week …    |
 |:----|:-----------------|:-------|:-----------------------------|
 |0    |Sunday            |1-53    |with a Sunday in this year    |
@@ -76,4 +76,4 @@ mysql> select yearweek('2024-12-30',1);
 ```
 
 ### keywords
-YEARWEEK
+    YEARWEEK

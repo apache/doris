@@ -49,10 +49,9 @@ import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletInfo;
 
-import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.MoreCollectors;
-import com.google.common.collect.Table;
 import mockit.Delegate;
 import mockit.Expectations;
 import mockit.Mocked;
@@ -66,6 +65,7 @@ import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -86,7 +86,7 @@ public class RebalanceTest {
 
     private final SystemInfoService systemInfoService = new SystemInfoService();
     private final TabletInvertedIndex invertedIndex = new TabletInvertedIndex();
-    private Table<String, Tag, ClusterLoadStatistic> statisticMap;
+    private Map<Tag, LoadStatisticForTag> statisticMap;
 
     @Before
     public void setUp() throws Exception {
@@ -176,11 +176,11 @@ public class RebalanceTest {
     }
 
     private void generateStatisticMap() {
-        ClusterLoadStatistic loadStatistic = new ClusterLoadStatistic(SystemInfoService.DEFAULT_CLUSTER,
+        LoadStatisticForTag loadStatistic = new LoadStatisticForTag(
                 Tag.DEFAULT_BACKEND_TAG, systemInfoService, invertedIndex);
         loadStatistic.init();
-        statisticMap = HashBasedTable.create();
-        statisticMap.put(SystemInfoService.DEFAULT_CLUSTER, Tag.DEFAULT_BACKEND_TAG, loadStatistic);
+        statisticMap = Maps.newHashMap();
+        statisticMap.put(Tag.DEFAULT_BACKEND_TAG, loadStatistic);
     }
 
     private void createPartitionsForTable(OlapTable olapTable, MaterializedIndex index, Long partitionCount) {
@@ -190,13 +190,13 @@ public class RebalanceTest {
             Partition partition = new Partition(id, "p" + idx, index, new HashDistributionInfo());
             olapTable.addPartition(partition);
             olapTable.getPartitionInfo().addPartition(id, new DataProperty(TStorageMedium.HDD),
-                    ReplicaAllocation.DEFAULT_ALLOCATION, false);
+                    ReplicaAllocation.DEFAULT_ALLOCATION, false, true);
         });
     }
 
     @Test
     public void testPrioBackends() {
-        Rebalancer rebalancer = new DiskRebalancer(Env.getCurrentSystemInfo(), Env.getCurrentInvertedIndex());
+        Rebalancer rebalancer = new DiskRebalancer(Env.getCurrentSystemInfo(), Env.getCurrentInvertedIndex(), null);
         // add
         { // CHECKSTYLE IGNORE THIS LINE
             List<Backend> backends = Lists.newArrayList();
@@ -232,7 +232,7 @@ public class RebalanceTest {
         // Call runAfterCatalogReady manually instead of starting daemon thread
         TabletSchedulerStat stat = new TabletSchedulerStat();
         PartitionRebalancer rebalancer = new PartitionRebalancer(Env.getCurrentSystemInfo(),
-                Env.getCurrentInvertedIndex());
+                Env.getCurrentInvertedIndex(), null);
         TabletScheduler tabletScheduler = new TabletScheduler(env, systemInfoService, invertedIndex, stat, "");
         // The rebalancer inside the scheduler will use this rebalancer, for getToDeleteReplicaId
         Deencapsulation.setField(tabletScheduler, "rebalancer", rebalancer);
@@ -256,7 +256,7 @@ public class RebalanceTest {
                 tabletCtx.setTabletStatus(Tablet.TabletStatus.HEALTHY); // rebalance tablet should be healthy first
 
                 // createCloneReplicaAndTask, create replica will change invertedIndex too.
-                AgentTask task = rebalancer.createBalanceTask(tabletCtx, tabletScheduler.getBackendsWorkingSlots());
+                AgentTask task = rebalancer.createBalanceTask(tabletCtx);
                 batchTask.addTask(task);
             } catch (SchedException e) {
                 LOG.warn("schedule tablet {} failed: {}", tabletCtx.getTabletId(), e.getMessage());
@@ -307,8 +307,8 @@ public class RebalanceTest {
             Replica decommissionedReplica = replicas.stream()
                     .filter(r -> r.getState() == Replica.ReplicaState.DECOMMISSION)
                     .collect(MoreCollectors.onlyElement());
-            // expected watermarkTxnId is 111
-            Assert.assertEquals(111, decommissionedReplica.getWatermarkTxnId());
+            Assert.assertEquals(111, decommissionedReplica.getPreWatermarkTxnId());
+            Assert.assertEquals(112, decommissionedReplica.getPostWatermarkTxnId());
         });
 
         // Delete replica should change invertedIndex too
@@ -327,9 +327,9 @@ public class RebalanceTest {
         Configurator.setLevel("org.apache.doris.clone.MovesInProgressCache", Level.DEBUG);
         MovesCacheMap m = new MovesCacheMap();
         m.updateMapping(statisticMap, 3);
-        m.getCache(SystemInfoService.DEFAULT_CLUSTER, Tag.DEFAULT_BACKEND_TAG, TStorageMedium.HDD).get().put(1L, Pair.of(null, -1L));
-        m.getCache(SystemInfoService.DEFAULT_CLUSTER, Tag.DEFAULT_BACKEND_TAG, TStorageMedium.SSD).get().put(2L, Pair.of(null, -1L));
-        m.getCache(SystemInfoService.DEFAULT_CLUSTER, Tag.DEFAULT_BACKEND_TAG, TStorageMedium.SSD).get().put(3L, Pair.of(null, -1L));
+        m.getCache(Tag.DEFAULT_BACKEND_TAG, TStorageMedium.HDD).get().put(1L, Pair.of(null, -1L));
+        m.getCache(Tag.DEFAULT_BACKEND_TAG, TStorageMedium.SSD).get().put(2L, Pair.of(null, -1L));
+        m.getCache(Tag.DEFAULT_BACKEND_TAG, TStorageMedium.SSD).get().put(3L, Pair.of(null, -1L));
         // Maintenance won't clean up the entries of cache
         m.maintain();
         Assert.assertEquals(3, m.size());
@@ -338,7 +338,7 @@ public class RebalanceTest {
         m.updateMapping(statisticMap, 1);
         Assert.assertEquals(0, m.size());
 
-        m.getCache(SystemInfoService.DEFAULT_CLUSTER, Tag.DEFAULT_BACKEND_TAG, TStorageMedium.SSD).get().put(3L, Pair.of(null, -1L));
+        m.getCache(Tag.DEFAULT_BACKEND_TAG, TStorageMedium.SSD).get().put(3L, Pair.of(null, -1L));
         try {
             Thread.sleep(1000);
             m.maintain();

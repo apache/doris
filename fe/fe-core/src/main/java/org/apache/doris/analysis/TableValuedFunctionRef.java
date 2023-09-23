@@ -17,29 +17,47 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.common.UserException;
-import org.apache.doris.tablefunction.TableValuedFunctionInf;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanNode;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.tablefunction.BackendsTableValuedFunction;
+import org.apache.doris.tablefunction.LocalTableValuedFunction;
+import org.apache.doris.tablefunction.TableValuedFunctionIf;
 
-import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 public class TableValuedFunctionRef extends TableRef {
 
     private Table table;
-    private TableValuedFunctionInf tableFunction;
+    private TableValuedFunctionIf tableFunction;
+    private String funcName;
+    private Map<String, String> params;
 
-    public TableValuedFunctionRef(String funcName, String alias, List<String> params) throws UserException {
-        super(new TableName(null, null, "_table_valued_function_" + funcName), alias);
-        this.tableFunction = TableValuedFunctionInf.getTableFunction(funcName, params);
+    public TableValuedFunctionRef(String funcName, String alias, Map<String, String> params) throws AnalysisException {
+        super(new TableName(null, null, TableValuedFunctionIf.TVF_TABLE_PREFIX + funcName), alias);
+        this.funcName = funcName;
+        this.params = params;
+        this.tableFunction = TableValuedFunctionIf.getTableFunction(funcName, params);
+        this.table = tableFunction.getTable();
         if (hasExplicitAlias()) {
             return;
         }
-        aliases = new String[] { "_table_valued_function_" + funcName };
+        aliases = new String[] { TableValuedFunctionIf.TVF_TABLE_PREFIX + funcName };
     }
 
     public TableValuedFunctionRef(TableValuedFunctionRef other) {
         super(other);
+        this.funcName = other.funcName;
+        this.params = other.params;
         this.tableFunction = other.tableFunction;
+        this.table = other.table;
     }
 
     @Override
@@ -54,23 +72,58 @@ public class TableValuedFunctionRef extends TableRef {
         return result;
     }
 
+    @Override
+    protected String tableNameToSql() {
+        String aliasSql = null;
+        String alias = getExplicitAlias();
+        if (alias != null) {
+            aliasSql = ToSqlUtils.getIdentSql(alias);
+        }
+
+        // set tableName
+        StringBuilder stringBuilder = new StringBuilder();
+        stringBuilder.append(funcName);
+        stringBuilder.append('(');
+        String paramsString  = params.entrySet().stream().map(kv -> "\"" + kv.getKey() + "\""
+                        + " = " + "\"" + kv.getValue() + "\"")
+                        .collect(Collectors.joining(","));
+        stringBuilder.append(paramsString);
+        stringBuilder.append(')');
+
+        // set alias
+        stringBuilder.append((aliasSql != null) ? " " + aliasSql : "");
+        return stringBuilder.toString();
+    }
+
     /**
      * Register this table ref and then analyze the Join clause.
      */
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
+    public void analyze(Analyzer analyzer) throws AnalysisException {
         if (isAnalyzed) {
             return;
         }
-        // Table function could generate a table which will has columns
-        // Maybe will call be during this process
-        this.table = tableFunction.getTable();
+
+        // check privilige for backends/local tvf
+        if (funcName.equalsIgnoreCase(BackendsTableValuedFunction.NAME)
+                || funcName.equalsIgnoreCase(LocalTableValuedFunction.NAME)) {
+            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)
+                    && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(),
+                    PrivPredicate.OPERATOR)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN/OPERATOR");
+            }
+        }
+
         desc = analyzer.registerTableRef(this);
         isAnalyzed = true; // true that we have assigned desc
         analyzeJoin(analyzer);
     }
 
-    public TableValuedFunctionInf getTableFunction() {
+    public ScanNode getScanNode(PlanNodeId id) {
+        return tableFunction.getScanNode(id, desc);
+    }
+
+    public TableValuedFunctionIf getTableFunction() {
         return tableFunction;
     }
 

@@ -18,9 +18,10 @@
 package org.apache.doris.persist;
 
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
-import org.apache.doris.analysis.RoutineLoadDataSourceProperties;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
+import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 
 import com.google.common.collect.Maps;
 import org.junit.Assert;
@@ -49,13 +50,13 @@ public class AlterRoutineLoadOperationLogTest {
         Map<String, String> jobProperties = Maps.newHashMap();
         jobProperties.put(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY, "5");
 
-        String typeName = "kafka";
         Map<String, String> dataSourceProperties = Maps.newHashMap();
-        dataSourceProperties.put(CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY, "0, 1");
-        dataSourceProperties.put(CreateRoutineLoadStmt.KAFKA_OFFSETS_PROPERTY, "10000, 20000");
+        dataSourceProperties.put(KafkaConfiguration.KAFKA_PARTITIONS.getName(), "0, 1");
+        dataSourceProperties.put(KafkaConfiguration.KAFKA_OFFSETS.getName(), "10000, 20000");
         dataSourceProperties.put("property.group.id", "mygroup");
-        RoutineLoadDataSourceProperties routineLoadDataSourceProperties = new RoutineLoadDataSourceProperties(typeName,
-                dataSourceProperties, true);
+        KafkaDataSourceProperties routineLoadDataSourceProperties = new KafkaDataSourceProperties(
+                dataSourceProperties);
+        routineLoadDataSourceProperties.setAlter(true);
         routineLoadDataSourceProperties.setTimezone(TimeUtils.DEFAULT_TIME_ZONE);
         routineLoadDataSourceProperties.analyze();
 
@@ -71,14 +72,15 @@ public class AlterRoutineLoadOperationLogTest {
         AlterRoutineLoadJobOperationLog log2 = AlterRoutineLoadJobOperationLog.read(in);
         Assert.assertEquals(1, log2.getJobProperties().size());
         Assert.assertEquals("5", log2.getJobProperties().get(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY));
-        Assert.assertEquals("", log2.getDataSourceProperties().getKafkaBrokerList());
-        Assert.assertEquals("", log2.getDataSourceProperties().getKafkaTopic());
-        Assert.assertEquals(1, log2.getDataSourceProperties().getCustomKafkaProperties().size());
-        Assert.assertEquals("mygroup", log2.getDataSourceProperties().getCustomKafkaProperties().get("group.id"));
+        KafkaDataSourceProperties kafkaDataSourceProperties = (KafkaDataSourceProperties) log2.getDataSourceProperties();
+        Assert.assertEquals(null, kafkaDataSourceProperties.getBrokerList());
+        Assert.assertEquals(null, kafkaDataSourceProperties.getTopic());
+        Assert.assertEquals(1, kafkaDataSourceProperties.getCustomKafkaProperties().size());
+        Assert.assertEquals("mygroup", kafkaDataSourceProperties.getCustomKafkaProperties().get("group.id"));
         Assert.assertEquals(routineLoadDataSourceProperties.getKafkaPartitionOffsets().get(0),
-                log2.getDataSourceProperties().getKafkaPartitionOffsets().get(0));
+                kafkaDataSourceProperties.getKafkaPartitionOffsets().get(0));
         Assert.assertEquals(routineLoadDataSourceProperties.getKafkaPartitionOffsets().get(1),
-                log2.getDataSourceProperties().getKafkaPartitionOffsets().get(1));
+                kafkaDataSourceProperties.getKafkaPartitionOffsets().get(1));
 
         in.close();
     }

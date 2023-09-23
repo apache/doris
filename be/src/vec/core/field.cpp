@@ -20,8 +20,18 @@
 
 #include "vec/core/field.h"
 
+#include "vec/core/accurate_comparison.h"
 #include "vec/core/decimal_comparison.h"
+#include "vec/data_types/data_type_decimal.h"
 #include "vec/io/io_helper.h"
+#include "vec/io/var_int.h"
+
+namespace doris {
+namespace vectorized {
+class BufferReadable;
+class BufferWritable;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -67,10 +77,9 @@ void read_binary(Array& x, BufferReadable& buf) {
             x.push_back(value);
             break;
         }
-        case Field::Types::AggregateFunctionState: {
-            AggregateFunctionStateData value;
-            doris::vectorized::read_string_binary(value.name, buf);
-            doris::vectorized::read_string_binary(value.data, buf);
+        case Field::Types::JSONB: {
+            JsonbField value;
+            doris::vectorized::read_json_binary(value, buf);
             x.push_back(value);
             break;
         }
@@ -109,9 +118,8 @@ void write_binary(const Array& x, BufferWritable& buf) {
             doris::vectorized::write_string_binary(get<std::string>(*it), buf);
             break;
         }
-        case Field::Types::AggregateFunctionState: {
-            doris::vectorized::write_string_binary(it->get<AggregateFunctionStateData>().name, buf);
-            doris::vectorized::write_string_binary(it->get<AggregateFunctionStateData>().data, buf);
+        case Field::Types::JSONB: {
+            doris::vectorized::write_json_binary(get<JsonbField>(*it), buf);
             break;
         }
         }
@@ -119,74 +127,60 @@ void write_binary(const Array& x, BufferWritable& buf) {
 }
 
 template <>
-Decimal32 DecimalField<Decimal32>::get_scale_multiplier() const {
-    return DataTypeDecimal<Decimal32>::get_scale_multiplier(scale);
-}
-
-template <>
-Decimal64 DecimalField<Decimal64>::get_scale_multiplier() const {
-    return DataTypeDecimal<Decimal64>::get_scale_multiplier(scale);
-}
-
-template <>
-Decimal128 DecimalField<Decimal128>::get_scale_multiplier() const {
-    return DataTypeDecimal<Decimal128>::get_scale_multiplier(scale);
+Decimal128I DecimalField<Decimal128I>::get_scale_multiplier() const {
+    return DataTypeDecimal<Decimal128I>::get_scale_multiplier(scale);
 }
 
 template <typename T>
-static bool dec_equal(T x, T y, UInt32 x_scale, UInt32 y_scale) {
+bool dec_equal(T x, T y, UInt32 x_scale, UInt32 y_scale) {
     using Comparator = DecimalComparison<T, T, EqualsOp>;
     return Comparator::compare(x, y, x_scale, y_scale);
 }
 
 template <typename T>
-static bool dec_less(T x, T y, UInt32 x_scale, UInt32 y_scale) {
+bool dec_less(T x, T y, UInt32 x_scale, UInt32 y_scale) {
     using Comparator = DecimalComparison<T, T, LessOp>;
     return Comparator::compare(x, y, x_scale, y_scale);
 }
 
 template <typename T>
-static bool dec_less_or_equal(T x, T y, UInt32 x_scale, UInt32 y_scale) {
+bool dec_less_or_equal(T x, T y, UInt32 x_scale, UInt32 y_scale) {
     using Comparator = DecimalComparison<T, T, LessOrEqualsOp>;
     return Comparator::compare(x, y, x_scale, y_scale);
 }
 
-template <>
-bool decimal_equal(Decimal32 x, Decimal32 y, UInt32 xs, UInt32 ys) {
-    return dec_equal(x, y, xs, ys);
-}
-template <>
-bool decimal_less(Decimal32 x, Decimal32 y, UInt32 xs, UInt32 ys) {
-    return dec_less(x, y, xs, ys);
-}
-template <>
-bool decimal_less_or_equal(Decimal32 x, Decimal32 y, UInt32 xs, UInt32 ys) {
-    return dec_less_or_equal(x, y, xs, ys);
-}
+#define DECLARE_DECIMAL_COMPARISON(TYPE)                               \
+    template <>                                                        \
+    bool decimal_equal(TYPE x, TYPE y, UInt32 xs, UInt32 ys) {         \
+        return dec_equal(x, y, xs, ys);                                \
+    }                                                                  \
+    template <>                                                        \
+    bool decimal_less(TYPE x, TYPE y, UInt32 xs, UInt32 ys) {          \
+        return dec_less(x, y, xs, ys);                                 \
+    }                                                                  \
+    template <>                                                        \
+    bool decimal_less_or_equal(TYPE x, TYPE y, UInt32 xs, UInt32 ys) { \
+        return dec_less_or_equal(x, y, xs, ys);                        \
+    }                                                                  \
+    template <>                                                        \
+    TYPE DecimalField<TYPE>::get_scale_multiplier() const {            \
+        return DataTypeDecimal<TYPE>::get_scale_multiplier(scale);     \
+    }
+
+DECLARE_DECIMAL_COMPARISON(Decimal32)
+DECLARE_DECIMAL_COMPARISON(Decimal64)
+DECLARE_DECIMAL_COMPARISON(Decimal128)
 
 template <>
-bool decimal_equal(Decimal64 x, Decimal64 y, UInt32 xs, UInt32 ys) {
-    return dec_equal(x, y, xs, ys);
+bool decimal_equal(Decimal128I x, Decimal128I y, UInt32 xs, UInt32 ys) {
+    return dec_equal(Decimal128(x.value), Decimal128(y.value), xs, ys);
 }
 template <>
-bool decimal_less(Decimal64 x, Decimal64 y, UInt32 xs, UInt32 ys) {
-    return dec_less(x, y, xs, ys);
+bool decimal_less(Decimal128I x, Decimal128I y, UInt32 xs, UInt32 ys) {
+    return dec_less(Decimal128(x.value), Decimal128(y.value), xs, ys);
 }
 template <>
-bool decimal_less_or_equal(Decimal64 x, Decimal64 y, UInt32 xs, UInt32 ys) {
-    return dec_less_or_equal(x, y, xs, ys);
-}
-
-template <>
-bool decimal_equal(Decimal128 x, Decimal128 y, UInt32 xs, UInt32 ys) {
-    return dec_equal(x, y, xs, ys);
-}
-template <>
-bool decimal_less(Decimal128 x, Decimal128 y, UInt32 xs, UInt32 ys) {
-    return dec_less(x, y, xs, ys);
-}
-template <>
-bool decimal_less_or_equal(Decimal128 x, Decimal128 y, UInt32 xs, UInt32 ys) {
-    return dec_less_or_equal(x, y, xs, ys);
+bool decimal_less_or_equal(Decimal128I x, Decimal128I y, UInt32 xs, UInt32 ys) {
+    return dec_less_or_equal(Decimal128(x.value), Decimal128(y.value), xs, ys);
 }
 } // namespace doris::vectorized

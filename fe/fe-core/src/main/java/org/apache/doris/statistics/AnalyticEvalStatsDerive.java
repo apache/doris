@@ -28,14 +28,9 @@ public class AnalyticEvalStatsDerive extends BaseStatsDerive {
     private static final Logger LOG = LogManager.getLogger(AggStatsDerive.class);
 
     @Override
-    public StatsDeriveResult deriveStats() {
-        return new StatsDeriveResult(deriveRowCount(), deriveColumnToDataSize(), deriveColumnToNdv());
-    }
-
-    @Override
     protected long deriveRowCount() {
         Preconditions.checkState(!childrenStatsResult.isEmpty());
-        rowCount = rowCount == -1 ? childrenStatsResult.get(0).getRowCount() : rowCount;
+        rowCount = (long) (rowCount == -1 ? childrenStatsResult.get(0).getRowCount() : rowCount);
         applyConjunctsSelectivity();
         capRowCountAtLimit();
         if (LOG.isDebugEnabled()) {

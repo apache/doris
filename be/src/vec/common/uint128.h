@@ -26,26 +26,13 @@
 
 #include "gutil/hash/city.h"
 #include "gutil/hash/hash128to64.h"
+#include "util/sse_util.hpp"
 #include "vec/core/types.h"
-
-#if defined(__SSE4_2__)
-#include <nmmintrin.h>
-#endif
-
-#if defined(__aarch64__)
-#include <sse2neon.h>
-#endif
 
 namespace doris::vectorized {
 
 /// For aggregation by SipHash, UUID type or concatenation of several fields.
 struct UInt128 {
-/// Suppress gcc7 warnings: 'prev_key.doris::vectorized::UInt128::low' may be used uninitialized in this function
-#if !__clang__
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
-#endif
-
     /// This naming assumes little endian.
     UInt64 low;
     UInt64 high;
@@ -63,35 +50,47 @@ struct UInt128 {
     }
 
     bool operator==(const UInt128 rhs) const { return tuple() == rhs.tuple(); }
-    bool operator!=(const UInt128 rhs) const { return tuple() != rhs.tuple(); }
-    bool operator<(const UInt128 rhs) const { return tuple() < rhs.tuple(); }
-    bool operator<=(const UInt128 rhs) const { return tuple() <= rhs.tuple(); }
-    bool operator>(const UInt128 rhs) const { return tuple() > rhs.tuple(); }
-    bool operator>=(const UInt128 rhs) const { return tuple() >= rhs.tuple(); }
+    auto operator<=>(const UInt128 rhs) const { return tuple() <=> rhs.tuple(); }
+
+    UInt128 operator<<(const UInt128& rhs) const {
+        const uint64_t shift = rhs.low;
+        if (((bool)rhs.high) || (shift >= 128)) {
+            return UInt128(0);
+        } else if (shift == 64) {
+            return UInt128(0, low);
+        } else if (shift == 0) {
+            return *this;
+        } else if (shift < 64) {
+            return UInt128(low << shift, (high << shift) + (low >> (64 - shift)));
+        } else if ((128 > shift) && (shift > 64)) {
+            return UInt128(0, low << (shift - 64));
+        } else {
+            return UInt128(0);
+        }
+    }
+
+    UInt128& operator<<=(const UInt128& rhs) {
+        *this = *this << rhs;
+        return *this;
+    }
+
+    UInt128 operator+(const UInt128& rhs) const {
+        return UInt128(low + rhs.low, high + rhs.high + ((low + rhs.low) < low));
+    }
+
+    UInt128& operator+=(const UInt128& rhs) {
+        high += rhs.high + ((low + rhs.low) < low);
+        low += rhs.low;
+        return *this;
+    }
 
     template <typename T>
     bool operator==(const T rhs) const {
         return *this == UInt128(rhs);
     }
     template <typename T>
-    bool operator!=(const T rhs) const {
-        return *this != UInt128(rhs);
-    }
-    template <typename T>
-    bool operator>=(const T rhs) const {
-        return *this >= UInt128(rhs);
-    }
-    template <typename T>
-    bool operator>(const T rhs) const {
-        return *this > UInt128(rhs);
-    }
-    template <typename T>
-    bool operator<=(const T rhs) const {
-        return *this <= UInt128(rhs);
-    }
-    template <typename T>
-    bool operator<(const T rhs) const {
-        return *this < UInt128(rhs);
+    auto operator<=>(const T rhs) const {
+        return *this <=> UInt128(rhs);
     }
 
     template <typename T>
@@ -99,41 +98,12 @@ struct UInt128 {
         return static_cast<T>(low);
     }
 
-#if !__clang__
-#pragma GCC diagnostic pop
-#endif
-
     UInt128& operator=(const UInt64 rhs) {
         low = rhs;
         high = 0;
         return *this;
     }
 };
-
-template <typename T>
-bool inline operator==(T a, const UInt128 b) {
-    return UInt128(a) == b;
-}
-template <typename T>
-bool inline operator!=(T a, const UInt128 b) {
-    return UInt128(a) != b;
-}
-template <typename T>
-bool inline operator>=(T a, const UInt128 b) {
-    return UInt128(a) >= b;
-}
-template <typename T>
-bool inline operator>(T a, const UInt128 b) {
-    return UInt128(a) > b;
-}
-template <typename T>
-bool inline operator<=(T a, const UInt128 b) {
-    return UInt128(a) <= b;
-}
-template <typename T>
-bool inline operator<(T a, const UInt128 b) {
-    return UInt128(a) < b;
-}
 
 template <>
 inline constexpr bool IsNumber<UInt128> = true;
@@ -175,12 +145,6 @@ struct UInt128TrivialHash {
 /** Used for aggregation, for putting a large number of constant-length keys in a hash table.
   */
 struct UInt256 {
-/// Suppress gcc7 warnings: 'prev_key.doris::vectorized::UInt256::a' may be used uninitialized in this function
-#if !__clang__
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
-#endif
-
     UInt64 a;
     UInt64 b;
     UInt64 c;
@@ -190,14 +154,7 @@ struct UInt256 {
         return a == rhs.a && b == rhs.b && c == rhs.c && d == rhs.d;
     }
 
-    bool operator!=(const UInt256 rhs) const { return !operator==(rhs); }
-
     bool operator==(const UInt64 rhs) const { return a == rhs && b == 0 && c == 0 && d == 0; }
-    bool operator!=(const UInt64 rhs) const { return !operator==(rhs); }
-
-#if !__clang__
-#pragma GCC diagnostic pop
-#endif
 
     UInt256& operator=(const UInt64 rhs) {
         a = rhs;
@@ -207,35 +164,44 @@ struct UInt256 {
         return *this;
     }
 };
+
+#pragma pack(1)
+struct UInt136 {
+    UInt8 a;
+    UInt64 b;
+    UInt64 c;
+
+    bool operator==(const UInt136 rhs) const { return a == rhs.a && b == rhs.b && c == rhs.c; }
+};
+#pragma pack()
+
 } // namespace doris::vectorized
 
 /// Overload hash for type casting
-namespace std {
 template <>
-struct hash<doris::vectorized::UInt128> {
+struct std::hash<doris::vectorized::UInt128> {
     size_t operator()(const doris::vectorized::UInt128& u) const {
         return Hash128to64({u.low, u.high});
     }
 };
 
 template <>
-struct is_signed<doris::vectorized::UInt128> {
+struct std::is_signed<doris::vectorized::UInt128> {
     static constexpr bool value = false;
 };
 
 template <>
-struct is_unsigned<doris::vectorized::UInt128> {
+struct std::is_unsigned<doris::vectorized::UInt128> {
     static constexpr bool value = true;
 };
 
 template <>
-struct is_integral<doris::vectorized::UInt128> {
+struct std::is_integral<doris::vectorized::UInt128> {
     static constexpr bool value = true;
 };
 
-// Operator +, -, /, *, % aren't implemented so it's not an arithmetic type
+// Operator +, -, /, *, % aren't implemented, so it's not an arithmetic type
 template <>
-struct is_arithmetic<doris::vectorized::UInt128> {
+struct std::is_arithmetic<doris::vectorized::UInt128> {
     static constexpr bool value = false;
 };
-} // namespace std

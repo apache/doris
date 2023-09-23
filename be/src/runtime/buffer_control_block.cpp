@@ -17,18 +17,35 @@
 
 #include "runtime/buffer_control_block.h"
 
-#include "gen_cpp/PaloInternalService_types.h"
-#include "gen_cpp/internal_service.pb.h"
-#include "runtime/raw_value.h"
-#include "service/brpc.h"
+#include <gen_cpp/Data_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <glog/logging.h>
+#include <google/protobuf/stubs/callback.h>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <ostream>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "arrow/record_batch.h"
+#include "arrow/type_fwd.h"
+#include "pipeline/exec/result_sink_operator.h"
+#include "runtime/exec_env.h"
+#include "runtime/thread_context.h"
 #include "util/thrift_util.h"
 
 namespace doris {
 
 void GetResultBatchCtx::on_failure(const Status& status) {
-    DCHECK(!status.ok()) << "status is ok, errmsg=" << status.get_error_msg();
+    DCHECK(!status.ok()) << "status is ok, errmsg=" << status;
     status.to_protobuf(result->mutable_status());
-    done->Run();
+    {
+        // call by result sink
+        SCOPED_TRACK_MEMORY_TO_UNKNOWN();
+        done->Run();
+    }
     delete this;
 }
 
@@ -40,7 +57,10 @@ void GetResultBatchCtx::on_close(int64_t packet_seq, QueryStatistics* statistics
     }
     result->set_packet_seq(packet_seq);
     result->set_eos(true);
-    done->Run();
+    {
+        SCOPED_TRACK_MEMORY_TO_UNKNOWN();
+        done->Run();
+    }
     delete this;
 }
 
@@ -57,7 +77,7 @@ void GetResultBatchCtx::on_data(const std::unique_ptr<TFetchDataResult>& t_resul
             result->set_packet_seq(packet_seq);
             result->set_eos(eos);
         } else {
-            LOG(WARNING) << "TFetchDataResult serialize failed, errmsg=" << st.get_error_msg();
+            LOG(WARNING) << "TFetchDataResult serialize failed, errmsg=" << st;
         }
     } else {
         result->set_empty_batch(true);
@@ -65,7 +85,10 @@ void GetResultBatchCtx::on_data(const std::unique_ptr<TFetchDataResult>& t_resul
         result->set_eos(eos);
     }
     st.to_protobuf(result->mutable_status());
-    done->Run();
+    {
+        SCOPED_TRACK_MEMORY_TO_UNKNOWN();
+        done->Run();
+    }
     delete this;
 }
 
@@ -85,6 +108,11 @@ Status BufferControlBlock::init() {
     return Status::OK();
 }
 
+bool BufferControlBlock::can_sink() {
+    std::unique_lock<std::mutex> l(_lock);
+    return _get_batch_queue_empty() || _buffer_rows < _buffer_limit || _is_cancelled;
+}
+
 Status BufferControlBlock::add_batch(std::unique_ptr<TFetchDataResult>& result) {
     std::unique_lock<std::mutex> l(_lock);
 
@@ -94,8 +122,8 @@ Status BufferControlBlock::add_batch(std::unique_ptr<TFetchDataResult>& result) 
 
     int num_rows = result->result_batch.rows.size();
 
-    while ((!_batch_queue.empty() && (num_rows + _buffer_rows) > _buffer_limit) && !_is_cancelled) {
-        _data_removal.wait(l);
+    while ((!_fe_result_batch_queue.empty() && _buffer_rows > _buffer_limit) && !_is_cancelled) {
+        _data_removal.wait_for(l, std::chrono::seconds(1));
     }
 
     if (_is_cancelled) {
@@ -103,9 +131,19 @@ Status BufferControlBlock::add_batch(std::unique_ptr<TFetchDataResult>& result) 
     }
 
     if (_waiting_rpc.empty()) {
+        // Merge result into batch to reduce rpc times
+        if (!_fe_result_batch_queue.empty() &&
+            ((_fe_result_batch_queue.back()->result_batch.rows.size() + num_rows) <
+             _buffer_limit) &&
+            !result->eos) {
+            std::vector<std::string>& back_rows = _fe_result_batch_queue.back()->result_batch.rows;
+            std::vector<std::string>& result_rows = result->result_batch.rows;
+            back_rows.insert(back_rows.end(), std::make_move_iterator(result_rows.begin()),
+                             std::make_move_iterator(result_rows.end()));
+        } else {
+            _fe_result_batch_queue.push_back(std::move(result));
+        }
         _buffer_rows += num_rows;
-        _batch_queue.push_back(std::move(result));
-        _data_arrival.notify_one();
     } else {
         auto ctx = _waiting_rpc.front();
         _waiting_rpc.pop_front();
@@ -115,42 +153,28 @@ Status BufferControlBlock::add_batch(std::unique_ptr<TFetchDataResult>& result) 
     return Status::OK();
 }
 
-Status BufferControlBlock::get_batch(TFetchDataResult* result) {
+Status BufferControlBlock::add_arrow_batch(std::shared_ptr<arrow::RecordBatch>& result) {
     std::unique_lock<std::mutex> l(_lock);
 
-    while (_batch_queue.empty() && !_is_close && !_is_cancelled) {
-        _data_arrival.wait(l);
-    }
-
-    // if Status has been set, return fail;
-    RETURN_IF_ERROR(_status);
-
-    // cancelled
     if (_is_cancelled) {
         return Status::Cancelled("Cancelled");
     }
 
-    if (_batch_queue.empty()) {
-        if (_is_close) {
-            // no result, normal end
-            result->eos = true;
-            result->__set_packet_num(_packet_num);
-            _packet_num++;
-            return Status::OK();
-        } else {
-            // can not get here
-            return Status::InternalError("Internal error, can not Get here!");
-        }
+    int num_rows = result->num_rows();
+
+    while ((!_arrow_flight_batch_queue.empty() && _buffer_rows > _buffer_limit) && !_is_cancelled) {
+        _data_removal.wait_for(l, std::chrono::seconds(1));
     }
 
-    // get result
-    std::unique_ptr<TFetchDataResult> item = std::move(_batch_queue.front());
-    _batch_queue.pop_front();
-    _buffer_rows -= item->result_batch.rows.size();
-    _data_removal.notify_one();
-    *result = *(item.get());
-    result->__set_packet_num(_packet_num);
-    _packet_num++;
+    if (_is_cancelled) {
+        return Status::Cancelled("Cancelled");
+    }
+
+    // TODO: merge RocordBatch, ToStructArray -> Make again
+
+    _arrow_flight_batch_queue.push_back(std::move(result));
+    _buffer_rows += num_rows;
+    _data_arrival.notify_one();
     return Status::OK();
 }
 
@@ -164,10 +188,10 @@ void BufferControlBlock::get_batch(GetResultBatchCtx* ctx) {
         ctx->on_failure(Status::Cancelled("Cancelled"));
         return;
     }
-    if (!_batch_queue.empty()) {
+    if (!_fe_result_batch_queue.empty()) {
         // get result
-        std::unique_ptr<TFetchDataResult> result = std::move(_batch_queue.front());
-        _batch_queue.pop_front();
+        std::unique_ptr<TFetchDataResult> result = std::move(_fe_result_batch_queue.front());
+        _fe_result_batch_queue.pop_front();
         _buffer_rows -= result->result_batch.rows.size();
         _data_removal.notify_one();
 
@@ -181,6 +205,39 @@ void BufferControlBlock::get_batch(GetResultBatchCtx* ctx) {
     }
     // no ready data, push ctx to waiting list
     _waiting_rpc.push_back(ctx);
+}
+
+Status BufferControlBlock::get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* result) {
+    std::unique_lock<std::mutex> l(_lock);
+    if (!_status.ok()) {
+        return _status;
+    }
+    if (_is_cancelled) {
+        return Status::Cancelled("Cancelled");
+    }
+
+    while (_arrow_flight_batch_queue.empty() && !_is_cancelled && !_is_close) {
+        _data_arrival.wait_for(l, std::chrono::seconds(1));
+    }
+
+    if (_is_cancelled) {
+        return Status::Cancelled("Cancelled");
+    }
+
+    if (!_arrow_flight_batch_queue.empty()) {
+        *result = std::move(_arrow_flight_batch_queue.front());
+        _arrow_flight_batch_queue.pop_front();
+        _buffer_rows -= (*result)->num_rows();
+        _data_removal.notify_one();
+        _packet_num++;
+        return Status::OK();
+    }
+
+    // normal path end
+    if (_is_close) {
+        return Status::OK();
+    }
+    return Status::InternalError("Abnormal Ending");
 }
 
 Status BufferControlBlock::close(Status exec_status) {
@@ -215,6 +272,64 @@ Status BufferControlBlock::cancel() {
     }
     _waiting_rpc.clear();
     return Status::OK();
+}
+
+Status PipBufferControlBlock::add_batch(std::unique_ptr<TFetchDataResult>& result) {
+    RETURN_IF_ERROR(BufferControlBlock::add_batch(result));
+    if (_buffer_dependency && _buffer_rows >= _buffer_limit) {
+        _buffer_dependency->block_writing();
+    }
+    return Status::OK();
+}
+
+Status PipBufferControlBlock::add_arrow_batch(std::shared_ptr<arrow::RecordBatch>& result) {
+    RETURN_IF_ERROR(BufferControlBlock::add_arrow_batch(result));
+    if (_buffer_dependency && _buffer_rows >= _buffer_limit) {
+        _buffer_dependency->block_writing();
+    }
+    return Status::OK();
+}
+
+void PipBufferControlBlock::get_batch(GetResultBatchCtx* ctx) {
+    BufferControlBlock::get_batch(ctx);
+    if (_buffer_dependency && _buffer_rows < _buffer_limit) {
+        _buffer_dependency->set_ready_for_write();
+    }
+}
+
+Status PipBufferControlBlock::get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* result) {
+    RETURN_IF_ERROR(BufferControlBlock::get_arrow_batch(result));
+    if (_buffer_dependency && _buffer_rows < _buffer_limit) {
+        _buffer_dependency->set_ready_for_write();
+    }
+    return Status::OK();
+}
+
+Status PipBufferControlBlock::cancel() {
+    RETURN_IF_ERROR(BufferControlBlock::cancel());
+    if (_cancel_dependency) {
+        _cancel_dependency->set_ready_for_write();
+    }
+
+    return Status::OK();
+}
+
+void PipBufferControlBlock::set_dependency(
+        std::shared_ptr<pipeline::ResultBufferDependency> buffer_dependency,
+        std::shared_ptr<pipeline::ResultQueueDependency> queue_dependency,
+        std::shared_ptr<pipeline::CancelDependency> cancel_dependency) {
+    _buffer_dependency = buffer_dependency;
+    _queue_dependency = queue_dependency;
+    _cancel_dependency = cancel_dependency;
+}
+
+void PipBufferControlBlock::_update_batch_queue_empty() {
+    _batch_queue_empty = _fe_result_batch_queue.empty() && _arrow_flight_batch_queue.empty();
+    if (_queue_dependency && _batch_queue_empty) {
+        _queue_dependency->set_ready_for_write();
+    } else if (_queue_dependency) {
+        _queue_dependency->block_writing();
+    }
 }
 
 } // namespace doris

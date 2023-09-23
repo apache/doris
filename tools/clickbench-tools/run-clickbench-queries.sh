@@ -70,7 +70,7 @@ while true; do
   esac
 done
 
-if [[ ${HELP} -eq 1 ]]; then
+if [[ "${HELP}" -eq 1 ]]; then
   usage
   exit
 fi
@@ -102,10 +102,13 @@ pre_set() {
 }
 
 pre_set "set global parallel_fragment_exec_instance_num=8;"
-pre_set "set global exec_mem_limit=8G;"
+pre_set "set global exec_mem_limit=32G;"
+pre_set "set global query_timeout=900;"
+
 echo '============================================'
 pre_set "show variables"
 echo '============================================'
+pre_set "analyze table hits with sync;"
 
 TRIES=3
 QUERY_NUM=1

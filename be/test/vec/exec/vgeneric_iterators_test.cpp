@@ -1,4 +1,3 @@
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -18,16 +17,24 @@
 
 #include "vec/olap/vgeneric_iterators.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
 #include <vector>
 
+#include "gtest/gtest_pred_impl.h"
+#include "olap/field.h"
 #include "olap/olap_common.h"
-#include "olap/row_block2.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/schema.h"
-#include "util/slice.h"
+#include "olap/tablet_schema.h"
+#include "vec/columns/column.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/field.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 namespace vectorized {
 
@@ -39,11 +46,14 @@ public:
 
 Schema create_schema() {
     std::vector<TabletColumn> col_schemas;
-    col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_SMALLINT, true);
+    col_schemas.emplace_back(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                             FieldType::OLAP_FIELD_TYPE_SMALLINT, true);
     // c2: int
-    col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_INT, true);
+    col_schemas.emplace_back(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                             FieldType::OLAP_FIELD_TYPE_INT, true);
     // c3: big int
-    col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_SUM, OLAP_FIELD_TYPE_BIGINT, true);
+    col_schemas.emplace_back(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_SUM,
+                             FieldType::OLAP_FIELD_TYPE_BIGINT, true);
 
     Schema schema(col_schemas, 2);
     return schema;
@@ -87,19 +97,17 @@ TEST(VGenericIteratorsTest, AutoIncrement) {
         EXPECT_EQ(row_count + 2, (*c2)[i].get<int>());
         row_count++;
     }
-
-    delete iter;
 }
 
 TEST(VGenericIteratorsTest, Union) {
     auto schema = create_schema();
-    std::vector<RowwiseIterator*> inputs;
+    std::vector<RowwiseIteratorUPtr> inputs;
 
     inputs.push_back(vectorized::new_auto_increment_iterator(schema, 100));
     inputs.push_back(vectorized::new_auto_increment_iterator(schema, 200));
     inputs.push_back(vectorized::new_auto_increment_iterator(schema, 300));
 
-    auto iter = vectorized::new_union_iterator(inputs);
+    auto iter = vectorized::new_union_iterator(std::move(inputs));
     StorageReadOptions opts;
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
@@ -111,7 +119,7 @@ TEST(VGenericIteratorsTest, Union) {
         st = iter->next_batch(&block);
     } while (st.ok());
 
-    EXPECT_TRUE(st.is_end_of_file());
+    EXPECT_TRUE(st.is<END_OF_FILE>());
     EXPECT_EQ(block.rows(), 600);
 
     auto c0 = block.get_by_position(0).column;
@@ -119,11 +127,11 @@ TEST(VGenericIteratorsTest, Union) {
     auto c2 = block.get_by_position(2).column;
 
     size_t row_count = 0;
-    for (size_t i = 0; i < block.rows(); ++i) {
+    for (int i = 0; i < block.rows(); ++i) {
         size_t base_value = row_count;
         if (row_count >= 300) {
             base_value -= 300;
-        } else if (row_count >= 100) {
+        } else if (i >= 100) {
             base_value -= 100;
         }
 
@@ -132,20 +140,18 @@ TEST(VGenericIteratorsTest, Union) {
         EXPECT_EQ(base_value + 2, (*c2)[i].get<int>());
         row_count++;
     }
-
-    delete iter;
 }
 
 TEST(VGenericIteratorsTest, MergeAgg) {
     EXPECT_TRUE(1);
     auto schema = create_schema();
-    std::vector<RowwiseIterator*> inputs;
+    std::vector<RowwiseIteratorUPtr> inputs;
 
     inputs.push_back(vectorized::new_auto_increment_iterator(schema, 100));
     inputs.push_back(vectorized::new_auto_increment_iterator(schema, 200));
     inputs.push_back(vectorized::new_auto_increment_iterator(schema, 300));
 
-    auto iter = vectorized::new_merge_iterator(inputs, -1, false, false, nullptr);
+    auto iter = vectorized::new_merge_iterator(std::move(inputs), -1, false, false, nullptr);
     StorageReadOptions opts;
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
@@ -157,7 +163,7 @@ TEST(VGenericIteratorsTest, MergeAgg) {
         st = iter->next_batch(&block);
     } while (st.ok());
 
-    EXPECT_TRUE(st.is_end_of_file());
+    EXPECT_TRUE(st.is<END_OF_FILE>());
     EXPECT_EQ(block.rows(), 600);
 
     auto c0 = block.get_by_position(0).column;
@@ -181,20 +187,18 @@ TEST(VGenericIteratorsTest, MergeAgg) {
         EXPECT_EQ(base_value + 2, (*c2)[i].get<int>());
         row_count++;
     }
-
-    delete iter;
 }
 
 TEST(VGenericIteratorsTest, MergeUnique) {
     EXPECT_TRUE(1);
     auto schema = create_schema();
-    std::vector<RowwiseIterator*> inputs;
+    std::vector<RowwiseIteratorUPtr> inputs;
 
     inputs.push_back(vectorized::new_auto_increment_iterator(schema, 100));
     inputs.push_back(vectorized::new_auto_increment_iterator(schema, 200));
     inputs.push_back(vectorized::new_auto_increment_iterator(schema, 300));
 
-    auto iter = vectorized::new_merge_iterator(inputs, -1, true, false, nullptr);
+    auto iter = vectorized::new_merge_iterator(std::move(inputs), -1, true, false, nullptr);
     StorageReadOptions opts;
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
@@ -206,7 +210,7 @@ TEST(VGenericIteratorsTest, MergeUnique) {
         st = iter->next_batch(&block);
     } while (st.ok());
 
-    EXPECT_TRUE(st.is_end_of_file());
+    EXPECT_TRUE(st.is<END_OF_FILE>());
     EXPECT_EQ(block.rows(), 300);
 
     auto c0 = block.get_by_position(0).column;
@@ -222,8 +226,6 @@ TEST(VGenericIteratorsTest, MergeUnique) {
         EXPECT_EQ(base_value + 2, (*c2)[i].get<int>());
         row_count++;
     }
-
-    delete iter;
 }
 
 // only used for Seq Column UT
@@ -240,7 +242,7 @@ public:
     ~SeqColumnUtIterator() override {}
 
     // NOTE: Currently, this function will ignore StorageReadOptions
-    Status init(const StorageReadOptions& opts) override { return Status::OK(); };
+    Status init(const StorageReadOptions& opts) override { return Status::OK(); }
 
     Status next_batch(vectorized::Block* block) override {
         int row_idx = 0;
@@ -253,23 +255,23 @@ public:
                 size_t data_len = 0;
                 const auto* col_schema = _schema.column(j);
                 switch (col_schema->type()) {
-                case OLAP_FIELD_TYPE_SMALLINT:
+                case FieldType::OLAP_FIELD_TYPE_SMALLINT:
                     *(int16_t*)data = j == _seq_col_idx ? _seq_col_rows_returned : 1;
                     data_len = sizeof(int16_t);
                     break;
-                case OLAP_FIELD_TYPE_INT:
+                case FieldType::OLAP_FIELD_TYPE_INT:
                     *(int32_t*)data = j == _seq_col_idx ? _seq_col_rows_returned : 1;
                     data_len = sizeof(int32_t);
                     break;
-                case OLAP_FIELD_TYPE_BIGINT:
+                case FieldType::OLAP_FIELD_TYPE_BIGINT:
                     *(int64_t*)data = j == _seq_col_idx ? _seq_col_rows_returned : 1;
                     data_len = sizeof(int64_t);
                     break;
-                case OLAP_FIELD_TYPE_FLOAT:
+                case FieldType::OLAP_FIELD_TYPE_FLOAT:
                     *(float*)data = j == _seq_col_idx ? _seq_col_rows_returned : 1;
                     data_len = sizeof(float);
                     break;
-                case OLAP_FIELD_TYPE_DOUBLE:
+                case FieldType::OLAP_FIELD_TYPE_DOUBLE:
                     *(double*)data = j == _seq_col_idx ? _seq_col_rows_returned : 1;
                     data_len = sizeof(double);
                     break;
@@ -301,7 +303,7 @@ public:
 TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
     EXPECT_TRUE(1);
     auto schema = create_schema();
-    std::vector<RowwiseIterator*> inputs;
+    std::vector<RowwiseIteratorUPtr> inputs;
 
     int seq_column_id = 2;
     int seg_iter_num = 10;
@@ -312,11 +314,12 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
     // input seg file in Ascending,  expect output seq column in Descending
     for (int i = 0; i < seg_iter_num; i++) {
         int seq_id_in_every_file = i;
-        inputs.push_back(new SeqColumnUtIterator(schema, num_rows, rows_begin, seq_column_id,
-                                                 seq_id_in_every_file));
+        inputs.push_back(std::make_unique<SeqColumnUtIterator>(
+                schema, num_rows, rows_begin, seq_column_id, seq_id_in_every_file));
     }
 
-    auto iter = vectorized::new_merge_iterator(inputs, seq_column_id, true, false, nullptr);
+    auto iter =
+            vectorized::new_merge_iterator(std::move(inputs), seq_column_id, true, false, nullptr);
     StorageReadOptions opts;
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
@@ -328,7 +331,7 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
         st = iter->next_batch(&block);
     } while (st.ok());
 
-    EXPECT_TRUE(st.is_end_of_file());
+    EXPECT_TRUE(st.is<END_OF_FILE>());
     EXPECT_EQ(block.rows(), 1);
 
     auto col0 = block.get_by_position(0).column;
@@ -336,8 +339,6 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
     auto seq_col = block.get_by_position(seq_column_id).column;
     size_t actual_value = (*seq_col)[0].get<int>();
     EXPECT_EQ(seg_iter_num - 1, actual_value);
-
-    delete iter;
 }
 
 } // namespace vectorized

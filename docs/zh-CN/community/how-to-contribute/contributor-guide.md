@@ -33,18 +33,6 @@ under the License.
 请订阅{dev,commits}@doris.apache.org邮件列表，通过发送邮件到{dev,commits}-subscribe@doris.apache.org完成订阅。
 commits邮件非常重要，因为所有的GitHub Issue，PR提交都会发往这个邮件列表。
 
-### 订阅private邮件列表
-
-订阅private@doris.apache.org通过发送邮件到private-subscribe@doris.apache.org完成订阅。
-这个订阅操作需要邮件列表的moderator进行审核才能订阅成功。
-如果你是PPMC的话, 可以通过通过[邮件列表订阅帮手](https://whimsy.apache.org/committers/subscribe)直接完成订阅。
-
-### 关联你的 ASF 账号与 Github 账号
-
-我们用GitHub来管理我们的Issue以及用户贡献。
-所以你需要把你的ASF账号与GitHub账号进行关联来获得[Doris仓库](https://github.com/apache/doris)的写入权限。
-通过在[Gitbox](https://gitbox.apache.org/setup/)完成操作后，你就可以对GitHub仓库中的Issue，PR进行管理。
-
 ## Code Review指南
 
 1. 始终保持一个较高的标准来进行review，这样才能更好地保证整个产品的质量。
@@ -90,5 +78,15 @@ Moderator主要负责给PR设定相关标签，推动相关reviewer进行评论�
 
 11. 代码合入选择“squash and merge”方式进行合入。
 
-12. 对于一个修改不同的reviewer有争议时，可以尝试讨论解决。如果讨论没有办法解决，可以在private@doris中发邮件投票解决，采取少数服从多数的原则。
+12. 对于一个修改不同的reviewer有争议时，可以尝试讨论解决。如果讨论没有办法解决，可以在 dev@doris.apache.org 中发邮件投票解决，采取少数服从多数的原则。
+
+13. 新增外部依赖
+
+在引入外部依赖项时要格外谨慎。当需要引入新库时，我们需要考虑以下因素。
+
+- 新增的外部库提供了什么功能？ 现有的库能否提供此功能（可能需要一些努力）？
+- 外部库是否由活跃的贡献者社区维护？
+- 新增库的许可条款是什么。
+- 你是否将库添加到基础模块？ 这将影响 Doris 代码库的其他部分。以 Java 为例，如果新库引入了大量传递依赖项，那么我们可能会遇到类冲突的意外问题， 
+这些问题很难通过测试发现，因为这取决于运行时加载库的顺序。 
 

@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 suite("test_materialized_view") {
+
     def tbName1 = "test_materialized_view1"
     def tbName2 = "test_materialized_view2"
 
@@ -24,7 +25,7 @@ suite("test_materialized_view") {
     }
     sql "DROP TABLE IF EXISTS ${tbName1}"
     sql """
-            CREATE TABLE ${tbName1}(
+            CREATE TABLE IF NOT EXISTS ${tbName1}(
                 record_id int, 
                 seller_id int, 
                 store_id int, 
@@ -35,7 +36,7 @@ suite("test_materialized_view") {
         """
     sql "DROP TABLE IF EXISTS ${tbName2}"
     sql """
-            CREATE TABLE ${tbName2}(
+            CREATE TABLE IF NOT EXISTS ${tbName2}(
                 record_id int, 
                 seller_id int, 
                 store_id int, 
@@ -48,7 +49,9 @@ suite("test_materialized_view") {
     int max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName1)
-        if (res == "FINISHED") {
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
+            sleep(3000)
             break
         } else {
             Thread.sleep(2000)
@@ -62,7 +65,9 @@ suite("test_materialized_view") {
     max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName2)
-        if (res == "FINISHED") {
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
+            sleep(3000)
             break
         } else {
             Thread.sleep(2000)
@@ -94,7 +99,9 @@ suite("test_materialized_view") {
     max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName1)
-        if (res == "FINISHED") {
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
+            sleep(3000)
             break
         } else {
             Thread.sleep(2000)
@@ -105,7 +112,7 @@ suite("test_materialized_view") {
         }
     }
     sql "SELECT store_id, count(sale_amt) FROM ${tbName1} GROUP BY store_id;"
-    qt_sql "DESC ${tbName1} ALL;"
+    order_qt_sql "DESC ${tbName1} ALL;"
 
     qt_sql "SELECT store_id, count(sale_amt) FROM ${tbName1} GROUP BY store_id;"
 
@@ -116,5 +123,4 @@ suite("test_materialized_view") {
 
     sql "DROP TABLE ${tbName1} FORCE;"
     sql "DROP TABLE ${tbName2} FORCE;"
-
 }

@@ -34,6 +34,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Set;
 
+@Deprecated
 public class MiniLoadJob extends LoadJob {
     private static final Logger LOG = LogManager.getLogger(MiniLoadJob.class);
 
@@ -55,17 +56,30 @@ public class MiniLoadJob extends LoadJob {
         return Sets.newHashSet(tableName);
     }
 
-    public AuthorizationInfo gatherAuthInfo() throws MetaNotFoundException {
-        Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
-        return new AuthorizationInfo(database.getFullName(), getTableNames());
-    }
-
     @Override
-    public void beginTxn() {}
+    public void beginTxn() {
+    }
 
     @Override
     protected void replayTxnAttachment(TransactionState txnState) {
         updateLoadingStatue(txnState);
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        super.write(out);
+        Text.writeString(out, tableName);
+    }
+
+    @Override
+    public void readFields(DataInput in) throws IOException {
+        super.readFields(in);
+        tableName = Text.readString(in);
+    }
+
+    public AuthorizationInfo gatherAuthInfo() throws MetaNotFoundException {
+        Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
+        return new AuthorizationInfo(database.getFullName(), getTableNames());
     }
 
     private void updateLoadingStatue(TransactionState txnState) {
@@ -82,17 +96,5 @@ public class MiniLoadJob extends LoadJob {
         if (miniLoadTxnCommitAttachment.getErrorLogUrl() != null) {
             loadingStatus.setTrackingUrl(miniLoadTxnCommitAttachment.getErrorLogUrl());
         }
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        Text.writeString(out, tableName);
-    }
-
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        tableName = Text.readString(in);
     }
 }

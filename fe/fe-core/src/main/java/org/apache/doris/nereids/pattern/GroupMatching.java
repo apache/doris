@@ -23,8 +23,8 @@ import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.Iterators;
-import com.google.common.collect.Lists;
 
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -42,7 +42,7 @@ public class GroupMatching implements Iterable<Plan> {
         this.group = Objects.requireNonNull(group);
     }
 
-    public Iterator<Plan> iterator() {
+    public final Iterator<Plan> iterator() {
         return new GroupIterator(pattern, group);
     }
 
@@ -50,7 +50,6 @@ public class GroupMatching implements Iterable<Plan> {
      * Iterator to get all subtrees from a group.
      */
     public static class GroupIterator implements Iterator<Plan> {
-        private final Pattern pattern;
         private final List<Iterator<Plan>> iterator;
         private int iteratorIndex = 0;
 
@@ -61,11 +60,13 @@ public class GroupMatching implements Iterable<Plan> {
          * @param group group to be matched
          */
         public GroupIterator(Pattern<? extends Plan> pattern, Group group) {
-            this.pattern = pattern;
-            this.iterator = Lists.newArrayList();
+            this.iterator = new ArrayList<>();
 
             if (pattern.isGroup() || pattern.isMultiGroup()) {
-                this.iterator.add(Iterators.singletonIterator(new GroupPlan(group)));
+                GroupPlan groupPlan = new GroupPlan(group);
+                if (((Pattern<Plan>) pattern).matchPredicates(groupPlan)) {
+                    this.iterator.add(Iterators.singletonIterator(groupPlan));
+                }
             } else {
                 for (GroupExpression groupExpression : group.getLogicalExpressions()) {
                     GroupExpressionMatching.GroupExpressionIterator groupExpressionIterator =
@@ -85,12 +86,12 @@ public class GroupMatching implements Iterable<Plan> {
         }
 
         @Override
-        public boolean hasNext() {
+        public final boolean hasNext() {
             return iteratorIndex < iterator.size();
         }
 
         @Override
-        public Plan next() {
+        public final Plan next() {
             if (!hasNext()) {
                 throw new NoSuchElementException();
             }

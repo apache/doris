@@ -27,7 +27,6 @@ import org.apache.doris.system.SystemInfoService;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -36,7 +35,6 @@ import org.json.simple.JSONObject;
 import org.json.simple.JSONValue;
 
 import java.util.List;
-import java.util.Map;
 
 /*
  * Required env variables:
@@ -67,6 +65,7 @@ public class AmbariDeployManager extends DeployManager {
     public static final String ENV_AMBARI_FE_COMPONENTS = "ENV_AMBARI_FE_COMPONENTS"; // PALO_FE
     public static final String ENV_AMBARI_BE_COMPONENTS = "ENV_AMBARI_BE_COMPONENTS";
     public static final String ENV_AMBARI_BROKER_COMPONENTS = "ENV_AMBARI_BROKER_COMPONENTS";
+    public static final String ENV_AMBARI_CN_COMPONENTS = "ENV_AMBARI_CN_COMPONENTS";
 
     // used for getting config info from blueprint
     public static final String ENV_AMBARI_FE_COMPONENTS_CONFIG = "ENV_AMBARI_FE_COMPONENTS_CONFIG"; // palo-fe-node
@@ -102,7 +101,8 @@ public class AmbariDeployManager extends DeployManager {
 
     public AmbariDeployManager(Env env, long intervalMs) {
         super(env, intervalMs);
-        initEnvVariables(ENV_AMBARI_FE_COMPONENTS, "", ENV_AMBARI_BE_COMPONENTS, ENV_AMBARI_BROKER_COMPONENTS);
+        initEnvVariables(ENV_AMBARI_FE_COMPONENTS, "", ENV_AMBARI_BE_COMPONENTS, ENV_AMBARI_BROKER_COMPONENTS,
+                ENV_AMBARI_CN_COMPONENTS);
     }
 
     public AmbariDeployManager() {
@@ -111,9 +111,9 @@ public class AmbariDeployManager extends DeployManager {
 
     @Override
     protected void initEnvVariables(String envElectableFeServiceGroup, String envObserverFeServiceGroup,
-            String envBackendServiceGroup, String envBrokerServiceGroup) {
+            String envBackendServiceGroup, String envBrokerServiceGroup, String envCnServiceGroup) {
         super.initEnvVariables(envElectableFeServiceGroup, envObserverFeServiceGroup, envBackendServiceGroup,
-                   envBrokerServiceGroup);
+                envBrokerServiceGroup, envCnServiceGroup);
 
         this.feConfigNode = Strings.nullToEmpty(System.getenv(ENV_AMBARI_FE_COMPONENTS_CONFIG));
         this.beConfigNode = Strings.nullToEmpty(System.getenv(ENV_AMBARI_BE_COMPONENTS_CONFIG));
@@ -121,17 +121,17 @@ public class AmbariDeployManager extends DeployManager {
 
         if (Strings.isNullOrEmpty(feConfigNode) || Strings.isNullOrEmpty(beConfigNode)) {
             LOG.error("failed to get fe config node: {} or be config node: {}. env var: {}, {}",
-                      feConfigNode, beConfigNode, ENV_AMBARI_FE_COMPONENTS_CONFIG, ENV_AMBARI_BE_COMPONENTS_CONFIG);
+                    feConfigNode, beConfigNode, ENV_AMBARI_FE_COMPONENTS_CONFIG, ENV_AMBARI_BE_COMPONENTS_CONFIG);
             System.exit(-1);
         }
 
         if (Strings.isNullOrEmpty(brokerConfigNode)) {
             LOG.warn("can not get broker config node from env var: {}", ENV_AMBARI_BROKER_COMPONENTS_CONFIG);
-            hasBrokerService = false;
+            nodeTypeAttrMap.get(NodeType.BROKER).setHasService(false);
         }
 
         LOG.info("get fe, be and broker config node name: {}, {}, {}",
-                 feConfigNode, beConfigNode, brokerConfigNode);
+                feConfigNode, beConfigNode, brokerConfigNode);
 
         // 1. auth info
         authInfo = System.getenv(ENV_AUTH_INFO);
@@ -195,23 +195,23 @@ public class AmbariDeployManager extends DeployManager {
     }
 
     @Override
-    protected List<Pair<String, Integer>> getGroupHostPorts(String groupName) {
+    protected List<SystemInfoService.HostInfo> getGroupHostInfos(NodeType nodeType) {
         int port = -1;
-        if (groupName.equalsIgnoreCase(electableFeServiceGroup)) {
+        if (nodeType == NodeType.ELECTABLE) {
             port = getFeEditLogPort();
-        } else if (groupName.equalsIgnoreCase(backendServiceGroup)) {
+        } else if (nodeType == NodeType.BACKEND) {
             port = getBeHeartbeatPort();
         } else {
-            LOG.warn("unknown group name: {}", groupName);
+            LOG.warn("unknown type: {}", nodeType.name());
             return null;
         }
         if (port == -1) {
-            LOG.warn("failed to get port of component: {}", groupName);
+            LOG.warn("failed to get port of component: {}", nodeType.name());
             return null;
         }
-
+        String groupName = nodeTypeAttrMap.get(nodeType).getServiceName();
         List<String> hostnames = getHostnamesFromComponentsJson(groupName);
-        List<Pair<String, Integer>> hostPorts = Lists.newArrayListWithCapacity(hostnames.size());
+        List<SystemInfoService.HostInfo> hostPorts = Lists.newArrayListWithCapacity(hostnames.size());
         for (String hostname : hostnames) {
             Pair<String, Integer> hostPort = null;
             try {
@@ -220,7 +220,7 @@ public class AmbariDeployManager extends DeployManager {
                 LOG.warn("Invalid host port format: {}:{}", hostname, port, e);
                 continue;
             }
-            hostPorts.add(hostPort);
+            hostPorts.add(new SystemInfoService.HostInfo(hostPort.first, hostPort.second));
         }
 
         LOG.info("get {} hosts from ambari: {}", groupName, hostPorts);
@@ -228,35 +228,8 @@ public class AmbariDeployManager extends DeployManager {
     }
 
     @Override
-    protected Map<String, List<Pair<String, Integer>>> getBrokerGroupHostPorts() {
-        int port = getBrokerIpcPort();
-        if (port == -1) {
-            LOG.warn("failed to get port of component: {}", brokerServiceGroup);
-            return null;
-        }
-
-        String brokerName = getPropertyFromBlueprint(brokerConfigNode, KEY_BROKER_NAME);
-        if (brokerName == null) {
-            return null;
-        }
-
-        List<String> hostnames = getHostnamesFromComponentsJson(brokerServiceGroup);
-        List<Pair<String, Integer>> hostPorts = Lists.newArrayListWithCapacity(hostnames.size());
-        for (String hostname : hostnames) {
-            Pair<String, Integer> hostPort = null;
-            try {
-                hostPort = SystemInfoService.validateHostAndPort(hostname + ":" + port);
-            } catch (AnalysisException e) {
-                LOG.warn("Invalid host port format: {}:{}", hostname, port, e);
-                continue;
-            }
-            hostPorts.add(hostPort);
-        }
-
-        Map<String, List<Pair<String, Integer>>> brokers = Maps.newHashMap();
-        brokers.put(brokerName, hostPorts);
-        LOG.info("get brokers from ambari: {}", brokers);
-        return brokers;
+    protected String getBrokerName() {
+        return getPropertyFromBlueprint(brokerConfigNode, KEY_BROKER_NAME);
     }
 
     private Integer getFeEditLogPort() {

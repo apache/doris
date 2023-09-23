@@ -17,19 +17,20 @@
 
 #include "olap/rowset/segment_v2/zone_map_index.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <string.h>
 
+#include <algorithm>
 #include <memory>
 #include <string>
 
-#include "common/config.h"
-#include "env/env.h"
-#include "io/fs/file_system.h"
+#include "gtest/gtest_pred_impl.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
-#include "olap/page_cache.h"
+#include "olap/tablet_schema.h"
 #include "olap/tablet_schema_helper.h"
-#include "util/file_utils.h"
+#include "util/slice.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -39,52 +40,49 @@ public:
     const std::string kTestDir = "./ut_dir/zone_map_index_test";
 
     void SetUp() override {
-        if (FileUtils::check_exist(kTestDir)) {
-            EXPECT_TRUE(FileUtils::remove_all(kTestDir).ok());
-        }
-        EXPECT_TRUE(FileUtils::create_dir(kTestDir).ok());
+        EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(kTestDir).ok());
     }
     void TearDown() override {
-        if (FileUtils::check_exist(kTestDir)) {
-            EXPECT_TRUE(FileUtils::remove_all(kTestDir).ok());
-        }
+        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
     }
 
     void test_string(std::string testname, Field* field) {
         std::string filename = kTestDir + "/" + testname;
         auto fs = io::global_local_filesystem();
 
-        ZoneMapIndexWriter builder(field);
+        std::unique_ptr<ZoneMapIndexWriter> builder(nullptr);
+        ZoneMapIndexWriter::create(field, builder);
         std::vector<std::string> values1 = {"aaaa", "bbbb", "cccc", "dddd", "eeee", "ffff"};
         for (auto& value : values1) {
             Slice slice(value);
-            builder.add_values((const uint8_t*)&slice, 1);
+            builder->add_values((const uint8_t*)&slice, 1);
         }
-        builder.flush();
+        builder->flush();
         std::vector<std::string> values2 = {"aaaaa", "bbbbb", "ccccc", "ddddd", "eeeee", "fffff"};
         for (auto& value : values2) {
             Slice slice(value);
-            builder.add_values((const uint8_t*)&slice, 1);
+            builder->add_values((const uint8_t*)&slice, 1);
         }
-        builder.add_nulls(1);
-        builder.flush();
+        builder->add_nulls(1);
+        builder->flush();
         for (int i = 0; i < 6; ++i) {
-            builder.add_nulls(1);
+            builder->add_nulls(1);
         }
-        builder.flush();
+        builder->flush();
         // write out zone map index
         ColumnIndexMetaPB index_meta;
         {
             io::FileWriterPtr file_writer;
             EXPECT_TRUE(fs->create_file(filename, &file_writer).ok());
-            EXPECT_TRUE(builder.finish(file_writer.get(), &index_meta).ok());
+            EXPECT_TRUE(builder->finish(file_writer.get(), &index_meta).ok());
             EXPECT_EQ(ZONE_MAP_INDEX, index_meta.type());
             EXPECT_TRUE(file_writer->close().ok());
         }
 
         io::FileReaderSPtr file_reader;
         EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
-        ZoneMapIndexReader column_zone_map(file_reader, &index_meta.zone_map_index());
+        ZoneMapIndexReader column_zone_map(file_reader,
+                                           index_meta.zone_map_index().page_zone_maps());
         Status status = column_zone_map.load(true, false);
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(3, column_zone_map.num_pages());
@@ -108,29 +106,31 @@ public:
         std::string filename = kTestDir + "/" + testname;
         auto fs = io::global_local_filesystem();
 
-        ZoneMapIndexWriter builder(field);
+        std::unique_ptr<ZoneMapIndexWriter> builder(nullptr);
+        ZoneMapIndexWriter::create(field, builder);
         char ch = 'a';
         char buf[1024];
         for (int i = 0; i < 5; i++) {
             memset(buf, ch + i, 1024);
             Slice slice(buf, 1024);
-            builder.add_values((const uint8_t*)&slice, 1);
+            builder->add_values((const uint8_t*)&slice, 1);
         }
-        builder.flush();
+        builder->flush();
 
         // write out zone map index
         ColumnIndexMetaPB index_meta;
         {
             io::FileWriterPtr file_writer;
             EXPECT_TRUE(fs->create_file(filename, &file_writer).ok());
-            EXPECT_TRUE(builder.finish(file_writer.get(), &index_meta).ok());
+            EXPECT_TRUE(builder->finish(file_writer.get(), &index_meta).ok());
             EXPECT_EQ(ZONE_MAP_INDEX, index_meta.type());
             EXPECT_TRUE(file_writer->close().ok());
         }
 
         io::FileReaderSPtr file_reader;
         EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
-        ZoneMapIndexReader column_zone_map(file_reader, &index_meta.zone_map_index());
+        ZoneMapIndexReader column_zone_map(file_reader,
+                                           index_meta.zone_map_index().page_zone_maps());
         Status status = column_zone_map.load(true, false);
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(1, column_zone_map.num_pages());
@@ -156,33 +156,34 @@ TEST_F(ColumnZoneMapTest, NormalTestIntPage) {
     TabletColumn int_column = create_int_key(0);
     Field* field = FieldFactory::create(int_column);
 
-    ZoneMapIndexWriter builder(field);
+    std::unique_ptr<ZoneMapIndexWriter> builder(nullptr);
+    ZoneMapIndexWriter::create(field, builder);
     std::vector<int> values1 = {1, 10, 11, 20, 21, 22};
     for (auto value : values1) {
-        builder.add_values((const uint8_t*)&value, 1);
+        builder->add_values((const uint8_t*)&value, 1);
     }
-    builder.flush();
+    builder->flush();
     std::vector<int> values2 = {2, 12, 31, 23, 21, 22};
     for (auto value : values2) {
-        builder.add_values((const uint8_t*)&value, 1);
+        builder->add_values((const uint8_t*)&value, 1);
     }
-    builder.add_nulls(1);
-    builder.flush();
-    builder.add_nulls(6);
-    builder.flush();
+    builder->add_nulls(1);
+    builder->flush();
+    builder->add_nulls(6);
+    builder->flush();
     // write out zone map index
     ColumnIndexMetaPB index_meta;
     {
         io::FileWriterPtr file_writer;
         EXPECT_TRUE(fs->create_file(filename, &file_writer).ok());
-        EXPECT_TRUE(builder.finish(file_writer.get(), &index_meta).ok());
+        EXPECT_TRUE(builder->finish(file_writer.get(), &index_meta).ok());
         EXPECT_EQ(ZONE_MAP_INDEX, index_meta.type());
         EXPECT_TRUE(file_writer->close().ok());
     }
 
     io::FileReaderSPtr file_reader;
     EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
-    ZoneMapIndexReader column_zone_map(file_reader, &index_meta.zone_map_index());
+    ZoneMapIndexReader column_zone_map(file_reader, index_meta.zone_map_index().page_zone_maps());
     Status status = column_zone_map.load(true, false);
     EXPECT_TRUE(status.ok());
     EXPECT_EQ(3, column_zone_map.num_pages());

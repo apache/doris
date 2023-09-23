@@ -28,7 +28,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DorisHttpException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
-import org.apache.doris.httpv2.util.HttpUtil;
+import org.apache.doris.httpv2.rest.manager.HttpUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
@@ -84,12 +84,16 @@ public class TableQueryPlanAction extends RestBaseController {
             @PathVariable(value = DB_KEY) final String dbName,
             @PathVariable(value = TABLE_KEY) final String tblName,
             HttpServletRequest request, HttpServletResponse response) {
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
+
         executeCheckPassword(request, response);
         // just allocate 2 slot for top holder map
         Map<String, Object> resultMap = new HashMap<>(4);
 
-        String postContent = HttpUtil.getBody(request);
         try {
+            String postContent = HttpUtils.getBody(request);
             // may be these common validate logic should be moved to one base class
             if (Strings.isNullOrEmpty(postContent)) {
                 return ResponseEntityBuilder.badRequest("POST body must contains [sql] root object");
@@ -118,6 +122,12 @@ public class TableQueryPlanAction extends RestBaseController {
             }
             table.readLock();
             try {
+                if (ConnectContext.get() != null
+                        && ConnectContext.get().getSessionVariable() != null) {
+                    // Disable some optimizations, since it's not fully supported
+                    // TODO support it
+                    ConnectContext.get().getSessionVariable().setEnableTwoPhaseReadOpt(false);
+                }
                 // parse/analysis/plan the sql and acquire tablet distributions
                 handleQuery(ConnectContext.get(), fullDbName, tblName, sql, resultMap);
             } finally {
@@ -236,9 +246,10 @@ public class TableQueryPlanAction extends RestBaseController {
         tQueryPlanInfo.tablet_info = tabletInfo;
 
         // serialize TQueryPlanInfo and encode plan with Base64 to string in order to translate by json format
-        TSerializer serializer = new TSerializer();
+        TSerializer serializer;
         String opaquedQueryPlan;
         try {
+            serializer = new TSerializer();
             byte[] queryPlanStream = serializer.serialize(tQueryPlanInfo);
             opaquedQueryPlan = Base64.getEncoder().encodeToString(queryPlanStream);
         } catch (TException e) {

@@ -35,6 +35,8 @@ public:
 
     size_t count() { return _end - _start; }
 
+    std::string to_string() { return std::string(_start, (_end - _start)); }
+
 private:
     char* _start;
     char* _end;

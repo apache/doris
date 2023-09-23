@@ -32,6 +32,7 @@ import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -40,14 +41,17 @@ import java.util.List;
 public class SelectNode extends PlanNode {
     private static final Logger LOG = LogManager.getLogger(SelectNode.class);
 
-    protected SelectNode(PlanNodeId id, PlanNode child) {
-        super(id, child.getTupleIds(), "SELECT", StatisticalType.SELECT_NODE);
+    /**
+     * Used by nereids only.
+     */
+    public SelectNode(PlanNodeId id, PlanNode child) {
+        super(id, new ArrayList<>(child.getOutputTupleIds()), "SELECT", StatisticalType.SELECT_NODE);
         addChild(child);
         this.nullableTupleIds = child.nullableTupleIds;
     }
 
     protected SelectNode(PlanNodeId id, PlanNode child, List<Expr> conjuncts) {
-        super(id, child.getTupleIds(), "SELECT", StatisticalType.SELECT_NODE);
+        super(id, new ArrayList<>(child.getOutputTupleIds()), "SELECT", StatisticalType.SELECT_NODE);
         addChild(child);
         this.tblRefIds = child.tblRefIds;
         this.nullableTupleIds = child.nullableTupleIds;
@@ -73,7 +77,7 @@ public class SelectNode extends PlanNode {
             return;
         }
         StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = statsDeriveResult.getRowCount();
+        cardinality = (long) statsDeriveResult.getRowCount();
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("stats Select: cardinality={}", this.cardinality);
@@ -99,13 +103,8 @@ public class SelectNode extends PlanNode {
         }
         StringBuilder output = new StringBuilder();
         if (!conjuncts.isEmpty()) {
-            output.append(prefix + "predicates: " + getExplainString(conjuncts) + "\n");
+            output.append(prefix).append("predicates: ").append(getExplainString(conjuncts)).append("\n");
         }
         return output.toString();
-    }
-
-    @Override
-    public int getNumInstances() {
-        return children.get(0).getNumInstances();
     }
 }

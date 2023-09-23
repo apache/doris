@@ -60,7 +60,8 @@ public class JobsDbProcDir implements ProcDirInterface {
             throw new AnalysisException("Invalid db id format: " + dbIdStr);
         }
 
-        Database db = env.getInternalCatalog().getDbOrAnalysisException(dbId);
+        // dbId = -1 means need total result of all databases
+        Database db = dbId == -1 ? null : env.getInternalCatalog().getDbOrAnalysisException(dbId);
 
         return new JobsProcDir(env, db);
     }

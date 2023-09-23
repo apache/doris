@@ -17,36 +17,46 @@
 
 #include "vec/exprs/vruntimefilter_wrapper.h"
 
-#include <string_view>
+#include <fmt/format.h>
+#include <stddef.h>
+
+#include <memory>
+#include <utility>
 
 #include "util/simd/bits.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/column_set.h"
-#include "vec/core/field.h"
-#include "vec/data_types/data_type_factory.hpp"
-#include "vec/functions/simple_function_factory.h"
+#include "vec/columns/column_vector.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+
+namespace doris {
+class RowDescriptor;
+class RuntimeState;
+class TExprNode;
+
+namespace vectorized {
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
-VRuntimeFilterWrapper::VRuntimeFilterWrapper(const TExprNode& node, VExpr* impl)
-        : VExpr(node),
-          _impl(impl),
-          _always_true(false),
-          _filtered_rows(0),
-          _scan_rows(0),
-          _is_closed(false) {}
+VRuntimeFilterWrapper::VRuntimeFilterWrapper(const TExprNode& node, const VExprSPtr& impl)
+        : VExpr(node), _impl(impl), _always_true(false), _filtered_rows(0), _scan_rows(0) {}
 
 VRuntimeFilterWrapper::VRuntimeFilterWrapper(const VRuntimeFilterWrapper& vexpr)
         : VExpr(vexpr),
           _impl(vexpr._impl),
           _always_true(vexpr._always_true),
           _filtered_rows(vexpr._filtered_rows.load()),
-          _scan_rows(vexpr._scan_rows.load()),
-          _is_closed(false) {}
+          _scan_rows(vexpr._scan_rows.load()) {}
 
 Status VRuntimeFilterWrapper::prepare(RuntimeState* state, const RowDescriptor& desc,
                                       VExprContext* context) {
-    RETURN_IF_ERROR(_impl->prepare(state, desc, context));
+    RETURN_IF_ERROR_OR_PREPARED(_impl->prepare(state, desc, context));
     _expr_name = fmt::format("VRuntimeFilterWrapper({})", _impl->expr_name());
     return Status::OK();
 }
@@ -56,13 +66,9 @@ Status VRuntimeFilterWrapper::open(RuntimeState* state, VExprContext* context,
     return _impl->open(state, context, scope);
 }
 
-void VRuntimeFilterWrapper::close(RuntimeState* state, VExprContext* context,
+void VRuntimeFilterWrapper::close(VExprContext* context,
                                   FunctionContext::FunctionStateScope scope) {
-    if (_is_closed) {
-        return;
-    }
-    _is_closed = true;
-    _impl->close(state, context, scope);
+    _impl->close(context, scope);
 }
 
 bool VRuntimeFilterWrapper::is_constant() const {
@@ -103,13 +109,7 @@ Status VRuntimeFilterWrapper::execute(VExprContext* context, Block* block, int* 
             return Status::InternalError("Invalid type for runtime filters!");
         }
 
-        if ((!_has_calculate_filter) && (_scan_rows.load() >= THRESHOLD_TO_CALCULATE_RATE)) {
-            double rate = (double)_filtered_rows / _scan_rows;
-            if (rate < EXPECTED_FILTER_RATE) {
-                _always_true = true;
-            }
-            _has_calculate_filter = true;
-        }
+        calculate_filter(_filtered_rows, _scan_rows, _has_calculate_filter, _always_true);
         return Status::OK();
     }
 }

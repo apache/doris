@@ -17,13 +17,21 @@
 
 #include "vec/exprs/vtuple_is_null_predicate.h"
 
-#include <string_view>
+#include <gen_cpp/Exprs_types.h>
+#include <glog/logging.h>
 
-#include "exprs/create_predicate_function.h"
-#include "vec/core/field.h"
-#include "vec/data_types/data_type_factory.hpp"
-#include "vec/data_types/data_type_nullable.h"
-#include "vec/functions/simple_function_factory.h"
+#include <ostream>
+#include <vector>
+
+#include "runtime/descriptors.h"
+
+namespace doris {
+class RuntimeState;
+namespace vectorized {
+class Block;
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -36,7 +44,7 @@ VTupleIsNullPredicate::VTupleIsNullPredicate(const TExprNode& node)
 
 Status VTupleIsNullPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
                                       VExprContext* context) {
-    RETURN_IF_ERROR(VExpr::prepare(state, desc, context));
+    RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
     DCHECK_EQ(0, _children.size());
     _column_to_check =
             _is_left_null_side ? desc.num_materialized_slots() : desc.num_materialized_slots() + 1;

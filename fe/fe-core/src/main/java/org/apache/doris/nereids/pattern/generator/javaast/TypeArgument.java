@@ -19,7 +19,6 @@ package org.apache.doris.nereids.pattern.generator.javaast;
 
 import java.util.Optional;
 
-
 /** java generic type argument. */
 public class TypeArgument implements JavaAstNode {
     /** generic type. */

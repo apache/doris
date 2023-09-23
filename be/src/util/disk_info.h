@@ -17,9 +17,12 @@
 
 #pragma once
 
+#include <sys/types.h>
+
 #include <map>
 #include <set>
 #include <string>
+#include <vector>
 
 #include "common/logging.h"
 #include "common/status.h"

@@ -21,10 +21,9 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 
-import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Optional;
@@ -32,27 +31,12 @@ import java.util.Optional;
 /**
  * Abstract class for all logical plan that have no child.
  */
-public abstract class LogicalLeaf extends AbstractLogicalPlan implements LeafPlan {
-
-    public LogicalLeaf(PlanType nodeType) {
-        super(nodeType);
-    }
-
-    public LogicalLeaf(PlanType nodeType, Optional<LogicalProperties> logicalProperties) {
-        super(nodeType, logicalProperties);
-    }
+public abstract class LogicalLeaf extends AbstractLogicalPlan implements LeafPlan, OutputSavePoint {
 
     public LogicalLeaf(PlanType nodeType, Optional<GroupExpression> groupExpression,
                            Optional<LogicalProperties> logicalProperties) {
-        super(nodeType, groupExpression, logicalProperties);
+        super(nodeType, groupExpression, logicalProperties, ImmutableList.of());
     }
 
     public abstract List<Slot> computeOutput();
-
-
-    @Override
-    public LogicalProperties computeLogicalProperties(Plan... inputs) {
-        Preconditions.checkArgument(inputs.length == 0);
-        return new LogicalProperties(() -> computeOutput());
-    }
 }

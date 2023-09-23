@@ -63,9 +63,10 @@ DROP STORAGE POLICY policy_name1
    ```
 
 3. Drop the storage policy named policy_name1
-   ```sql
-   DROP STORAGE POLICY policy_name1
-   ```
+```sql
+DROP STORAGE POLICY policy_name1
+```
+
 ### Keywords
 
     DROP, POLICY

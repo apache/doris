@@ -15,23 +15,39 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <fmt/format.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-param-test.h>
+#include <gtest/gtest-test-part.h>
+#include <stdint.h>
+
 #include <memory>
 #include <string>
+#include <utility>
+#include <vector>
 
-#include "gtest/gtest.h"
+#include "gtest/gtest_pred_impl.h"
 #include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/aggregate_functions/aggregate_function_min_max_by.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
+#include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/data_types/data_type.h"
+#include "vec/columns/columns_number.h"
+#include "vec/core/field.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+
+namespace doris {
+namespace vectorized {
+class IColumn;
+} // namespace vectorized
+} // namespace doris
 
 const int agg_test_batch_size = 4096;
 
 namespace doris::vectorized {
 // declare function
-void register_aggregate_function_min_max_by(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_min_by(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_max_by(AggregateFunctionSimpleFactory& factory);
 
 class AggMinMaxByTest : public ::testing::TestWithParam<std::string> {};
 
@@ -60,15 +76,15 @@ TEST_P(AggMinMaxByTest, min_max_by_test) {
 
     // Prepare test function and parameters.
     AggregateFunctionSimpleFactory factory;
-    register_aggregate_function_min_max_by(factory);
+    register_aggregate_function_min_by(factory);
+    register_aggregate_function_max_by(factory);
 
     // Test on 2 kind of key types (int32, string).
     for (int i = 0; i < 2; i++) {
         DataTypes data_types = {std::make_shared<DataTypeInt32>(),
                                 i == 0 ? (DataTypePtr)std::make_shared<DataTypeInt32>()
                                        : (DataTypePtr)std::make_shared<DataTypeString>()};
-        Array array;
-        auto agg_function = factory.get(min_max_by_type, data_types, array);
+        auto agg_function = factory.get(min_max_by_type, data_types);
         std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
         AggregateDataPtr place = memory.get();
         agg_function->create(place);
@@ -86,11 +102,11 @@ TEST_P(AggMinMaxByTest, min_max_by_test) {
         agg_function->insert_result_into(place, ans);
         if (i == 0) {
             // Key type is int32.
-            ASSERT_EQ(min_max_by_type == "max_by" ? 0 : agg_test_batch_size - 1,
+            EXPECT_EQ(min_max_by_type == "max_by" ? 0 : agg_test_batch_size - 1,
                       ans.get_element(0));
         } else {
             // Key type is string.
-            ASSERT_EQ(min_max_by_type == "max_by" ? max_pair.second : min_pair.second,
+            EXPECT_EQ(min_max_by_type == "max_by" ? max_pair.second : min_pair.second,
                       ans.get_element(0));
         }
         agg_function->destroy(place);

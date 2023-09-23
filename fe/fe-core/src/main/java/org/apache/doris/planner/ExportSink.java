@@ -28,13 +28,13 @@ import org.apache.doris.thrift.TExportSink;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TNetworkAddress;
 
-import org.apache.commons.lang.StringEscapeUtils;
+import org.apache.commons.lang3.StringEscapeUtils;
 
 public class ExportSink extends DataSink {
     private final String exportPath;
     private final String columnSeparator;
     private final String lineDelimiter;
-    private BrokerDesc brokerDesc;
+    private final BrokerDesc brokerDesc;
     private String header = "";
 
     public ExportSink(String exportPath, String columnSeparator,
@@ -79,7 +79,7 @@ public class ExportSink extends DataSink {
         if (brokerDesc.getFileType() == TFileType.FILE_BROKER) {
             FsBroker broker = Env.getCurrentEnv().getBrokerMgr().getAnyBroker(brokerDesc.getName());
             if (broker != null) {
-                tExportSink.addToBrokerAddresses(new TNetworkAddress(broker.ip, broker.port));
+                tExportSink.addToBrokerAddresses(new TNetworkAddress(broker.host, broker.port));
             }
         }
         tExportSink.setProperties(brokerDesc.getProperties());

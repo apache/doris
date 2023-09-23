@@ -181,6 +181,50 @@ ADD COLUMN k5 INT default "1" to rollup2;
 
 同时，不允许向 Rollup 中加入 Base 表已经存在的列。如果用户需要这样做，可以重新建立一个包含新增列的 Rollup，之后再删除原 Rollup。
 
+### 修改 Key 列
+
+修改表的 Key 列是通过 `key` 关键字完成，下面我们通过一个例子来看。
+
+**这个用法只针对 Duplicate key 表的 key 列**
+
+源 Schema :
+
+```text
++-----------+-------+-------------+------+------+---------+-------+
+| IndexName | Field | Type        | Null | Key  | Default | Extra |
++-----------+-------+-------------+------+------+---------+-------+
+| tbl1      | k1    | INT         | No   | true | N/A     |       |
+|           | k2    | INT         | No   | true | N/A     |       |
+|           | k3    | varchar(20) | No   | true | N/A     |       |
+|           | k4    | INT         | No   | false| N/A     |       |
++-----------+-------+-------------+------+------+---------+-------+
+```
+
+修改语句如下，我们将 k3 列的长度改成 50
+
+
+```sql
+alter table example_tbl modify column k3 varchar(50) key null comment 'to 50'
+```
+
+完成后，Schema 变为：
+```text
++-----------+-------+-------------+------+------+---------+-------+
+| IndexName | Field | Type        | Null | Key  | Default | Extra |
++-----------+-------+-------------+------+------+---------+-------+
+| tbl1      | k1    | INT         | No   | true | N/A     |       |
+|           | k2    | INT         | No   | true | N/A     |       |
+|           | k3    | varchar(50) | No   | true | N/A     |       |
+|           | k4    | INT         | No   | false| N/A     |       |
++-----------+-------+-------------+------+------+---------+-------+
+```
+
+因为Schema Chanage 作业是异步操作，同一个表同时只能进行一个Schema chanage 作业，查看作业运行情况，可以通过下面这个命令
+
+```sql
+SHOW ALTER TABLE COLUMN\G;
+```
+
 ## 注意事项
 
 - 一张表在同一时间只能有一个 Schema Change 作业在运行。
@@ -244,6 +288,8 @@ ADD COLUMN k5 INT default "1" to rollup2;
 ### BE 配置
 
 - `alter_tablet_worker_count`：在 BE 端用于执行历史数据转换的线程数。默认为 3。如果希望加快 Schema Change 作业的速度，可以适当调大这个参数后重启 BE。但过多的转换线程可能会导致 IO 压力增加，影响其他操作。该线程和 Rollup 作业共用。
+
+- `alter_index_worker_count`：在 BE 端用于执行历史数据构建索引的线程数（注：当前只支持倒排索引）。默认为 3。如果希望加快 Index Change 作业的速度，可以适当调大这个参数后重启 BE。但过多的线程可能会导致 IO 压力增加，影响其他操作。
 
 ## 更多帮助
 

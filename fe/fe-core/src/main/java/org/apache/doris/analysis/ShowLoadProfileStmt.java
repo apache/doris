@@ -27,9 +27,9 @@ import com.google.common.base.Strings;
 
 // For stmt like:
 // show load profile "/";   # list all saving load job ids
-// show load profile "/10014"  # show task ids of specified job
-// show load profile "/10014/e0f7390f5363419e-b416a2a79996083e/" # show instance list of the task
-// show load profile "/10014/e0f7390f5363419e-b416a2a79996083e/e0f7390f5363419e-b416a2a7999" # show instance's graph
+// show load profile "/e0f7390f5363419e-xxx"  # show task ids of specified job
+// show load profile "/e0f7390f5363419e-xxx/e0f7390f5363419e-yyy/" # show instance list of the task
+// show load profile "/e0f7390f5363419e-xxx/e0f7390f5363419e-yyy/e0f7390f5363419e-zzz" # show instance's graph
 public class ShowLoadProfileStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA_TASK_IDS =
             ShowResultSetMetaData.builder()
@@ -38,8 +38,9 @@ public class ShowLoadProfileStmt extends ShowStmt {
                     .build();
 
     public enum PathType {
-        JOB_IDS,
+        QUERY_IDS,
         TASK_IDS,
+        FRAGMENTS,
         INSTANCES,
         SINGLE_INSTANCE
     }
@@ -49,6 +50,7 @@ public class ShowLoadProfileStmt extends ShowStmt {
 
     private String jobId = "";
     private String taskId = "";
+    private String fragmentId = "";
     private String instanceId = "";
 
     public ShowLoadProfileStmt(String idPath) {
@@ -67,6 +69,10 @@ public class ShowLoadProfileStmt extends ShowStmt {
         return taskId;
     }
 
+    public String getFragmentId() {
+        return fragmentId;
+    }
+
     public String getInstanceId() {
         return instanceId;
     }
@@ -76,23 +82,23 @@ public class ShowLoadProfileStmt extends ShowStmt {
         super.analyze(analyzer);
         if (Strings.isNullOrEmpty(idPath)) {
             // list all query ids
-            pathType = PathType.JOB_IDS;
+            pathType = PathType.QUERY_IDS;
             return;
         }
 
         if (!idPath.startsWith("/")) {
             throw new AnalysisException("Path must starts with '/'");
         }
-        pathType = PathType.JOB_IDS;
+        pathType = PathType.QUERY_IDS;
         String[] parts = idPath.split("/");
-        if (parts.length > 4) {
-            throw new AnalysisException("Path must in format '/jobId/taskId/instanceId'");
+        if (parts.length > 5) {
+            throw new AnalysisException("Path must in format '/jobId/taskId/fragmentId/instanceId'");
         }
 
         for (int i = 0; i < parts.length; i++) {
             switch (i) {
                 case 0:
-                    pathType = PathType.JOB_IDS;
+                    pathType = PathType.QUERY_IDS;
                     continue;
                 case 1:
                     jobId = parts[i];
@@ -100,9 +106,13 @@ public class ShowLoadProfileStmt extends ShowStmt {
                     break;
                 case 2:
                     taskId = parts[i];
-                    pathType = PathType.INSTANCES;
+                    pathType = PathType.FRAGMENTS;
                     break;
                 case 3:
+                    fragmentId = parts[i];
+                    pathType = PathType.INSTANCES;
+                    break;
+                case 4:
                     instanceId = parts[i];
                     pathType = PathType.SINGLE_INSTANCE;
                     break;
@@ -126,10 +136,12 @@ public class ShowLoadProfileStmt extends ShowStmt {
     @Override
     public ShowResultSetMetaData getMetaData() {
         switch (pathType) {
-            case JOB_IDS:
+            case QUERY_IDS:
                 return ShowQueryProfileStmt.META_DATA_QUERY_IDS;
             case TASK_IDS:
                 return META_DATA_TASK_IDS;
+            case FRAGMENTS:
+                return ShowQueryProfileStmt.META_DATA_FRAGMENTS;
             case INSTANCES:
                 return ShowQueryProfileStmt.META_DATA_INSTANCES;
             case SINGLE_INSTANCE:
@@ -138,4 +150,10 @@ public class ShowLoadProfileStmt extends ShowStmt {
                 return null;
         }
     }
+
+    @Override
+    public RedirectStatus getRedirectStatus() {
+        return RedirectStatus.FORWARD_NO_SYNC;
+    }
 }
+

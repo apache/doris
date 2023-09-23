@@ -22,115 +22,79 @@
 
 #include <fmt/format.h>
 
+#include <mutex>
+
+#include "bvar/bvar.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
-#include "util/pretty_printer.h"
-#include "util/string_util.h"
-#include "util/time.h"
 
 namespace doris {
 
-const std::string MemTracker::COUNTER_NAME = "PeakMemoryUsage";
-
-struct TrackerGroup {
-    std::list<MemTracker*> trackers;
-    std::mutex group_lock;
-};
+bvar::Adder<int64_t> g_memtracker_cnt("memtracker_cnt");
 
 // Save all MemTrackers in use to maintain the weak relationship between MemTracker and MemTrackerLimiter.
 // When MemTrackerLimiter prints statistics, all MemTracker statistics with weak relationship will be printed together.
 // Each group corresponds to several MemTrackerLimiters and has a lock.
 // Multiple groups are used to reduce the impact of locks.
-static std::vector<TrackerGroup> mem_tracker_pool(1000);
+std::vector<MemTracker::TrackerGroup> MemTracker::mem_tracker_pool(1000);
 
-MemTracker::MemTracker(const std::string& label, RuntimeProfile* profile) {
-    if (profile == nullptr) {
-        _consumption = std::make_shared<RuntimeProfile::HighWaterMarkCounter>(TUnit::BYTES);
-    } else {
-        // By default, memory consumption is tracked via calls to consume()/release(), either to
-        // the tracker itself or to one of its descendents. Alternatively, a consumption metric
-        // can be specified, and then the metric's value is used as the consumption rather than
-        // the tally maintained by consume() and release(). A tcmalloc metric is used to track
-        // process memory consumption, since the process memory usage may be higher than the
-        // computed total memory (tcmalloc does not release deallocated memory immediately).
-        // Other consumption metrics are used in trackers below the process level to account
-        // for memory (such as free buffer pool buffers) that is not tracked by consume() and
-        // release().
-        _consumption = profile->AddSharedHighWaterMarkCounter(COUNTER_NAME, TUnit::BYTES);
+MemTracker::MemTracker(const std::string& label, MemTrackerLimiter* parent) : _label(label) {
+    _consumption = std::make_shared<MemCounter>();
+    bind_parent(parent);
+}
+
+void MemTracker::bind_parent(MemTrackerLimiter* parent) {
+    if (parent) {
+        _parent_label = parent->label();
+        _parent_group_num = parent->group_num();
+    } else if (thread_context_ptr.init) {
+        _parent_label = thread_context()->thread_mem_tracker()->label();
+        _parent_group_num = thread_context()->thread_mem_tracker()->group_num();
     }
-
-    if (thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()) {
-        _label = fmt::format(
-                "{} | {}", label,
-                thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->label());
-    } else {
-        _label = label + " | ";
-    }
-
-    _bind_group_num = thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->group_num();
     {
-        std::lock_guard<std::mutex> l(mem_tracker_pool[_bind_group_num].group_lock);
-        _tracker_group_it = mem_tracker_pool[_bind_group_num].trackers.insert(
-                mem_tracker_pool[_bind_group_num].trackers.end(), this);
+        std::lock_guard<std::mutex> l(mem_tracker_pool[_parent_group_num].group_lock);
+        _tracker_group_it = mem_tracker_pool[_parent_group_num].trackers.insert(
+                mem_tracker_pool[_parent_group_num].trackers.end(), this);
     }
+    g_memtracker_cnt << 1;
 }
 
 MemTracker::~MemTracker() {
-    if (_bind_group_num != -1) {
-        std::lock_guard<std::mutex> l(mem_tracker_pool[_bind_group_num].group_lock);
-        if (_tracker_group_it != mem_tracker_pool[_bind_group_num].trackers.end()) {
-            mem_tracker_pool[_bind_group_num].trackers.erase(_tracker_group_it);
-            _tracker_group_it = mem_tracker_pool[_bind_group_num].trackers.end();
+    if (_parent_group_num != -1) {
+        std::lock_guard<std::mutex> l(mem_tracker_pool[_parent_group_num].group_lock);
+        if (_tracker_group_it != mem_tracker_pool[_parent_group_num].trackers.end()) {
+            mem_tracker_pool[_parent_group_num].trackers.erase(_tracker_group_it);
+            _tracker_group_it = mem_tracker_pool[_parent_group_num].trackers.end();
         }
+        g_memtracker_cnt << -1;
     }
 }
 
-MemTracker::Snapshot MemTracker::make_snapshot(size_t level) const {
+MemTracker::Snapshot MemTracker::make_snapshot() const {
     Snapshot snapshot;
-    snapshot.label = split(_label, " | ")[0];
-    snapshot.parent = split(_label, " | ")[1];
-    snapshot.level = level;
+    snapshot.label = _label;
+    snapshot.parent_label = _parent_label;
     snapshot.limit = -1;
     snapshot.cur_consumption = _consumption->current_value();
-    snapshot.peak_consumption = _consumption->value();
-    snapshot.child_count = 0;
+    snapshot.peak_consumption = _consumption->peak_value();
     return snapshot;
 }
 
-void MemTracker::make_group_snapshot(std::vector<MemTracker::Snapshot>* snapshots, size_t level,
-                                     int64_t group_num, std::string related_label) {
+void MemTracker::make_group_snapshot(std::vector<MemTracker::Snapshot>* snapshots,
+                                     int64_t group_num, std::string parent_label) {
     std::lock_guard<std::mutex> l(mem_tracker_pool[group_num].group_lock);
     for (auto tracker : mem_tracker_pool[group_num].trackers) {
-        if (split(tracker->label(), " | ")[1] == related_label) {
-            snapshots->push_back(tracker->make_snapshot(level));
+        if (tracker->parent_label() == parent_label && tracker->peak_consumption() != 0) {
+            snapshots->push_back(tracker->make_snapshot());
         }
     }
 }
 
 std::string MemTracker::log_usage(MemTracker::Snapshot snapshot) {
-    return fmt::format("MemTracker Label={}, Parent Label={}, Used={}, Peak={}", snapshot.label,
-                       snapshot.parent,
-                       PrettyPrinter::print(snapshot.cur_consumption, TUnit::BYTES),
-                       PrettyPrinter::print(snapshot.peak_consumption, TUnit::BYTES));
+    return fmt::format("MemTracker Label={}, Parent Label={}, Used={}({} B), Peak={}({} B)",
+                       snapshot.label, snapshot.parent_label, print_bytes(snapshot.cur_consumption),
+                       snapshot.cur_consumption, print_bytes(snapshot.peak_consumption),
+                       snapshot.peak_consumption);
 }
 
-static std::unordered_map<std::string, std::shared_ptr<MemTracker>> global_mem_trackers;
-static std::mutex global_trackers_lock;
-
-std::shared_ptr<MemTracker> MemTracker::get_global_mem_tracker(const std::string& label) {
-    std::lock_guard<std::mutex> l(global_trackers_lock);
-    if (global_mem_trackers.find(label) != global_mem_trackers.end()) {
-        return global_mem_trackers[label];
-    } else {
-        global_mem_trackers.emplace(label,
-                                    std::make_shared<MemTracker>(fmt::format("[Global]{}", label)));
-        return global_mem_trackers[label];
-    }
-}
-
-void MemTracker::make_global_mem_tracker_snapshot(std::vector<MemTracker::Snapshot>* snapshots) {
-    std::lock_guard<std::mutex> l(global_trackers_lock);
-    for (auto& v : global_mem_trackers) {
-        snapshots->push_back(v.second->make_snapshot(1));
-    }
-}
 } // namespace doris

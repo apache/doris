@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Data export",
+    "title": "Export Overview",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Data export
+# Export Overview
 
 Export is a function provided by Doris to export data. This function can export user-specified table or partition data in text format to remote storage through Broker process, such as HDFS / Object storage (supports S3 protocol) etc.
 
@@ -37,7 +37,7 @@ This document mainly introduces the basic principles, usage, best practices and 
 * Broker: Doris can manipulate files for remote storage through the Broker process.
 * Tablet: Data fragmentation. A table is divided into multiple data fragments.
 
-## Principle
+## Principles
 
 After the user submits an Export job. Doris counts all Tablets involved in this job. These tablets are then grouped to generate a special query plan for each group. The query plan reads the data on the included tablet and then writes the data to the specified path of the remote storage through Broker. It can also be directly exported to the remote storage that supports S3 protocol through S3 protocol.
 
@@ -57,7 +57,7 @@ The overall mode of dispatch is as follows:
 | +-------------------+  |
 |                        | 2. Generate Tasks
 | +--------------------+ |
-| | ExportExporingTask | |
+| | ExportExportingTask | |
 | +--------------------+ |
 |                        |
 | +-----------+          |     +----+   +------+   +---------+
@@ -75,7 +75,7 @@ The overall mode of dispatch is as follows:
 	1. PENDING: FE generates Export Pending Task, sends snapshot command to BE, and takes a snapshot of all Tablets involved. And generate multiple query plans.
 	2. EXPORTING: FE generates Export ExportingTask and starts executing the query plan.
 
-### query plan splitting
+### Query Plan Splitting
 
 The Export job generates multiple query plans, each of which scans a portion of the Tablet. The number of Tablets scanned by each query plan is specified by the FE configuration parameter `export_tablet_num_per_task`, which defaults to 5. That is, assuming a total of 100 Tablets, 20 query plans will be generated. Users can also specify this number by the job attribute `tablet_num_per_task`, when submitting a job.
 
@@ -95,7 +95,7 @@ Among them, `c69fcf2b6db5420f-a96b94c1ff8bccef` is the query ID of the query pla
 
 When all data is exported, Doris will rename these files to the user-specified path.
 
-### Broker parameter
+### Broker Parameter
 
 Export needs to use the Broker process to access remote storage. Different brokers need to provide different parameters. For details, please refer to [Broker documentation](../../advanced/broker.md)
 
@@ -106,7 +106,7 @@ For detailed usage of Export, please refer to [SHOW EXPORT](../../sql-manual/sql
 
 Export's detailed commands can be passed through `HELP EXPORT;` Examples are as follows:
 
-### Export to hdfs
+### Export to HDFS
 
 ```sql
 EXPORT TABLE db1.tbl1 
@@ -136,30 +136,24 @@ WITH BROKER "hdfs"
 * `timeout`: homework timeout. Default 2 hours. Unit seconds.
 * `tablet_num_per_task`: The maximum number of fragments allocated per query plan. The default is 5.
 
-### Export to object storage (supports S3 protocol)
-
-Create a repository named s3_repo to link cloud storage directly without going through the broker.
+### Export to Object Storage (Supports S3 Protocol)
 
 ```sql
-CREATE REPOSITORY `s3_repo`
-WITH S3
-ON LOCATION "s3://s3-repo"
-PROPERTIES
-(
-    "AWS_ENDPOINT" = "http://s3-REGION.amazonaws.com",
-    "AWS_ACCESS_KEY" = "AWS_ACCESS_KEY",
-    "AWS_SECRET_KEY"="AWS_SECRET_KEY",
-    "AWS_REGION" = "REGION"
-);
+EXPORT TABLE test TO "s3://bucket/path/to/export/dir/" WITH S3  (
+        "AWS_ENDPOINT" = "http://host",
+        "AWS_ACCESS_KEY" = "AK",
+        "AWS_SECRET_KEY"="SK",
+        "AWS_REGION" = "region"
+    );
 ```
 
-- `AWS_ACCESS_KEY`/`AWS_SECRET_KEY`：Is your key to access the OSS API.
-- `AWS_ENDPOINT`：Endpoint indicates the access domain name of OSS external services.
-- `AWS_REGION`：Region indicates the region where the OSS data center is located.
+- `AWS_ACCESS_KEY`/`AWS_SECRET_KEY`：Is your key to access the object storage API.
+- `AWS_ENDPOINT`：Endpoint indicates the access domain name of object storage external services.
+- `AWS_REGION`：Region indicates the region where the object storage data center is located.
 
-### View export status
+### View Export Status
 
-After submitting a job, the job status can be imported by querying the   [SHOW EXPORT](../../sql-manual/sql-reference/Show-Statements/SHOW-EXPORT.md)  command. The results are as follows:
+After submitting a job, the job status can be viewed by querying the   [SHOW EXPORT](../../sql-manual/sql-reference/Show-Statements/SHOW-EXPORT.md)  command. The results are as follows:
 
 ```sql
 mysql> show EXPORT\G;
@@ -200,11 +194,23 @@ FinishTime: 2019-06-25 17:08:34
 * Timeout: Job timeout. The unit is seconds. This time is calculated from CreateTime.
 * Error Msg: If there is an error in the job, the cause of the error is shown here.
 
+### Cancel Export Job
+
+<version since="dev"></version>
+
+After submitting a job, the job can be canceled by using the  [CANCEL EXPORT](../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/CANCEL-EXPORT.md)  command. For example:
+
+```sql
+CANCEL EXPORT
+FROM example_db
+WHERE LABEL like "%example%";
+````
+
 ## Best Practices
 
 ### Splitting Query Plans
 
-How many query plans need to be executed for an Export job depends on the total number of Tablets and how many Tablets can be allocated for a query plan at most. Since multiple query plans are executed serially, the execution time of jobs can be reduced if more fragments are processed by one query plan. However, if the query plan fails (e.g., the RPC fails to call Broker, the remote storage jitters, etc.), too many tablets can lead to a higher retry cost of a query plan. Therefore, it is necessary to arrange the number of query plans and the number of fragments to be scanned for each query plan in order to balance the execution time and the success rate of execution. It is generally recommended that the amount of data scanned by a query plan be within 3-5 GB (the size and number of tables in a table can be viewed by `SHOW TABLET FROM tbl_name;`statement.
+How many query plans need to be executed for an Export job depends on the total number of Tablets and how many Tablets can be allocated for a query plan at most. Since multiple query plans are executed serially, the execution time of jobs can be reduced if more fragments are processed by one query plan. However, if the query plan fails (e.g., the RPC fails to call Broker, the remote storage jitters, etc.), too many tablets can lead to a higher retry cost of a query plan. Therefore, it is necessary to arrange the number of query plans and the number of fragments to be scanned for each query plan in order to balance the execution time and the success rate of execution. It is generally recommended that the amount of data scanned by a query plan be within 3-5 GB (the size and number of tables in a table can be viewed by `SHOW TABLETS FROM tbl_name;`statement.
 
 ### exec\_mem\_limit
 
@@ -229,8 +235,9 @@ Usually, a query plan for an Export job has only two parts `scan`- `export`, and
 * `export_running_job_num_limit `: Limit on the number of Export jobs running. If exceeded, the job will wait and be in PENDING state. The default is 5, which can be adjusted at run time.
 * `Export_task_default_timeout_second`: Export job default timeout time. The default is 2 hours. It can be adjusted at run time.
 * `export_tablet_num_per_task`: The maximum number of fragments that a query plan is responsible for. The default is 5.
+* `label`: The label of this Export job. Doris will generate a label for an Export job if this param is not set.
 
 ## More Help
 
-For more detailed syntax and best practices used by Export, please refer to the [Export](../../sql-manual/sql-reference/Show-Statements/SHOW-EXPORT.md) command manual, you can also You can enter `HELP EXPORT` at the command line of the MySql client for more help.
+For more detailed syntax and best practices used by Export, please refer to the [Export](../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/EXPORT.md) command manual, you can also You can enter `HELP EXPORT` at the command line of the MySql client for more help.
 

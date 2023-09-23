@@ -93,7 +93,14 @@ public abstract class ColumnType {
         schemaChangeMatrix[PrimitiveType.VARCHAR.ordinal()][PrimitiveType.FLOAT.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.VARCHAR.ordinal()][PrimitiveType.DOUBLE.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.VARCHAR.ordinal()][PrimitiveType.DATE.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.VARCHAR.ordinal()][PrimitiveType.DATEV2.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.VARCHAR.ordinal()][PrimitiveType.STRING.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.VARCHAR.ordinal()][PrimitiveType.JSONB.ordinal()] = true;
+
+        schemaChangeMatrix[PrimitiveType.STRING.ordinal()][PrimitiveType.JSONB.ordinal()] = true;
+
+        schemaChangeMatrix[PrimitiveType.JSONB.ordinal()][PrimitiveType.STRING.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.JSONB.ordinal()][PrimitiveType.VARCHAR.ordinal()] = true;
 
         schemaChangeMatrix[PrimitiveType.CHAR.ordinal()][PrimitiveType.TINYINT.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.CHAR.ordinal()][PrimitiveType.SMALLINT.ordinal()] = true;
@@ -147,6 +154,11 @@ public abstract class ColumnType {
 
         // we should support schema change between different precision
         schemaChangeMatrix[PrimitiveType.DATETIMEV2.ordinal()][PrimitiveType.DATETIMEV2.ordinal()] = true;
+
+        // Currently, we do not support schema change between complex types with subtypes.
+        schemaChangeMatrix[PrimitiveType.ARRAY.ordinal()][PrimitiveType.ARRAY.ordinal()] = false;
+        schemaChangeMatrix[PrimitiveType.STRUCT.ordinal()][PrimitiveType.STRUCT.ordinal()] = false;
+        schemaChangeMatrix[PrimitiveType.MAP.ordinal()][PrimitiveType.MAP.ordinal()] = false;
     }
 
     static boolean isSchemaChangeAllowed(Type lhs, Type rhs) {
@@ -154,7 +166,7 @@ public abstract class ColumnType {
     }
 
     public static void write(DataOutput out, Type type) throws IOException {
-        Preconditions.checkArgument(type.isScalarType() || type.isArrayType(),
+        Preconditions.checkArgument(type.isScalarType() || type.isArrayType() || type.isMapType(),
                 "only support scalar type and array serialization");
         if (type.isScalarType()) {
             ScalarType scalarType = (ScalarType) type;
@@ -169,6 +181,13 @@ public abstract class ColumnType {
             Text.writeString(out, arrayType.getPrimitiveType().name());
             write(out, arrayType.getItemType());
             out.writeBoolean(arrayType.getContainsNull());
+        } else if (type.isMapType()) {
+            MapType mapType = (MapType) type;
+            Text.writeString(out, mapType.getPrimitiveType().name());
+            write(out, mapType.getKeyType());
+            write(out, mapType.getValueType());
+            out.writeBoolean(mapType.getIsKeyContainsNull());
+            out.writeBoolean(mapType.getIsValueContainsNull());
         }
     }
 
@@ -178,6 +197,12 @@ public abstract class ColumnType {
             Type itermType = read(in);
             boolean containsNull = in.readBoolean();
             return ArrayType.create(itermType, containsNull);
+        } else if (primitiveType == PrimitiveType.MAP) {
+            Type keyType = read(in);
+            Type valueType = read(in);
+            boolean keyContainsNull = in.readBoolean();
+            boolean valueContainsNull = in.readBoolean();
+            return new MapType(keyType, valueType, keyContainsNull, valueContainsNull);
         } else {
             int scale = in.readInt();
             int precision = in.readInt();

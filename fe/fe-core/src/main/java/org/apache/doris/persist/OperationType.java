@@ -46,6 +46,7 @@ public class OperationType {
     public static final short OP_RECOVER_PARTITION = 18;
     public static final short OP_RENAME_TABLE = 19;
     public static final short OP_RENAME_PARTITION = 110;
+    public static final short OP_RENAME_COLUMN = 115;
     public static final short OP_BACKUP_JOB = 116;
     public static final short OP_RESTORE_JOB = 117;
     public static final short OP_TRUNCATE_TABLE = 118;
@@ -74,7 +75,11 @@ public class OperationType {
     public static final short OP_MODIFY_TABLE_ENGINE = 127;
 
     //schema change for add and drop columns
-    public static final short OP_MODIFY_TABLE_ADD_OR_DROP_COLUMNS = 128;
+    public static final short OP_MODIFY_TABLE_LIGHT_SCHEMA_CHANGE = 128;
+
+    //schema change for add and drop inverted indices
+    public static final short OP_MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES = 220;
+    public static final short OP_INVERTED_INDEX_JOB = 221;
 
     // 30~39 130~139 230~239 ...
     // load job for only hadoop load
@@ -100,6 +105,7 @@ public class OperationType {
     public static final short OP_BACKEND_TABLETS_INFO = 46;
     public static final short OP_SET_REPLICA_STATUS = 47;
     public static final short OP_BACKEND_REPLICAS_INFO = 48;
+    public static final short OP_SET_PARTITION_VERSION = 49;
 
     public static final short OP_ADD_BACKEND = 50;
     public static final short OP_DROP_BACKEND = 51;
@@ -127,6 +133,8 @@ public class OperationType {
     // replaced by OP_GLOBAL_VARIABLE_V2
     public static final short OP_GLOBAL_VARIABLE = 73;
 
+    @Deprecated
+    // remove be removed in 3.0
     public static final short OP_CREATE_CLUSTER = 74;
     public static final short OP_DROP_CLUSTER = 75;
     public static final short OP_EXPAND_CLUSTER = 76;
@@ -146,6 +154,8 @@ public class OperationType {
     public static final short OP_DROP_REPOSITORY = 90;
     public static final short OP_MODIFY_BACKEND = 91;
 
+    public static final short OP_MODIFY_FRONTEND = 92;
+
     //colocate table
     public static final short OP_COLOCATE_ADD_TABLE = 94;
     public static final short OP_COLOCATE_REMOVE_TABLE = 95;
@@ -157,12 +167,15 @@ public class OperationType {
     //real time load 100 -108
     public static final short OP_UPSERT_TRANSACTION_STATE = 100;
     @Deprecated
-    // use OP_BATCH_REMOVE_TXNS instead
+    // use OP_BATCH_REMOVE_TXNS_V2 instead
     public static final short OP_DELETE_TRANSACTION_STATE = 101;
     public static final short OP_FINISHING_ROLLUP = 102;
     public static final short OP_FINISHING_SCHEMA_CHANGE = 103;
     public static final short OP_SAVE_TRANSACTION_ID = 104;
+    @Deprecated
+    // use OP_BATCH_REMOVE_TXNS_V2 instead
     public static final short OP_BATCH_REMOVE_TXNS = 105;
+    public static final short OP_BATCH_REMOVE_TXNS_V2 = 106;
 
     // routine load 110~120
     public static final short OP_ROUTINE_LOAD_JOB = 110;
@@ -171,6 +184,11 @@ public class OperationType {
     // UDF 130-140
     public static final short OP_ADD_FUNCTION = 130;
     public static final short OP_DROP_FUNCTION = 131;
+    public static final short OP_ADD_GLOBAL_FUNCTION = 132;
+    public static final short OP_DROP_GLOBAL_FUNCTION = 133;
+
+    // modify database/table/tablet/replica meta
+    public static final short OP_SET_REPLICA_VERSION = 141;
 
     // routine load 200
     public static final short OP_CREATE_ROUTINE_LOAD_JOB = 200;
@@ -201,11 +219,18 @@ public class OperationType {
 
     // set table replication_num config 266
     public static final short OP_MODIFY_REPLICATION_NUM = 266;
-    // set table in memory
+    // set table in memory (confusion)
+    // The actual opcode now represents
+    // modify table properties: inMemory, StoragePolicy, IsBeingSynced, CompactionPolicy,
+    // TimeSeriesCompactionFileCountThreshold, SeriesCompactionTimeThresholdSeconds,
+    // SkipWriteIndexOnLoad, EnableSingleReplicaCompaction.
     public static final short OP_MODIFY_IN_MEMORY = 267;
 
     // set table default distribution bucket num
     public static final short OP_MODIFY_DISTRIBUTION_BUCKET_NUM = 268;
+
+    // set table status
+    public static final short OP_SET_TABLE_STATUS = 269;
 
     // plugin 270~275
     public static final short OP_INSTALL_PLUGIN = 270;
@@ -238,6 +263,80 @@ public class OperationType {
     public static final short OP_ALTER_CATALOG_NAME = 322;
     public static final short OP_ALTER_CATALOG_PROPS = 323;
     public static final short OP_REFRESH_CATALOG = 324;
+    public static final short OP_INIT_CATALOG = 325;
+    public static final short OP_REFRESH_EXTERNAL_DB = 326;
+    public static final short OP_INIT_EXTERNAL_DB = 327;
+    public static final short OP_REFRESH_EXTERNAL_TABLE = 328;
+    @Deprecated
+    public static final short OP_INIT_EXTERNAL_TABLE = 329;
+
+    // scheduler job and task 330-350
+    public static final short OP_CREATE_MTMV_JOB = 330;
+    public static final short OP_DROP_MTMV_JOB = 331;
+    public static final short OP_CHANGE_MTMV_JOB = 332;
+
+    public static final short OP_CREATE_MTMV_TASK = 340;
+    public static final short OP_DROP_MTMV_TASK = 341;
+    @Deprecated
+    public static final short OP_CHANGE_MTMV_TASK = 342;
+
+    public static final short OP_ALTER_MTMV_STMT = 345;
+
+    public static final short OP_DROP_EXTERNAL_TABLE = 350;
+    public static final short OP_DROP_EXTERNAL_DB = 351;
+    public static final short OP_CREATE_EXTERNAL_TABLE = 352;
+    public static final short OP_CREATE_EXTERNAL_DB = 353;
+    public static final short OP_ADD_EXTERNAL_PARTITIONS = 354;
+    public static final short OP_DROP_EXTERNAL_PARTITIONS = 355;
+    public static final short OP_REFRESH_EXTERNAL_PARTITIONS = 356;
+
+    public static final short OP_ALTER_USER = 400;
+    // cooldown related
+    public static final short OP_UPDATE_COOLDOWN_CONF = 401;
+    public static final short OP_COOLDOWN_DELETE = 402;
+    public static final short OP_ALTER_LIGHT_SCHEMA_CHANGE = 403;
+
+    // workload group 410 ~ 419
+    public static final short OP_CREATE_WORKLOAD_GROUP = 410;
+    public static final short OP_DROP_WORKLOAD_GROUP = 411;
+    public static final short OP_ALTER_WORKLOAD_GROUP = 412;
+
+    // query stats 440 ~ 424
+    public static final short OP_CLEAN_QUERY_STATS = 420;
+
+    // update binlog config
+    public static final short OP_UPDATE_BINLOG_CONFIG = 425;
+
+    public static final short OP_CREATE_ANALYSIS_TASK = 430;
+
+    public static final short OP_DELETE_ANALYSIS_TASK = 431;
+
+    public static final short OP_CREATE_ANALYSIS_JOB = 432;
+
+    public static final short OP_DELETE_ANALYSIS_JOB = 433;
+
+    public static final short OP_ALTER_DATABASE_PROPERTY = 434;
+
+    public static final short OP_GC_BINLOG = 435;
+
+    public static final short OP_BARRIER = 436;
+
+    // change an auto increment id for a column
+    public static final short OP_UPDATE_AUTO_INCREMENT_ID = 437;
+
+    // scheduler job
+    public static final short OP_CREATE_SCHEDULER_JOB = 450;
+
+    public static final short OP_UPDATE_SCHEDULER_JOB = 451;
+
+    public static final short OP_DELETE_SCHEDULER_JOB = 452;
+
+    public static final short OP_CREATE_SCHEDULER_TASK = 453;
+    public static final short OP_DELETE_SCHEDULER_TASK = 454;
+
+    public static final short OP_UPDATE_TABLE_STATS = 455;
+
+    public static final short OP_PERSIST_AUTO_JOB = 456;
 
     /**
      * Get opcode name by op code.
@@ -260,4 +359,5 @@ public class OperationType {
         }
         return "Not Found";
     }
+
 }

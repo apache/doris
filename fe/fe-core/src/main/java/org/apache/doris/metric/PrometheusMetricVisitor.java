@@ -27,6 +27,7 @@ import com.codahale.metrics.Histogram;
 import com.codahale.metrics.Snapshot;
 import com.google.common.base.Joiner;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -172,24 +173,45 @@ public class PrometheusMetricVisitor extends MetricVisitor {
 
         // value
         sb.append(" ").append(metric.getValue().toString()).append("\n");
-        return;
     }
 
     @Override
     public void visitHistogram(StringBuilder sb, String prefix, String name, Histogram histogram) {
-        final String fullName = prefix + name.replaceAll("\\.", "_");
-        sb.append(HELP).append(fullName).append(" ").append("\n");
-        sb.append(TYPE).append(fullName).append(" ").append("summary\n");
-
+        // part.part.part.k1=v1.k2=v2
+        List<String> names = new ArrayList<>();
+        List<String> tags = new ArrayList<>();
+        for (String part : name.split("\\.")) {
+            String[] kv = part.split("=");
+            if (kv.length == 1) {
+                names.add(kv[0]);
+            } else if (kv.length == 2) {
+                tags.add(String.format("%s=\"%s\"", kv[0], kv[1]));
+            }
+        }
+        final String fullName = prefix + String.join("_", names);
+        final String fullTag = String.join(",", tags);
+        // we should define metric name only once
+        if (!metricNames.contains(fullName)) {
+            sb.append(HELP).append(fullName).append(" ").append("\n");
+            sb.append(TYPE).append(fullName).append(" ").append("summary\n");
+            metricNames.add(fullName);
+        }
+        String delimiter = tags.isEmpty() ? "" : ",";
         Snapshot snapshot = histogram.getSnapshot();
-        sb.append(fullName).append("{quantile=\"0.75\"} ").append(snapshot.get75thPercentile()).append("\n");
-        sb.append(fullName).append("{quantile=\"0.95\"} ").append(snapshot.get95thPercentile()).append("\n");
-        sb.append(fullName).append("{quantile=\"0.98\"} ").append(snapshot.get98thPercentile()).append("\n");
-        sb.append(fullName).append("{quantile=\"0.99\"} ").append(snapshot.get99thPercentile()).append("\n");
-        sb.append(fullName).append("{quantile=\"0.999\"} ").append(snapshot.get999thPercentile()).append("\n");
-        sb.append(fullName).append("_sum ").append(histogram.getCount() * snapshot.getMean()).append("\n");
-        sb.append(fullName).append("_count ").append(histogram.getCount()).append("\n");
-        return;
+        sb.append(fullName).append("{quantile=\"0.75\"").append(delimiter).append(fullTag).append("} ")
+            .append(snapshot.get75thPercentile()).append("\n");
+        sb.append(fullName).append("{quantile=\"0.95\"").append(delimiter).append(fullTag).append("} ")
+            .append(snapshot.get95thPercentile()).append("\n");
+        sb.append(fullName).append("{quantile=\"0.98\"").append(delimiter).append(fullTag).append("} ")
+            .append(snapshot.get98thPercentile()).append("\n");
+        sb.append(fullName).append("{quantile=\"0.99\"").append(delimiter).append(fullTag).append("} ")
+            .append(snapshot.get99thPercentile()).append("\n");
+        sb.append(fullName).append("{quantile=\"0.999\"").append(delimiter).append(fullTag).append("} ")
+            .append(snapshot.get999thPercentile()).append("\n");
+        sb.append(fullName).append("_sum {").append(fullTag).append("} ")
+                .append(histogram.getCount() * snapshot.getMean()).append("\n");
+        sb.append(fullName).append("_count {").append(fullTag).append("} ")
+                .append(histogram.getCount()).append("\n");
     }
 
     @Override
@@ -199,9 +221,9 @@ public class PrometheusMetricVisitor extends MetricVisitor {
         sb.append(NODE_INFO).append("{type=\"fe_node_num\", state=\"total\"} ")
                 .append(Env.getCurrentEnv().getFrontends(null).size()).append("\n");
         sb.append(NODE_INFO).append("{type=\"be_node_num\", state=\"total\"} ")
-                .append(Env.getCurrentSystemInfo().getBackendIds(false).size()).append("\n");
+                .append(Env.getCurrentSystemInfo().getAllBackendIds(false).size()).append("\n");
         sb.append(NODE_INFO).append("{type=\"be_node_num\", state=\"alive\"} ")
-                .append(Env.getCurrentSystemInfo().getBackendIds(true).size()).append("\n");
+                .append(Env.getCurrentSystemInfo().getAllBackendIds(true).size()).append("\n");
         sb.append(NODE_INFO).append("{type=\"be_node_num\", state=\"decommissioned\"} ")
                 .append(Env.getCurrentSystemInfo().getDecommissionedBackendIds().size()).append("\n");
         sb.append(NODE_INFO).append("{type=\"broker_node_num\", state=\"dead\"} ").append(

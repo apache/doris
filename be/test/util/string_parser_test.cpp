@@ -17,14 +17,15 @@
 
 #include "util/string_parser.hpp"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
 #include <boost/lexical_cast.hpp>
 #include <cstdint>
 #include <cstdio>
 #include <string>
 
-#include "util/logging.h"
+#include "gtest/gtest_pred_impl.h"
 
 namespace doris {
 
@@ -443,7 +444,6 @@ TEST(StringToFloat, Basic) {
     std::string double_max = boost::lexical_cast<std::string>(std::numeric_limits<double>::max());
     test_float_value<double>(double_min, StringParser::PARSE_SUCCESS);
     test_float_value<double>(double_max, StringParser::PARSE_SUCCESS);
-
     // Non-finite values
     test_all_float_variants("INFinity", StringParser::PARSE_SUCCESS);
     test_all_float_variants("infinity", StringParser::PARSE_SUCCESS);
@@ -453,8 +453,8 @@ TEST(StringToFloat, Basic) {
     test_float_value_is_nan<double>("nan", StringParser::PARSE_SUCCESS);
     test_float_value_is_nan<float>("NaN", StringParser::PARSE_SUCCESS);
     test_float_value_is_nan<double>("NaN", StringParser::PARSE_SUCCESS);
-    test_float_value_is_nan<float>("nana", StringParser::PARSE_SUCCESS);
-    test_float_value_is_nan<double>("nana", StringParser::PARSE_SUCCESS);
+    test_float_value_is_nan<float>("nana", StringParser::PARSE_FAILURE);
+    test_float_value_is_nan<double>("nana", StringParser::PARSE_FAILURE);
     test_float_value_is_nan<float>("naN", StringParser::PARSE_SUCCESS);
     test_float_value_is_nan<double>("naN", StringParser::PARSE_SUCCESS);
 

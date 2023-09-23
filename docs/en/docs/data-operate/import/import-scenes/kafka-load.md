@@ -48,7 +48,7 @@ Please note the following usage restrictions:
 
 The routine import feature supports unauthenticated Kafka clusters, as well as SSL-authenticated Kafka clusters.
 
-Accessing an SSL-authenticated Kafka cluster requires the user to provide a certificate file (ca.pem) for authenticating the Kafka Broker public key. If client authentication is also enabled in the Kafka cluster, the client's public key (client.pem), key file (client.key), and key password must also be provided. The files required here need to be uploaded to Plao through the `CREAE FILE` command, and the catalog name is `kafka`. The specific help of the `CREATE FILE` command can be found in the [CREATE FILE](../../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-FILE.md) command manual . Here is an example:
+Accessing an SSL-authenticated Kafka cluster requires the user to provide a certificate file (ca.pem) for authenticating the Kafka Broker public key. If client authentication is also enabled in the Kafka cluster, the client's public key (client.pem), key file (client.key), and key password must also be provided. The files required here need to be uploaded to Doris through the `CREAE FILE` command, and the catalog name is `kafka`. The specific help of the `CREATE FILE` command can be found in the [CREATE FILE](../../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-FILE.md) command manual . Here is an example:
 
 - upload files
 

@@ -47,7 +47,7 @@ uint8_t calc_week(uint16_t year, uint8_t month, uint8_t day, bool monday_first, 
     int days = 0;
     *to_year = year;
 
-    // Check wether the first days of this year belongs to last year
+    // Check weather the first days of this year belongs to last year
     if (month == 1 && day <= (7 - weekday_first_day)) {
         if (!week_year && ((first_weekday && weekday_first_day != 0) ||
                            (!first_weekday && weekday_first_day > 3))) {

@@ -21,30 +21,35 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/io")
 # where to put generated binaries
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/io")
 
-set(IO_FILES
-    broker_reader.cpp
-    broker_writer.cpp
-    buffered_reader.cpp
-    file_factory.cpp
-    hdfs_builder.cpp
-    hdfs_file_reader.cpp
-    hdfs_reader_writer.cpp
-    hdfs_writer.cpp
-    local_file_reader.cpp
-    local_file_writer.cpp
-    s3_reader.cpp
-    s3_writer.cpp
-    fs/file_system_map.cpp
-    fs/local_file_reader.cpp
-    fs/local_file_system.cpp
-    fs/local_file_writer.cpp
-    fs/s3_file_reader.cpp
-    fs/s3_file_system.cpp
-    cache/file_cache_manager.cpp
-    cache/sub_file_cache.cpp
-    cache/whole_file_cache.cpp
-)
+file(GLOB_RECURSE IO_FILES CONFIGURE_DEPENDS *.cpp)
+list(REMOVE_ITEM IO_FILES "${CMAKE_CURRENT_SOURCE_DIR}/fs/benchmark/fs_benchmark_tool.cpp")
 
-add_library(IO STATIC
-    ${IO_FILES}
-)
+add_library(IO STATIC ${IO_FILES})
+
+pch_reuse(IO)
+
+if (${BUILD_FS_BENCHMARK} STREQUAL "ON")
+    add_executable(fs_benchmark_tool
+        fs/benchmark/fs_benchmark_tool.cpp
+    )
+
+    pch_reuse(fs_benchmark_tool)
+
+    # This permits libraries loaded by dlopen to link to the symbols in the program.
+    set_target_properties(fs_benchmark_tool PROPERTIES ENABLE_EXPORTS 1)
+
+    target_link_libraries(fs_benchmark_tool
+        ${DORIS_LINK_LIBS}
+        benchmark
+    )
+
+    install(DIRECTORY DESTINATION ${OUTPUT_DIR}/lib/)
+    install(TARGETS fs_benchmark_tool DESTINATION ${OUTPUT_DIR}/lib/)
+
+    add_custom_command(TARGET fs_benchmark_tool POST_BUILD
+        COMMAND ${CMAKE_OBJCOPY} --only-keep-debug $<TARGET_FILE:fs_benchmark_tool> $<TARGET_FILE:fs_benchmark_tool>.dbg
+        COMMAND ${CMAKE_STRIP} --strip-debug --strip-unneeded $<TARGET_FILE:fs_benchmark_tool>
+        COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink=$<TARGET_FILE:fs_benchmark_tool>.dbg $<TARGET_FILE:fs_benchmark_tool>
+        )
+
+endif()

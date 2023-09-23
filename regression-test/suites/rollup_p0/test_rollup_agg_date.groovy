@@ -40,11 +40,13 @@ suite("test_rollup_agg_date", "rollup") {
             AGGREGATE KEY (datek1, datetimek1, datetimek2, datetimek3)
             DISTRIBUTED BY HASH(datek1) BUCKETS 5 properties("replication_num" = "1");
         """
-    sql """ALTER TABLE ${tbName} ADD ROLLUP rollup_date(datek1,datetimek1,datetimek2,datetimek3,datev1,datetimev1,datetimev2,datetimev3);"""
+    sql """ALTER TABLE ${tbName} ADD ROLLUP rollup_date(datek1,datetimek2,datetimek1,datetimek3,datev1,datetimev1,datetimev2,datetimev3);"""
     int max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobRollupState(tbName)
-        if (res == "FINISHED") {
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
+            sleep(3000)
             break
         } else {
             Thread.sleep(2000)
@@ -54,12 +56,14 @@ suite("test_rollup_agg_date", "rollup") {
             }
         }
     }
-    Thread.sleep(200)
+    Thread.sleep(2000)
     sql "ALTER TABLE ${tbName} ADD COLUMN datetimev4 datetimev2(3) MAX NULL;"
     max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobColumnState(tbName)
-        if (res == "FINISHED") {
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
+            sleep(3000)
             break
         } else {
             Thread.sleep(2000)
@@ -77,7 +81,7 @@ suite("test_rollup_agg_date", "rollup") {
         sql("SELECT datek1,datetimek1,datetimek2,datetimek3,max(datev1),max(datetimev1),max(datetimev2),max(datetimev3) FROM ${tbName} GROUP BY datek1,datetimek1,datetimek2,datetimek3")
         contains("(rollup_date)")
     }
-    qt_sql """ SELECT datek1,datetimek1,datetimek2,datetimek3,max(datev1),max(datetimev1),max(datetimev2),max(datetimev3) FROM ${tbName} GROUP BY datek1,datetimek1,datetimek2,datetimek3; """
+    qt_sql """ SELECT datek1,datetimek1,datetimek2,datetimek3,max(datev1),max(datetimev1),max(datetimev2),max(datetimev3) FROM ${tbName} GROUP BY datek1,datetimek1,datetimek2,datetimek3 order by datek1 desc; """
     sql "ALTER TABLE ${tbName} DROP ROLLUP rollup_date;"
     sql "DROP TABLE ${tbName} FORCE;"
 }

@@ -18,45 +18,78 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.Utils;
 
-import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Subquery Expression.
  */
-public abstract class SubqueryExpr extends Expression {
-    protected LogicalPlan queryPlan;
+public abstract class SubqueryExpr extends Expression implements LeafExpression {
 
-    public SubqueryExpr(LogicalPlan subquery) {
+    protected final LogicalPlan queryPlan;
+    protected final List<Slot> correlateSlots;
+    protected final Optional<Expression> typeCoercionExpr;
+
+    protected SubqueryExpr(LogicalPlan subquery) {
+        super(ImmutableList.of());
         this.queryPlan = Objects.requireNonNull(subquery, "subquery can not be null");
+        this.correlateSlots = ImmutableList.of();
+        this.typeCoercionExpr = Optional.empty();
+    }
+
+    protected SubqueryExpr(LogicalPlan subquery, List<Slot> correlateSlots, Optional<Expression> typeCoercionExpr) {
+        super(ImmutableList.of());
+        this.queryPlan = Objects.requireNonNull(subquery, "subquery can not be null");
+        this.correlateSlots = ImmutableList.copyOf(correlateSlots);
+        this.typeCoercionExpr = typeCoercionExpr;
+    }
+
+    public List<Slot> getCorrelateSlots() {
+        return correlateSlots;
+    }
+
+    public Optional<Expression> getTypeCoercionExpr() {
+        return typeCoercionExpr;
+    }
+
+    public Expression getSubqueryOutput() {
+        return typeCoercionExpr.orElseGet(() -> queryPlan.getOutput().get(0));
+    }
+
+    public Expression getSubqueryOutput(LogicalPlan queryPlan) {
+        return typeCoercionExpr.orElseGet(() -> queryPlan.getOutput().get(0));
     }
 
     @Override
     public DataType getDataType() throws UnboundException {
-        throw new UnboundException("not support");
+        throw new UnboundException("getDataType");
     }
 
     @Override
     public boolean nullable() throws UnboundException {
-        // TODO:
-        // Any child is nullable, the whole is nullable
-        throw new UnboundException("not support");
+        return true;
     }
 
     @Override
     public String toSql() {
-        return "(" + queryPlan.toString() + ")";
+        return "(" + queryPlan + ")";
     }
 
     @Override
     public String toString() {
-        return "(" + queryPlan.toString() + ")";
+        return Utils.toSqlString("SubqueryExpr",
+                "QueryPlan", queryPlan,
+                "CorrelatedSlots", correlateSlots,
+                "typeCoercionExpr", typeCoercionExpr.isPresent() ? typeCoercionExpr.get() : "null");
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
@@ -68,9 +101,8 @@ public abstract class SubqueryExpr extends Expression {
     }
 
     @Override
-    public Expression withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1);
-        return children.get(0);
+    public boolean hasUnbound() {
+        return super.hasUnbound() || !queryPlan.bound();
     }
 
     @Override
@@ -82,42 +114,19 @@ public abstract class SubqueryExpr extends Expression {
             return false;
         }
         SubqueryExpr other = (SubqueryExpr) o;
-        return checkEquals(queryPlan, other.queryPlan);
-    }
-
-    /**
-     * Compare whether all logical nodes under query are the same.
-     * @param i original query.
-     * @param o compared query.
-     * @return equal ? true : false;
-     */
-    protected boolean checkEquals(Object i, Object o) {
-        if (!(i instanceof LogicalPlan) || !(o instanceof LogicalPlan)) {
-            return false;
-        }
-        LogicalPlan other = (LogicalPlan) o;
-        LogicalPlan input = (LogicalPlan) i;
-        if (other.children().size() != input.children().size()) {
-            return false;
-        }
-        boolean equal;
-        for (int j = 0; j < input.children().size(); j++) {
-            LogicalPlan childInput = (LogicalPlan) input.child(j);
-            LogicalPlan childOther = (LogicalPlan) other.child(j);
-            equal = Objects.equals(childInput, childOther);
-            if (!equal) {
-                return false;
-            }
-            if (childInput.children().size() != childOther.children().size()) {
-                return false;
-            }
-            checkEquals(childInput, childOther);
-        }
-        return true;
+        return Objects.equals(correlateSlots, other.correlateSlots)
+                && queryPlan.deepEquals(other.queryPlan)
+                && Objects.equals(typeCoercionExpr, other.typeCoercionExpr);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(queryPlan);
+        return Objects.hash(queryPlan, correlateSlots, typeCoercionExpr);
     }
+
+    public List<Slot> getOutput() {
+        return queryPlan.getOutput();
+    }
+
+    public abstract Expression withTypeCoercion(DataType dataType);
 }

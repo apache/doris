@@ -21,9 +21,9 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -36,15 +36,21 @@ import java.util.Map;
  */
 public class AlterCatalogPropertyStmt extends DdlStmt {
     private final String catalogName;
+    private final String comment;
     private final Map<String, String> newProperties;
 
     public AlterCatalogPropertyStmt(String catalogName, Map<String, String> newProperties) {
         this.catalogName = catalogName;
         this.newProperties = newProperties;
+        this.comment = newProperties.getOrDefault("comment", "");
     }
 
     public String getCatalogName() {
         return catalogName;
+    }
+
+    public String getComment() {
+        return comment;
     }
 
     public Map<String, String> getNewProperties() {
@@ -55,7 +61,7 @@ public class AlterCatalogPropertyStmt extends DdlStmt {
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         Util.checkCatalogAllRules(catalogName);
-        if (!Env.getCurrentEnv().getAuth().checkCtlPriv(
+        if (!Env.getCurrentEnv().getAccessManager().checkCtlPriv(
                 ConnectContext.get(), catalogName, PrivPredicate.ALTER)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED,
                     analyzer.getQualifiedUser(), catalogName);
@@ -64,7 +70,7 @@ public class AlterCatalogPropertyStmt extends DdlStmt {
         if (catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
             throw new AnalysisException("Internal catalog can't be alter.");
         }
-        FeNameFormat.checkCatalogProperties(newProperties);
+        PropertyAnalyzer.checkCatalogProperties(newProperties, true);
     }
 
     @Override

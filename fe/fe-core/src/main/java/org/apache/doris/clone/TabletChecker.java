@@ -214,7 +214,7 @@ public class TabletChecker extends MasterDaemon {
         LOG.debug(stat.incrementalBrief());
     }
 
-    private static class CheckerCounter {
+    public static class CheckerCounter {
         public long totalTabletNum = 0;
         public long unhealthyTabletNum = 0;
         public long addToSchedulerTabletNum = 0;
@@ -245,7 +245,7 @@ public class TabletChecker extends MasterDaemon {
             if (db == null) {
                 continue;
             }
-            List<Long> aliveBeIdsInCluster = infoService.getClusterBackendIds(db.getClusterName(), true);
+            List<Long> aliveBeIds = infoService.getAllBackendIds(true);
             Map<Long, Set<PrioPart>> tblPartMap = copiedPrios.row(dbId);
             for (long tblId : tblPartMap.keySet()) {
                 OlapTable tbl = (OlapTable) db.getTableNullable(tblId);
@@ -258,8 +258,8 @@ public class TabletChecker extends MasterDaemon {
                         continue;
                     }
                     for (Partition partition : tbl.getAllPartitions()) {
-                        LoopControlStatus st = handlePartitionTablet(db, tbl, partition, true,
-                                aliveBeIdsInCluster, start, counter);
+                        LoopControlStatus st = handlePartitionTablet(db, tbl, partition, true, aliveBeIds, start,
+                                counter);
                         if (st == LoopControlStatus.BREAK_OUT) {
                             break OUT;
                         } else {
@@ -281,12 +281,12 @@ public class TabletChecker extends MasterDaemon {
                 continue;
             }
 
-            if (db.isInfoSchemaDb()) {
+            if (db.isMysqlCompatibleDatabase()) {
                 continue;
             }
 
             List<Table> tableList = db.getTables();
-            List<Long> aliveBeIdsInCluster = infoService.getClusterBackendIds(db.getClusterName(), true);
+            List<Long> aliveBeIds = infoService.getAllBackendIds(true);
 
             for (Table table : tableList) {
                 table.readLock();
@@ -302,8 +302,8 @@ public class TabletChecker extends MasterDaemon {
                             continue;
                         }
 
-                        LoopControlStatus st = handlePartitionTablet(db, tbl, partition, false,
-                                aliveBeIdsInCluster, start, counter);
+                        LoopControlStatus st = handlePartitionTablet(db, tbl, partition, false, aliveBeIds, start,
+                                counter);
                         if (st == LoopControlStatus.BREAK_OUT) {
                             break OUT;
                         } else {
@@ -334,7 +334,7 @@ public class TabletChecker extends MasterDaemon {
     }
 
     private LoopControlStatus handlePartitionTablet(Database db, OlapTable tbl, Partition partition, boolean isInPrios,
-            List<Long> aliveBeIdsInCluster, long startTime, CheckerCounter counter) {
+            List<Long> aliveBeIds, long startTime, CheckerCounter counter) {
         if (partition.getState() != PartitionState.NORMAL) {
             // when alter job is in FINISHING state, partition state will be set to NORMAL,
             // and we can schedule the tablets in it.
@@ -354,11 +354,8 @@ public class TabletChecker extends MasterDaemon {
                 }
 
                 Pair<TabletStatus, TabletSchedCtx.Priority> statusWithPrio = tablet.getHealthStatusWithPriority(
-                        infoService,
-                        db.getClusterName(),
-                        partition.getVisibleVersion(),
-                        tbl.getPartitionInfo().getReplicaAllocation(partition.getId()),
-                        aliveBeIdsInCluster);
+                        infoService, partition.getVisibleVersion(),
+                        tbl.getPartitionInfo().getReplicaAllocation(partition.getId()), aliveBeIds);
 
                 if (statusWithPrio.first == TabletStatus.HEALTHY) {
                     // Only set last status check time when status is healthy.
@@ -375,22 +372,19 @@ public class TabletChecker extends MasterDaemon {
                 }
 
                 counter.unhealthyTabletNum++;
-
-                if (!tablet.readyToBeRepaired(statusWithPrio.second)) {
-                    counter.tabletNotReady++;
+                if (!tablet.readyToBeRepaired(infoService, statusWithPrio.second)) {
                     continue;
                 }
 
                 TabletSchedCtx tabletCtx = new TabletSchedCtx(
                         TabletSchedCtx.Type.REPAIR,
-                        db.getClusterName(),
                         db.getId(), tbl.getId(),
                         partition.getId(), idx.getId(), tablet.getId(),
                         tbl.getPartitionInfo().getReplicaAllocation(partition.getId()),
                         System.currentTimeMillis());
                 // the tablet status will be set again when being scheduled
                 tabletCtx.setTabletStatus(statusWithPrio.first);
-                tabletCtx.setOrigPriority(statusWithPrio.second);
+                tabletCtx.setPriority(statusWithPrio.second);
 
                 AddResult res = tabletScheduler.addTablet(tabletCtx, false /* not force */);
                 if (res == AddResult.LIMIT_EXCEED || res == AddResult.DISABLED) {

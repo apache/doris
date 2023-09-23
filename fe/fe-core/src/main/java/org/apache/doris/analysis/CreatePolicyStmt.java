@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -57,6 +58,9 @@ public class CreatePolicyStmt extends DdlStmt {
     private UserIdentity user = null;
 
     @Getter
+    private String roleName = null;
+
+    @Getter
     private Expr wherePredicate;
 
     @Getter
@@ -66,13 +70,14 @@ public class CreatePolicyStmt extends DdlStmt {
      * Use for cup.
      **/
     public CreatePolicyStmt(PolicyTypeEnum type, boolean ifNotExists, String policyName, TableName tableName,
-                            String filterType, UserIdentity user, Expr wherePredicate) {
+            String filterType, UserIdentity user, String roleName, Expr wherePredicate) {
         this.type = type;
         this.ifNotExists = ifNotExists;
         this.policyName = policyName;
         this.tableName = tableName;
         this.filterType = FilterType.of(filterType);
         this.user = user;
+        this.roleName = roleName;
         this.wherePredicate = wherePredicate;
     }
 
@@ -80,7 +85,7 @@ public class CreatePolicyStmt extends DdlStmt {
      * Use for cup.
      */
     public CreatePolicyStmt(PolicyTypeEnum type, boolean ifNotExists, String policyName,
-                            Map<String, String> properties) {
+            Map<String, String> properties) {
         this.type = type;
         this.ifNotExists = ifNotExists;
         this.policyName = policyName;
@@ -92,18 +97,24 @@ public class CreatePolicyStmt extends DdlStmt {
         super.analyze(analyzer);
         switch (type) {
             case STORAGE:
+                if (!Config.enable_storage_policy) {
+                    throw new UserException("storage policy feature is disabled by default. "
+                            + "Enable it by setting 'enable_storage_policy=true' in fe.conf");
+                }
                 break;
             case ROW:
             default:
                 tableName.analyze(analyzer);
-                user.analyze(analyzer.getClusterName());
-                if (user.isRootUser() || user.isAdminUser()) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "CreatePolicyStmt",
-                            user.getQualifiedUser(), user.getHost(), tableName.getTbl());
+                if (user != null) {
+                    user.analyze(analyzer.getClusterName());
+                    if (user.isRootUser() || user.isAdminUser()) {
+                        ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "CreatePolicyStmt",
+                                user.getQualifiedUser(), user.getHost(), tableName.getTbl());
+                    }
                 }
         }
         // check auth
-        if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
     }
@@ -123,7 +134,13 @@ public class CreatePolicyStmt extends DdlStmt {
             case ROW:
             default:
                 sb.append(" ON ").append(tableName.toSql()).append(" AS ").append(filterType)
-                    .append(" TO ").append(user.getQualifiedUser()).append(" USING ").append(wherePredicate.toSql());
+                        .append(" TO ");
+                if (user == null) {
+                    sb.append("ROLE ").append(roleName);
+                } else {
+                    sb.append(user.getQualifiedUser());
+                }
+                sb.append(" USING ").append(wherePredicate.toSql());
         }
         return sb.toString();
     }

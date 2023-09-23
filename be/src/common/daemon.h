@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <memory>
 #include <vector>
 
 #include "gutil/ref_counted.h"
@@ -26,17 +25,10 @@
 
 namespace doris {
 
-struct StorePath;
-class Thread;
-
 class Daemon {
 public:
     Daemon() : _stop_background_threads_latch(1) {}
-
-    // Initialises logging, flags etc. Callers that want to override default gflags
-    // variables should do so before calling this method; no logging should be
-    // performed until after this method returns.
-    void init(int argc, char** argv, const std::vector<StorePath>& paths);
+    ~Daemon() = default;
 
     // Start background threads
     void start();
@@ -47,11 +39,12 @@ public:
 private:
     void tcmalloc_gc_thread();
     void memory_maintenance_thread();
+    void memory_gc_thread();
+    void memtable_memory_limiter_tracker_refresh_thread();
     void calculate_metrics_thread();
+    void block_spill_gc_thread();
 
     CountDownLatch _stop_background_threads_latch;
-    scoped_refptr<Thread> _tcmalloc_gc_thread;
-    scoped_refptr<Thread> _memory_maintenance_thread;
-    scoped_refptr<Thread> _calculate_metrics_thread;
+    std::vector<scoped_refptr<Thread>> _threads;
 };
 } // namespace doris

@@ -70,7 +70,7 @@ public:
 
     Status get_first_value(void* value) const override {
         if (_count == 0) {
-            return Status::NotFound("page is empty");
+            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
         }
         memcpy(value, &_first_val, sizeof(CppType));
         return Status::OK();
@@ -78,7 +78,7 @@ public:
 
     Status get_last_value(void* value) const override {
         if (_count == 0) {
-            return Status::NotFound("page is empty");
+            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
         }
         memcpy(value, &_last_val, sizeof(CppType));
         return Status::OK();
@@ -135,38 +135,18 @@ public:
         DCHECK(_parsed) << "Must call init() firstly";
         bool found = _decoder->seek_at_or_after_value(value, exact_match);
         if (!found) {
-            return Status::NotFound("not found");
+            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("not found");
         }
         _cur_index = _decoder->current_index();
         return Status::OK();
     }
 
-    Status next_batch(size_t* n, ColumnBlockView* dst) override { return next_batch<true>(n, dst); }
-
-    template <bool forward_index>
-    inline Status next_batch(size_t* n, ColumnBlockView* dst) {
-        DCHECK(_parsed) << "Must call init() firstly";
-        if (PREDICT_FALSE(*n == 0 || _cur_index >= _num_elements)) {
-            *n = 0;
-            return Status::OK();
-        }
-
-        size_t to_fetch = std::min(*n, static_cast<size_t>(_num_elements - _cur_index));
-        uint8_t* data_ptr = dst->data();
-        _decoder->get_batch(reinterpret_cast<CppType*>(data_ptr), to_fetch);
-        if (forward_index) {
-            _cur_index += to_fetch;
-        }
-        *n = to_fetch;
-        return Status::OK();
-    }
-
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
         return Status::NotSupported("frame page not implement vec op now");
-    };
+    }
 
-    Status peek_next_batch(size_t* n, ColumnBlockView* dst) override {
-        return next_batch<false>(n, dst);
+    Status peek_next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
+        return Status::NotSupported("frame page not implement vec op now");
     }
 
     size_t count() const override { return _num_elements; }

@@ -1,5 +1,5 @@
 DROP TABLE IF EXISTS example_range_tbl;
-CREATE TABLE example_range_tbl
+CREATE TABLE IF NOT EXISTS example_range_tbl
 (
     `user_id` LARGEINT NOT NULL COMMENT "用户id",
     `date` DATE NOT NULL COMMENT "数据灌入日期时间",
@@ -22,7 +22,7 @@ PARTITION BY RANGE(`date`)
 DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
 PROPERTIES
 (
-    "replication_num" = "1", "light_schema_change" = "true"
+    "replication_num" = "1", "light_schema_change" = "false"
 );
 
 INSERT INTO example_range_tbl VALUES
@@ -30,6 +30,10 @@ INSERT INTO example_range_tbl VALUES
 
 INSERT INTO example_range_tbl VALUES
     (1, '2017-02-02', 'Beijing', 10, 1, "2017-02-02 00:00:00", 1, 30, 20);
+
+select * from example_range_tbl order by `date`;
+
+ALTER TABLE example_range_tbl SET ("light_schema_change" = "true");
 
 INSERT INTO example_range_tbl VALUES
     (1, '2017-03-02', 'Beijing', 10, 1, "2017-03-02 00:00:00", 1, 30, 20);

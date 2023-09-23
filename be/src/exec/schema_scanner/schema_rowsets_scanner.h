@@ -17,34 +17,38 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
-#include <memory>
+#include <vector>
 
 #include "common/status.h"
 #include "exec/schema_scanner.h"
 #include "olap/rowset/rowset.h"
-#include "olap/rowset/segment_v2/segment.h"
-#include "runtime/mem_pool.h"
-#include "runtime/runtime_state.h"
+
 namespace doris {
+class RuntimeState;
+
+namespace vectorized {
+class Block;
+} // namespace vectorized
+
 class SchemaRowsetsScanner : public SchemaScanner {
+    ENABLE_FACTORY_CREATOR(SchemaRowsetsScanner);
+
 public:
     SchemaRowsetsScanner();
     ~SchemaRowsetsScanner() override = default;
 
     Status start(RuntimeState* state) override;
-    Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos) override;
+    Status get_next_block(vectorized::Block* block, bool* eos) override;
 
 private:
-    Status get_all_rowsets();
-    // Status get_new_segments();
-    Status fill_one_row(Tuple* tuple, MemPool* pool);
+    Status _get_all_rowsets();
+    Status _fill_block_impl(vectorized::Block* block);
 
-private:
-    static SchemaScanner::ColumnDesc _s_tbls_columns[];
+    static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
     int64_t backend_id_ = 0;
+    size_t _rowsets_idx = 0;
     std::vector<RowsetSharedPtr> rowsets_;
-    // used for traversing rowsets_
-    int rowsets_idx_ = 0;
 };
 } // namespace doris

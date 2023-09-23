@@ -109,16 +109,12 @@ public class CatalogTestUtil {
         diskInfo.setAvailableCapacityB(2 << 40); // 1TB
         diskInfo.setTotalCapacityB(2 << 40);
         diskInfo.setDataUsedCapacityB(2 << 10);
-        backend1.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
         backend1.setDisks(ImmutableMap.of("disk1", diskInfo));
-        backend2.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
         backend2.setDisks(ImmutableMap.of("disk1", diskInfo));
-        backend3.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
         backend3.setDisks(ImmutableMap.of("disk1", diskInfo));
         Env.getCurrentSystemInfo().addBackend(backend1);
         Env.getCurrentSystemInfo().addBackend(backend2);
         Env.getCurrentSystemInfo().addBackend(backend3);
-        env.initDefaultCluster();
 
         Database db = createSimpleDb(testDbId1, testTableId1, testPartitionId1, testIndexId1, testTabletId1,
                 testStartVersion);
@@ -163,7 +159,7 @@ public class CatalogTestUtil {
                             if (slaveReplica.getBackendId() != masterReplica.getBackendId()
                                     || slaveReplica.getVersion() != masterReplica.getVersion()
                                     || slaveReplica.getLastFailedVersion() != masterReplica.getLastFailedVersion()
-                                    || slaveReplica.getLastSuccessVersion() != slaveReplica.getLastSuccessVersion()) {
+                                    || slaveReplica.getLastSuccessVersion() != masterReplica.getLastSuccessVersion()) {
                                 return false;
                             }
                         }
@@ -225,7 +221,7 @@ public class CatalogTestUtil {
 
         // table
         PartitionInfo partitionInfo = new SinglePartitionInfo();
-        partitionInfo.setDataProperty(partitionId, DataProperty.DEFAULT_DATA_PROPERTY);
+        partitionInfo.setDataProperty(partitionId, new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
         partitionInfo.setReplicaAllocation(partitionId, new ReplicaAllocation((short) 3));
         OlapTable table = new OlapTable(tableId, testTable1, columns, KeysType.AGG_KEYS, partitionInfo,
                 distributionInfo);
@@ -260,7 +256,8 @@ public class CatalogTestUtil {
 
         // index
         MaterializedIndex index = new MaterializedIndex(testIndexId2, IndexState.NORMAL);
-        TabletMeta tabletMeta = new TabletMeta(testDbId1, testTableId2, testPartitionId2, testIndexId2, 0, TStorageMedium.HDD);
+        TabletMeta tabletMeta = new TabletMeta(testDbId1, testTableId2, testPartitionId2, testIndexId2, 0,
+                TStorageMedium.HDD);
         index.addTablet(tablet, tabletMeta);
 
         tablet.addReplica(replica);
@@ -284,7 +281,7 @@ public class CatalogTestUtil {
 
         // table
         PartitionInfo partitionInfo = new SinglePartitionInfo();
-        partitionInfo.setDataProperty(testPartitionId2, DataProperty.DEFAULT_DATA_PROPERTY);
+        partitionInfo.setDataProperty(testPartitionId2, new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
         partitionInfo.setReplicaAllocation(testPartitionId2, new ReplicaAllocation((short) 1));
         OlapTable table = new OlapTable(testTableId2, testTable2, columns, KeysType.DUP_KEYS, partitionInfo,
                 distributionInfo);
@@ -315,13 +312,13 @@ public class CatalogTestUtil {
 
         RangePartitionInfo partitionInfo = new RangePartitionInfo(partitionColumns);
         Map<String, String> properties = Maps.newHashMap();
-        properties.put(EsTable.HOSTS, "xxx");
-        properties.put(EsTable.INDEX, "doe");
-        properties.put(EsTable.TYPE, "doc");
-        properties.put(EsTable.PASSWORD, "");
-        properties.put(EsTable.USER, "root");
-        properties.put(EsTable.DOC_VALUE_SCAN, "true");
-        properties.put(EsTable.KEYWORD_SNIFF, "true");
+        properties.put(EsResource.HOSTS, "xxx");
+        properties.put(EsResource.INDEX, "doe");
+        properties.put(EsResource.TYPE, "doc");
+        properties.put(EsResource.PASSWORD, "");
+        properties.put(EsResource.USER, "root");
+        properties.put(EsResource.DOC_VALUE_SCAN, "true");
+        properties.put(EsResource.KEYWORD_SNIFF, "true");
         EsTable esTable = new EsTable(testEsTableId1, testEsTable1,
                 columns, properties, partitionInfo);
         db.createTable(esTable);

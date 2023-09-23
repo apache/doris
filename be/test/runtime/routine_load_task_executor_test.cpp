@@ -17,16 +17,23 @@
 
 #include "runtime/routine_load/routine_load_task_executor.h"
 
-#include <gtest/gtest.h>
+#include <gen_cpp/Types_types.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <librdkafka/rdkafkacpp.h>
+#include <unistd.h>
 
+#include <map>
+
+#include "common/config.h"
+#include "common/status.h"
 #include "gen_cpp/BackendService_types.h"
 #include "gen_cpp/FrontendService_types.h"
 #include "gen_cpp/HeartbeatService_types.h"
+#include "gtest/gtest_pred_impl.h"
 #include "runtime/exec_env.h"
-#include "runtime/stream_load/load_stream_mgr.h"
+#include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
-#include "util/cpu_info.h"
-#include "util/logging.h"
 
 namespace doris {
 
@@ -39,8 +46,8 @@ extern TStreamLoadPutResult k_stream_load_put_result;
 
 class RoutineLoadTaskExecutorTest : public testing::Test {
 public:
-    RoutineLoadTaskExecutorTest() {}
-    virtual ~RoutineLoadTaskExecutorTest() {}
+    RoutineLoadTaskExecutorTest() = default;
+    ~RoutineLoadTaskExecutorTest() override = default;
 
     void SetUp() override {
         k_stream_load_begin_result = TLoadTxnBeginResult();
@@ -48,24 +55,16 @@ public:
         k_stream_load_rollback_result = TLoadTxnRollbackResult();
         k_stream_load_put_result = TStreamLoadPutResult();
 
-        _env._master_info = new TMasterInfo();
-        _env._load_stream_mgr = new LoadStreamMgr();
-        _env._stream_load_executor = new StreamLoadExecutor(&_env);
+        _env.set_master_info(new TMasterInfo());
+        _env.set_new_load_stream_mgr(NewLoadStreamMgr::create_unique());
+        _env.set_stream_load_executor(StreamLoadExecutor::create_unique(&_env));
 
         config::routine_load_thread_pool_size = 5;
         config::max_consumer_num_per_group = 3;
     }
 
-    void TearDown() override {
-        delete _env._master_info;
-        _env._master_info = nullptr;
-        delete _env._load_stream_mgr;
-        _env._load_stream_mgr = nullptr;
-        delete _env._stream_load_executor;
-        _env._stream_load_executor = nullptr;
-    }
+    void TearDown() override { delete _env.master_info(); }
 
-private:
     ExecEnv _env;
 };
 
@@ -94,7 +93,6 @@ TEST_F(RoutineLoadTaskExecutorTest, exec_task) {
     task.__set_kafka_load_info(k_info);
 
     RoutineLoadTaskExecutor executor(&_env);
-
     // submit task
     Status st;
     st = executor.submit_task(task);
@@ -117,6 +115,8 @@ TEST_F(RoutineLoadTaskExecutorTest, exec_task) {
     task.__set_kafka_load_info(k_info);
     st = executor.submit_task(task);
     EXPECT_TRUE(st.ok());
+
+    executor.stop();
 }
 
 } // namespace doris

@@ -17,255 +17,29 @@
 
 #include "olap/cumulative_compaction_policy.h"
 
-#include <gtest/gtest.h>
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
-#include <sstream>
-
+#include "gtest/gtest_pred_impl.h"
 #include "olap/cumulative_compaction.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/rowset_meta.h"
+#include "olap/tablet.h"
 #include "olap/tablet_meta.h"
+#include "util/uid_util.h"
 
 namespace doris {
-
-class TestNumBasedCumulativeCompactionPolicy : public testing::Test {
-public:
-    TestNumBasedCumulativeCompactionPolicy() {}
-    void SetUp() {
-        _tablet_meta = static_cast<TabletMetaSharedPtr>(new TabletMeta(
-                1, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
-                TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F));
-
-        _json_rowset_meta = R"({
-            "rowset_id": 540081,
-            "tablet_id": 15673,
-            "txn_id": 4042,
-            "tablet_schema_hash": 567997577,
-            "rowset_type": "BETA_ROWSET",
-            "rowset_state": "VISIBLE",
-            "start_version": 2,
-            "end_version": 2,
-            "num_rows": 3929,
-            "total_disk_size": 84699,
-            "data_disk_size": 84464,
-            "index_disk_size": 235,
-            "empty": false,
-            "load_id": {
-                "hi": -5350970832824939812,
-                "lo": -6717994719194512122
-            },
-            "creation_time": 1553765670,
-            "num_segments": 3
-        })";
-    }
-    void TearDown() {}
-
-    void init_rs_meta(RowsetMetaSharedPtr& pb1, int64_t start, int64_t end) {
-        pb1->init_from_json(_json_rowset_meta);
-        pb1->set_start_version(start);
-        pb1->set_end_version(end);
-        pb1->set_creation_time(10000);
-    }
-
-    void init_all_rs_meta(std::vector<RowsetMetaSharedPtr>* rs_metas) {
-        RowsetMetaSharedPtr ptr1(new RowsetMeta());
-        init_rs_meta(ptr1, 0, 0);
-        rs_metas->push_back(ptr1);
-
-        RowsetMetaSharedPtr ptr2(new RowsetMeta());
-        init_rs_meta(ptr2, 1, 1);
-        rs_metas->push_back(ptr2);
-
-        RowsetMetaSharedPtr ptr3(new RowsetMeta());
-        init_rs_meta(ptr3, 2, 2);
-        rs_metas->push_back(ptr3);
-
-        RowsetMetaSharedPtr ptr4(new RowsetMeta());
-        init_rs_meta(ptr4, 3, 3);
-        rs_metas->push_back(ptr4);
-
-        RowsetMetaSharedPtr ptr5(new RowsetMeta());
-        init_rs_meta(ptr5, 4, 4);
-        rs_metas->push_back(ptr5);
-    }
-
-    void init_all_rs_meta_cal_point(std::vector<RowsetMetaSharedPtr>* rs_metas) {
-        RowsetMetaSharedPtr ptr1(new RowsetMeta());
-        init_rs_meta(ptr1, 0, 1);
-        ptr1->set_segments_overlap(NONOVERLAPPING);
-        rs_metas->push_back(ptr1);
-
-        RowsetMetaSharedPtr ptr2(new RowsetMeta());
-        init_rs_meta(ptr2, 2, 3);
-        ptr2->set_segments_overlap(NONOVERLAPPING);
-        rs_metas->push_back(ptr2);
-
-        RowsetMetaSharedPtr ptr3(new RowsetMeta());
-        init_rs_meta(ptr3, 4, 4);
-        ptr3->set_segments_overlap(OVERLAPPING);
-        rs_metas->push_back(ptr3);
-
-        RowsetMetaSharedPtr ptr4(new RowsetMeta());
-        init_rs_meta(ptr4, 5, 5);
-        ptr4->set_segments_overlap(OVERLAPPING);
-        rs_metas->push_back(ptr4);
-    }
-
-    void init_all_rs_meta_delete(std::vector<RowsetMetaSharedPtr>* rs_metas) {
-        RowsetMetaSharedPtr ptr1(new RowsetMeta());
-        init_rs_meta(ptr1, 0, 1);
-        ptr1->set_segments_overlap(NONOVERLAPPING);
-        rs_metas->push_back(ptr1);
-
-        RowsetMetaSharedPtr ptr2(new RowsetMeta());
-        init_rs_meta(ptr2, 2, 3);
-        ptr2->set_segments_overlap(NONOVERLAPPING);
-        rs_metas->push_back(ptr2);
-
-        RowsetMetaSharedPtr ptr3(new RowsetMeta());
-        init_rs_meta(ptr3, 4, 4);
-        ptr3->set_segments_overlap(OVERLAPPING);
-        rs_metas->push_back(ptr3);
-
-        RowsetMetaSharedPtr ptr4(new RowsetMeta());
-        init_rs_meta(ptr4, 5, 5);
-        DeletePredicatePB del;
-        del.add_sub_predicates("a = 1");
-        del.set_version(5);
-        ptr4->set_delete_predicate(del);
-        ptr4->set_segments_overlap(OVERLAP_UNKNOWN);
-        rs_metas->push_back(ptr4);
-
-        RowsetMetaSharedPtr ptr5(new RowsetMeta());
-        init_rs_meta(ptr5, 6, 6);
-        ptr5->set_segments_overlap(OVERLAPPING);
-        rs_metas->push_back(ptr5);
-    }
-
-protected:
-    std::string _json_rowset_meta;
-    TabletMetaSharedPtr _tablet_meta;
-};
-
-TEST_F(TestNumBasedCumulativeCompactionPolicy, calc_cumulative_compaction_score) {
-    std::vector<RowsetMetaSharedPtr> rs_metas;
-    init_all_rs_meta(&rs_metas);
-
-    for (auto& rowset : rs_metas) {
-        _tablet_meta->add_rs_meta(rowset);
-    }
-
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_NUM_BASED_POLICY));
-    _tablet->init();
-    std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy =
-            CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
-                    CUMULATIVE_NUM_BASED_POLICY);
-
-    const uint32_t score = _tablet->calc_compaction_score(CompactionType::CUMULATIVE_COMPACTION,
-                                                          cumulative_compaction_policy);
-
-    EXPECT_EQ(15, score);
-}
-
-TEST_F(TestNumBasedCumulativeCompactionPolicy, calculate_cumulative_point) {
-    std::vector<RowsetMetaSharedPtr> rs_metas;
-    init_all_rs_meta_cal_point(&rs_metas);
-
-    for (auto& rowset : rs_metas) {
-        _tablet_meta->add_rs_meta(rowset);
-    }
-
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_NUM_BASED_POLICY));
-    _tablet->init();
-    _tablet->calculate_cumulative_point();
-
-    EXPECT_EQ(4, _tablet->cumulative_layer_point());
-}
-
-TEST_F(TestNumBasedCumulativeCompactionPolicy, pick_candidate_rowsets) {
-    std::vector<RowsetMetaSharedPtr> rs_metas;
-    init_all_rs_meta_cal_point(&rs_metas);
-
-    for (auto& rowset : rs_metas) {
-        _tablet_meta->add_rs_meta(rowset);
-    }
-
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_NUM_BASED_POLICY));
-    _tablet->init();
-    _tablet->calculate_cumulative_point();
-
-    std::vector<RowsetSharedPtr> candidate_rowsets;
-    _tablet->pick_candidate_rowsets_to_cumulative_compaction(&candidate_rowsets);
-
-    EXPECT_EQ(2, candidate_rowsets.size());
-}
-
-TEST_F(TestNumBasedCumulativeCompactionPolicy, pick_input_rowsets_normal) {
-    std::vector<RowsetMetaSharedPtr> rs_metas;
-    init_all_rs_meta_cal_point(&rs_metas);
-
-    for (auto& rowset : rs_metas) {
-        _tablet_meta->add_rs_meta(rowset);
-    }
-
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_NUM_BASED_POLICY));
-    _tablet->init();
-    _tablet->calculate_cumulative_point();
-
-    NumBasedCumulativeCompactionPolicy policy;
-    std::vector<RowsetSharedPtr> candidate_rowsets;
-
-    _tablet->pick_candidate_rowsets_to_cumulative_compaction(&candidate_rowsets);
-
-    std::vector<RowsetSharedPtr> input_rowsets;
-    Version last_delete_version {-1, -1};
-    size_t compaction_score = 0;
-    policy.pick_input_rowsets(_tablet.get(), candidate_rowsets, 10, 5, &input_rowsets,
-                              &last_delete_version, &compaction_score);
-
-    EXPECT_EQ(2, input_rowsets.size());
-    EXPECT_EQ(6, compaction_score);
-    EXPECT_EQ(-1, last_delete_version.first);
-    EXPECT_EQ(-1, last_delete_version.second);
-}
-
-TEST_F(TestNumBasedCumulativeCompactionPolicy, pick_input_rowsets_delete) {
-    std::vector<RowsetMetaSharedPtr> rs_metas;
-    init_all_rs_meta_delete(&rs_metas);
-
-    for (auto& rowset : rs_metas) {
-        _tablet_meta->add_rs_meta(rowset);
-    }
-
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_NUM_BASED_POLICY));
-    _tablet->init();
-    _tablet->calculate_cumulative_point();
-
-    NumBasedCumulativeCompactionPolicy policy;
-    std::vector<RowsetSharedPtr> candidate_rowsets;
-
-    _tablet->pick_candidate_rowsets_to_cumulative_compaction(&candidate_rowsets);
-
-    std::vector<RowsetSharedPtr> input_rowsets;
-    Version last_delete_version {-1, -1};
-    size_t compaction_score = 0;
-
-    policy.pick_input_rowsets(_tablet.get(), candidate_rowsets, 10, 5, &input_rowsets,
-                              &last_delete_version, &compaction_score);
-
-    EXPECT_EQ(1, input_rowsets.size());
-    EXPECT_EQ(3, compaction_score);
-    EXPECT_EQ(5, last_delete_version.first);
-    EXPECT_EQ(5, last_delete_version.second);
-}
 
 class TestSizeBasedCumulativeCompactionPolicy : public testing::Test {
 public:
     TestSizeBasedCumulativeCompactionPolicy() {}
     void SetUp() {
-        config::cumulative_size_based_promotion_size_mbytes = 1024;
-        config::cumulative_size_based_promotion_ratio = 0.05;
-        config::cumulative_size_based_promotion_min_size_mbytes = 64;
-        config::cumulative_size_based_compaction_lower_size_mbytes = 64;
+        config::compaction_promotion_size_mbytes = 1024;
+        config::compaction_promotion_ratio = 0.05;
+        config::compaction_promotion_min_size_mbytes = 64;
+        config::compaction_min_size_mbytes = 64;
 
         _tablet_meta = static_cast<TabletMetaSharedPtr>(new TabletMeta(
                 1, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
@@ -296,11 +70,15 @@ public:
     void TearDown() {}
 
     void init_rs_meta(RowsetMetaSharedPtr& pb1, int64_t start, int64_t end) {
-        pb1->init_from_json(_json_rowset_meta);
-        pb1->set_start_version(start);
-        pb1->set_end_version(end);
+        RowsetMetaPB rowset_meta_pb;
+        json2pb::JsonToProtoMessage(_json_rowset_meta, &rowset_meta_pb);
+        rowset_meta_pb.set_start_version(start);
+        rowset_meta_pb.set_end_version(end);
+        rowset_meta_pb.set_creation_time(10000);
+
+        pb1->init_from_pb(rowset_meta_pb);
         pb1->set_total_disk_size(41);
-        pb1->set_creation_time(10000);
+        pb1->set_tablet_schema(_tablet_meta->tablet_schema());
     }
 
     void init_rs_meta_small_base(std::vector<RowsetMetaSharedPtr>* rs_metas) {
@@ -632,9 +410,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_candidate_rowsets) {
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
-    std::vector<RowsetSharedPtr> candidate_rowsets;
-    _tablet->pick_candidate_rowsets_to_cumulative_compaction(&candidate_rowsets);
-
+    auto candidate_rowsets = _tablet->pick_candidate_rowsets_to_cumulative_compaction();
     EXPECT_EQ(3, candidate_rowsets.size());
 }
 
@@ -650,9 +426,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_candidate_rowsets_big_base)
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
-    std::vector<RowsetSharedPtr> candidate_rowsets;
-    _tablet->pick_candidate_rowsets_to_cumulative_compaction(&candidate_rowsets);
-
+    auto candidate_rowsets = _tablet->pick_candidate_rowsets_to_cumulative_compaction();
     EXPECT_EQ(3, candidate_rowsets.size());
 }
 
@@ -668,16 +442,14 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_normal) {
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
-    std::vector<RowsetSharedPtr> candidate_rowsets;
-
-    _tablet->pick_candidate_rowsets_to_cumulative_compaction(&candidate_rowsets);
+    auto candidate_rowsets = _tablet->pick_candidate_rowsets_to_cumulative_compaction();
 
     std::vector<RowsetSharedPtr> input_rowsets;
     Version last_delete_version {-1, -1};
     size_t compaction_score = 0;
     _tablet->_cumulative_compaction_policy->pick_input_rowsets(
             _tablet.get(), candidate_rowsets, 10, 5, &input_rowsets, &last_delete_version,
-            &compaction_score);
+            &compaction_score, config::enable_delete_when_cumu_compaction);
 
     EXPECT_EQ(4, input_rowsets.size());
     EXPECT_EQ(12, compaction_score);
@@ -697,16 +469,14 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_big_base) {
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
-    std::vector<RowsetSharedPtr> candidate_rowsets;
-
-    _tablet->pick_candidate_rowsets_to_cumulative_compaction(&candidate_rowsets);
+    auto candidate_rowsets = _tablet->pick_candidate_rowsets_to_cumulative_compaction();
 
     std::vector<RowsetSharedPtr> input_rowsets;
     Version last_delete_version {-1, -1};
     size_t compaction_score = 0;
     _tablet->_cumulative_compaction_policy->pick_input_rowsets(
             _tablet.get(), candidate_rowsets, 10, 5, &input_rowsets, &last_delete_version,
-            &compaction_score);
+            &compaction_score, config::enable_delete_when_cumu_compaction);
 
     EXPECT_EQ(3, input_rowsets.size());
     EXPECT_EQ(7, compaction_score);
@@ -726,16 +496,14 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_promotion) {
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
-    std::vector<RowsetSharedPtr> candidate_rowsets;
-
-    _tablet->pick_candidate_rowsets_to_cumulative_compaction(&candidate_rowsets);
+    auto candidate_rowsets = _tablet->pick_candidate_rowsets_to_cumulative_compaction();
 
     std::vector<RowsetSharedPtr> input_rowsets;
     Version last_delete_version {-1, -1};
     size_t compaction_score = 0;
     _tablet->_cumulative_compaction_policy->pick_input_rowsets(
             _tablet.get(), candidate_rowsets, 10, 5, &input_rowsets, &last_delete_version,
-            &compaction_score);
+            &compaction_score, config::enable_delete_when_cumu_compaction);
 
     EXPECT_EQ(2, input_rowsets.size());
     EXPECT_EQ(4, compaction_score);
@@ -755,16 +523,14 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_not_same_leve
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
-    std::vector<RowsetSharedPtr> candidate_rowsets;
-
-    _tablet->pick_candidate_rowsets_to_cumulative_compaction(&candidate_rowsets);
+    auto candidate_rowsets = _tablet->pick_candidate_rowsets_to_cumulative_compaction();
 
     std::vector<RowsetSharedPtr> input_rowsets;
     Version last_delete_version {-1, -1};
     size_t compaction_score = 0;
     _tablet->_cumulative_compaction_policy->pick_input_rowsets(
             _tablet.get(), candidate_rowsets, 10, 5, &input_rowsets, &last_delete_version,
-            &compaction_score);
+            &compaction_score, config::enable_delete_when_cumu_compaction);
 
     EXPECT_EQ(4, input_rowsets.size());
     EXPECT_EQ(10, compaction_score);
@@ -784,16 +550,14 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_empty) {
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
-    std::vector<RowsetSharedPtr> candidate_rowsets;
-
-    _tablet->pick_candidate_rowsets_to_cumulative_compaction(&candidate_rowsets);
+    auto candidate_rowsets = _tablet->pick_candidate_rowsets_to_cumulative_compaction();
 
     std::vector<RowsetSharedPtr> input_rowsets;
     Version last_delete_version {-1, -1};
     size_t compaction_score = 0;
     _tablet->_cumulative_compaction_policy->pick_input_rowsets(
             _tablet.get(), candidate_rowsets, 10, 5, &input_rowsets, &last_delete_version,
-            &compaction_score);
+            &compaction_score, config::enable_delete_when_cumu_compaction);
 
     EXPECT_EQ(0, input_rowsets.size());
     EXPECT_EQ(0, compaction_score);
@@ -813,16 +577,14 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_not_reach_min
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
-    std::vector<RowsetSharedPtr> candidate_rowsets;
-
-    _tablet->pick_candidate_rowsets_to_cumulative_compaction(&candidate_rowsets);
+    auto candidate_rowsets = _tablet->pick_candidate_rowsets_to_cumulative_compaction();
 
     std::vector<RowsetSharedPtr> input_rowsets;
     Version last_delete_version {-1, -1};
     size_t compaction_score = 0;
     _tablet->_cumulative_compaction_policy->pick_input_rowsets(
             _tablet.get(), candidate_rowsets, 10, 5, &input_rowsets, &last_delete_version,
-            &compaction_score);
+            &compaction_score, config::enable_delete_when_cumu_compaction);
 
     EXPECT_EQ(0, input_rowsets.size());
     EXPECT_EQ(0, compaction_score);
@@ -830,7 +592,8 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_not_reach_min
     EXPECT_EQ(-1, last_delete_version.second);
 }
 
-TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_delete) {
+TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_delete_in_cumu_compaction) {
+    config::enable_delete_when_cumu_compaction = true;
     std::vector<RowsetMetaSharedPtr> rs_metas;
     init_all_rs_meta_delete(&rs_metas);
 
@@ -842,9 +605,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_delete) {
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
-    std::vector<RowsetSharedPtr> candidate_rowsets;
-
-    _tablet->pick_candidate_rowsets_to_cumulative_compaction(&candidate_rowsets);
+    auto candidate_rowsets = _tablet->pick_candidate_rowsets_to_cumulative_compaction();
 
     std::vector<RowsetSharedPtr> input_rowsets;
     Version last_delete_version {-1, -1};
@@ -852,7 +613,37 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_delete) {
 
     _tablet->_cumulative_compaction_policy->pick_input_rowsets(
             _tablet.get(), candidate_rowsets, 10, 5, &input_rowsets, &last_delete_version,
-            &compaction_score);
+            &compaction_score, config::enable_delete_when_cumu_compaction);
+
+    // now cumulative compaction support delete
+    EXPECT_EQ(4, input_rowsets.size());
+    EXPECT_EQ(10, compaction_score);
+    EXPECT_EQ(-1, last_delete_version.first);
+    EXPECT_EQ(-1, last_delete_version.second);
+}
+
+TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_delete) {
+    config::enable_delete_when_cumu_compaction = false;
+    std::vector<RowsetMetaSharedPtr> rs_metas;
+    init_all_rs_meta_delete(&rs_metas);
+
+    for (auto& rowset : rs_metas) {
+        _tablet_meta->add_rs_meta(rowset);
+    }
+
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
+    _tablet->init();
+    _tablet->calculate_cumulative_point();
+
+    auto candidate_rowsets = _tablet->pick_candidate_rowsets_to_cumulative_compaction();
+
+    std::vector<RowsetSharedPtr> input_rowsets;
+    Version last_delete_version {-1, -1};
+    size_t compaction_score = 0;
+
+    _tablet->_cumulative_compaction_policy->pick_input_rowsets(
+            _tablet.get(), candidate_rowsets, 10, 5, &input_rowsets, &last_delete_version,
+            &compaction_score, config::enable_delete_when_cumu_compaction);
 
     EXPECT_EQ(2, input_rowsets.size());
     EXPECT_EQ(4, compaction_score);
@@ -872,11 +663,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, _calc_promotion_size_big) {
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
-    SizeBasedCumulativeCompactionPolicy* policy =
-            dynamic_cast<SizeBasedCumulativeCompactionPolicy*>(
-                    _tablet->_cumulative_compaction_policy.get());
-
-    EXPECT_EQ(1073741824, policy->_tablet_size_based_promotion_size);
+    EXPECT_EQ(1073741824, _tablet->cumulative_promotion_size());
 }
 
 TEST_F(TestSizeBasedCumulativeCompactionPolicy, _calc_promotion_size_small) {
@@ -891,10 +678,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, _calc_promotion_size_small) {
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
-    SizeBasedCumulativeCompactionPolicy* policy =
-            dynamic_cast<SizeBasedCumulativeCompactionPolicy*>(
-                    _tablet->_cumulative_compaction_policy.get());
-    EXPECT_EQ(67108864, policy->_tablet_size_based_promotion_size);
+    EXPECT_EQ(67108864, _tablet->cumulative_promotion_size());
 }
 
 TEST_F(TestSizeBasedCumulativeCompactionPolicy, _level_size) {
@@ -904,7 +688,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, _level_size) {
     for (auto& rowset : rs_metas) {
         _tablet_meta->add_rs_meta(rowset);
     }
-
+    config::compaction_promotion_size_mbytes = 1024;
     TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
     _tablet->init();
 
@@ -912,10 +696,10 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, _level_size) {
             dynamic_cast<SizeBasedCumulativeCompactionPolicy*>(
                     _tablet->_cumulative_compaction_policy.get());
 
-    EXPECT_EQ(536870912, policy->_levels[0]);
-    EXPECT_EQ(268435456, policy->_levels[1]);
-    EXPECT_EQ(134217728, policy->_levels[2]);
-    EXPECT_EQ(67108864, policy->_levels[3]);
+    EXPECT_EQ(1 << 29, policy->_level_size(1 << 30));
+    EXPECT_EQ(0, policy->_level_size(1000));
+    EXPECT_EQ(1 << 20, policy->_level_size((1 << 20) + 100));
+    EXPECT_EQ(1 << 19, policy->_level_size((1 << 20) - 100));
 }
 
 TEST_F(TestSizeBasedCumulativeCompactionPolicy, _pick_missing_version_cumulative_compaction) {

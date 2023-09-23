@@ -17,20 +17,22 @@
 
 package org.apache.doris.nereids.util;
 
-
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.system.SystemInfoService;
 
+import org.apache.commons.lang3.StringUtils;
+
 import java.io.IOException;
-import java.nio.channels.SocketChannel;
 
 /**
  * MemoUtils.
@@ -49,7 +51,9 @@ public class MemoTestUtils {
     }
 
     public static StatementContext createStatementContext(ConnectContext connectContext, String sql) {
-        return new StatementContext(connectContext, new OriginStatement(sql, 0));
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement(sql, 0));
+        connectContext.setStatementContext(statementContext);
+        return statementContext;
     }
 
     public static CascadesContext createCascadesContext(String sql) {
@@ -62,28 +66,32 @@ public class MemoTestUtils {
 
     public static CascadesContext createCascadesContext(ConnectContext connectContext, String sql) {
         StatementContext statementCtx = createStatementContext(connectContext, sql);
-        LogicalPlan initPlan = parse(sql);
-        return CascadesContext.newContext(statementCtx, initPlan);
+        return createCascadesContext(statementCtx, sql);
     }
 
     public static CascadesContext createCascadesContext(StatementContext statementContext, String sql) {
         LogicalPlan initPlan = new NereidsParser().parseSingle(sql);
-        return CascadesContext.newContext(statementContext, initPlan);
+        return createCascadesContext(statementContext, initPlan);
     }
 
     public static CascadesContext createCascadesContext(ConnectContext connectContext, Plan initPlan) {
         StatementContext statementCtx = createStatementContext(connectContext, "");
-        return CascadesContext.newContext(statementCtx, initPlan);
+        return createCascadesContext(statementCtx, initPlan);
     }
 
     public static CascadesContext createCascadesContext(StatementContext statementContext, Plan initPlan) {
-        return CascadesContext.newContext(statementContext, initPlan);
+        PhysicalProperties requestProperties = NereidsPlanner.buildInitRequireProperties();
+        CascadesContext cascadesContext = CascadesContext.initContext(
+                statementContext, initPlan, requestProperties);
+        cascadesContext.toMemo();
+        MemoValidator.validateInitState(cascadesContext.getMemo(), initPlan);
+        return cascadesContext;
     }
 
     public static LogicalPlan analyze(String sql) {
         CascadesContext cascadesContext = createCascadesContext(sql);
         cascadesContext.newAnalyzer().analyze();
-        return (LogicalPlan) cascadesContext.getMemo().copyOut();
+        return (LogicalPlan) cascadesContext.getRewritePlan();
     }
 
     /**
@@ -95,8 +103,7 @@ public class MemoTestUtils {
      */
     public static ConnectContext createCtx(UserIdentity user, String host) {
         try {
-            SocketChannel channel = SocketChannel.open();
-            ConnectContext ctx = new ConnectContext(channel);
+            ConnectContext ctx = new ConnectContext();
             ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
             ctx.setCurrentUserIdentity(user);
             ctx.setQualifiedUser(user.getQualifiedUser());
@@ -107,5 +114,9 @@ public class MemoTestUtils {
         } catch (Throwable t) {
             throw new IllegalStateException("can not create test connect context", t);
         }
+    }
+
+    private static String getIdentStr(int indent) {
+        return StringUtils.repeat("   ", indent);
     }
 }

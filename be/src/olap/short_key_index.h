@@ -17,14 +17,16 @@
 
 #pragma once
 
+#include <gen_cpp/segment_v2.pb.h>
+#include <glog/logging.h>
+#include <sys/types.h>
+
+#include <algorithm>
 #include <cstdint>
 #include <iterator>
-#include <string>
 #include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/segment_v2.pb.h"
-#include "util/debug_util.h"
 #include "util/faststring.h"
 #include "util/slice.h"
 

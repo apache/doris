@@ -9,13 +9,17 @@
   },
   "sidebar.docs.category.Doris Introduction": {
     "message": "Doris 介绍",
-    "description": "The label for category Doris Architecture in sidebar docs"
+    "description": "The label for category Doris Introduction in sidebar docs"
   },
-  "sidebar.docs.category.Install And Deploy": {
+  "sidebar.docs.category.Install and Deploy": {
     "message": "安装部署",
-    "description": "The label for category Install And Deploy in sidebar docs"
+    "description": "The label for category Install and Deploy in sidebar docs"
   },
-  "sidebar.docs.category.Compile": {
+  "sidebar.docs.category.Docker Deployment": {
+    "message": "Docker 部署",
+    "description": "Make docker image and quickly start Doris's Docker cluster"
+  },
+  "sidebar.docs.category.Source Code Compilation": {
     "message": "源码编译",
     "description": "The label for category Compile in sidebar docs"
   },
@@ -67,21 +71,21 @@
     "message": "Join 优化",
     "description": "The label for category Join Optimization in sidebar docs"
   },
-  "sidebar.docs.category.Date Cache": {
+  "sidebar.docs.category.Data Cache": {
     "message": "数据缓存",
-    "description": "The label for category Date Cache in sidebar docs"
+    "description": "The label for category Data Cache in sidebar docs"
   },
   "sidebar.docs.category.Best Practice": {
     "message": "最佳实践",
     "description": "The label for category Best Practice in sidebar docs"
   },
+  "sidebar.docs.category.Query Acceleration": {
+    "message": "查询加速",
+    "description": "The label for category Query Acceleration in sidebar docs"
+  },
   "sidebar.docs.category.Ecosystem": {
     "message": "生态扩展",
     "description": "The label for category Ecosystem in sidebar docs"
-  },
-  "sidebar.docs.category.Expansion table": {
-    "message": "扩展表",
-    "description": "The label for category Expansion table in sidebar docs"
   },
   "sidebar.docs.category.Doris Manager": {
     "message": "Doris Manager",
@@ -91,9 +95,9 @@
     "message": "SeaTunnel",
     "description": "The label for category SeaTunnel in sidebar docs"
   },
-  "sidebar.docs.category.UDFA": {
-    "message": "UDFA",
-    "description": "The label for category UDFA in sidebar docs"
+  "sidebar.docs.category.UDAF": {
+    "message": "UDAF",
+    "description": "The label for category UDAF in sidebar docs"
   },
   "sidebar.docs.category.UDF": {
     "message": "自定义函数",
@@ -143,9 +147,9 @@
     "message": "Bitwise 函数",
     "description": "The label for category Bitwise Functions in sidebar docs"
   },
-  "sidebar.docs.category.Condition Functions": {
+  "sidebar.docs.category.Conditional Functions": {
     "message": "条件函数",
-    "description": "The label for category Condition Functions in sidebar docs"
+    "description": "The label for category Conditional Functions in sidebar docs"
   },
   "sidebar.docs.category.JSON Functions": {
     "message": "JSON 函数",
@@ -155,9 +159,13 @@
     "message": "Hash 函数",
     "description": "The label for category Hash Functions in sidebar docs"
   },
-  "sidebar.docs.category.Math Functions": {
+  "sidebar.docs.category.HLL Functions": {
+    "message": "HLL 函数",
+    "description": "The label for category HLL Functions in sidebar docs"
+  },
+  "sidebar.docs.category.Numeric Functions": {
     "message": "数学函数",
-    "description": "The label for category Math Functions in sidebar docs"
+    "description": "The label for category Numeric Functions in sidebar docs"
   },
   "sidebar.docs.category.Encryption Functions": {
     "message": "加密和信息摘要函数",
@@ -251,6 +259,10 @@
     "message": "监控指标",
     "description": "The label for category Monitor Metrics in sidebar docs"
   },
+  "sidebar.docs.category.Memory Management": {
+    "message": "内存管理",
+    "description": "The label for category Memory Management in sidebar docs"
+  },
   "sidebar.docs.category.Config": {
     "message": "配置管理",
     "description": "The label for category Config in sidebar docs"
@@ -258,6 +270,10 @@
   "sidebar.docs.category.User Privilege and Ldap": {
     "message": "用户权限及认证",
     "description": "The label for category User Privilege and Ldap in sidebar docs"
+  },
+  "sidebar.docs.category.System Table": {
+    "message": "System Table",
+    "description": "The label for category System Table in sidebar docs"
   },
   "sidebar.docs.category.HTTP API": {
     "message": "HTTP API",
@@ -267,9 +283,9 @@
     "message": "FE",
     "description": "The label for category FE in sidebar docs"
   },
-  "sidebar.docs.category.MANAGER": {
-    "message": "MANAGER",
-    "description": "The label for category MANAGER in sidebar docs"
+  "sidebar.docs.category.BE": {
+    "message": "BE",
+    "description": "The label for category BE in sidebar docs"
   },
   "sidebar.docs.category.FAQ": {
     "message": "常见问题",
@@ -278,5 +294,21 @@
   "sidebar.docs.category.Benchmark": {
     "message": "性能测试",
     "description": "The label for category Benchmark in sidebar docs"
+  },
+  "sidebar.docs.category.Lakehouse": {
+    "message": "数据湖分析",
+    "description": "The label for category Lakehouse in sidebar docs"
+  },
+  "sidebar.docs.category.Multi Catalog": {
+    "message": "多源数据目录",
+    "description": "The label for category Lakehouse.Multi Catalog in sidebar docs"
+  },
+  "sidebar.docs.category.External Table": {
+    "message": "外部表",
+    "description": "The label for category Lakehouse.External Table in sidebar docs"
+  },
+  "sidebar.docs.category.Release notes": {
+    "message": "版本发布",
+    "description": "The label for category Release notes in sidebar docs"
   }
 }

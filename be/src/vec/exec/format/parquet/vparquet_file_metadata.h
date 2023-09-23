@@ -16,8 +16,11 @@
 // under the License.
 
 #pragma once
+#include <gen_cpp/parquet_types.h>
+
+#include <string>
+
 #include "common/status.h"
-#include "gen_cpp/parquet_types.h"
 #include "schema_desc.h"
 
 namespace doris::vectorized {
@@ -27,18 +30,12 @@ public:
     FileMetaData(tparquet::FileMetaData& metadata);
     ~FileMetaData() = default;
     Status init_schema();
-    tparquet::FileMetaData& to_thrift_metadata();
-    int32_t num_row_groups() const { return _num_groups; }
-    int32_t num_columns() const { return _num_columns; };
-    int32_t num_rows() const { return _num_rows; };
-    FieldDescriptor schema() const { return _schema; };
+    const FieldDescriptor& schema() const { return _schema; }
+    const tparquet::FileMetaData& to_thrift();
     std::string debug_string() const;
 
 private:
     tparquet::FileMetaData _metadata;
-    int32_t _num_groups = 0;
-    int32_t _num_columns = 0;
-    int64_t _num_rows = 0;
     FieldDescriptor _schema;
 };
 

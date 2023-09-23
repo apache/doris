@@ -263,7 +263,7 @@ find_shell_scripts() {
     local exclude_patterns
     local content
     local files=()
-    content="$(grep 'sh_checker_exclude:' "${DORIS_HOME}/.github/workflows/shellcheck.yml")"
+    content="$(grep 'sh_checker_exclude:' "${DORIS_HOME}/.github/workflows/code-checks.yml")"
     read -r -a exclude_patterns <<<"${content#*sh_checker_exclude: }"
     while read -r file; do
         local matched=false

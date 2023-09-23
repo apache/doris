@@ -23,6 +23,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -31,7 +32,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -39,6 +40,8 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * Base class for Policy.
@@ -48,14 +51,39 @@ public abstract class Policy implements Writable, GsonPostProcessable {
 
     private static final Logger LOG = LogManager.getLogger(Policy.class);
 
-    @SerializedName(value = "policyId")
-    protected long policyId = -1;
+    @SerializedName(value = "id")
+    protected long id = -1;
 
     @SerializedName(value = "type")
     protected PolicyTypeEnum type = null;
 
     @SerializedName(value = "policyName")
     protected String policyName = null;
+
+    @SerializedName(value = "version")
+    protected long version = -1;
+
+    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
+
+    public void writeLock() {
+        lock.writeLock().lock();
+    }
+
+    public void writeUnlock() {
+        lock.writeLock().unlock();
+    }
+
+    public void readLock() {
+        lock.readLock().lock();
+    }
+
+    public void readUnlock() {
+        lock.readLock().unlock();
+    }
+
+    // just for subclass lombok @Data
+    public Policy() {
+    }
 
     public Policy(PolicyTypeEnum type) {
         this.type = type;
@@ -67,10 +95,11 @@ public abstract class Policy implements Writable, GsonPostProcessable {
      * @param type policy type
      * @param policyName policy name
      */
-    public Policy(long policyId, final PolicyTypeEnum type, final String policyName) {
-        this.policyId = policyId;
+    public Policy(long id, final PolicyTypeEnum type, final String policyName) {
+        this.id = id;
         this.type = type;
         this.policyName = policyName;
+        this.version = 0;
     }
 
     /**
@@ -89,13 +118,18 @@ public abstract class Policy implements Writable, GsonPostProcessable {
                         .getCatalogOrAnalysisException(stmt.getTableName().getCtl())
                         .getDbOrAnalysisException(stmt.getTableName().getDb());
                 UserIdentity userIdent = stmt.getUser();
-                userIdent.analyze(ConnectContext.get().getClusterName());
+                if (userIdent != null) {
+                    userIdent.analyze(ConnectContext.get().getClusterName());
+                }
                 TableIf table = db.getTableOrAnalysisException(stmt.getTableName().getTbl());
-                return new RowPolicy(policyId, stmt.getPolicyName(), db.getId(), userIdent,
+                return new RowPolicy(policyId, stmt.getPolicyName(), db.getId(), userIdent, stmt.getRoleName(),
                         stmt.getOrigStmt().originStmt, table.getId(), stmt.getFilterType(), stmt.getWherePredicate());
             default:
                 throw new AnalysisException("Unknown policy type: " + stmt.getType());
         }
+    }
+
+    public void modifyProperties(Map<String, String> properties) throws DdlException, AnalysisException {
     }
 
     /**
@@ -118,7 +152,7 @@ public abstract class Policy implements Writable, GsonPostProcessable {
 
     protected boolean checkMatched(PolicyTypeEnum type, String policyName) {
         return (type == null || type.equals(this.type))
-               && (policyName == null || StringUtils.equals(policyName, this.policyName));
+                && (policyName == null || StringUtils.equals(policyName, this.policyName));
     }
 
     // it is used to check whether this policy is in PolicyMgr

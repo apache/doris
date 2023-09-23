@@ -1,6 +1,6 @@
 ---
 {
-    "title": "HLL approximate accurate deduplication",
+    "title": "HLL Approximate Accurate Deduplication",
     "language": "en"
 }
 ---
@@ -24,5 +24,5 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# HLL approximate accurate deduplication
+# HLL Approximate Accurate Deduplication
 

@@ -17,19 +17,27 @@
 
 #pragma once
 
-#include <gen_cpp/FrontendService.h>
-#include <gen_cpp/HeartbeatService_types.h>
-#include <gen_cpp/MasterService_types.h>
+#include <butil/macros.h>
+
+#include <map>
+#include <string>
 
 #include "common/status.h"
-#include "runtime/client_cache.h"
 
 namespace doris {
+class TConfirmUnusedRemoteFilesRequest;
+class TConfirmUnusedRemoteFilesResult;
+class TFinishTaskRequest;
+class TMasterInfo;
+class TMasterResult;
+class TReportRequest;
 
 class MasterServerClient {
 public:
-    MasterServerClient(const TMasterInfo& master_info, FrontendServiceClientCache* client_cache);
-    virtual ~MasterServerClient() {};
+    static MasterServerClient* create(const TMasterInfo& master_info);
+    static MasterServerClient* instance();
+
+    ~MasterServerClient() = default;
 
     // Report finished task to the master server
     //
@@ -38,7 +46,7 @@ public:
     //
     // Output parameters:
     // * result: The result of report task
-    virtual Status finish_task(const TFinishTaskRequest& request, TMasterResult* result);
+    Status finish_task(const TFinishTaskRequest& request, TMasterResult* result);
 
     // Report tasks/olap tablet/disk state to the master server
     //
@@ -47,29 +55,24 @@ public:
     //
     // Output parameters:
     // * result: The result of report task
-    virtual Status report(const TReportRequest& request, TMasterResult* result);
+    Status report(const TReportRequest& request, TMasterResult* result);
 
-    // refreshStoragePolicy get storage policy from the master server
-    //
-    // Input parameters:
-    // * request: The name of storage policy
-    //
-    // Output parameters:
-    // * result: The result of storage policy
-    virtual Status refresh_storage_policy(TGetStoragePolicyResult* result);
+    Status confirm_unused_remote_files(const TConfirmUnusedRemoteFilesRequest& request,
+                                       TConfirmUnusedRemoteFilesResult* result);
 
 private:
+    MasterServerClient(const TMasterInfo& master_info);
+
     DISALLOW_COPY_AND_ASSIGN(MasterServerClient);
 
     // Not owner. Reference to the ExecEnv::_master_info
     const TMasterInfo& _master_info;
-    FrontendServiceClientCache* _client_cache;
 };
 
 class AgentUtils {
 public:
-    AgentUtils() {};
-    virtual ~AgentUtils() {};
+    AgentUtils() = default;
+    virtual ~AgentUtils() = default;
 
     // Execute shell cmd
     virtual bool exec_cmd(const std::string& command, std::string* errmsg,

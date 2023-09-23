@@ -585,7 +585,7 @@ cc_preamble = '\
 #include "gen_cpp/opcode/functions.h"\n\
 #include "exprs/expr.h"\n\
 #include "exprs/case_expr.h"\n\
-#include "runtime/string_value.hpp"\n\
+#include "vec/common/string_tmp.h"\n\
 #include "runtime/tuple_row.h"\n\
 #include "util/mysql_dtoa.h"\n\
 #include "util/string_parser.hpp"\n\

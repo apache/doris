@@ -20,8 +20,8 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FakeEnv;
 import org.apache.doris.common.UserException;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.MockedAuth;
-import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
 
 import mockit.Expectations;
@@ -38,7 +38,7 @@ public class ShowEncryptKeysStmtTest {
     private Env env;
 
     @Mocked
-    private PaloAuth auth;
+    private AccessControllerManager accessManager;
     @Mocked
     private ConnectContext ctx;
     private FakeEnv fakeEnv;
@@ -50,7 +50,7 @@ public class ShowEncryptKeysStmtTest {
     public void setUp() {
         fakeEnv = new FakeEnv();
         env = AccessTestUtil.fetchAdminCatalog();
-        MockedAuth.mockedAuth(auth);
+        MockedAuth.mockedAccess(accessManager);
         MockedAuth.mockedConnectContext(ctx, "root", "192.188.3.1");
         FakeEnv.setEnv(env);
 

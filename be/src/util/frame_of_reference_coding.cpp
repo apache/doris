@@ -17,8 +17,14 @@
 
 #include "util/frame_of_reference_coding.h"
 
+#include <glog/logging.h>
+#include <sys/types.h>
+
 #include <algorithm>
 #include <cstring>
+#include <iostream>
+#include <iterator>
+#include <limits>
 
 #include "util/bit_util.h"
 #include "util/coding.h"
@@ -235,9 +241,6 @@ bool ForDecoder<T>::init() {
     _last_frame_size = _max_frame_size - (_max_frame_size * _frame_count - _values_num);
 
     size_t bit_width_offset = _buffer_len - 5 - _frame_count * 2;
-    if (bit_width_offset < 0) {
-        return false;
-    }
 
     // read _storage_formats, bit_widths and compute frame_offsets
     u_int32_t frame_start_offset = 0;
@@ -259,7 +262,7 @@ bool ForDecoder<T>::init() {
         }
     }
 
-    _out_buffer.reserve(_max_frame_size);
+    _out_buffer.resize(_max_frame_size);
     _parsed = true;
 
     return true;
@@ -398,7 +401,7 @@ bool ForDecoder<T>::get_batch(T* val, size_t count) {
 
 template <typename T>
 bool ForDecoder<T>::skip(int32_t skip_num) {
-    if (_current_index + skip_num >= _values_num || _current_index + skip_num < 0) {
+    if (_current_index + skip_num >= _values_num) {
         return false;
     }
     _current_index = _current_index + skip_num;

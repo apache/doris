@@ -29,15 +29,17 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InformationFunction;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
-import org.apache.doris.analysis.SysVariableDesc;
+import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.LoadException;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.proto.InternalService;
+import org.apache.doris.proto.Types.PScalarType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.rpc.BackendServiceProxy;
@@ -47,16 +49,15 @@ import org.apache.doris.thrift.TFoldConstantParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TQueryGlobals;
+import org.apache.doris.thrift.TQueryOptions;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.text.DateFormat;
-import java.text.SimpleDateFormat;
+import java.time.LocalDateTime;
 import java.util.Collections;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -80,7 +81,6 @@ import java.util.concurrent.TimeUnit;
  */
 public class FoldConstantsRule implements ExprRewriteRule {
     private static final Logger LOG = LogManager.getLogger(FoldConstantsRule.class);
-    private static final DateFormat DATE_FORMAT = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 
     public static ExprRewriteRule INSTANCE = new FoldConstantsRule();
 
@@ -108,8 +108,11 @@ public class FoldConstantsRule implements ExprRewriteRule {
         // cast-to-types and that can lead to query failures, e.g., CTAS
         if (expr instanceof CastExpr) {
             CastExpr castExpr = (CastExpr) expr;
+            if (castExpr.isNotFold()) {
+                return castExpr;
+            }
             if (castExpr.getChild(0) instanceof NullLiteral) {
-                return expr;
+                return castExpr.getChild(0);
             }
         }
 
@@ -121,7 +124,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
                 return expr;
             }
         }
-        return expr.getResultValue();
+        return expr.getResultValue(false);
     }
 
     /**
@@ -132,7 +135,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
      * @return
      * @throws AnalysisException
      */
-    public boolean apply(Map<String, Expr> exprMap, Analyzer analyzer, boolean changed)
+    public boolean apply(Map<String, Expr> exprMap, Analyzer analyzer, boolean changed, TQueryOptions tQueryOptions)
             throws AnalysisException {
         // root_expr_id_string:
         //     child_expr_id_string : texpr
@@ -173,7 +176,8 @@ public class FoldConstantsRule implements ExprRewriteRule {
         }
 
         if (!paramMap.isEmpty()) {
-            Map<String, Map<String, Expr>> resultMap = calcConstExpr(paramMap, allConstMap, analyzer.getContext());
+            Map<String, Map<String, Expr>> resultMap = calcConstExpr(paramMap, allConstMap, analyzer.getContext(),
+                    tQueryOptions);
 
             if (!resultMap.isEmpty()) {
                 putBackConstExpr(exprMap, resultMap);
@@ -194,7 +198,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
      */
     // public only for unit test
     public void getConstExpr(Expr expr, Map<String, TExpr> constExprMap, Map<String, Expr> oriConstMap,
-                              Analyzer analyzer, Map<String, Expr> sysVarMap, Map<String, Expr> infoFnMap)
+            Analyzer analyzer, Map<String, Expr> sysVarMap, Map<String, Expr> infoFnMap)
             throws AnalysisException {
         if (expr.isConstant()) {
             // Do not constant fold cast(null as dataType) because we cannot preserve the
@@ -214,7 +218,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
                 return;
             }
             // collect sysVariableDesc expr
-            if (expr.contains(Predicates.instanceOf(SysVariableDesc.class))) {
+            if (expr.contains(Predicates.instanceOf(VariableExpr.class))) {
                 getSysVarDescExpr(expr, sysVarMap);
                 return;
             }
@@ -242,14 +246,17 @@ public class FoldConstantsRule implements ExprRewriteRule {
     }
 
     private void getSysVarDescExpr(Expr expr, Map<String, Expr> sysVarMap) {
-        if (expr instanceof SysVariableDesc) {
-            Expr literalExpr = ((SysVariableDesc) expr).getLiteralExpr();
+        if (expr instanceof VariableExpr) {
+            Expr literalExpr = ((VariableExpr) expr).getLiteralExpr();
             if (literalExpr == null) {
                 try {
-                    VariableMgr.fillValue(ConnectContext.get().getSessionVariable(), (SysVariableDesc) expr);
-                    literalExpr = ((SysVariableDesc) expr).getLiteralExpr();
+                    VariableMgr.fillValue(ConnectContext.get().getSessionVariable(), (VariableExpr) expr);
+                    literalExpr = ((VariableExpr) expr).getLiteralExpr();
                 } catch (AnalysisException e) {
-                    LOG.warn("failed to get session variable value: " + ((SysVariableDesc) expr).getName());
+                    if (ConnectContext.get() != null) {
+                        ConnectContext.get().getState().reset();
+                    }
+                    LOG.warn("failed to get session variable value: " + ((VariableExpr) expr).getName());
                 }
             }
             sysVarMap.put(expr.getId().toString(), literalExpr);
@@ -275,6 +282,9 @@ public class FoldConstantsRule implements ExprRewriteRule {
                 literalExpr = LiteralExpr.create(str, type);
                 infoFnMap.put(expr.getId().toString(), literalExpr);
             } catch (AnalysisException e) {
+                if (ConnectContext.get() != null) {
+                    ConnectContext.get().getState().reset();
+                }
                 LOG.warn("failed to get const expr value from InformationFunction: {}", e.getMessage());
             }
 
@@ -321,7 +331,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
         // ATTN: make sure the child order of expr keep unchanged
         for (int i = 0; i < expr.getChildren().size(); i++) {
             Expr child = expr.getChild(i);
-            if (literalExpr.equals(replaceExpr(child, key, literalExpr))) {
+            if (!(child instanceof LiteralExpr) && literalExpr.equals(replaceExpr(child, key, literalExpr))) {
                 literalExpr.setId(child.getId());
                 expr.setChild(i, literalExpr);
                 break;
@@ -337,12 +347,12 @@ public class FoldConstantsRule implements ExprRewriteRule {
      * @return
      */
     private Map<String, Map<String, Expr>> calcConstExpr(Map<String, Map<String, TExpr>> map,
-                                                         Map<String, Expr> allConstMap,
-                                                         ConnectContext context) {
+            Map<String, Expr> allConstMap,
+            ConnectContext context, TQueryOptions tQueryOptions) {
         TNetworkAddress brpcAddress = null;
         Map<String, Map<String, Expr>> resultMap = new HashMap<>();
         try {
-            List<Long> backendIds = Env.getCurrentSystemInfo().getBackendIds(true);
+            List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
             if (backendIds.isEmpty()) {
                 throw new LoadException("Failed to get all partitions. No alive backends");
             }
@@ -351,8 +361,9 @@ public class FoldConstantsRule implements ExprRewriteRule {
             brpcAddress = new TNetworkAddress(be.getHost(), be.getBrpcPort());
 
             TQueryGlobals queryGlobals = new TQueryGlobals();
-            queryGlobals.setNowString(DATE_FORMAT.format(new Date()));
+            queryGlobals.setNowString(TimeUtils.DATETIME_FORMAT.format(LocalDateTime.now()));
             queryGlobals.setTimestampMs(System.currentTimeMillis());
+            queryGlobals.setNanoSeconds(LocalDateTime.now().getNano());
             queryGlobals.setTimeZone(TimeUtils.DEFAULT_TIME_ZONE);
             if (context.getSessionVariable().getTimeZone().equals("CST")) {
                 queryGlobals.setTimeZone(TimeUtils.DEFAULT_TIME_ZONE);
@@ -361,7 +372,9 @@ public class FoldConstantsRule implements ExprRewriteRule {
             }
 
             TFoldConstantParams tParams = new TFoldConstantParams(map, queryGlobals);
-            tParams.setVecExec(VectorizedUtil.isVectorized());
+            tParams.setVecExec(true);
+            tParams.setQueryOptions(tQueryOptions);
+            tParams.setQueryId(context.queryId());
 
             Future<InternalService.PConstantExprResult> future
                     = BackendServiceProxy.getInstance().foldConstantExpr(brpcAddress, tParams);
@@ -373,14 +386,37 @@ public class FoldConstantsRule implements ExprRewriteRule {
                     Map<String, Expr> tmp = new HashMap<>();
                     for (Map.Entry<String, InternalService.PExprResult> entry1
                             : entry.getValue().getMapMap().entrySet()) {
-                        TPrimitiveType type = TPrimitiveType.findByValue(entry1.getValue().getType().getType());
+                        PScalarType scalarType = entry1.getValue().getType();
+                        TPrimitiveType ttype = TPrimitiveType.findByValue(scalarType.getType());
                         Expr retExpr = null;
                         if (entry1.getValue().getSuccess()) {
+                            Type type = null;
+                            if (ttype == TPrimitiveType.CHAR) {
+                                Preconditions.checkState(scalarType.hasLen());
+                                type = ScalarType.createCharType(scalarType.getLen());
+                            } else if (ttype == TPrimitiveType.VARCHAR) {
+                                Preconditions.checkState(scalarType.hasLen());
+                                type = ScalarType.createVarcharType(scalarType.getLen());
+                            } else if (ttype == TPrimitiveType.DECIMALV2) {
+                                type = ScalarType.createDecimalType(scalarType.getPrecision(),
+                                        scalarType.getScale());
+                            } else if (ttype == TPrimitiveType.DATETIMEV2) {
+                                type = ScalarType.createDatetimeV2Type(scalarType.getScale());
+                            } else if (ttype == TPrimitiveType.DECIMAL32
+                                    || ttype == TPrimitiveType.DECIMAL64
+                                    || ttype == TPrimitiveType.DECIMAL128I) {
+                                type = ScalarType.createDecimalV3Type(scalarType.getPrecision(),
+                                        scalarType.getScale());
+                            } else {
+                                type = ScalarType.createType(
+                                        PrimitiveType.fromThrift(ttype));
+                            }
                             retExpr = LiteralExpr.create(entry1.getValue().getContent(),
-                                    Type.fromPrimitiveType(PrimitiveType.fromThrift(type)));
+                                    type);
                         } else {
                             retExpr = allConstMap.get(entry1.getKey());
                         }
+                        LOG.debug("retExpr: " + retExpr.toString());
                         tmp.put(entry1.getKey(), retExpr);
                     }
                     if (!tmp.isEmpty()) {
@@ -389,9 +425,11 @@ public class FoldConstantsRule implements ExprRewriteRule {
                 }
 
             } else {
+                LOG.warn("failed_fold_context.queryId(): " + DebugUtil.printId(context.queryId()));
                 LOG.warn("failed to get const expr value from be: {}", result.getStatus().getErrorMsgsList());
             }
         } catch (Exception e) {
+            LOG.warn("failed_fold_context.queryId(): " + DebugUtil.printId(context.queryId()));
             LOG.warn("failed to get const expr value from be: {}", e.getMessage());
         }
         return resultMap;

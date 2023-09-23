@@ -2,15 +2,16 @@
 
 #include "gutil/stringprintf.h"
 
-#include <errno.h>
 #include <stdarg.h> // For va_list and related operations
 #include <stdio.h>  // MSVC requires this for _vsnprintf
-
 #include <vector>
-using std::vector;
-#include <common/logging.h>
+#include <ostream>
 
-#include "gutil/macros.h"
+using std::vector;
+#include "common/logging.h"
+
+// IWYU pragma: no_include <butil/macros.h>
+#include "gutil/macros.h" // IWYU pragma: keep
 
 #ifdef _MSC_VER
 enum { IS__MSC_VER = 1 };

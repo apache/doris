@@ -17,48 +17,83 @@
 
 #pragma once
 
+#include <glog/logging.h>
+
+#include <memory>
+#include <vector>
+
+#include "common/factory_creator.h"
 #include "common/status.h"
-#include "runtime/runtime_state.h"
+#include "runtime/types.h"
+#include "udf/udf.h"
 #include "vec/core/block.h"
+#include "vec/exprs/vexpr_fwd.h"
+
+namespace doris {
+class RowDescriptor;
+class RuntimeState;
+} // namespace doris
 
 namespace doris::vectorized {
-class VExpr;
 
 class VExprContext {
-public:
-    VExprContext(VExpr* expr);
-    ~VExprContext();
-    Status prepare(RuntimeState* state, const RowDescriptor& row_desc);
-    Status open(RuntimeState* state);
-    void close(RuntimeState* state);
-    Status clone(RuntimeState* state, VExprContext** new_ctx);
-    Status execute(Block* block, int* result_column_id);
+    ENABLE_FACTORY_CREATOR(VExprContext);
 
-    VExpr* root() { return _root; }
-    void set_root(VExpr* expr) { _root = expr; }
+public:
+    VExprContext(const VExprSPtr& expr);
+    ~VExprContext();
+    [[nodiscard]] Status prepare(RuntimeState* state, const RowDescriptor& row_desc);
+    [[nodiscard]] Status open(RuntimeState* state);
+    [[nodiscard]] Status clone(RuntimeState* state, VExprContextSPtr& new_ctx);
+    [[nodiscard]] Status execute(Block* block, int* result_column_id);
+
+    VExprSPtr root() { return _root; }
+    void set_root(const VExprSPtr& expr) { _root = expr; }
 
     /// Creates a FunctionContext, and returns the index that's passed to fn_context() to
     /// retrieve the created context. Exprs that need a FunctionContext should call this in
     /// Prepare() and save the returned index. 'varargs_buffer_size', if specified, is the
     /// size of the varargs buffer in the created FunctionContext (see udf-internal.h).
-    int register_func(RuntimeState* state, const FunctionContext::TypeDesc& return_type,
-                      const std::vector<FunctionContext::TypeDesc>& arg_types,
-                      int varargs_buffer_size);
+    int register_function_context(RuntimeState* state, const doris::TypeDescriptor& return_type,
+                                  const std::vector<doris::TypeDescriptor>& arg_types);
 
     /// Retrieves a registered FunctionContext. 'i' is the index returned by the call to
-    /// register_func(). This should only be called by VExprs.
+    /// register_function_context(). This should only be called by VExprs.
     FunctionContext* fn_context(int i) {
-        DCHECK_GE(i, 0);
-        DCHECK_LT(i, _fn_contexts.size());
-        return _fn_contexts[i];
+        if (i < 0 || i >= _fn_contexts.size()) {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "fn_context index invalid, index={}, _fn_contexts.size()={}", i,
+                            _fn_contexts.size());
+        }
+        return _fn_contexts[i].get();
     }
 
-    static Status filter_block(VExprContext* vexpr_ctx, Block* block, int column_to_keep);
-    static Status filter_block(const std::unique_ptr<VExprContext*>& vexpr_ctx_ptr, Block* block,
-                               int column_to_keep);
+    [[nodiscard]] static Status filter_block(VExprContext* vexpr_ctx, Block* block,
+                                             int column_to_keep);
 
-    static Block get_output_block_after_execute_exprs(const std::vector<vectorized::VExprContext*>&,
-                                                      const Block&, Status&);
+    [[nodiscard]] static Status filter_block(const VExprContextSPtrs& expr_contexts, Block* block,
+                                             int column_to_keep);
+
+    [[nodiscard]] static Status execute_conjuncts(const VExprContextSPtrs& ctxs,
+                                                  const std::vector<IColumn::Filter*>* filters,
+                                                  const bool accept_null, Block* block,
+                                                  IColumn::Filter* result_filter,
+                                                  bool* can_filter_all);
+
+    static Status execute_conjuncts(const VExprContextSPtrs& ctxs,
+                                    const std::vector<IColumn::Filter*>* filters, Block* block,
+                                    IColumn::Filter* result_filter, bool* can_filter_all);
+
+    [[nodiscard]] static Status execute_conjuncts_and_filter_block(
+            const VExprContextSPtrs& ctxs, const std::vector<IColumn::Filter*>* filters,
+            Block* block, std::vector<uint32_t>& columns_to_filter, int column_to_keep);
+
+    static Status execute_conjuncts_and_filter_block(const VExprContextSPtrs& ctxs, Block* block,
+                                                     std::vector<uint32_t>& columns_to_filter,
+                                                     int column_to_keep, IColumn::Filter& filter);
+
+    [[nodiscard]] static Status get_output_block_after_execute_exprs(const VExprContextSPtrs&,
+                                                                     const Block&, Block*);
 
     int get_last_result_column_id() const {
         DCHECK(_last_result_column_id != -1);
@@ -71,16 +106,49 @@ public:
 
     void clone_fn_contexts(VExprContext* other);
 
-    void mark_as_stale() {
-        DCHECK(!_stale);
-        _stale = true;
+    bool force_materialize_slot() const { return _force_materialize_slot; }
+
+    void set_force_materialize_slot() { _force_materialize_slot = true; }
+
+    VExprContext& operator=(const VExprContext& other) {
+        if (this == &other) {
+            return *this;
+        }
+
+        _root = other._root;
+        _is_clone = other._is_clone;
+        _prepared = other._prepared;
+        _opened = other._opened;
+
+        for (auto& fn : other._fn_contexts) {
+            _fn_contexts.emplace_back(fn->clone());
+        }
+
+        _last_result_column_id = other._last_result_column_id;
+        _depth_num = other._depth_num;
+        return *this;
+    }
+
+    VExprContext& operator=(VExprContext&& other) {
+        _root = other._root;
+        other._root = nullptr;
+        _is_clone = other._is_clone;
+        _prepared = other._prepared;
+        _opened = other._opened;
+        _fn_contexts = std::move(other._fn_contexts);
+        _last_result_column_id = other._last_result_column_id;
+        _depth_num = other._depth_num;
+        return *this;
     }
 
 private:
+    // Close method is called in vexpr context dector, not need call expicility
+    void close();
+
     friend class VExpr;
 
     /// The expr tree this context is for.
-    VExpr* _root;
+    VExprSPtr _root;
 
     /// True if this context came from a Clone() call. Used to manage FunctionStateScope.
     bool _is_clone;
@@ -88,17 +156,18 @@ private:
     /// Variables keeping track of current state.
     bool _prepared;
     bool _opened;
-    bool _closed;
 
     /// FunctionContexts for each registered expression. The FunctionContexts are created
     /// and owned by this VExprContext.
-    std::vector<FunctionContext*> _fn_contexts;
-
-    /// Pool backing fn_contexts_.
-    std::unique_ptr<MemPool> _pool;
+    std::vector<std::unique_ptr<FunctionContext>> _fn_contexts;
 
     int _last_result_column_id;
 
-    bool _stale;
+    /// The depth of expression-tree.
+    int _depth_num = 0;
+
+    // This flag only works on VSlotRef.
+    // Force to materialize even if the slot need_materialize is false, we just ignore need_materialize flag
+    bool _force_materialize_slot = false;
 };
 } // namespace doris::vectorized

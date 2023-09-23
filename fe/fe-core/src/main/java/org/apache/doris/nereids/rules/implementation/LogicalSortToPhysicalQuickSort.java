@@ -19,7 +19,14 @@ package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.SortPhase;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
+
+import com.google.common.collect.Lists;
+
+import java.util.List;
 
 /**
  * Implementation rule that convert logical sort to physical sort.
@@ -27,10 +34,21 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 public class LogicalSortToPhysicalQuickSort extends OneImplementationRuleFactory {
     @Override
     public Rule build() {
-        return logicalSort().then(sort -> new PhysicalQuickSort<>(
-                sort.getOrderKeys(),
-                sort.getLogicalProperties(),
-                sort.child())
-            ).toRule(RuleType.LOGICAL_SORT_TO_PHYSICAL_QUICK_SORT_RULE);
+        return logicalSort().thenApplyMulti(ctx -> twoPhaseSort(ctx.root))
+                .toRule(RuleType.LOGICAL_SORT_TO_PHYSICAL_QUICK_SORT_RULE);
+    }
+
+    private List<PhysicalQuickSort<? extends Plan>> twoPhaseSort(LogicalSort<? extends Plan> logicalSort) {
+        PhysicalQuickSort<Plan> localSort = new PhysicalQuickSort<>(logicalSort.getOrderKeys(),
+                SortPhase.LOCAL_SORT, logicalSort.getLogicalProperties(), logicalSort.child(0));
+        PhysicalQuickSort<Plan> twoPhaseSort = new PhysicalQuickSort<>(
+                logicalSort.getOrderKeys(),
+                SortPhase.MERGE_SORT, logicalSort.getLogicalProperties(),
+                localSort);
+        PhysicalQuickSort<Plan> onePhaseSort = new PhysicalQuickSort<>(
+                logicalSort.getOrderKeys(),
+                SortPhase.GATHER_SORT, logicalSort.getLogicalProperties(),
+                localSort.child(0));
+        return Lists.newArrayList(twoPhaseSort, onePhaseSort);
     }
 }

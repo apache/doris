@@ -74,6 +74,7 @@ public class ShowRoutineLoadStmt extends ShowStmt {
                     .add("EndTime")
                     .add("DbName")
                     .add("TableName")
+                    .add("IsMultiTable")
                     .add("State")
                     .add("DataSourceType")
                     .add("CurrentTaskNum")
@@ -86,6 +87,8 @@ public class ShowRoutineLoadStmt extends ShowStmt {
                     .add("ReasonOfStateChanged")
                     .add("ErrorLogUrls")
                     .add("OtherMsg")
+                    .add("User")
+                    .add("Comment")
                     .build();
 
     private final LabelName labelName;

@@ -17,14 +17,8 @@
 
 package org.apache.doris.mysql.privilege;
 
-import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.common.io.Text;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import java.io.DataOutput;
-import java.io.IOException;
 
 /*
  * CatalogPrivTable saves all catalog level privs
@@ -36,21 +30,17 @@ public class CatalogPrivTable extends PrivTable {
      * Return first priv which match the user@host on ctl.* The returned priv will be
      * saved in 'savedPrivs'.
      */
-    public void getPrivs(UserIdentity currentUser, String ctl, PrivBitSet savedPrivs) {
+    public void getPrivs(String ctl, PrivBitSet savedPrivs) {
         CatalogPrivEntry matchedEntry = null;
         for (PrivEntry entry : entries) {
-            CatalogPrivEntry dsPrivEntry = (CatalogPrivEntry) entry;
-
-            if (!dsPrivEntry.match(currentUser, true)) {
-                continue;
-            }
+            CatalogPrivEntry ctlPrivEntry = (CatalogPrivEntry) entry;
 
             // check catalog
-            if (!dsPrivEntry.isAnyCtl() && !dsPrivEntry.getCtlPattern().match(ctl)) {
+            if (!ctlPrivEntry.isAnyCtl() && !ctlPrivEntry.getCtlPattern().match(ctl)) {
                 continue;
             }
 
-            matchedEntry = dsPrivEntry;
+            matchedEntry = ctlPrivEntry;
             break;
         }
         if (matchedEntry == null) {
@@ -58,16 +48,5 @@ public class CatalogPrivTable extends PrivTable {
         }
 
         savedPrivs.or(matchedEntry.getPrivSet());
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        if (!isClassNameWrote) {
-            String className = CatalogPrivTable.class.getCanonicalName();
-            Text.writeString(out, className);
-            isClassNameWrote = true;
-        }
-
-        super.write(out);
     }
 }

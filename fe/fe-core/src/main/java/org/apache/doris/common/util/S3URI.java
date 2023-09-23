@@ -19,8 +19,8 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.common.UserException;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
-import org.apache.parquet.Strings;
 import org.apache.parquet.glob.GlobExpander;
 
 import java.net.URI;
@@ -36,11 +36,12 @@ import java.util.Set;
  */
 
 public class S3URI {
-    private static final String SCHEME_DELIM = "://";
-    private static final String PATH_DELIM = "/";
+    public static final String SCHEME_DELIM = "://";
+    public static final String PATH_DELIM = "/";
     private static final String QUERY_DELIM = "\\?";
     private static final String FRAGMENT_DELIM = "#";
-    private static final Set<String> VALID_SCHEMES = ImmutableSet.of("http", "https", "s3", "s3a", "s3n", "bos");
+    private static final Set<String> VALID_SCHEMES = ImmutableSet.of("http", "https", "s3", "s3a", "s3n",
+                "bos", "oss", "cos", "obs");
 
     private String scheme;
     private final String location;

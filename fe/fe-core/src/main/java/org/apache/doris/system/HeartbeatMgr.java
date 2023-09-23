@@ -26,8 +26,12 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.persist.HbPackage;
+import org.apache.doris.resource.Tag;
+import org.apache.doris.service.ExecuteEnv;
+import org.apache.doris.service.FeDiskInfo;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
+import org.apache.doris.system.SystemInfoService.HostInfo;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.HeartbeatService;
 import org.apache.doris.thrift.TBackendInfo;
@@ -35,6 +39,7 @@ import org.apache.doris.thrift.TBrokerOperationStatus;
 import org.apache.doris.thrift.TBrokerOperationStatusCode;
 import org.apache.doris.thrift.TBrokerPingBrokerRequest;
 import org.apache.doris.thrift.TBrokerVersion;
+import org.apache.doris.thrift.TFrontendInfo;
 import org.apache.doris.thrift.TFrontendPingFrontendRequest;
 import org.apache.doris.thrift.TFrontendPingFrontendResult;
 import org.apache.doris.thrift.TFrontendPingFrontendStatusCode;
@@ -97,11 +102,12 @@ public class HeartbeatMgr extends MasterDaemon {
      */
     @Override
     protected void runAfterCatalogReady() {
+        // Get feInfos of previous iteration.
+        List<TFrontendInfo> feInfos = Env.getCurrentEnv().getFrontendInfos();
         List<Future<HeartbeatResponse>> hbResponses = Lists.newArrayList();
-
         // send backend heartbeat
         for (Backend backend : nodeMgr.getIdToBackend().values()) {
-            BackendHeartbeatHandler handler = new BackendHeartbeatHandler(backend);
+            BackendHeartbeatHandler handler = new BackendHeartbeatHandler(backend, feInfos);
             hbResponses.add(executor.submit(handler));
         }
 
@@ -144,7 +150,6 @@ public class HeartbeatMgr extends MasterDaemon {
                 }
             } catch (InterruptedException | ExecutionException e) {
                 LOG.warn("got exception when doing heartbeat", e);
-                continue;
             }
         } // end for all results
 
@@ -165,11 +170,11 @@ public class HeartbeatMgr extends MasterDaemon {
                 BackendHbResponse hbResponse = (BackendHbResponse) response;
                 Backend be = nodeMgr.getBackend(hbResponse.getBeId());
                 if (be != null) {
-                    boolean isChanged = be.handleHbResponse(hbResponse);
+                    boolean isChanged = be.handleHbResponse(hbResponse, isReplay);
                     if (hbResponse.getStatus() != HbStatus.OK) {
                         // invalid all connections cached in ClientPool
                         ClientPool.backendPool.clearPool(new TNetworkAddress(be.getHost(), be.getBePort()));
-                        if (!isReplay) {
+                        if (!isReplay && System.currentTimeMillis() - be.getLastUpdateMs() > 60 * 1000L) {
                             Env.getCurrentEnv().getGlobalTransactionMgr()
                                     .abortTxnWhenCoordinateBeDown(be.getHost(), 100);
                         }
@@ -186,7 +191,7 @@ public class HeartbeatMgr extends MasterDaemon {
                     boolean isChanged = broker.handleHbResponse(hbResponse);
                     if (hbResponse.getStatus() != HbStatus.OK) {
                         // invalid all connections cached in ClientPool
-                        ClientPool.brokerPool.clearPool(new TNetworkAddress(broker.ip, broker.port));
+                        ClientPool.brokerPool.clearPool(new TNetworkAddress(broker.host, broker.port));
                     }
                     return isChanged;
                 }
@@ -201,9 +206,11 @@ public class HeartbeatMgr extends MasterDaemon {
     // backend heartbeat
     private class BackendHeartbeatHandler implements Callable<HeartbeatResponse> {
         private Backend backend;
+        private List<TFrontendInfo> feInfos;
 
-        public BackendHeartbeatHandler(Backend backend) {
+        public BackendHeartbeatHandler(Backend backend, List<TFrontendInfo> feInfos) {
             this.backend = backend;
+            this.feInfos = feInfos;
         }
 
         @Override
@@ -219,6 +226,7 @@ public class HeartbeatMgr extends MasterDaemon {
                 long flags = heartbeatFlags.getHeartbeatFlags();
                 copiedMasterInfo.setHeartbeatFlags(flags);
                 copiedMasterInfo.setBackendId(backendId);
+                copiedMasterInfo.setFrontendInfos(feInfos);
                 THeartbeatResult result;
                 if (!FeConstants.runningUnitTest) {
                     client = ClientPool.backendHeartbeatPool.borrowObject(beAddr);
@@ -230,6 +238,7 @@ public class HeartbeatMgr extends MasterDaemon {
                     backendInfo.setHttpPort(2);
                     backendInfo.setBeRpcPort(3);
                     backendInfo.setBrpcPort(4);
+                    backendInfo.setArrowFlightSqlPort(8);
                     backendInfo.setVersion("test-1234");
                     result = new THeartbeatResult();
                     result.setStatus(new TStatus(TStatusCode.OK));
@@ -245,15 +254,25 @@ public class HeartbeatMgr extends MasterDaemon {
                     if (tBackendInfo.isSetBrpcPort()) {
                         brpcPort = tBackendInfo.getBrpcPort();
                     }
+                    int arrowFlightSqlPort = -1;
+                    if (tBackendInfo.isSetArrowFlightSqlPort()) {
+                        arrowFlightSqlPort = tBackendInfo.getArrowFlightSqlPort();
+                    }
                     String version = "";
                     if (tBackendInfo.isSetVersion()) {
                         version = tBackendInfo.getVersion();
                     }
-                    long beStartTime = tBackendInfo.isSetBeStartTime()
-                            ? tBackendInfo.getBeStartTime() : System.currentTimeMillis();
-                    // backend.updateOnce(bePort, httpPort, beRpcPort, brpcPort);
+                    long beStartTime = tBackendInfo.getBeStartTime();
+                    String nodeRole = Tag.VALUE_MIX;
+                    if (tBackendInfo.isSetBeNodeRole()) {
+                        nodeRole = tBackendInfo.getBeNodeRole();
+                    }
+                    boolean isShutDown = false;
+                    if (tBackendInfo.isSetIsShutdown()) {
+                        isShutDown = tBackendInfo.isIsShutdown();
+                    }
                     return new BackendHbResponse(backendId, bePort, httpPort, brpcPort,
-                            System.currentTimeMillis(), beStartTime, version);
+                            System.currentTimeMillis(), beStartTime, version, nodeRole, isShutDown, arrowFlightSqlPort);
                 } else {
                     return new BackendHbResponse(backendId, backend.getHost(),
                             result.getStatus().getErrorMsgs().isEmpty()
@@ -289,12 +308,16 @@ public class HeartbeatMgr extends MasterDaemon {
 
         @Override
         public HeartbeatResponse call() {
-            if (fe.getHost().equals(Env.getCurrentEnv().getSelfNode().first)) {
+            HostInfo selfNode = Env.getCurrentEnv().getSelfNode();
+            if (fe.getHost().equals(selfNode.getHost())) {
                 // heartbeat to self
                 if (Env.getCurrentEnv().isReady()) {
                     return new FrontendHbResponse(fe.getNodeName(), Config.query_port, Config.rpc_port,
-                            Env.getCurrentEnv().getMaxJournalId(), System.currentTimeMillis(),
-                            Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH);
+                            Config.arrow_flight_sql_port, Env.getCurrentEnv().getMaxJournalId(),
+                            System.currentTimeMillis(),
+                            Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH,
+                            ExecuteEnv.getInstance().getStartupTime(), ExecuteEnv.getInstance().getDiskInfos(),
+                            ExecuteEnv.getInstance().getProcessUUID());
                 } else {
                     return new FrontendHbResponse(fe.getNodeName(), "not ready");
                 }
@@ -314,9 +337,9 @@ public class HeartbeatMgr extends MasterDaemon {
                 ok = true;
                 if (result.getStatus() == TFrontendPingFrontendStatusCode.OK) {
                     return new FrontendHbResponse(fe.getNodeName(), result.getQueryPort(),
-                            result.getRpcPort(), result.getReplayedJournalId(),
-                            System.currentTimeMillis(), result.getVersion());
-
+                            result.getRpcPort(), result.getArrowFlightSqlPort(), result.getReplayedJournalId(),
+                            System.currentTimeMillis(), result.getVersion(), result.getLastStartupTime(),
+                            FeDiskInfo.fromThrifts(result.getDiskInfos()), result.getProcessUUID());
                 } else {
                     return new FrontendHbResponse(fe.getNodeName(), result.getMsg());
                 }
@@ -348,7 +371,7 @@ public class HeartbeatMgr extends MasterDaemon {
         @Override
         public HeartbeatResponse call() {
             TPaloBrokerService.Client client = null;
-            TNetworkAddress addr = new TNetworkAddress(broker.ip, broker.port);
+            TNetworkAddress addr = new TNetworkAddress(broker.host, broker.port);
             boolean ok = false;
             try {
                 client = ClientPool.brokerPool.borrowObject(addr);
@@ -358,13 +381,13 @@ public class HeartbeatMgr extends MasterDaemon {
                 ok = true;
 
                 if (status.getStatusCode() != TBrokerOperationStatusCode.OK) {
-                    return new BrokerHbResponse(brokerName, broker.ip, broker.port, status.getMessage());
+                    return new BrokerHbResponse(brokerName, broker.host, broker.port, status.getMessage());
                 } else {
-                    return new BrokerHbResponse(brokerName, broker.ip, broker.port, System.currentTimeMillis());
+                    return new BrokerHbResponse(brokerName, broker.host, broker.port, System.currentTimeMillis());
                 }
 
             } catch (Exception e) {
-                return new BrokerHbResponse(brokerName, broker.ip, broker.port,
+                return new BrokerHbResponse(brokerName, broker.host, broker.port,
                         Strings.isNullOrEmpty(e.getMessage()) ? "got exception" : e.getMessage());
             } finally {
                 if (ok) {

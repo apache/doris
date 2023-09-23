@@ -17,14 +17,11 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.alter.DecommissionType;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListComparator;
-import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -46,30 +43,30 @@ import java.util.concurrent.TimeUnit;
 public class BackendsProcDir implements ProcDirInterface {
     private static final Logger LOG = LogManager.getLogger(BackendsProcDir.class);
 
-    public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("BackendId").add("Cluster").add("IP").add("HostName").add("HeartbeatPort")
-            .add("BePort").add("HttpPort").add("BrpcPort").add("LastStartTime").add("LastHeartbeat").add("Alive")
-            .add("SystemDecommissioned").add("ClusterDecommissioned").add("TabletNum")
-            .add("DataUsedCapacity").add("AvailCapacity").add("TotalCapacity").add("UsedPct")
-            .add("MaxDiskUsedPct").add("Tag").add("ErrMsg").add("Version").add("Status")
+    public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>().add("BackendId")
+            .add("Host").add("HeartbeatPort").add("BePort").add("HttpPort").add("BrpcPort").add("ArrowFlightSqlPort")
+            .add("LastStartTime").add("LastHeartbeat").add("Alive").add("SystemDecommissioned").add("TabletNum")
+            .add("DataUsedCapacity").add("TrashUsedCapcacity").add("AvailCapacity").add("TotalCapacity").add("UsedPct")
+            .add("MaxDiskUsedPct").add("RemoteUsedCapacity").add("Tag").add("ErrMsg").add("Version").add("Status")
+            .add("HeartbeatFailureCounter").add("NodeRole")
             .build();
 
     public static final int HOSTNAME_INDEX = 3;
 
-    private SystemInfoService clusterInfoService;
+    private SystemInfoService systemInfoService;
 
-    public BackendsProcDir(SystemInfoService clusterInfoService) {
-        this.clusterInfoService = clusterInfoService;
+    public BackendsProcDir(SystemInfoService systemInfoService) {
+        this.systemInfoService = systemInfoService;
     }
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
-        Preconditions.checkNotNull(clusterInfoService);
+        Preconditions.checkNotNull(systemInfoService);
 
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
-        final List<List<String>> backendInfos = getClusterBackendInfos(null);
+        final List<List<String>> backendInfos = getBackendInfos();
         for (List<String> backendInfo : backendInfos) {
             List<String> oneInfo = new ArrayList<>(backendInfo.size());
             oneInfo.addAll(backendInfo);
@@ -79,33 +76,23 @@ public class BackendsProcDir implements ProcDirInterface {
     }
 
     /**
-     * get backends of cluster
-     * @param clusterName
+     * get backends info
+     *
      * @return
      */
-    public static List<List<String>> getClusterBackendInfos(String clusterName) {
-        final SystemInfoService clusterInfoService = Env.getCurrentSystemInfo();
+    public static List<List<String>> getBackendInfos() {
+        final SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
         List<List<String>> backendInfos = new LinkedList<>();
-        List<Long> backendIds;
-        if (!Strings.isNullOrEmpty(clusterName)) {
-            final Cluster cluster = Env.getCurrentEnv().getCluster(clusterName);
-            // root not in any cluster
-            if (null == cluster) {
-                return backendInfos;
-            }
-            backendIds = cluster.getBackendIdList();
-        } else {
-            backendIds = clusterInfoService.getBackendIds(false);
-            if (backendIds == null) {
-                return backendInfos;
-            }
+        List<Long> backendIds = systemInfoService.getAllBackendIds(false);
+        if (backendIds == null) {
+            return backendInfos;
         }
 
         long start = System.currentTimeMillis();
         Stopwatch watch = Stopwatch.createUnstarted();
         List<List<Comparable>> comparableBackendInfos = new LinkedList<>();
         for (long backendId : backendIds) {
-            Backend backend = clusterInfoService.getBackend(backendId);
+            Backend backend = systemInfoService.getBackend(backendId);
             if (backend == null) {
                 continue;
             }
@@ -115,29 +102,16 @@ public class BackendsProcDir implements ProcDirInterface {
             watch.stop();
             List<Comparable> backendInfo = Lists.newArrayList();
             backendInfo.add(String.valueOf(backendId));
-            backendInfo.add(backend.getOwnerClusterName());
             backendInfo.add(backend.getHost());
-            if (Strings.isNullOrEmpty(clusterName)) {
-                backendInfo.add(NetUtils.getHostnameByIp(backend.getHost()));
-                backendInfo.add(String.valueOf(backend.getHeartbeatPort()));
-                backendInfo.add(String.valueOf(backend.getBePort()));
-                backendInfo.add(String.valueOf(backend.getHttpPort()));
-                backendInfo.add(String.valueOf(backend.getBrpcPort()));
-            }
+            backendInfo.add(String.valueOf(backend.getHeartbeatPort()));
+            backendInfo.add(String.valueOf(backend.getBePort()));
+            backendInfo.add(String.valueOf(backend.getHttpPort()));
+            backendInfo.add(String.valueOf(backend.getBrpcPort()));
+            backendInfo.add(String.valueOf(backend.getArrowFlightSqlPort()));
             backendInfo.add(TimeUtils.longToTimeString(backend.getLastStartTime()));
             backendInfo.add(TimeUtils.longToTimeString(backend.getLastUpdateMs()));
             backendInfo.add(String.valueOf(backend.isAlive()));
-            if (backend.isDecommissioned() && backend.getDecommissionType() == DecommissionType.ClusterDecommission) {
-                backendInfo.add("false");
-                backendInfo.add("true");
-            } else if (backend.isDecommissioned()
-                    && backend.getDecommissionType() == DecommissionType.SystemDecommission) {
-                backendInfo.add("true");
-                backendInfo.add("false");
-            } else {
-                backendInfo.add("false");
-                backendInfo.add("false");
-            }
+            backendInfo.add(String.valueOf(backend.isDecommissioned()));
             backendInfo.add(tabletNum.toString());
 
             // capacity
@@ -145,6 +119,11 @@ public class BackendsProcDir implements ProcDirInterface {
             long dataUsedB = backend.getDataUsedCapacityB();
             Pair<Double, String> usedCapacity = DebugUtil.getByteUint(dataUsedB);
             backendInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(usedCapacity.first) + " " + usedCapacity.second);
+            // trash used
+            long trashUsedB = backend.getTrashUsedCapacityB();
+            Pair<Double, String> trashUsedCapacity = DebugUtil.getByteUint(trashUsedB);
+            backendInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(
+                        trashUsedCapacity.first) + " " + trashUsedCapacity.second);
             // available
             long availB = backend.getAvailableCapacityB();
             Pair<Double, String> availCapacity = DebugUtil.getByteUint(availB);
@@ -163,6 +142,13 @@ public class BackendsProcDir implements ProcDirInterface {
             }
             backendInfo.add(String.format("%.2f", used) + " %");
             backendInfo.add(String.format("%.2f", backend.getMaxDiskUsedPct() * 100) + " %");
+
+            // remote used capacity
+            long remoteUsedB = backend.getRemoteUsedCapacityB();
+            Pair<Double, String> totalRemoteUsedCapacity = DebugUtil.getByteUint(remoteUsedB);
+            backendInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalRemoteUsedCapacity.first) + " "
+                    + totalRemoteUsedCapacity.second);
+
             // tags
             backendInfo.add(backend.getTagMapString());
             // err msg
@@ -171,16 +157,21 @@ public class BackendsProcDir implements ProcDirInterface {
             backendInfo.add(backend.getVersion());
             // status
             backendInfo.add(new Gson().toJson(backend.getBackendStatus()));
+            // heartbeat failure counter
+            backendInfo.add(backend.getHeartbeatFailureCounter());
+
+            // node role, show the value only when backend is alive.
+            backendInfo.add(backend.isAlive() ? backend.getNodeRoleTag().value : "");
 
             comparableBackendInfos.add(backendInfo);
         }
 
         // backends proc node get result too slow, add log to observer.
-        LOG.debug("backends proc get tablet num cost: {}, total cost: {}",
-                watch.elapsed(TimeUnit.MILLISECONDS), (System.currentTimeMillis() - start));
+        LOG.debug("backends proc get tablet num cost: {}, total cost: {}", watch.elapsed(TimeUnit.MILLISECONDS),
+                (System.currentTimeMillis() - start));
 
-        // sort by cluster name, host name
-        ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(1, 3);
+        // sort by host name
+        ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(1);
         comparableBackendInfos.sort(comparator);
 
         for (List<Comparable> backendInfo : comparableBackendInfos) {
@@ -212,7 +203,7 @@ public class BackendsProcDir implements ProcDirInterface {
             throw new AnalysisException("Invalid backend id format: " + beIdStr);
         }
 
-        Backend backend = clusterInfoService.getBackend(backendId);
+        Backend backend = systemInfoService.getBackend(backendId);
         if (backend == null) {
             throw new AnalysisException("Backend[" + backendId + "] does not exist.");
         }

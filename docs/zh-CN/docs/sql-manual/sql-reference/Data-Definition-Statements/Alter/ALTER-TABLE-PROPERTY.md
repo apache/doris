@@ -87,10 +87,10 @@ ALTER TABLE example_db.my_table set (
 );
 ```
 
-5. 修改表的 in_memory 属性
+5. 修改表的 in_memory 属性，只支持修改为'false'
 
 ```sql
-ALTER TABLE example_db.my_table set ("in_memory" = "true");
+ALTER TABLE example_db.my_table set ("in_memory" = "false");
 ```
 
 6. 启用 批量删除功能
@@ -153,14 +153,22 @@ ALTER TABLE example_db.mysql_table MODIFY ENGINE TO odbc PROPERTIES("driver" = "
 ```sql
 ALTER TABLE example_db.mysql_table SET ("replication_num" = "2");
 ALTER TABLE example_db.mysql_table SET ("default.replication_num" = "2");
-ALTER TABLE example_db.mysql_table SET ("replication_allocation" = "tag.location.tag1: 1");
-ALTER TABLE example_db.mysql_table SET ("default.replication_allocation" = "tag.location.tag1: 1");
+ALTER TABLE example_db.mysql_table SET ("replication_allocation" = "tag.location.default: 1");
+ALTER TABLE example_db.mysql_table SET ("default.replication_allocation" = "tag.location.default: 1");
 ```
 
 注：
 1. default 前缀的属性表示修改表的默认副本分布。这种修改不会修改表的当前实际副本分布，而只影响分区表上新建分区的副本分布。
 2. 对于非分区表，修改不带 default 前缀的副本分布属性，会同时修改表的默认副本分布和实际副本分布。即修改后，通过 `show create table` 和 `show partitions from tbl` 语句可以看到副本分布数据都被修改了。
 3. 对于分区表，表的实际副本分布是分区级别的，即每个分区有自己的副本分布，可以通过 `show partitions from tbl` 语句查看。如果想修改实际副本分布，请参阅 `ALTER TABLE PARTITION`。
+
+13\. **[Experimental]** 打开`light_schema_change`
+
+  对于建表时未开启light_schema_change的表，可以通过如下方式打开。
+
+```sql
+ALTER TABLE example_db.mysql_table SET ("light_schema_change" = "true");
+```
 
 ### Example
 
@@ -217,10 +225,10 @@ ALTER TABLE example_db.my_table set (
 );
 ```
 
-5. 修改表的 in_memory 属性
+5. 修改表的 in_memory 属性，只支持修改为'false'
 
 ```sql
-ALTER TABLE example_db.my_table set ("in_memory" = "true");
+ALTER TABLE example_db.my_table set ("in_memory" = "false");
 ```
 
 6. 启用 批量删除功能
@@ -261,6 +269,17 @@ ALTER TABLE example_db.my_table MODIFY COLUMN k1 COMMENT "k1", MODIFY COLUMN k2 
 ALTER TABLE example_db.mysql_table MODIFY ENGINE TO odbc PROPERTIES("driver" = "MySQL");
 ```
 
+12. 给表添加冷热分层数据迁移策略
+```sql
+ ALTER TABLE create_table_not_have_policy set ("storage_policy" = "created_create_table_alter_policy");
+```
+注：表没有关联过storage policy，才能被添加成功，一个表只能添加一个storage policy
+
+13. 给表的partition添加冷热分层数据迁移策略
+```sql
+ALTER TABLE create_table_partition MODIFY PARTITION (*) SET("storage_policy"="created_create_table_partition_alter_policy");
+```
+注：表的partition没有关联过storage policy，才能被添加成功，一个表只能添加一个storage policy
 ### Keywords
 
 ```text

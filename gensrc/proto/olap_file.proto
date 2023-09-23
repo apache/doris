@@ -59,7 +59,7 @@ message KeyBoundsPB {
 }
 
 message RowsetMetaPB {
-    required int64 rowset_id = 1;
+    required int64 rowset_id = 1; // Deprecated. Use rowset_id_v2 instead.
     optional int64 partition_id = 2;
     optional int64 tablet_id = 3;
     // only for pending rowset
@@ -100,8 +100,8 @@ message RowsetMetaPB {
     optional string rowset_id_v2 = 23;
     // resource id
     optional string resource_id = 24;
-    // earliest write time
-    optional int64 oldest_write_timestamp = 25 [default = -1];
+    // used to be oldest write time: earliest write time
+    reserved 25;
     // latest write time
     optional int64 newest_write_timestamp = 26 [default = -1];
     // the encoded segment min/max key of segments in this rowset,
@@ -109,32 +109,29 @@ message RowsetMetaPB {
     repeated KeyBoundsPB segments_key_bounds = 27;
     // tablet meta pb, for compaction
     optional TabletSchemaPB tablet_schema = 28;
-    // spare field id for future use
-    optional AlphaRowsetExtraMetaPB alpha_rowset_extra_meta_pb = 50;
+    // alpha_rowset_extra_meta_pb is deleted
+    reserved 50;
     // to indicate whether the data between the segments overlap
     optional SegmentsOverlapPB segments_overlap_pb = 51 [default = OVERLAP_UNKNOWN];
 }
 
-// unused remote rowsets garbage collection kv value
+message SegmentStatisticsPB {
+    optional int64 row_num = 1;
+    optional int64 data_size = 2;
+    optional int64 index_size = 3;
+    optional KeyBoundsPB key_bounds = 4;
+}
+
+// kv value for reclaiming remote rowset
 message RemoteRowsetGcPB {
     required string resource_id = 1;
     required int64 tablet_id = 2;
     required int64 num_segments = 3;
 }
 
-message AlphaRowsetExtraMetaPB {
-    repeated SegmentGroupPB segment_groups = 1;
-}
-
-message SegmentGroupPB {
-    required int32 segment_group_id = 1;
-    required int32 num_segments = 2;
-    required int64 index_size = 3;
-    required int64 data_size = 4;
-    required int64 num_rows = 5;
-    repeated ZoneMap zone_maps = 6;
-    optional bool empty = 7;
-    optional PUniqueId load_id = 8;
+// kv value for reclaiming all remote rowsets of tablet
+message RemoteTabletGcPB {
+    repeated string resource_ids = 1;
 }
 
 enum DataFileType {
@@ -149,15 +146,24 @@ enum KeysType {
 }
 
 message DeletePredicatePB {
-    required int32 version = 1;
+    required int32 version = 1; // This field is useless, but could not removed, not depend on it
     repeated string sub_predicates = 2;
     repeated InPredicatePB in_predicates = 3;
+    repeated DeleteSubPredicatePB sub_predicates_v2 = 4;
+}
+
+message DeleteSubPredicatePB {
+    optional int32 column_unique_id = 1;
+    optional string column_name = 2;
+    optional string op = 3;
+    optional string cond_value = 4;
 }
 
 message InPredicatePB {
    optional string column_name = 1;
    optional bool is_not_in = 2;
    repeated string values = 3;
+   optional int32 column_unique_id = 4;
 }
 
 enum AlterTabletState {
@@ -199,6 +205,24 @@ message ColumnPB {
     optional bool visible = 16 [default=true];
     repeated ColumnPB children_columns = 17;
     repeated string children_column_names = 18;
+    optional bool result_is_nullable = 19;
+    // persist info for PathInData that represents path in document, e.g. JSON.
+    optional segment_v2.ColumnPathInfo column_path_info = 20;
+}
+
+enum IndexType {
+    BITMAP = 0;
+    INVERTED = 1;
+    BLOOMFILTER = 2;
+    NGRAM_BF = 3;
+}
+
+message TabletIndexPB {
+    optional int64 index_id = 1;
+    optional string index_name = 2;
+    optional IndexType index_type = 3;
+    repeated int32 col_unique_id = 4;
+    map<string, string> properties = 5;
 }
 
 enum SortType {
@@ -222,6 +246,14 @@ message TabletSchemaPB {
     optional segment_v2.CompressionTypePB compression_type = 13 [default=LZ4F];
     optional int32 schema_version = 14;
     optional bool disable_auto_compaction = 15 [default=false];
+    repeated TabletIndexPB index = 16;
+    optional int32 version_col_idx = 17 [default = -1];
+    optional bool store_row_column = 18 [default=false]; // store tuplerow oriented column
+    optional bool is_dynamic_schema = 19 [default=false]; // deprecated
+    optional bool is_partial_update = 20 [default=false];
+    repeated string partial_update_input_columns = 21;
+    optional bool enable_single_replica_compaction = 22 [default=false];
+    optional bool skip_write_index_on_load = 23 [default=false];
 }
 
 enum TabletStatePB {
@@ -255,6 +287,13 @@ message S3StorageParamPB {
     optional string root_path = 8;
 }
 
+message BinlogConfigPB {
+    optional bool enable = 1;
+    optional int64 ttl_seconds = 2;
+    optional int64 max_bytes = 3;
+    optional int64 max_history_nums = 4;
+}
+
 message TabletMetaPB {
     optional int64 table_id = 1;    // ?
     optional int64 partition_id = 2;    // ?
@@ -282,10 +321,18 @@ message TabletMetaPB {
     // optional StorageMediumPB storage_medium = 19 [default = HDD];
     // optional string remote_storage_name = 20;
     optional int64 replica_id = 21 [default = 0];
-    optional string storage_policy = 22;
+    // 22 used to be string storage_policy = 22;
+    reserved 22;
     optional DeleteBitmapPB delete_bitmap = 23;
     // Use primary key index to speed up tabel unique key model
     optional bool enable_unique_key_merge_on_write = 24 [default = false];
+    optional int64 storage_policy_id = 25;
+    optional PUniqueId cooldown_meta_id = 26;
+    optional BinlogConfigPB binlog_config = 27;
+    optional string compaction_policy = 28 [default = "size_based"];
+    optional int64 time_series_compaction_goal_size_mbytes = 29 [default = 1024];
+    optional int64 time_series_compaction_file_count_threshold = 30 [default = 2000];
+    optional int64 time_series_compaction_time_threshold_seconds = 31 [default = 3600];
 }
 
 message OLAPRawDeltaHeaderMessage {
@@ -298,4 +345,32 @@ message DeleteBitmapPB {
     repeated int64 versions = 3;
     // Serialized roaring bitmaps indexed with {rowset_id, segment_id, version}
     repeated bytes segment_delete_bitmaps = 4;
+}
+
+message BinlogMetaEntryPB {
+    optional int64 version = 1;
+    optional int64 tablet_id = 2;
+    optional int64 rowset_id = 3; // Deprecated use rowset_id_v2 instead
+    optional int64 num_segments = 4;
+    optional int64 creation_time = 5;
+    optional string rowset_id_v2 = 6;
+}
+
+message PendingPublishInfoPB {
+    optional int64 partition_id = 1;
+    optional int64 transaction_id = 2;
+}
+
+message RowsetBinlogMetasPB {
+    message RowsetBinlogMetaPB {
+        optional string rowset_id = 1;
+        optional int64 version = 2;
+        optional int64 num_segments = 3;
+        optional string meta_key = 4;
+        optional bytes meta = 5;
+        optional string data_key = 6;
+        optional bytes data = 7;
+    }
+
+    repeated RowsetBinlogMetaPB rowset_binlog_metas = 1;
 }

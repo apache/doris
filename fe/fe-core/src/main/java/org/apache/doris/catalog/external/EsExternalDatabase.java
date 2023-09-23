@@ -17,30 +17,14 @@
 
 package org.apache.doris.catalog.external;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.datasource.EsExternalCatalog;
 import org.apache.doris.datasource.ExternalCatalog;
-
-import com.google.common.collect.Maps;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import org.apache.doris.datasource.InitDatabaseLog;
 
 /**
  * Elasticsearch metastore external database.
  */
 public class EsExternalDatabase extends ExternalDatabase<EsExternalTable> {
-
-    private static final Logger LOG = LogManager.getLogger(EsExternalDatabase.class);
-
-    // Cache of table name to table id.
-    private Map<String, Long> tableNameToId = Maps.newConcurrentMap();
-    private Map<Long, EsExternalTable> idToTbl = Maps.newHashMap();
 
     /**
      * Create Elasticsearch external database.
@@ -50,42 +34,16 @@ public class EsExternalDatabase extends ExternalDatabase<EsExternalTable> {
      * @param name database name.
      */
     public EsExternalDatabase(ExternalCatalog extCatalog, long id, String name) {
-        super(extCatalog, id, name);
-        init();
-    }
-
-    private void init() {
-        List<String> tableNames = extCatalog.listTableNames(null, name);
-        if (tableNames != null) {
-            for (String tableName : tableNames) {
-                long tblId = Env.getCurrentEnv().getNextId();
-                tableNameToId.put(tableName, tblId);
-                idToTbl.put(tblId, new EsExternalTable(tblId, tableName, name, (EsExternalCatalog) extCatalog));
-            }
-        }
+        super(extCatalog, id, name, InitDatabaseLog.Type.ES);
     }
 
     @Override
-    public Set<String> getTableNamesWithLock() {
-        // Doesn't need to lock because everytime we call the hive metastore api to get table names.
-        return new HashSet<>(extCatalog.listTableNames(null, name));
+    protected EsExternalTable getExternalTable(String tableName, long tblId, ExternalCatalog catalog) {
+        return new EsExternalTable(tblId, tableName, name, (EsExternalCatalog) extCatalog);
     }
 
-    @Override
-    public List<EsExternalTable> getTables() {
-        return new ArrayList<>(idToTbl.values());
-    }
-
-    @Override
-    public EsExternalTable getTableNullable(String tableName) {
-        if (!tableNameToId.containsKey(tableName)) {
-            return null;
-        }
-        return idToTbl.get(tableNameToId.get(tableName));
-    }
-
-    @Override
-    public EsExternalTable getTableNullable(long tableId) {
-        return idToTbl.get(tableId);
+    public void addTableForTest(EsExternalTable tbl) {
+        idToTbl.put(tbl.getId(), tbl);
+        tableNameToId.put(tbl.getName(), tbl.getId());
     }
 }

@@ -18,69 +18,96 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.statistics.TableStats;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import org.apache.parquet.Preconditions;
-import org.apache.parquet.Strings;
 
+import java.sql.Date;
+import java.util.ArrayList;
 import java.util.List;
 
 public class ShowTableStatsStmt extends ShowStmt {
 
+    // TODO add more columns
     private static final ImmutableList<String> TITLE_NAMES =
             new ImmutableList.Builder<String>()
-                    .add("table_name")
-                    .add(TableStats.ROW_COUNT.getValue())
-                    .add(TableStats.DATA_SIZE.getValue())
+                    .add("updated_rows")
+                    .add("query_times")
+                    .add("row_count")
+                    .add("method")
+                    .add("type")
+                    .add("updated_time")
+                    .add("columns")
+                    .add("trigger")
                     .build();
 
-    private TableName tableName;
+    private final TableName tableName;
 
-    // after analyzed
-    // There is only on attribute for both @tableName and @dbName at the same time.
-    private String dbName;
+    private final PartitionNames partitionNames;
+    private final boolean cached;
 
-    public ShowTableStatsStmt(TableName tableName) {
+    private TableIf table;
+
+    public ShowTableStatsStmt(TableName tableName, PartitionNames partitionNames, boolean cached) {
         this.tableName = tableName;
+        this.partitionNames = partitionNames;
+        this.cached = cached;
     }
 
-    public String getTableName() {
-        Preconditions.checkArgument(isAnalyzed(), "The db name must be obtained after the parsing is complete");
-        if (tableName == null) {
-            return null;
-        }
-        return tableName.getTbl();
-    }
-
-    public String getDbName() {
-        Preconditions.checkArgument(isAnalyzed(), "The db name must be obtained after the parsing is complete");
-        if (tableName == null) {
-            return dbName;
-        }
-        return tableName.getDb();
+    public TableName getTableName() {
+        return tableName;
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
-        if (tableName == null) {
-            dbName = analyzer.getDefaultDb();
-            if (Strings.isNullOrEmpty(dbName)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-            }
-            return;
-        }
         tableName.analyze(analyzer);
-        // disallow external catalog
-        Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
+        if (partitionNames != null) {
+            partitionNames.analyze(analyzer);
+            if (partitionNames.getPartitionNames().size() > 1) {
+                throw new AnalysisException("Only one partition name could be specified");
+            }
+        }
+        CatalogIf<DatabaseIf> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(tableName.getCtl());
+        if (catalog == null) {
+            ErrorReport.reportAnalysisException("Catalog: {} not exists", tableName.getCtl());
+        }
+        DatabaseIf<TableIf> db = catalog.getDb(tableName.getDb()).orElse(null);
+        if (db == null) {
+            ErrorReport.reportAnalysisException("DB: {} not exists", tableName.getDb());
+        }
+        table = db.getTable(tableName.getTbl()).orElse(null);
+        if (table == null) {
+            ErrorReport.reportAnalysisException("Table: {} not exists", tableName.getTbl());
+        }
+        if (partitionNames != null) {
+            String partitionName = partitionNames.getPartitionNames().get(0);
+            Partition partition = table.getPartition(partitionName);
+            if (partition == null) {
+                ErrorReport.reportAnalysisException("Partition: {} not exists", partitionName);
+            }
+        }
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.SHOW)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "Permission denied",
+                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                    tableName.getDb() + ": " + tableName.getTbl());
+        }
     }
 
     @Override
@@ -93,8 +120,52 @@ public class ShowTableStatsStmt extends ShowStmt {
         return builder.build();
     }
 
-    public List<String> getPartitionNames() {
-        // TODO(WZT): partition statistics
-        return Lists.newArrayList();
+    public TableIf getTable() {
+        return table;
+    }
+
+    public long getPartitionId() {
+        if (partitionNames == null) {
+            return 0;
+        }
+        String partitionName = partitionNames.getPartitionNames().get(0);
+        return table.getPartition(partitionName).getId();
+    }
+
+    public ShowResultSet constructResultSet(TableStats tableStatistic) {
+        if (tableStatistic == null) {
+            return new ShowResultSet(getMetaData(), new ArrayList<>());
+        }
+        List<List<String>> result = Lists.newArrayList();
+        List<String> row = Lists.newArrayList();
+        row.add(String.valueOf(tableStatistic.updatedRows));
+        row.add(String.valueOf(tableStatistic.queriedTimes.get()));
+        row.add(String.valueOf(tableStatistic.rowCount));
+        row.add(tableStatistic.analysisMethod.toString());
+        row.add(tableStatistic.analysisType.toString());
+        row.add(new Date(tableStatistic.updatedTime).toString());
+        row.add(tableStatistic.analyzeColumns().toString());
+        row.add(tableStatistic.jobType.toString());
+        result.add(row);
+        return new ShowResultSet(getMetaData(), result);
+    }
+
+    public ShowResultSet constructResultSet(long rowCount) {
+        List<List<String>> result = Lists.newArrayList();
+        List<String> row = Lists.newArrayList();
+        row.add("");
+        row.add("");
+        row.add(String.valueOf(rowCount));
+        row.add("");
+        row.add("");
+        row.add("");
+        row.add("");
+        row.add("");
+        result.add(row);
+        return new ShowResultSet(getMetaData(), result);
+    }
+
+    public boolean isCached() {
+        return cached;
     }
 }

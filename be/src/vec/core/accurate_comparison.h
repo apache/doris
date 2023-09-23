@@ -30,7 +30,7 @@
 #include "vec/common/uint128.h"
 #include "vec/core/types.h"
 #include "vec/runtime/vdatetime_value.h"
-/** Preceptually-correct number comparisons.
+/** Perceptually-correct number comparisons.
   * Example: Int8(-1) != UInt8(255)
 */
 
@@ -42,7 +42,7 @@ namespace accurate {
         b) uint vs any uint
         c) float vs any float
     2) int vs uint
-        a) sizeof(int) <= sizeof(uint). Accurate comparison with MAX_INT tresholds
+        a) sizeof(int) <= sizeof(uint). Accurate comparison with MAX_INT thresholds
         b) sizeof(int)  > sizeof(uint). Casting to int
     3) integral_type vs floating_type
         a) sizeof(integral_type) <= 4. Comparison via casting arguments to Float64
@@ -54,15 +54,14 @@ namespace accurate {
 
 // Case 1. Is pair of floats or pair of ints or pair of uints
 template <typename A, typename B>
-constexpr bool is_safe_conversion = (std::is_floating_point_v<A> && std::is_floating_point_v<B>) ||
-                                    (std::is_integral_v<A> && std::is_integral_v<B> &&
-                                     !(std::is_signed_v<A> ^ std::is_signed_v<B>)) ||
-                                    (std::is_same_v<A, doris::vectorized::Int128> &&
-                                     std::is_same_v<B, doris::vectorized::Int128>) ||
-                                    (std::is_integral_v<A> &&
-                                     std::is_same_v<B, doris::vectorized::Int128>) ||
-                                    (std::is_same_v<A, doris::vectorized::Int128> &&
-                                     std::is_integral_v<B>);
+constexpr bool is_safe_conversion =
+        (std::is_floating_point_v<A> && std::is_floating_point_v<B>) ||
+        (std::is_integral_v<A> && std::is_integral_v<B> &&
+         !(std::is_signed_v<A> ^ std::is_signed_v<B>)) ||
+        (std::is_same_v<A, doris::vectorized::Int128> &&
+         std::is_same_v<B, doris::vectorized::Int128>) ||
+        (std::is_integral_v<A> && std::is_same_v<B, doris::vectorized::Int128>) ||
+        (std::is_same_v<A, doris::vectorized::Int128> && std::is_integral_v<B>);
 template <typename A, typename B>
 using bool_if_safe_conversion = std::enable_if_t<is_safe_conversion<A, B>, bool>;
 template <typename A, typename B>
@@ -70,13 +69,13 @@ using bool_if_not_safe_conversion = std::enable_if_t<!is_safe_conversion<A, B>, 
 
 /// Case 2. Are params IntXX and UIntYY ?
 template <typename TInt, typename TUInt>
-constexpr bool is_any_int_vs_uint = std::is_integral_v<TInt>&& std::is_integral_v<TUInt>&&
-        std::is_signed_v<TInt>&& std::is_unsigned_v<TUInt>;
+constexpr bool is_any_int_vs_uint = std::is_integral_v<TInt> && std::is_integral_v<TUInt> &&
+                                    std::is_signed_v<TInt> && std::is_unsigned_v<TUInt>;
 
 // Case 2a. Are params IntXX and UIntYY and sizeof(IntXX) >= sizeof(UIntYY) (in such case will use accurate compare)
 template <typename TInt, typename TUInt>
-constexpr bool is_le_int_vs_uint = is_any_int_vs_uint<TInt, TUInt> &&
-                                   (sizeof(TInt) <= sizeof(TUInt));
+constexpr bool is_le_int_vs_uint =
+        is_any_int_vs_uint<TInt, TUInt> && (sizeof(TInt) <= sizeof(TUInt));
 
 template <typename TInt, typename TUInt>
 using bool_if_le_int_vs_uint_t = std::enable_if_t<is_le_int_vs_uint<TInt, TUInt>, bool>;
@@ -107,8 +106,8 @@ inline bool_if_le_int_vs_uint_t<TInt, TUInt> equalsOpTmpl(TUInt a, TInt b) {
 
 // Case 2b. Are params IntXX and UIntYY and sizeof(IntXX) > sizeof(UIntYY) (in such case will cast UIntYY to IntXX and compare)
 template <typename TInt, typename TUInt>
-constexpr bool is_gt_int_vs_uint = is_any_int_vs_uint<TInt, TUInt> &&
-                                   (sizeof(TInt) > sizeof(TUInt));
+constexpr bool is_gt_int_vs_uint =
+        is_any_int_vs_uint<TInt, TUInt> && (sizeof(TInt) > sizeof(TUInt));
 
 template <typename TInt, typename TUInt>
 using bool_if_gt_int_vs_uint = std::enable_if_t<is_gt_int_vs_uint<TInt, TUInt>, bool>;
@@ -160,7 +159,7 @@ inline bool_if_double_can_be_used<TAInt, TAFloat> equalsOpTmpl(TAFloat a, TAInt 
     return static_cast<double>(a) == static_cast<double>(b);
 }
 
-/* Final realiztions */
+/* Final realizations */
 
 template <typename A, typename B>
 inline bool_if_not_safe_conversion<A, B> greaterOp(A a, B b) {
@@ -180,8 +179,9 @@ constexpr doris::vectorized::Int64 MAX_INT64_WITH_EXACT_FLOAT64_REPR = 900719925
 template <>
 inline bool greaterOp<doris::vectorized::Float64, doris::vectorized::Int64>(
         doris::vectorized::Float64 f, doris::vectorized::Int64 i) {
-    if (-MAX_INT64_WITH_EXACT_FLOAT64_REPR <= i && i <= MAX_INT64_WITH_EXACT_FLOAT64_REPR)
+    if (-MAX_INT64_WITH_EXACT_FLOAT64_REPR <= i && i <= MAX_INT64_WITH_EXACT_FLOAT64_REPR) {
         return f > static_cast<doris::vectorized::Float64>(i);
+    }
 
     return (f >= static_cast<doris::vectorized::Float64>(
                          std::numeric_limits<
@@ -194,8 +194,9 @@ inline bool greaterOp<doris::vectorized::Float64, doris::vectorized::Int64>(
 template <>
 inline bool greaterOp<doris::vectorized::Int64, doris::vectorized::Float64>(
         doris::vectorized::Int64 i, doris::vectorized::Float64 f) {
-    if (-MAX_INT64_WITH_EXACT_FLOAT64_REPR <= i && i <= MAX_INT64_WITH_EXACT_FLOAT64_REPR)
+    if (-MAX_INT64_WITH_EXACT_FLOAT64_REPR <= i && i <= MAX_INT64_WITH_EXACT_FLOAT64_REPR) {
         return f < static_cast<doris::vectorized::Float64>(i);
+    }
 
     return (f < static_cast<doris::vectorized::Float64>(
                         std::numeric_limits<doris::vectorized::Int64>::min())) ||
@@ -207,8 +208,9 @@ inline bool greaterOp<doris::vectorized::Int64, doris::vectorized::Float64>(
 template <>
 inline bool greaterOp<doris::vectorized::Float64, doris::vectorized::UInt64>(
         doris::vectorized::Float64 f, doris::vectorized::UInt64 u) {
-    if (u <= static_cast<doris::vectorized::UInt64>(MAX_INT64_WITH_EXACT_FLOAT64_REPR))
+    if (u <= static_cast<doris::vectorized::UInt64>(MAX_INT64_WITH_EXACT_FLOAT64_REPR)) {
         return f > static_cast<doris::vectorized::Float64>(u);
+    }
 
     return (f >= static_cast<doris::vectorized::Float64>(
                          std::numeric_limits<doris::vectorized::UInt64>::max())) ||
@@ -218,8 +220,9 @@ inline bool greaterOp<doris::vectorized::Float64, doris::vectorized::UInt64>(
 template <>
 inline bool greaterOp<doris::vectorized::UInt64, doris::vectorized::Float64>(
         doris::vectorized::UInt64 u, doris::vectorized::Float64 f) {
-    if (u <= static_cast<doris::vectorized::UInt64>(MAX_INT64_WITH_EXACT_FLOAT64_REPR))
+    if (u <= static_cast<doris::vectorized::UInt64>(MAX_INT64_WITH_EXACT_FLOAT64_REPR)) {
         return static_cast<doris::vectorized::Float64>(u) > f;
+    }
 
     return (f < 0) || (f < static_cast<doris::vectorized::Float64>(
                                    std::numeric_limits<doris::vectorized::UInt64>::max()) &&
@@ -371,8 +374,9 @@ inline bool greaterOp(doris::vectorized::Int128 i, doris::vectorized::Float64 f)
     static constexpr __int128 max_int128 =
             (__int128(0x7fffffffffffffffll) << 64) + 0xffffffffffffffffll;
 
-    if (-MAX_INT64_WITH_EXACT_FLOAT64_REPR <= i && i <= MAX_INT64_WITH_EXACT_FLOAT64_REPR)
+    if (-MAX_INT64_WITH_EXACT_FLOAT64_REPR <= i && i <= MAX_INT64_WITH_EXACT_FLOAT64_REPR) {
         return static_cast<doris::vectorized::Float64>(i) > f;
+    }
 
     return (f < static_cast<doris::vectorized::Float64>(min_int128)) ||
            (f < static_cast<doris::vectorized::Float64>(max_int128) &&
@@ -384,8 +388,9 @@ inline bool greaterOp(doris::vectorized::Float64 f, doris::vectorized::Int128 i)
     static constexpr __int128 max_int128 =
             (__int128(0x7fffffffffffffffll) << 64) + 0xffffffffffffffffll;
 
-    if (-MAX_INT64_WITH_EXACT_FLOAT64_REPR <= i && i <= MAX_INT64_WITH_EXACT_FLOAT64_REPR)
+    if (-MAX_INT64_WITH_EXACT_FLOAT64_REPR <= i && i <= MAX_INT64_WITH_EXACT_FLOAT64_REPR) {
         return f > static_cast<doris::vectorized::Float64>(i);
+    }
 
     return (f >= static_cast<doris::vectorized::Float64>(max_int128)) ||
            (f > static_cast<doris::vectorized::Float64>(min_int128) &&
@@ -436,7 +441,9 @@ inline bool_if_safe_conversion<A, B> lessOp(A a, B b) {
 
 template <typename A, typename B>
 inline bool_if_not_safe_conversion<A, B> lessOrEqualsOp(A a, B b) {
-    if (is_nan(a) || is_nan(b)) return false;
+    if (is_nan(a) || is_nan(b)) {
+        return false;
+    }
     return !greaterOp(a, b);
 }
 
@@ -447,7 +454,9 @@ inline bool_if_safe_conversion<A, B> lessOrEqualsOp(A a, B b) {
 
 template <typename A, typename B>
 inline bool_if_not_safe_conversion<A, B> greaterOrEqualsOp(A a, B b) {
-    if (is_nan(a) || is_nan(b)) return false;
+    if (is_nan(a) || is_nan(b)) {
+        return false;
+    }
     return !greaterOp(b, a);
 }
 
@@ -457,22 +466,38 @@ inline bool_if_safe_conversion<A, B> greaterOrEqualsOp(A a, B b) {
 }
 
 /// Converts numeric to an equal numeric of other type.
-template <typename From, typename To>
+/// When `strict` is `true` check that result exactly same as input, otherwise just check overflow
+template <typename From, typename To, bool strict = true>
 inline bool convertNumeric(From value, To& result) {
     /// If the type is actually the same it's not necessary to do any checks.
     if constexpr (std::is_same_v<From, To>) {
         result = value;
         return true;
     }
-
-    /// Note that NaNs doesn't compare equal to anything, but they are still in range of any Float type.
-    if (is_nan(value) && std::is_floating_point_v<To>) {
-        result = value;
-        return true;
+    if constexpr (std::is_floating_point_v<From> && std::is_floating_point_v<To>) {
+        /// Note that NaNs doesn't compare equal to anything, but they are still in range of any Float type.
+        if (is_nan(value)) {
+            result = value;
+            return true;
+        }
+        if (value == std::numeric_limits<From>::infinity()) {
+            result = std::numeric_limits<To>::infinity();
+            return true;
+        }
+        if (value == -std::numeric_limits<From>::infinity()) {
+            result = -std::numeric_limits<To>::infinity();
+            return true;
+        }
     }
-
+    if (greaterOp(value, std::numeric_limits<To>::max()) ||
+        lessOp(value, std::numeric_limits<To>::lowest())) {
+        return false;
+    }
     result = static_cast<To>(value);
-    return equalsOp(value, result);
+    if constexpr (strict) {
+        return equalsOp(value, result);
+    }
+    return true;
 }
 
 } // namespace accurate
@@ -489,6 +514,11 @@ struct EqualsOp {
 template <>
 struct EqualsOp<DecimalV2Value, DecimalV2Value> {
     static UInt8 apply(const Int128& a, const Int128& b) { return a == b; }
+};
+
+template <>
+struct EqualsOp<StringRef, StringRef> {
+    static UInt8 apply(const StringRef& a, const StringRef& b) { return a == b; }
 };
 
 template <typename A, typename B>

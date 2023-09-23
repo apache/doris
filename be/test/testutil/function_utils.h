@@ -18,29 +18,25 @@
 #include <memory>
 #include <vector>
 
-#include "udf/udf.h"
-#include "udf/udf_internal.h"
+#include "runtime/types.h"
 
 namespace doris {
 
-class MemPool;
 class RuntimeState;
+class FunctionContext;
 
 class FunctionUtils {
 public:
     FunctionUtils();
-    FunctionUtils(RuntimeState* state);
-    FunctionUtils(const doris_udf::FunctionContext::TypeDesc& return_type,
-                  const std::vector<doris_udf::FunctionContext::TypeDesc>& arg_types,
-                  int varargs_buffer_size);
+    FunctionUtils(const doris::TypeDescriptor& return_type,
+                  const std::vector<doris::TypeDescriptor>& arg_types, int varargs_buffer_size);
     ~FunctionUtils();
 
-    doris_udf::FunctionContext* get_fn_ctx() { return _fn_ctx; }
+    doris::FunctionContext* get_fn_ctx() { return _fn_ctx.get(); }
 
 private:
     RuntimeState* _state = nullptr;
-    MemPool* _memory_pool = nullptr;
-    doris_udf::FunctionContext* _fn_ctx = nullptr;
+    std::unique_ptr<doris::FunctionContext> _fn_ctx;
 };
 
 } // namespace doris

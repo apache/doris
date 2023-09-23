@@ -29,6 +29,7 @@ public class ListPartitionItem extends PartitionItem {
     public static ListPartitionItem DUMMY_ITEM = new ListPartitionItem(Lists.newArrayList());
 
     private final List<PartitionKey> partitionKeys;
+    private boolean isDefaultPartition = false;
 
     public ListPartitionItem(List<PartitionKey> partitionKeys) {
         this.partitionKeys = partitionKeys;
@@ -46,6 +47,15 @@ public class ListPartitionItem extends PartitionItem {
 
     public List<PartitionKey> getItems() {
         return partitionKeys;
+    }
+
+    @Override
+    public boolean isDefaultPartition() {
+        return isDefaultPartition;
+    }
+
+    public void setDefaultPartition(boolean isDefaultPartition) {
+        this.isDefaultPartition = isDefaultPartition;
     }
 
     @Override
@@ -139,5 +149,16 @@ public class ListPartitionItem extends PartitionItem {
         }
 
         return sb.toString();
+    }
+
+    // If any partition key is hive default partition, return true.
+    // Only used for hive table.
+    public boolean isHiveDefaultPartition() {
+        for (PartitionKey partitionKey : partitionKeys) {
+            if (partitionKey.isHiveDefaultPartition()) {
+                return true;
+            }
+        }
+        return false;
     }
 }

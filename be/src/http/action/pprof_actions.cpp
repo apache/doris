@@ -17,34 +17,32 @@
 
 #include "http/action/pprof_actions.h"
 
-#include <gperftools/heap-profiler.h>
-#include <gperftools/malloc_extension.h>
-#include <gperftools/profiler.h>
+#include <gperftools/heap-profiler.h>    // IWYU pragma: keep
+#include <gperftools/malloc_extension.h> // IWYU pragma: keep
+#include <gperftools/profiler.h>         // IWYU pragma: keep
+#include <stdio.h>
 
 #include <fstream>
-#include <iostream>
+#include <memory>
 #include <mutex>
-#include <sstream>
+#include <string>
 
-#include "agent/utils.h"
 #include "common/config.h"
 #include "common/object_pool.h"
-#include "gutil/strings/substitute.h"
 #include "http/ev_http_server.h"
 #include "http/http_channel.h"
 #include "http/http_handler.h"
-#include "http/http_headers.h"
+#include "http/http_method.h"
 #include "http/http_request.h"
-#include "http/http_response.h"
+#include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "util/bfd_parser.h"
-#include "util/file_utils.h"
-#include "util/pprof_utils.h"
+#include "util/pprof_utils.h" // IWYU pragma: keep
 
 namespace doris {
 
 // pprof default sample time in seconds.
-static const std::string SECOND_KEY = "seconds";
+[[maybe_unused]] static const std::string SECOND_KEY = "seconds";
 static const int kPprofDefaultSampleSecs = 30;
 
 // Protect, only one thread can work
@@ -227,12 +225,16 @@ void CmdlineAction::handle(HttpRequest* req) {
         HttpChannel::send_reply(req, str);
         return;
     }
+
+    std::string str;
     char buf[1024];
-    // Ignore unused return value
-    if (fscanf(fp, "%1023s ", buf))
-        ;
+    if (fscanf(fp, "%1023s ", buf) == 1) {
+        str = buf;
+    } else {
+        str = "Unable to read file: /proc/self/cmdline";
+    }
+
     fclose(fp);
-    std::string str = buf;
 
     HttpChannel::send_reply(req, str);
 }
@@ -289,7 +291,7 @@ void SymbolAction::handle(HttpRequest* req) {
 
 Status PprofActions::setup(ExecEnv* exec_env, EvHttpServer* http_server, ObjectPool& pool) {
     if (!config::pprof_profile_dir.empty()) {
-        FileUtils::create_dir(config::pprof_profile_dir);
+        RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(config::pprof_profile_dir));
     }
 
     http_server->register_handler(HttpMethod::GET, "/pprof/heap", pool.add(new HeapAction()));

@@ -33,7 +33,6 @@ import org.apache.doris.analysis.UseStmt;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
@@ -57,7 +56,6 @@ import org.junit.Test;
 import java.io.IOException;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
-import java.nio.channels.SocketChannel;
 import java.util.List;
 import java.util.SortedMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -66,10 +64,8 @@ public class StmtExecutorTest {
     private ConnectContext ctx;
     private QueryState state;
     private ConnectScheduler scheduler;
-    private MysqlChannel channel = null;
-
     @Mocked
-    SocketChannel socketChannel;
+    private MysqlChannel channel = null;
 
     @BeforeClass
     public static void start() {
@@ -86,13 +82,12 @@ public class StmtExecutorTest {
     public void setUp() throws IOException {
         state = new QueryState();
         scheduler = new ConnectScheduler(10);
-        ctx = new ConnectContext(socketChannel);
+        ctx = new ConnectContext();
 
         SessionVariable sessionVariable = new SessionVariable();
         MysqlSerializer serializer = MysqlSerializer.newInstance();
         Env env = AccessTestUtil.fetchAdminCatalog();
 
-        channel = new MysqlChannel(socketChannel);
         new Expectations(channel) {
             {
                 channel.sendOnePacket((ByteBuffer) any);
@@ -100,6 +95,10 @@ public class StmtExecutorTest {
 
                 channel.reset();
                 minTimes = 0;
+
+                channel.getSerializer();
+                minTimes = 0;
+                result = serializer;
             }
         };
 
@@ -108,10 +107,6 @@ public class StmtExecutorTest {
                 ctx.getMysqlChannel();
                 minTimes = 0;
                 result = channel;
-
-                ctx.getSerializer();
-                minTimes = 0;
-                result = serializer;
 
                 ctx.getEnv();
                 minTimes = 0;
@@ -197,7 +192,7 @@ public class StmtExecutorTest {
                 minTimes = 0;
                 result = false;
 
-                queryStmt.getTables((Analyzer) any, (SortedMap) any, Sets.newHashSet());
+                queryStmt.getTables((Analyzer) any, anyBoolean, (SortedMap) any, Sets.newHashSet());
                 minTimes = 0;
 
                 queryStmt.getRedirectStatus();
@@ -218,13 +213,6 @@ public class StmtExecutorTest {
                 // mock coordinator
                 coordinator.exec();
                 minTimes = 0;
-
-                coordinator.endProfile();
-                minTimes = 0;
-
-                coordinator.getQueryProfile();
-                minTimes = 0;
-                result = new RuntimeProfile();
 
                 coordinator.getNext();
                 minTimes = 0;

@@ -17,54 +17,70 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.AccessPrivilege;
+import org.apache.doris.catalog.AccessPrivilegeWithCols;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
-import org.apache.doris.mysql.privilege.PaloPrivilege;
-import org.apache.doris.mysql.privilege.PrivBitSet;
+import org.apache.doris.mysql.privilege.ColPrivilegeKey;
+import org.apache.doris.mysql.privilege.Privilege;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections.MapUtils;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 // REVOKE STMT
 // revoke privilege from some user, this is an administrator operation.
-//
-// REVOKE privilege [, privilege] ON db.tbl FROM user [ROLE 'role'];
-// REVOKE privilege [, privilege] ON resource 'resource' FROM user [ROLE 'role'];
+// REVOKE privilege[(col1,col2...)] [, privilege] ON db.tbl FROM user_identity [ROLE 'role'];
+// REVOKE privilege [, privilege] ON resource 'resource' FROM user_identity [ROLE 'role'];
+// REVOKE role [, role] FROM user_identity
 public class RevokeStmt extends DdlStmt {
     private UserIdentity userIdent;
+    // Indicates which permissions are revoked from this role
     private String role;
     private TablePattern tblPattern;
     private ResourcePattern resourcePattern;
-    private List<PaloPrivilege> privileges;
+    private WorkloadGroupPattern workloadGroupPattern;
+    private Set<Privilege> privileges = Sets.newHashSet();
+    private Map<ColPrivilegeKey, Set<String>> colPrivileges = Maps.newHashMap();
+    // Indicates that these roles are revoked from a user
+    private List<String> roles;
+    List<AccessPrivilegeWithCols> accessPrivileges;
 
-    public RevokeStmt(UserIdentity userIdent, String role, TablePattern tblPattern, List<AccessPrivilege> privileges) {
-        this.userIdent = userIdent;
-        this.role = role;
-        this.tblPattern = tblPattern;
-        this.resourcePattern = null;
-        PrivBitSet privs = PrivBitSet.of();
-        for (AccessPrivilege accessPrivilege : privileges) {
-            privs.or(accessPrivilege.toPaloPrivilege());
-        }
-        this.privileges = privs.toPrivilegeList();
+    public RevokeStmt(UserIdentity userIdent, String role, TablePattern tblPattern,
+            List<AccessPrivilegeWithCols> privileges) {
+        this(userIdent, role, tblPattern, null, null, privileges);
     }
 
     public RevokeStmt(UserIdentity userIdent, String role,
-            ResourcePattern resourcePattern, List<AccessPrivilege> privileges) {
+            ResourcePattern resourcePattern, List<AccessPrivilegeWithCols> privileges) {
+        this(userIdent, role, null, resourcePattern, null, privileges);
+    }
+
+    public RevokeStmt(UserIdentity userIdent, String role,
+            WorkloadGroupPattern workloadGroupPattern, List<AccessPrivilegeWithCols> privileges) {
+        this(userIdent, role, null, null, workloadGroupPattern, privileges);
+    }
+
+    public RevokeStmt(List<String> roles, UserIdentity userIdent) {
+        this.roles = roles;
+        this.userIdent = userIdent;
+    }
+
+    private RevokeStmt(UserIdentity userIdent, String role, TablePattern tblPattern, ResourcePattern resourcePattern,
+            WorkloadGroupPattern workloadGroupPattern, List<AccessPrivilegeWithCols> accessPrivileges) {
         this.userIdent = userIdent;
         this.role = role;
-        this.tblPattern = null;
+        this.tblPattern = tblPattern;
         this.resourcePattern = resourcePattern;
-        PrivBitSet privs = PrivBitSet.of();
-        for (AccessPrivilege accessPrivilege : privileges) {
-            privs.or(accessPrivilege.toPaloPrivilege());
-        }
-        this.privileges = privs.toPrivilegeList();
+        this.workloadGroupPattern = workloadGroupPattern;
+        this.accessPrivileges = accessPrivileges;
     }
 
     public UserIdentity getUserIdent() {
@@ -79,12 +95,24 @@ public class RevokeStmt extends DdlStmt {
         return resourcePattern;
     }
 
+    public WorkloadGroupPattern getWorkloadGroupPattern() {
+        return workloadGroupPattern;
+    }
+
     public String getQualifiedRole() {
         return role;
     }
 
-    public List<PaloPrivilege> getPrivileges() {
+    public Set<Privilege> getPrivileges() {
         return privileges;
+    }
+
+    public List<String> getRoles() {
+        return roles;
+    }
+
+    public Map<ColPrivilegeKey, Set<String>> getColPrivileges() {
+        return colPrivileges;
     }
 
     @Override
@@ -98,34 +126,62 @@ public class RevokeStmt extends DdlStmt {
 
         if (tblPattern != null) {
             tblPattern.analyze(analyzer);
-        } else {
-            // TODO(wyb): spark-load
-            if (!Config.enable_spark_load) {
-                throw new AnalysisException("REVOKE ON RESOURCE is coming soon");
-            }
+        } else if (resourcePattern != null) {
             resourcePattern.analyze();
+        } else if (workloadGroupPattern != null) {
+            workloadGroupPattern.analyze();
+        } else if (roles != null) {
+            for (int i = 0; i < roles.size(); i++) {
+                String originalRoleName = roles.get(i);
+                FeNameFormat.checkRoleName(originalRoleName, true /* can be admin */, "Can not revoke role");
+                roles.set(i, ClusterNamespace.getFullName(analyzer.getClusterName(), originalRoleName));
+            }
         }
+        if (!CollectionUtils.isEmpty(accessPrivileges)) {
+            GrantStmt.checkAccessPrivileges(accessPrivileges);
 
-        if (privileges == null || privileges.isEmpty()) {
-            throw new AnalysisException("No privileges in revoke statement.");
+            for (AccessPrivilegeWithCols accessPrivilegeWithCols : accessPrivileges) {
+                accessPrivilegeWithCols.transferAccessPrivilegeToDoris(privileges, colPrivileges, tblPattern);
+            }
+        }
+        if (CollectionUtils.isEmpty(privileges) && CollectionUtils.isEmpty(roles) && MapUtils.isEmpty(colPrivileges)) {
+            throw new AnalysisException("No privileges or roles in revoke statement.");
         }
 
         // Revoke operation obey the same rule as Grant operation. reuse the same method
         if (tblPattern != null) {
-            GrantStmt.checkTablePrivileges(privileges, role, tblPattern);
-        } else {
+            GrantStmt.checkTablePrivileges(privileges, role, tblPattern, colPrivileges);
+        } else if (resourcePattern != null) {
             GrantStmt.checkResourcePrivileges(privileges, role, resourcePattern);
+        } else if (workloadGroupPattern != null) {
+            GrantStmt.checkWorkloadGroupPrivileges(privileges, role, workloadGroupPattern);
+        } else if (roles != null) {
+            GrantStmt.checkRolePrivileges();
         }
     }
 
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("REVOKE ").append(Joiner.on(", ").join(privileges));
+        sb.append("REVOKE ");
+        if (!CollectionUtils.isEmpty(privileges)) {
+            sb.append(Joiner.on(", ").join(privileges));
+        }
+        if (!MapUtils.isEmpty(colPrivileges)) {
+            sb.append(GrantStmt.colPrivMapToString(colPrivileges));
+        }
+        if (!CollectionUtils.isEmpty(roles)) {
+            sb.append(Joiner.on(", ").join(roles));
+        }
+
         if (tblPattern != null) {
             sb.append(" ON ").append(tblPattern).append(" FROM ");
-        } else {
+        } else if (resourcePattern != null) {
             sb.append(" ON RESOURCE '").append(resourcePattern).append("' FROM ");
+        } else if (workloadGroupPattern != null) {
+            sb.append(" ON WORKLOAD GROUP '").append(workloadGroupPattern).append("' FROM ");
+        } else {
+            sb.append(" FROM ");
         }
         if (!Strings.isNullOrEmpty(role)) {
             sb.append(" ROLE '").append(role).append("'");

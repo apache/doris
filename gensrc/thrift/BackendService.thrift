@@ -35,7 +35,7 @@ struct TTabletStat {
     2: optional i64 data_size
     3: optional i64 row_num
     4: optional i64 version_count
-    5: optional i64 remote_data_size 
+    5: optional i64 remote_data_size
 }
 
 struct TTabletStatResult {
@@ -65,6 +65,8 @@ struct TRoutineLoadTask {
     12: optional TKafkaLoadInfo kafka_load_info
     13: optional PaloInternalService.TExecPlanFragmentParams params
     14: optional PlanNodes.TFileFormatType format
+    15: optional PaloInternalService.TPipelineFragmentParams pipeline_params
+    16: optional bool is_multi_table
 }
 
 struct TKafkaMetaProxyRequest {
@@ -103,6 +105,7 @@ struct TStreamLoadRecord {
     16: required i64 load_bytes
     17: required i64 start_time
     18: required i64 finish_time
+    19: optional string comment
 }
 
 struct TStreamLoadRecordResult {
@@ -118,6 +121,21 @@ struct TDiskTrashInfo {
 struct TCheckStorageFormatResult {
     1: optional list<i64> v1_tablets;
     2: optional list<i64> v2_tablets;
+}
+
+struct TIngestBinlogRequest {
+    1: optional i64 txn_id;
+    2: optional i64 remote_tablet_id;
+    3: optional i64 binlog_version;
+    4: optional string remote_host;
+    5: optional string remote_port;
+    6: optional i64 partition_id;
+    7: optional i64 local_tablet_id;
+    8: optional Types.TUniqueId load_id;
+}
+
+struct TIngestBinlogResult {
+    1: optional Status.TStatus status;
 }
 
 service BackendService {
@@ -136,10 +154,6 @@ service BackendService {
     PaloInternalService.TTransmitDataResult transmit_data(
         1:PaloInternalService.TTransmitDataParams params);
 
-    // Coordinator Fetch Data From Root fragment
-    PaloInternalService.TFetchDataResult fetch_data(
-        1:PaloInternalService.TFetchDataParams params);
-
     AgentService.TAgentResult submit_tasks(1:list<AgentService.TAgentTaskRequest> tasks);
 
     AgentService.TAgentResult make_snapshot(1:AgentService.TSnapshotRequest snapshot_request);
@@ -155,9 +169,9 @@ service BackendService {
     Status.TStatus erase_export_task(1:Types.TUniqueId task_id);
 
     TTabletStatResult get_tablet_stat();
-    
+
     i64 get_trash_used_capacity();
-    
+
     list<TDiskTrashInfo> get_disk_trash_used_capacity();
 
     Status.TStatus submit_routine_load_task(1:list<TRoutineLoadTask> tasks);
@@ -177,4 +191,6 @@ service BackendService {
 
     // check tablet rowset type
     TCheckStorageFormatResult check_storage_format();
+
+    TIngestBinlogResult ingest_binlog(1: TIngestBinlogRequest ingest_binlog_request);
 }

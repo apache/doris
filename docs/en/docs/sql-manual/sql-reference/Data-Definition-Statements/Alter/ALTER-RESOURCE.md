@@ -26,6 +26,8 @@ under the License.
 
 ## ALTER-RESOURCE
 
+<version since="1.2.0"></version>
+
 ### Name
 
 ALTER RESOURCE
@@ -51,9 +53,26 @@ ALTER RESOURCE 'spark0' PROPERTIES ("working_dir" = "hdfs://127.0.0.1:10000/tmp/
 2. Modify the maximum number of connections to the S3 resource named remote_s3:
 
 ```sql
-ALTER RESOURCE 'remote_s3' PROPERTIES ("s3_max_connections" = "100");
+ALTER RESOURCE 'remote_s3' PROPERTIES ("s3.connection.maximum" = "100");
 ```
 
+3. Modify information related to cold and hot separation S3 resources
+- Support
+  - `s3.access_key`  s3 ak
+  - `s3.secret_key`  s3 sk
+  - `s3.session_token` s3 token
+  - `s3.connection.maximum` default 50
+  - `s3.connection.timeout` default 1000ms
+  - `s3.connection.request.timeout` default 3000ms
+- Not Support
+  - `s3.region`
+  - `s3.bucket"`
+  - `s3.root.path`
+  - `s3.endpoint`
+
+```sql
+  ALTER RESOURCE "showPolicy_1_resource" PROPERTIES("s3.connection.maximum" = "1111");
+```
 ### Keywords
 
 ```text

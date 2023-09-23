@@ -17,11 +17,25 @@
 
 #pragma once
 
+#include <stdint.h>
+
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <vector>
+
+#include "common/status.h"
 #include "runtime/routine_load/data_consumer.h"
 #include "util/blocking_queue.hpp"
-#include "util/priority_thread_pool.hpp"
+#include "util/uid_util.h"
+#include "util/work_thread_pool.hpp"
+
+namespace RdKafka {
+class Message;
+} // namespace RdKafka
 
 namespace doris {
+class StreamLoadContext;
 
 // data consumer group saves a group of data consumers.
 // These data consumers share the same stream load pipe.
@@ -30,7 +44,8 @@ class DataConsumerGroup {
 public:
     typedef std::function<void(const Status&)> ConsumeFinishCallback;
 
-    DataConsumerGroup() : _grp_id(UniqueId::gen_uid()), _thread_pool(3, 10), _counter(0) {}
+    DataConsumerGroup()
+            : _grp_id(UniqueId::gen_uid()), _thread_pool(3, 10, "data_consumer"), _counter(0) {}
 
     virtual ~DataConsumerGroup() { _consumers.clear(); }
 
@@ -45,7 +60,7 @@ public:
     }
 
     // start all consumers
-    virtual Status start_all(StreamLoadContext* ctx) { return Status::OK(); }
+    virtual Status start_all(std::shared_ptr<StreamLoadContext> ctx) { return Status::OK(); }
 
 protected:
     UniqueId _grp_id;
@@ -67,9 +82,9 @@ public:
 
     virtual ~KafkaDataConsumerGroup();
 
-    virtual Status start_all(StreamLoadContext* ctx) override;
+    Status start_all(std::shared_ptr<StreamLoadContext> ctx) override;
     // assign topic partitions to all consumers equally
-    Status assign_topic_partitions(StreamLoadContext* ctx);
+    Status assign_topic_partitions(std::shared_ptr<StreamLoadContext> ctx);
 
 private:
     // start a single consumer

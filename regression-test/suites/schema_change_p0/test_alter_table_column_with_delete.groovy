@@ -36,7 +36,7 @@ suite("test_alter_table_column_with_delete") {
     sql "delete from ${tbName1} where k1 = 2;"
     sql "insert into ${tbName1} values(3,3);"
     sql "insert into ${tbName1} values(4,4);"
-    qt_sql "select * from ${tbName1};"
+    qt_sql "select * from ${tbName1} order by k1;"
 
 
     sql """
@@ -46,7 +46,9 @@ suite("test_alter_table_column_with_delete") {
     int max_try_secs = 120
     while (max_try_secs--) {
         String res = getJobState(tbName1)
-        if (res == "FINISHED") {
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
+            sleep(3000)
             break
         } else {
             Thread.sleep(500)
@@ -58,6 +60,6 @@ suite("test_alter_table_column_with_delete") {
     }
 
     sql "insert into ${tbName1} values(5,'abc');"
-    qt_sql "select * from ${tbName1};"
+    qt_sql "select * from ${tbName1} order by k1;"
     sql "DROP TABLE ${tbName1} FORCE;"
 }

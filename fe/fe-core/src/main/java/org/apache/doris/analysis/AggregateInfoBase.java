@@ -31,6 +31,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 
 /**
@@ -71,6 +72,7 @@ public abstract class AggregateInfoBase {
     // exprs that need to be materialized.
     // Populated in materializeRequiredSlots() which must be implemented by subclasses.
     protected ArrayList<Integer> materializedSlots = Lists.newArrayList();
+    protected List<String> materializedSlotLabels = Lists.newArrayList();
 
     protected AggregateInfoBase(ArrayList<Expr> groupingExprs,
                                 ArrayList<FunctionCallExpr> aggExprs)  {
@@ -93,6 +95,7 @@ public abstract class AggregateInfoBase {
         intermediateTupleDesc = other.intermediateTupleDesc;
         outputTupleDesc = other.outputTupleDesc;
         materializedSlots = Lists.newArrayList(other.materializedSlots);
+        materializedSlotLabels = Lists.newArrayList(other.materializedSlotLabels);
     }
 
     /**
@@ -106,6 +109,16 @@ public abstract class AggregateInfoBase {
         intermediateTupleDesc = createTupleDesc(analyzer, false);
         if (requiresIntermediateTuple(aggregateExprs, groupingExprs.size() == 0)) {
             outputTupleDesc = createTupleDesc(analyzer, true);
+            // save the output and intermediate slots info into global desc table
+            // after creaing the plan, we can call materializeIntermediateSlots method
+            // to set the materialized info to intermediate slots based on output slots.
+            ArrayList<SlotDescriptor> outputSlots = outputTupleDesc.getSlots();
+            ArrayList<SlotDescriptor> intermediateSlots = intermediateTupleDesc.getSlots();
+            HashMap<SlotDescriptor, SlotDescriptor> mapping = new HashMap<>();
+            for (int i = 0; i < outputSlots.size(); ++i) {
+                mapping.put(outputSlots.get(i), intermediateSlots.get(i));
+            }
+            analyzer.getDescTbl().addSlotMappingInfo(mapping);
         } else {
             outputTupleDesc = intermediateTupleDesc;
         }
@@ -141,6 +154,11 @@ public abstract class AggregateInfoBase {
             Expr expr = exprs.get(i);
             SlotDescriptor slotDesc = analyzer.addSlotDescriptor(result);
             slotDesc.initFromExpr(expr);
+            if (expr instanceof SlotRef) {
+                if (((SlotRef) expr).getColumn() != null) {
+                    slotDesc.setColumn(((SlotRef) expr).getColumn());
+                }
+            }
             // Not change the nullable of slot desc when is not grouping set id
             if (isGroupingSet && i < aggregateExprStartIndex - 1 && !(expr instanceof VirtualSlotRef)) {
                 slotDesc.setIsNullable(true);
@@ -221,6 +239,10 @@ public abstract class AggregateInfoBase {
 
     public TupleId getOutputTupleId() {
         return outputTupleDesc.getId();
+    }
+
+    public List<String> getMaterializedAggregateExprLabels() {
+        return Lists.newArrayList(materializedSlotLabels);
     }
 
     public boolean requiresIntermediateTuple() {

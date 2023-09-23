@@ -17,6 +17,11 @@
 
 #include "http/action/check_tablet_segment_action.h"
 
+#include <glog/logging.h>
+#include <stdint.h>
+
+#include <ostream>
+#include <set>
 #include <string>
 
 #include "http/http_channel.h"
@@ -24,13 +29,17 @@
 #include "http/http_request.h"
 #include "http/http_status.h"
 #include "olap/storage_engine.h"
+#include "olap/tablet_manager.h"
 #include "service/backend_options.h"
+#include "util/easy_json.h"
 
 namespace doris {
 
 const static std::string HEADER_JSON = "application/json";
 
-CheckTabletSegmentAction::CheckTabletSegmentAction() {
+CheckTabletSegmentAction::CheckTabletSegmentAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+                                                   TPrivilegeType::type type)
+        : HttpHandlerWithAuth(exec_env, hier, type) {
     _host = BackendOptions::get_localhost();
 }
 

@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.pattern.generator.javaast;
 
-
 /** java import declaration. */
 public class ImportDeclaration implements JavaAstNode {
     public final boolean isStatic;

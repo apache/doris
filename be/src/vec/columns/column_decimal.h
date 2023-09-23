@@ -20,16 +20,37 @@
 
 #pragma once
 
-#include <cmath>
-#include <type_traits>
+#include <glog/logging.h>
+#include <stdint.h>
+#include <string.h>
+#include <sys/types.h>
 
-#include "olap/decimal12.h"
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <vector>
+
+#include "gutil/integral_types.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_impl.h"
 #include "vec/columns/column_vector_helper.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/cow.h"
+#include "vec/common/pod_array.h"
+#include "vec/common/pod_array_fwd.h"
+#include "vec/common/string_ref.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/field.h"
+#include "vec/core/types.h"
+
+class SipHash;
+
+namespace doris {
+namespace vectorized {
+class Arena;
+class ColumnSorter;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -97,19 +118,18 @@ public:
     void resize(size_t n) override { data.resize(n); }
 
     void insert_from(const IColumn& src, size_t n) override {
-        data.push_back(static_cast<const Self&>(src).get_data()[n]);
+        data.push_back(assert_cast<const Self&>(src).get_data()[n]);
     }
 
     void insert_indices_from(const IColumn& src, const int* indices_begin,
                              const int* indices_end) override {
-        const Self& src_vec = assert_cast<const Self&>(src);
         auto origin_size = size();
         auto new_size = indices_end - indices_begin;
         data.resize(origin_size + new_size);
+        const T* src_data = reinterpret_cast<const T*>(src.get_raw_data().data);
 
         for (int i = 0; i < new_size; ++i) {
-            auto offset = *(indices_begin + i);
-            data[origin_size + i] = offset == -1 ? T {} : src_vec.get_element(offset);
+            data[origin_size + i] = src_data[indices_begin[i]];
         }
     }
 
@@ -154,6 +174,18 @@ public:
                                        const uint8_t* null_map) override;
 
     void update_hash_with_value(size_t n, SipHash& hash) const override;
+    void update_hashes_with_value(std::vector<SipHash>& hashes,
+                                  const uint8_t* __restrict null_data) const override;
+    void update_hashes_with_value(uint64_t* __restrict hashes,
+                                  const uint8_t* __restrict null_data) const override;
+    void update_crcs_with_value(std::vector<uint64_t>& hashes, PrimitiveType type,
+                                const uint8_t* __restrict null_data) const override;
+
+    void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                  const uint8_t* __restrict null_data) const override;
+    void update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+                               const uint8_t* __restrict null_data) const override;
+
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          IColumn::Permutation& res) const override;
@@ -172,26 +204,43 @@ public:
     bool get_bool(size_t n) const override { return bool(data[n]); }
     Int64 get_int(size_t n) const override { return Int64(data[n] * scale); }
     UInt64 get64(size_t n) const override;
-    bool is_default_at(size_t n) const override { return data[n] == 0; }
+    bool is_default_at(size_t n) const override { return data[n].value == 0; }
 
     void clear() override { data.clear(); }
 
     ColumnPtr filter(const IColumn::Filter& filt, ssize_t result_size_hint) const override;
+
+    size_t filter(const IColumn::Filter& filter) override;
+
     ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
     //    ColumnPtr index(const IColumn & indexes, size_t limit) const override;
 
     template <typename Type>
     ColumnPtr index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const;
 
+    void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
+                                         size_t limit) const override {
+        return this->template get_indices_of_non_default_rows_impl<Self>(indices, from, limit);
+    }
+
+    ColumnPtr index(const IColumn& indexes, size_t limit) const override;
+
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
 
-    void replicate(const uint32_t* counts, size_t target_size, IColumn& column) const override;
+    void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override;
+
+    TypeIndex get_data_type() const override { return TypeId<T>::value; }
 
     void get_extremes(Field& min, Field& max) const override;
 
     MutableColumns scatter(IColumn::ColumnIndex num_columns,
                            const IColumn::Selector& selector) const override {
         return this->template scatter_impl<Self>(num_columns, selector);
+    }
+
+    void append_data_by_selector(MutableColumnPtr& res,
+                                 const IColumn::Selector& selector) const override {
+        this->template append_data_by_selector_impl<Self>(res, selector);
     }
 
     //    void gather(ColumnGathererStream & gatherer_stream) override;
@@ -202,7 +251,7 @@ public:
         return false;
     }
 
-    void insert(const T value) { data.push_back(value); }
+    void insert_value(const T value) { data.push_back(value); }
     Container& get_data() { return data; }
     const Container& get_data() const { return data; }
     const T& get_element(size_t n) const { return data[n]; }
@@ -210,13 +259,20 @@ public:
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         DCHECK(size() > self_row);
-        data[self_row] = static_cast<const Self&>(rhs).data[row];
+        data[self_row] = assert_cast<const Self&>(rhs).data[row];
     }
 
     void replace_column_data_default(size_t self_row = 0) override {
         DCHECK(size() > self_row);
         data[self_row] = T();
     }
+
+    void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
+                     EqualRange& range, bool last_column) const override;
+
+    void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
+                          int direction, std::vector<uint8>& cmp_res,
+                          uint8* __restrict filter) const override;
 
     UInt32 get_scale() const { return scale; }
 
@@ -244,6 +300,14 @@ protected:
             std::partial_sort(res.begin(), sort_end, res.end(),
                               [this](size_t a, size_t b) { return data[a] < data[b]; });
     }
+
+    void ALWAYS_INLINE decimalv2_do_crc(size_t i, uint64_t& hash) const {
+        const DecimalV2Value& dec_val = (const DecimalV2Value&)data[i];
+        int64_t int_val = dec_val.int_value();
+        int32_t frac_val = dec_val.frac_value();
+        hash = HashUtil::zlib_crc_hash(&int_val, sizeof(int_val), hash);
+        hash = HashUtil::zlib_crc_hash(&frac_val, sizeof(frac_val), hash);
+    };
 };
 
 template <typename>
@@ -278,9 +342,5 @@ ColumnPtr ColumnDecimal<T>::index_impl(const PaddedPODArray<Type>& indexes, size
 
     return res;
 }
-
-using ColumnDecimal32 = ColumnDecimal<Decimal32>;
-using ColumnDecimal64 = ColumnDecimal<Decimal64>;
-using ColumnDecimal128 = ColumnDecimal<Decimal128>;
 
 } // namespace doris::vectorized

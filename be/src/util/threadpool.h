@@ -20,18 +20,26 @@
 
 #pragma once
 
+#include <limits.h>
+#include <stddef.h>
+
+#include <boost/intrusive/detail/algo_type.hpp>
 #include <boost/intrusive/list.hpp>
 #include <boost/intrusive/list_hook.hpp>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
 #include <condition_variable>
 #include <deque>
 #include <functional>
+#include <iosfwd>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_set>
-#include <utility>
 
+#include "agent/cgroup_cpu_ctl.h"
 #include "common/status.h"
-#include "gutil/ref_counted.h"
+#include "util/work_thread_pool.hpp"
 
 namespace doris {
 
@@ -99,13 +107,25 @@ public:
     ThreadPoolBuilder& set_min_threads(int min_threads);
     ThreadPoolBuilder& set_max_threads(int max_threads);
     ThreadPoolBuilder& set_max_queue_size(int max_queue_size);
+    ThreadPoolBuilder& set_cgroup_cpu_ctl(CgroupCpuCtl* cgroup_cpu_ctl);
     template <class Rep, class Period>
     ThreadPoolBuilder& set_idle_timeout(const std::chrono::duration<Rep, Period>& idle_timeout) {
         _idle_timeout = std::chrono::duration_cast<std::chrono::milliseconds>(idle_timeout);
         return *this;
     }
     // Instantiate a new ThreadPool with the existing builder arguments.
-    Status build(std::unique_ptr<ThreadPool>* pool) const;
+    template <typename ThreadPoolType>
+    Status build(std::unique_ptr<ThreadPoolType>* pool) const {
+        if constexpr (std::is_same_v<ThreadPoolType, ThreadPool>) {
+            pool->reset(new ThreadPoolType(*this));
+            RETURN_IF_ERROR((*pool)->init());
+        } else if constexpr (std::is_same_v<ThreadPoolType, PriorityThreadPool>) {
+            pool->reset(new ThreadPoolType(_max_threads, _max_queue_size, _name));
+        } else {
+            static_assert(always_false_v<ThreadPoolType>, "Unsupported ThreadPoolType");
+        }
+        return Status::OK();
+    }
 
 private:
     friend class ThreadPool;
@@ -113,10 +133,14 @@ private:
     int _min_threads;
     int _max_threads;
     int _max_queue_size;
+    CgroupCpuCtl* _cgroup_cpu_ctl = nullptr;
     std::chrono::milliseconds _idle_timeout;
 
     ThreadPoolBuilder(const ThreadPoolBuilder&) = delete;
     void operator=(const ThreadPoolBuilder&) = delete;
+
+    template <typename T>
+    static constexpr bool always_false_v = false;
 };
 
 // Thread pool with a variable number of threads.
@@ -313,6 +337,8 @@ private:
     //
     // Protected by _lock.
     int _total_queued_tasks;
+
+    CgroupCpuCtl* _cgroup_cpu_ctl = nullptr;
 
     // All allocated tokens.
     //

@@ -28,24 +28,30 @@ import java.util.Objects;
  */
 public class VarcharType extends CharacterType {
 
-    public static VarcharType SYSTEM_DEFAULT = new VarcharType(-1);
+    public static final VarcharType SYSTEM_DEFAULT = new VarcharType(-1);
+    public static final int MAX_VARCHAR_LENGTH = ScalarType.MAX_VARCHAR_LENGTH;
 
     public VarcharType(int len) {
         super(len);
     }
 
+    @Override
+    public int width() {
+        return len;
+    }
+
     public static VarcharType createVarcharType(int len) {
+        if (len == SYSTEM_DEFAULT.len) {
+            return SYSTEM_DEFAULT;
+        }
         return new VarcharType(len);
     }
 
     @Override
     public Type toCatalogDataType() {
-        return ScalarType.createVarcharType(len);
-    }
-
-    @Override
-    public boolean acceptsType(DataType other) {
-        return other instanceof VarcharType;
+        ScalarType catalogDataType = ScalarType.createVarcharType(len);
+        catalogDataType.setByteSize(len);
+        return catalogDataType;
     }
 
     @Override
@@ -60,6 +66,9 @@ public class VarcharType extends CharacterType {
 
     @Override
     public String toSql() {
+        if (len == -1) {
+            return "VARCHAR(*)";
+        }
         return "VARCHAR(" + len + ")";
     }
 

@@ -17,99 +17,126 @@
 
 #include "vec/exec/scan/vscanner.h"
 
+#include <glog/logging.h>
+
+#include "common/config.h"
+#include "pipeline/exec/scan_operator.h"
+#include "runtime/descriptors.h"
+#include "util/runtime_profile.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/exec/scan/vscan_node.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
 
-VScanner::VScanner(RuntimeState* state, VScanNode* parent, int64_t limit, MemTracker* mem_tracker)
+VScanner::VScanner(RuntimeState* state, VScanNode* parent, int64_t limit, RuntimeProfile* profile)
         : _state(state),
           _parent(parent),
+          _local_state(nullptr),
           _limit(limit),
-          _mem_tracker(mem_tracker),
-          _input_tuple_desc(parent->input_tuple_desc()),
+          _profile(profile),
           _output_tuple_desc(parent->output_tuple_desc()) {
-    _real_tuple_desc = _input_tuple_desc != nullptr ? _input_tuple_desc : _output_tuple_desc;
     _total_rf_num = _parent->runtime_filter_num();
+}
+
+VScanner::VScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, int64_t limit,
+                   RuntimeProfile* profile)
+        : _state(state),
+          _parent(nullptr),
+          _local_state(local_state),
+          _limit(limit),
+          _profile(profile),
+          _output_tuple_desc(_local_state->output_tuple_desc()) {
+    _total_rf_num = _local_state->runtime_filter_num();
+}
+
+Status VScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
+    if (!conjuncts.empty()) {
+        _conjuncts.resize(conjuncts.size());
+        for (size_t i = 0; i != conjuncts.size(); ++i) {
+            RETURN_IF_ERROR(conjuncts[i]->clone(state, _conjuncts[i]));
+        }
+    }
+
+    return Status::OK();
 }
 
 Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
     // only empty block should be here
     DCHECK(block->rows() == 0);
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
-
-    int64_t raw_rows_threshold = raw_rows_read() + config::doris_scanner_row_num;
+    // scanner running time
+    SCOPED_RAW_TIMER(&_per_scanner_timer);
+    int64_t rows_read_threshold = _num_rows_read + config::doris_scanner_row_num;
     if (!block->mem_reuse()) {
         for (const auto slot_desc : _output_tuple_desc->slots()) {
+            if (!slot_desc->need_materialize()) {
+                // should be ignore from reading
+                continue;
+            }
             block->insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
                                                 slot_desc->get_data_type_ptr(),
                                                 slot_desc->col_name()));
         }
     }
 
-    _init_input_block(block);
     {
-        // SCOPED_TIMER(_parent->_scan_timer);
         do {
+            // if step 2 filter all rows of block, and block will be reused to get next rows,
+            // must clear row_same_bit of block, or will get wrong row_same_bit.size() which not equal block.rows()
+            block->clear_same_bit();
             // 1. Get input block from scanner
-            RETURN_IF_ERROR(_get_block_impl(state, _input_block_ptr, eof));
-            if (*eof) {
-                DCHECK(_input_block_ptr->rows() == 0);
-                break;
+            {
+                // get block time
+                auto timer = _parent ? _parent->_scan_timer : _local_state->_scan_timer;
+                SCOPED_TIMER(timer);
+                RETURN_IF_ERROR(_get_block_impl(state, block, eof));
+                if (*eof) {
+                    DCHECK(block->rows() == 0);
+                    break;
+                }
+                _num_rows_read += block->rows();
             }
-            _num_rows_read += _input_block_ptr->rows();
-            // _update_realtime_counter();
 
-            // 2. For load, use prefilter to filter the input block first.
-            RETURN_IF_ERROR(_filter_input_block(_input_block_ptr));
-
-            // 3. For load, convert input block to output block
-            RETURN_IF_ERROR(_convert_to_output_block(block));
-
-            // 4. Filter the output block finally.
-            //    NOTE that step 2/3 may be skipped, for Query.
-            RETURN_IF_ERROR(_filter_output_block(block));
+            // 2. Filter the output block finally.
+            {
+                auto timer = _parent ? _parent->_filter_timer : _local_state->_filter_timer;
+                SCOPED_TIMER(timer);
+                RETURN_IF_ERROR(_filter_output_block(block));
+            }
             // record rows return (after filter) for _limit check
             _num_rows_return += block->rows();
-        } while (block->rows() == 0 && !(*eof) && raw_rows_read() < raw_rows_threshold);
+        } while (!state->is_cancelled() && block->rows() == 0 && !(*eof) &&
+                 _num_rows_read < rows_read_threshold);
     }
 
-    return Status::OK();
-}
-
-void VScanner::_init_input_block(Block* output_block) {
-    if (_input_tuple_desc == nullptr) {
-        _input_block_ptr = output_block;
-        return;
+    if (state->is_cancelled()) {
+        return Status::Cancelled("cancelled");
     }
 
-    // init the input block used for scanner.
-    _input_block.clear();
-    _input_block_ptr = &_input_block;
-    DCHECK(_input_block.columns() == 0);
-
-    for (auto& slot_desc : _input_tuple_desc->slots()) {
-        auto data_type = slot_desc->get_data_type_ptr();
-        _input_block.insert(vectorized::ColumnWithTypeAndName(
-                data_type->create_column(), slot_desc->get_data_type_ptr(), slot_desc->col_name()));
+    // set eof to true if per scanner limit is reached
+    // currently for query: ORDER BY key LIMIT n
+    if (_limit > 0 && _num_rows_return >= _limit) {
+        *eof = true;
     }
-}
-
-Status VScanner::_filter_input_block(Block* block) {
-    // TODO: implement
-    return Status::OK();
-}
-
-Status VScanner::_convert_to_output_block(Block* output_block) {
-    if (_input_block_ptr == output_block) {
-        return Status::OK();
-    }
-    // TODO: implement
 
     return Status::OK();
 }
 
 Status VScanner::_filter_output_block(Block* block) {
-    return VExprContext::filter_block(_vconjunct_ctx, block, _output_tuple_desc->slots().size());
+    if (block->has(BeConsts::BLOCK_TEMP_COLUMN_SCANNER_FILTERED)) {
+        // scanner filter_block is already done (only by _topn_next currently), just skip it
+        return Status::OK();
+    }
+    auto old_rows = block->rows();
+    Status st = VExprContext::filter_block(_conjuncts, block, block->columns());
+    _counter.num_rows_unselected += old_rows - block->rows();
+    auto all_column_names = block->get_names();
+    for (auto& name : all_column_names) {
+        if (name.rfind(BeConsts::BLOCK_TEMP_COLUMN_PREFIX, 0) == 0) {
+            block->erase(name);
+        }
+    }
+    return st;
 }
 
 Status VScanner::try_append_late_arrival_runtime_filter() {
@@ -119,7 +146,11 @@ Status VScanner::try_append_late_arrival_runtime_filter() {
     DCHECK(_applied_rf_num < _total_rf_num);
 
     int arrived_rf_num = 0;
-    RETURN_IF_ERROR(_parent->try_append_late_arrival_runtime_filter(&arrived_rf_num));
+    if (_parent) {
+        RETURN_IF_ERROR(_parent->try_append_late_arrival_runtime_filter(&arrived_rf_num));
+    } else {
+        RETURN_IF_ERROR(_local_state->try_append_late_arrival_runtime_filter(&arrived_rf_num));
+    }
 
     if (arrived_rf_num == _applied_rf_num) {
         // No newly arrived runtime filters, just return;
@@ -127,13 +158,17 @@ Status VScanner::try_append_late_arrival_runtime_filter() {
     }
 
     // There are newly arrived runtime filters,
-    // renew the vconjunct_ctx_ptr
-    if (_vconjunct_ctx) {
+    // renew the _conjuncts
+    if (!_conjuncts.empty()) {
         _discard_conjuncts();
     }
-    // Notice that the number of runtiem filters may be larger than _applied_rf_num.
+    // Notice that the number of runtime filters may be larger than _applied_rf_num.
     // But it is ok because it will be updated at next time.
-    RETURN_IF_ERROR(_parent->clone_vconjunct_ctx(&_vconjunct_ctx));
+    if (_parent) {
+        RETURN_IF_ERROR(_parent->clone_conjunct_ctxs(_conjuncts));
+    } else {
+        RETURN_IF_ERROR(_local_state->clone_conjunct_ctxs(_conjuncts));
+    }
     _applied_rf_num = arrived_rf_num;
     return Status::OK();
 }
@@ -142,14 +177,28 @@ Status VScanner::close(RuntimeState* state) {
     if (_is_closed) {
         return Status::OK();
     }
-    for (auto& ctx : _stale_vexpr_ctxs) {
-        ctx->close(state);
-    }
-    if (_vconjunct_ctx) {
-        _vconjunct_ctx->close(state);
+
+    if (_parent) {
+        COUNTER_UPDATE(_parent->_scanner_wait_worker_timer, _scanner_wait_worker_timer);
+    } else {
+        COUNTER_UPDATE(_local_state->_scanner_wait_worker_timer, _scanner_wait_worker_timer);
     }
     _is_closed = true;
     return Status::OK();
+}
+
+void VScanner::_update_counters_before_close() {
+    if (_parent) {
+        COUNTER_UPDATE(_parent->_scan_cpu_timer, _scan_cpu_timer);
+        COUNTER_UPDATE(_parent->_rows_read_counter, _num_rows_read);
+    } else {
+        COUNTER_UPDATE(_local_state->_scan_cpu_timer, _scan_cpu_timer);
+        COUNTER_UPDATE(_local_state->_rows_read_counter, _num_rows_read);
+    }
+    if (!_state->enable_profile() && !_is_load) return;
+    // Update stats for load
+    _state->update_num_rows_load_filtered(_counter.num_rows_filtered);
+    _state->update_num_rows_load_unselected(_counter.num_rows_unselected);
 }
 
 } // namespace doris::vectorized

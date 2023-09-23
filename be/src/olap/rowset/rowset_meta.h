@@ -18,19 +18,20 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_META_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_META_H
 
+#include <gen_cpp/olap_file.pb.h>
+
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "common/logging.h"
-#include "gen_cpp/olap_file.pb.h"
 #include "google/protobuf/util/message_differencer.h"
 #include "io/fs/file_system.h"
-#include "io/fs/file_system_map.h"
 #include "io/fs/local_file_system.h"
 #include "json2pb/json_to_pb.h"
 #include "json2pb/pb_to_json.h"
 #include "olap/olap_common.h"
+#include "olap/storage_policy.h"
 #include "olap/tablet_schema.h"
 #include "olap/tablet_schema_cache.h"
 
@@ -53,12 +54,17 @@ public:
     }
 
     virtual bool init_from_pb(const RowsetMetaPB& rowset_meta_pb) {
-        _rowset_meta_pb = rowset_meta_pb;
-        if (_rowset_meta_pb.has_tablet_schema()) {
+        if (rowset_meta_pb.has_tablet_schema()) {
             _schema = TabletSchemaCache::instance()->insert(
-                    _rowset_meta_pb.tablet_schema().SerializeAsString());
-            _rowset_meta_pb.clear_tablet_schema();
+                    rowset_meta_pb.tablet_schema().SerializeAsString());
         }
+        // Release ownership of TabletSchemaPB from `rowset_meta_pb` and then set it back to `rowset_meta_pb`,
+        // this won't break const semantics of `rowset_meta_pb`, because `rowset_meta_pb` is not changed
+        // before and after call this method.
+        auto& mut_rowset_meta_pb = const_cast<RowsetMetaPB&>(rowset_meta_pb);
+        auto schema = mut_rowset_meta_pb.release_tablet_schema();
+        _rowset_meta_pb = mut_rowset_meta_pb;
+        mut_rowset_meta_pb.set_allocated_tablet_schema(schema);
         _init();
         return true;
     }
@@ -82,25 +88,26 @@ public:
     }
 
     // This method may return nullptr.
-    io::FileSystem* fs() {
+    const io::FileSystemSPtr& fs() {
         if (!_fs) {
             if (is_local()) {
-                return io::global_local_filesystem();
+                _fs = io::global_local_filesystem();
             } else {
-                _fs = io::FileSystemMap::instance()->get(resource_id());
+                _fs = get_filesystem(resource_id());
                 LOG_IF(WARNING, !_fs) << "Cannot get file system: " << resource_id();
             }
         }
-        return _fs.get();
+        return _fs;
     }
 
-    void set_fs(io::FileSystemPtr fs) { _fs = std::move(fs); }
-
-    const io::ResourceId& resource_id() const { return _rowset_meta_pb.resource_id(); }
-
-    void set_resource_id(io::ResourceId resource_id) {
-        _rowset_meta_pb.set_resource_id(std::move(resource_id));
+    void set_fs(io::FileSystemSPtr fs) {
+        if (fs && fs->type() != io::FileSystemType::LOCAL) {
+            _rowset_meta_pb.set_resource_id(fs->id());
+        }
+        _fs = std::move(fs);
     }
+
+    const std::string& resource_id() const { return _rowset_meta_pb.resource_id(); }
 
     bool is_local() const { return !_rowset_meta_pb.has_resource_id(); }
 
@@ -158,13 +165,7 @@ public:
 
     int64_t start_version() const { return _rowset_meta_pb.start_version(); }
 
-    void set_start_version(int64_t start_version) {
-        _rowset_meta_pb.set_start_version(start_version);
-    }
-
     int64_t end_version() const { return _rowset_meta_pb.end_version(); }
-
-    void set_end_version(int64_t end_version) { _rowset_meta_pb.set_end_version(end_version); }
 
     int64_t num_rows() const { return _rowset_meta_pb.num_rows(); }
 
@@ -214,9 +215,9 @@ public:
         return _rowset_meta_pb.mutable_delete_predicate();
     }
 
-    void set_delete_predicate(const DeletePredicatePB& delete_predicate) {
+    void set_delete_predicate(DeletePredicatePB delete_predicate) {
         DeletePredicatePB* new_delete_condition = _rowset_meta_pb.mutable_delete_predicate();
-        *new_delete_condition = delete_predicate;
+        *new_delete_condition = std::move(delete_predicate);
     }
 
     bool empty() const { return _rowset_meta_pb.empty(); }
@@ -232,8 +233,6 @@ public:
     }
 
     bool delete_flag() const { return _rowset_meta_pb.delete_flag(); }
-
-    void set_delete_flag(bool delete_flag) { _rowset_meta_pb.set_delete_flag(delete_flag); }
 
     int64_t creation_time() const { return _rowset_meta_pb.creation_time(); }
 
@@ -266,6 +265,10 @@ public:
         return rowset_meta_pb;
     }
 
+    inline DeletePredicatePB* mutable_delete_pred_pb() {
+        return _rowset_meta_pb.mutable_delete_predicate();
+    }
+
     bool is_singleton_delta() const {
         return has_version() && _rowset_meta_pb.start_version() == _rowset_meta_pb.end_version();
     }
@@ -294,7 +297,7 @@ public:
     // `segments_overlap()` only return the value of "segments_overlap" field in rowset meta,
     // but "segments_overlap" may be UNKNOWN.
     //
-    // Returns true iff all of the following conditions are met
+    // Returns true if all of the following conditions are met
     // 1. the rowset contains more than one segment
     // 2. the rowset's start version == end version (non-singleton rowset was generated by compaction process
     //    which always produces non-overlapped segments)
@@ -323,6 +326,25 @@ public:
         }
     }
 
+    auto& get_segments_key_bounds() { return _rowset_meta_pb.segments_key_bounds(); }
+
+    virtual bool get_first_segment_key_bound(KeyBoundsPB* key_bounds) {
+        // for compatibility, old version has not segment key bounds
+        if (_rowset_meta_pb.segments_key_bounds_size() == 0) {
+            return false;
+        }
+        *key_bounds = _rowset_meta_pb.segments_key_bounds(0);
+        return true;
+    }
+    virtual bool get_last_segment_key_bound(KeyBoundsPB* key_bounds) {
+        if (_rowset_meta_pb.segments_key_bounds_size() == 0) {
+            return false;
+        }
+        *key_bounds =
+                _rowset_meta_pb.segments_key_bounds(_rowset_meta_pb.segments_key_bounds_size() - 1);
+        return true;
+    }
+
     void set_segments_key_bounds(const std::vector<KeyBoundsPB>& segments_key_bounds) {
         for (const KeyBoundsPB& key_bounds : segments_key_bounds) {
             KeyBoundsPB* new_key_bounds = _rowset_meta_pb.add_segments_key_bounds();
@@ -330,19 +352,18 @@ public:
         }
     }
 
-    void set_oldest_write_timestamp(int64_t timestamp) {
-        _rowset_meta_pb.set_oldest_write_timestamp(timestamp);
+    void add_segment_key_bounds(const KeyBoundsPB& segments_key_bounds) {
+        *_rowset_meta_pb.add_segments_key_bounds() = segments_key_bounds;
+        set_segments_overlap(OVERLAPPING);
     }
 
     void set_newest_write_timestamp(int64_t timestamp) {
         _rowset_meta_pb.set_newest_write_timestamp(timestamp);
     }
 
-    int64_t oldest_write_timestamp() const { return _rowset_meta_pb.oldest_write_timestamp(); }
-
     int64_t newest_write_timestamp() const { return _rowset_meta_pb.newest_write_timestamp(); }
+
     void set_tablet_schema(const TabletSchemaSPtr& tablet_schema) {
-        DCHECK(_schema == nullptr);
         _schema = TabletSchemaCache::instance()->insert(tablet_schema->to_key());
     }
 
@@ -395,9 +416,9 @@ private:
 
 private:
     RowsetMetaPB _rowset_meta_pb;
-    std::shared_ptr<TabletSchema> _schema = nullptr;
+    TabletSchemaSPtr _schema = nullptr;
     RowsetId _rowset_id;
-    io::FileSystemPtr _fs;
+    io::FileSystemSPtr _fs;
     bool _is_removed_from_rowset_meta = false;
 };
 

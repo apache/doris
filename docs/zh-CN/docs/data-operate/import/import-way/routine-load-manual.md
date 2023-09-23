@@ -132,22 +132,42 @@ CREATE ROUTINE LOAD example_db.test1 ON example_tbl
 
 ```
 
-3. 导入Json格式数据使用示例
+[3. 导入Json格式数据使用示例](#导入Json格式数据使用示例)
 
    Routine Load导入的json格式仅支持以下两种
 
    第一种只有一条记录，且为json对象：
-
+   当使用**单表导入**（即通过 ON TABLE_NAME 指定 表名）时，json 数据格式如下
    ```json
    {"category":"a9jadhx","author":"test","price":895}
    ```
 
-   第二种为json数组，数组中可含多条记录
+当使用**动态/多表导入** Routine Load （即不指定具体的表名）时，json 数据格式如下
+
+  ```
+  table_name|{"category":"a9jadhx","author":"test","price":895}
+  ```
+假设我们需要导入数据到 user_address 以及 user_info 两张表，那么消息格式如下
+
+eg: user_address 表的 json 数据
+    
+```
+    user_address|{"user_id":128787321878,"address":"朝阳区朝阳大厦XXX号","timestamp":1589191587}
+```
+eg: user_info 表的 json 数据
+```
+    user_info|{"user_id":128787321878,"name":"张三","age":18,"timestamp":1589191587}
+```
+
+第二种为json数组，数组中可含多条记录
+
+当使用**单表导入**（即通过 ON TABLE_NAME 指定 表名）时，json 数据格式如下
 
    ```json
    [
-       {"category":"11",
-           "title":"SayingsoftheCentury",
+       {   
+           "category":"11",
+           "author":"4avc",
            "price":895,
            "timestamp":1589191587
        },
@@ -160,11 +180,75 @@ CREATE ROUTINE LOAD example_db.test1 ON example_tbl
        {
            "category":"33",
            "author":"3avc",
-           "title":"SayingsoftheCentury",
+           "price":342,
            "timestamp":1589191387
        }
    ]
    ```
+当使用**动态/多表导入**（即不指定具体的表名）时，json 数据格式如下
+```
+   table_name|[
+       {
+           "user_id":128787321878,
+           "address":"朝阳区朝阳大厦XXX号",
+           "timestamp":1589191587
+       },
+       {
+           "user_id":128787321878,
+           "address":"朝阳区朝阳大厦XXX号",
+           "timestamp":1589191587
+       },
+       {
+           "user_id":128787321878,
+           "address":"朝阳区朝阳大厦XXX号",
+           "timestamp":1589191587
+       }
+   ]
+```
+同样我们以 `user_address` 以及 `user_info` 两张表为例，那么消息格式如下
+    
+eg: user_address 表的 json 数据
+```
+     user_address|[
+       {   
+           "category":"11",
+           "author":"4avc",
+           "price":895,
+           "timestamp":1589191587
+       },
+       {
+           "category":"22",
+           "author":"2avc",
+           "price":895,
+           "timestamp":1589191487
+       },
+       {
+           "category":"33",
+           "author":"3avc",
+           "price":342,
+           "timestamp":1589191387
+       }
+     ]
+```
+eg: user_info 表的 json 数据
+```
+        user_info|[
+         {
+             "user_id":128787321878,
+             "address":"朝阳区朝阳大厦XXX号",
+             "timestamp":1589191587
+         },
+         {
+             "user_id":128787321878,
+             "address":"朝阳区朝阳大厦XXX号",
+             "timestamp":1589191587
+         },
+         {
+             "user_id":128787321878,
+             "address":"朝阳区朝阳大厦XXX号",
+             "timestamp":1589191587
+         }
+```
 
    创建待导入的Doris数据表
 
@@ -239,6 +323,10 @@ CREATE ROUTINE LOAD example_db.test1 ON example_tbl
    );
    ```
 
+**注意：** 表里的分区字段 `dt`  在我们的数据里并没有，而是在我们Routine load 语句里通过 `dt=from_unixtime(timestamp, '%Y%m%d')` 转换出来的
+
+
+
 **strict mode 与 source data 的导入关系**
 
 这里以列类型为 TinyInt 来举例
@@ -300,6 +388,97 @@ CREATE ROUTINE LOAD example_db.test1 ON example_tbl
 > Doris 通过 Kafka 的 C++ API `librdkafka` 来访问 Kafka 集群。`librdkafka` 所支持的参数可以参阅
 >
 > [https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md](https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md)
+
+**访问阿里云消息队列Kafka集群(接入点类型为SSL)**
+
+```sql
+#上传证书文件地址，地址：https://github.com/AliwareMQ/aliware-kafka-demos/blob/master/kafka-cpp-demo/vpc-ssl/only-4096-ca-cert
+CREATE FILE "ca.pem" PROPERTIES("url" = "http://xxx/only-4096-ca-cert", "catalog" = "kafka");
+
+# 创建任务
+CREATE ROUTINE LOAD test.test_job on test_tbl
+PROPERTIES
+(
+    "desired_concurrent_number"="1",
+    "format" = "json"
+)
+FROM KAFKA
+(
+    "kafka_broker_list"= "xxx.alikafka.aliyuncs.com:9093",
+    "kafka_topic" = "test",
+    "property.group.id" = "test_group",
+    "property.client.id" = "test_group",
+    "property.security.protocol"="ssl",
+    "property.ssl.ca.location"="FILE:ca.pem",
+    "property.security.protocol"="sasl_ssl",
+    "property.sasl.mechanism"="PLAIN",
+    "property.sasl.username"="xxx",
+    "property.sasl.password"="xxx"
+);
+```
+
+**访问 PLAIN 认证的 Kafka 集群**
+
+访问开启 PLAIN 认证的Kafka集群，需要增加以下配置：
+
+   - property.security.protocol=SASL_PLAINTEXT : 使用 SASL plaintext
+   - property.sasl.mechanism=PLAIN : 设置 SASL 的认证方式为 PLAIN
+   - property.sasl.username=admin : 设置 SASL 的用户名
+   - property.sasl.password=admin : 设置 SASL 的密码
+
+1. 创建例行导入作业
+
+    ```sql
+    CREATE ROUTINE LOAD db1.job1 on tbl1
+    PROPERTIES (
+    "desired_concurrent_number"="1",
+     )
+    FROM KAFKA
+    (
+        "kafka_broker_list" = "broker1:9092,broker2:9092",
+        "kafka_topic" = "my_topic",
+        "property.security.protocol"="SASL_PLAINTEXT",
+        "property.sasl.mechanism"="PLAIN",
+        "property.sasl.username"="admin",
+        "property.sasl.password"="admin"
+    );
+    
+    ```
+
+**访问 Kerberos 认证的 Kafka 集群**
+
+<version since="1.2">
+
+访问开启kerberos认证的Kafka集群，需要增加以下配置：
+
+   - security.protocol=SASL_PLAINTEXT : 使用 SASL plaintext
+   - sasl.kerberos.service.name=$SERVICENAME : 设置 broker servicename
+   - sasl.kerberos.keytab=/etc/security/keytabs/${CLIENT_NAME}.keytab : 设置 keytab 本地文件路径
+   - sasl.kerberos.principal=${CLIENT_NAME}/${CLIENT_HOST} : 设置 Doris 连接 Kafka 时使用的 Kerberos 主体
+
+1. 创建例行导入作业
+
+   ```sql
+   CREATE ROUTINE LOAD db1.job1 on tbl1
+   PROPERTIES (
+   "desired_concurrent_number"="1",
+    )
+   FROM KAFKA
+   (
+       "kafka_broker_list" = "broker1:9092,broker2:9092",
+       "kafka_topic" = "my_topic",
+       "property.security.protocol" = "SASL_PLAINTEXT",
+       "property.sasl.kerberos.service.name" = "kafka",
+       "property.sasl.kerberos.keytab" = "/etc/krb5.keytab",
+       "property.sasl.kerberos.principal" = "doris@YOUR.COM"
+   );
+   ```
+
+**注意：**
+- 若要使 Doris 访问开启kerberos认证方式的Kafka集群，需要在 Doris 集群所有运行节点上部署 Kerberos 客户端 kinit，并配置 krb5.conf，填写KDC 服务信息等。
+- 配置 property.sasl.kerberos.keytab 的值需要指定 keytab 本地文件的绝对路径，并允许 Doris 进程访问该本地文件。
+
+</version>
 
 ### 查看作业状态
 
@@ -391,13 +570,9 @@ CREATE ROUTINE LOAD example_db.test1 ON example_tbl
 
    BE 配置项，默认为 3。该参数表示一个子任务中最多生成几个 consumer 进行数据消费。对于 Kafka 数据源，一个 consumer 可能消费一个或多个 kafka partition。假设一个任务需要消费 6 个 kafka partition，则会生成 3 个 consumer，每个 consumer 消费 2 个 partition。如果只有 2 个 partition，则只会生成 2 个 consumer，每个 consumer 消费 1 个 partition。
 
-5. push_write_mbytes_per_sec
+5. max_tolerable_backend_down_num FE 配置项，默认值是0。在满足某些条件下，Doris可PAUSED的任务重新调度，即变成RUNNING。该参数为0代表只有所有BE节点是alive状态才允许重新调度。
 
-   BE 配置项。默认为 10，即 10MB/s。该参数为导入通用参数，不限于例行导入作业。该参数限制了导入数据写入磁盘的速度。对于 SSD 等高性能存储设备，可以适当增加这个限速。
-
-6. max_tolerable_backend_down_num FE 配置项，默认值是0。在满足某些条件下，Doris可PAUSED的任务重新调度，即变成RUNNING。该参数为0代表只有所有BE节点是alive状态才允许重新调度。
-
-7. period_of_auto_resume_min FE 配置项，默认是5分钟。Doris重新调度，只会在5分钟这个周期内，最多尝试3次. 如果3次都失败则锁定当前任务，后续不在进行调度。但可通过人为干预，进行手动恢复。
+6. period_of_auto_resume_min FE 配置项，默认是5分钟。Doris重新调度，只会在5分钟这个周期内，最多尝试3次. 如果3次都失败则锁定当前任务，后续不在进行调度。但可通过人为干预，进行手动恢复。
 
 ## 更多帮助
 

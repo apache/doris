@@ -17,15 +17,16 @@
 
 #include "runtime/external_scan_context_mgr.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
 #include <memory>
 
-#include "common/config.h"
 #include "common/status.h"
+#include "gtest/gtest_pred_impl.h"
+#include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/result_queue_mgr.h"
-#include "runtime/thread_resource_mgr.h"
 
 namespace doris {
 
@@ -33,20 +34,15 @@ class ExternalScanContextMgrTest : public testing::Test {
 public:
     ExternalScanContextMgrTest() {
         FragmentMgr* fragment_mgr = new FragmentMgr(&_exec_env);
-        ThreadResourceMgr* thread_mgr = new ThreadResourceMgr();
         ResultQueueMgr* result_queue_mgr = new ResultQueueMgr();
         _exec_env._fragment_mgr = fragment_mgr;
-        _exec_env._thread_mgr = thread_mgr;
         _exec_env._result_queue_mgr = result_queue_mgr;
     }
-    virtual ~ExternalScanContextMgrTest() {
-        delete _exec_env._fragment_mgr;
-        delete _exec_env._thread_mgr;
-        delete _exec_env._result_queue_mgr;
-    }
+    ~ExternalScanContextMgrTest() = default;
 
 protected:
-    virtual void SetUp() {}
+    void SetUp() override { _exec_env.set_ready(); }
+    void TearDown() override { _exec_env.destroy(); }
 
 private:
     ExecEnv _exec_env;

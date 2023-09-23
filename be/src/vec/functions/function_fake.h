@@ -17,15 +17,22 @@
 
 #pragma once
 
+#include <stddef.h>
+
+#include <memory>
+
 #include "common/status.h"
+#include "vec/core/column_numbers.h"
 #include "vec/core/types.h"
-#include "vec/data_types/data_type_array.h"
-#include "vec/data_types/data_type_nullable.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_string.h"
-#include "vec/functions/function_helpers.h"
-#include "vec/functions/simple_function_factory.h"
-#include "vec/utils/util.hpp"
+#include "vec/data_types/data_type.h"
+#include "vec/functions/function.h"
+
+namespace doris {
+class FunctionContext;
+namespace vectorized {
+class Block;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 // FunctionFake is use for some function call expr only work at prepare/open phase, do not support execute().
@@ -50,7 +57,7 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        return Status::NotSupported("Fake function {} do not support execute", name);
+        return Status::NotSupported(Impl::get_error_msg());
     }
 };
 

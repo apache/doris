@@ -17,29 +17,17 @@
 
 #include "block_column_predicate.h"
 
-#include "olap/row_block2.h"
+#include <string.h>
+
+namespace roaring {
+class Roaring;
+} // namespace roaring
 
 namespace doris {
-
-void SingleColumnBlockPredicate::evaluate(RowBlockV2* block, uint16_t* selected_size) const {
-    auto column_id = _predicate->column_id();
-    auto column_block = block->column_block(column_id);
-    _predicate->evaluate(&column_block, block->selection_vector(), selected_size);
-}
-
-void SingleColumnBlockPredicate::evaluate_and(RowBlockV2* block, uint16_t selected_size,
-                                              bool* flags) const {
-    auto column_id = _predicate->column_id();
-    auto column_block = block->column_block(column_id);
-    _predicate->evaluate_and(&column_block, block->selection_vector(), selected_size, flags);
-}
-
-void SingleColumnBlockPredicate::evaluate_or(RowBlockV2* block, uint16_t selected_size,
-                                             bool* flags) const {
-    auto column_id = _predicate->column_id();
-    auto column_block = block->column_block(column_id);
-    _predicate->evaluate_or(&column_block, block->selection_vector(), selected_size, flags);
-}
+class WrapperField;
+namespace segment_v2 {
+class InvertedIndexIterator;
+} // namespace segment_v2
 
 uint16_t SingleColumnBlockPredicate::evaluate(vectorized::MutableColumns& block, uint16_t* sel,
                                               uint16_t selected_size) const {
@@ -53,6 +41,20 @@ void SingleColumnBlockPredicate::evaluate_and(vectorized::MutableColumns& block,
     auto column_id = _predicate->column_id();
     auto& column = block[column_id];
     _predicate->evaluate_and(*column, sel, selected_size, flags);
+}
+
+bool SingleColumnBlockPredicate::evaluate_and(
+        const std::pair<WrapperField*, WrapperField*>& statistic) const {
+    return _predicate->evaluate_and(statistic);
+}
+
+bool SingleColumnBlockPredicate::evaluate_and(const segment_v2::BloomFilter* bf) const {
+    return _predicate->evaluate_and(bf);
+}
+
+bool SingleColumnBlockPredicate::evaluate_and(const StringRef* dict_words,
+                                              const size_t dict_num) const {
+    return _predicate->evaluate_and(dict_words, dict_num);
 }
 
 void SingleColumnBlockPredicate::evaluate_or(vectorized::MutableColumns& block, uint16_t* sel,
@@ -71,31 +73,10 @@ void SingleColumnBlockPredicate::evaluate_vec(vectorized::MutableColumns& block,
     if (PredicateTypeTraits::is_range(_predicate->type())) {
         column->convert_dict_codes_if_necessary();
     } else if (PredicateTypeTraits::is_bloom_filter(_predicate->type())) {
-        column->generate_hash_values_for_runtime_filter();
+        column->initialize_hash_values_for_runtime_filter();
     }
 
     _predicate->evaluate_vec(*column, size, flags);
-}
-
-void OrBlockColumnPredicate::evaluate(RowBlockV2* block, uint16_t* selected_size) const {
-    if (num_of_column_predicate() == 1) {
-        _block_column_predicate_vec[0]->evaluate(block, selected_size);
-    } else {
-        bool flags[*selected_size];
-        memset(flags, false, *selected_size);
-        for (int i = 0; i < num_of_column_predicate(); ++i) {
-            auto column_predicate = _block_column_predicate_vec[i];
-            column_predicate->evaluate_or(block, *selected_size, flags);
-        }
-
-        uint16_t new_size = 0;
-        for (int i = 0; i < *selected_size; ++i) {
-            if (flags[i]) {
-                block->selection_vector()[new_size++] = block->selection_vector()[i];
-            }
-        }
-        *selected_size = new_size;
-    }
 }
 
 uint16_t OrBlockColumnPredicate::evaluate(vectorized::MutableColumns& block, uint16_t* sel,
@@ -103,6 +84,9 @@ uint16_t OrBlockColumnPredicate::evaluate(vectorized::MutableColumns& block, uin
     if (num_of_column_predicate() == 1) {
         return _block_column_predicate_vec[0]->evaluate(block, sel, selected_size);
     } else {
+        if (!selected_size) {
+            return 0;
+        }
         bool ret_flags[selected_size];
         memset(ret_flags, false, selected_size);
         for (int i = 0; i < num_of_column_predicate(); ++i) {
@@ -120,35 +104,10 @@ uint16_t OrBlockColumnPredicate::evaluate(vectorized::MutableColumns& block, uin
     }
 }
 
-void OrBlockColumnPredicate::evaluate_or(RowBlockV2* block, uint16_t selected_size,
-                                         bool* flags) const {
-    for (auto block_column_predicate : _block_column_predicate_vec) {
-        block_column_predicate->evaluate_or(block, selected_size, flags);
-    }
-}
-
 void OrBlockColumnPredicate::evaluate_or(vectorized::MutableColumns& block, uint16_t* sel,
                                          uint16_t selected_size, bool* flags) const {
     for (auto block_column_predicate : _block_column_predicate_vec) {
         block_column_predicate->evaluate_or(block, sel, selected_size, flags);
-    }
-}
-
-void OrBlockColumnPredicate::evaluate_and(RowBlockV2* block, uint16_t selected_size,
-                                          bool* flags) const {
-    if (num_of_column_predicate() == 1) {
-        _block_column_predicate_vec[0]->evaluate_and(block, selected_size, flags);
-    } else {
-        bool new_flags[selected_size];
-        memset(new_flags, false, selected_size);
-        for (int i = 0; i < num_of_column_predicate(); ++i) {
-            auto column_predicate = _block_column_predicate_vec[i];
-            column_predicate->evaluate_or(block, selected_size, new_flags);
-        }
-
-        for (int i = 0; i < selected_size; ++i) {
-            flags[i] &= new_flags[i];
-        }
     }
 }
 
@@ -170,25 +129,12 @@ void OrBlockColumnPredicate::evaluate_and(vectorized::MutableColumns& block, uin
     }
 }
 
-void AndBlockColumnPredicate::evaluate(RowBlockV2* block, uint16_t* selected_size) const {
-    for (auto block_column_predicate : _block_column_predicate_vec) {
-        block_column_predicate->evaluate(block, selected_size);
-    }
-}
-
 uint16_t AndBlockColumnPredicate::evaluate(vectorized::MutableColumns& block, uint16_t* sel,
                                            uint16_t selected_size) const {
     for (auto block_column_predicate : _block_column_predicate_vec) {
         selected_size = block_column_predicate->evaluate(block, sel, selected_size);
     }
     return selected_size;
-}
-
-void AndBlockColumnPredicate::evaluate_and(RowBlockV2* block, uint16_t selected_size,
-                                           bool* flags) const {
-    for (auto block_column_predicate : _block_column_predicate_vec) {
-        block_column_predicate->evaluate_and(block, selected_size, flags);
-    }
 }
 
 void AndBlockColumnPredicate::evaluate_and(vectorized::MutableColumns& block, uint16_t* sel,
@@ -198,23 +144,33 @@ void AndBlockColumnPredicate::evaluate_and(vectorized::MutableColumns& block, ui
     }
 }
 
-void AndBlockColumnPredicate::evaluate_or(RowBlockV2* block, uint16_t selected_size,
-                                          bool* flags) const {
-    if (num_of_column_predicate() == 1) {
-        _block_column_predicate_vec[0]->evaluate_or(block, selected_size, flags);
-    } else {
-        bool new_flags[selected_size];
-        memset(new_flags, true, selected_size);
-
-        for (int i = 0; i < num_of_column_predicate(); ++i) {
-            auto column_predicate = _block_column_predicate_vec[i];
-            column_predicate->evaluate_and(block, selected_size, new_flags);
-        }
-
-        for (int i = 0; i < selected_size; ++i) {
-            flags[i] |= new_flags[i];
+bool AndBlockColumnPredicate::evaluate_and(
+        const std::pair<WrapperField*, WrapperField*>& statistic) const {
+    for (auto block_column_predicate : _block_column_predicate_vec) {
+        if (!block_column_predicate->evaluate_and(statistic)) {
+            return false;
         }
     }
+    return true;
+}
+
+bool AndBlockColumnPredicate::evaluate_and(const segment_v2::BloomFilter* bf) const {
+    for (auto block_column_predicate : _block_column_predicate_vec) {
+        if (!block_column_predicate->evaluate_and(bf)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool AndBlockColumnPredicate::evaluate_and(const StringRef* dict_words,
+                                           const size_t dict_num) const {
+    for (auto* predicate : _block_column_predicate_vec) {
+        if (!predicate->evaluate_and(dict_words, dict_num)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 void AndBlockColumnPredicate::evaluate_or(vectorized::MutableColumns& block, uint16_t* sel,
@@ -255,6 +211,13 @@ void AndBlockColumnPredicate::evaluate_vec(vectorized::MutableColumns& block, ui
             }
         }
     }
+}
+
+Status AndBlockColumnPredicate::evaluate(const std::string& column_name,
+                                         InvertedIndexIterator* iterator, uint32_t num_rows,
+                                         roaring::Roaring* bitmap) const {
+    return Status::NotSupported(
+            "Not Implemented evaluate with inverted index, please check the predicate");
 }
 
 } // namespace doris

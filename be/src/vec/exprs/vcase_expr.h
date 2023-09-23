@@ -17,31 +17,41 @@
 
 #pragma once
 
+#include <string>
+
+#include "common/object_pool.h"
+#include "common/status.h"
+#include "udf/udf.h"
 #include "vec/exprs/vexpr.h"
-#include "vec/functions/function_case.h"
+#include "vec/functions/function.h"
+
+namespace doris {
+class RowDescriptor;
+class RuntimeState;
+class TExprNode;
+
+namespace vectorized {
+class Block;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
 class VCaseExpr final : public VExpr {
+    ENABLE_FACTORY_CREATOR(VCaseExpr);
+
 public:
     VCaseExpr(const TExprNode& node);
-    ~VCaseExpr() = default;
-    virtual Status execute(VExprContext* context, vectorized::Block* block,
-                           int* result_column_id) override;
-    virtual Status prepare(RuntimeState* state, const RowDescriptor& desc,
-                           VExprContext* context) override;
-    virtual Status open(RuntimeState* state, VExprContext* context,
-                        FunctionContext::FunctionStateScope scope) override;
-    virtual void close(RuntimeState* state, VExprContext* context,
-                       FunctionContext::FunctionStateScope scope) override;
-    virtual VExpr* clone(ObjectPool* pool) const override {
-        return pool->add(new VCaseExpr(*this));
-    }
-    virtual const std::string& expr_name() const override;
-    virtual std::string debug_string() const override;
+    ~VCaseExpr() override = default;
+    Status execute(VExprContext* context, Block* block, int* result_column_id) override;
+    Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
+    Status open(RuntimeState* state, VExprContext* context,
+                FunctionContext::FunctionStateScope scope) override;
+    void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
+    const std::string& expr_name() const override;
+    std::string debug_string() const override;
 
 private:
-    bool _is_prepare;
     bool _has_case_expr;
     bool _has_else_expr;
 

@@ -19,82 +19,66 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatsType;
-import org.apache.doris.statistics.TableStats;
 
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
-import java.util.List;
+import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 /**
- * Manually inject statistics for tables or partitions.
- * Only OLAP table statistics are supported.
+ * Manually inject statistics for table.
+ * <p>
+ * Syntax:
+ * ALTER TABLE table_name SET STATS ('k1' = 'v1', ...);
+ * <p>
  * e.g.
- *   ALTER TABLE table_name
- *   SET STATS ('k1' = 'v1', ...) [ PARTITIONS(p_name1, p_name2...) ]
+ * ALTER TABLE stats_test.example_tbl SET STATS ('row_count'='6001215');
  */
 public class AlterTableStatsStmt extends DdlStmt {
 
-    private static final ImmutableSet<StatsType> CONFIGURABLE_PROPERTIES_SET = new ImmutableSet.Builder<StatsType>()
-            .add(TableStats.DATA_SIZE)
-            .add(TableStats.ROW_COUNT)
-            .build();
+    private static final ImmutableSet<StatsType> CONFIGURABLE_PROPERTIES_SET =
+            new ImmutableSet.Builder<StatsType>()
+                    .add(StatsType.ROW_COUNT)
+                    .build();
 
     private final TableName tableName;
-    private final PartitionNames optPartitionNames;
     private final Map<String, String> properties;
-
-    private final List<String> partitionNames = Lists.newArrayList();
     private final Map<StatsType, String> statsTypeToValue = Maps.newHashMap();
 
-    public AlterTableStatsStmt(TableName tableName, Map<String, String> properties,
-            PartitionNames optPartitionNames) {
+    // after analyzed
+    private long tableId;
+
+    public AlterTableStatsStmt(TableName tableName, Map<String, String> properties) {
         this.tableName = tableName;
-        this.properties = properties == null ? Maps.newHashMap() : properties;
-        this.optPartitionNames = optPartitionNames;
+        this.properties = properties == null ? Collections.emptyMap() : properties;
     }
 
     public TableName getTableName() {
         return tableName;
     }
 
-    public List<String> getPartitionNames() {
-        return partitionNames;
-    }
-
-    public Map<StatsType, String> getStatsTypeToValue() {
-        return statsTypeToValue;
-    }
-
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
+        if (!Config.enable_stats) {
+            throw new UserException("Analyze function is forbidden, you should add `enable_stats=true`"
+                    + "in your FE conf file");
+        }
 
-        // check table name
+        super.analyze(analyzer);
         tableName.analyze(analyzer);
 
-        // disallow external catalog
-        Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
-
-        // check partition
-        checkPartitionNames();
-
-        // check properties
         Optional<StatsType> optional = properties.keySet().stream().map(StatsType::fromString)
                 .filter(statsType -> !CONFIGURABLE_PROPERTIES_SET.contains(statsType))
                 .findFirst();
@@ -102,47 +86,25 @@ public class AlterTableStatsStmt extends DdlStmt {
             throw new AnalysisException(optional.get() + " is invalid statistics");
         }
 
-        // check auth
-        if (!Env.getCurrentEnv().getAuth()
+        if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.ALTER)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER TABLE STATS",
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER COLUMN STATS",
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
                     tableName.getDb() + ": " + tableName.getTbl());
         }
 
-        // get statsTypeToValue
         properties.forEach((key, value) -> {
             StatsType statsType = StatsType.fromString(key);
             statsTypeToValue.put(statsType, value);
         });
-    }
 
-    private void checkPartitionNames() throws AnalysisException {
         Database db = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(tableName.getDb());
         Table table = db.getTableOrAnalysisException(tableName.getTbl());
+        tableId = table.getId();
+    }
 
-        if (table.getType() != Table.TableType.OLAP) {
-            throw new AnalysisException("Only OLAP table statistics are supported");
-        }
-
-        if (optPartitionNames != null) {
-            OlapTable olapTable = (OlapTable) table;
-
-            if (!olapTable.isPartitioned()) {
-                throw new AnalysisException("Not a partitioned table: " + olapTable.getName());
-            }
-
-            optPartitionNames.analyze(analyzer);
-            List<String> names = optPartitionNames.getPartitionNames();
-            Set<String> olapPartitionNames = olapTable.getPartitionNames();
-            Optional<String> optional = names.stream()
-                    .filter(name -> !olapPartitionNames.contains(name))
-                    .findFirst();
-            if (optional.isPresent()) {
-                throw new AnalysisException("Partition does not exist: " + optional.get());
-            }
-            partitionNames.addAll(names);
-        }
+    public long getTableId() {
+        return tableId;
     }
 
     @Override
@@ -154,10 +116,12 @@ public class AlterTableStatsStmt extends DdlStmt {
         sb.append("(");
         sb.append(new PrintableMap<>(properties,
                 " = ", true, false));
-        sb.append(") ");
-        if (optPartitionNames != null) {
-            sb.append(optPartitionNames.toSql());
-        }
+        sb.append(")");
+
         return sb.toString();
+    }
+
+    public String getValue(StatsType statsType) {
+        return statsTypeToValue.get(statsType);
     }
 }

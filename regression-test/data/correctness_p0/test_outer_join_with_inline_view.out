@@ -11,3 +11,6 @@
 3	3	\N	\N
 4	4	\N	\N
 
+-- !select_with_agg_in_inline_view_and_outer_join --
+1
+

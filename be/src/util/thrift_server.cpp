@@ -17,23 +17,39 @@
 
 #include "util/thrift_server.h"
 
-#include <thrift/concurrency/Thread.h>
+#include <glog/logging.h>
+#include <thrift/Thrift.h>
 #include <thrift/concurrency/ThreadFactory.h>
 #include <thrift/concurrency/ThreadManager.h>
 #include <thrift/protocol/TBinaryProtocol.h>
+#include <thrift/protocol/TProtocol.h>
 #include <thrift/server/TNonblockingServer.h>
 #include <thrift/server/TThreadPoolServer.h>
 #include <thrift/server/TThreadedServer.h>
+#include <thrift/transport/TBufferTransports.h>
 #include <thrift/transport/TNonblockingServerSocket.h>
 #include <thrift/transport/TServerSocket.h>
 #include <thrift/transport/TSocket.h>
-
+#include <thrift/transport/TTransport.h>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
 #include <condition_variable>
 #include <mutex>
 #include <sstream>
 #include <thread>
 
+#include "service/backend_options.h"
 #include "util/doris_metrics.h"
+
+namespace apache {
+namespace thrift {
+class TProcessor;
+
+namespace transport {
+class TServerTransport;
+} // namespace transport
+} // namespace thrift
+} // namespace apache
 
 namespace doris {
 
@@ -150,6 +166,8 @@ void ThriftServer::ThriftServerEventProcessor::supervise() {
                    << "' (on port: " << _thrift_server->_port
                    << ") exited due to TException: " << e.what();
     }
+
+    LOG(INFO) << "ThriftServer " << _thrift_server->_name << " exited";
 
     {
         // _signal_lock ensures mutual exclusion of access to _thrift_server
@@ -281,6 +299,11 @@ ThriftServer::ThriftServer(const std::string& name,
     INT_COUNTER_METRIC_REGISTER(_thrift_server_metric_entity, thrift_connections_total);
 }
 
+ThriftServer::~ThriftServer() {
+    stop();
+    join();
+}
+
 Status ThriftServer::start() {
     DCHECK(!_started);
     std::shared_ptr<apache::thrift::protocol::TProtocolFactory> protocol_factory(
@@ -315,7 +338,8 @@ Status ThriftServer::start() {
         break;
 
     case THREAD_POOL:
-        fe_server_transport.reset(new apache::thrift::transport::TServerSocket(_port));
+        fe_server_transport.reset(new apache::thrift::transport::TServerSocket(
+                BackendOptions::get_service_bind_address_without_bracket(), _port));
 
         if (transport_factory.get() == nullptr) {
             transport_factory.reset(new apache::thrift::transport::TBufferedTransportFactory());
@@ -326,7 +350,8 @@ Status ThriftServer::start() {
         break;
 
     case THREADED:
-        server_socket = new apache::thrift::transport::TServerSocket(_port);
+        server_socket = new apache::thrift::transport::TServerSocket(
+                BackendOptions::get_service_bind_address_without_bracket(), _port);
         //      server_socket->setAcceptTimeout(500);
         fe_server_transport.reset(server_socket);
 
@@ -364,7 +389,6 @@ void ThriftServer::stop() {
 
 void ThriftServer::join() {
     DCHECK(_server_thread != nullptr);
-    DCHECK(_started);
     _server_thread->join();
 }
 

@@ -19,7 +19,6 @@ package org.apache.doris.nereids.pattern.generator.javaast;
 
 import java.util.Optional;
 
-
 /** java's type or void. */
 public class TypeTypeOrVoid implements JavaAstNode {
     public final Optional<TypeType> typeType;

@@ -35,6 +35,13 @@ inline int64_t BitPacking::NumValuesToUnpack(int bit_width, int64_t in_bytes, in
     }
 }
 
+constexpr uint64_t GetMask(int num_bits) {
+    if (num_bits >= 64) {
+        return ~0L;
+    }
+    return (1ULL << num_bits) - 1;
+}
+
 template <typename T>
 constexpr bool IsSupportedUnpackingType() {
     return std::is_same<T, uint8_t>::value || std::is_same<T, uint16_t>::value ||
@@ -165,7 +172,7 @@ std::pair<const uint8_t*, int64_t> BitPacking::UnpackAndDecodeValues(
 // avoid buffer overflow (if we are unpacking 32 values, we can safely assume an input
 // buffer of length 32 * BIT_WIDTH).
 template <int BIT_WIDTH, int VALUE_IDX, bool FULL_BATCH>
-inline uint64_t ALWAYS_INLINE UnpackValue(const uint8_t* __restrict__ in_buf) {
+uint64_t UnpackValue(const uint8_t* __restrict__ in_buf) {
     if (BIT_WIDTH == 0) return 0;
 
     constexpr int FIRST_BIT_IDX = VALUE_IDX * BIT_WIDTH;
@@ -176,7 +183,7 @@ inline uint64_t ALWAYS_INLINE UnpackValue(const uint8_t* __restrict__ in_buf) {
     static_assert(WORDS_TO_READ <= 3, "At most three 32-bit words need to be loaded.");
 
     constexpr int FIRST_BIT_OFFSET = FIRST_BIT_IDX - FIRST_WORD_IDX * 32;
-    constexpr uint64_t mask = BIT_WIDTH == 64 ? ~0L : (1UL << BIT_WIDTH) - 1;
+    constexpr uint64_t mask = GetMask(BIT_WIDTH);
     const uint32_t* const in = reinterpret_cast<const uint32_t*>(in_buf);
 
     // Avoid reading past the end of the buffer. We can safely read 64 bits if we know that
@@ -213,9 +220,8 @@ inline uint64_t ALWAYS_INLINE UnpackValue(const uint8_t* __restrict__ in_buf) {
 }
 
 template <typename OutType>
-inline void ALWAYS_INLINE DecodeValue(OutType* __restrict__ dict, int64_t dict_len, uint32_t idx,
-                                      OutType* __restrict__ out_val,
-                                      bool* __restrict__ decode_error) {
+void DecodeValue(OutType* __restrict__ dict, int64_t dict_len, uint32_t idx,
+                 OutType* __restrict__ out_val, bool* __restrict__ decode_error) {
     if (UNLIKELY(idx >= dict_len)) {
         *decode_error = true;
     } else {
@@ -314,9 +320,10 @@ const uint8_t* BitPacking::UnpackUpTo31Values(const uint8_t* __restrict__ in, in
     }
 
 #pragma push_macro("UNPACK_VALUES_CASE")
-#define UNPACK_VALUES_CASE(ignore1, i, ignore2) \
-    case 31 - i:                                \
-        out[30 - i] = static_cast<OutType>(UnpackValue<BIT_WIDTH, 30 - i, false>(in_buffer));
+#define UNPACK_VALUES_CASE(ignore1, i, ignore2)                                               \
+    case 31 - i:                                                                              \
+        out[30 - i] = static_cast<OutType>(UnpackValue<BIT_WIDTH, 30 - i, false>(in_buffer)); \
+        [[fallthrough]];
 
     // Use switch with fall-through cases to minimise branching.
     switch (num_values) {

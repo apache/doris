@@ -18,11 +18,16 @@
 #ifndef DORIS_BE_SRC_OLAP_TASK_ENGINE_CHECKSUM_TASK_H
 #define DORIS_BE_SRC_OLAP_TASK_ENGINE_CHECKSUM_TASK_H
 
-#include "gen_cpp/AgentService_types.h"
-#include "olap/olap_define.h"
+#include <gen_cpp/Types_types.h>
+#include <stdint.h>
+
+#include <memory>
+
+#include "common/status.h"
 #include "olap/task/engine_task.h"
 
 namespace doris {
+class MemTrackerLimiter;
 
 // base class for storage engine
 // add "Engine" as task prefix to prevent duplicate name with agent task

@@ -22,12 +22,9 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.LdapConfig;
-import org.apache.doris.mysql.privilege.PaloRole;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -40,20 +37,6 @@ import java.util.List;
  */
 public class LdapAuthenticate {
     private static final Logger LOG = LogManager.getLogger(LdapAuthenticate.class);
-
-    private static final String LDAP_GROUPS_PRIVS_NAME = "ldapGroupsPrivs";
-
-    // Maximum number of the user LDAP authentication login connections.
-    private static long userMaxConn = 100;
-
-    {
-        if (LdapConfig.user_max_connections <= 0 || LdapConfig.user_max_connections > 10000) {
-            LOG.warn("Ldap config user_max_connections is invalid. It should be set between 1 and 10000. "
-                    + "And now, it is set to the default value.");
-        } else {
-            userMaxConn = LdapConfig.user_max_connections;
-        }
-    }
 
     /**
      * The LDAP authentication process is as follows:
@@ -70,8 +53,8 @@ public class LdapAuthenticate {
 
         // check user password by ldap server.
         try {
-            if (!LdapClient.checkPassword(userName, password)) {
-                LOG.debug("user:{} use error LDAP password.", userName);
+            if (!Env.getCurrentEnv().getAuth().getLdapManager().checkUserPasswd(qualifiedUser, password)) {
+                LOG.info("user:{} use check LDAP password failed.", userName);
                 ErrorReport.report(ErrorCode.ERR_ACCESS_DENIED_ERROR, qualifiedUser, context.getRemoteIP(), usePasswd);
                 return false;
             }
@@ -80,65 +63,23 @@ public class LdapAuthenticate {
             return false;
         }
 
-        // Get the LDAP groups privileges as a role.
-        PaloRole ldapGroupsPrivs;
-        try {
-            ldapGroupsPrivs = getLdapGroupsPrivs(userName, clusterName);
-        } catch (Exception e) {
-            LOG.error("Get ldap groups error.", e);
-            return false;
-        }
-
         String remoteIp = context.getMysqlChannel().getRemoteIp();
         UserIdentity tempUserIdentity = UserIdentity.createAnalyzedUserIdentWithIp(qualifiedUser, remoteIp);
         // Search the user in doris.
-        UserIdentity userIdentity = Env.getCurrentEnv().getAuth().getCurrentUserIdentity(tempUserIdentity);
-        if (userIdentity == null) {
+        List<UserIdentity> userIdentities = Env.getCurrentEnv().getAuth()
+                .getUserIdentityForLdap(qualifiedUser, remoteIp);
+        UserIdentity userIdentity;
+        if (userIdentities.isEmpty()) {
             userIdentity = tempUserIdentity;
             LOG.debug("User:{} does not exists in doris, login as temporary users.", userName);
             context.setIsTempUser(true);
-            if (ldapGroupsPrivs == null) {
-                ldapGroupsPrivs = new PaloRole(LDAP_GROUPS_PRIVS_NAME);
-            }
-            LdapPrivsChecker.grantDefaultPrivToTempUser(ldapGroupsPrivs, clusterName);
+        } else {
+            userIdentity = userIdentities.get(0);
         }
 
         context.setCurrentUserIdentity(userIdentity);
         context.setRemoteIP(remoteIp);
-        context.setLdapGroupsPrivs(ldapGroupsPrivs);
-        LOG.debug("ldap authentication success: identity:{}, privs:{}",
-                context.getCurrentUserIdentity(), context.getLdapGroupsPrivs());
+        LOG.debug("ldap authentication success: identity:{}", context.getCurrentUserIdentity());
         return true;
-    }
-
-    /**
-     * Step1: get ldap groups from ldap server;
-     * Step2: get roles by ldap groups;
-     * Step3: merge the roles;
-     */
-    private static PaloRole getLdapGroupsPrivs(String userName, String clusterName) {
-        //get user ldap group. the ldap group name should be the same as the doris role name
-        List<String> ldapGroups = LdapClient.getGroups(userName);
-        List<String> rolesNames = Lists.newArrayList();
-        for (String group : ldapGroups) {
-            String qualifiedRole = ClusterNamespace.getFullName(clusterName, group);
-            if (Env.getCurrentEnv().getAuth().doesRoleExist(qualifiedRole)) {
-                rolesNames.add(qualifiedRole);
-            }
-        }
-        LOG.debug("get user:{} ldap groups:{} and doris roles:{}", userName, ldapGroups, rolesNames);
-
-        // merge the roles
-        if (rolesNames.isEmpty()) {
-            return null;
-        } else {
-            PaloRole ldapGroupsPrivs = new PaloRole(LDAP_GROUPS_PRIVS_NAME);
-            Env.getCurrentEnv().getAuth().mergeRolesNoCheckName(rolesNames, ldapGroupsPrivs);
-            return ldapGroupsPrivs;
-        }
-    }
-
-    public static long getMaxConn() {
-        return userMaxConn;
     }
 }

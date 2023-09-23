@@ -39,6 +39,11 @@ struct TTabletSchema {
     11: optional Types.TSortType sort_type
     12: optional i32 sort_col_num
     13: optional bool disable_auto_compaction
+    14: optional i32 version_col_idx = -1
+    15: optional bool is_dynamic_schema = false // deprecated
+    16: optional bool store_row_column = false
+    17: optional bool enable_single_replica_compaction = false
+    18: optional bool skip_write_index_on_load = false
 }
 
 // this enum stands for different storage format in src_backends
@@ -56,28 +61,39 @@ enum TTabletType {
 }
 
 struct TS3StorageParam {
-    1: optional string s3_endpoint
-    2: optional string s3_region
-    3: optional string s3_ak
-    4: optional string s3_sk
-    5: optional i32 s3_max_conn = 50
-    6: optional i32 s3_request_timeout_ms = 3000
-    7: optional i32 s3_conn_timeout_ms = 1000
+    1: optional string endpoint
+    2: optional string region
+    3: optional string ak
+    4: optional string sk
+    5: optional i32 max_conn = 50
+    6: optional i32 request_timeout_ms = 3000
+    7: optional i32 conn_timeout_ms = 1000
     8: optional string root_path
     9: optional string bucket
+    10: optional bool use_path_style = false
 }
 
-struct TGetStoragePolicy {
-    1: optional string policy_name
-    2: optional i64 cooldown_datetime
-    3: optional i64 cooldown_ttl
+struct TStoragePolicy {
+    1: optional i64 id
+    2: optional string name
+    3: optional i64 version // alter version
+    4: optional i64 cooldown_datetime
+    5: optional i64 cooldown_ttl
+    6: optional i64 resource_id
+}
+
+struct TStorageResource {
+    1: optional i64 id
+    2: optional string name
+    3: optional i64 version // alter version
     4: optional TS3StorageParam s3_storage_param
-    5: optional string md5_checksum
+    // more storage resource type
 }
 
-struct TGetStoragePolicyResult {
-    1: optional Status.TStatus status
-    2: optional list<TGetStoragePolicy> result_entrys
+struct TPushStoragePolicyReq {
+    1: optional list<TStoragePolicy> storage_policy
+    2: optional list<TStorageResource> resource
+    3: optional list<i64> dropped_storage_policy
 }
 
 enum TCompressionType {
@@ -88,9 +104,17 @@ enum TCompressionType {
     LZ4 = 4,
     LZ4F = 5,
     ZLIB = 6,
-    ZSTD = 7
+    ZSTD = 7,
+    LZ4HC = 8
 }
 
+
+struct TBinlogConfig {
+    1: optional bool enable;
+    2: optional i64 ttl_seconds;
+    3: optional i64 max_bytes;
+    4: optional i64 max_history_nums;
+}
 
 struct TCreateTabletReq {
     1: required Types.TTabletId tablet_id
@@ -115,8 +139,14 @@ struct TCreateTabletReq {
     // 15: optional TStorageParam storage_param
     16: optional TCompressionType compression_type = TCompressionType.LZ4F
     17: optional Types.TReplicaId replica_id = 0
-    18: optional string storage_policy
+    // 18: optional string storage_policy
     19: optional bool enable_unique_key_merge_on_write = false
+    20: optional i64 storage_policy_id
+    21: optional TBinlogConfig binlog_config
+    22: optional string compaction_policy = "size_based"
+    23: optional i64 time_series_compaction_goal_size_mbytes = 1024
+    24: optional i64 time_series_compaction_file_count_threshold = 2000
+    25: optional i64 time_series_compaction_time_threshold_seconds = 3600
 }
 
 struct TDropTabletReq {
@@ -138,6 +168,12 @@ enum TAlterTabletType {
     MIGRATION = 3
 }
 
+struct TAlterMaterializedViewParam {
+    1: required string column_name
+    2: optional string origin_column_name
+    3: optional Exprs.TExpr mv_expr
+}
+
 // This v2 request will replace the old TAlterTabletReq.
 // TAlterTabletReq should be deprecated after new alter job process merged.
 struct TAlterTabletReqV2 {
@@ -152,12 +188,29 @@ struct TAlterTabletReqV2 {
     8: optional TAlterTabletType alter_tablet_type = TAlterTabletType.SCHEMA_CHANGE
     9: optional Descriptors.TDescriptorTable desc_tbl
     10: optional list<Descriptors.TColumn> columns
+    11: optional i32 be_exec_version = 0
 }
 
-struct TAlterMaterializedViewParam {
-    1: required string column_name
-    2: optional string origin_column_name
-    3: optional Exprs.TExpr mv_expr
+struct TAlterInvertedIndexReq {
+    1: required Types.TTabletId tablet_id
+    2: required Types.TSchemaHash schema_hash
+    3: optional Types.TVersion alter_version // Deprecated
+    4: optional TAlterTabletType alter_tablet_type = TAlterTabletType.SCHEMA_CHANGE // Deprecated
+    5: optional bool is_drop_op= false
+    6: optional list<Descriptors.TOlapTableIndex> alter_inverted_indexes
+    7: optional list<Descriptors.TOlapTableIndex> indexes_desc
+    8: optional list<Descriptors.TColumn> columns
+    9: optional i64 job_id
+    10: optional i64 expiration
+}
+
+struct TTabletGcBinlogInfo {
+    1: optional Types.TTabletId tablet_id
+    2: optional i64 version
+}
+
+struct TGcBinlogReq {
+    1: optional list<TTabletGcBinlogInfo> tablet_gc_binlog_infos
 }
 
 struct TStorageMigrationReqV2 {
@@ -247,7 +300,17 @@ struct TUploadReq {
     3: required Types.TNetworkAddress broker_addr
     4: optional map<string, string> broker_prop
     5: optional Types.TStorageBackendType storage_backend = Types.TStorageBackendType.BROKER
+    6: optional string location // root path
+}
 
+struct TRemoteTabletSnapshot {
+    1: optional i64 local_tablet_id
+    2: optional string local_snapshot_path
+    3: optional i64 remote_tablet_id
+    4: optional i64 remote_be_id
+    5: optional Types.TNetworkAddress remote_be_addr
+    6: optional string remote_snapshot_path
+    7: optional string remote_token
 }
 
 struct TDownloadReq {
@@ -256,6 +319,8 @@ struct TDownloadReq {
     3: required Types.TNetworkAddress broker_addr
     4: optional map<string, string> broker_prop
     5: optional Types.TStorageBackendType storage_backend = Types.TStorageBackendType.BROKER
+    6: optional string location // root path
+    7: optional list<TRemoteTabletSnapshot> remote_tablet_snapshots
 }
 
 struct TSnapshotRequest {
@@ -270,6 +335,10 @@ struct TSnapshotRequest {
     // Deprecated since version 0.13
     8: optional bool allow_incremental_clone
     9: optional i32 preferred_snapshot_version = Types.TPREFER_SNAPSHOT_REQ_VERSION
+    10: optional bool is_copy_tablet_task
+    11: optional Types.TVersion start_version
+    12: optional Types.TVersion end_version
+    13: optional bool is_copy_binlog
 }
 
 struct TReleaseSnapshotRequest {
@@ -325,16 +394,26 @@ struct TRecoverTabletReq {
 
 enum TTabletMetaType {
     PARTITIONID,
-    INMEMORY
+    INMEMORY,
+    BINLOG_CONFIG
 }
 
 struct TTabletMetaInfo {
     1: optional Types.TTabletId tablet_id
     2: optional Types.TSchemaHash schema_hash
     3: optional Types.TPartitionId partition_id
-    4: optional TTabletMetaType meta_type
+    // 4: optional TTabletMetaType Deprecated_meta_type
     5: optional bool is_in_memory
-    6: optional string storage_policy;
+    // 6: optional string Deprecated_storage_policy
+    7: optional i64 storage_policy_id
+    8: optional Types.TReplicaId replica_id
+    9: optional TBinlogConfig binlog_config
+    10: optional string compaction_policy
+    11: optional i64 time_series_compaction_goal_size_mbytes
+    12: optional i64 time_series_compaction_file_count_threshold
+    13: optional i64 time_series_compaction_time_threshold_seconds
+    14: optional bool enable_single_replica_compaction
+    15: optional bool skip_write_index_on_load
 }
 
 struct TUpdateTabletMetaInfoReq {
@@ -346,6 +425,16 @@ struct TPluginMetaInfo {
     2: required i32 type
     3: optional string so_name
     4: optional string source
+}
+
+struct TCooldownConf {
+    1: required Types.TTabletId tablet_id
+    2: optional Types.TReplicaId cooldown_replica_id
+    3: optional i64 cooldown_term
+}
+
+struct TPushCooldownConfReq {
+    1: required list<TCooldownConf> cooldown_confs
 }
 
 struct TAgentTaskRequest {
@@ -378,7 +467,11 @@ struct TAgentTaskRequest {
     26: optional TUpdateTabletMetaInfoReq update_tablet_meta_info_req
     27: optional TCompactionReq compaction_req
     28: optional TStorageMigrationReqV2 storage_migration_req_v2
-    29: optional TGetStoragePolicy update_policy
+    // DEPRECATED 29: optional TGetStoragePolicy update_policy
+    30: optional TPushCooldownConfReq push_cooldown_conf
+    31: optional TPushStoragePolicyReq push_storage_policy_req
+    32: optional TAlterInvertedIndexReq alter_inverted_index_req
+    33: optional TGcBinlogReq gc_binlog_req
 }
 
 struct TAgentResult {

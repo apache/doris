@@ -30,6 +30,8 @@ struct PageBuilderOptions {
     size_t dict_page_size = DEFAULT_PAGE_SIZE;
 
     bool need_check_bitmap = true;
+
+    bool is_dict_page = false; // page used for saving dictionary
 };
 
 struct PageDecoderOptions {

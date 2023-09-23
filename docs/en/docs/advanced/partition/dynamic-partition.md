@@ -30,7 +30,9 @@ Dynamic partition is a new feature introduced in Doris version 0.12. It's design
 
 At present, the functions of dynamically adding partitions and dynamically deleting partitions are realized.
 
-Dynamic partitioning is only supported for Range partitions.
+Dynamic partitioning is only supported for Range partitions.  
+
+Node: This feature will be disabled when synchronized by CCR. If this table is copied by CCR, that is, PROPERTIES contains `is_being_synced = true`, it will be displayed as enabled in show create table, but will not actually take effect. When `is_being_synced` is set to `false`, these features will resume working, but the `is_being_synced` property is for CCR peripheral modules only and should not be manually set during CCR synchronization.
 
 ## Noun Interpretation
 
@@ -81,9 +83,9 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 
     Whether to enable the dynamic partition feature. Can be specified as `TRUE` or` FALSE`. If not filled, the default is `TRUE`. If it is `FALSE`, Doris will ignore the dynamic partitioning rules of the table.
 
-* `dynamic_partition.time_unit`
+* `dynamic_partition.time_unit`(required parameters)
 
-    The unit for dynamic partition scheduling. Can be specified as `HOUR`,`DAY`,` WEEK`, and `MONTH`, means to create or delete partitions by hour, day, week, and month, respectively.
+    The unit for dynamic partition scheduling. Can be specified as `HOUR`,`DAY`,` WEEK`, `MONTH` and `YEAR`, means to create or delete partitions by hour, day, week, month and year, respectively.
 
     When specified as `HOUR`, the suffix format of the dynamically created partition name is `yyyyMMddHH`, for example, `2020032501`. *When the time unit is HOUR, the data type of partition column cannot be DATE.*
 
@@ -93,6 +95,8 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 
     When specified as `MONTH`, the suffix format of the dynamically created partition name is `yyyyMM`, for example, `202003`.
 
+    When specified as `YEAR`, the suffix format of the dynamically created partition name is `yyyy`, for example, `2020`.
+
 * `dynamic_partition.time_zone`
 
     The time zone of the dynamic partition, if not filled in, defaults to the time zone of the current machine's system, such as `Asia/Shanghai`, if you want to know the supported TimeZone, you can found in `https://en.wikipedia.org/wiki/List_of_tz_database_time_zones`.
@@ -101,11 +105,11 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 
     The starting offset of the dynamic partition, usually a negative number. Depending on the `time_unit` attribute, based on the current day (week / month), the partitions with a partition range before this offset will be deleted. If not filled, the default is `-2147483648`, that is, the history partition will not be  deleted.
 
-* `dynamic_partition.end`
+* `dynamic_partition.end`(required parameters)
 
     The end offset of the dynamic partition, usually a positive number. According to the difference of the `time_unit` attribute, the partition of the corresponding range is created in advance based on the current day (week / month).
 
-* `dynamic_partition.prefix`
+* `dynamic_partition.prefix`(required parameters)
 
     The dynamically created partition name prefix.
 
@@ -138,6 +142,8 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 * `dynamic_partition.hot_partition_num`
 
     Specify how many of the latest partitions are hot partitions. For hot partition, the system will automatically set its `storage_medium` parameter to SSD, and set `storage_cooldown_time`.
+    
+    **Note: If there is no SSD disk path under the storage path, configuring this parameter will cause dynamic partition creation to fail.**
 
     `hot_partition_num` is all partitions in the previous n days and in the future.
 
@@ -157,11 +163,11 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 
 * `dynamic_partition.reserved_history_periods`
 
-    The range of reserved history periods. It should be in the form of `[yyyy-MM-dd,yyyy-MM-dd],[...,...]` while the `dynamic_partition.time_unit` is "DAY, WEEK, and MONTH". And it should be in the form of `[yyyy-MM-dd HH:mm:ss,yyyy-MM-dd HH:mm:ss],[...,...]` while the dynamic_partition.time_unit` is "HOUR". And no more spaces expected. The default value is `"NULL"`, which means it is not set.
+    The range of reserved history periods. It should be in the form of `[yyyy-MM-dd,yyyy-MM-dd],[...,...]` while the `dynamic_partition.time_unit` is "DAY, WEEK, MONTH and YEAR". And it should be in the form of `[yyyy-MM-dd HH:mm:ss,yyyy-MM-dd HH:mm:ss],[...,...]` while the dynamic_partition.time_unit` is "HOUR". And no more spaces expected. The default value is `"NULL"`, which means it is not set.
 
     Let us give an example. Suppose today is 2021-09-06，partitioned by day, and the properties of dynamic partition are set to: 
 
-    ```time_unit="DAY/WEEK/MONTH", end=3, start=-3, reserved_history_periods="[2020-06-01,2020-06-20],[2020-10-31,2020-11-15]"```.
+    ```time_unit="DAY/WEEK/MONTH/YEAR", end=3, start=-3, reserved_history_periods="[2020-06-01,2020-06-20],[2020-10-31,2020-11-15]"```.
 
     The system will automatically reserve following partitions in following period :
 
@@ -181,6 +187,13 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 
     Otherwise, every `[...,...]` in `reserved_history_periods` is a couple of properties, and they should be set at the same time. And the first date can't be larger than the second one.
 
+- `dynamic_partition.storage_medium`
+
+   <version since="1.2.3"></version>
+
+   Specifies the default storage medium for the created dynamic partition. HDD is the default, SSD can be selected.
+
+   Note that when set to SSD, the `hot_partition_num` property will no longer take effect, all partitions will default to SSD storage media and the cooldown time will be 9999-12-31 23:59:59.
 
 #### Create History Partition Rules
 
@@ -459,9 +472,90 @@ When dynamic partitioning feature is disabled, Doris will no longer manage parti
 
 1. After creating the dynamic partition table, it prompts ```Could not create table with dynamic partition when fe config dynamic_partition_enable is false```
 
-         Because the main switch of dynamic partition, that is, the configuration of FE ```dynamic_partition_enable``` is false, the dynamic partition table cannot be created.
+	Because the main switch of dynamic partition, that is, the configuration of FE ```dynamic_partition_enable``` is false, the dynamic partition table cannot be created.
          
-         At this time, please modify the FE configuration file, add a line ```dynamic_partition_enable=true```, and restart FE. Or execute the command ADMIN SET FRONTEND CONFIG ("dynamic_partition_enable" = "true") to turn on the dynamic partition switch.
+	At this time, please modify the FE configuration file, add a line ```dynamic_partition_enable=true```, and restart FE. Or execute the command ADMIN SET FRONTEND CONFIG ("dynamic_partition_enable" = "true") to turn on the dynamic partition switch.
+
+2. Replica settings for dynamic partitions
+
+    Dynamic partitions are automatically created by scheduling logic inside the system. When creating a partition automatically, the partition properties (including the number of replicas of the partition, etc.) are all prefixed with `dynamic_partition`, rather than the default properties of the table. for example:
+
+    ```
+    CREATE TABLE tbl1 (
+    `k1` int,
+    `k2` date
+    )
+    PARTITION BY RANGE(k2)()
+    DISTRIBUTED BY HASH(k1) BUCKETS 3
+    PROPERTIES
+    (
+    "dynamic_partition.enable" = "true",
+    "dynamic_partition.time_unit" = "DAY",
+    "dynamic_partition.end" = "3",
+    "dynamic_partition.prefix" = "p",
+    "dynamic_partition.buckets" = "32",
+    "dynamic_partition.replication_num" = "1",
+    "dynamic_partition.start" = "-3",
+    "replication_num" = "3"
+    );
+    ```
+
+    In this example, no initial partition is created (partition definition in PARTITION BY clause is empty), and `DISTRIBUTED BY HASH(k1) BUCKETS 3`, `"replication_num" = "3"`, `"dynamic_partition is set. replication_num" = "1` and `"dynamic_partition.buckets" = "32"`.
+
+    We make the first two parameters the default parameters for the table, and the last two parameters the dynamic partition-specific parameters.
+
+    When the system automatically creates a partition, it will use the two configurations of bucket number 32 and replica number 1 (that is, parameters dedicated to dynamic partitions). Instead of the two configurations of bucket number 3 and replica number 3.
+
+    When a user manually adds a partition through the `ALTER TABLE tbl1 ADD PARTITION` statement, the two configurations of bucket number 3 and replica number 3 (that is, the default parameters of the table) will be used.
+
+    That is, dynamic partitioning uses a separate set of parameter settings. The table's default parameters are used only if no dynamic partition-specific parameters are set. as follows:
+
+    ```
+    CREATE TABLE tbl2 (
+    `k1` int,
+    `k2` date
+    )
+    PARTITION BY RANGE(k2)()
+    DISTRIBUTED BY HASH(k1) BUCKETS 3
+    PROPERTIES
+    (
+    "dynamic_partition.enable" = "true",
+    "dynamic_partition.time_unit" = "DAY",
+    "dynamic_partition.end" = "3",
+    "dynamic_partition.prefix" = "p",
+    "dynamic_partition.start" = "-3",
+    "dynamic_partition.buckets" = "32",
+    "replication_num" = "3"
+    );
+    ```
+
+    In this example, if `dynamic_partition.replication_num` is not specified separately, the default parameter of the table is used, which is `"replication_num" = "3"`.
+
+	And the following example:
+
+     ```
+     CREATE TABLE tbl3 (
+     `k1` int,
+     `k2` date
+     )
+     PARTITION BY RANGE(k2)(
+         PARTITION p1 VALUES LESS THAN ("2019-10-10")
+     )
+     DISTRIBUTED BY HASH(k1) BUCKETS 3
+     PROPERTIES
+     (
+     "dynamic_partition.enable" = "true",
+     "dynamic_partition.time_unit" = "DAY",
+     "dynamic_partition.end" = "3",
+     "dynamic_partition.prefix" = "p",
+     "dynamic_partition.start" = "-3",
+     "dynamic_partition.buckets" = "32",
+     "dynamic_partition.replication_num" = "1",
+     "replication_num" = "3"
+     );
+     ```
+
+     In this example, there is a manually created partition p1. This partition will use the default settings for the table, which are 3 buckets and 3 replicas. The dynamic partitions automatically created by the subsequent system will still use the special parameters for dynamic partitions, that is, the number of buckets is 32 and the number of replicas is 1.
 
 ## More Help
 

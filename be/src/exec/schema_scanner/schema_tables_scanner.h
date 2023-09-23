@@ -17,28 +17,38 @@
 
 #pragma once
 
+#include <gen_cpp/FrontendService_types.h>
+
+#include <vector>
+
+#include "common/status.h"
 #include "exec/schema_scanner.h"
-#include "gen_cpp/FrontendService_types.h"
 
 namespace doris {
+class RuntimeState;
+
+namespace vectorized {
+class Block;
+} // namespace vectorized
 
 class SchemaTablesScanner : public SchemaScanner {
+    ENABLE_FACTORY_CREATOR(SchemaTablesScanner);
+
 public:
     SchemaTablesScanner();
-    virtual ~SchemaTablesScanner();
+    ~SchemaTablesScanner() override;
 
-    virtual Status start(RuntimeState* state);
-    virtual Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos);
+    Status start(RuntimeState* state) override;
+    Status get_next_block(vectorized::Block* block, bool* eos) override;
 
 private:
-    Status get_new_table();
-    Status fill_one_row(Tuple* tuple, MemPool* pool);
+    Status _get_new_table();
+    Status _fill_block_impl(vectorized::Block* block);
 
     int _db_index;
-    int _table_index;
     TGetDbsResult _db_result;
     TListTableStatusResult _table_result;
-    static SchemaScanner::ColumnDesc _s_tbls_columns[];
+    static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
 };
 
 } // namespace doris

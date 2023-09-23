@@ -24,11 +24,6 @@
 
 #include "gutil/atomicops-internals-x86.h"
 
-#include <common/logging.h>
-#include <string.h>
-
-#include "gutil/integral_types.h"
-
 // This file only makes sense with atomicops-internals-x86.h -- it
 // depends on structs that are defined in that file.  If atomicops.h
 // doesn't sub-include that file, then we aren't needed, and shouldn't

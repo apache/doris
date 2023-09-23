@@ -17,15 +17,19 @@
 
 #pragma once
 
+#include <vector>
+
 #include "exec/schema_scanner.h"
 
 namespace doris {
 class SchemaStatisticsScanner : public SchemaScanner {
+    ENABLE_FACTORY_CREATOR(SchemaStatisticsScanner);
+
 public:
     SchemaStatisticsScanner();
-    virtual ~SchemaStatisticsScanner();
+    ~SchemaStatisticsScanner() override;
 
 private:
-    static SchemaScanner::ColumnDesc _s_cols_statistics[];
+    static std::vector<SchemaScanner::ColumnDesc> _s_cols_statistics;
 };
 } // namespace doris

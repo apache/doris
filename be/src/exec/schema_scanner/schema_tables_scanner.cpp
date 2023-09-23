@@ -17,21 +17,37 @@
 
 #include "exec/schema_scanner/schema_tables_scanner.h"
 
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/FrontendService_types.h>
+#include <stdint.h>
+
+#include <string>
+
+#include "common/status.h"
 #include "exec/schema_scanner/schema_helper.h"
-#include "runtime/primitive_type.h"
-#include "runtime/string_value.h"
+#include "runtime/decimalv2_value.h"
+#include "runtime/define_primitive_type.h"
+#include "util/runtime_profile.h"
+#include "util/timezone_utils.h"
+#include "vec/common/string_ref.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
+class RuntimeState;
 
-SchemaScanner::ColumnDesc SchemaTablesScanner::_s_tbls_columns[] = {
+namespace vectorized {
+class Block;
+} // namespace vectorized
+
+std::vector<SchemaScanner::ColumnDesc> SchemaTablesScanner::_s_tbls_columns = {
         //   name,       type,          size,     is_null
-        {"TABLE_CATALOG", TYPE_VARCHAR, sizeof(StringValue), true},
-        {"TABLE_SCHEMA", TYPE_VARCHAR, sizeof(StringValue), false},
-        {"TABLE_NAME", TYPE_VARCHAR, sizeof(StringValue), false},
-        {"TABLE_TYPE", TYPE_VARCHAR, sizeof(StringValue), false},
-        {"ENGINE", TYPE_VARCHAR, sizeof(StringValue), true},
+        {"TABLE_CATALOG", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"TABLE_SCHEMA", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"TABLE_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"TABLE_TYPE", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"ENGINE", TYPE_VARCHAR, sizeof(StringRef), true},
         {"VERSION", TYPE_BIGINT, sizeof(int64_t), true},
-        {"ROW_FORMAT", TYPE_VARCHAR, sizeof(StringValue), true},
+        {"ROW_FORMAT", TYPE_VARCHAR, sizeof(StringRef), true},
         {"TABLE_ROWS", TYPE_BIGINT, sizeof(int64_t), true},
         {"AVG_ROW_LENGTH", TYPE_BIGINT, sizeof(int64_t), true},
         {"DATA_LENGTH", TYPE_BIGINT, sizeof(int64_t), true},
@@ -39,20 +55,17 @@ SchemaScanner::ColumnDesc SchemaTablesScanner::_s_tbls_columns[] = {
         {"INDEX_LENGTH", TYPE_BIGINT, sizeof(int64_t), true},
         {"DATA_FREE", TYPE_BIGINT, sizeof(int64_t), true},
         {"AUTO_INCREMENT", TYPE_BIGINT, sizeof(int64_t), true},
-        {"CREATE_TIME", TYPE_DATETIME, sizeof(DateTimeValue), true},
-        {"UPDATE_TIME", TYPE_DATETIME, sizeof(DateTimeValue), true},
-        {"CHECK_TIME", TYPE_DATETIME, sizeof(DateTimeValue), true},
-        {"TABLE_COLLATION", TYPE_VARCHAR, sizeof(StringValue), true},
+        {"CREATE_TIME", TYPE_DATETIME, sizeof(int128_t), true},
+        {"UPDATE_TIME", TYPE_DATETIME, sizeof(int128_t), true},
+        {"CHECK_TIME", TYPE_DATETIME, sizeof(int128_t), true},
+        {"TABLE_COLLATION", TYPE_VARCHAR, sizeof(StringRef), true},
         {"CHECKSUM", TYPE_BIGINT, sizeof(int64_t), true},
-        {"CREATE_OPTIONS", TYPE_VARCHAR, sizeof(StringValue), true},
-        {"TABLE_COMMENT", TYPE_VARCHAR, sizeof(StringValue), false},
+        {"CREATE_OPTIONS", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"TABLE_COMMENT", TYPE_VARCHAR, sizeof(StringRef), false},
 };
 
 SchemaTablesScanner::SchemaTablesScanner()
-        : SchemaScanner(_s_tbls_columns,
-                        sizeof(_s_tbls_columns) / sizeof(SchemaScanner::ColumnDesc)),
-          _db_index(0),
-          _table_index(0) {}
+        : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_TABLES), _db_index(0) {}
 
 SchemaTablesScanner::~SchemaTablesScanner() {}
 
@@ -60,9 +73,13 @@ Status SchemaTablesScanner::start(RuntimeState* state) {
     if (!_is_init) {
         return Status::InternalError("used before initialized.");
     }
+    SCOPED_TIMER(_get_db_timer);
     TGetDbsParams db_params;
     if (nullptr != _param->db) {
         db_params.__set_pattern(*(_param->db));
+    }
+    if (nullptr != _param->catalog) {
+        db_params.__set_catalog(*(_param->catalog));
     }
     if (nullptr != _param->current_user_ident) {
         db_params.__set_current_user_ident(*(_param->current_user_ident));
@@ -84,177 +101,8 @@ Status SchemaTablesScanner::start(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaTablesScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
-    // set all bit to not null
-    memset((void*)tuple, 0, _tuple_desc->num_null_bytes());
-    const TTableStatus& tbl_status = _table_result.tables[_table_index];
-    // catalog
-    {
-        if (!_db_result.__isset.catalogs) {
-            tuple->set_null(_tuple_desc->slots()[0]->null_indicator_offset());
-        } else {
-            void* slot = tuple->get_slot(_tuple_desc->slots()[0]->tuple_offset());
-            StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-            std::string catalog_name = _db_result.catalogs[_db_index - 1];
-            str_slot->ptr = (char*)pool->allocate(catalog_name.size());
-            str_slot->len = catalog_name.size();
-            memcpy(str_slot->ptr, catalog_name.c_str(), str_slot->len);
-        }
-    }
-    // schema
-    {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[1]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        std::string db_name = SchemaHelper::extract_db_name(_db_result.dbs[_db_index - 1]);
-        str_slot->ptr = (char*)pool->allocate(db_name.size());
-        str_slot->len = db_name.size();
-        memcpy(str_slot->ptr, db_name.c_str(), str_slot->len);
-    }
-    // name
-    {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[2]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        const std::string* src = &tbl_status.name;
-        str_slot->len = src->length();
-        str_slot->ptr = (char*)pool->allocate(str_slot->len);
-        if (nullptr == str_slot->ptr) {
-            return Status::InternalError("Allocate memcpy failed.");
-        }
-        memcpy(str_slot->ptr, src->c_str(), str_slot->len);
-    }
-    // type
-    {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[3]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        const std::string* src = &tbl_status.type;
-        str_slot->len = src->length();
-        str_slot->ptr = (char*)pool->allocate(str_slot->len);
-        if (nullptr == str_slot->ptr) {
-            return Status::InternalError("Allocate memcpy failed.");
-        }
-        memcpy(str_slot->ptr, src->c_str(), str_slot->len);
-    }
-    // engine
-    if (tbl_status.__isset.engine) {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[4]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        const std::string* src = &tbl_status.engine;
-        str_slot->len = src->length();
-        str_slot->ptr = (char*)pool->allocate(str_slot->len);
-        if (nullptr == str_slot->ptr) {
-            return Status::InternalError("Allocate memcpy failed.");
-        }
-        memcpy(str_slot->ptr, src->c_str(), str_slot->len);
-    } else {
-        tuple->set_null(_tuple_desc->slots()[4]->null_indicator_offset());
-    }
-    // version
-    { tuple->set_null(_tuple_desc->slots()[5]->null_indicator_offset()); }
-    // row_format
-    { tuple->set_null(_tuple_desc->slots()[6]->null_indicator_offset()); }
-    // rows
-    if (tbl_status.__isset.rows) {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[7]->tuple_offset());
-        *(reinterpret_cast<int64_t*>(slot)) = tbl_status.rows;
-    } else {
-        tuple->set_null(_tuple_desc->slots()[7]->null_indicator_offset());
-    }
-    // avg_row_length
-    if (tbl_status.__isset.avg_row_length) {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[8]->tuple_offset());
-        *(reinterpret_cast<int64_t*>(slot)) = tbl_status.avg_row_length;
-    } else {
-        tuple->set_null(_tuple_desc->slots()[8]->null_indicator_offset());
-    }
-    // data_length
-    if (tbl_status.__isset.avg_row_length) {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[9]->tuple_offset());
-        *(reinterpret_cast<int64_t*>(slot)) = tbl_status.data_length;
-    } else {
-        tuple->set_null(_tuple_desc->slots()[9]->null_indicator_offset());
-    } // max_data_length
-    { tuple->set_null(_tuple_desc->slots()[10]->null_indicator_offset()); }
-    // index_length
-    { tuple->set_null(_tuple_desc->slots()[11]->null_indicator_offset()); }
-    // data_free
-    { tuple->set_null(_tuple_desc->slots()[12]->null_indicator_offset()); }
-    // auto_increment
-    { tuple->set_null(_tuple_desc->slots()[13]->null_indicator_offset()); }
-    // creation_time
-    if (tbl_status.__isset.create_time) {
-        int64_t create_time = tbl_status.create_time;
-        if (create_time <= 0) {
-            tuple->set_null(_tuple_desc->slots()[14]->null_indicator_offset());
-        } else {
-            tuple->set_not_null(_tuple_desc->slots()[14]->null_indicator_offset());
-            void* slot = tuple->get_slot(_tuple_desc->slots()[14]->tuple_offset());
-            DateTimeValue* time_slot = reinterpret_cast<DateTimeValue*>(slot);
-            time_slot->from_unixtime(create_time, TimezoneUtils::default_time_zone);
-        }
-    }
-    // update_time
-    if (tbl_status.__isset.update_time) {
-        int64_t update_time = tbl_status.update_time;
-        if (update_time <= 0) {
-            tuple->set_null(_tuple_desc->slots()[15]->null_indicator_offset());
-        } else {
-            tuple->set_not_null(_tuple_desc->slots()[15]->null_indicator_offset());
-            void* slot = tuple->get_slot(_tuple_desc->slots()[15]->tuple_offset());
-            DateTimeValue* time_slot = reinterpret_cast<DateTimeValue*>(slot);
-            time_slot->from_unixtime(update_time, TimezoneUtils::default_time_zone);
-        }
-    }
-    // check_time
-    if (tbl_status.__isset.last_check_time) {
-        int64_t check_time = tbl_status.last_check_time;
-        if (check_time <= 0) {
-            tuple->set_null(_tuple_desc->slots()[16]->null_indicator_offset());
-        } else {
-            tuple->set_not_null(_tuple_desc->slots()[16]->null_indicator_offset());
-            void* slot = tuple->get_slot(_tuple_desc->slots()[16]->tuple_offset());
-            DateTimeValue* time_slot = reinterpret_cast<DateTimeValue*>(slot);
-            time_slot->from_unixtime(check_time, TimezoneUtils::default_time_zone);
-        }
-    }
-    // collation
-    if (tbl_status.__isset.collation) {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[17]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        const std::string* src = &tbl_status.collation;
-        str_slot->len = src->length();
-        str_slot->ptr = (char*)pool->allocate(str_slot->len);
-        if (nullptr == str_slot->ptr) {
-            return Status::InternalError("Allocate memcpy failed.");
-        }
-        memcpy(str_slot->ptr, src->c_str(), str_slot->len);
-    } else {
-        tuple->set_null(_tuple_desc->slots()[17]->null_indicator_offset());
-    }
-    // checksum
-    { tuple->set_null(_tuple_desc->slots()[18]->null_indicator_offset()); }
-    // create_options
-    { tuple->set_null(_tuple_desc->slots()[19]->null_indicator_offset()); }
-    // create_comment
-    {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[20]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        const std::string* src = &tbl_status.comment;
-        str_slot->len = src->length();
-        if (str_slot->len == 0) {
-            str_slot->ptr = nullptr;
-        } else {
-            str_slot->ptr = (char*)pool->allocate(str_slot->len);
-            if (nullptr == str_slot->ptr) {
-                return Status::InternalError("Allocate memcpy failed.");
-            }
-            memcpy(str_slot->ptr, src->c_str(), str_slot->len);
-        }
-    }
-    _table_index++;
-    return Status::OK();
-}
-
-Status SchemaTablesScanner::get_new_table() {
+Status SchemaTablesScanner::_get_new_table() {
+    SCOPED_TIMER(_get_table_timer);
     TGetTablesParams table_params;
     table_params.__set_db(_db_result.dbs[_db_index]);
     if (_db_result.__isset.catalogs) {
@@ -281,27 +129,233 @@ Status SchemaTablesScanner::get_new_table() {
     } else {
         return Status::InternalError("IP or port doesn't exists");
     }
-    _table_index = 0;
     return Status::OK();
 }
 
-Status SchemaTablesScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eos) {
+Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
+    SCOPED_TIMER(_fill_block_timer);
+    auto table_num = _table_result.tables.size();
+    if (table_num == 0) {
+        return Status::OK();
+    }
+    std::vector<void*> null_datas(table_num, nullptr);
+    std::vector<void*> datas(table_num);
+
+    // catalog
+    {
+        if (_db_result.__isset.catalogs) {
+            std::string catalog_name = _db_result.catalogs[_db_index - 1];
+            StringRef str_slot = StringRef(catalog_name.c_str(), catalog_name.size());
+            for (int i = 0; i < table_num; ++i) {
+                datas[i] = &str_slot;
+            }
+            fill_dest_column_for_range(block, 0, datas);
+        } else {
+            fill_dest_column_for_range(block, 0, null_datas);
+        }
+    }
+    // schema
+    {
+        std::string db_name = SchemaHelper::extract_db_name(_db_result.dbs[_db_index - 1]);
+        StringRef str_slot = StringRef(db_name.c_str(), db_name.size());
+        for (int i = 0; i < table_num; ++i) {
+            datas[i] = &str_slot;
+        }
+        fill_dest_column_for_range(block, 1, datas);
+    }
+    // name
+    {
+        StringRef strs[table_num];
+        for (int i = 0; i < table_num; ++i) {
+            const std::string* src = &_table_result.tables[i].name;
+            strs[i] = StringRef(src->c_str(), src->size());
+            datas[i] = strs + i;
+        }
+        fill_dest_column_for_range(block, 2, datas);
+    }
+    // type
+    {
+        StringRef strs[table_num];
+        for (int i = 0; i < table_num; ++i) {
+            const std::string* src = &_table_result.tables[i].type;
+            strs[i] = StringRef(src->c_str(), src->size());
+            datas[i] = strs + i;
+        }
+        fill_dest_column_for_range(block, 3, datas);
+    }
+    // engine
+    {
+        StringRef strs[table_num];
+        for (int i = 0; i < table_num; ++i) {
+            const TTableStatus& tbl_status = _table_result.tables[i];
+            if (tbl_status.__isset.engine) {
+                const std::string* src = &tbl_status.engine;
+                strs[i] = StringRef(src->c_str(), src->size());
+                datas[i] = strs + i;
+            } else {
+                datas[i] = nullptr;
+            }
+        }
+        fill_dest_column_for_range(block, 4, datas);
+    }
+    // version
+    { fill_dest_column_for_range(block, 5, null_datas); }
+    // row_format
+    { fill_dest_column_for_range(block, 6, null_datas); }
+    // rows
+    {
+        int64_t srcs[table_num];
+        for (int i = 0; i < table_num; ++i) {
+            const TTableStatus& tbl_status = _table_result.tables[i];
+            if (tbl_status.__isset.rows) {
+                srcs[i] = tbl_status.rows;
+                datas[i] = srcs + i;
+            } else {
+                datas[i] = nullptr;
+            }
+        }
+        fill_dest_column_for_range(block, 7, datas);
+    }
+    // avg_row_length
+    {
+        int64_t srcs[table_num];
+        for (int i = 0; i < table_num; ++i) {
+            const TTableStatus& tbl_status = _table_result.tables[i];
+            if (tbl_status.__isset.avg_row_length) {
+                srcs[i] = tbl_status.avg_row_length;
+                datas[i] = srcs + i;
+            } else {
+                datas[i] = nullptr;
+            }
+        }
+        fill_dest_column_for_range(block, 8, datas);
+    }
+    // data_length
+    {
+        int64_t srcs[table_num];
+        for (int i = 0; i < table_num; ++i) {
+            const TTableStatus& tbl_status = _table_result.tables[i];
+            if (tbl_status.__isset.avg_row_length) {
+                srcs[i] = tbl_status.data_length;
+                datas[i] = srcs + i;
+            } else {
+                datas[i] = nullptr;
+            }
+        }
+        fill_dest_column_for_range(block, 9, datas);
+    }
+    // max_data_length
+    { fill_dest_column_for_range(block, 10, null_datas); }
+    // index_length
+    { fill_dest_column_for_range(block, 11, null_datas); }
+    // data_free
+    { fill_dest_column_for_range(block, 12, null_datas); }
+    // auto_increment
+    { fill_dest_column_for_range(block, 13, null_datas); }
+    // creation_time
+    {
+        vectorized::VecDateTimeValue srcs[table_num];
+        for (int i = 0; i < table_num; ++i) {
+            const TTableStatus& tbl_status = _table_result.tables[i];
+            if (tbl_status.__isset.create_time) {
+                int64_t create_time = tbl_status.create_time;
+                if (create_time <= 0) {
+                    datas[i] = nullptr;
+                } else {
+                    srcs[i].from_unixtime(create_time, TimezoneUtils::default_time_zone);
+                    datas[i] = srcs + i;
+                }
+            } else {
+                datas[i] = nullptr;
+            }
+        }
+        fill_dest_column_for_range(block, 14, datas);
+    }
+    // update_time
+    {
+        vectorized::VecDateTimeValue srcs[table_num];
+        for (int i = 0; i < table_num; ++i) {
+            const TTableStatus& tbl_status = _table_result.tables[i];
+            if (tbl_status.__isset.update_time) {
+                int64_t update_time = tbl_status.update_time;
+                if (update_time <= 0) {
+                    datas[i] = nullptr;
+                } else {
+                    srcs[i].from_unixtime(update_time, TimezoneUtils::default_time_zone);
+                    datas[i] = srcs + i;
+                }
+            } else {
+                datas[i] = nullptr;
+            }
+        }
+        fill_dest_column_for_range(block, 15, datas);
+    }
+    // check_time
+    {
+        vectorized::VecDateTimeValue srcs[table_num];
+        for (int i = 0; i < table_num; ++i) {
+            const TTableStatus& tbl_status = _table_result.tables[i];
+            if (tbl_status.__isset.last_check_time) {
+                int64_t check_time = tbl_status.last_check_time;
+                if (check_time <= 0) {
+                    datas[i] = nullptr;
+                } else {
+                    srcs[i].from_unixtime(check_time, TimezoneUtils::default_time_zone);
+                    datas[i] = srcs + i;
+                }
+            } else {
+                datas[i] = nullptr;
+            }
+        }
+        fill_dest_column_for_range(block, 16, datas);
+    }
+    // collation
+    {
+        StringRef strs[table_num];
+        for (int i = 0; i < table_num; ++i) {
+            const TTableStatus& tbl_status = _table_result.tables[i];
+            if (tbl_status.__isset.collation) {
+                const std::string* src = &tbl_status.collation;
+                strs[i] = StringRef(src->c_str(), src->size());
+                datas[i] = strs + i;
+            } else {
+                datas[i] = nullptr;
+            }
+        }
+        fill_dest_column_for_range(block, 17, datas);
+    }
+    // checksum
+    { fill_dest_column_for_range(block, 18, null_datas); }
+    // create_options
+    { fill_dest_column_for_range(block, 19, null_datas); }
+    // create_comment
+    {
+        StringRef strs[table_num];
+        for (int i = 0; i < table_num; ++i) {
+            const std::string* src = &_table_result.tables[i].comment;
+            strs[i] = StringRef(src->c_str(), src->size());
+            datas[i] = strs + i;
+        }
+        fill_dest_column_for_range(block, 20, datas);
+    }
+    return Status::OK();
+}
+
+Status SchemaTablesScanner::get_next_block(vectorized::Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }
-    if (nullptr == tuple || nullptr == pool || nullptr == eos) {
+    if (nullptr == block || nullptr == eos) {
         return Status::InternalError("input pointer is nullptr.");
     }
-    while (_table_index >= _table_result.tables.size()) {
-        if (_db_index < _db_result.dbs.size()) {
-            RETURN_IF_ERROR(get_new_table());
-        } else {
-            *eos = true;
-            return Status::OK();
-        }
+    if (_db_index < _db_result.dbs.size()) {
+        RETURN_IF_ERROR(_get_new_table());
+    } else {
+        *eos = true;
+        return Status::OK();
     }
     *eos = false;
-    return fill_one_row(tuple, pool);
+    return _fill_block_impl(block);
 }
 
 } // namespace doris

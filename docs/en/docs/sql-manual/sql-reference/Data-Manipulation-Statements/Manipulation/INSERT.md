@@ -59,8 +59,13 @@ INSERT INTO table_name
 >
 > query: a common query, the result of the query will be written to the target
 >
-> hint: some indicator used to indicate the execution behavior of `INSERT`. Both `streaming` and the default non-`streaming` method use synchronous mode to complete `INSERT` statement execution
-> The non-`streaming` method will return a label after the execution is completed, which is convenient for users to query the import status through `SHOW LOAD`
+> hint: some indicator used to indicate the execution behavior of `INSERT`. You can choose one of this values: `/*+ STREAMING */`, `/*+ SHUFFLE */` or `/*+ NOSHUFFLE */.
+> 1. STREAMING: At present, it has no practical effect and is only reserved for compatibility with previous versions. (In the previous version, adding this hint would return a label, but now it defaults to returning a label)
+> 2. SHUFFLE: When the target table is a partition table, enabling this hint will do repartiiton.
+> 3. NOSHUFFLE: Even if the target table is a partition table, repartiiton will not be performed, but some other operations will be performed to ensure that the data is correctly dropped into each partition.
+
+For a Unique table with merge-on-write enabled, you can also perform partial columns updates using the insert statement. To perform partial column updates with the insert statement, you need to set the session variable enable_unique_key_partial_update to true (the default value for this variable is false, meaning partial columns updates with the insert statement are not allowed by default). When performing partial columns updates, the columns being inserted must contain at least all the Key columns and specify the columns you want to update. If the Key column values for the inserted row already exist in the original table, the data in the row with the same key column values will be updated. If the Key column values for the inserted row do not exist in the original table, a new row will be inserted into the table. In this case, columns not specified in the insert statement must either have default values or be nullable. These missing columns will first attempt to be populated with default values, and if a column has no default value, it will be filled with null. If a column cannot be null, the insert operation will fail.
+
 
 Notice:
 
@@ -108,9 +113,6 @@ INSERT INTO test PARTITION(p1, p2) WITH LABEL `label1` SELECT * FROM test2;
 INSERT INTO test WITH LABEL `label1` (c1, c2) SELECT * from test2;
 ````
 
-Asynchronous import is actually a synchronous import encapsulated into asynchronous. Filling in streaming and not filling in **execution efficiency is the same**.
-
-Since the previous import methods of Doris are all asynchronous import methods, in order to be compatible with the old usage habits, the `INSERT` statement without streaming will still return a label. Users need to view the `label` import job through the `SHOW LOAD` command. state.
 
 ### Keywords
 
@@ -126,12 +128,10 @@ Since the previous import methods of Doris are all asynchronous import methods, 
 
       If the result set of the insert corresponding to the select statement is empty, it will return as follows:
 
-      
-
       ```sql
       mysql> insert into tbl1 select * from empty_tbl;
       Query OK, 0 rows affected (0.02 sec)
-      ````
+      ```
 
       `Query OK` indicates successful execution. `0 rows affected` means that no data was imported.
 
@@ -140,8 +140,6 @@ Since the previous import methods of Doris are all asynchronous import methods, 
       In the case where the result set is not empty. The returned results are divided into the following situations:
 
       1. Insert executes successfully and is visible:
-
-         
 
          ```sql
          mysql> insert into tbl1 select * from tbl2;
@@ -165,8 +163,6 @@ Since the previous import methods of Doris are all asynchronous import methods, 
 
          Also returns a json string:
 
-         
-
          ````json
          {'label':'my_label1', 'status':'visible', 'txnId':'4005'}
          {'label':'insert_f0747f0e-7a35-46e2-affa-13a235f4020d', 'status':'committed', 'txnId':'4005'}
@@ -183,8 +179,6 @@ Since the previous import methods of Doris are all asynchronous import methods, 
 
          When you need to view the filtered rows, the user can pass the following statement
 
-         
-
          ```sql
          show load where label="xxx";
          ````
@@ -194,8 +188,6 @@ Since the previous import methods of Doris are all asynchronous import methods, 
          **Invisibility of data is a temporary state, this batch of data will eventually be visible**
 
          You can view the visible status of this batch of data with the following statement:
-
-         
 
          ```sql
          show transaction where id=4005;
@@ -207,16 +199,12 @@ Since the previous import methods of Doris are all asynchronous import methods, 
 
       Execution failure indicates that no data was successfully imported, and the following is returned:
 
-      
-
       ```sql
       mysql> insert into tbl1 select * from tbl2 where k1 = "a";
       ERROR 1064 (HY000): all partitions have no load data. url: http://10.74.167.16:8042/api/_load_error_log?file=__shard_2/error_log_insert_stmt_ba8bb9e158e4879-ae8de8507c0bf8a2_ba8bb9e158e4879_ae8de8507c0
-      ````
+      ```
 
       Where `ERROR 1064 (HY000): all partitions have no load data` shows the reason for the failure. The following url can be used to query the wrong data:
-
-      
 
       ```sql
       show load warnings on "url";
@@ -226,7 +214,8 @@ Since the previous import methods of Doris are all asynchronous import methods, 
 
 2. Timeout time
 
-   The timeout for INSERT operations is controlled by [session variable](../../../../advanced/variables.md) `query_timeout`. The default is 5 minutes. If it times out, the job will be canceled.
+   <version since="dev"></version>
+   The timeout for INSERT operations is controlled by [session variable](../../../../advanced/variables.md) `insert_timeout`. The default is 4 hours. If it times out, the job will be canceled.
 
 3. Label and atomicity
 

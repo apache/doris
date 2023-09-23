@@ -28,7 +28,7 @@ public class RedirectStatus {
 
     public RedirectStatus(boolean isForwardToMaster, boolean needToWaitJournalSync) {
         this.isForwardToMaster = isForwardToMaster;
-        this.needToWaitJournalSync  = needToWaitJournalSync;
+        this.needToWaitJournalSync = needToWaitJournalSync;
     }
 
     public boolean isForwardToMaster() {
@@ -47,7 +47,7 @@ public class RedirectStatus {
         this.needToWaitJournalSync = needToWaitJournalSync;
     }
 
-    public static RedirectStatus FORWARD_NO_SYNC  = new RedirectStatus(true, false);
+    public static RedirectStatus FORWARD_NO_SYNC = new RedirectStatus(true, false);
     public static RedirectStatus FORWARD_WITH_SYNC = new RedirectStatus(true, true);
     public static RedirectStatus NO_FORWARD =   new RedirectStatus(false, false);
 }

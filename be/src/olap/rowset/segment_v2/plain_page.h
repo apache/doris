@@ -77,7 +77,7 @@ public:
 
     Status get_first_value(void* value) const override {
         if (_count == 0) {
-            return Status::NotFound("page is empty");
+            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
         }
         memcpy(value, _first_value.data(), SIZE_OF_TYPE);
         return Status::OK();
@@ -85,7 +85,7 @@ public:
 
     Status get_last_value(void* value) const override {
         if (_count == 0) {
-            return Status::NotFound("page is empty");
+            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
         }
         memcpy(value, _last_value.data(), SIZE_OF_TYPE);
         return Status::OK();
@@ -147,7 +147,7 @@ public:
         DCHECK(_parsed) << "Must call init() firstly";
 
         if (_num_elems == 0) {
-            return Status::NotFound("page is empty");
+            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
         }
 
         size_t left = 0;
@@ -168,7 +168,7 @@ public:
             }
         }
         if (left >= _num_elems) {
-            return Status::NotFound("all value small than the value");
+            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("all value small than the value");
         }
         const void* find_value = &_data[PLAIN_PAGE_HEADER_SIZE + left * SIZE_OF_TYPE];
         if (TypeTraits<Type>::cmp(find_value, value) == 0) {
@@ -181,33 +181,8 @@ public:
         return Status::OK();
     }
 
-    Status next_batch(size_t* n, ColumnBlockView* dst) override { return next_batch<true>(n, dst); }
-
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
         return Status::NotSupported("plain page not implement vec op now");
-    };
-
-    template <bool forward_index>
-    Status next_batch(size_t* n, ColumnBlockView* dst) {
-        DCHECK(_parsed);
-
-        if (PREDICT_FALSE(*n == 0 || _cur_idx >= _num_elems)) {
-            *n = 0;
-            return Status::OK();
-        }
-
-        size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elems - _cur_idx));
-        memcpy(dst->data(), &_data[PLAIN_PAGE_HEADER_SIZE + _cur_idx * SIZE_OF_TYPE],
-               max_fetch * SIZE_OF_TYPE);
-        if (forward_index) {
-            _cur_idx += max_fetch;
-        }
-        *n = max_fetch;
-        return Status::OK();
-    }
-
-    Status peek_next_batch(size_t* n, ColumnBlockView* dst) override {
-        return next_batch<false>(n, dst);
     }
 
     size_t count() const override {

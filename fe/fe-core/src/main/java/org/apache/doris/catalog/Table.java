@@ -23,27 +23,37 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.QueryableReentrantReadWriteLock;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.external.hudi.HudiTable;
+import org.apache.doris.statistics.AnalysisInfo;
+import org.apache.doris.statistics.BaseAnalysisTask;
+import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.TableStats;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.commons.lang.NotImplementedException;
+import com.google.gson.annotations.SerializedName;
+import org.apache.commons.lang3.NotImplementedException;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.json.JSONObject;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.time.Instant;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 /**
@@ -58,11 +68,17 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
 
     public volatile boolean isDropped = false;
 
+    private boolean hasCompoundKey = false;
+    @SerializedName(value = "id")
     protected long id;
+    @SerializedName(value = "name")
     protected volatile String name;
+    protected volatile String qualifiedDbName;
+    @SerializedName(value = "type")
     protected TableType type;
+    @SerializedName(value = "createTime")
     protected long createTime;
-    protected ReentrantReadWriteLock rwLock;
+    protected QueryableReentrantReadWriteLock rwLock;
 
     /*
      *  fullSchema and nameToColumn should contains all columns, both visible and shadow.
@@ -84,6 +100,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
      * <p>
      * If you want to get the mv columns, you should call getIndexToSchema in Subclass OlapTable.
      */
+    @SerializedName(value = "fullSchema")
     protected List<Column> fullSchema;
     // tree map for case-insensitive lookup.
     /**
@@ -94,6 +111,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     // DO NOT persist this variable.
     protected boolean isTypeRead = false;
     // table(view)'s comment
+    @SerializedName(value = "comment")
     protected String comment = "";
     // sql for creating this table, default is "";
     protected String ddlSql = "";
@@ -102,7 +120,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         this.type = type;
         this.fullSchema = Lists.newArrayList();
         this.nameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        this.rwLock = new ReentrantReadWriteLock(true);
+        this.rwLock = new QueryableReentrantReadWriteLock(true);
     }
 
     public Table(long id, String tableName, TableType type, List<Column> fullSchema) {
@@ -116,13 +134,13 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         this.nameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         if (this.fullSchema != null) {
             for (Column col : this.fullSchema) {
-                nameToColumn.put(col.getName(), col);
+                nameToColumn.put(col.getDefineName(), col);
             }
         } else {
             // Only view in with-clause have null base
             Preconditions.checkArgument(type == TableType.VIEW, "Table has no columns");
         }
-        this.rwLock = new ReentrantReadWriteLock();
+        this.rwLock = new QueryableReentrantReadWriteLock(true);
         this.createTime = Instant.now().getEpochSecond();
     }
 
@@ -140,7 +158,12 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
 
     public boolean tryReadLock(long timeout, TimeUnit unit) {
         try {
-            return this.rwLock.readLock().tryLock(timeout, unit);
+            boolean res = this.rwLock.readLock().tryLock(timeout, unit);
+            if (!res && unit.toSeconds(timeout) >= 1) {
+                LOG.warn("Failed to try table {}'s read lock. timeout {} {}. Current owner: {}",
+                        name, timeout, unit.name(), rwLock.getOwner());
+            }
+            return res;
         } catch (InterruptedException e) {
             LOG.warn("failed to try read lock at table[" + name + "]", e);
             return false;
@@ -166,7 +189,12 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
 
     public boolean tryWriteLock(long timeout, TimeUnit unit) {
         try {
-            return this.rwLock.writeLock().tryLock(timeout, unit);
+            boolean res = this.rwLock.writeLock().tryLock(timeout, unit);
+            if (!res && unit.toSeconds(timeout) >= 1) {
+                LOG.warn("Failed to try table {}'s write lock. timeout {} {}. Current owner: {}",
+                        name, timeout, unit.name(), rwLock.getOwner());
+            }
+            return res;
         } catch (InterruptedException e) {
             LOG.warn("failed to try write lock at table[" + name + "]", e);
             return false;
@@ -248,6 +276,22 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         name = newName;
     }
 
+    void setQualifiedDbName(String qualifiedDbName) {
+        this.qualifiedDbName = qualifiedDbName;
+    }
+
+    public String getQualifiedDbName() {
+        return qualifiedDbName;
+    }
+
+    public String getQualifiedName() {
+        if (StringUtils.isEmpty(qualifiedDbName)) {
+            return name;
+        } else {
+            return qualifiedDbName + "." + name;
+        }
+    }
+
     public TableType getType() {
         return type;
     }
@@ -285,6 +329,10 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         return nameToColumn.get(name);
     }
 
+    public List<Column> getColumns() {
+        return Lists.newArrayList(nameToColumn.values());
+    }
+
     public long getCreateTime() {
         return createTime;
     }
@@ -315,6 +363,8 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         TableType type = TableType.valueOf(Text.readString(in));
         if (type == TableType.OLAP) {
             table = new OlapTable();
+        } else if (type == TableType.MATERIALIZED_VIEW) {
+            table = new MaterializedView();
         } else if (type == TableType.ODBC) {
             table = new OdbcTable();
         } else if (type == TableType.MYSQL) {
@@ -331,6 +381,8 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
             table = new IcebergTable();
         } else if (type == TableType.HUDI) {
             table = new HudiTable();
+        } else if (type == TableType.JDBC) {
+            table = new JdbcTable();
         } else {
             throw new IOException("Unknown table type: " + type.name());
         }
@@ -374,15 +426,21 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
 
         this.id = in.readLong();
         this.name = Text.readString(in);
-
+        List<Column> keys = Lists.newArrayList();
         // base schema
         int columnCount = in.readInt();
         for (int i = 0; i < columnCount; i++) {
             Column column = Column.read(in);
+            if (column.isKey()) {
+                keys.add(column);
+            }
             this.fullSchema.add(column);
             this.nameToColumn.put(column.getName(), column);
         }
-
+        if (keys.size() > 1) {
+            keys.forEach(key -> key.setCompoundKey(true));
+            hasCompoundKey = true;
+        }
         comment = Text.readString(in);
 
         // read create time
@@ -434,12 +492,20 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     }
 
     public CreateTableStmt toCreateTableStmt(String dbName) {
-        throw new NotImplementedException();
+        throw new NotImplementedException("toCreateTableStmt not implemented");
     }
 
     @Override
     public String toString() {
         return "Table [id=" + id + ", name=" + name + ", type=" + type + "]";
+    }
+
+    public JSONObject toSimpleJson() {
+        JSONObject table = new JSONObject();
+        table.put("Type", type.toEngineName());
+        table.put("Id", Long.toString(id));
+        table.put("Name", name);
+        return table;
     }
 
     /*
@@ -463,5 +529,58 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         }
 
         return true;
+    }
+
+    public boolean isHasCompoundKey() {
+        return hasCompoundKey;
+    }
+
+    public Set<String> getPartitionNames() {
+        return Collections.EMPTY_SET;
+    }
+
+    @Override
+    public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
+        throw new NotImplementedException("createAnalysisTask not implemented");
+    }
+
+    /**
+     * for NOT-ANALYZED Olap table, return estimated row count,
+     * for other table, return 1
+     * @return estimated row count
+     */
+    public long estimatedRowCount() {
+        long cardinality = 0;
+        if (this instanceof OlapTable) {
+            OlapTable table = (OlapTable) this;
+            for (long selectedPartitionId : table.getPartitionIds()) {
+                final Partition partition = table.getPartition(selectedPartitionId);
+                final MaterializedIndex baseIndex = partition.getBaseIndex();
+                cardinality += baseIndex.getRowCount();
+            }
+        }
+        return Math.max(cardinality, 1);
+    }
+
+    @Override
+    public DatabaseIf getDatabase() {
+        return Env.getCurrentInternalCatalog().getDbNullable(qualifiedDbName);
+    }
+
+    @Override
+    public Optional<ColumnStatistic> getColumnStatistic(String colName) {
+        return Optional.empty();
+    }
+
+    public void analyze(String dbName) {}
+
+    @Override
+    public boolean needReAnalyzeTable(TableStats tblStats) {
+        return true;
+    }
+
+    @Override
+    public Map<String, Set<String>> findReAnalyzeNeededPartitions() {
+        return Collections.emptyMap();
     }
 }

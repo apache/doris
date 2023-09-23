@@ -21,14 +21,16 @@
 #include <cfloat>
 #include <fstream>
 #include <iomanip>
-#include <iostream>
+#include <memory>
 #include <utility>
+#include <vector>
 
+#include "gutil/stringprintf.h"
 #include "gutil/strings/escaping.h"
 #include "gutil/strings/split.h"
 #include "gutil/strings/substitute.h"
+#include "io/fs/local_file_system.h"
 #include "util/error_util.h"
-#include "util/file_utils.h"
 #include "util/string_parser.hpp"
 
 using strings::CUnescape;
@@ -66,7 +68,7 @@ Status CGroupUtil::find_global_cgroup(const string& subsystem, string* path) {
         std::vector<string> subsystems = Split(fields[1], ",");
         auto it = std::find(subsystems.begin(), subsystems.end(), subsystem);
         if (it != subsystems.end()) {
-            *path = move(fields[2]);
+            *path = std::move(fields[2]);
             return Status::OK();
         }
     }
@@ -203,7 +205,7 @@ std::string CGroupUtil::debug_string() {
     if (status.ok()) {
         mem_limit_str = strings::Substitute("$0", mem_limit);
     } else {
-        mem_limit_str = status.get_error_msg();
+        mem_limit_str = status.to_string();
     }
     string cpu_limit_str;
     float cpu_limit;
@@ -217,14 +219,16 @@ std::string CGroupUtil::debug_string() {
             cpu_limit_str = "unlimited";
         }
     } else {
-        cpu_limit_str = status.get_error_msg();
+        cpu_limit_str = status.to_string();
     }
     return strings::Substitute("Process CGroup Info: memory.limit_in_bytes=$0, cpu cfs limits: $1",
                                mem_limit_str, cpu_limit_str);
 }
 
 bool CGroupUtil::enable() {
-    return FileUtils::check_exist("/proc/cgroups");
+    bool exists = true;
+    Status st = io::global_local_filesystem()->exists("/proc/cgroups", &exists);
+    return st.ok() && exists;
 }
 
 } // namespace doris

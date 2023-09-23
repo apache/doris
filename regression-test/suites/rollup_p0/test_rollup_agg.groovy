@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 suite("test_rollup_agg") {
+
     def tbName = "test_rollup_agg"
 
     def getJobRollupState = { tableName ->
@@ -41,7 +42,9 @@ suite("test_rollup_agg") {
     int max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobRollupState(tbName)
-        if (res == "FINISHED") {
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
+            sleep(3000)
             break
         } else {
             Thread.sleep(2000)
@@ -51,12 +54,14 @@ suite("test_rollup_agg") {
             }
         }
     }
-    Thread.sleep(200)
+    Thread.sleep(2000)
     sql "ALTER TABLE ${tbName} ADD COLUMN vv BIGINT SUM NULL DEFAULT '0' TO rollup_city;"
     max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobColumnState(tbName)
-        if (res == "FINISHED") {
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
+            sleep(3000)
             break
         } else {
             Thread.sleep(2000)

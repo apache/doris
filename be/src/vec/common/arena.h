@@ -31,6 +31,7 @@
 #endif
 #include "gutil/dynamic_annotations.h"
 #include "vec/common/allocator.h"
+#include "vec/common/allocator_fwd.h"
 #include "vec/common/memcpy_small.h"
 
 namespace doris::vectorized {
@@ -80,6 +81,7 @@ private:
 
         size_t size() const { return end + pad_right - begin; }
         size_t remaining() const { return end - pos; }
+        size_t used() const { return pos - begin; }
     };
 
     size_t growth_factor;
@@ -88,6 +90,8 @@ private:
     /// Last contiguous chunk of memory.
     Chunk* head;
     size_t size_in_bytes;
+    // The memory used by all chunks, excluding head.
+    size_t _used_size_no_head;
 
     static size_t round_up_to_page_size(size_t s) { return (s + 4096 - 1) / 4096 * 4096; }
 
@@ -117,6 +121,7 @@ private:
 
     /// Add next contiguous chunk of memory with size not less than specified.
     void NO_INLINE add_chunk(size_t min_size) {
+        _used_size_no_head += head->used();
         head = new Chunk(next_size(min_size + pad_right), head);
         size_in_bytes += head->size();
     }
@@ -131,7 +136,8 @@ public:
             : growth_factor(growth_factor_),
               linear_growth_threshold(linear_growth_threshold_),
               head(new Chunk(initial_size_, nullptr)),
-              size_in_bytes(head->size()) {}
+              size_in_bytes(head->size()),
+              _used_size_no_head(0) {}
 
     ~Arena() { delete head; }
 
@@ -145,7 +151,7 @@ public:
         return res;
     }
 
-    /// Get peice of memory with alignment
+    /// Get piece of memory with alignment
     char* aligned_alloc(size_t size, size_t alignment) {
         do {
             void* head_pos = head->pos;
@@ -271,8 +277,33 @@ public:
         return res;
     }
 
+    /**
+    * Delete all the chunks before the head, usually the head is the largest chunk in the arena.
+    * considering the scenario of memory reuse:
+    * 1. first time, use arena alloc 64K memory, 4K each time, at this time, there are 4 chunks of 4k 8k 16k 32k in arena.
+    * 2. then, clear arena, only one 32k chunk left in the arena.
+    * 3. second time, same alloc 64K memory, there are 4 chunks of 4k 8k 16k 32k in arena.
+    * 4. then, clear arena, only one 64k chunk left in the arena.
+    * 5. third time, same alloc 64K memory, there is still only one 64K chunk in the arena, and the memory is fully reused.
+    *
+    * special case: if the chunk is larger than 128M, it will no longer be expanded by a multiple of 2.
+    * If alloc 4G memory, 128M each time, then only one 128M chunk will be reserved after clearing,
+    * and only 128M can be reused when you apply for 4G memory again.
+    */
+    void clear() {
+        if (head->prev) {
+            delete head->prev;
+            head->prev = nullptr;
+        }
+        head->pos = head->begin;
+        size_in_bytes = head->size();
+        _used_size_no_head = 0;
+    }
+
     /// Size of chunks in bytes.
     size_t size() const { return size_in_bytes; }
+
+    size_t used_size() const { return _used_size_no_head + head->used(); }
 
     size_t remaining_space_in_current_chunk() const { return head->remaining(); }
 };

@@ -78,7 +78,7 @@ public class BackendStmtTest {
     public void initBackendsTest4() throws Exception {
         BackendClause stmt = createStmt(4);
         stmt.analyze(analyzer);
-        Assert.assertEquals("ADD FREE BACKEND \"192.168.1.1:12345\"", stmt.toSql());
+        Assert.assertEquals("ADD BACKEND \"192.168.1.1:12345\"", stmt.toSql());
     }
 
     @Test

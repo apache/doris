@@ -26,10 +26,10 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Objects;
@@ -41,47 +41,51 @@ import java.util.Optional;
 public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements TopN {
 
     private final List<OrderKey> orderKeys;
-    private final int limit;
-    private final int offset;
+    private final long limit;
+    private final long offset;
 
-    public LogicalTopN(List<OrderKey> orderKeys, int limit, int offset, CHILD_TYPE child) {
+    public LogicalTopN(List<OrderKey> orderKeys, long limit, long offset, CHILD_TYPE child) {
         this(orderKeys, limit, offset, Optional.empty(), Optional.empty(), child);
     }
 
     /**
      * Constructor for LogicalSort.
      */
-    public LogicalTopN(List<OrderKey> orderKeys, int limit, int offset, Optional<GroupExpression> groupExpression,
+    public LogicalTopN(List<OrderKey> orderKeys, long limit, long offset, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_TOP_N, groupExpression, logicalProperties, child);
-        this.orderKeys = Objects.requireNonNull(orderKeys, "orderKeys can not be null");
+        this.orderKeys = ImmutableList.copyOf(Objects.requireNonNull(orderKeys, "orderKeys can not be null"));
         this.limit = limit;
         this.offset = offset;
     }
 
     @Override
-    public List<Slot> computeOutput(Plan input) {
-        return input.getOutput();
+    public List<Slot> computeOutput() {
+        return child().getOutput();
     }
 
+    @Override
     public List<OrderKey> getOrderKeys() {
         return orderKeys;
     }
 
-    public int getOffset() {
+    @Override
+    public long getOffset() {
         return offset;
     }
 
-    public int getLimit() {
+    @Override
+    public long getLimit() {
         return limit;
     }
 
     @Override
     public String toString() {
-        return "LogicalTopN ("
-                + "limit=" + limit
-                + ", offset=" + offset
-                + ", " + StringUtils.join(orderKeys, ", ") + ")";
+        return Utils.toSqlString("LogicalTopN",
+                "limit", limit,
+                "offset", offset,
+                "orderKeys", orderKeys
+        );
     }
 
     @Override
@@ -92,7 +96,7 @@ public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        LogicalTopN that = (LogicalTopN) o;
+        LogicalTopN<?> that = (LogicalTopN<?>) o;
         return this.offset == that.offset && this.limit == that.limit && Objects.equals(this.orderKeys, that.orderKeys);
     }
 
@@ -101,32 +105,40 @@ public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
         return Objects.hash(orderKeys, limit, offset);
     }
 
-
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitLogicalTopN((LogicalTopN<Plan>) this, context);
+        return visitor.visitLogicalTopN(this, context);
     }
 
     @Override
-    public List<Expression> getExpressions() {
+    public List<? extends Expression> getExpressions() {
         return orderKeys.stream()
                 .map(OrderKey::getExpr)
                 .collect(ImmutableList.toImmutableList());
     }
 
+    public LogicalTopN<Plan> withOrderKeys(List<OrderKey> orderKeys) {
+        return new LogicalTopN<>(orderKeys, limit, offset,
+                Optional.empty(), Optional.of(getLogicalProperties()), child());
+    }
+
     @Override
-    public LogicalUnary<Plan> withChildren(List<Plan> children) {
-        Preconditions.checkArgument(children.size() == 1);
+    public LogicalTopN<Plan> withChildren(List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1,
+                "LogicalTopN should have 1 child, but input is %s", children.size());
         return new LogicalTopN<>(orderKeys, limit, offset, children.get(0));
     }
 
     @Override
-    public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalTopN<>(orderKeys, limit, offset, groupExpression, Optional.of(logicalProperties), child());
+    public LogicalTopN<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
+        return new LogicalTopN<>(orderKeys, limit, offset, groupExpression, Optional.of(getLogicalProperties()),
+                child());
     }
 
     @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalTopN<>(orderKeys, limit, offset, Optional.empty(), logicalProperties, child());
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new LogicalTopN<>(orderKeys, limit, offset, groupExpression, logicalProperties, children.get(0));
     }
 }

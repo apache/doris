@@ -15,10 +15,41 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "udf/udf.h"
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <memory>
+#include <utility>
+#include <vector>
+
+#include "common/status.h"
+#include "util/bitmap_value.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_complex.h"
+#include "vec/columns/column_decimal.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/utils/template_helpers.hpp"
+
+namespace doris {
+class FunctionContext;
+} // namespace doris
 
 namespace doris::vectorized {
 class FunctionCoalesce : public IFunction {
@@ -30,8 +61,6 @@ public:
     static FunctionPtr create() { return std::make_shared<FunctionCoalesce>(); }
 
     String get_name() const override { return name; }
-
-    bool use_default_implementation_for_constants() const override { return false; }
 
     bool use_default_implementation_for_nulls() const override { return false; }
 
@@ -68,9 +97,10 @@ public:
             const auto& arg_type = block.get_by_position(arguments[i]).type;
             filtered_args.push_back(arguments[i]);
             if (!arg_type->is_nullable()) {
-                if (i == 0) { //if the first column not null, return it's directly
+                if (i == 0) {
                     block.get_by_position(result).column =
-                            block.get_by_position(arguments[0]).column;
+                            block.get_by_position(arguments[0])
+                                    .column->clone_resized(input_rows_count);
                     return Status::OK();
                 } else {
                     break;
@@ -166,8 +196,9 @@ public:
                 //if not string type, could check one column firstly,
                 //and then fill the not null value in result column,
                 //this method may result in higher CPU cache
-                filled_result_column(result_type, result_column, argument_columns[i], null_map_data,
-                                     filled_flags.data(), input_rows_count);
+                RETURN_IF_ERROR(filled_result_column(result_type, result_column,
+                                                     argument_columns[i], null_map_data,
+                                                     filled_flags.data(), input_rows_count));
             }
         }
 
@@ -212,9 +243,32 @@ public:
         return Status::OK();
     }
 
-    Status filled_result_column(const DataTypePtr& data_type, MutableColumnPtr& result_column,
-                                ColumnPtr& argument_column, UInt8* __restrict null_map_data,
-                                UInt8* __restrict filled_flag, const size_t input_rows_count) {
+    Status insert_result_data_bitmap(MutableColumnPtr& result_column, ColumnPtr& argument_column,
+                                     const UInt8* __restrict null_map_data,
+                                     UInt8* __restrict filled_flag, const size_t input_rows_count) {
+        auto* __restrict result_raw_data =
+                reinterpret_cast<ColumnBitmap*>(result_column.get())->get_data().data();
+        auto* __restrict column_raw_data =
+                reinterpret_cast<const ColumnBitmap*>(argument_column.get())->get_data().data();
+
+        // Here it's SIMD thought the compiler automatically also
+        // true: null_map_data[row]==0 && filled_idx[row]==0
+        // if true, could filled current row data into result column
+        for (size_t row = 0; row < input_rows_count; ++row) {
+            if (!(null_map_data[row] | filled_flag[row])) {
+                result_raw_data[row] = column_raw_data[row];
+            }
+            filled_flag[row] += (!(null_map_data[row] | filled_flag[row]));
+        }
+        return Status::OK();
+    }
+
+    [[nodiscard]] Status filled_result_column(const DataTypePtr& data_type,
+                                              MutableColumnPtr& result_column,
+                                              ColumnPtr& argument_column,
+                                              UInt8* __restrict null_map_data,
+                                              UInt8* __restrict filled_flag,
+                                              const size_t input_rows_count) {
         WhichDataType which(data_type->is_nullable()
                                     ? reinterpret_cast<const DataTypeNullable*>(data_type.get())
                                               ->get_nested_type()
@@ -227,6 +281,12 @@ public:
         DECIMAL_TYPE_TO_COLUMN_TYPE(DISPATCH)
         TIME_TYPE_TO_COLUMN_TYPE(DISPATCH)
 #undef DISPATCH
+
+        if (which.idx == TypeIndex::BitMap) {
+            return insert_result_data_bitmap(result_column, argument_column, null_map_data,
+                                             filled_flag, input_rows_count);
+        }
+
         return Status::NotSupported("argument_type {} not supported", data_type->get_name());
     }
 };

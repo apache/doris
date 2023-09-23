@@ -17,13 +17,23 @@
 
 #include "vec/exec/vempty_set_node.h"
 
+#include <opentelemetry/nostd/shared_ptr.h>
+
+#include "runtime/runtime_state.h"
+#include "util/telemetry/telemetry.h"
+
 namespace doris {
+class DescriptorTbl;
+class ObjectPool;
+class TPlanNode;
+
 namespace vectorized {
+class Block;
+
 VEmptySetNode::VEmptySetNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
         : ExecNode(pool, tnode, descs) {}
 
 Status VEmptySetNode::get_next(RuntimeState* state, Block* block, bool* eos) {
-    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VEmptySetNode::get_next");
     *eos = true;
     return Status::OK();
 }

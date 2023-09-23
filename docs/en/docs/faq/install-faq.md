@@ -35,9 +35,9 @@ This document is mainly used to record the common problems of operation and main
 During the offline process, use show backends to view the tabletNum of the offline node, and you will observe that the number of tabletNum is decreasing, indicating that data shards are being migrated from this node. When the number is reduced to 0, the system will automatically delete the node. But in some cases, tabletNum will not change after it drops to a certain value. This is usually possible for two reasons:
 
 1. The tablets belong to the table, partition, or materialized view that was just dropped. Objects that have just been deleted remain in the recycle bin. The offline logic will not process these shards. The time an object resides in the recycle bin can be modified by modifying the FE configuration parameter catalog_trash_expire_second. These tablets are disposed of when the object is removed from the recycle bin.
-2. There is a problem with the migration task for these tablets. At this point, you need to view the errors of specific tasks through show proc "/cluster_balance".
+2. There is a problem with the migration task for these tablets. At this point, you need to view the errors of specific tasks through show proc `show proc "/cluster_balance"`.
 
-For the above situation, you can first check whether there are unhealthy shards in the cluster through show proc "/statistic". If it is 0, you can delete the BE directly through the drop backend statement. Otherwise, you also need to check the replicas of unhealthy shards in detail.
+For the above situation, you can first check whether there are unhealthy shards in the cluster through `show proc "/cluster_health/tablet_health";`. If it is 0, you can delete the BE directly through the drop backend statement. Otherwise, you also need to check the replicas of unhealthy shards in detail.
 
 ### Q2. How should priorty_network be set?
 
@@ -51,7 +51,7 @@ The reason why the CIDR format is used instead of specifying a specific IP direc
 
 First of all, make it clear that FE has only two roles: Follower and Observer. The Master is just an FE selected from a group of Follower nodes. Master can be regarded as a special kind of Follower. So when we were asked how many FEs a cluster had and what roles they were, the correct answer should be the number of all FE nodes, the number of Follower roles and the number of Observer roles.
 
-All FE nodes of the Follower role will form an optional group, similar to the group concept in the Poxas consensus protocol. A Follower will be elected as the Master in the group. When the Master hangs up, a new Follower will be automatically selected as the Master. The Observer will not participate in the election, so the Observer will not be called Master.
+All FE nodes of the Follower role will form an optional group, similar to the group concept in the Paxos consensus protocol. A Follower will be elected as the Master in the group. When the Master hangs up, a new Follower will be automatically selected as the Master. The Observer will not participate in the election, so the Observer will not be called Master.
 
 A metadata log needs to be successfully written in most Follower nodes to be considered successful. For example, if there are 3 FEs, only 2 can be successfully written. This is why the number of Follower roles needs to be an odd number.
 
@@ -83,7 +83,7 @@ Here we provide 3 ways to solve this problem:
 
 3. Manually migrate data using the API
 
-   Doris provides [HTTP API](../admin-manual/http-actions/tablet-migration-action.md), which can manually specify the migration of data shards on one disk to another disk.
+   Doris provides [HTTP API](https://doris.apache.org/zh-CN/docs/dev/admin-manual/http-actions/be/tablet-migration), which can manually specify the migration of data shards on one disk to another disk.
 
 ### Q5. How to read FE/BE logs correctly?
 
@@ -155,19 +155,15 @@ In many cases, we need to troubleshoot problems through logs. The format and vie
 
       Logs starting with F are Fatal logs. For example, F0916 , indicating the Fatal log on September 16th. Fatal logs usually indicate a program assertion error, and an assertion error will directly cause the process to exit (indicating a bug in the program). Welcome to the WeChat group, github discussion or dev mail group for help.
 
-   4. Minidump(removed)
-
-      Mindump is a function added after Doris version 0.15. For details, please refer to [document](https://doris.apache.org/zh-CN/developer-guide/minidump.html).
-
 2. FE
 
-   FE is a java process, and the robustness is due to the C/C++ program. Usually the reason for FE to hang up may be OOM (Out-of-Memory) or metadata write failure. These errors usually have an error stack in fe.log or fe.out. Further investigation is required based on the error stack information.
+   FE is a java process, and the robustness is better than the C/C++ program. Usually the reason for FE to hang up may be OOM (Out-of-Memory) or metadata write failure. These errors usually have an error stack in fe.log or fe.out. Further investigation is required based on the error stack information.
 
 ### Q7. About the configuration of data directory SSD and HDD, create table encounter error `Failed to find enough host with storage medium and tag`
 
 Doris supports one BE node to configure multiple storage paths. Usually, one storage path can be configured for each disk. At the same time, Doris supports storage media properties that specify paths, such as SSD or HDD. SSD stands for high-speed storage device and HDD stands for low-speed storage device.
 
-If doris cluster has only one storage medium type, the practice is not specify storage medium in be.conf configuration file. ```Failed to find enough host with storage medium and tag```, generally we got this error for only config SSD medium in be.conf, but default parameter ```default_storage_medium``` in fe is HDD, so there is no HDD storage medium in cluster. There are several ways to fix this, one is modify the parameter in fe.conf and restart fe; the other way is take the SSD config in be.conf away,and the third way is add properties when create table ```{"storage_medium" = "ssd"}```
+If the cluster only has one type of medium, such as all HDD or all SSD, the best practice is not to explicitly specify the medium property in be.conf. If encountering the error ```Failed to find enough host with storage medium and tag``` mentioned above, it is generally because be.conf only configures the SSD medium, while the table creation stage explicitly specifies ```properties {"storage_medium" = "hdd"}```; similarly, if be.conf only configures the HDD medium, and the table creation stage explicitly specifies ```properties {"storage_medium" = "ssd"}```, the same error will occur. The solution is to modify the properties parameter in the table creation to match the configuration; or remove the explicit configuration of SSD/HDD in be.conf.
 
 By specifying the storage medium properties of the path, we can take advantage of Doris's hot and cold data partition storage function to store hot data in SSD at the partition level, while cold data is automatically transferred to HDD.
 
@@ -271,7 +267,7 @@ This is a bug in bdbje that has not yet been resolved. In this case, you can onl
 
 ### Q12. Doris compile and install JDK version incompatibility problem
 
-When compiling Doris using Docker, start FE after compiling and installing, and the exception message `java.lang.Suchmethoderror: java.nio.ByteBuffer.limit (I)Ljava/nio/ByteBuffer;` appears, this is because the default in Docker It is JDK 11. If your installation environment is using JDK8, you need to switch the JDK environment to JDK8 in Docker. For the specific switching method, please refer to [Compile Documentation](../install/source-install/compilation.md)
+When compiling Doris using Docker, start FE after compiling and installing, and the exception message `java.lang.Suchmethoderror: java.nio.ByteBuffer.limit (I)Ljava/nio/ByteBuffer;` appears, this is because the default in Docker It is JDK 11. If your installation environment is using JDK8, you need to switch the JDK environment to JDK8 in Docker. For the specific switching method, please refer to [Compile Documentation](../install/source-install/compilation-general.md)
 
 ### Q13. Error starting FE or unit test locally Cannot find external parser table action_table.dat
 Run the following command
@@ -289,7 +285,7 @@ In doris 1.0 onwards, openssl has been upgraded to 1.1 and is built into the dor
 ```
 ERROR 1105 (HY000): errCode = 2, detailMessage = driver connect Error: HY000 [MySQL][ODBC 8.0(w) Driver]SSL connection error: Failed to set ciphers to use (2026)
 ```
-The solution is to use the `Connector/ODBC 8.0.28` version of ODBC Connector and select `Linux - Generic` in the operating system, this version of ODBC Driver uses openssl version 1.1. Or use a lower version of ODBC connector, e.g. [Connector/ODBC 5.3.14](https://dev.mysql.com/downloads/connector/odbc/5.3.html). For details, see the [ODBC exterior documentation](../ecosystem/external-table/odbc-of-doris.md).
+The solution is to use the `Connector/ODBC 8.0.28` version of ODBC Connector and select `Linux - Generic` in the operating system, this version of ODBC Driver uses openssl version 1.1. Or use a lower version of ODBC connector, e.g. [Connector/ODBC 5.3.14](https://dev.mysql.com/downloads/connector/odbc/5.3.html). For details, see the [ODBC exterior documentation](../lakehouse/external-table/odbc.md).
 
 You can verify the version of openssl used by MySQL ODBC Driver by
 
@@ -297,3 +293,26 @@ You can verify the version of openssl used by MySQL ODBC Driver by
 ldd /path/to/libmyodbc8w.so |grep libssl.so
 ```
 If the output contains ``libssl.so.10``, there may be problems using it, if it contains ``libssl.so.1.1``, it is compatible with doris 1.0
+
+### Q15. After upgrading to version 1.2, the BE NoClassDefFoundError issue failed to start
+<version since="1.2"> Java UDF dependency error </version>
+If the upgrade support starts be, the following Java `NoClassDefFoundError` error occurs
+```
+Exception in thread "main" java.lang.NoClassDefFoundError: org/apache/doris/udf/IniUtil
+Caused by: java.lang.ClassNotFoundException: org.apache.doris.udf.JniUtil
+```
+You need to download the Java UDF function dependency package of `apache-doris-java-udf-jar-with-dependencies-1.2.0` from the official website, put it in the lib directory under the BE installation directory, and then restart BE
+
+### Q16. After upgrading to version 1.2, BE startup shows Failed to initialize JNI
+<version since="1.2"></version>  
+If the following `Failed to initialize JNI` error occurs when starting BE after upgrading 
+```
+Failed to initialize JNI: Failed to find the library libjvm.so.
+```
+You need to set the `JAVA_HOME` environment variable, or set `JAVA_HOME` variable in be.conf and restart the BE node.
+
+### Q17. Docker: backend fails to start
+This may be due to the CPU not supporting AVX2, check the backend logs with `docker logs -f be`.
+If the CPU does not support AVX2, the `apache/doris:1.2.2-be-x86_64-noavx2` image must be used,
+instead of `apache/doris:1.2.2-be-x86_64`.
+Note that the image version number will change over time, check [Dockerhub](https://registry.hub.docker.com/r/apache/doris/tags?page=1&name=avx2) for the most recent version.

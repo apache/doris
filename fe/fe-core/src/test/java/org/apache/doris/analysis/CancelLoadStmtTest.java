@@ -41,6 +41,7 @@ public class CancelLoadStmtTest extends TestWithFeService {
     private Analyzer analyzer;
     private String dbName = "testDb";
     private String tblName = "table1";
+    private UserIdentity userInfo = new UserIdentity("root", "localhost");
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -58,7 +59,6 @@ public class CancelLoadStmtTest extends TestWithFeService {
         StringLiteral labelStringLiteral = new StringLiteral("doris_test_label");
 
         SlotRef stateSlotRef = new SlotRef(null, "state");
-        StringLiteral stateStringLiteral = new StringLiteral("FINISHED");
 
         BinaryPredicate labelBinaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.EQ, labelSlotRef,
                 labelStringLiteral);
@@ -75,11 +75,12 @@ public class CancelLoadStmtTest extends TestWithFeService {
         Assertions.assertEquals("CANCEL LOAD FROM default_cluster:testDb WHERE `LABEL` = 'doris_test_label'",
                 stmtUpper.toString());
 
+        StringLiteral stateStringLiteral = new StringLiteral("LOADING");
         BinaryPredicate stateBinaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.EQ, stateSlotRef,
                 stateStringLiteral);
         stmt = new CancelLoadStmt(null, stateBinaryPredicate);
         stmt.analyze(analyzer);
-        Assertions.assertEquals("CANCEL LOAD FROM default_cluster:testDb WHERE `state` = 'FINISHED'", stmt.toString());
+        Assertions.assertEquals("CANCEL LOAD FROM default_cluster:testDb WHERE `state` = 'LOADING'", stmt.toString());
 
         LikePredicate labelLikePredicate = new LikePredicate(LikePredicate.Operator.LIKE, labelSlotRef,
                 labelStringLiteral);
@@ -93,7 +94,7 @@ public class CancelLoadStmtTest extends TestWithFeService {
         stmt = new CancelLoadStmt(null, compoundAndPredicate);
         stmt.analyze(analyzer);
         Assertions.assertEquals(
-                "CANCEL LOAD FROM default_cluster:testDb WHERE `label` = 'doris_test_label' AND `state` = 'FINISHED'",
+                "CANCEL LOAD FROM default_cluster:testDb WHERE `label` = 'doris_test_label' AND `state` = 'LOADING'",
                 stmt.toString());
 
         CompoundPredicate compoundOrPredicate = new CompoundPredicate(Operator.OR, labelBinaryPredicate,
@@ -101,7 +102,7 @@ public class CancelLoadStmtTest extends TestWithFeService {
         stmt = new CancelLoadStmt(null, compoundOrPredicate);
         stmt.analyze(analyzer);
         Assertions.assertEquals(
-                "CANCEL LOAD FROM default_cluster:testDb WHERE `label` = 'doris_test_label' OR `state` = 'FINISHED'",
+                "CANCEL LOAD FROM default_cluster:testDb WHERE `label` = 'doris_test_label' OR `state` = 'LOADING'",
                 stmt.toString());
 
         // test match
@@ -110,11 +111,11 @@ public class CancelLoadStmtTest extends TestWithFeService {
         long dbId = db.getId();
         Table tbl = db.getTableNullable(tblName);
         long tblId = tbl.getId();
-        InsertLoadJob insertLoadJob1 = new InsertLoadJob("doris_test_label", 1L, dbId, tblId, 0, "", "");
+        InsertLoadJob insertLoadJob1 = new InsertLoadJob("doris_test_label", 1L, dbId, tblId, 0, "", "", userInfo);
         loadJobs.add(insertLoadJob1);
-        InsertLoadJob insertLoadJob2 = new InsertLoadJob("doris_test_label_1", 2L, dbId, tblId, 0, "", "");
+        InsertLoadJob insertLoadJob2 = new InsertLoadJob("doris_test_label_1", 2L, dbId, tblId, 0, "", "", userInfo);
         loadJobs.add(insertLoadJob2);
-        InsertLoadJob insertLoadJob3 = new InsertLoadJob("doris_test_label_2", 3L, dbId, tblId, 0, "", "");
+        InsertLoadJob insertLoadJob3 = new InsertLoadJob("doris_test_label_2", 3L, dbId, tblId, 0, "", "", userInfo);
         loadJobs.add(insertLoadJob3);
         // label
         stmt = new CancelLoadStmt(null, labelBinaryPredicate);
@@ -127,19 +128,19 @@ public class CancelLoadStmtTest extends TestWithFeService {
         stmt = new CancelLoadStmt(null, stateBinaryPredicate);
         stmt.analyze(analyzer);
         LoadManager.addNeedCancelLoadJob(stmt, loadJobs, matchLoadJobs);
-        Assertions.assertEquals(3, matchLoadJobs.size());
+        Assertions.assertEquals(0, matchLoadJobs.size());
         // or
         matchLoadJobs.clear();
         stmt = new CancelLoadStmt(null, compoundOrPredicate);
         stmt.analyze(analyzer);
         LoadManager.addNeedCancelLoadJob(stmt, loadJobs, matchLoadJobs);
-        Assertions.assertEquals(3, matchLoadJobs.size());
+        Assertions.assertEquals(1, matchLoadJobs.size());
         // and
         matchLoadJobs.clear();
         stmt = new CancelLoadStmt(null, compoundAndPredicate);
         stmt.analyze(analyzer);
         LoadManager.addNeedCancelLoadJob(stmt, loadJobs, matchLoadJobs);
-        Assertions.assertEquals(1, matchLoadJobs.size());
+        Assertions.assertEquals(0, matchLoadJobs.size());
     }
 
     @Test

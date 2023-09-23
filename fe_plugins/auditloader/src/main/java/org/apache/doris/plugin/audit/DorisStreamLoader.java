@@ -23,36 +23,37 @@ import org.apache.logging.log4j.Logger;
 import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Calendar;
-import java.util.List;
-import java.util.Map;
 
 public class DorisStreamLoader {
     private final static Logger LOG = LogManager.getLogger(DorisStreamLoader.class);
     private static String loadUrlPattern = "http://%s/api/%s/%s/_stream_load?";
     private String hostPort;
     private String db;
-    private String tbl;
+    private String auditLogTbl;
+    private String slowLogTbl;
     private String user;
     private String passwd;
-    private String loadUrlStr;
+    private String auditLogLoadUrlStr;
+    private String slowLogLoadUrlStr;
     private String authEncoding;
     private String feIdentity;
 
     public DorisStreamLoader(AuditLoaderPlugin.AuditLoaderConf conf) {
         this.hostPort = conf.frontendHostPort;
         this.db = conf.database;
-        this.tbl = conf.table;
+        this.auditLogTbl = conf.auditLogTable;
+        this.slowLogTbl = conf.slowLogTable;
         this.user = conf.user;
         this.passwd = conf.password;
 
-        this.loadUrlStr = String.format(loadUrlPattern, hostPort, db, tbl);
+        this.auditLogLoadUrlStr = String.format(loadUrlPattern, hostPort, db, auditLogTbl);
+        this.slowLogLoadUrlStr = String.format(loadUrlPattern, hostPort, db, slowLogTbl);
         this.authEncoding = Base64.getEncoder().encodeToString(String.format("%s:%s", user, passwd).getBytes(StandardCharsets.UTF_8));
         // currently, FE identity is FE's IP, so we replace the "." in IP to make it suitable for label
         this.feIdentity = conf.feIdentity.replaceAll("\\.", "_");
@@ -69,8 +70,9 @@ public class DorisStreamLoader {
 
         conn.addRequestProperty("label", label);
         conn.addRequestProperty("max_filter_ratio", "1.0");
-        conn.addRequestProperty("columns", "query_id, `time`, client_ip, user, db, state, query_time, scan_bytes," +
-                " scan_rows, return_rows, stmt_id, is_query, frontend_ip, cpu_time_ms, sql_hash, sql_digest, peak_memory_bytes, stmt");
+        conn.addRequestProperty("columns", "query_id, `time`, client_ip, user, db, state, error_code, error_message, " +
+                "query_time, scan_bytes, scan_rows, return_rows, stmt_id, is_query, frontend_ip, cpu_time_ms, sql_hash, " +
+                "sql_digest, peak_memory_bytes, stmt");
 
         conn.setDoOutput(true);
         conn.setDoInput(true);
@@ -85,9 +87,9 @@ public class DorisStreamLoader {
         sb.append("-H \"").append("Expect\":").append("\"100-continue\" \\\n  ");
         sb.append("-H \"").append("Content-Type\":").append("\"text/plain; charset=UTF-8\" \\\n  ");
         sb.append("-H \"").append("max_filter_ratio\":").append("\"1.0\" \\\n  ");
-        sb.append("-H \"").append("columns\":").append("\"query_id, time, client_ip, user, db, state, query_time," +
-                " scan_bytes, scan_rows, return_rows, stmt_id, is_query, frontend_ip, cpu_time_ms, sql_hash," +
-                " sql_digest, peak_memory_bytes, stmt\" \\\n  ");
+        sb.append("-H \"").append("columns\":").append("\"query_id, time, client_ip, user, db, state, error_code, " +
+                "error_message, query_time, scan_bytes, scan_rows, return_rows, stmt_id, is_query, frontend_ip, " +
+                "cpu_time_ms, sql_hash, sql_digest, peak_memory_bytes, stmt\" \\\n  ");
         sb.append("\"").append(conn.getURL()).append("\"");
         return sb.toString();
     }
@@ -112,9 +114,9 @@ public class DorisStreamLoader {
         return response.toString();
     }
 
-    public LoadResponse loadBatch(StringBuilder sb) {
+    public LoadResponse loadBatch(StringBuilder sb, boolean slowLog) {
         Calendar calendar = Calendar.getInstance();
-        String label = String.format("audit_%s%02d%02d_%02d%02d%02d_%s",
+        String label = String.format("_log_%s%02d%02d_%02d%02d%02d_%s",
                 calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH) + 1, calendar.get(Calendar.DAY_OF_MONTH),
                 calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE), calendar.get(Calendar.SECOND),
                 feIdentity);
@@ -123,7 +125,13 @@ public class DorisStreamLoader {
         HttpURLConnection beConn = null;
         try {
             // build request and send to fe
-            feConn = getConnection(loadUrlStr, label);
+            if (slowLog) {
+                label = "slow" + label;
+                feConn = getConnection(slowLogLoadUrlStr, label);
+            } else {
+                label = "audit" + label;
+                feConn = getConnection(auditLogLoadUrlStr, label);
+            }
             int status = feConn.getResponseCode();
             // fe send back http response code TEMPORARY_REDIRECT 307 and new be location
             if (status != 307) {
@@ -137,9 +145,9 @@ public class DorisStreamLoader {
             // build request and send to new be location
             beConn = getConnection(location, label);
             // send data to be
-            BufferedOutputStream bos = new BufferedOutputStream(beConn.getOutputStream());
-            bos.write(sb.toString().getBytes());
-            bos.close();
+            try (BufferedOutputStream bos = new BufferedOutputStream(beConn.getOutputStream())) {
+                bos.write(sb.toString().getBytes());
+            }
 
             // get respond
             status = beConn.getResponseCode();

@@ -19,6 +19,7 @@
 
 #include "gutil/macros.h" // for DISALLOW_COPY_AND_ASSIGN
 #include "olap/page_cache.h"
+#include "runtime/exec_env.h"
 #include "util/slice.h" // for Slice
 
 namespace doris {
@@ -35,7 +36,10 @@ public:
 
     // This class will take the ownership of input data's memory. It will
     // free it when deconstructs.
-    PageHandle(const Slice& data) : _is_data_owner(true), _data(data) {}
+    PageHandle(DataPage* data) : _is_data_owner(true), _data(data) {
+        _page_tracker = ExecEnv::GetInstance()->page_no_cache_mem_tracker();
+        _page_tracker->consume(_data->capacity());
+    }
 
     // This class will take the content of cache data, and will make input
     // cache_data to a invalid cache handle.
@@ -43,31 +47,34 @@ public:
             : _is_data_owner(false), _cache_data(std::move(cache_data)) {}
 
     // Move constructor
-    PageHandle(PageHandle&& other) noexcept
-            : _is_data_owner(false),
-              _data(std::move(other._data)),
-              _cache_data(std::move(other._cache_data)) {
+    PageHandle(PageHandle&& other) noexcept : _cache_data(std::move(other._cache_data)) {
         // we can use std::exchange if we switch c++14 on
         std::swap(_is_data_owner, other._is_data_owner);
+        std::swap(_data, other._data);
+        _page_tracker = ExecEnv::GetInstance()->page_no_cache_mem_tracker();
     }
 
     PageHandle& operator=(PageHandle&& other) noexcept {
         std::swap(_is_data_owner, other._is_data_owner);
-        _data = std::move(other._data);
+        std::swap(_data, other._data);
         _cache_data = std::move(other._cache_data);
+        _page_tracker = ExecEnv::GetInstance()->page_no_cache_mem_tracker();
         return *this;
     }
 
     ~PageHandle() {
-        if (_is_data_owner && _data.size > 0) {
-            delete[] _data.data;
+        if (_is_data_owner) {
+            _page_tracker->release(_data->capacity());
+            delete _data;
+        } else {
+            DCHECK(_data == nullptr);
         }
     }
 
     // the return slice contains uncompressed page body, page footer, and footer size
     Slice data() const {
         if (_is_data_owner) {
-            return _data;
+            return Slice(_data->data(), _data->size());
         } else {
             return _cache_data.data();
         }
@@ -77,7 +84,8 @@ private:
     // when this is true, it means this struct own data and _data is valid.
     // otherwise _cache_data is valid, and data is belong to cache.
     bool _is_data_owner = false;
-    Slice _data;
+    DataPage* _data = nullptr;
+    std::shared_ptr<MemTracker> _page_tracker;
     PageCacheHandle _cache_data;
 
     // Don't allow copy and assign

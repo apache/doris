@@ -72,8 +72,6 @@ public:
         return pos;
     }
 
-    void update_hash_with_value(size_t /*n*/, SipHash& /*hash*/) const override {}
-
     void insert_from(const IColumn&, size_t) override { ++s; }
 
     void insert_range_from(const IColumn& /*src*/, size_t /*start*/, size_t length) override {
@@ -87,6 +85,12 @@ public:
 
     ColumnPtr filter(const Filter& filt, ssize_t /*result_size_hint*/) const override {
         return clone_dummy(count_bytes_in_filter(filt));
+    }
+
+    size_t filter(const Filter& filter) override {
+        const auto result_size = count_bytes_in_filter(filter);
+        s = result_size;
+        return result_size;
     }
 
     ColumnPtr permute(const Permutation& perm, size_t limit) const override {
@@ -104,9 +108,7 @@ public:
     }
 
     ColumnPtr replicate(const Offsets& offsets) const override {
-        if (s != offsets.size()) {
-            LOG(FATAL) << "Size of offsets doesn't match size of column.";
-        }
+        column_match_offsets_size(s, offsets.size());
 
         return clone_dummy(offsets.back());
     }
@@ -125,11 +127,29 @@ public:
         return res;
     }
 
+    void append_data_by_selector(MutableColumnPtr& res,
+                                 const IColumn::Selector& selector) const override {
+        size_t num_rows = size();
+
+        if (num_rows < selector.size()) {
+            LOG(FATAL) << fmt::format("Size of selector: {}, is larger than size of column:{}",
+                                      selector.size(), num_rows);
+        }
+
+        res->reserve(num_rows);
+
+        for (size_t i = 0; i < selector.size(); ++i) res->insert_from(*this, selector[i]);
+    }
+
     void get_extremes(Field&, Field&) const override {}
 
     void addSize(size_t delta) { s += delta; }
 
     bool is_dummy() const override { return true; }
+
+    [[noreturn]] TypeIndex get_data_type() const override {
+        LOG(FATAL) << "IColumnDummy get_data_type not implemeted";
+    }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         LOG(FATAL) << "should not call the method in column dummy";
@@ -137,6 +157,17 @@ public:
 
     void replace_column_data_default(size_t self_row = 0) override {
         LOG(FATAL) << "should not call the method in column dummy";
+    }
+
+    void get_indices_of_non_default_rows(Offsets64&, size_t, size_t) const override {
+        LOG(FATAL) << "should not call the method in column dummy";
+    }
+
+    ColumnPtr index(const IColumn& indexes, size_t limit) const override {
+        if (indexes.size() < limit) {
+            LOG(FATAL) << "Size of indexes is less than required.";
+        }
+        return clone_dummy(limit ? limit : s);
     }
 
 protected:

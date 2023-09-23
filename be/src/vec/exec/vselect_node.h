@@ -16,20 +16,27 @@
 // under the License.
 
 #pragma once
+#include "common/status.h"
 #include "exec/exec_node.h"
 
 namespace doris {
-namespace vectorized {
+class DescriptorTbl;
+class ObjectPool;
+class RuntimeState;
+class TPlanNode;
 
-class VSelectNode : public ExecNode {
+namespace vectorized {
+class Block;
+
+class VSelectNode final : public ExecNode {
 public:
     VSelectNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr);
-    virtual Status prepare(RuntimeState* state);
-    virtual Status open(RuntimeState* state);
-    virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos);
-    virtual Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos);
-    virtual Status close(RuntimeState* state);
+    Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
+    Status prepare(RuntimeState* state) override;
+    Status open(RuntimeState* state) override;
+    Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) override;
+    Status close(RuntimeState* state) override;
+    Status pull(RuntimeState* state, vectorized::Block* output_block, bool* eos) override;
 
 private:
     // true if last get_next() call on child signalled eos

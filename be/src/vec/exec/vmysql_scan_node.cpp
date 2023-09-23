@@ -17,15 +17,13 @@
 
 #include "vec/exec/vmysql_scan_node.h"
 
+#include <gen_cpp/PlanNodes_types.h>
+
 #include "exec/text_converter.h"
-#include "exec/text_converter.hpp"
-#include "gen_cpp/PlanNodes_types.h"
-#include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
-#include "runtime/string_value.h"
-#include "runtime/tuple_row.h"
 #include "util/runtime_profile.h"
 #include "util/types.h"
+#include "vec/common/string_ref.h"
 namespace doris::vectorized {
 
 VMysqlScanNode::VMysqlScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
@@ -50,7 +48,6 @@ Status VMysqlScanNode::prepare(RuntimeState* state) {
     }
 
     RETURN_IF_ERROR(ScanNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     // get tuple desc
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
 
@@ -76,19 +73,13 @@ Status VMysqlScanNode::prepare(RuntimeState* state) {
     // new one scanner
     _mysql_scanner.reset(new (std::nothrow) MysqlScanner(_my_param));
 
-    if (_mysql_scanner.get() == nullptr) {
+    if (_mysql_scanner == nullptr) {
         return Status::InternalError("new a mysql scanner failed.");
-    }
-
-    _tuple_pool.reset(new (std::nothrow) MemPool());
-
-    if (_tuple_pool.get() == nullptr) {
-        return Status::InternalError("new a mem pool failed.");
     }
 
     _text_converter.reset(new (std::nothrow) TextConverter('\\'));
 
-    if (_text_converter.get() == nullptr) {
+    if (_text_converter == nullptr) {
         return Status::InternalError("new a text convertor failed.");
     }
 
@@ -98,15 +89,12 @@ Status VMysqlScanNode::prepare(RuntimeState* state) {
 }
 
 Status VMysqlScanNode::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VMysqlScanNode::open");
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
-    RETURN_IF_ERROR(ExecNode::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
-    VLOG_CRITICAL << "MysqlScanNode::Open";
-
     if (nullptr == state) {
         return Status::InternalError("input pointer is nullptr.");
     }
+    SCOPED_TIMER(_runtime_profile->total_time_counter());
+    RETURN_IF_ERROR(ExecNode::open(state));
+    VLOG_CRITICAL << "MysqlScanNode::Open";
 
     if (!_is_init) {
         return Status::InternalError("used before initialize.");
@@ -132,25 +120,15 @@ Status VMysqlScanNode::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status VMysqlScanNode::write_text_slot(char* value, int value_length, SlotDescriptor* slot,
-                                       RuntimeState* state) {
-    if (!_text_converter->write_slot(slot, _tuple, value, value_length, true, false,
-                                     _tuple_pool.get())) {
-        std::stringstream ss;
-        ss << "Fail to convert mysql value:'" << value << "' to " << slot->type() << " on column:`"
-           << slot->col_name() + "`";
-        return Status::InternalError(ss.str());
-    }
-
-    return Status::OK();
-}
-
 Status VMysqlScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
-    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VMysqlScanNode::get_next");
+    if (state == nullptr || block == nullptr || eos == nullptr) {
+        return Status::InternalError("input is nullptr");
+    }
     VLOG_CRITICAL << "VMysqlScanNode::GetNext";
-    if (state == NULL || block == NULL || eos == NULL)
-        return Status::InternalError("input is NULL pointer");
-    if (!_is_init) return Status::InternalError("used before initialize.");
+
+    if (!_is_init) {
+        return Status::InternalError("used before initialize.");
+    }
     RETURN_IF_CANCELLED(state);
     bool mem_reuse = block->mem_reuse();
     DCHECK(block->rows() == 0);
@@ -173,8 +151,8 @@ Status VMysqlScanNode::get_next(RuntimeState* state, vectorized::Block* block, b
                 break;
             }
 
-            char** data = NULL;
-            unsigned long* length = NULL;
+            char** data = nullptr;
+            unsigned long* length = nullptr;
             RETURN_IF_ERROR(_mysql_scanner->get_next_row(&data, &length, &mysql_eos));
 
             if (mysql_eos) {
@@ -238,10 +216,7 @@ Status VMysqlScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VMysqlScanNode::close");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-
-    _tuple_pool.reset();
 
     return ExecNode::close(state);
 }

@@ -23,7 +23,7 @@ under the License.
     <parent>
         <groupId>org.apache</groupId>
         <artifactId>apache</artifactId>
-        <version>23</version>
+        <version>29</version>
     </parent>
     <groupId>org.apache.doris</groupId>
     <artifactId>apache-hdfs-broker</artifactId>
@@ -63,12 +63,15 @@ under the License.
         </mailingList>
     </mailingLists>
     <properties>
-        <palo.home>${basedir}/../../</palo.home>
+        <doris.home>${basedir}/../../</doris.home>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
         <log4j2.version>2.18.0</log4j2.version>
         <project.scm.id>github</project.scm.id>
+        <hadoop.version>2.10.2</hadoop.version>
+        <netty.version>4.1.65.Final</netty.version>
+        <gcs.version>hadoop2-2.2.15</gcs.version>
     </properties>
     <profiles>
         <!-- for custom internal repository -->
@@ -111,6 +114,11 @@ under the License.
                     <id>oracleReleases</id>
                     <url>http://download.oracle.com/maven</url>
                 </repository>
+                <!-- for huawei obs sdk -->
+                <repository>
+                    <id>huawei-obs-sdk</id>
+                    <url>https://repo.huaweicloud.com/repository/maven/huaweicloudsdk/</url>
+                </repository>
             </repositories>
             <pluginRepositories>
                 <!-- for cup-maven-plugin -->
@@ -132,7 +140,7 @@ under the License.
         <dependency>
             <groupId>commons-codec</groupId>
             <artifactId>commons-codec</artifactId>
-            <version>1.9</version>
+            <version>1.13</version>
         </dependency>
         <!-- https://mvnrepository.com/artifact/commons-collections/commons-collections -->
         <dependency>
@@ -186,26 +194,48 @@ under the License.
         <dependency>
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-annotations</artifactId>
-            <version>2.7.3</version>
+            <version>${hadoop.version}</version>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.apache.hadoop/hadoop-auth -->
         <dependency>
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-auth</artifactId>
-            <version>2.7.3</version>
+            <version>${hadoop.version}</version>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.apache.hadoop/hadoop-common -->
         <dependency>
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-common</artifactId>
-            <version>2.7.3</version>
+            <version>${hadoop.version}</version>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.apache.hadoop/hadoop-hdfs -->
         <dependency>
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-hdfs</artifactId>
-            <version>2.7.3</version>
+            <version>${hadoop.version}</version>
+            <exclusions>
+                <exclusion>
+                    <artifactId>netty-all</artifactId>
+                    <groupId>io.netty</groupId>
+                </exclusion>
+                <exclusion>
+                    <artifactId>jackson-databind</artifactId>
+                    <groupId>com.fasterxml.jackson.core</groupId>
+                </exclusion>
+            </exclusions>
         </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>2.14.1</version>
+        </dependency>
+        <!-- https://mvnrepository.com/artifact/io.netty/netty-all -->
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-all</artifactId>
+            <version>${netty.version}</version>
+        </dependency>
+
         <!-- https://mvnrepository.com/artifact/org.apache.htrace/htrace-core -->
         <dependency>
             <groupId>org.apache.htrace</groupId>
@@ -223,7 +253,7 @@ under the License.
         <dependency>
             <groupId>org.apache.thrift</groupId>
             <artifactId>libthrift</artifactId>
-            <version>0.13.0</version>
+            <version>0.16.0</version>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.apache.logging.log4j/log4j-api -->
         <dependency>
@@ -236,6 +266,13 @@ under the License.
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-core</artifactId>
             <version>${log4j2.version}</version>
+        </dependency>
+        <!-- gcs connector-->
+        <dependency>
+            <groupId>com.google.cloud.bigdataoss</groupId>
+            <artifactId>gcs-connector</artifactId>
+            <version>${gcs.version}</version>
+            <classifier>shaded</classifier>
         </dependency>
         <!-- https://mvnrepository.com/artifact/com.google.protobuf/protobuf-java -->
         <dependency>
@@ -266,7 +303,38 @@ under the License.
         <dependency>
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-aws</artifactId>
-            <version>2.7.3</version>
+            <version>${hadoop.version}</version>
+        </dependency>
+        <!-- https://mvnrepository.com/artifact/com.huaweicloud/esdk-obs-java-bundle -->
+        <dependency>
+            <groupId>com.huaweicloud</groupId>
+            <artifactId>esdk-obs-java-bundle</artifactId>
+            <version>3.21.8</version>
+        </dependency>
+        <!-- https://mvnrepository.com/artifact/org.apache.hadoop/hadoop-huaweicloud -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-huaweicloud</artifactId>
+            <version>2.8.3</version>
+            <exclusions>
+                <exclusion>
+                    <artifactId>jackson-databind</artifactId>
+                    <groupId>com.fasterxml.jackson.core</groupId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <!-- https://mvnrepository.com/artifact/org.apache.hadoop/hadoop-aliyun -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-aliyun</artifactId>
+            <version>${hadoop.version}</version>
+        </dependency>
+
+        <!-- https://mvnrepository.com/artifact/com.qcloud.cos/hadoop-cos -->
+        <dependency>
+            <groupId>com.qcloud.cos</groupId>
+            <artifactId>hadoop-cos</artifactId>
+            <version>2.8.5-8.1.8</version>
         </dependency>
     </dependencies>
     <build>
@@ -303,7 +371,7 @@ under the License.
                         <configuration>
                             <executable>cp</executable>
                             <arguments>
-                                <argument>${palo.home}/gensrc/thrift/PaloBrokerService.thrift</argument>
+                                <argument>${doris.home}/gensrc/thrift/PaloBrokerService.thrift</argument>
                                 <argument>${basedir}/src/main/resources/thrift/</argument>
                             </arguments>
                             <skip>${skip.plugin}</skip>
@@ -333,6 +401,15 @@ under the License.
                     </execution>
                 </executions>
             </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>**/gcs-connector-${gcs.version}.jar</exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
             <!-- copy all dependency libs to target lib dir -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -351,6 +428,7 @@ under the License.
                             <overWriteSnapshots>false</overWriteSnapshots>
                             <overWriteIfNewer>true</overWriteIfNewer>
                             <skip>${skip.plugin}</skip>
+                            <includeScope>runtime</includeScope>
                         </configuration>
                     </execution>
                 </executions>

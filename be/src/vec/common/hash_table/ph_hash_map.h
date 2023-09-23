@@ -19,31 +19,53 @@
 
 #include <parallel_hashmap/phmap.h>
 
+#include <boost/noncopyable.hpp>
+#include <span>
+
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/common/arena.h"
 #include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/hash_table_utils.h"
+#include "vec/common/hash_table/phmap_fwd_decl.h"
 
 template <typename Key, typename Mapped>
 ALWAYS_INLINE inline auto lookup_result_get_mapped(std::pair<const Key, Mapped>* it) {
     return &(it->second);
 }
 
-template <typename Key, typename Mapped, typename Hash = DefaultHash<Key>,
-          bool use_parallel = false>
+template <typename Key, typename Mapped, typename HashMethod = DefaultHash<Key>,
+          bool PartitionedHashTable = false>
 class PHHashMap : private boost::noncopyable {
 public:
     using Self = PHHashMap;
-    using HashMapImpl =
-            std::conditional_t<use_parallel, phmap::parallel_flat_hash_map<Key, Mapped, Hash>,
-                               phmap::flat_hash_map<Key, Mapped, Hash>>;
+    using Hash = HashMethod;
+    using cell_type = std::pair<const Key, Mapped>;
+    using HashMapImpl = doris::vectorized::flat_hash_map<Key, Mapped, Hash>;
 
     using key_type = Key;
     using mapped_type = Mapped;
     using value_type = std::pair<const Key, Mapped>;
 
     using LookupResult = std::pair<const Key, Mapped>*;
+    using ConstLookupResult = const std::pair<const Key, Mapped>*;
 
     using const_iterator_impl = typename HashMapImpl::const_iterator;
     using iterator_impl = typename HashMapImpl::iterator;
+
+    PHHashMap() = default;
+
+    PHHashMap(size_t reserve_for_num_elements) { _hash_map.reserve(reserve_for_num_elements); }
+
+    PHHashMap(PHHashMap&& other) { *this = std::move(other); }
+
+    PHHashMap& operator=(PHHashMap&& rhs) {
+        _hash_map.clear();
+        _hash_map = std::move(rhs._hash_map);
+        std::swap(_need_partition, rhs._need_partition);
+        std::swap(_partitioned_threshold, rhs._partitioned_threshold);
+
+        return *this;
+    }
 
     template <typename Derived, bool is_const>
     class iterator_base {
@@ -80,7 +102,7 @@ public:
 
         auto& get_second() { return base_iterator->second; }
 
-        auto get_ptr() const { return *base_iterator; }
+        auto get_ptr() const { return this; }
         size_t get_hash() const { return base_iterator->get_hash(); }
 
         size_t get_collision_chain_length() const { return 0; }
@@ -110,34 +132,90 @@ public:
     void ALWAYS_INLINE emplace(KeyHolder&& key_holder, LookupResult& it, bool& inserted) {
         const auto& key = key_holder_get_key(key_holder);
         inserted = false;
-        auto it_ = _hash_map.lazy_emplace(key, [&](const auto& ctor) {
+        it = &*_hash_map.lazy_emplace(key, [&](const auto& ctor) {
             inserted = true;
             key_holder_persist_key(key_holder);
             ctor(key_holder_get_key(key_holder), nullptr);
         });
-        it = &*it_;
+
+        if constexpr (PartitionedHashTable) {
+            _check_if_need_partition();
+        }
+    }
+
+    template <typename KeyHolder, typename Func>
+    void ALWAYS_INLINE lazy_emplace(KeyHolder&& key_holder, LookupResult& it, Func&& f) {
+        const auto& key = key_holder_get_key(key_holder);
+        it = &*_hash_map.lazy_emplace(key, [&](const auto& ctor) {
+            key_holder_persist_key(key_holder);
+            f(ctor, key);
+        });
+
+        if constexpr (PartitionedHashTable) {
+            _check_if_need_partition();
+        }
+    }
+
+    template <typename KeyHolder, typename Func>
+    void lazy_emplace_keys(const std::span<KeyHolder>& keys, const std::vector<size_t>& hash_values,
+                           doris::vectorized::AggregateDataPtr* places, Func&& f) {
+        for (size_t i = 0; i < keys.size(); i++) {
+            if (LIKELY(i + HASH_MAP_PREFETCH_DIST < keys.size())) {
+                prefetch_by_hash(hash_values[i + HASH_MAP_PREFETCH_DIST]);
+            }
+            places[i] = _hash_map
+                                .lazy_emplace_with_hash(keys[i], hash_values[i],
+                                                        [&](const auto& ctor) {
+                                                            key_holder_persist_key_with_arena(
+                                                                    keys[i], _arena);
+                                                            f(ctor, keys[i]);
+                                                        })
+                                ->second;
+            if constexpr (PartitionedHashTable) {
+                _check_if_need_partition();
+            }
+        }
     }
 
     template <typename KeyHolder>
-    void ALWAYS_INLINE emplace(KeyHolder&& key_holder, LookupResult& it, size_t hash_value,
-                               bool& inserted) {
+    void ALWAYS_INLINE emplace(KeyHolder&& key_holder, LookupResult& it, bool& inserted,
+                               size_t hash_value) {
         const auto& key = key_holder_get_key(key_holder);
         inserted = false;
-        if constexpr (use_parallel) {
-            auto it_ = _hash_map.lazy_emplace_with_hash(hash_value, key, [&](const auto& ctor) {
-                inserted = true;
-                key_holder_persist_key(key_holder);
+        it = &*_hash_map.lazy_emplace_with_hash(key, hash_value, [&](const auto& ctor) {
+            inserted = true;
+            key_holder_persist_key(key_holder);
+            if constexpr (std::is_pointer_v<std::remove_reference_t<mapped_type>>) {
                 ctor(key, nullptr);
-            });
-            it = &*it_;
-        } else {
-            auto it_ = _hash_map.lazy_emplace_with_hash(key, hash_value, [&](const auto& ctor) {
-                inserted = true;
-                key_holder_persist_key(key_holder);
-                ctor(key, nullptr);
-            });
-            it = &*it_;
+            } else {
+                ctor(key, mapped_type());
+            }
+        });
+
+        if constexpr (PartitionedHashTable) {
+            _check_if_need_partition();
         }
+    }
+
+    template <typename KeyHolder, typename Func>
+    void ALWAYS_INLINE lazy_emplace(KeyHolder&& key_holder, LookupResult& it, size_t hash_value,
+                                    Func&& f) {
+        const auto& key = key_holder_get_key(key_holder);
+
+        it = &*_hash_map.lazy_emplace_with_hash(key, hash_value, [&](const auto& ctor) {
+            key_holder_persist_key(key_holder);
+            f(ctor, key);
+        });
+
+        if constexpr (PartitionedHashTable) {
+            _check_if_need_partition();
+        }
+    }
+
+    void ALWAYS_INLINE insert(const Key& key, size_t hash_value, const Mapped& value) {
+        auto it = &*_hash_map.lazy_emplace_with_hash(key, hash_value,
+                                                     [&](const auto& ctor) { ctor(key, value); });
+        it->second = value;
     }
 
     template <typename KeyHolder>
@@ -156,11 +234,15 @@ public:
 
     size_t hash(const Key& x) const { return _hash_map.hash(x); }
 
+    template <bool read = true>
     void ALWAYS_INLINE prefetch_by_hash(size_t hash_value) {
-        if constexpr (!use_parallel) _hash_map.prefetch_hash(hash_value);
+        _hash_map.prefetch_hash(hash_value);
     }
 
-    void ALWAYS_INLINE prefetch_by_key(Key key) { _hash_map.prefetch(key); }
+    template <bool read = true>
+    void ALWAYS_INLINE prefetch_by_key(Key key) {
+        _hash_map.prefetch(key);
+    }
 
     /// Call func(const Key &, Mapped &) for each hash map element.
     template <typename Func>
@@ -179,6 +261,8 @@ public:
         return capacity * sizeof(typename HashMapImpl::slot_type);
     }
 
+    size_t get_buffer_size_in_cells() const { return _hash_map.capacity(); }
+
     bool add_elem_size_overflow(size_t row) const {
         const auto capacity = _hash_map.capacity();
         // phmap use 7/8th as maximum load factor.
@@ -190,11 +274,46 @@ public:
     char* get_null_key_data() { return nullptr; }
     bool has_null_key_data() const { return false; }
 
+    bool need_partition() { return _need_partition; }
+
+    void set_partitioned_threshold(int threshold) { _partitioned_threshold = threshold; }
+
+    bool check_if_need_partition(size_t bucket_count) {
+        if constexpr (PartitionedHashTable) {
+            return _partitioned_threshold > 0 && bucket_count >= _partitioned_threshold;
+        } else {
+            return false;
+        }
+    }
+
+    bool empty() const { return _hash_map.empty(); }
+
+    void clear_and_shrink() { _hash_map.clear(); }
+
+    void expanse_for_add_elem(size_t num_elem) { _hash_map.reserve(num_elem); }
+
+private:
+    void _check_if_need_partition() {
+        if (UNLIKELY(check_if_need_partition(_hash_map.size() + 1))) {
+            _need_partition = add_elem_size_overflow(1);
+        }
+    }
+
     HashMapImpl _hash_map;
+    // the bucket count threshold above which it's converted to partioned hash table
+    // > 0: enable convert dynamically
+    // 0: convert is disabled
+    int _partitioned_threshold = 0;
+    // if need resize and bucket count after resize will be >= _partitioned_threshold,
+    // this flag is set to true, and resize does not actually happen,
+    // PartitionedHashTable will convert this hash table to partitioned hash table
+    bool _need_partition;
+    doris::vectorized::Arena _arena;
 };
 
-template <typename Key, typename Mapped, typename Hash, bool use_parallel>
-struct HashTableTraits<PHHashMap<Key, Mapped, Hash, use_parallel>> {
+template <typename Key, typename Mapped, typename Hash, bool PartitionedHashTable>
+struct HashTableTraits<PHHashMap<Key, Mapped, Hash, PartitionedHashTable>> {
     static constexpr bool is_phmap = true;
-    static constexpr bool is_parallel_phmap = use_parallel;
+    static constexpr bool is_string_hash_table = false;
+    static constexpr bool is_partitioned_table = false;
 };

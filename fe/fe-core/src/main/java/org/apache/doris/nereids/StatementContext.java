@@ -18,36 +18,227 @@
 package org.apache.doris.nereids;
 
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.common.IdGenerator;
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.hint.Hint;
+import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
+import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.ObjectId;
+import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
+
+import com.google.common.base.Stopwatch;
+import com.google.common.base.Supplier;
+import com.google.common.base.Suppliers;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import javax.annotation.concurrent.GuardedBy;
 
 /**
  * Statement context for nereids
  */
 public class StatementContext {
-    private final ConnectContext connectContext;
-    private final OriginStatement originStatement;
 
+    private ConnectContext connectContext;
+
+    private final Stopwatch stopwatch = Stopwatch.createUnstarted();
+
+    @GuardedBy("this")
+    private final Map<String, Supplier<Object>> contextCacheMap = Maps.newLinkedHashMap();
+
+    private OriginStatement originStatement;
+    // NOTICE: we set the plan parsed by DorisParser to parsedStatement and if the plan is command, create a
+    // LogicalPlanAdapter with the logical plan in the command.
     private StatementBase parsedStatement;
+    private ColumnAliasGenerator columnAliasGenerator;
+
+    private int joinCount = 0;
+    private int maxNAryInnerJoin = 0;
+
+    private boolean isDpHyp = false;
+    private boolean isOtherJoinReorder = false;
+
+    private boolean isLeadingJoin = false;
+
+    private final IdGenerator<ExprId> exprIdGenerator = ExprId.createGenerator();
+    private final IdGenerator<ObjectId> objectIdGenerator = ObjectId.createGenerator();
+    private final IdGenerator<RelationId> relationIdGenerator = RelationId.createGenerator();
+    private final IdGenerator<CTEId> cteIdGenerator = CTEId.createGenerator();
+
+    private final Map<CTEId, Set<LogicalCTEConsumer>> cteIdToConsumers = new HashMap<>();
+    private final Map<CTEId, Set<NamedExpression>> cteIdToProjects = new HashMap<>();
+    private final Map<RelationId, Set<Expression>> consumerIdToFilters = new HashMap<>();
+    private final Map<CTEId, Set<RelationId>> cteIdToConsumerUnderProjects = new HashMap<>();
+    // Used to update consumer's stats
+    private final Map<CTEId, List<Pair<Map<Slot, Slot>, Group>>> cteIdToConsumerGroup = new HashMap<>();
+    private final Map<CTEId, LogicalPlan> rewrittenCtePlan = new HashMap<>();
+    private final Map<String, Hint> hintMap = Maps.newLinkedHashMap();
+    private final Set<String> viewDdlSqlSet = Sets.newHashSet();
+
+    public StatementContext() {
+        this.connectContext = ConnectContext.get();
+    }
 
     public StatementContext(ConnectContext connectContext, OriginStatement originStatement) {
         this.connectContext = connectContext;
         this.originStatement = originStatement;
     }
 
+    public void setConnectContext(ConnectContext connectContext) {
+        this.connectContext = connectContext;
+    }
+
     public ConnectContext getConnectContext() {
         return connectContext;
+    }
+
+    public void setOriginStatement(OriginStatement originStatement) {
+        this.originStatement = originStatement;
     }
 
     public OriginStatement getOriginStatement() {
         return originStatement;
     }
 
-    public StatementBase getParsedStatement() {
-        return parsedStatement;
+    public Stopwatch getStopwatch() {
+        return stopwatch;
+    }
+
+    public void setMaxNAryInnerJoin(int maxNAryInnerJoin) {
+        if (maxNAryInnerJoin > this.maxNAryInnerJoin) {
+            this.maxNAryInnerJoin = maxNAryInnerJoin;
+        }
+    }
+
+    public int getMaxNAryInnerJoin() {
+        return maxNAryInnerJoin;
+    }
+
+    public void setMaxContinuousJoin(int joinCount) {
+        if (joinCount > this.joinCount) {
+            this.joinCount = joinCount;
+        }
+    }
+
+    public int getMaxContinuousJoin() {
+        return joinCount;
+    }
+
+    public boolean isDpHyp() {
+        return isDpHyp;
+    }
+
+    public void setDpHyp(boolean dpHyp) {
+        isDpHyp = dpHyp;
+    }
+
+    public boolean isLeadingJoin() {
+        return isLeadingJoin;
+    }
+
+    public void setLeadingJoin(boolean leadingJoin) {
+        isLeadingJoin = leadingJoin;
+    }
+
+    public boolean isOtherJoinReorder() {
+        return isOtherJoinReorder;
+    }
+
+    public void setOtherJoinReorder(boolean otherJoinReorder) {
+        isOtherJoinReorder = otherJoinReorder;
+    }
+
+    public ExprId getNextExprId() {
+        return exprIdGenerator.getNextId();
+    }
+
+    public CTEId getNextCTEId() {
+        return cteIdGenerator.getNextId();
+    }
+
+    public ObjectId getNextObjectId() {
+        return objectIdGenerator.getNextId();
+    }
+
+    public RelationId getNextRelationId() {
+        return relationIdGenerator.getNextId();
     }
 
     public void setParsedStatement(StatementBase parsedStatement) {
         this.parsedStatement = parsedStatement;
+    }
+
+    /** getOrRegisterCache */
+    public synchronized <T> T getOrRegisterCache(String key, Supplier<T> cacheSupplier) {
+        Supplier<T> supplier = (Supplier<T>) contextCacheMap.get(key);
+        if (supplier == null) {
+            contextCacheMap.put(key, (Supplier<Object>) Suppliers.memoize(cacheSupplier));
+            supplier = cacheSupplier;
+        }
+        return supplier.get();
+    }
+
+    public Map<String, Hint> getHintMap() {
+        return hintMap;
+    }
+
+    public ColumnAliasGenerator getColumnAliasGenerator() {
+        return columnAliasGenerator == null
+            ? columnAliasGenerator = new ColumnAliasGenerator()
+            : columnAliasGenerator;
+    }
+
+    public String generateColumnName() {
+        return getColumnAliasGenerator().getNextAlias();
+    }
+
+    public StatementBase getParsedStatement() {
+        return parsedStatement;
+    }
+
+    public Map<CTEId, Set<LogicalCTEConsumer>> getCteIdToConsumers() {
+        return cteIdToConsumers;
+    }
+
+    public Map<CTEId, Set<NamedExpression>> getCteIdToProjects() {
+        return cteIdToProjects;
+    }
+
+    public Map<RelationId, Set<Expression>> getConsumerIdToFilters() {
+        return consumerIdToFilters;
+    }
+
+    public Map<CTEId, Set<RelationId>> getCteIdToConsumerUnderProjects() {
+        return cteIdToConsumerUnderProjects;
+    }
+
+    public Map<CTEId, List<Pair<Map<Slot, Slot>, Group>>> getCteIdToConsumerGroup() {
+        return cteIdToConsumerGroup;
+    }
+
+    public Map<CTEId, LogicalPlan> getRewrittenCtePlan() {
+        return rewrittenCtePlan;
+    }
+
+    public void addViewDdlSql(String ddlSql) {
+        this.viewDdlSqlSet.add(ddlSql);
+    }
+
+    public List<String> getViewDdlSqls() {
+        return ImmutableList.copyOf(viewDdlSqlSet);
     }
 }

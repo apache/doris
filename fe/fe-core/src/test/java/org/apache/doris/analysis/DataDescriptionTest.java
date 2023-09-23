@@ -20,13 +20,14 @@ package org.apache.doris.analysis;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.MockedAuth;
-import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 
@@ -39,13 +40,15 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 public class DataDescriptionTest {
 
     @Mocked
-    private PaloAuth auth;
+    private AccessControllerManager accessManager;
     @Mocked
     private ConnectContext ctx;
     @Mocked
@@ -61,7 +64,7 @@ public class DataDescriptionTest {
 
     @Before
     public void setUp() throws AnalysisException {
-        MockedAuth.mockedAuth(auth);
+        MockedAuth.mockedAccess(accessManager);
         MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
         new Expectations() {
             {
@@ -128,7 +131,7 @@ public class DataDescriptionTest {
         desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
                 Lists.newArrayList("col1", "col2"), new Separator(","), "csv", null, false, null, null, whereExpr, LoadTask.MergeType.MERGE, whereExpr, null, null);
         desc.analyze("testDb");
-        Assert.assertEquals("MERGE DATA INFILE ('abc.txt') INTO TABLE testTable COLUMNS TERMINATED BY ',' (col1, col2) WHERE 1 = 1 DELETE ON 1 = 1", desc.toString());
+        Assert.assertEquals("MERGE DATA INFILE ('abc.txt') INTO TABLE testTable COLUMNS TERMINATED BY ',' FORMAT AS 'csv' (col1, col2) WHERE 1 = 1 DELETE ON 1 = 1", desc.toString());
         Assert.assertEquals("1 = 1", desc.getWhereExpr().toSql());
         Assert.assertEquals("1 = 1", desc.getDeleteCondition().toSql());
         Assert.assertEquals(",", desc.getColumnSeparator());
@@ -371,5 +374,55 @@ public class DataDescriptionTest {
             }
         };
         desc.analyze("testDb");
+    }
+
+    @Test
+    public void testMysqlLoadData() throws AnalysisException {
+        TableName tbl = new TableName(null, "testDb", "testTable");
+        List<Expr> params = Lists.newArrayList();
+        params.add(new StringLiteral("day"));
+        params.add(new SlotRef(null, "k2"));
+        BinaryPredicate predicate =
+                new BinaryPredicate(Operator.EQ, new SlotRef(null, "k1"), new FunctionCallExpr("bitmap_dict", params));
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put("line_delimiter", "abc");
+        DataDescription desc =
+                new DataDescription(tbl, new PartitionNames(false, Lists.newArrayList("p1", "p2")), "abc.txt", true,
+                        Lists.newArrayList("k1", "k2", "v1"), new Separator("010203"), new Separator("040506"), 0,
+                        Lists.newArrayList(predicate), properties);
+        String db = desc.analyzeFullDbName(null, analyzer);
+        Assert.assertEquals("default_cluster:testDb", db);
+        Assert.assertEquals("default_cluster:testDb", desc.getDbName());
+        db = desc.analyzeFullDbName("testCluster:testDb1", analyzer);
+        Assert.assertEquals("testCluster:testDb1", db);
+        Assert.assertEquals("testCluster:testDb1", desc.getDbName());
+
+        desc.analyze("testDb1");
+        Assert.assertEquals(1, desc.getFilePaths().size());
+        Assert.assertEquals("abc.txt", desc.getFilePaths().get(0));
+
+        Assert.assertEquals(2, desc.getPartitionNames().getPartitionNames().size());
+        Assert.assertEquals("p1", desc.getPartitionNames().getPartitionNames().get(0));
+        Assert.assertEquals("p2", desc.getPartitionNames().getPartitionNames().get(1));
+
+        Assert.assertEquals("040506", desc.getLineDelimiter());
+        Assert.assertEquals("010203", desc.getColumnSeparator());
+        String sql = "DATA LOCAL INFILE 'abc.txt' "
+                + "INTO TABLE testDb1.testTable "
+                + "PARTITIONS (p1, p2) "
+                + "COLUMNS TERMINATED BY '010203' "
+                + "LINES TERMINATED BY '040506' "
+                + "(k1, k2, v1) "
+                + "SET (`k1` = bitmap_dict('day', `k2`))";
+        Assert.assertEquals(sql, desc.toSql());
+    }
+
+    @Test(expected = AnalysisException.class)
+    public void testHllFunctionArgsNull() throws AnalysisException {
+        String functionName = FunctionSet.HLL_HASH;
+        List<String> args = new ArrayList<>();
+        args.add(null);
+
+        DataDescription.validateMappingFunction(functionName, args, new HashMap<String, String>(), null, false);
     }
 }

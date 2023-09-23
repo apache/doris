@@ -20,6 +20,11 @@ set -eo pipefail
 
 curdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
+if [[ "$(uname -s)" == 'Darwin' ]] && command -v brew &>/dev/null; then
+    PATH="$(brew --prefix)/opt/gnu-getopt/bin:${PATH}"
+    export PATH
+fi
+
 OPTS="$(getopt \
     -n "$0" \
     -o '' \
@@ -62,7 +67,7 @@ export JAVA_OPTS="-Xmx1024m -Dfile.encoding=UTF-8"
 export BROKER_LOG_DIR="${BROKER_HOME}/log"
 # java
 if [[ -z "${JAVA_HOME}" ]]; then
-    JAVA="$(which java)"
+    JAVA="$(command -v java)"
 else
     JAVA="${JAVA_HOME}/bin/java"
 fi
@@ -110,7 +115,7 @@ date >>"${BROKER_LOG_DIR}/apache_hdfs_broker.out"
 if [[ ${RUN_DAEMON} -eq 1 ]]; then
     nohup ${LIMIT:+${LIMIT}} "${JAVA}" ${JAVA_OPTS:+${JAVA_OPTS}} org.apache.doris.broker.hdfs.BrokerBootstrap "$@" >>"${BROKER_LOG_DIR}/apache_hdfs_broker.out" 2>&1 </dev/null &
 else
-    ${LIMIT:+${LIMIT}} "${JAVA}" ${JAVA_OPTS:+${JAVA_OPTS}} org.apache.doris.broker.hdfs.BrokerBootstrap "$@" >>"${BROKER_LOG_DIR}/apache_hdfs_broker.out" 2>&1 </dev/null
+    ${LIMIT:+${LIMIT}} "${JAVA}" ${JAVA_OPTS:+${JAVA_OPTS}} org.apache.doris.broker.hdfs.BrokerBootstrap "$@" 2>&1 </dev/null
 fi
 
 echo $! >"${pidfile}"

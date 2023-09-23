@@ -21,6 +21,8 @@ import com.google.common.math.LongMath;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.math.BigDecimal;
+
 public class CheckedMath {
 
     private static final Logger LOG = LogManager.getLogger(CheckedMath.class);
@@ -36,6 +38,16 @@ public class CheckedMath {
             LOG.warn("overflow when multiplying longs: " + a + ", " + b);
             return Long.MAX_VALUE;
         }
+    }
+
+    public static double checkedMultiply(double a, double b) {
+        BigDecimal d1 = new BigDecimal(a);
+        BigDecimal d2 = new BigDecimal(b);
+        BigDecimal result = d1.multiply(d2);
+        if (result.compareTo(new BigDecimal(Double.MAX_VALUE)) > 0) {
+            return Double.MAX_VALUE;
+        }
+        return result.doubleValue();
     }
 
     /**

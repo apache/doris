@@ -42,6 +42,7 @@ public class MVColumnHLLUnionPatternTest {
         List<Expr> child0Params = Lists.newArrayList();
         child0Params.add(slotRef);
         FunctionCallExpr child0 = new FunctionCallExpr(FunctionSet.HLL_HASH, child0Params);
+        child0.setType(Type.HLL);
         List<Expr> params = Lists.newArrayList();
         params.add(child0);
         FunctionCallExpr expr = new FunctionCallExpr(FunctionSet.HLL_UNION, params);
@@ -63,6 +64,7 @@ public class MVColumnHLLUnionPatternTest {
         List<Expr> child0Params = Lists.newArrayList();
         child0Params.add(castExpr);
         FunctionCallExpr child0 = new FunctionCallExpr(FunctionSet.HLL_HASH, child0Params);
+        child0.setType(Type.HLL);
         List<Expr> params = Lists.newArrayList();
         params.add(child0);
         FunctionCallExpr expr = new FunctionCallExpr(FunctionSet.HLL_UNION, params);
@@ -78,6 +80,7 @@ public class MVColumnHLLUnionPatternTest {
         List<Expr> child0Params = Lists.newArrayList();
         child0Params.add(slotRef);
         FunctionCallExpr child0 = new FunctionCallExpr(FunctionSet.HLL_HASH.toUpperCase(), child0Params);
+        child0.setType(Type.HLL);
         List<Expr> params = Lists.newArrayList();
         params.add(child0);
         FunctionCallExpr expr = new FunctionCallExpr(FunctionSet.HLL_UNION.toUpperCase(), params);
@@ -103,6 +106,7 @@ public class MVColumnHLLUnionPatternTest {
         List<Expr> child0Params = Lists.newArrayList();
         child0Params.add(intLiteral);
         FunctionCallExpr child0 = new FunctionCallExpr(FunctionSet.HLL_HASH, child0Params);
+        child0.setType(Type.HLL);
         List<Expr> params = Lists.newArrayList();
         params.add(child0);
         FunctionCallExpr expr = new FunctionCallExpr(FunctionSet.HLL_UNION, params);
@@ -119,6 +123,7 @@ public class MVColumnHLLUnionPatternTest {
         List<Expr> child0Params = Lists.newArrayList();
         child0Params.add(slotRef);
         FunctionCallExpr child0 = new FunctionCallExpr(FunctionSet.HLL_HASH, child0Params);
+        child0.setType(Type.HLL);
         List<Expr> params = Lists.newArrayList();
         params.add(child0);
         FunctionCallExpr expr = new FunctionCallExpr(FunctionSet.HLL_UNION, params);

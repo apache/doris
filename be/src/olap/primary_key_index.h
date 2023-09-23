@@ -17,11 +17,15 @@
 
 #pragma once
 
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <memory>
+
 #include "common/status.h"
-#include "gen_cpp/segment_v2.pb.h"
-#include "io/fs/file_writer.h"
+#include "io/fs/file_reader_writer_fwd.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
-#include "olap/rowset/segment_v2/bloom_filter_index_reader.h"
 #include "olap/rowset/segment_v2/bloom_filter_index_writer.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/rowset/segment_v2/indexed_column_writer.h"
@@ -29,6 +33,14 @@
 #include "util/slice.h"
 
 namespace doris {
+class TypeInfo;
+
+namespace io {
+class FileWriter;
+} // namespace io
+namespace segment_v2 {
+class PrimaryKeyIndexMetaPB;
+} // namespace segment_v2
 
 // Build index for primary key.
 // The primary key index is designed in a similar way like RocksDB
@@ -39,7 +51,11 @@ namespace doris {
 class PrimaryKeyIndexBuilder {
 public:
     PrimaryKeyIndexBuilder(io::FileWriter* file_writer, size_t seq_col_length)
-            : _file_writer(file_writer), _num_rows(0), _size(0), _seq_col_length(seq_col_length) {}
+            : _file_writer(file_writer),
+              _num_rows(0),
+              _size(0),
+              _disk_size(0),
+              _seq_col_length(seq_col_length) {}
 
     Status init();
 
@@ -48,6 +64,8 @@ public:
     uint32_t num_rows() const { return _num_rows; }
 
     uint64_t size() const { return _size; }
+
+    uint64_t disk_size() const { return _disk_size; }
 
     Slice min_key() { return Slice(_min_key.data(), _min_key.size() - _seq_col_length); }
     Slice max_key() { return Slice(_max_key.data(), _max_key.size() - _seq_col_length); }
@@ -58,6 +76,7 @@ private:
     io::FileWriter* _file_writer = nullptr;
     uint32_t _num_rows;
     uint64_t _size;
+    uint64_t _disk_size;
     size_t _seq_col_length;
 
     faststring _min_key;

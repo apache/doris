@@ -1,7 +1,7 @@
 ---
 {
     "title": "How to Become Doris Committer",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 

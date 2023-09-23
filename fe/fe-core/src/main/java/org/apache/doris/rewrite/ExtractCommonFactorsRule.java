@@ -20,12 +20,15 @@ package org.apache.doris.rewrite;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CompoundPredicate;
+import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.planner.PlanNode;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.BoundType;
@@ -40,10 +43,13 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * This rule extracts common predicate from multiple disjunctions when it is applied
@@ -66,21 +72,29 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
 
     @Override
     public Expr apply(Expr expr, Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException {
+        Expr resultExpr = null;
         if (expr == null) {
             return null;
         } else if (expr instanceof CompoundPredicate
                 && ((CompoundPredicate) expr).getOp() == CompoundPredicate.Operator.OR) {
-            Expr rewrittenExpr = extractCommonFactors(exprFormatting((CompoundPredicate) expr), analyzer);
+            Expr rewrittenExpr = extractCommonFactors(exprFormatting((CompoundPredicate) expr), analyzer, clauseType);
             if (rewrittenExpr != null) {
                 return rewrittenExpr;
             }
         } else {
-            for (int i = 0; i < expr.getChildren().size(); i++) {
+            if (!(expr instanceof CompoundPredicate)) {
+                return expr;
+            }
+
+            resultExpr = expr.clone();
+
+            for (int i = 0; i < resultExpr.getChildren().size(); i++) {
                 Expr rewrittenExpr = apply(expr.getChild(i), analyzer, clauseType);
                 if (rewrittenExpr != null) {
-                    expr.setChild(i, rewrittenExpr);
+                    resultExpr.setChild(i, rewrittenExpr);
                 }
             }
+            return resultExpr;
         }
         return expr;
     }
@@ -101,7 +115,8 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
      * 4. Construct new expr:
      * @return: a and b' and (b or (e and f))
      */
-    private Expr extractCommonFactors(List<List<Expr>> exprs, Analyzer analyzer) {
+    private Expr extractCommonFactors(List<List<Expr>> exprs, Analyzer analyzer, ExprRewriter.ClauseType clauseType)
+            throws AnalysisException {
         if (exprs.size() < 2) {
             return null;
         }
@@ -156,9 +171,11 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
         }
 
         // 3. find merge cross the clause
-        if (analyzer.getContext() != null && analyzer.getContext().getSessionVariable().isExtractWideRangeExpr()) {
+        if (analyzer.getContext() != null
+                && analyzer.getContext().getSessionVariable().isExtractWideRangeExpr()) {
             Expr wideCommonExpr = findWideRangeExpr(clearExprs);
-            if (wideCommonExpr != null) {
+            if (wideCommonExpr != null && !(wideCommonExpr instanceof CompoundPredicate
+                    && ((CompoundPredicate) wideCommonExpr).getOp() == Operator.OR)) {
                 commonFactorList.add(wideCommonExpr);
             }
         }
@@ -173,12 +190,19 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
         }
         Expr result = null;
         if (CollectionUtils.isNotEmpty(commonFactorList)) {
+            commonFactorList = commonFactorList.stream().map(expr -> {
+                try {
+                    return apply(expr, analyzer, clauseType);
+                } catch (AnalysisException e) {
+                    throw new RuntimeException(e);
+                }
+            }).collect(Collectors.toList());
             result = new CompoundPredicate(CompoundPredicate.Operator.AND,
                     makeCompound(commonFactorList, CompoundPredicate.Operator.AND),
-                    makeCompound(remainingOrClause, CompoundPredicate.Operator.OR));
+                    makeCompoundRemaining(remainingOrClause, CompoundPredicate.Operator.OR, analyzer, clauseType));
             result.setPrintSqlInParens(true);
         } else {
-            result = makeCompound(remainingOrClause, CompoundPredicate.Operator.OR);
+            result = makeCompoundRemaining(remainingOrClause, CompoundPredicate.Operator.OR, analyzer, clauseType);
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("equal ors: " + result.toSql());
@@ -205,7 +229,7 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
                 if (!singleColumnPredicate(predicate)) {
                     continue;
                 }
-                SlotRef columnName = (SlotRef) predicate.getChild(0);
+                SlotRef columnName = (SlotRef) predicate.getChildWithoutCast(0);
                 if (predicate instanceof BinaryPredicate) {
                     Range<LiteralExpr> predicateRange = ((BinaryPredicate) predicate).convertToRange();
                     if (predicateRange == null) {
@@ -295,14 +319,14 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
             if (inPredicate.isNotIn()) {
                 return false;
             }
-            if (inPredicate.getChild(0) instanceof SlotRef) {
+            if (inPredicate.getChildWithoutCast(0) instanceof SlotRef) {
                 return true;
             }
             return false;
         } else if (expr instanceof BinaryPredicate) {
             BinaryPredicate binaryPredicate = (BinaryPredicate) expr;
-            if (binaryPredicate.getChild(0) instanceof SlotRef
-                    && binaryPredicate.getChild(1) instanceof LiteralExpr) {
+            if (binaryPredicate.getChildWithoutCast(0) instanceof SlotRef
+                    && binaryPredicate.getChildWithoutCast(1) instanceof LiteralExpr) {
                 return true;
             }
             return false;
@@ -395,6 +419,11 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
 
     /**
      * Rebuild CompoundPredicate, [a, e, f] AND => a and e and f
+     * Rewrite  OR :[a, b, c]
+     *          while (a.columnName == b.columnName == c.columnName) && (a,b,c)
+     *          instance of (BinaryPredicate, InPredicate)
+     *          && (a,b,c).op = BinaryPredicate.Operator.EQ =======>>>>>>
+     *          =======>>>>>>  columnName IN (a.value,b.value,c.value)
      */
     private Expr makeCompound(List<Expr> exprs, CompoundPredicate.Operator op) {
         if (CollectionUtils.isEmpty(exprs)) {
@@ -409,6 +438,164 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
         }
         result.setPrintSqlInParens(true);
         return result;
+    }
+
+    private Expr makeCompoundRemaining(List<Expr> exprs, CompoundPredicate.Operator op,
+            Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException {
+        if (CollectionUtils.isEmpty(exprs)) {
+            return null;
+        }
+        if (exprs.size() == 1) {
+            return exprs.get(0);
+        }
+
+        Expr rewritePredicate = null;
+        // only OR will be rewrite to IN
+        if (op == CompoundPredicate.Operator.OR) {
+            rewritePredicate = rewriteOrToIn(exprs, analyzer, clauseType);
+            // IF rewrite finished, rewritePredicate will not be null
+            // IF not rewrite, do compoundPredicate
+            if (rewritePredicate != null) {
+                return rewritePredicate;
+            }
+        }
+
+        CompoundPredicate result = new CompoundPredicate(op, exprs.get(0), exprs.get(1));
+        for (int i = 2; i < exprs.size(); i++) {
+            result = new CompoundPredicate(op, result.clone(), exprs.get(i));
+        }
+        result.setPrintSqlInParens(true);
+        return result;
+    }
+
+    private Expr rewriteOrToIn(List<Expr> exprs, Analyzer analyzer, ExprRewriter.ClauseType clauseType)
+            throws AnalysisException {
+        // remainingOR  expr = BP IP
+        InPredicate inPredicate = null;
+        int rewriteThreshold;
+        if (ConnectContext.get() == null) {
+            rewriteThreshold = 2;
+        } else {
+            rewriteThreshold = ConnectContext.get().getSessionVariable().getRewriteOrToInPredicateThreshold();
+        }
+        List<Expr> notMergedExprs = Lists.newArrayList();
+        /**
+         * col1= 1 or col1=2 or col2=3 or col2=4 or col1 != 5 or col1 not in (2)
+         * ==>
+         * slotNameToMergeExprsMap:
+         *  {
+         *      col1:[col1=1, col1=2],
+         *      col2:[col2=3, col2=4]
+         *  }
+         * notMergedExprs: [col1 != 5, col1 not in (2)]
+         */
+        Map<String, List<Expr>> slotNameToMergeExprsMap = new HashMap<>();
+        /*
+        slotNameForMerge is keys of slotNameToMergeExprsMap, but reserves slot orders in original expr.
+        To reserve orders, we can get stable output, and hence good for unit/regression test.
+         */
+        List<String> slotNameForMerge = Lists.newArrayList();
+
+        for (int i = 0; i < exprs.size(); i++) {
+            Expr predicate = exprs.get(i);
+            if (predicate instanceof CompoundPredicate
+                    && ((CompoundPredicate) predicate).getOp() == Operator.AND) {
+                CompoundPredicate and = (CompoundPredicate) predicate;
+                Expr left = and.getChild(0);
+                if (left instanceof CompoundPredicate) {
+                    left = apply(and.getChild(0), analyzer, clauseType);
+                    if (CompoundPredicate.isOr(left)) {
+                        left.setPrintSqlInParens(true);
+                    }
+                }
+                Expr right = and.getChild(1);
+                if (right instanceof CompoundPredicate) {
+                    right = apply(and.getChild(1), analyzer, clauseType);
+                    if (CompoundPredicate.isOr(right)) {
+                        right.setPrintSqlInParens(true);
+                    }
+                }
+                notMergedExprs.add(new CompoundPredicate(Operator.AND, left, right));
+            } else if (!(predicate instanceof BinaryPredicate) && !(predicate instanceof InPredicate)) {
+                notMergedExprs.add(predicate);
+            } else if (!(predicate.getChildWithoutCast(0) instanceof SlotRef)) {
+                notMergedExprs.add(predicate);
+            } else if (!(predicate.getChildWithoutCast(1) instanceof LiteralExpr)) {
+                notMergedExprs.add(predicate);
+            } else if (predicate instanceof BinaryPredicate
+                    && ((BinaryPredicate) predicate).getOp() != BinaryPredicate.Operator.EQ) {
+                notMergedExprs.add(predicate);
+            } else if (predicate instanceof InPredicate
+                    && ((InPredicate) predicate).isNotIn()) {
+                notMergedExprs.add(predicate);
+            } else {
+                TableName tableName = ((SlotRef) predicate.getChildWithoutCast(0)).getTableName();
+                String columnWithTable;
+                if (tableName != null) {
+                    String tblName = tableName.toString();
+                    columnWithTable = tblName + "." + ((SlotRef) predicate.getChildWithoutCast(0)).getColumnName();
+                } else {
+                    columnWithTable = ((SlotRef) predicate.getChildWithoutCast(0)).getColumnName();
+                }
+                slotNameToMergeExprsMap.computeIfAbsent(columnWithTable, key -> {
+                    slotNameForMerge.add(columnWithTable);
+                    return Lists.newArrayList();
+                });
+
+                slotNameToMergeExprsMap.get(columnWithTable).add(predicate);
+            }
+        }
+        Expr notMerged = null;
+        if (!notMergedExprs.isEmpty()) {
+            notMerged = CompoundPredicate.createDisjunctivePredicate(notMergedExprs);
+        }
+        List<Expr> rewritten = Lists.newArrayList();
+        if (!slotNameToMergeExprsMap.isEmpty()) {
+            for (String columnNameWithTable : slotNameForMerge) {
+                List<Expr> toMerge = slotNameToMergeExprsMap.get(columnNameWithTable);
+                if (toMerge.size() < rewriteThreshold) {
+                    rewritten.addAll(toMerge);
+                } else {
+                    List<Expr> deduplicationExprs = getDeduplicationList(toMerge);
+                    inPredicate = new InPredicate(deduplicationExprs.get(0),
+                            deduplicationExprs.subList(1, deduplicationExprs.size()), false);
+                    rewritten.add(inPredicate);
+                }
+            }
+        }
+        if (rewritten.isEmpty()) {
+            return notMerged;
+        } else {
+            if (notMerged != null) {
+                rewritten.add(notMerged);
+            }
+            return CompoundPredicate.createDisjunctivePredicate(rewritten);
+        }
+    }
+
+    public List<Expr> getDeduplicationList(List<Expr> exprs) {
+        Set<Expr> set = new HashSet<>();
+        List<Expr> deduplicationExprList = new ArrayList<>();
+
+        deduplicationExprList.add(exprs.get(0).getChild(0));
+
+        for (Expr expr : exprs) {
+            if (expr instanceof BinaryPredicate) {
+                if (!set.contains(expr.getChild(1))) {
+                    set.add(expr.getChild(1));
+                    deduplicationExprList.add(expr.getChild(1));
+                }
+            } else {
+                List<Expr> childrenExprs = expr.getChildren();
+                for (Expr childrenExpr : childrenExprs.subList(1, childrenExprs.size())) {
+                    if (!set.contains(childrenExpr)) {
+                        set.add(childrenExpr);
+                        deduplicationExprList.add(childrenExpr);
+                    }
+                }
+            }
+        }
+        return deduplicationExprList;
     }
 
     /**

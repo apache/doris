@@ -109,6 +109,11 @@ public class LocalJournal implements Journal {
     }
 
     @Override
+    public long getJournalNum() {
+        return 0;
+    }
+
+    @Override
     public void close() {
         if (outputStream == null) {
             return;
@@ -135,11 +140,11 @@ public class LocalJournal implements Journal {
     }
 
     @Override
-    public synchronized void write(short op, Writable writable) throws IOException {
+    public synchronized long write(short op, Writable writable) throws IOException {
         outputStream.write(op, writable);
         outputStream.setReadyToFlush();
         outputStream.flush();
-        journalId.incrementAndGet();
+        return journalId.incrementAndGet();
     }
 
     @Override

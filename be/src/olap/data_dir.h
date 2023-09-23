@@ -17,28 +17,31 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+#include <stddef.h>
+
+#include <atomic>
 #include <condition_variable>
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <set>
 #include <shared_mutex>
 #include <string>
+#include <vector>
 
 #include "common/status.h"
-#include "env/env.h"
-#include "gen_cpp/Types_types.h"
-#include "gen_cpp/olap_file.pb.h"
 #include "io/fs/file_system.h"
 #include "olap/olap_common.h"
-#include "olap/rowset/rowset_id_generator.h"
 #include "util/metrics.h"
 
 namespace doris {
 
 class Tablet;
 class TabletManager;
-class TabletMeta;
 class TxnManager;
+class OlapMeta;
+class RowsetIdGenerator;
 
 // A DataDir used to manage data in same path.
 // Now, After DataDir was created, it will never be deleted for easy implementation.
@@ -55,10 +58,9 @@ public:
     const std::string& path() const { return _path; }
     size_t path_hash() const { return _path_hash; }
 
-    const io::FileSystemPtr& fs() const { return _fs; }
+    const io::FileSystemSPtr& fs() const { return _fs; }
 
     bool is_used() const { return _is_used; }
-    void set_is_used(bool is_used) { _is_used = is_used; }
     int32_t cluster_id() const { return _cluster_id; }
     bool cluster_id_incomplete() const { return _cluster_id_incomplete; }
 
@@ -68,6 +70,7 @@ public:
         info.path_hash = _path_hash;
         info.disk_capacity = _disk_capacity_bytes;
         info.available = _available_bytes;
+        info.trash_used_capacity = _trash_used_bytes;
         info.is_used = _is_used;
         info.storage_medium = _storage_medium;
         return info;
@@ -84,8 +87,6 @@ public:
     OlapMeta* get_meta() { return _meta; }
 
     bool is_ssd_disk() const { return _storage_medium == TStorageMedium::SSD; }
-
-    bool is_remote() const { return FilePathDesc::is_remote(_storage_medium); }
 
     TStorageMedium::type storage_medium() const { return _storage_medium; }
 
@@ -110,7 +111,7 @@ public:
 
     // this function scans the paths in data dir to collect the paths to check
     // this is a producer function. After scan, it will notify the perform_path_gc function to gc
-    void perform_path_scan();
+    Status perform_path_scan();
 
     void perform_path_gc_by_rowsetid();
 
@@ -130,11 +131,17 @@ public:
 
     Status update_capacity();
 
+    void update_trash_capacity();
+
     void update_local_data_size(int64_t size);
 
     void update_remote_data_size(int64_t size);
 
-    size_t tablet_size() const;
+    size_t disk_capacity() const;
+
+    size_t disk_available() const;
+
+    size_t tablet_num() const;
 
     void disks_compaction_score_increment(int64_t delta);
 
@@ -145,12 +152,12 @@ public:
 
 private:
     Status _init_cluster_id();
-    Status _init_capacity();
+    Status _init_capacity_and_create_shards();
     Status _init_meta();
 
     Status _check_disk();
     Status _read_and_write_test_file();
-    Status read_cluster_id(Env* env, const std::string& cluster_id_path, int32_t* cluster_id);
+    Status read_cluster_id(const std::string& cluster_id_path, int32_t* cluster_id);
     Status _write_cluster_id_to_path(const std::string& path, int32_t cluster_id);
     // Check whether has old format (hdr_ start) in olap. When doris updating to current version,
     // it may lead to data missing. When conf::storage_strict_check_incompatible_old_format is true,
@@ -164,20 +171,17 @@ private:
     bool _check_pending_ids(const std::string& id);
 
 private:
-    bool _stop_bg_worker = false;
+    std::atomic<bool> _stop_bg_worker = false;
 
     std::string _path;
     size_t _path_hash;
 
-    io::FileSystemPtr _fs;
-    // user specified capacity
-    int64_t _capacity_bytes;
+    io::FileSystemSPtr _fs;
     // the actual available capacity of the disk of this data dir
-    // NOTICE that _available_bytes may be larger than _capacity_bytes, if capacity is set
-    // by user, not the disk's actual capacity
-    int64_t _available_bytes;
+    size_t _available_bytes;
     // the actual capacity of the disk of this data dir
-    int64_t _disk_capacity_bytes;
+    size_t _disk_capacity_bytes;
+    size_t _trash_used_bytes;
     TStorageMedium::type _storage_medium;
     bool _is_used;
 
@@ -211,6 +215,7 @@ private:
     IntGauge* disks_avail_capacity;
     IntGauge* disks_local_used_capacity;
     IntGauge* disks_remote_used_capacity;
+    IntGauge* disks_trash_used_capacity;
     IntGauge* disks_state;
     IntGauge* disks_compaction_score;
     IntGauge* disks_compaction_num;

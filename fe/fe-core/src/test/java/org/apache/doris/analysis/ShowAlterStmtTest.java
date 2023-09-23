@@ -44,7 +44,7 @@ public class ShowAlterStmtTest {
 
         FakeEnv.setEnv(env);
 
-        analyzer = new Analyzer(env, new ConnectContext(null));
+        analyzer = new Analyzer(env, new ConnectContext());
         new Expectations(analyzer) {
             {
                 analyzer.getDefaultDb();

@@ -40,7 +40,7 @@ under the License.
 
 - Column： 用于描述一行数据中不同的字段。
 
-  Column 可以分为两大类：Key 和 Value。从业务角度看，Key 和 Value 可以分别对应维度列和指标列。从聚合模型的角度来说，Key 列相同的行，会聚合成一行。其中 Value 列的聚合方式由用户在建表时指定。关于更多聚合模型的介绍，可以参阅 [Doris 数据模型](data-model.md)。
+  Column 可以分为两大类：Key 和 Value。从业务角度看，Key 和 Value 可以分别对应维度列和指标列。Doris的key列是建表语句中指定的列，建表语句中的关键字'unique key'或'aggregate key'或'duplicate key'后面的列就是key列，除了key列剩下的就是value列。从聚合模型的角度来说，Key 列相同的行，会聚合成一行。其中 Value 列的聚合方式由用户在建表时指定。关于更多聚合模型的介绍，可以参阅 [Doris 数据模型](data-model.md)。
 
 ### Tablet & Partition
 
@@ -48,7 +48,7 @@ under the License.
 
 多个 Tablet 在逻辑上归属于不同的分区（Partition）。一个 Tablet 只属于一个 Partition。而一个 Partition 包含若干个 Tablet。因为 Tablet 在物理上是独立存储的，所以可以视为 Partition 在物理上也是独立。Tablet 是数据移动、复制等操作的最小物理存储单元。
 
-若干个 Partition 组成一个 Table。Partition 可以视为是逻辑上最小的管理单元。数据的导入与删除，都可以或仅能针对一个 Partition 进行。
+若干个 Partition 组成一个 Table。Partition 可以视为是逻辑上最小的管理单元。数据的导入与删除，仅能针对一个 Partition 进行。
 
 ## 数据划分
 
@@ -61,7 +61,7 @@ Doris 的建表是一个同步命令，SQL执行完成即返回结果，命令�
 ```sql
 -- Range Partition
 
-CREATE TABLE IF NOT EXISTS example_db.expamle_range_tbl
+CREATE TABLE IF NOT EXISTS example_db.example_range_tbl
 (
     `user_id` LARGEINT NOT NULL COMMENT "用户id",
     `date` DATE NOT NULL COMMENT "数据灌入日期时间",
@@ -93,12 +93,12 @@ PROPERTIES
 
 -- List Partition
 
-CREATE TABLE IF NOT EXISTS example_db.expamle_list_tbl
+CREATE TABLE IF NOT EXISTS example_db.example_list_tbl
 (
     `user_id` LARGEINT NOT NULL COMMENT "用户id",
     `date` DATE NOT NULL COMMENT "数据灌入日期时间",
     `timestamp` DATETIME NOT NULL COMMENT "数据灌入的时间戳",
-    `city` VARCHAR(20) COMMENT "用户所在城市",
+    `city` VARCHAR(20) NOT NULL COMMENT "用户所在城市",
     `age` SMALLINT COMMENT "用户年龄",
     `sex` TINYINT COMMENT "用户性别",
     `last_visit_date` DATETIME REPLACE DEFAULT "1970-01-01 00:00:00" COMMENT "用户最后一次访问时间",
@@ -138,13 +138,12 @@ AGGREGATE KEY 数据模型中，所有没有指定聚合方式（SUM、REPLACE�
 2. 尽量选择整型类型。因为整型类型的计算和查找效率远高于字符串。
 3. 对于不同长度的整型类型的选择原则，遵循 **够用即可**。
 4. 对于 VARCHAR 和 STRING 类型的长度，遵循 **够用即可**。
-5. 所有列的总字节长度（包括 Key 和 Value）不能超过 100KB。
 
 ### 分区和分桶
 
-Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 List 的划分方式。第二层是 Bucket（Tablet），仅支持 Hash 的划分方式。
+Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 List 的划分方式。第二层是 Bucket（Tablet），支持 Hash 和 Random 的划分方式。
 
-也可以仅使用一层分区。使用一层分区时，只支持 Bucket 划分。下面我们来分别介绍下分区以及分桶：
+也可以仅使用一层分区，建表时如果不写分区的语句即可，此时Doris会生成一个默认的分区，对用户是透明的。使用一层分区时，只支持 Bucket 划分。下面我们来分别介绍下分区以及分桶：
 
 1. **Partition**
 
@@ -158,11 +157,20 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
 
    - 分区列通常为时间列，以方便的管理新旧数据。
 
-   - Partition 支持通过 `VALUES LESS THAN (...)` 仅指定上界，系统会将前一个分区的上界作为该分区的下界，生成一个左闭右开的区间。同时，也支持通过 `VALUES [...)` 指定上下界，生成一个左闭右开的区间。
+   - Range 分区支持的列类型：[DATE,DATETIME,TINYINT,SMALLINT,INT,BIGINT,LARGEINT]
 
+   - Partition 支持通过 `VALUES LESS THAN (...)` 仅指定上界，系统会将前一个分区的上界作为该分区的下界，生成一个左闭右开的区间。也支持通过 `VALUES [...)` 指定上下界，生成一个左闭右开的区间。
+   
+<version since="1.2.0">
+   
+   - 同时，也支持通过`FROM(...) TO (...) INTERVAL ...` 来批量创建分区。
+   
+</version>
+
+   
    - 通过 `VALUES [...)` 同时指定上下界比较容易理解。这里举例说明，当使用 `VALUES LESS THAN (...)` 语句进行分区的增删操作时，分区范围的变化情况：
 
-     - 如上 `expamle_range_tbl` 示例，当建表完成后，会自动生成如下3个分区：
+     - 如上 `example_range_tbl` 示例，当建表完成后，会自动生成如下3个分区：
 
        ```text
        p201701: [MIN_VALUE,  2017-02-01)
@@ -233,26 +241,38 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
    
    在以上示例中，我们指定 `date`(DATE 类型) 和 `id`(INT 类型) 作为分区列。以上示例最终得到的分区如下：
    
-   ```
-   * p201701_1000:    [(MIN_VALUE,  MIN_VALUE), ("2017-02-01", "1000")   )
-   * p201702_2000:    [("2017-02-01", "1000"),  ("2017-03-01", "2000")   )
-   * p201703_all:     [("2017-03-01", "2000"),  ("2017-04-01", MIN_VALUE)) 
+   ```text
+       * p201701_1000:    [(MIN_VALUE,  MIN_VALUE), ("2017-02-01", "1000")   )
+       * p201702_2000:    [("2017-02-01", "1000"),  ("2017-03-01", "2000")   )
+       * p201703_all:     [("2017-03-01", "2000"),  ("2017-04-01", MIN_VALUE)) 
    ```
    
    注意，最后一个分区用户缺省只指定了 `date` 列的分区值，所以 `id` 列的分区值会默认填充 `MIN_VALUE`。当用户插入数据时，分区列值会按照顺序依次比较，最终得到对应的分区。举例如下：
    
+   ``` text
+       * 数据  -->  分区
+       * 2017-01-01, 200     --> p201701_1000
+       * 2017-01-01, 2000    --> p201701_1000
+       * 2017-02-01, 100     --> p201701_1000
+       * 2017-02-01, 2000    --> p201702_2000
+       * 2017-02-15, 5000    --> p201702_2000
+       * 2017-03-01, 2000    --> p201703_all
+       * 2017-03-10, 1       --> p201703_all
+       * 2017-04-01, 1000    --> 无法导入
+       * 2017-05-01, 1000    --> 无法导入
    ```
-   * 数据  -->  分区
-   * 2017-01-01, 200     --> p201701_1000
-   * 2017-01-01, 2000    --> p201701_1000
-   * 2017-02-01, 100     --> p201701_1000
-   * 2017-02-01, 2000    --> p201702_2000
-   * 2017-02-15, 5000    --> p201702_2000
-   * 2017-03-01, 2000    --> p201703_all
-   * 2017-03-10, 1       --> p201703_all
-   * 2017-04-01, 1000    --> 无法导入
-   * 2017-05-01, 1000    --> 无法导入
+
+<version since="1.2.0">
+
+   Range分区同样支持**批量分区**， 通过语句 `FROM ("2022-01-03") TO ("2022-01-06") INTERVAL 1 DAY` 批量创建按天划分的分区：2022-01-03到2022-01-06（不含2022-01-06日），分区结果如下：
+
+   ```text
+   p20220103:    [2022-01-03,  2022-01-04)
+   p20220104:    [2022-01-04,  2022-01-05)
+   p20220105:    [2022-01-05,  2022-01-06)
    ```
+
+</version>
 
    **List 分区**
 
@@ -300,31 +320,32 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
    
    在以上示例中，我们指定 `id`(INT 类型) 和 `city`(VARCHAR 类型) 作为分区列。以上示例最终得到的分区如下：
    
-   ```
-   * p1_city: [("1", "Beijing"), ("1", "Shanghai")]
-   * p2_city: [("2", "Beijing"), ("2", "Shanghai")]
-   * p3_city: [("3", "Beijing"), ("3", "Shanghai")]
+   ```text
+     * p1_city: [("1", "Beijing"), ("1", "Shanghai")]
+     * p2_city: [("2", "Beijing"), ("2", "Shanghai")]
+     * p3_city: [("3", "Beijing"), ("3", "Shanghai")]
    ```
    
    当用户插入数据时，分区列值会按照顺序依次比较，最终得到对应的分区。举例如下：
    
-   ```
-   * 数据  --->  分区
-   * 1, Beijing     ---> p1_city
-   * 1, Shanghai    ---> p1_city
-   * 2, Shanghai    ---> p2_city
-   * 3, Beijing     ---> p3_city
-   * 1, Tianjin     ---> 无法导入
-   * 4, Beijing     ---> 无法导入
+   ```text
+     * 数据  --->  分区
+     * 1, Beijing     ---> p1_city
+     * 1, Shanghai    ---> p1_city
+     * 2, Shanghai    ---> p2_city
+     * 3, Beijing     ---> p3_city
+     * 1, Tianjin     ---> 无法导入
+     * 4, Beijing     ---> 无法导入
    ```
 
 2. **Bucket**
 
    - 如果使用了 Partition，则 `DISTRIBUTED ...` 语句描述的是数据在**各个分区内**的划分规则。如果不使用 Partition，则描述的是对整个表的数据的划分规则。
-   - 分桶列可以是多列，但必须为 Key 列。分桶列可以和 Partition 列相同或不同。
+   - 分桶列可以是多列，Aggregate 和 Unique 模型必须为 Key 列，Duplicate 模型可以是 key 列和 value 列。分桶列可以和 Partition 列相同或不同。
    - 分桶列的选择，是在 **查询吞吐** 和 **查询并发** 之间的一种权衡：
      1. 如果选择多个分桶列，则数据分布更均匀。如果一个查询条件不包含所有分桶列的等值条件，那么该查询会触发所有分桶同时扫描，这样查询的吞吐会增加，单个查询的延迟随之降低。这个方式适合大吞吐低并发的查询场景。
      2. 如果仅选择一个或少数分桶列，则对应的点查询可以仅触发一个分桶扫描。此时，当多个点查询并发时，这些查询有较大的概率分别触发不同的分桶扫描，各个查询之间的IO影响较小（尤其当不同桶分布在不同磁盘上时），所以这种方式适合高并发的点查询场景。
+   - AutoBucket: 根据数据量，计算分桶数。 对于分区表，可以根据历史分区的数据量、机器数、盘数，确定一个分桶。
    - 分桶的数量理论上没有上限。
 
 3. **关于 Partition 和 Bucket 的数量和数据量的建议。**
@@ -339,12 +360,18 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
 
    > 注：表的数据量可以通过 [`SHOW DATA`](../sql-manual/sql-reference/Show-Statements/SHOW-DATA.md) 命令查看，结果除以副本数，即表的数据量。
 
+4. **关于 Random Distribution 的设置以及使用场景。**   
+    - 如果 OLAP 表没有更新类型的字段，将表的数据分桶模式设置为 RANDOM，则可以避免严重的数据倾斜(数据在导入表对应的分区的时候，单次导入作业每个 batch 的数据将随机选择一个tablet进行写入)。
+    - 当表的分桶模式被设置为RANDOM 时，因为没有分桶列，无法根据分桶列的值仅对几个分桶查询，对表进行查询的时候将对命中分区的全部分桶同时扫描，该设置适合对表数据整体的聚合查询分析而不适合高并发的点查询。
+    - 如果 OLAP 表的是 Random Distribution 的数据分布，那么在数据导入的时候可以设置单分片导入模式（将 `load_to_single_tablet` 设置为 true），那么在大数据量的导入的时候，一个任务在将数据写入对应的分区时将只写入一个分片，这样将能提高数据导入的并发度和吞吐量，减少数据导入和 Compaction
+    导致的写放大问题，保障集群的稳定性。 
+
 #### 复合分区与单分区
 
 复合分区
 
 - 第一级称为 Partition，即分区。用户可以指定某一维度列作为分区列（当前只支持整型和时间类型的列），并指定每个分区的取值范围。
-- 第二级称为 Distribution，即分桶。用户可以指定一个或多个维度列以及桶数对数据进行 HASH 分布。
+- 第二级称为 Distribution，即分桶。用户可以指定一个或多个维度列以及桶数对数据进行 HASH 分布 或者不指定分桶列设置成 Random Distribution 对数据进行随机分布。
 
 以下场景推荐使用复合分区
 
@@ -387,7 +414,7 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
    - 在 fe.log 中，查找对应时间点的 `Failed to create partition` 日志。在该日志中，会出现一系列类似 `{10001-10010}` 字样的数字对。数字对的第一个数字表示 Backend ID，第二个数字表示 Tablet ID。如上这个数字对，表示 ID 为 10001 的 Backend 上，创建 ID 为 10010 的 Tablet 失败了。
    - 前往对应 Backend 的 be.INFO 日志，查找对应时间段内，tablet id 相关的日志，可以找到错误信息。
    - 以下罗列一些常见的 tablet 创建失败错误，包括但不限于：
-     - BE 没有收到相关 task，此时无法在 be.INFO 中找到 tablet id 相关日志或者 BE 创建成功，但汇报失败。以上问题，请参阅 [安装与部署](../install/install-deploy.md) 检查 FE 和 BE 的连通性。
+     - BE 没有收到相关 task，此时无法在 be.INFO 中找到 tablet id 相关日志或者 BE 创建成功，但汇报失败。以上问题，请参阅 [安装与部署](../install/standard-deployment.md) 检查 FE 和 BE 的连通性。
      - 预分配内存失败。可能是表中一行的字节长度超过了 100KB。
      - `Too many open files`。打开的文件句柄数超过了 Linux 系统限制。需修改 Linux 系统的句柄数限制。
 

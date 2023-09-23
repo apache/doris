@@ -27,20 +27,35 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import java.util.Map;
+
 /**
  * RefreshCatalogStmt
  * Manually refresh the catalog metadata.
  */
 public class RefreshCatalogStmt extends DdlStmt {
+    private static final String INVALID_CACHE = "invalid_cache";
 
     private final String catalogName;
+    private Map<String, String> properties;
 
-    public RefreshCatalogStmt(String catalogName) {
+    /**
+     * Set default value to true, otherwise
+     * {@link org.apache.doris.catalog.RefreshManager.RefreshTask} will lost the default value
+     */
+    private boolean invalidCache = true;
+
+    public RefreshCatalogStmt(String catalogName, Map<String, String> properties) {
         this.catalogName = catalogName;
+        this.properties = properties;
     }
 
     public String getCatalogName() {
         return catalogName;
+    }
+
+    public boolean isInvalidCache() {
+        return invalidCache;
     }
 
     @Override
@@ -51,11 +66,14 @@ public class RefreshCatalogStmt extends DdlStmt {
             throw new AnalysisException("Internal catalog name can't be refresh.");
         }
 
-        if (!Env.getCurrentEnv().getAuth().checkCtlPriv(
+        if (!Env.getCurrentEnv().getAccessManager().checkCtlPriv(
                 ConnectContext.get(), catalogName, PrivPredicate.ALTER)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED,
                     analyzer.getQualifiedUser(), catalogName);
         }
+
+        // Set to false only if user set the property "invalid_cache"="false"
+        invalidCache = !(properties != null && properties.get(INVALID_CACHE).equalsIgnoreCase("false"));
     }
 
     @Override
@@ -64,4 +82,5 @@ public class RefreshCatalogStmt extends DdlStmt {
         stringBuilder.append("REFRESH CATALOG ").append("`").append(catalogName).append("`");
         return stringBuilder.toString();
     }
+
 }

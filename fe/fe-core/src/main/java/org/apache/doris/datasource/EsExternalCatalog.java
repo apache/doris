@@ -17,14 +17,13 @@
 
 package org.apache.doris.datasource;
 
-
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.external.EsExternalDatabase;
 import org.apache.doris.catalog.external.ExternalDatabase;
-import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.DdlException;
+import org.apache.doris.catalog.external.ExternalTable;
+import org.apache.doris.external.elasticsearch.DorisEsException;
 import org.apache.doris.external.elasticsearch.EsRestClient;
-import org.apache.doris.external.elasticsearch.EsUtil;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -32,9 +31,7 @@ import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -44,150 +41,125 @@ import java.util.Map;
 @Getter
 public class EsExternalCatalog extends ExternalCatalog {
     public static final String DEFAULT_DB = "default_db";
+
     private static final Logger LOG = LogManager.getLogger(EsExternalCatalog.class);
-
-    private static final String PROP_HOSTS = "elasticsearch.hosts";
-    private static final String PROP_USERNAME = "elasticsearch.username";
-    private static final String PROP_PASSWORD = "elasticsearch.password";
-    private static final String PROP_DOC_VALUE_SCAN = "elasticsearch.doc_value_scan";
-    private static final String PROP_KEYWORD_SNIFF = "elasticsearch.keyword_sniff";
-    private static final String PROP_NODES_DISCOVERY = "elasticsearch.nodes_discovery";
-    private static final String PROP_SSL = "elasticsearch.ssl";
-
-    // Cache of db name to db id.
-    private Map<String, Long> dbNameToId;
-    private Map<Long, EsExternalDatabase> idToDb;
-
     private EsRestClient esRestClient;
-
-    private String[] nodes;
-
-    private String username = null;
-
-    private String password = null;
-
-    private boolean enableDocValueScan = true;
-
-    private boolean enableKeywordSniff = true;
-
-    private boolean enableSsl = false;
-
-    private boolean enableNodesDiscovery = true;
 
     /**
      * Default constructor for EsExternalCatalog.
      */
-    public EsExternalCatalog(long catalogId, String name, Map<String, String> props) throws DdlException {
-        this.id = catalogId;
-        this.name = name;
-        this.type = "es";
-        validate(props);
-        this.catalogProperty = new CatalogProperty();
-        this.catalogProperty.setProperties(props);
+    public EsExternalCatalog(long catalogId, String name, String resource, Map<String, String> props, String comment) {
+        super(catalogId, name, InitCatalogLog.Type.ES, comment);
+        this.catalogProperty = new CatalogProperty(resource, processCompatibleProperties(props));
     }
 
-    private void validate(Map<String, String> properties) throws DdlException {
-        if (properties == null) {
-            throw new DdlException(
-                    "Please set properties of elasticsearch table, " + "they are: hosts, user, password, index");
+    private Map<String, String> processCompatibleProperties(Map<String, String> props) {
+        // Compatible with "Doris On ES" interfaces
+        Map<String, String> properties = Maps.newHashMap();
+        for (Map.Entry<String, String> kv : props.entrySet()) {
+            properties.put(StringUtils.removeStart(kv.getKey(), EsResource.ES_PROPERTIES_PREFIX), kv.getValue());
         }
-
-        if (StringUtils.isBlank(properties.get(PROP_HOSTS))) {
-            throw new DdlException("Hosts of ES table is null.");
+        // nodes = properties.get(EsResource.HOSTS).trim().split(",");
+        if (properties.containsKey("ssl")) {
+            properties.put(EsResource.HTTP_SSL_ENABLED, properties.remove("ssl"));
         }
-        nodes = properties.get(PROP_HOSTS).trim().split(",");
-        // check protocol
-        for (String seed : nodes) {
-            if (!seed.startsWith("http")) {
-                throw new DdlException("the protocol must be used");
-            }
-            if (properties.containsKey(PROP_SSL)) {
-                enableSsl = EsUtil.getBoolean(properties, PROP_SSL);
-                if (enableSsl && seed.startsWith("http://")) {
-                    throw new DdlException("if ssl_enabled is true, the https protocol must be used");
-                }
-                if (!enableSsl && seed.startsWith("https://")) {
-                    throw new DdlException("if ssl_enabled is false, the http protocol must be used");
-                }
-            }
+        if (properties.containsKey("username")) {
+            properties.put(EsResource.USER, properties.remove("username"));
         }
-
-        if (StringUtils.isNotBlank(properties.get(PROP_USERNAME))) {
-            username = properties.get(PROP_USERNAME).trim();
-        }
-
-        if (StringUtils.isNotBlank(properties.get(PROP_PASSWORD))) {
-            password = properties.get(PROP_PASSWORD).trim();
-        }
-
-        if (properties.containsKey(PROP_DOC_VALUE_SCAN)) {
-            enableDocValueScan = EsUtil.getBoolean(properties, PROP_DOC_VALUE_SCAN);
-        }
-
-        if (properties.containsKey(PROP_KEYWORD_SNIFF)) {
-            enableKeywordSniff = EsUtil.getBoolean(properties, PROP_KEYWORD_SNIFF);
-        }
-
-        if (properties.containsKey(PROP_NODES_DISCOVERY)) {
-            enableNodesDiscovery = EsUtil.getBoolean(properties, PROP_NODES_DISCOVERY);
-        }
-
+        return properties;
     }
 
-    /**
-     * Datasource can't be init when creating because the external datasource may depend on third system.
-     * So you have to make sure the client of third system is initialized before any method was called.
-     */
-    private synchronized void makeSureInitialized() {
-        if (!initialized) {
-            init();
-            initialized = true;
-        }
+    public String[] getNodes() {
+        String hosts = catalogProperty.getOrDefault(EsResource.HOSTS, "");
+        String sslEnabled =
+                catalogProperty.getOrDefault(EsResource.HTTP_SSL_ENABLED, EsResource.HTTP_SSL_ENABLED_DEFAULT_VALUE);
+        String[] hostUrls = hosts.trim().split(",");
+        EsResource.fillUrlsWithSchema(hostUrls, Boolean.parseBoolean(sslEnabled));
+        return hostUrls;
     }
 
-    private void init() {
-        try {
-            validate(this.catalogProperty.getProperties());
-        } catch (DdlException e) {
-            LOG.warn("validate error", e);
-        }
-        dbNameToId = Maps.newConcurrentMap();
-        idToDb = Maps.newConcurrentMap();
-        this.esRestClient = new EsRestClient(this.nodes, this.username, this.password, this.enableSsl);
-        long defaultDbId = Env.getCurrentEnv().getNextId();
-        dbNameToId.put(DEFAULT_DB, defaultDbId);
-        idToDb.put(defaultDbId, new EsExternalDatabase(this, defaultDbId, DEFAULT_DB));
+    public String getUsername() {
+        return catalogProperty.getOrDefault(EsResource.USER, "");
+    }
+
+    public String getPassword() {
+        return catalogProperty.getOrDefault(EsResource.PASSWORD, "");
+    }
+
+    public boolean enableDocValueScan() {
+        return Boolean.parseBoolean(catalogProperty.getOrDefault(EsResource.DOC_VALUE_SCAN,
+                EsResource.DOC_VALUE_SCAN_DEFAULT_VALUE));
+    }
+
+    public boolean enableKeywordSniff() {
+        return Boolean.parseBoolean(catalogProperty.getOrDefault(EsResource.KEYWORD_SNIFF,
+                EsResource.KEYWORD_SNIFF_DEFAULT_VALUE));
+    }
+
+    public boolean enableSsl() {
+        return Boolean.parseBoolean(catalogProperty.getOrDefault(EsResource.HTTP_SSL_ENABLED,
+                EsResource.HTTP_SSL_ENABLED_DEFAULT_VALUE));
+    }
+
+    public boolean enableNodesDiscovery() {
+        return Boolean.parseBoolean(catalogProperty.getOrDefault(EsResource.NODES_DISCOVERY,
+                EsResource.NODES_DISCOVERY_DEFAULT_VALUE));
+    }
+
+    public boolean enableMappingEsId() {
+        return Boolean.parseBoolean(catalogProperty.getOrDefault(EsResource.MAPPING_ES_ID,
+                EsResource.MAPPING_ES_ID_DEFAULT_VALUE));
+    }
+
+    public boolean enableLikePushDown() {
+        return Boolean.parseBoolean(catalogProperty.getOrDefault(EsResource.LIKE_PUSH_DOWN,
+                EsResource.LIKE_PUSH_DOWN_DEFAULT_VALUE));
     }
 
     @Override
-    public List<String> listDatabaseNames(SessionContext ctx) {
-        makeSureInitialized();
-        return new ArrayList<>(dbNameToId.keySet());
+    protected void initLocalObjectsImpl() {
+        esRestClient = new EsRestClient(getNodes(), getUsername(), getPassword(), enableSsl());
+        if (!esRestClient.health()) {
+            throw new DorisEsException("Failed to connect to ES cluster,"
+                    + " please check your ES cluster or your ES catalog configuration.");
+        }
+    }
+
+    @Override
+    protected void init() {
+        InitCatalogLog initCatalogLog = new InitCatalogLog();
+        initCatalogLog.setCatalogId(id);
+        initCatalogLog.setType(logType);
+        if (dbNameToId != null && dbNameToId.containsKey(DEFAULT_DB)) {
+            idToDb.get(dbNameToId.get(DEFAULT_DB)).setUnInitialized(invalidCacheInInit);
+            initCatalogLog.addRefreshDb(dbNameToId.get(DEFAULT_DB));
+        } else {
+            dbNameToId = Maps.newConcurrentMap();
+            idToDb = Maps.newConcurrentMap();
+            long defaultDbId = Env.getCurrentEnv().getNextId();
+            dbNameToId.put(DEFAULT_DB, defaultDbId);
+            ExternalDatabase<? extends ExternalTable> db = getDbForInit(DEFAULT_DB, defaultDbId, logType);
+            idToDb.put(defaultDbId, db);
+            initCatalogLog.addCreateDb(defaultDbId, DEFAULT_DB);
+        }
+        Env.getCurrentEnv().getEditLog().logInitCatalog(initCatalogLog);
     }
 
     @Override
     public List<String> listTableNames(SessionContext ctx, String dbName) {
-        return esRestClient.listTable();
-    }
-
-    @Nullable
-    @Override
-    public ExternalDatabase getDbNullable(String dbName) {
         makeSureInitialized();
-        String realDbName = ClusterNamespace.getNameFromFullName(dbName);
-        if (!dbNameToId.containsKey(realDbName)) {
-            return null;
+        EsExternalDatabase db = (EsExternalDatabase) idToDb.get(dbNameToId.get(dbName));
+        if (db != null && db.isInitialized()) {
+            List<String> names = Lists.newArrayList();
+            db.getTables().forEach(table -> names.add(table.getName()));
+            return names;
+        } else {
+            return esRestClient.listTable();
         }
-        return idToDb.get(dbNameToId.get(realDbName));
     }
 
     @Override
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
         return esRestClient.existIndex(this.esRestClient.getClient(), tblName);
-    }
-
-    @Override
-    public List<Long> getDbIds() {
-        return Lists.newArrayList(dbNameToId.values());
     }
 }

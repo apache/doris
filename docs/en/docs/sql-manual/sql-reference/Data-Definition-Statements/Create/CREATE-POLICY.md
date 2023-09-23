@@ -94,7 +94,10 @@ illustrate：
    ```
 
 2. Create policy for storage
-    1. Create policy on cooldown_datetime
+    1. NOTE
+        - To create a cold hot separation policy, you must first create a resource, and then associate the created resource name when creating a migration policy
+        - Currently, the drop data migration policy is not supported to prevent data from being migrated. If the policy has been deleted, then the system cannot retrieve the data
+    2. Create policy on cooldown_datetime
     ```sql
     CREATE STORAGE POLICY testPolicy
     PROPERTIES(
@@ -102,7 +105,7 @@ illustrate：
       "cooldown_datetime" = "2022-06-08 00:00:00"
     );
     ```
-    2. Create policy on cooldown_ttl
+    3. Create policy on cooldown_ttl
     ```sql
     CREATE STORAGE POLICY testPolicy
     PROPERTIES(
@@ -110,6 +113,10 @@ illustrate：
       "cooldown_ttl" = "1d"
     );
     ```
+    Relevant parameters are as follows:
+    - `storage_resource`:  the storage resource of create
+    - `cooldown_datetime`: Data migration time
+    - `cooldown_ttl`: Countdown of the distance between the migrated data and the current time
 
 ### Keywords
 

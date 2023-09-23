@@ -37,6 +37,7 @@ public class PatternMatcher<INPUT_TYPE extends Plan, OUTPUT_TYPE extends Plan> {
     public final Pattern<INPUT_TYPE> pattern;
     public final RulePromise defaultRulePromise;
     public final MatchedAction<INPUT_TYPE, OUTPUT_TYPE> matchedAction;
+    public final MatchedMultiAction<INPUT_TYPE, OUTPUT_TYPE> matchedMultiAction;
 
     /**
      * PatternMatcher wrap a pattern, defaultRulePromise and matchedAction.
@@ -51,6 +52,16 @@ public class PatternMatcher<INPUT_TYPE extends Plan, OUTPUT_TYPE extends Plan> {
         this.defaultRulePromise = Objects.requireNonNull(
                 defaultRulePromise, "defaultRulePromise can not be null");
         this.matchedAction = Objects.requireNonNull(matchedAction, "matchedAction can not be null");
+        this.matchedMultiAction = null;
+    }
+
+    public PatternMatcher(Pattern<INPUT_TYPE> pattern, RulePromise defaultRulePromise,
+            MatchedMultiAction<INPUT_TYPE, OUTPUT_TYPE> matchedAction) {
+        this.pattern = Objects.requireNonNull(pattern, "pattern can not be null");
+        this.defaultRulePromise = Objects.requireNonNull(
+                defaultRulePromise, "defaultRulePromise can not be null");
+        this.matchedMultiAction = Objects.requireNonNull(matchedAction, "matchedMultiAction can not be null");
+        this.matchedAction = null;
     }
 
     public Rule toRule(RuleType ruleType) {
@@ -68,10 +79,19 @@ public class PatternMatcher<INPUT_TYPE extends Plan, OUTPUT_TYPE extends Plan> {
         return new Rule(ruleType, pattern, rulePromise) {
             @Override
             public List<Plan> transform(Plan originPlan, CascadesContext context) {
-                MatchingContext<INPUT_TYPE> matchingContext =
-                        new MatchingContext<>((INPUT_TYPE) originPlan, pattern, context);
-                OUTPUT_TYPE replacePlan = matchedAction.apply(matchingContext);
-                return ImmutableList.of(replacePlan == null ? originPlan : replacePlan);
+                if (matchedMultiAction != null) {
+                    MatchingContext<INPUT_TYPE> matchingContext =
+                            new MatchingContext<>((INPUT_TYPE) originPlan, pattern, context);
+                    List<OUTPUT_TYPE> replacePlans = matchedMultiAction.apply(matchingContext);
+                    return replacePlans == null || replacePlans.isEmpty()
+                            ? ImmutableList.of(originPlan)
+                            : ImmutableList.copyOf(replacePlans);
+                } else {
+                    MatchingContext<INPUT_TYPE> matchingContext =
+                            new MatchingContext<>((INPUT_TYPE) originPlan, pattern, context);
+                    OUTPUT_TYPE replacePlan = matchedAction.apply(matchingContext);
+                    return ImmutableList.of(replacePlan == null ? originPlan : replacePlan);
+                }
             }
         };
     }

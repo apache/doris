@@ -33,6 +33,8 @@ import com.sleepycat.je.Environment;
 import com.sleepycat.je.EnvironmentConfig;
 import com.sleepycat.je.LockMode;
 import com.sleepycat.je.OperationStatus;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 
@@ -44,7 +46,7 @@ import java.util.List;
 import java.util.Map;
 
 public class BDBTool {
-
+    private static final Logger LOG = LogManager.getLogger(BDBTool.class);
     private String metaPath;
     private BDBToolOptions options;
 
@@ -63,7 +65,7 @@ public class BDBTool {
         try {
             env = new Environment(new File(metaPath), envConfig);
         } catch (DatabaseException e) {
-            e.printStackTrace();
+            LOG.warn("", e);
             System.err.println("Failed to open BDBJE env: " + Env.getCurrentEnv().getBdbDir() + ". exit");
             return false;
         }
@@ -129,7 +131,7 @@ public class BDBTool {
                 }
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            LOG.warn("", e);
             System.err.println("Failed to run bdb tools");
             return false;
         }
@@ -152,7 +154,7 @@ public class BDBTool {
             try {
                 entity.readFields(in);
             } catch (Exception e) {
-                e.printStackTrace();
+                LOG.warn("", e);
                 System.err.println("Fail to read journal entity for key: " + key + ". reason: " + e.getMessage());
                 System.exit(-1);
             }

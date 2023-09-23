@@ -1441,10 +1441,6 @@
 <text text-anchor="" x="1096.63" y="171.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
 </g>
 <g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
-<title>doris::SegmentGroup::find_short_key (86 samples, 0.06%)</title><rect x="1180.9" y="193" width="0.6" height="15.0" fill="rgb(219,48,22)" rx="2" ry="2" />
-<text text-anchor="" x="1183.87" y="203.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
-</g>
-<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
 <title>doris::ReadOnlyFileStream::_assure_data (46 samples, 0.03%)</title><rect x="1150.2" y="97" width="0.4" height="15.0" fill="rgb(247,11,43)" rx="2" ry="2" />
 <text text-anchor="" x="1153.21" y="107.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
 </g>
@@ -1489,16 +1485,8 @@
 <text text-anchor="" x="145.38" y="347.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
 </g>
 <g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
-<title>doris::SegmentGroup::add_short_key (362 samples, 0.23%)</title><rect x="330.8" y="209" width="2.7" height="15.0" fill="rgb(229,195,16)" rx="2" ry="2" />
-<text text-anchor="" x="333.79" y="219.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
-</g>
-<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
 <title>doris::ColumnData::_seek_to_row (41,249 samples, 26.61%)</title><rect x="874.1" y="225" width="314.0" height="15.0" fill="rgb(254,128,35)" rx="2" ry="2" />
 <text text-anchor="" x="877.12" y="235.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >doris::ColumnData::_seek_to_row</text>
-</g>
-<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
-<title>doris::SegmentGroup::add_short_key (100 samples, 0.06%)</title><rect x="149.8" y="209" width="0.8" height="15.0" fill="rgb(239,109,35)" rx="2" ry="2" />
-<text text-anchor="" x="152.85" y="219.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
 </g>
 <g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
 <title>doris::ReadOnlyFileStream::_assure_data (178 samples, 0.11%)</title><rect x="1094.6" y="145" width="1.3" height="15.0" fill="rgb(226,175,25)" rx="2" ry="2" />

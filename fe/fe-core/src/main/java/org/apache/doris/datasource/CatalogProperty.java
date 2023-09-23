@@ -17,81 +17,102 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.catalog.HiveTable;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Map;
 
 /**
  * CatalogProperty to store the properties for catalog.
+ * the properties in "properties" will overwrite properties in "resource"
  */
 @Data
 public class CatalogProperty implements Writable {
+    private static final Logger LOG = LogManager.getLogger(CatalogProperty.class);
+
+    @SerializedName(value = "resource")
+    private String resource;
     @SerializedName(value = "properties")
-    private Map<String, String> properties = Maps.newHashMap();
+    private Map<String, String> properties;
+
+    private volatile Resource catalogResource = null;
+
+    public CatalogProperty(String resource, Map<String, String> properties) {
+        this.resource = Strings.nullToEmpty(resource);
+        this.properties = properties;
+        if (this.properties == null) {
+            this.properties = Maps.newConcurrentMap();
+        }
+    }
+
+    private Resource catalogResource() {
+        if (catalogResource == null) {
+            synchronized (this) {
+                if (catalogResource == null) {
+                    catalogResource = Env.getCurrentEnv().getResourceMgr().getResource(resource);
+                }
+            }
+        }
+        return catalogResource;
+    }
 
     public String getOrDefault(String key, String defaultVal) {
-        return properties.getOrDefault(key, defaultVal);
-    }
-
-    public Map<String, String> getDfsProperties() {
-        Map<String, String> dfsProperties = Maps.newHashMap();
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            if (entry.getKey().startsWith(HiveTable.HIVE_HDFS_PREFIX)) {
-                dfsProperties.put(entry.getKey(), entry.getValue());
+        String val = properties.get(key);
+        if (val == null) {
+            Resource res = catalogResource();
+            if (res != null) {
+                val = res.getCopiedProperties().getOrDefault(key, defaultVal);
+            } else {
+                val = defaultVal;
             }
         }
-        return dfsProperties;
+        return val;
     }
 
-    public Map<String, String> getS3Properties() {
-        Map<String, String> s3Properties = Maps.newHashMap();
-        if (properties.containsKey(HiveTable.S3_AK)) {
-            s3Properties.put("fs.s3a.access.key", properties.get(HiveTable.S3_AK));
-            s3Properties.put(HiveTable.S3_AK, properties.get(HiveTable.S3_AK));
-        }
-        if (properties.containsKey(HiveTable.S3_SK)) {
-            s3Properties.put("fs.s3a.secret.key", properties.get(HiveTable.S3_SK));
-            s3Properties.put(HiveTable.S3_SK, properties.get(HiveTable.S3_SK));
-        }
-        if (properties.containsKey(HiveTable.S3_ENDPOINT)) {
-            s3Properties.put("fs.s3a.endpoint", properties.get(HiveTable.S3_ENDPOINT));
-            s3Properties.put(HiveTable.S3_ENDPOINT, properties.get(HiveTable.S3_ENDPOINT));
-        }
-        if (properties.containsKey(HiveTable.AWS_REGION)) {
-            s3Properties.put("fs.s3a.endpoint.region", properties.get(HiveTable.AWS_REGION));
-            s3Properties.put(HiveTable.AWS_REGION, properties.get(HiveTable.AWS_REGION));
-        }
-        if (properties.containsKey(HiveTable.AWS_MAX_CONN_SIZE)) {
-            s3Properties.put("fs.s3a.connection.maximum", properties.get(HiveTable.AWS_MAX_CONN_SIZE));
-            s3Properties.put(HiveTable.AWS_MAX_CONN_SIZE, properties.get(HiveTable.AWS_MAX_CONN_SIZE));
-        }
-        if (properties.containsKey(HiveTable.AWS_REQUEST_TIMEOUT_MS)) {
-            s3Properties.put("fs.s3a.connection.request.timeout", properties.get(HiveTable.AWS_REQUEST_TIMEOUT_MS));
-            s3Properties.put(HiveTable.AWS_REQUEST_TIMEOUT_MS, properties.get(HiveTable.AWS_REQUEST_TIMEOUT_MS));
-        }
-        if (properties.containsKey(HiveTable.AWS_CONN_TIMEOUT_MS)) {
-            s3Properties.put("fs.s3a.connection.timeout", properties.get(HiveTable.AWS_CONN_TIMEOUT_MS));
-            s3Properties.put(HiveTable.AWS_CONN_TIMEOUT_MS, properties.get(HiveTable.AWS_CONN_TIMEOUT_MS));
-        }
-        s3Properties.put("fs.s3.impl.disable.cache", "true");
-        s3Properties.put("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
-        s3Properties.put("fs.s3a.attempts.maximum", "2");
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            if (entry.getKey().startsWith(HiveTable.S3_FS_PREFIX)) {
-                s3Properties.put(entry.getKey(), entry.getValue());
+    public Map<String, String> getProperties() {
+        Map<String, String> mergedProperties = Maps.newHashMap();
+        if (!Strings.isNullOrEmpty(resource)) {
+            Resource res = catalogResource();
+            if (res != null) {
+                mergedProperties = res.getCopiedProperties();
             }
         }
-        return s3Properties;
+        mergedProperties.putAll(properties);
+        return mergedProperties;
+    }
+
+    public void modifyCatalogProps(Map<String, String> props) {
+        properties.putAll(PropertyConverter.convertToMetaProperties(props));
+    }
+
+    public void rollBackCatalogProps(Map<String, String> props) {
+        properties.clear();
+        properties = new HashMap<>(props);
+    }
+
+    public Map<String, String> getHadoopProperties() {
+        Map<String, String> hadoopProperties = getProperties();
+        hadoopProperties.putAll(PropertyConverter.convertToHadoopFSProperties(getProperties()));
+        return hadoopProperties;
+    }
+
+    public void addProperty(String key, String val) {
+        this.properties.put(key, val);
     }
 
     @Override

@@ -70,9 +70,11 @@ public class BaseTableRef extends TableRef {
         name.analyze(analyzer);
         desc = analyzer.registerTableRef(this);
         isAnalyzed = true;  // true that we have assigned desc
+        analyzeTableSnapshot(analyzer);
         analyzeLateralViewRef(analyzer);
         analyzeJoin(analyzer);
         analyzeSortHints();
         analyzeHints();
+        analyzeSample();
     }
 }

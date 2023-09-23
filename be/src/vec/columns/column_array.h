@@ -20,18 +20,58 @@
 
 #pragma once
 
+#include <glog/logging.h>
+#include <stdint.h>
+#include <sys/types.h>
+
+#include <functional>
+#include <ostream>
+#include <string>
+#include <type_traits>
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/status.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_impl.h"
 #include "vec/columns/column_vector.h"
-#include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/cow.h"
+#include "vec/common/pod_array_fwd.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/field.h"
 #include "vec/core/types.h"
+
+class SipHash;
+
+namespace doris {
+namespace vectorized {
+class Arena;
+} // namespace vectorized
+} // namespace doris
+
+//TODO: use marcos below to decouple array function calls
+#define ALL_COLUMNS_NUMBER                                                                       \
+    ColumnUInt8, ColumnInt8, ColumnInt16, ColumnInt32, ColumnInt64, ColumnInt128, ColumnFloat32, \
+            ColumnFloat64, ColumnDecimal32, ColumnDecimal64, ColumnDecimal128I, ColumnDecimal128
+#define ALL_COLUMNS_TIME ColumnDate, ColumnDateTime, ColumnDateV2, ColumnDateTimeV2
+#define ALL_COLUMNS_NUMERIC ALL_COLUMNS_NUMBER, ALL_COLUMNS_TIME
+#define ALL_COLUMNS_SIMPLE ALL_COLUMNS_NUMERIC, ColumnString
 
 namespace doris::vectorized {
 
+/** Obtaining array as Field can be slow for large arrays and consume vast amount of memory.
+  * Just don't allow to do it.
+  * You can increase the limit if the following query:
+  *  SELECT range(10000000)
+  * will take less than 500ms on your machine.
+  */
+static constexpr size_t max_array_size_as_field = 1000000;
 /** A column of array values.
   * In memory, it is represented as one column of a nested type, whose size is equal to the sum of the sizes of all arrays,
   *  and as an array of offsets in it, which allows you to get each element.
+  * NOTE: the ColumnArray won't nest multi-layers. That means the nested type will be concrete data-type.
   */
 class ColumnArray final : public COWHelper<IColumn, ColumnArray> {
 private:
@@ -44,6 +84,18 @@ private:
     explicit ColumnArray(MutableColumnPtr&& nested_column);
 
     ColumnArray(const ColumnArray&) = default;
+
+public:
+    // offsets of array is 64bit wise
+    using Offset64 = IColumn::Offset64;
+    using Offsets64 = IColumn::Offsets64;
+
+private:
+    // please use IColumn::Offset if we really need 32bit offset, otherwise use ColumnArray::Offset64
+    using Offset [[deprecated("ColumnArray::Offset64 for Array, IColumn::Offset for String")]] =
+            Offset64;
+    using Offsets [[deprecated("ColumnArray::Offsets64 for Array, IColumn::Offsets for String")]] =
+            Offsets64;
 
 public:
     /** Create immutable column using immutable arguments. This arguments may be shared with other columns.
@@ -66,15 +118,19 @@ public:
         return Base::create(std::forward<Args>(args)...);
     }
 
+    MutableColumnPtr get_shrinked_column() override;
+
     /** On the index i there is an offset to the beginning of the i + 1 -th element. */
-    using ColumnOffsets = ColumnVector<Offset>;
+    using ColumnOffsets = ColumnVector<Offset64>;
 
     std::string get_name() const override;
     const char* get_family_name() const override { return "Array"; }
+    bool is_column_array() const override { return true; }
     bool can_be_inside_nullable() const override { return true; }
-    TypeIndex get_data_type() const { return TypeIndex::Array; }
+    TypeIndex get_data_type() const override { return TypeIndex::Array; }
     MutableColumnPtr clone_resized(size_t size) const override;
     size_t size() const override;
+    void resize(size_t n) override;
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
     StringRef get_data_at(size_t n) const override;
@@ -83,15 +139,31 @@ public:
     StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;
     const char* deserialize_and_insert_from_arena(const char* pos) override;
     void update_hash_with_value(size_t n, SipHash& hash) const override;
+    void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                  const uint8_t* __restrict null_data) const override;
+    void update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+                               const uint8_t* __restrict null_data) const override;
+
+    void update_hashes_with_value(std::vector<SipHash>& hashes,
+                                  const uint8_t* __restrict null_data) const override;
+
+    void update_hashes_with_value(uint64_t* __restrict hashes,
+                                  const uint8_t* __restrict null_data = nullptr) const override;
+
+    void update_crcs_with_value(std::vector<uint64_t>& hash, PrimitiveType type,
+                                const uint8_t* __restrict null_data = nullptr) const override;
+
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
     void insert(const Field& x) override;
     void insert_from(const IColumn& src_, size_t n) override;
     void insert_default() override;
     void pop_back(size_t n) override;
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
+    size_t filter(const Filter& filter) override;
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
     //ColumnPtr index(const IColumn & indexes, size_t limit) const;
-    //template <typename Type> ColumnPtr index_impl(const PaddedPODArray<Type> & indexes, size_t limit) const;
+    template <typename Type>
+    ColumnPtr index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const;
     [[noreturn]] int compare_at(size_t n, size_t m, const IColumn& rhs_,
                                 int nan_direction_hint) const override {
         LOG(FATAL) << "compare_at not implemented";
@@ -104,7 +176,7 @@ public:
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
     void protect() override;
-    ColumnPtr replicate(const Offsets& replicate_offsets) const override;
+    ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override;
     void replicate(const uint32_t* counts, size_t target_size, IColumn& column) const override;
     ColumnPtr convert_to_full_column_if_const() const override;
     void get_extremes(Field& min, Field& max) const override {
@@ -118,13 +190,15 @@ public:
     IColumn& get_offsets_column() { return *offsets; }
     const IColumn& get_offsets_column() const { return *offsets; }
 
-    Offsets& ALWAYS_INLINE get_offsets() {
+    Offsets64& ALWAYS_INLINE get_offsets() {
         return assert_cast<ColumnOffsets&>(*offsets).get_data();
     }
 
-    const Offsets& ALWAYS_INLINE get_offsets() const {
+    const Offsets64& ALWAYS_INLINE get_offsets() const {
         return assert_cast<const ColumnOffsets&>(*offsets).get_data();
     }
+
+    bool has_equal_offsets(const ColumnArray& other) const;
 
     const ColumnPtr& get_data_ptr() const { return data; }
     ColumnPtr& get_data_ptr() { return data; }
@@ -134,6 +208,15 @@ public:
 
     MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override {
         return scatter_impl<ColumnArray>(num_columns, selector);
+    }
+
+    size_t ALWAYS_INLINE offset_at(ssize_t i) const { return get_offsets()[i - 1]; }
+    size_t ALWAYS_INLINE size_at(ssize_t i) const {
+        return get_offsets()[i] - get_offsets()[i - 1];
+    }
+    void append_data_by_selector(MutableColumnPtr& res,
+                                 const IColumn::Selector& selector) const override {
+        return append_data_by_selector_impl<ColumnArray>(res, selector);
     }
 
     void for_each_subcolumn(ColumnCallback callback) override {
@@ -155,41 +238,63 @@ public:
         offsets->clear();
     }
 
+    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override;
+    size_t get_number_of_dimensions() const {
+        const auto* nested_array = check_and_get_column<ColumnArray>(*data);
+        if (!nested_array) {
+            return 1;
+        }
+        return 1 +
+               nested_array
+                       ->get_number_of_dimensions(); /// Every modern C++ compiler optimizes tail recursion.
+    }
+
+    void get_indices_of_non_default_rows(Offsets64& indices, size_t from,
+                                         size_t limit) const override {
+        return get_indices_of_non_default_rows_impl<ColumnArray>(indices, from, limit);
+    }
+
+    ColumnPtr index(const IColumn& indexes, size_t limit) const override;
+
 private:
+    // [[2,1,5,9,1], [1,2,4]] --> data column [2,1,5,9,1,1,2,4], offset[-1] = 0, offset[0] = 5, offset[1] = 8
+    // [[[2,1,5],[9,1]], [[1,2]]] --> data column [3 column array], offset[-1] = 0, offset[0] = 2, offset[1] = 3
     WrappedPtr data;
     WrappedPtr offsets;
 
-    size_t ALWAYS_INLINE offset_at(ssize_t i) const { return get_offsets()[i - 1]; }
-    size_t ALWAYS_INLINE size_at(ssize_t i) const {
-        return get_offsets()[i] - get_offsets()[i - 1];
-    }
-
     /// Multiply values if the nested column is ColumnVector<T>.
     template <typename T>
-    ColumnPtr replicate_number(const Offsets& replicate_offsets) const;
+    ColumnPtr replicate_number(const IColumn::Offsets& replicate_offsets) const;
 
     /// Multiply the values if the nested column is ColumnString. The code is too complicated.
-    ColumnPtr replicate_string(const Offsets& replicate_offsets) const;
+    ColumnPtr replicate_string(const IColumn::Offsets& replicate_offsets) const;
 
     /** Non-constant arrays of constant values are quite rare.
       * Most functions can not work with them, and does not create such columns as a result.
       * An exception is the function `replicate` (see FunctionsMiscellaneous.h), which has service meaning for the implementation of lambda functions.
       * Only for its sake is the implementation of the `replicate` method for ColumnArray(ColumnConst).
       */
-    ColumnPtr replicate_const(const Offsets& replicate_offsets) const;
+    ColumnPtr replicate_const(const IColumn::Offsets& replicate_offsets) const;
 
     /** The following is done by simply replicating of nested columns.
       */
-    ColumnPtr replicate_nullable(const Offsets& replicate_offsets) const;
-    ColumnPtr replicate_generic(const Offsets& replicate_offsets) const;
+    ColumnPtr replicate_nullable(const IColumn::Offsets& replicate_offsets) const;
+    ColumnPtr replicate_generic(const IColumn::Offsets& replicate_offsets) const;
 
     /// Specializations for the filter function.
     template <typename T>
     ColumnPtr filter_number(const Filter& filt, ssize_t result_size_hint) const;
 
+    template <typename T>
+    size_t filter_number(const Filter& filter);
+
     ColumnPtr filter_string(const Filter& filt, ssize_t result_size_hint) const;
     ColumnPtr filter_nullable(const Filter& filt, ssize_t result_size_hint) const;
     ColumnPtr filter_generic(const Filter& filt, ssize_t result_size_hint) const;
+
+    size_t filter_string(const Filter& filter);
+    size_t filter_nullable(const Filter& filter);
+    size_t filter_generic(const Filter& filter);
 };
 
 } // namespace doris::vectorized

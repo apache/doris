@@ -66,6 +66,8 @@ source 支持三种类型：
     INSTALL PLUGIN FROM "http://mywebsite.com/plugin.zip";
     ```
 
+    注意需要放置一个和 `.zip` 文件同名的 md5 文件, 如 `http://mywebsite.com/plugin.zip.md5` 。其中内容为 .zip 文件的 MD5 值。
+
 4. 下载并安装一个插件,同时设置了zip文件的md5sum的值：
 
     ```sql

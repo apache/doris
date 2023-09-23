@@ -20,7 +20,6 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.load.Load;
-import org.apache.doris.load.LoadJob;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.persist.meta.MetaHeader;
 
@@ -142,43 +141,6 @@ public class EnvTest {
         env = Env.getCurrentEnv();
         long checksum2 = env.loadHeader(dis, MetaHeader.EMPTY_HEADER, 0);
         Assert.assertEquals(checksum1, checksum2);
-        dis.close();
-
-        deleteDir(dir);
-    }
-
-    @Test
-    public void testSaveLoadJob() throws Exception {
-        String dir = "testLoadLoadJob";
-        mkdir(dir);
-        File file = new File(dir, "image");
-        file.createNewFile();
-        CountingDataOutputStream dos = new CountingDataOutputStream(new FileOutputStream(file));
-
-        Env env = Env.getCurrentEnv();
-        MetaContext.get().setMetaVersion(FeConstants.meta_version);
-        Field field = env.getClass().getDeclaredField("load");
-        field.setAccessible(true);
-        field.set(env, new Load());
-
-        LoadJob job1 = new LoadJob("label1", 20, 0);
-        env.getLoadInstance().unprotectAddLoadJob(job1, true);
-        long checksum1 = env.saveLoadJob(dos, 0);
-        env.clear();
-        env = null;
-        dos.close();
-
-        env = Env.getCurrentEnv();
-
-        Field field2 = env.getClass().getDeclaredField("load");
-        field2.setAccessible(true);
-        field2.set(env, new Load());
-
-        DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(file)));
-        long checksum2 = env.loadLoadJob(dis, 0);
-        Assert.assertEquals(checksum1, checksum2);
-        LoadJob job2 = env.getLoadInstance().getLoadJob(-1);
-        Assert.assertTrue(job1.equals(job2));
         dis.close();
 
         deleteDir(dir);

@@ -43,6 +43,7 @@ public class DbsProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("DbId").add("DbName").add("TableNum").add("Size").add("Quota")
             .add("LastConsistencyCheckTime").add("ReplicaCount").add("ReplicaQuota")
+            .add("TransactionQuota").add("LastUpdateTime")
             .build();
 
     private Env env;
@@ -114,12 +115,14 @@ public class DbsProcDir implements ProcDirInterface {
                         ((Database) db).getLastCheckTime()) : FeConstants.null_string;
                 long replicaCount = (db instanceof Database) ? ((Database) db).getReplicaCountWithLock() : 0;
                 long replicaQuota = (db instanceof Database) ? ((Database) db).getReplicaQuota() : 0;
+                long transactionQuota = (db instanceof Database) ? ((Database) db).getTransactionQuotaSize() : 0;
                 dbInfo.add(readableUsedQuota);
                 dbInfo.add(readableQuota);
                 dbInfo.add(lastCheckTime);
                 dbInfo.add(replicaCount);
                 dbInfo.add(replicaQuota);
-
+                dbInfo.add(transactionQuota);
+                dbInfo.add(TimeUtils.longToTimeString(db.getLastUpdateTime()));
             } finally {
                 db.readUnlock();
             }

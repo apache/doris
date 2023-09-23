@@ -26,12 +26,12 @@ namespace doris::vectorized {
 
 struct FunctionBitmapMinImpl {
     static constexpr auto name = "bitmap_min";
-    static Int64 calculate(const BitmapValue& value) { return value.minimum().val; }
+    static Int64 calculate(const BitmapValue& value) { return value.minimum(); }
 };
 
 struct FunctionBitmapMaxImpl {
     static constexpr auto name = "bitmap_max";
-    static Int64 calculate(const BitmapValue& value) { return value.maximum().val; }
+    static Int64 calculate(const BitmapValue& value) { return value.maximum(); }
 };
 
 template <typename Impl>
@@ -49,15 +49,12 @@ public:
         return make_nullable(std::make_shared<DataTypeInt64>());
     }
 
-    bool use_default_implementation_for_constants() const override { return true; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
         auto result_column = ColumnInt64::create();
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
 
-        ColumnPtr argument_column =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        ColumnPtr argument_column = block.get_by_position(arguments[0]).column;
         if (auto* nullable = check_and_get_column<ColumnNullable>(*argument_column)) {
             // Danger: Here must dispose the null map data first! Because
             // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem

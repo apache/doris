@@ -1,6 +1,6 @@
 ---
 {
-    "title": "week",
+    "title": "WEEK",
     "language": "zh-CN"
 }
 ---
@@ -27,12 +27,11 @@ under the License.
 ## week
 ### description
 #### Syntax
-
-`INT WEEK(DATE date)`
-`INT WEEK(DATE date, INT mode)`
+`INT WEEK(DATE date[, INT mode])`
 
 返回指定日期的星期数。mode的值默认为0。
 参数mode的作用参见下面的表格：
+
 |Mode |星期的第一天 |星期数的范围 |第一个星期的定义                            |
 |:---|:-------------|:-----------|:--------------------------------------------|
 |0   |星期日        |0-53        |这一年中的第一个星期日所在的星期             |

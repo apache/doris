@@ -15,20 +15,36 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <memory>
+#include <ostream>
+#include <string>
 
 #include "common/logging.h"
-#include "gtest/gtest.h"
+#include "gtest/gtest_pred_impl.h"
 #include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/aggregate_functions/aggregate_function_collect.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
-#include "vec/columns/column_vector.h"
+#include "vec/columns/column_array.h"
+#include "vec/columns/column_string.h"
+#include "vec/common/arena.h"
+#include "vec/common/string_buffer.hpp"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+
+namespace doris {
+namespace vectorized {
+class IColumn;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -57,7 +73,7 @@ public:
                     auto item = std::string("item") + std::to_string(i);
                     input_col->insert_data(item.c_str(), item.size());
                 } else {
-                    auto item = FieldType(i);
+                    auto item = FieldType(static_cast<uint64_t>(i));
                     input_col->insert_data(reinterpret_cast<const char*>(&item), 0);
                 }
             }
@@ -74,9 +90,8 @@ public:
     void test_agg_collect(const std::string& fn_name, size_t input_nums = 0) {
         DataTypes data_types = {(DataTypePtr)std::make_shared<DataType>()};
         LOG(INFO) << "test_agg_collect for " << fn_name << "(" << data_types[0]->get_name() << ")";
-        Array array;
         AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
-        auto agg_function = factory.get(fn_name, data_types, array);
+        auto agg_function = factory.get(fn_name, data_types);
         EXPECT_NE(agg_function, nullptr);
 
         std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
@@ -117,7 +132,7 @@ public:
 
 private:
     const size_t _repeated_times = 2;
-    Arena _agg_arena_pool;
+    vectorized::Arena _agg_arena_pool;
 };
 
 TEST_F(VAggCollectTest, test_empty) {

@@ -17,11 +17,16 @@
 
 #pragma once
 
+#include <gen_cpp/parquet_types.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/parquet_types.h"
 #include "runtime/types.h"
 
 namespace doris::vectorized {
@@ -39,11 +44,14 @@ struct FieldSchema {
     tparquet::Type::type physical_type;
     // The index order in FieldDescriptor._physical_fields
     int physical_column_index = -1;
-
     int16_t definition_level = 0;
     int16_t repetition_level = 0;
+    int16_t repeated_parent_def_level = 0;
     std::vector<FieldSchema> children;
 
+    FieldSchema() = default;
+    ~FieldSchema() = default;
+    FieldSchema(const FieldSchema& fieldSchema) = default;
     std::string debug_string() const;
 };
 
@@ -76,6 +84,12 @@ private:
     Status parse_node_field(const std::vector<tparquet::SchemaElement>& t_schemas, size_t curr_pos,
                             FieldSchema* node_field);
 
+    TypeDescriptor convert_to_doris_type(tparquet::LogicalType logicalType);
+
+    TypeDescriptor convert_to_doris_type(const tparquet::SchemaElement& physical_schema);
+
+    TypeDescriptor get_doris_type(const tparquet::SchemaElement& physical_schema);
+
 public:
     FieldDescriptor() = default;
     ~FieldDescriptor() = default;
@@ -104,6 +118,8 @@ public:
     void get_column_names(std::unordered_set<std::string>* names) const;
 
     std::string debug_string() const;
+
+    int32_t size() const { return _fields.size(); }
 };
 
 } // namespace doris::vectorized

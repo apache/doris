@@ -17,6 +17,8 @@
 
 #include "exec/es/es_scan_reader.h"
 
+#include <stdlib.h>
+
 #include <map>
 #include <sstream>
 #include <string>
@@ -24,7 +26,9 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "exec/es/es_scroll_parser.h"
 #include "exec/es/es_scroll_query.h"
+#include "http/http_method.h"
 
 namespace doris {
 
@@ -35,7 +39,6 @@ const std::string SOURCE_SCROLL_SEARCH_FILTER_PATH =
 const std::string DOCVALUE_SCROLL_SEARCH_FILTER_PATH =
         "filter_path=_scroll_id,hits.total,hits.hits._score,hits.hits.fields";
 
-const std::string REQUEST_SCROLL_PATH = "_scroll";
 const std::string REQUEST_PREFERENCE_PREFIX = "&preference=_shards:";
 const std::string REQUEST_SEARCH_SCROLL_PATH = "/_search/scroll";
 const std::string REQUEST_SEPARATOR = "/";
@@ -76,8 +79,8 @@ ESScanReader::ESScanReader(const std::string& target,
         std::stringstream scratch;
         // just send a normal search  against the elasticsearch with additional terminate_after param to achieve terminate early effect when limit take effect
         if (_type.empty()) {
+            // `terminate_after` and `size` can not be used together in scroll request of ES 8.x
             scratch << _target << REQUEST_SEPARATOR << _index << "/_search?"
-                    << "terminate_after=" << props.at(KEY_TERMINATE_AFTER)
                     << REQUEST_PREFERENCE_PREFIX << _shards << "&" << filter_path;
         } else {
             scratch << _target << REQUEST_SEPARATOR << _index << REQUEST_SEPARATOR << _type
@@ -92,9 +95,10 @@ ESScanReader::ESScanReader(const std::string& target,
         // scroll request for scanning
         // add terminate_after for the first scroll to avoid decompress all postings list
         if (_type.empty()) {
+            // `terminate_after` and `size` can not be used together in scroll request of ES 8.x
             scratch << _target << REQUEST_SEPARATOR << _index << "/_search?"
                     << "scroll=" << _scroll_keep_alive << REQUEST_PREFERENCE_PREFIX << _shards
-                    << "&" << filter_path << "&terminate_after=" << batch_size_str;
+                    << "&" << filter_path;
         } else {
             scratch << _target << REQUEST_SEPARATOR << _index << REQUEST_SEPARATOR << _type
                     << "/_search?"
@@ -127,7 +131,7 @@ Status ESScanReader::open() {
     Status status = _network_client.execute_post_request(_query, &_cached_response);
     if (!status.ok() || _network_client.get_http_status() != 200) {
         std::stringstream ss;
-        ss << "Failed to connect to ES server, errmsg is: " << status.get_error_msg();
+        ss << "Failed to connect to ES server, errmsg is: " << status;
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }
@@ -180,7 +184,7 @@ Status ESScanReader::get_next(bool* scan_eos, std::unique_ptr<ScrollParser>& scr
     Status status = scroll_parser->parse(response, _exactly_once);
     if (!status.ok()) {
         _eos = true;
-        LOG(WARNING) << status.get_error_msg();
+        LOG(WARNING) << status;
         return status;
     }
 

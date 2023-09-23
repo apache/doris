@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_nullif") {
+    qt_ifnull_const1 """select CONCAT('a', ifnull(split_part('A.B','.',1), 'x'));"""
+    qt_ifnull_const2 """select CONCAT('a', ifnull(split_part('A.B','.',1), null));"""
+
     def tableName = "datetype"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -32,7 +35,7 @@ suite("test_nullif") {
                 c_timestamp_3 datetimev2(6),
                 c_boolean boolean,
                 c_short_decimal decimal(5,2),
-                c_long_decimal decimal(27,9)
+                c_long_decimal decimal(38,10)
             )
             DUPLICATE KEY(c_bigint)
             DISTRIBUTED BY HASH(c_bigint) BUCKETS 1
@@ -77,6 +80,7 @@ suite("test_nullif") {
 
     qt_select "select nullif(k6, \"false\") k from test_query_db.test order by k1"
     qt_select "select if(c_date is null,c_timestamp,c_date) from ${tableName} where c_date is null and c_timestamp is not null"
+    qt_select "select if(c_bigint > 10,c_timestamp,c_date) from ${tableName}"
     qt_select "select if(c_date_1 is null,c_timestamp_1,c_date_1) from ${tableName} where c_date_1 is null and c_timestamp_1 is not null"
     qt_select "select if(c_date_1 is null,c_timestamp_2,c_date_1) from ${tableName} where c_date_1 is null and c_timestamp_2 is not null"
     qt_select "select if(c_date_1 is null,c_timestamp_3,c_date_1) from ${tableName} where c_date_1 is null and c_timestamp_3 is not null"
@@ -85,13 +89,19 @@ suite("test_nullif") {
     def tableName1 = "test"
     qt_if_nullif1 """select if(null, -1, 10) a, if(null, "hello", "worlk") b"""
     qt_if_nullif2 """select if(k1 > 5, true, false) a from baseall order by k1"""
-    qt_if_nullif3 """select if(k1, 10, -1) a from baseall order by k1"""
+    qt_if_nullif3 """select /*+ SET_VAR(enable_nereids_planner=false) */ if(k1, 10, -1) a from baseall order by k1"""
     qt_if_nullif4 """select if(length(k6) >= 5, true, false) a from baseall order by k1"""
     qt_if_nullif5 """select if(k6 like "fa%", -1, 10) a from baseall order by k6"""
     qt_if_nullif6 """select if(k6 like "%e", "hello", "world") a from baseall order by k6"""
-    qt_if_nullif7 """select if(k6, -1, 0) a from baseall order by k6"""
+    qt_if_nullif7 """select /*+ SET_VAR(enable_nereids_planner=false) */ if(k6, -1, 0) a from baseall order by k6"""
     qt_if_nullif8 """select ifnull(b.k1, -1) k1 from baseall a left join bigtable b on a.k1 = b.k1 + 5 
             order by a.k1"""
+    // make sure stable
+    qt_if_nullif8_1 """select   /*+ SET_VAR(enable_pipeline_engine=false,parallel_fragment_exec_instance_num=2,enable_share_hash_table_for_broadcast_join=true) */ b.k1, ifnull(b.k1, -1) k1 from baseall a left join bigtable b on a.k1 = b.k1 + 5 order by a.k1;"""
+    qt_if_nullif8_2 """select   /*+ SET_VAR(enable_pipeline_engine=false,parallel_fragment_exec_instance_num=2,enable_share_hash_table_for_broadcast_join=true) */ b.k1, ifnull(b.k1, -1) k1 from baseall a left join bigtable b on a.k1 = b.k1 + 5 order by a.k1;"""
+    qt_if_nullif8_3 """select   /*+ SET_VAR(enable_pipeline_engine=false,parallel_fragment_exec_instance_num=2,enable_share_hash_table_for_broadcast_join=true) */ b.k1, ifnull(b.k1, -1) k1 from baseall a left join bigtable b on a.k1 = b.k1 + 5 order by a.k1;"""
+    qt_if_nullif8_4 """select   /*+ SET_VAR(enable_pipeline_engine=false,parallel_fragment_exec_instance_num=2,enable_share_hash_table_for_broadcast_join=true) */ b.k1, ifnull(b.k1, -1) k1 from baseall a left join bigtable b on a.k1 = b.k1 + 5 order by a.k1;"""
+    qt_if_nullif8_5 """select   /*+ SET_VAR(enable_pipeline_engine=false,parallel_fragment_exec_instance_num=2,enable_share_hash_table_for_broadcast_join=true) */ b.k1, ifnull(b.k1, -1) k1 from baseall a left join bigtable b on a.k1 = b.k1 + 5 order by a.k1;"""
     qt_if_nullif10 """select ifnull(b.k6, "hll") k1 from baseall a left join bigtable b on a.k1 = b.k1 + 5 
             order by k1"""
     qt_if_nullif11 """select ifnull(b.k10, "2017-06-06") k1 from baseall a left join bigtable b on 
@@ -123,8 +133,8 @@ suite("test_nullif") {
             logger.info(exception.message)
         }
     }
-    qt_if_nullif20 """select ifnull(123456789.5678901234567890,2),
-        ifnull("1234567890123456789012345678901234567890",2)"""
+    qt_if_nullif20 """select ifnull(123456789.123456789,2),
+        ifnull("123456789012345678",2)"""
     qt_if_nullif21 """select IFNULL("hello", "doris"), IFNULL(NULL,0)"""
     qt_if_nullif22 """select ifnull("null",2), ifnull("NULL",2), ifnull("null","2019-09-09 00:00:00"),
         ifnull(NULL, concat("NUL", "LL"))"""
@@ -141,4 +151,39 @@ suite("test_nullif") {
     qt_if_nullif27 """select ifnull(2+3, 2), ifnull((3*1 > 1 || 1>0), 2), ifnull((3*1 > 1 or 1>0), 2),
         ifnull(upper("null"), concat("NUL", "LL"))"""
     qt_if_nullif28 """select ifnull(date(substring("2020-02-09", 1, 1024)), null)"""
+
+    def tableName2 = "testsort"
+
+    sql """ DROP TABLE IF EXISTS ${tableName2}; """
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tableName2} (
+                c_int int NULL COMMENT "",
+                c_pv bitmap BITMAP_UNION NULL COMMENT ""
+            )
+            AGGREGATE KEY(c_int)
+            DISTRIBUTED BY HASH(c_int) BUCKETS 1
+            PROPERTIES (
+              "replication_num" = "1"
+            );
+        """
+    sql """ INSERT INTO ${tableName2} VALUES(1, to_bitmap(1)), (2, to_bitmap(2));"""
+
+    qt_if_nullif29 """
+            select
+                sortNum,
+                BITMAP_UNION_COUNT (c.pv) over (ORDER BY sortNum ) totalNum
+            from(
+            select 
+                ifnull(a.sortNum, b.sortNum) sortNum,
+                BITMAP_UNION (ifnull(a.c_pv, b.c_pv)) pv
+            from
+                (select 1 sortNum, c_pv from ${tableName2} t where t.c_int = 1) a
+            full join
+                (select 2 sortNum, c_pv from ${tableName2} t where t.c_int = 2) b
+                on a.sortNum = b.sortNum
+            GROUP BY
+                sortNum
+            ORDER BY
+                sortNum
+            ) c;"""
 }

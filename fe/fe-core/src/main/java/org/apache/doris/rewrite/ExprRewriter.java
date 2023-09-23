@@ -22,19 +22,26 @@ package org.apache.doris.rewrite;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.JoinOperator;
+import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.rewrite.mvrewrite.ExprToSlotRefRule;
+import org.apache.doris.thrift.TQueryOptions;
 
 import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
- * Helper class that drives the transformation of Exprs according to a given list of
+ * Helper class that drives the transformation of Exprs according to a given
+ * list of
  * ExprRewriteRules. The rules are applied as follows:
- * - a single rule is applied repeatedly to the Expr and all its children in a bottom-up
- *   fashion until there are no more changes
+ * - a single rule is applied repeatedly to the Expr and all its children in a
+ * bottom-up
+ * fashion until there are no more changes
  * - the rule list is applied repeatedly until no rule has made any changes
  * - the rules are applied in the order they appear in the rule list
  * Keeps track of how many transformations were applied.
@@ -48,11 +55,13 @@ import java.util.Map;
  * Doris match different Rewriter framework execution.
  */
 public class ExprRewriter {
+    private boolean useUpBottom = false;
     private int numChanges = 0;
     private final List<ExprRewriteRule> rules;
 
     // The type of clause that executes the rule.
-    // This type is only used in InferFiltersRule, RewriteDateLiteralRule, other rules are not used
+    // This type is only used in InferFiltersRule, RewriteDateLiteralRule, other
+    // rules are not used
     public enum ClauseType {
         INNER_JOIN_CLAUSE,
         LEFT_OUTER_JOIN_CLAUSE,
@@ -68,16 +77,27 @@ public class ExprRewriter {
 
         public static ClauseType fromJoinType(JoinOperator joinOp) {
             switch (joinOp) {
-                case INNER_JOIN: return INNER_JOIN_CLAUSE;
-                case LEFT_OUTER_JOIN: return LEFT_OUTER_JOIN_CLAUSE;
-                case RIGHT_OUTER_JOIN: return RIGHT_OUTER_JOIN_CLAUSE;
-                case FULL_OUTER_JOIN: return FULL_OUTER_JOIN_CLAUSE;
-                case LEFT_SEMI_JOIN: return LEFT_SEMI_JOIN_CLAUSE;
-                case RIGHT_SEMI_JOIN: return RIGHT_SEMI_JOIN_CLAUSE;
-                case LEFT_ANTI_JOIN: return LEFT_ANTI_JOIN_CLAUSE;
-                case RIGHT_ANTI_JOIN: return RIGHT_ANTI_JOIN_CLAUSE;
-                case CROSS_JOIN: return CROSS_JOIN_CLAUSE;
-                default: return OTHER_CLAUSE;
+                case INNER_JOIN:
+                    return INNER_JOIN_CLAUSE;
+                case LEFT_OUTER_JOIN:
+                    return LEFT_OUTER_JOIN_CLAUSE;
+                case RIGHT_OUTER_JOIN:
+                    return RIGHT_OUTER_JOIN_CLAUSE;
+                case FULL_OUTER_JOIN:
+                    return FULL_OUTER_JOIN_CLAUSE;
+                case LEFT_SEMI_JOIN:
+                    return LEFT_SEMI_JOIN_CLAUSE;
+                case RIGHT_SEMI_JOIN:
+                    return RIGHT_SEMI_JOIN_CLAUSE;
+                case NULL_AWARE_LEFT_ANTI_JOIN:
+                case LEFT_ANTI_JOIN:
+                    return LEFT_ANTI_JOIN_CLAUSE;
+                case RIGHT_ANTI_JOIN:
+                    return RIGHT_ANTI_JOIN_CLAUSE;
+                case CROSS_JOIN:
+                    return CROSS_JOIN_CLAUSE;
+                default:
+                    return OTHER_CLAUSE;
             }
         }
 
@@ -113,6 +133,19 @@ public class ExprRewriter {
         rules = Lists.newArrayList(rule);
     }
 
+    public void setInfoMVRewriter(Set<TupleId> disableTuplesMVRewriter, ExprSubstitutionMap mvSMap,
+            ExprSubstitutionMap aliasSMap) {
+        for (ExprRewriteRule rule : rules) {
+            if (rule instanceof ExprToSlotRefRule) {
+                ((ExprToSlotRefRule) rule).setInfoMVRewriter(disableTuplesMVRewriter, mvSMap, aliasSMap);
+            }
+        }
+    }
+
+    public void setUpBottom() {
+        useUpBottom = true;
+    }
+
     public Expr rewrite(Expr expr, Analyzer analyzer) throws AnalysisException {
         ClauseType clauseType = ClauseType.OTHER_CLAUSE;
         return rewrite(expr, analyzer, clauseType);
@@ -125,7 +158,8 @@ public class ExprRewriter {
         do {
             oldNumChanges = numChanges;
             for (ExprRewriteRule rule : rules) {
-                // when foldConstantByBe is on, fold all constant expr by BE instead of applying FoldConstantsRule in FE
+                // when foldConstantByBe is on, fold all constant expr by BE instead of applying
+                // FoldConstantsRule in FE
                 if (rule instanceof FoldConstantsRule && analyzer.safeIsEnableFoldConstantByBe()) {
                     continue;
                 }
@@ -151,7 +185,8 @@ public class ExprRewriter {
     /**
      * FoldConstantsRule rewrite
      */
-    public void rewriteConstant(Map<String, Expr> exprMap, Analyzer analyzer) throws AnalysisException {
+    public void rewriteConstant(Map<String, Expr> exprMap, Analyzer analyzer, TQueryOptions tQueryOptions)
+            throws AnalysisException {
         if (exprMap.isEmpty()) {
             return;
         }
@@ -159,7 +194,7 @@ public class ExprRewriter {
         // rewrite constant expr
         for (ExprRewriteRule rule : rules) {
             if (rule instanceof FoldConstantsRule) {
-                changed = ((FoldConstantsRule) rule).apply(exprMap, analyzer, changed);
+                changed = ((FoldConstantsRule) rule).apply(exprMap, analyzer, changed, tQueryOptions);
             }
         }
         if (changed) {
@@ -168,7 +203,8 @@ public class ExprRewriter {
     }
 
     /**
-     * Applies 'rule' on the Expr tree rooted at 'expr' until there are no more changes.
+     * Applies 'rule' on the Expr tree rooted at 'expr' until there are no more
+     * changes.
      * Returns the transformed Expr or 'expr' if there were no changes.
      */
     private Expr applyRuleRepeatedly(Expr expr, ExprRewriteRule rule, Analyzer analyzer, ClauseType clauseType)
@@ -177,9 +213,18 @@ public class ExprRewriter {
         Expr rewrittenExpr = expr;
         do {
             oldNumChanges = numChanges;
-            rewrittenExpr = applyRuleBottomUp(rewrittenExpr, rule, analyzer, clauseType);
+            rewrittenExpr = applyRule(rewrittenExpr, rule, analyzer, clauseType);
         } while (oldNumChanges != numChanges);
         return rewrittenExpr;
+    }
+
+    private Expr applyRule(Expr expr, ExprRewriteRule rule, Analyzer analyzer, ClauseType clauseType)
+            throws AnalysisException {
+        if (useUpBottom) {
+            return applyRuleUpBottom(expr, rule, analyzer, clauseType);
+        } else {
+            return applyRuleBottomUp(expr, rule, analyzer, clauseType);
+        }
     }
 
     /**
@@ -194,6 +239,18 @@ public class ExprRewriter {
         Expr rewrittenExpr = rule.apply(expr, analyzer, clauseType);
         if (rewrittenExpr != expr) {
             ++numChanges;
+        }
+        return rewrittenExpr;
+    }
+
+    private Expr applyRuleUpBottom(Expr expr, ExprRewriteRule rule, Analyzer analyzer, ClauseType clauseType)
+            throws AnalysisException {
+        Expr rewrittenExpr = rule.apply(expr, analyzer, clauseType);
+        if (rewrittenExpr != expr) {
+            ++numChanges;
+        }
+        for (int i = 0; i < expr.getChildren().size(); ++i) {
+            expr.setChild(i, applyRuleUpBottom(expr.getChild(i), rule, analyzer, clauseType));
         }
         return rewrittenExpr;
     }

@@ -21,9 +21,8 @@
 
 #include <string>
 
-#include "common/configbase.h"
+#include "common/config.h"
 #include "exprs/create_predicate_function.h"
-#include "util/logging.h"
 
 namespace doris {
 
@@ -279,101 +278,53 @@ TEST_F(HybridSetTest, double) {
 }
 TEST_F(HybridSetTest, string) {
     HybridSetBase* set = create_set(TYPE_VARCHAR);
-    StringValue a;
+    StringRef a;
 
     char buf[100];
 
     snprintf(buf, 100, "abcdefghigk");
-    a.ptr = buf;
+    a.data = buf;
 
-    a.len = 0;
+    a.size = 0;
     set->insert(&a);
-    a.len = 1;
+    a.size = 1;
     set->insert(&a);
-    a.len = 2;
+    a.size = 2;
     set->insert(&a);
-    a.len = 3;
+    a.size = 3;
     set->insert(&a);
-    a.len = 4;
+    a.size = 4;
     set->insert(&a);
-    a.len = 4;
+    a.size = 4;
     set->insert(&a);
 
     EXPECT_EQ(5, set->size());
     HybridSetBase::IteratorBase* base = set->begin();
 
     while (base->has_next()) {
-        LOG(INFO) << ((StringValue*)base->get_value())->ptr;
+        LOG(INFO) << ((StringRef*)base->get_value())->data;
         base->next();
     }
 
-    StringValue b;
+    StringRef b;
 
     char buf1[100];
 
     snprintf(buf1, 100, "abcdefghigk");
-    b.ptr = buf1;
+    b.data = buf1;
 
-    b.len = 0;
+    b.size = 0;
     EXPECT_TRUE(set->find(&b));
-    b.len = 1;
+    b.size = 1;
     EXPECT_TRUE(set->find(&b));
-    b.len = 2;
+    b.size = 2;
     EXPECT_TRUE(set->find(&b));
-    b.len = 3;
+    b.size = 3;
     EXPECT_TRUE(set->find(&b));
-    b.len = 4;
+    b.size = 4;
     EXPECT_TRUE(set->find(&b));
-    b.len = 5;
+    b.size = 5;
     EXPECT_FALSE(set->find(&b));
-}
-TEST_F(HybridSetTest, timestamp) {
-    CpuInfo::init();
-
-    HybridSetBase* set = create_set(TYPE_DATETIME);
-    char s1[] = "2012-01-20 01:10:01";
-    char s2[] = "1990-10-20 10:10:10.123456  ";
-    char s3[] = "  1990-10-20 10:10:10.123456";
-    DateTimeValue v1;
-    v1.from_date_str(s1, strlen(s1));
-    LOG(INFO) << v1.debug_string();
-    DateTimeValue v2;
-    v2.from_date_str(s2, strlen(s2));
-    LOG(INFO) << v2.debug_string();
-    DateTimeValue v3;
-    v3.from_date_str(s3, strlen(s3));
-    LOG(INFO) << v3.debug_string();
-
-    set->insert(&v1);
-    set->insert(&v2);
-    set->insert(&v3);
-
-    HybridSetBase::IteratorBase* base = set->begin();
-
-    while (base->has_next()) {
-        LOG(INFO) << ((DateTimeValue*)base->get_value())->debug_string();
-        base->next();
-    }
-    EXPECT_EQ(2, set->size());
-
-    char s11[] = "2012-01-20 01:10:01";
-    char s12[] = "1990-10-20 10:10:10.123456  ";
-    char s13[] = "1990-10-20 10:10:10.123456";
-    DateTimeValue v11;
-    v11.from_date_str(s11, strlen(s11));
-    DateTimeValue v12;
-    v12.from_date_str(s12, strlen(s12));
-    DateTimeValue v13;
-    v13.from_date_str(s13, strlen(s13));
-
-    EXPECT_TRUE(set->find(&v11));
-    EXPECT_TRUE(set->find(&v12));
-    EXPECT_TRUE(set->find(&v13));
-
-    char s23[] = "1992-10-20 10:10:10.123456";
-    DateTimeValue v23;
-    v23.from_date_str(s23, strlen(s23));
-    EXPECT_FALSE(set->find(&v23));
 }
 
 } // namespace doris

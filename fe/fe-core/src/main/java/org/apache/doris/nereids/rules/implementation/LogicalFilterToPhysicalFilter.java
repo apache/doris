@@ -28,7 +28,7 @@ public class LogicalFilterToPhysicalFilter extends OneImplementationRuleFactory 
     @Override
     public Rule build() {
         return logicalFilter().then(filter -> new PhysicalFilter<>(
-            filter.getPredicates(),
+            filter.getConjuncts(),
             filter.getLogicalProperties(),
             filter.child())
         ).toRule(RuleType.LOGICAL_FILTER_TO_PHYSICAL_FILTER_RULE);

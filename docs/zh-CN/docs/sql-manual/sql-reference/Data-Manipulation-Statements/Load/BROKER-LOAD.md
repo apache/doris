@@ -32,7 +32,7 @@ BROKER LOAD
 
 ### Description
 
-该命令主要用于通过 Broker 服务进程来导入远端存储（如S3、HDFS）上的数据。
+该命令主要用于通过 Broker 服务进程读取远端存储（如S3、HDFS）上的数据导入到 Doris 表里。
 
 ```sql
 LOAD LABEL load_label
@@ -41,7 +41,8 @@ data_desc1[, data_desc2, ...]
 )
 WITH BROKER broker_name
 [broker_properties]
-[load_properties];
+[load_properties]
+[COMMENT "comments"];
 ```
 
 - `load_label`
@@ -64,14 +65,17 @@ WITH BROKER broker_name
   INTO TABLE `table_name`
   [PARTITION (p1, p2, ...)]
   [COLUMNS TERMINATED BY "column_separator"]
+  [LINES TERMINATED BY "line_delimiter"]
   [FORMAT AS "file_type"]
+  [COMPRESS_TYPE AS "compress_type"]
   [(column_list)]
   [COLUMNS FROM PATH AS (c1, c2, ...)]
-  [PRECEDING FILTER predicate]
   [SET (column_mapping)]
+  [PRECEDING FILTER predicate]
   [WHERE predicate]
   [DELETE ON expr]
   [ORDER BY source_sequence]
+  [PROPERTIES ("key1"="value1", ...)]
   ```
 
   - `[MERGE|APPEND|DELETE]`
@@ -82,21 +86,28 @@ WITH BROKER broker_name
 
     指定需要导入的文件路径。可以是多个。可以使用通配符。路径最终必须匹配到文件，如果只匹配到目录则导入会失败。
 
-  - `NEGTIVE`
+  - `NEGATIVE`
 
     该关键词用于表示本次导入为一批”负“导入。这种方式仅针对具有整型 SUM 聚合类型的聚合数据表。该方式会将导入数据中，SUM 聚合列对应的整型数值取反。主要用于冲抵之前导入错误的数据。
 
   - `PARTITION(p1, p2, ...)`
 
-    可以指定仅导入表的某些分区。不再分区范围内的数据将被忽略。
+    可以指定仅导入表的某些分区。不在分区范围内的数据将被忽略。
 
   - `COLUMNS TERMINATED BY`
 
     指定列分隔符。仅在 CSV 格式下有效。仅能指定单字节分隔符。
 
+  - `LINES TERMINATED BY`
+
+    指定行分隔符。仅在 CSV 格式下有效。仅能指定单字节分隔符。
+
   - `FORMAT AS`
 
     指定文件类型，支持 CSV、PARQUET 和 ORC 格式。默认为 CSV。
+
+  - `COMPRESS_TYPE AS`
+    指定文件压缩类型, 支持GZ/BZ2/LZ4FRAME。
 
   - `column list`
 
@@ -108,13 +119,13 @@ WITH BROKER broker_name
 
     指定从导入文件路径中抽取的列。
 
-  - `PRECEDING FILTER predicate`
-
-    前置过滤条件。数据首先根据 `column list` 和 `COLUMNS FROM PATH AS` 按顺序拼接成原始数据行。然后按照前置过滤条件进行过滤。关于这部分详细介绍，可以参阅 [列的映射，转换与过滤](../../../../data-operate/import/import-scenes/load-data-convert.md) 文档。
-
   - `SET (column_mapping)`
 
     指定列的转换函数。
+
+  - `PRECEDING FILTER predicate`
+
+    前置过滤条件。数据首先根据 `column list` 和 `COLUMNS FROM PATH AS` 按顺序拼接成原始数据行。然后按照前置过滤条件进行过滤。关于这部分详细介绍，可以参阅 [列的映射，转换与过滤](../../../../data-operate/import/import-scenes/load-data-convert.md) 文档。
 
   - `WHERE predicate`
 
@@ -127,6 +138,10 @@ WITH BROKER broker_name
   - `ORDER BY`
 
     仅针对 Unique Key 模型的表。用于指定导入数据中表示 Sequence Col 的列。主要用于导入时保证数据顺序。
+
+  - `PROPERTIES ("key1"="value1", ...)`
+
+    指定导入的format的一些参数。如导入的文件是`json`格式，则可以在这里指定`json_root`、`jsonpaths`、`fuzzy_parse`等参数。
 
 - `WITH BROKER broker_name`
 
@@ -144,29 +159,53 @@ WITH BROKER broker_name
   )
   ```
 
-- `load_properties`
+  - `load_properties`
 
-  指定导入的相关参数。目前支持以下参数：
+    指定导入的相关参数。目前支持以下参数：
 
-  - `timeout`
+    - `timeout`
 
-    导入超时时间。默认为 4 小时。单位秒。
+      导入超时时间。默认为 4 小时。单位秒。
 
-  - `max_filter_ratio`
+    - `max_filter_ratio`
 
-    最大容忍可过滤（数据不规范等原因）的数据比例。默认零容忍。取值范围为 0 到 1。
+      最大容忍可过滤（数据不规范等原因）的数据比例。默认零容忍。取值范围为 0 到 1。
 
-  - `exec_mem_limit`
+    - `exec_mem_limit`
 
-    导入内存限制。默认为 2GB。单位为字节。
+      导入内存限制。默认为 2GB。单位为字节。
 
-  - `strict_mode`
+    - `strict_mode`
 
-    是否对数据进行严格限制。默认为 false。
+      是否对数据进行严格限制。默认为 false。
 
-  - `timezone`
+    - `partial_columns`
 
-    指定某些受时区影响的函数的时区，如 `strftime/alignment_timestamp/from_unixtime` 等等，具体请查阅 [时区](../../../../advanced/time-zone.md) 文档。如果不指定，则使用 "Asia/Shanghai" 时区
+      布尔类型，为 true 表示使用部分列更新，默认值为 false，该参数只允许在表模型为 Unique 且采用 Merge on Write 时设置。
+
+    - `timezone`
+
+      指定某些受时区影响的函数的时区，如 `strftime/alignment_timestamp/from_unixtime` 等等，具体请查阅 [时区](../../../../advanced/time-zone.md) 文档。如果不指定，则使用 "Asia/Shanghai" 时区
+
+    - `load_parallelism`
+
+      导入并发度，默认为1。调大导入并发度会启动多个执行计划同时执行导入任务，加快导入速度。 
+
+    - `send_batch_parallelism`
+    
+      用于设置发送批处理数据的并行度，如果并行度的值超过 BE 配置中的 `max_send_batch_parallelism_per_job`，那么作为协调点的 BE 将使用 `max_send_batch_parallelism_per_job` 的值。
+    
+    - `load_to_single_tablet`
+      
+      布尔类型，为true表示支持一个任务只导入数据到对应分区的一个tablet，默认值为false，作业的任务数取决于整体并发度。该参数只允许在对带有random分桶的olap表导数的时候设置。
+
+    - <version since="dev" type="inline"> priority </version>
+
+      设置导入任务的优先级，可选 `HIGH/NORMAL/LOW` 三种优先级，默认为 `NORMAL`，对于处在 `PENDING` 状态的导入任务，更高优先级的任务将优先被执行进入 `LOADING` 状态。
+
+-  <version since="1.2.3" type="inline"> comment </version>
+
+   指定导入任务的备注信息。可选参数。
 
 ### Example
 
@@ -188,7 +227,7 @@ WITH BROKER broker_name
 
    导入文件 `file.txt`，按逗号分隔，导入到表 `my_table`。
 
-2. 从 HDFS 导入数据，使用通配符匹配两批两批文件。分别导入到两个表中。
+2. 从 HDFS 导入数据，使用通配符匹配两批文件。分别导入到两个表中。
 
    ```sql
    LOAD LABEL example_db.label2
@@ -229,11 +268,12 @@ WITH BROKER broker_name
    (
        "username" = "",
        "password" = "",
+       "fs.defaultFS" = "hdfs://my_ha",
        "dfs.nameservices" = "my_ha",
        "dfs.ha.namenodes.my_ha" = "my_namenode1, my_namenode2",
        "dfs.namenode.rpc-address.my_ha.my_namenode1" = "nn1_host:rpc_port",
        "dfs.namenode.rpc-address.my_ha.my_namenode2" = "nn2_host:rpc_port",
-       "dfs.client.failover.proxy.provider" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+       "dfs.client.failover.proxy.provider.my_ha" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
    );
    ```
 
@@ -295,10 +335,10 @@ WITH BROKER broker_name
        DATA INFILE("hdfs://host:port/input/file")
        INTO TABLE `my_table`
        (k1, k2, k3)
-       PRECEDING FILTER k1 = 1
        SET (
            k2 = k2 + 1
        )
+       PRECEDING FILTER k1 = 1
        WHERE k1 > k2
    )
    WITH BROKER hdfs
@@ -358,7 +398,7 @@ WITH BROKER broker_name
    )
    WITH HDFS
    (
-       "username"="user",
+       "hadoop.username"="user",
        "password"="pass"
    )
    PROPERTIES
@@ -385,12 +425,96 @@ WITH BROKER broker_name
    ) 
    WITH HDFS
    (
-       "username"="user",
+       "hadoop.username"="user",
        "password"="pass"
    )
    ```
 
-   `my_table` 必须是 Unqiue Key 模型表，并且指定了 Sequcence Col。数据会按照源数据中 `source_sequence` 列的值来保证顺序性。
+   `my_table` 必须是 Unique Key 模型表，并且指定了 Sequcence Col。数据会按照源数据中 `source_sequence` 列的值来保证顺序性。
+
+10. 从 HDFS 导入一批数据，指定文件格式为 `json` 并指定 `json_root`、`jsonpaths`
+
+    ```sql
+    LOAD LABEL example_db.label10
+    (
+        DATA INFILE("HDFS://test:port/input/file.json")
+        INTO TABLE `my_table`
+        FORMAT AS "json"
+        PROPERTIES(
+          "json_root" = "$.item",
+          "jsonpaths" = "[$.id, $.city, $.code]"
+        )       
+    )
+    with HDFS (
+    "hadoop.username" = "user"
+    "password" = ""
+    )
+    PROPERTIES
+    (
+    "timeout"="1200",
+    "max_filter_ratio"="0.1"
+    );
+    ```
+
+    `jsonpaths` 可与 `column list` 及 `SET (column_mapping)`配合：
+
+    ```sql
+    LOAD LABEL example_db.label10
+    (
+        DATA INFILE("HDFS://test:port/input/file.json")
+        INTO TABLE `my_table`
+        FORMAT AS "json"
+        (id, code, city)
+        SET (id = id * 10)
+        PROPERTIES(
+          "json_root" = "$.item",
+          "jsonpaths" = "[$.id, $.code, $.city]"
+        )       
+    )
+    with HDFS (
+    "hadoop.username" = "user"
+    "password" = ""
+    )
+    PROPERTIES
+    (
+    "timeout"="1200",
+    "max_filter_ratio"="0.1"
+    );
+
+11. 从腾讯云cos中以csv格式导入数据。
+
+    ```SQL
+    LOAD LABEL example_db.label10
+    (
+    DATA INFILE("cosn://my_bucket/input/file.csv")
+    INTO TABLE `my_table`
+    (k1, k2, k3)
+    )
+    WITH BROKER "broker_name"
+    (
+        "fs.cosn.userinfo.secretId" = "xxx",
+        "fs.cosn.userinfo.secretKey" = "xxxx",
+        "fs.cosn.bucket.endpoint_suffix" = "cos.xxxxxxxxx.myqcloud.com"
+    )
+    ```
+
+12. 导入CSV数据时去掉双引号, 并跳过前5行。
+
+    ```SQL
+    LOAD LABEL example_db.label12
+    (
+    DATA INFILE("cosn://my_bucket/input/file.csv")
+    INTO TABLE `my_table`
+    (k1, k2, k3)
+    PROPERTIES("trim_double_quotes" = "true", "skip_lines" = "5")
+    )
+    WITH BROKER "broker_name"
+    (
+        "fs.cosn.userinfo.secretId" = "xxx",
+        "fs.cosn.userinfo.secretKey" = "xxxx",
+        "fs.cosn.bucket.endpoint_suffix" = "cos.xxxxxxxxx.myqcloud.com"
+    )
+    ```
 
 ### Keywords
 

@@ -17,41 +17,41 @@
 
 #include "testutil/function_utils.h"
 
+#include <gen_cpp/PaloInternalService_types.h>
+
 #include <vector>
 
-#include "runtime/mem_pool.h"
-#include "udf/udf_internal.h"
+#include "runtime/runtime_state.h"
+#include "udf/udf.h"
 
 namespace doris {
 
 FunctionUtils::FunctionUtils() {
-    doris_udf::FunctionContext::TypeDesc return_type;
-    std::vector<doris_udf::FunctionContext::TypeDesc> arg_types;
-    _memory_pool = new MemPool();
-    _fn_ctx = FunctionContextImpl::create_context(_state, _memory_pool, return_type, arg_types, 0,
-                                                  false);
-}
-FunctionUtils::FunctionUtils(RuntimeState* state) {
-    _state = state;
-    doris_udf::FunctionContext::TypeDesc return_type;
-    std::vector<doris_udf::FunctionContext::TypeDesc> arg_types;
-    _memory_pool = new MemPool();
-    _fn_ctx = FunctionContextImpl::create_context(_state, _memory_pool, return_type, arg_types, 0,
-                                                  false);
+    TQueryGlobals globals;
+    globals.__set_now_string("2019-08-06 01:38:57");
+    globals.__set_timestamp_ms(1565026737805);
+    globals.__set_time_zone("Asia/Shanghai");
+    _state = RuntimeState::create_unique(globals).release();
+    doris::TypeDescriptor return_type;
+    std::vector<doris::TypeDescriptor> arg_types;
+    _fn_ctx = FunctionContext::create_context(_state, return_type, arg_types);
 }
 
-FunctionUtils::FunctionUtils(const doris_udf::FunctionContext::TypeDesc& return_type,
-                             const std::vector<doris_udf::FunctionContext::TypeDesc>& arg_types,
+FunctionUtils::FunctionUtils(const doris::TypeDescriptor& return_type,
+                             const std::vector<doris::TypeDescriptor>& arg_types,
                              int varargs_buffer_size) {
-    _memory_pool = new MemPool();
-    _fn_ctx = FunctionContextImpl::create_context(_state, _memory_pool, return_type, arg_types,
-                                                  varargs_buffer_size, false);
+    TQueryGlobals globals;
+    globals.__set_now_string("2019-08-06 01:38:57");
+    globals.__set_timestamp_ms(1565026737805);
+    globals.__set_time_zone("Asia/Shanghai");
+    _state = RuntimeState::create_unique(globals).release();
+    _fn_ctx = FunctionContext::create_context(_state, return_type, arg_types);
 }
 
 FunctionUtils::~FunctionUtils() {
-    _fn_ctx->impl()->close();
-    delete _fn_ctx;
-    delete _memory_pool;
+    if (_state) {
+        delete _state;
+    }
 }
 
 } // namespace doris

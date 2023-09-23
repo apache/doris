@@ -32,5 +32,4 @@ public class CommonResultSet extends AbstractResultSet {
             super(columns);
         }
     }
-
 }

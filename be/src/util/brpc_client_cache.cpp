@@ -17,8 +17,13 @@
 
 #include "util/brpc_client_cache.h"
 
-namespace doris {
+#include <gen_cpp/function_service.pb.h> // IWYU pragma: keep
+#include <gen_cpp/internal_service.pb.h> // IWYU pragma: keep
 
+#include "util/doris_metrics.h"
+#include "util/metrics.h"
+
+namespace doris {
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(brpc_endpoint_stub_count, MetricUnit::NOUNIT);
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(brpc_function_endpoint_stub_count, MetricUnit::NOUNIT);

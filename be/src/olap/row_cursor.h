@@ -17,15 +17,19 @@
 
 #pragma once
 
+#include <butil/macros.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <memory>
 #include <string>
 #include <vector>
 
-#include "olap/field.h"
-#include "olap/olap_common.h"
-#include "olap/olap_define.h"
+#include "common/status.h"
+#include "olap/olap_tuple.h"
 #include "olap/row_cursor_cell.h"
 #include "olap/schema.h"
-#include "olap/tuple.h"
+#include "olap/tablet_schema.h"
 
 namespace doris {
 class Field;
@@ -66,30 +70,6 @@ public:
     // RowCursor received a continuous buf
     void attach(char* buf) { _fixed_buf = buf; }
 
-    // Output the index of a column to buf
-    void write_index_by_index(size_t index, char* index_ptr) const {
-        auto dst_cell = RowCursorCell(index_ptr);
-        column_schema(index)->to_index(&dst_cell, cell(index));
-    }
-
-    // deep copy field content (ignore null-byte)
-    void set_field_content(size_t index, const char* buf, MemPool* mem_pool) {
-        char* dest = cell_ptr(index);
-        column_schema(index)->deep_copy_content(dest, buf, mem_pool);
-    }
-
-    // shallow copy field content (ignore null-byte)
-    void set_field_content_shallow(size_t index, const char* buf) {
-        char* dst_cell = cell_ptr(index);
-        column_schema(index)->shallow_copy_content(dst_cell, buf);
-    }
-    // convert and deep copy field content
-    Status convert_from(size_t index, const char* src, const TypeInfo* src_type,
-                        MemPool* mem_pool) {
-        char* dest = cell_ptr(index);
-        return column_schema(index)->convert_from(dest, src, src_type, mem_pool);
-    }
-
     // Deserialize the value of each field from the string array,
     // Each array item must be a \0 terminated string
     // and the input string and line cursor need the same number of columns
@@ -101,8 +81,6 @@ public:
     // Output row cursor content in string format, only for using of log and debug
     std::string to_string() const;
     OlapTuple to_tuple() const;
-
-    const size_t get_index_size(size_t index) const { return column_schema(index)->index_size(); }
 
     bool is_delete() const {
         auto sign_idx = _schema->delete_sign_idx();

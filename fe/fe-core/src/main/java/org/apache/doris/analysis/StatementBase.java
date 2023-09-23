@@ -27,10 +27,12 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.rewrite.ExprRewriter;
+import org.apache.doris.thrift.TQueryOptions;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
@@ -53,6 +55,12 @@ public abstract class StatementBase implements ParseNode {
     private OriginStatement origStmt;
 
     private UserIdentity userInfo;
+
+    private boolean isPrepared = false;
+
+    // select * from tbl where a = ? and b = ?
+    // `?` is the placeholder
+    private ArrayList<PlaceHolderExpr> placeholders = new ArrayList<>();
 
     protected StatementBase() { }
 
@@ -98,12 +106,28 @@ public abstract class StatementBase implements ParseNode {
         return this.explainOptions != null;
     }
 
+    public void setPlaceHolders(ArrayList<PlaceHolderExpr> placeholders) {
+        this.placeholders = new ArrayList<PlaceHolderExpr>(placeholders);
+    }
+
+    public ArrayList<PlaceHolderExpr> getPlaceHolders() {
+        return this.placeholders;
+    }
+
     public boolean isVerbose() {
         return explainOptions != null && explainOptions.isVerbose();
     }
 
     public ExplainOptions getExplainOptions() {
         return explainOptions;
+    }
+
+    public void setIsPrepared() {
+        this.isPrepared = true;
+    }
+
+    public boolean isPrepared() {
+        return this.isPrepared;
     }
 
     /*
@@ -187,7 +211,7 @@ public abstract class StatementBase implements ParseNode {
      * @throws AnalysisException
      * @param rewriter
      */
-    public void foldConstant(ExprRewriter rewriter) throws AnalysisException {
+    public void foldConstant(ExprRewriter rewriter, TQueryOptions tQueryOptions) throws AnalysisException {
         throw new IllegalStateException(
                 "foldConstant() not implemented for this stmt: " + getClass().getSimpleName());
     }

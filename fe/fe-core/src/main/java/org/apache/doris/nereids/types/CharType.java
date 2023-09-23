@@ -34,18 +34,21 @@ public class CharType extends CharacterType {
         super(len);
     }
 
+    @Override
+    public int width() {
+        return len;
+    }
+
     public static CharType createCharType(int len) {
+        if (len == SYSTEM_DEFAULT.len) {
+            return SYSTEM_DEFAULT;
+        }
         return new CharType(len);
     }
 
     @Override
     public Type toCatalogDataType() {
         return ScalarType.createChar(len);
-    }
-
-    @Override
-    public boolean acceptsType(DataType other) {
-        return other instanceof CharType;
     }
 
     @Override
@@ -74,6 +77,9 @@ public class CharType extends CharacterType {
 
     @Override
     public String toSql() {
+        if (len == -1) {
+            return "CHAR";
+        }
         return "CHAR(" + len + ")";
     }
 }

@@ -15,17 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
+#include "runtime/snapshot_loader.h"
+
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
 #include <filesystem>
 
-#include "runtime/exec_env.h"
-#include "util/cpu_info.h"
-
-#define private public // hack compiler
-#define protected public
-
-#include "runtime/snapshot_loader.h"
+#include "gtest/gtest_pred_impl.h"
 
 namespace doris {
 

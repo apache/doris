@@ -29,21 +29,21 @@ import java.util.Objects;
  * Random partition.
  */
 public class RandomDistributionInfo extends DistributionInfo {
-
-    private int bucketNum;
-
     public RandomDistributionInfo() {
         super();
     }
 
     public RandomDistributionInfo(int bucketNum) {
-        super(DistributionInfoType.RANDOM);
-        this.bucketNum = bucketNum;
+        super(DistributionInfoType.RANDOM, bucketNum);
+    }
+
+    public RandomDistributionInfo(int bucketNum, boolean autoBucket) {
+        super(DistributionInfoType.RANDOM, bucketNum, autoBucket);
     }
 
     @Override
     public DistributionDesc toDistributionDesc() {
-        DistributionDesc distributionDesc = new RandomDistributionDesc(bucketNum);
+        DistributionDesc distributionDesc = new RandomDistributionDesc(bucketNum, autoBucket);
         return distributionDesc;
     }
 
@@ -53,17 +53,23 @@ public class RandomDistributionInfo extends DistributionInfo {
     }
 
     @Override
-    public String toSql() {
+    public String toSql(boolean forSync) {
         StringBuilder builder = new StringBuilder();
-        builder.append("DISTRIBUTED BY RANDOM BUCKETS ").append(bucketNum);
+        if (autoBucket && !forSync) {
+            builder.append("DISTRIBUTED BY RANDOM BUCKETS AUTO");
+        } else {
+            builder.append("DISTRIBUTED BY RANDOM BUCKETS ").append(bucketNum);
+        }
         return builder.toString();
     }
 
+    @Override
     public void write(DataOutput out) throws IOException {
         super.write(out);
         out.writeInt(bucketNum);
     }
 
+    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         bucketNum = in.readInt();

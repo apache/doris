@@ -36,28 +36,11 @@
 //  destructor to control the behavior of consume can lead to unexpected behavior,
 //  like this: if (LIKELY(doris::start_thread_mem_tracker)) {
 void new_hook(const void* ptr, size_t size) {
-    if (doris::btls_key != doris::EMPTY_BTLS_KEY && doris::bthread_context != nullptr) {
-        // Currently in bthread, consume thread context mem tracker in bthread tls.
-        doris::update_bthread_context();
-        doris::bthread_context->_thread_mem_tracker_mgr->consume(tc_nallocx(size, 0));
-    } else if (doris::thread_context_ptr._init) {
-        doris::thread_context_ptr._ptr->_thread_mem_tracker_mgr->consume(tc_nallocx(size, 0));
-    } else {
-        doris::ThreadMemTrackerMgr::consume_no_attach(tc_nallocx(size, 0));
-    }
+    CONSUME_MEM_TRACKER(tc_nallocx(size, 0));
 }
 
 void delete_hook(const void* ptr) {
-    if (doris::btls_key != doris::EMPTY_BTLS_KEY && doris::bthread_context != nullptr) {
-        doris::update_bthread_context();
-        doris::bthread_context->_thread_mem_tracker_mgr->consume(
-                -tc_malloc_size(const_cast<void*>(ptr)));
-    } else if (doris::thread_context_ptr._init) {
-        doris::thread_context_ptr._ptr->_thread_mem_tracker_mgr->consume(
-                -tc_malloc_size(const_cast<void*>(ptr)));
-    } else {
-        doris::ThreadMemTrackerMgr::consume_no_attach(-tc_malloc_size(const_cast<void*>(ptr)));
-    }
+    RELEASE_MEM_TRACKER(tc_malloc_size(const_cast<void*>(ptr)));
 }
 
 void init_hook() {

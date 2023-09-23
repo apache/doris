@@ -39,7 +39,7 @@ CREATE MATERIALIZED VIEW
 语法：
 
 ```sql
-CREATE MATERIALIZED VIEW [MV name] as [query]
+CREATE MATERIALIZED VIEW < MV name > as < query >
 [PROPERTIES ("key" = "value")]
 ```
 
@@ -59,10 +59,7 @@ CREATE MATERIALIZED VIEW [MV name] as [query]
   语法和查询语句语法一致。
 
   - `select_expr`：物化视图的 schema 中所有的列。  
-    - 仅支持不带表达式计算的单列，聚合列。 
-    - 其中聚合函数目前仅支持 SUM, MIN, MAX 三种，且聚合函数的参数只能是不带表达式计算的单列。 
     - 至少包含一个单列。 
-    - 所有涉及到的列，均只能出现一次。
   - `base view name`：物化视图的原始表名，必填项。  
     - 必须是单表，且非子查询
   - `group by`：物化视图的分组列，选填项。 
@@ -113,13 +110,13 @@ duplicate key (k1,k2,k3,k4)
 distributed BY hash(k4) buckets 3
 properties("replication_num" = "1");
 ```
-注意：分区列和分桶列必须作为物化视图中的key列
+注意：如果物化视图包含了base表的分区列和分桶列,那么这些列必须作为物化视图中的key列
 
 1. 创建一个仅包含原始表 （k1, k2）列的物化视图
 
    ```sql
    create materialized view k1_k2 as
-   select k1, k2 from duplicate_table;
+   select k2, k1 from duplicate_table;
    ```
 
    物化视图的 schema 如下图，物化视图仅包含两列 k1, k2 且不带任何聚合
@@ -128,8 +125,8 @@ properties("replication_num" = "1");
    +-----------------+-------+--------+------+------+---------+-------+
    | IndexName       | Field | Type   | Null | Key  | Default | Extra |
    +-----------------+-------+--------+------+------+---------+-------+
-   | k1_k2           | k1    | INT    | Yes  | true | N/A     |       |
-   |                 | k2    | INT    | Yes  | true | N/A     |       |
+   | k2_k1           | k2    | INT    | Yes  | true | N/A     |       |
+   |                 | k1    | INT    | Yes  | true | N/A     |       |
    +-----------------+-------+--------+------+------+---------+-------+
    ```
 

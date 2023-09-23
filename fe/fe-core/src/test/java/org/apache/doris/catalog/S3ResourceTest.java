@@ -21,10 +21,12 @@ import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.meta.MetaContext;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -37,9 +39,9 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -64,7 +66,7 @@ public class S3ResourceTest {
     public void setUp() {
         name = "s3";
         type = "s3";
-        s3Endpoint = "aaa";
+        s3Endpoint = "http://aaa";
         s3Region = "bj";
         s3RootPath = "/path/to/root";
         s3AccessKey = "xxx";
@@ -75,74 +77,78 @@ public class S3ResourceTest {
         s3Bucket = "test-bucket";
         s3Properties = new HashMap<>();
         s3Properties.put("type", type);
-        s3Properties.put("s3_endpoint", s3Endpoint);
-        s3Properties.put("s3_region", s3Region);
-        s3Properties.put("s3_root_path", s3RootPath);
-        s3Properties.put("s3_access_key", s3AccessKey);
-        s3Properties.put("s3_secret_key", s3SecretKey);
-        s3Properties.put("s3_bucket", s3Bucket);
+        s3Properties.put("AWS_ENDPOINT", s3Endpoint);
+        s3Properties.put("AWS_REGION", s3Region);
+        s3Properties.put("AWS_ROOT_PATH", s3RootPath);
+        s3Properties.put("AWS_ACCESS_KEY", s3AccessKey);
+        s3Properties.put("AWS_SECRET_KEY", s3SecretKey);
+        s3Properties.put("AWS_BUCKET", s3Bucket);
+        s3Properties.put("s3_validity_check", "false");
 
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
     }
 
     @Test
-    public void testFromStmt(@Mocked Env env, @Injectable PaloAuth auth) throws UserException {
+    public void testFromStmt(@Mocked Env env, @Injectable AccessControllerManager accessManager)
+            throws UserException {
         new Expectations() {
             {
-                env.getAuth();
-                result = auth;
-                auth.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
+                env.getAccessManager();
+                result = accessManager;
+                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
                 result = true;
             }
         };
 
         // resource with default settings
-        CreateResourceStmt stmt = new CreateResourceStmt(true, name, s3Properties);
+        CreateResourceStmt stmt = new CreateResourceStmt(true, false, name, s3Properties);
         stmt.analyze(analyzer);
         S3Resource s3Resource = (S3Resource) Resource.fromStmt(stmt);
         Assert.assertEquals(name, s3Resource.getName());
         Assert.assertEquals(type, s3Resource.getType().name().toLowerCase());
-        Assert.assertEquals(s3Endpoint, s3Resource.getProperty("s3_endpoint"));
-        Assert.assertEquals(s3Region, s3Resource.getProperty("s3_region"));
-        Assert.assertEquals(s3RootPath, s3Resource.getProperty("s3_root_path"));
-        Assert.assertEquals(s3AccessKey, s3Resource.getProperty("s3_access_key"));
-        Assert.assertEquals(s3SecretKey, s3Resource.getProperty("s3_secret_key"));
-        Assert.assertEquals(s3MaxConnections, s3Resource.getProperty("s3_max_connections"));
-        Assert.assertEquals(s3ReqTimeoutMs, s3Resource.getProperty("s3_request_timeout_ms"));
-        Assert.assertEquals(s3ConnTimeoutMs, s3Resource.getProperty("s3_connection_timeout_ms"));
+        Assert.assertEquals(s3Endpoint, s3Resource.getProperty(S3Properties.ENDPOINT));
+        Assert.assertEquals(s3Region, s3Resource.getProperty(S3Properties.REGION));
+        Assert.assertEquals(s3RootPath, s3Resource.getProperty(S3Properties.ROOT_PATH));
+        Assert.assertEquals(s3AccessKey, s3Resource.getProperty(S3Properties.ACCESS_KEY));
+        Assert.assertEquals(s3SecretKey, s3Resource.getProperty(S3Properties.SECRET_KEY));
+        Assert.assertEquals(s3MaxConnections, s3Resource.getProperty(S3Properties.MAX_CONNECTIONS));
+        Assert.assertEquals(s3ReqTimeoutMs, s3Resource.getProperty(S3Properties.REQUEST_TIMEOUT_MS));
+        Assert.assertEquals(s3ConnTimeoutMs, s3Resource.getProperty(S3Properties.CONNECTION_TIMEOUT_MS));
 
         // with no default settings
-        s3Properties.put("s3_max_connections", "100");
-        s3Properties.put("s3_request_timeout_ms", "2000");
-        s3Properties.put("s3_connection_timeout_ms", "2000");
-        stmt = new CreateResourceStmt(true, name, s3Properties);
+        s3Properties.put(S3Properties.MAX_CONNECTIONS, "100");
+        s3Properties.put(S3Properties.REQUEST_TIMEOUT_MS, "2000");
+        s3Properties.put(S3Properties.CONNECTION_TIMEOUT_MS, "2000");
+        s3Properties.put(S3Properties.VALIDITY_CHECK, "false");
+        stmt = new CreateResourceStmt(true, false, name, s3Properties);
         stmt.analyze(analyzer);
 
         s3Resource = (S3Resource) Resource.fromStmt(stmt);
         Assert.assertEquals(name, s3Resource.getName());
         Assert.assertEquals(type, s3Resource.getType().name().toLowerCase());
-        Assert.assertEquals(s3Endpoint, s3Resource.getProperty("s3_endpoint"));
-        Assert.assertEquals(s3Region, s3Resource.getProperty("s3_region"));
-        Assert.assertEquals(s3RootPath, s3Resource.getProperty("s3_root_path"));
-        Assert.assertEquals(s3AccessKey, s3Resource.getProperty("s3_access_key"));
-        Assert.assertEquals(s3SecretKey, s3Resource.getProperty("s3_secret_key"));
-        Assert.assertEquals("100", s3Resource.getProperty("s3_max_connections"));
-        Assert.assertEquals("2000", s3Resource.getProperty("s3_request_timeout_ms"));
-        Assert.assertEquals("2000", s3Resource.getProperty("s3_connection_timeout_ms"));
+        Assert.assertEquals(s3Endpoint, s3Resource.getProperty(S3Properties.ENDPOINT));
+        Assert.assertEquals(s3Region, s3Resource.getProperty(S3Properties.REGION));
+        Assert.assertEquals(s3RootPath, s3Resource.getProperty(S3Properties.ROOT_PATH));
+        Assert.assertEquals(s3AccessKey, s3Resource.getProperty(S3Properties.ACCESS_KEY));
+        Assert.assertEquals(s3SecretKey, s3Resource.getProperty(S3Properties.SECRET_KEY));
+        Assert.assertEquals("100", s3Resource.getProperty(S3Properties.MAX_CONNECTIONS));
+        Assert.assertEquals("2000", s3Resource.getProperty(S3Properties.REQUEST_TIMEOUT_MS));
+        Assert.assertEquals("2000", s3Resource.getProperty(S3Properties.CONNECTION_TIMEOUT_MS));
     }
 
-    @Test (expected = DdlException.class)
-    public void testAbnormalResource(@Mocked Env env, @Injectable PaloAuth auth) throws UserException {
+    @Test(expected = DdlException.class)
+    public void testAbnormalResource(@Mocked Env env, @Injectable AccessControllerManager accessManager)
+            throws UserException {
         new Expectations() {
             {
-                env.getAuth();
-                result = auth;
-                auth.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
+                env.getAccessManager();
+                result = accessManager;
+                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
                 result = true;
             }
         };
-        s3Properties.remove("s3_root_path");
-        CreateResourceStmt stmt = new CreateResourceStmt(true, name, s3Properties);
+        s3Properties.remove("AWS_ENDPOINT");
+        CreateResourceStmt stmt = new CreateResourceStmt(true, false, name, s3Properties);
         stmt.analyze(analyzer);
         Resource.fromStmt(stmt);
     }
@@ -154,20 +160,21 @@ public class S3ResourceTest {
         metaContext.setThreadLocalInfo();
 
         // 1. write
-        File s3File = new File("./s3Resource");
-        s3File.createNewFile();
-        DataOutputStream s3Dos = new DataOutputStream(new FileOutputStream(s3File));
+        // Path path = Files.createFile(Paths.get("./s3Resource"));
+        Path path = Paths.get("./s3Resource");
+        DataOutputStream s3Dos = new DataOutputStream(Files.newOutputStream(path));
 
         S3Resource s3Resource1 = new S3Resource("s3_1");
         s3Resource1.write(s3Dos);
 
         Map<String, String> properties = new HashMap<>();
-        properties.put("s3_endpoint", "aaa");
-        properties.put("s3_region", "bbb");
-        properties.put("s3_root_path", "/path/to/root");
-        properties.put("s3_access_key", "xxx");
-        properties.put("s3_secret_key", "yyy");
-        properties.put("s3_bucket", "test-bucket");
+        properties.put("AWS_ENDPOINT", "aaa");
+        properties.put("AWS_REGION", "bbb");
+        properties.put("AWS_ROOT_PATH", "/path/to/root");
+        properties.put("AWS_ACCESS_KEY", "xxx");
+        properties.put("AWS_SECRET_KEY", "yyy");
+        properties.put("AWS_BUCKET", "test-bucket");
+        properties.put("s3_validity_check", "false");
         S3Resource s3Resource2 = new S3Resource("s3_2");
         s3Resource2.setProperties(properties);
         s3Resource2.write(s3Dos);
@@ -176,24 +183,43 @@ public class S3ResourceTest {
         s3Dos.close();
 
         // 2. read
-        DataInputStream s3Dis = new DataInputStream(new FileInputStream(s3File));
+        DataInputStream s3Dis = new DataInputStream(Files.newInputStream(path));
         S3Resource rS3Resource1 = (S3Resource) S3Resource.read(s3Dis);
         S3Resource rS3Resource2 = (S3Resource) S3Resource.read(s3Dis);
 
         Assert.assertEquals("s3_1", rS3Resource1.getName());
         Assert.assertEquals("s3_2", rS3Resource2.getName());
 
-        Assert.assertEquals(rS3Resource2.getProperty("s3_endpoint"), "aaa");
-        Assert.assertEquals(rS3Resource2.getProperty("s3_region"), "bbb");
-        Assert.assertEquals(rS3Resource2.getProperty("s3_root_path"), "/path/to/root");
-        Assert.assertEquals(rS3Resource2.getProperty("s3_access_key"), "xxx");
-        Assert.assertEquals(rS3Resource2.getProperty("s3_secret_key"), "yyy");
-        Assert.assertEquals(rS3Resource2.getProperty("s3_max_connections"), "50");
-        Assert.assertEquals(rS3Resource2.getProperty("s3_request_timeout_ms"), "3000");
-        Assert.assertEquals(rS3Resource2.getProperty("s3_connection_timeout_ms"), "1000");
+        Assert.assertEquals(rS3Resource2.getProperty(S3Properties.ENDPOINT), "http://aaa");
+        Assert.assertEquals(rS3Resource2.getProperty(S3Properties.REGION), "bbb");
+        Assert.assertEquals(rS3Resource2.getProperty(S3Properties.ROOT_PATH), "/path/to/root");
+        Assert.assertEquals(rS3Resource2.getProperty(S3Properties.ACCESS_KEY), "xxx");
+        Assert.assertEquals(rS3Resource2.getProperty(S3Properties.SECRET_KEY), "yyy");
+        Assert.assertEquals(rS3Resource2.getProperty(S3Properties.MAX_CONNECTIONS), "50");
+        Assert.assertEquals(rS3Resource2.getProperty(S3Properties.REQUEST_TIMEOUT_MS), "3000");
+        Assert.assertEquals(rS3Resource2.getProperty(S3Properties.CONNECTION_TIMEOUT_MS), "1000");
 
         // 3. delete
         s3Dis.close();
-        s3File.delete();
+        Files.deleteIfExists(path);
+    }
+
+    @Test
+    public void testModifyProperties() throws Exception {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("AWS_ENDPOINT", "aaa");
+        properties.put("AWS_REGION", "bbb");
+        properties.put("AWS_ROOT_PATH", "/path/to/root");
+        properties.put("AWS_ACCESS_KEY", "xxx");
+        properties.put("AWS_SECRET_KEY", "yyy");
+        properties.put("AWS_BUCKET", "test-bucket");
+        properties.put("s3_validity_check", "false");
+        S3Resource s3Resource = new S3Resource("t_source");
+        s3Resource.setProperties(properties);
+        FeConstants.runningUnitTest = true;
+
+        Map<String, String> modify = new HashMap<>();
+        modify.put("s3.access_key", "aaa");
+        s3Resource.modifyProperties(modify);
     }
 }

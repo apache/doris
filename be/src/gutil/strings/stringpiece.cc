@@ -4,16 +4,19 @@
 
 #include "gutil/strings/stringpiece.h"
 
-#include <common/logging.h>
-#include <string.h>
+// IWYU pragma: no_include <pstl/glue_algorithm_defs.h>
 
+#include "common/logging.h"
+#include <string.h>
 #include <algorithm>
 #include <climits>
 #include <string>
+#include <deque>
+#include <ostream>
 
-#include "gutil/hash/hash.h"
 #include "gutil/stl_util.h"
 #include "gutil/strings/memutil.h"
+#include "gutil/hash/legacy_hash.h"
 
 using std::copy;
 using std::max;
@@ -23,11 +26,9 @@ using std::sort;
 using std::swap;
 using std::string;
 
-namespace std {
-size_t hash<StringPiece>::operator()(StringPiece s) const {
+size_t std::hash<StringPiece>::operator()(StringPiece s) const {
     return HashTo32(s.data(), s.size());
 }
-} // namespace std
 
 std::ostream& operator<<(std::ostream& o, StringPiece piece) {
     o.write(piece.data(), piece.size());

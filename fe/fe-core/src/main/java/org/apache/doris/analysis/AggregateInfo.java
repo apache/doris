@@ -23,7 +23,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TPartitionType;
@@ -235,14 +234,17 @@ public final class AggregateInfo extends AggregateInfoBase {
      * Used by new optimizer.
      */
     public static AggregateInfo create(
-            ArrayList<Expr> groupingExprs, ArrayList<FunctionCallExpr> aggExprs,
-            TupleDescriptor tupleDesc, TupleDescriptor intermediateTupleDesc, AggPhase phase) {
+            ArrayList<Expr> groupingExprs, ArrayList<FunctionCallExpr> aggExprs, List<Integer> aggExprIds,
+            boolean isPartialAgg, TupleDescriptor tupleDesc, TupleDescriptor intermediateTupleDesc, AggPhase phase) {
         AggregateInfo result = new AggregateInfo(groupingExprs, aggExprs, phase);
         result.outputTupleDesc = tupleDesc;
         result.intermediateTupleDesc = intermediateTupleDesc;
         int aggExprSize = result.getAggregateExprs().size();
         for (int i = 0; i < aggExprSize; i++) {
             result.materializedSlots.add(i);
+            String label = (isPartialAgg ? "partial_" : "")
+                    + aggExprs.get(i).toSql() + "[#" + aggExprIds.get(i) + "]";
+            result.materializedSlotLabels.add(label);
         }
         return result;
     }
@@ -254,7 +256,6 @@ public final class AggregateInfo extends AggregateInfoBase {
         // for vectorized execution, we force it to using hash set to execution
         if (distinctAggExprs.size() == 1
                 && distinctAggExprs.get(0).getFnParams().isDistinct()
-                && VectorizedUtil.isVectorized()
                 && ConnectContext.get().getSessionVariable().enableSingleDistinctColumnOpt()) {
             isSetUsingSetForDistinct = true;
         }
@@ -280,7 +281,9 @@ public final class AggregateInfo extends AggregateInfoBase {
         }
 
         ArrayList<Expr> expr0Children = Lists.newArrayList();
-        if (distinctAggExprs.get(0).getFnName().getFunction().equalsIgnoreCase("group_concat")) {
+        if (distinctAggExprs.get(0).getFnName().getFunction().equalsIgnoreCase("group_concat")
+                || distinctAggExprs.get(0).getFnName().getFunction()
+                        .equalsIgnoreCase("multi_distinct_group_concat")) {
             // Ignore separator parameter, otherwise the same would have to be present for all
             // other distinct aggregates as well.
             // TODO: Deal with constant exprs more generally, instead of special-casing
@@ -294,7 +297,9 @@ public final class AggregateInfo extends AggregateInfoBase {
         boolean hasMultiDistinct = false;
         for (int i = 1; i < distinctAggExprs.size(); ++i) {
             ArrayList<Expr> exprIChildren = Lists.newArrayList();
-            if (distinctAggExprs.get(i).getFnName().getFunction().equalsIgnoreCase("group_concat")) {
+            if (distinctAggExprs.get(i).getFnName().getFunction().equalsIgnoreCase("group_concat")
+                    || distinctAggExprs.get(i).getFnName().getFunction()
+                            .equalsIgnoreCase("multi_distinct_group_concat")) {
                 exprIChildren.add(distinctAggExprs.get(i).getChild(0).ignoreImplicitCast());
             } else {
                 for (Expr expr : distinctAggExprs.get(i).getChildren()) {
@@ -523,16 +528,8 @@ public final class AggregateInfo extends AggregateInfoBase {
             if (exprList.size() > 1) {
                 continue;
             }
-            Expr expr = exprList.get(0);
-            if (!(expr instanceof SlotRef)) {
-                continue;
-            }
-            SlotRef slotRef = (SlotRef) expr;
-            Expr right = smap.get(slotRef);
-            if (right == null) {
-                continue;
-            }
-            slotDesc.setIsNullable(right.isNullable());
+            Expr srcExpr = exprList.get(0).substitute(smap);
+            slotDesc.setIsNullable(srcExpr.isNullable() || slotDesc.getIsNullable());
         }
     }
 
@@ -563,8 +560,10 @@ public final class AggregateInfo extends AggregateInfoBase {
             Preconditions.checkState(inputExpr.isAggregateFunction());
             Expr aggExprParam =
                     new SlotRef(inputDesc.getSlots().get(i + getGroupingExprs().size()));
-            FunctionCallExpr aggExpr = FunctionCallExpr.createMergeAggCall(
-                    inputExpr, Lists.newArrayList(aggExprParam), inputExpr.getFnParams().exprs());
+            FunctionParams fnParams = inputExpr.getAggFnParams();
+            FunctionCallExpr aggExpr =
+                    FunctionCallExpr.createMergeAggCall(inputExpr, Lists.newArrayList(aggExprParam),
+                            fnParams != null ? fnParams.exprs() : inputExpr.getFnParams().exprs());
             aggExpr.analyzeNoThrow(analyzer);
             // do not need analyze in merge stage, just do mark for BE get right function
             aggExpr.setOrderByElements(inputExpr.getOrderByElements());
@@ -696,6 +695,7 @@ public final class AggregateInfo extends AggregateInfoBase {
                     new SlotRef(inputDesc.getSlots().get(i + getGroupingExprs().size()));
             FunctionCallExpr aggExpr = FunctionCallExpr.createMergeAggCall(
                     inputExpr, Lists.newArrayList(aggExprParam), inputExpr.getFnParams().exprs());
+            aggExpr.setOrderByElements(inputExpr.getOrderByElements());
             secondPhaseAggExprs.add(aggExpr);
         }
         Preconditions.checkState(
@@ -842,6 +842,30 @@ public final class AggregateInfo extends AggregateInfoBase {
         }
     }
 
+    public void updateMaterializedSlots() {
+        // why output and intermediate may have different materialized slots?
+        // because some slot is materialized by materializeSrcExpr method directly
+        // in that case, only output slots is materialized
+        // assume output tuple has correct materialized information
+        // we update intermediate tuple and materializedSlots based on output tuple
+        materializedSlots.clear();
+        ArrayList<SlotDescriptor> outputSlots = outputTupleDesc.getSlots();
+        int groupingExprNum = groupingExprs != null ? groupingExprs.size() : 0;
+        Preconditions.checkState(groupingExprNum <= outputSlots.size());
+        for (int i = groupingExprNum; i < outputSlots.size(); ++i) {
+            if (outputSlots.get(i).isMaterialized()) {
+                materializedSlots.add(i - groupingExprNum);
+            }
+        }
+
+        ArrayList<SlotDescriptor> intermediateSlots = intermediateTupleDesc.getSlots();
+        Preconditions.checkState(intermediateSlots.size() == outputSlots.size());
+        for (int i = 0; i < outputSlots.size(); ++i) {
+            intermediateSlots.get(i).setIsMaterialized(outputSlots.get(i).isMaterialized());
+        }
+        intermediateTupleDesc.computeStatAndMemLayout();
+    }
+
     /**
      * Mark slots required for this aggregation as materialized:
      * - all grouping output slots as well as grouping exprs
@@ -869,13 +893,14 @@ public final class AggregateInfo extends AggregateInfoBase {
         int aggregateExprsSize = aggregateExprs.size();
         int groupExprsSize = groupingExprs.size();
         boolean isDistinctAgg = isDistinctAgg();
+        boolean hasVirtualSlot = groupingExprs.stream().anyMatch(expr -> expr instanceof VirtualSlotRef);
         for (int i = 0; i < aggregateExprsSize; ++i) {
             FunctionCallExpr functionCallExpr = aggregateExprs.get(i);
             SlotDescriptor slotDesc =
                     outputTupleDesc.getSlots().get(groupExprsSize + i);
             SlotDescriptor intermediateSlotDesc =
                     intermediateTupleDesc.getSlots().get(groupExprsSize + i);
-            if (isDistinctAgg || isUsingSetForDistinct) {
+            if (isDistinctAgg || isUsingSetForDistinct || hasVirtualSlot) {
                 slotDesc.setIsMaterialized(true);
                 intermediateSlotDesc.setIsMaterialized(true);
             }

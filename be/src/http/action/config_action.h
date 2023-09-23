@@ -20,6 +20,7 @@
 #include "http/http_handler.h"
 
 namespace doris {
+class HttpRequest;
 
 enum ConfigActionType {
     UPDATE_CONFIG = 1,

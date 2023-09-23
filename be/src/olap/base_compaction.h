@@ -17,7 +17,16 @@
 
 #pragma once
 
+#include <butil/macros.h>
+
+#include <string>
+#include <vector>
+
+#include "common/status.h"
+#include "io/io_common.h"
 #include "olap/compaction.h"
+#include "olap/rowset/rowset.h"
+#include "olap/tablet.h"
 
 namespace doris {
 
@@ -28,7 +37,7 @@ namespace doris {
 
 class BaseCompaction : public Compaction {
 public:
-    BaseCompaction(TabletSharedPtr tablet);
+    BaseCompaction(const TabletSharedPtr& tablet);
     ~BaseCompaction() override;
 
     Status prepare_compact() override;
@@ -43,10 +52,6 @@ protected:
     ReaderType compaction_type() const override { return ReaderType::READER_BASE_COMPACTION; }
 
 private:
-    // check if all input rowsets are non overlapping among segments.
-    // a rowset with overlapping segments should be compacted by cumulative compaction first.
-    Status _check_rowset_overlapping(const vector<RowsetSharedPtr>& rowsets);
-
     // filter input rowset in some case:
     // 1. dup key without delete predicate
     void _filter_input_rowset();

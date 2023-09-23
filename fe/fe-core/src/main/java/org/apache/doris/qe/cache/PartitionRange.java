@@ -32,17 +32,20 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.RangePartitionItem;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.planner.PartitionColumnFilter;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.text.SimpleDateFormat;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -140,8 +143,8 @@ public class PartitionRange {
     }
 
     public static class PartitionKeyType {
-        private SimpleDateFormat df8 = new SimpleDateFormat("yyyyMMdd");
-        private SimpleDateFormat df10 = new SimpleDateFormat("yyyy-MM-dd");
+        private DateTimeFormatter df8 = DateTimeFormatter.ofPattern("yyyyMMdd").withZone(ZoneId.systemDefault());
+        private DateTimeFormatter df10 = DateTimeFormatter.ofPattern("yyyy-MM-dd").withZone(ZoneId.systemDefault());
 
         public KeyType keyType = KeyType.DEFAULT;
         public long value;
@@ -151,7 +154,8 @@ public class PartitionRange {
             switch (type.getPrimitiveType()) {
                 case DATE:
                     try {
-                        date = df10.parse(str);
+                        date = Date.from(
+                                LocalDate.parse(str, df10).atStartOfDay().atZone(ZoneId.systemDefault()).toInstant());
                     } catch (Exception e) {
                         LOG.warn("parse error str{}.", str);
                         return false;
@@ -227,7 +231,7 @@ public class PartitionRange {
             if (keyType == KeyType.DEFAULT) {
                 return "";
             } else if (keyType == KeyType.DATE) {
-                return df10.format(date);
+                return df10.format(LocalDateTime.ofInstant(date.toInstant(), ZoneId.systemDefault()));
             } else {
                 return String.valueOf(value);
             }
@@ -235,17 +239,19 @@ public class PartitionRange {
 
         public long realValue() {
             if (keyType == KeyType.DATE) {
-                return Long.parseLong(df8.format(date));
+                return Long.parseLong(df8.format(LocalDateTime.ofInstant(date.toInstant(), ZoneId.systemDefault())));
             } else {
                 return value;
             }
         }
 
         private Date getDateValue(LiteralExpr expr) {
-            value = expr.getLongValue() / 1000000;
+            Preconditions.checkArgument(expr.getType() == Type.DATE || expr.getType() == Type.DATEV2);
+            value = expr.getLongValue();
             Date dt = null;
             try {
-                dt = df8.parse(String.valueOf(value));
+                dt = Date.from(LocalDate.parse(String.valueOf(value), df8).atStartOfDay().atZone(ZoneId.systemDefault())
+                        .toInstant());
             } catch (Exception e) {
                 // CHECKSTYLE IGNORE THIS LINE
             }
@@ -456,7 +462,7 @@ public class PartitionRange {
                 LiteralExpr newLiteral;
                 if (key.keyType == KeyType.DATE) {
                     try {
-                        newLiteral = new DateLiteral(key.toString(), ScalarType.getDefaultDateType(Type.DATE));
+                        newLiteral = new DateLiteral(key.toString(), Type.DATE);
                     } catch (Exception e) {
                         LOG.warn("Date's format is error {},{}", key.toString(), e);
                         continue;

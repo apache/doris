@@ -20,8 +20,6 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 
-import java.util.Objects;
-
 /**
  * UUID for Expression in Nereids.
  */
@@ -31,20 +29,8 @@ public class ExprId extends Id<ExprId> {
         super(id);
     }
 
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-        ExprId exprId = (ExprId) o;
-        return id == exprId.id;
-    }
-
     /**
-     * Should be only called by {@link org.apache.doris.nereids.trees.expressions.NamedExpressionUtil}.
+     * Should be only called by {@link StatementScopeIdGenerator}.
      */
     public static IdGenerator<ExprId> createGenerator() {
         return new IdGenerator<ExprId>() {
@@ -52,17 +38,7 @@ public class ExprId extends Id<ExprId> {
             public ExprId getNextId() {
                 return new ExprId(nextId++);
             }
-
-            @Override
-            public ExprId getMaxId() {
-                return new ExprId(nextId++);
-            }
         };
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(id);
     }
 
     @Override

@@ -151,9 +151,6 @@ struct TQueryOptions {
   // if the right table is greater than this value in the hash join,  we will ignore IN filter
   34: optional i32 runtime_filter_max_in_num = 1024;
 
-  // whether enable vectorized engine 
-  41: optional bool enable_vectorized_engine = false
-
   // the resource limitation of this query
   42: optional TResourceLimit resource_limit
 
@@ -167,8 +164,91 @@ struct TQueryOptions {
   45: optional bool enable_function_pushdown;
 
   46: optional string fragment_transmission_compression_codec;
+
+  48: optional bool enable_local_exchange;
+
+  // For debug purpose, dont' merge unique key and agg key when reading data.
+  49: optional bool skip_storage_engine_merge = false
+
+  // For debug purpose, skip delete predicates when reading data
+  50: optional bool skip_delete_predicate = false
+
+  51: optional bool enable_new_shuffle_hash_method
+
+  52: optional i32 be_exec_version = 0
+
+  53: optional i32 partitioned_hash_join_rows_threshold = 0
+
+  54: optional bool enable_share_hash_table_for_broadcast_join
+
+  55: optional bool check_overflow_for_decimal = false
+
+  // For debug purpose, skip delete bitmap when reading data
+  56: optional bool skip_delete_bitmap = false
+
+  57: optional bool enable_pipeline_engine = false
+
+  58: optional i32 repeat_max_num = 0
+
+  59: optional i64 external_sort_bytes_threshold = 0
+
+  // deprecated
+  60: optional i32 partitioned_hash_agg_rows_threshold = 0
+
+  61: optional bool enable_file_cache = false
+
+  62: optional i32 insert_timeout = 14400
+
+  63: optional i32 execution_timeout = 3600
+
+  64: optional bool dry_run_query = false
+
+  65: optional bool enable_common_expr_pushdown = false;
+
+  66: optional i32 parallel_instance = 1
+  // Indicate where useServerPrepStmts enabled
+  67: optional bool mysql_row_binary_format = false;
+  68: optional i64 external_agg_bytes_threshold = 0
+
+  // partition count(1 << external_agg_partition_bits) when spill aggregation data into disk
+  69: optional i32 external_agg_partition_bits = 4
+
+  // Specify base path for file cache
+  70: optional string file_cache_base_path
+
+  71: optional bool enable_parquet_lazy_mat = true
+
+  72: optional bool enable_orc_lazy_mat = true
+
+  73: optional i64 scan_queue_mem_limit
+
+  74: optional bool enable_scan_node_run_serial = false; 
+
+  75: optional bool enable_insert_strict = false;
+
+  76: optional bool enable_inverted_index_query = true;
+
+  77: optional bool truncate_char_or_varchar_columns = false
+
+  78: optional bool enable_hash_join_early_start_probe = false
+
+  79: optional bool enable_pipeline_x_engine = false;
+
+  80: optional bool enable_memtable_on_sink_node = false;
+
+  81: optional bool enable_delete_sub_predicate_v2 = false;
+
+  // A tag used to distinguish fe start epoch.
+  82: optional i64 fe_process_uuid = 0;
+
+  83: optional i32 inverted_index_conjunction_opt_threshold = 1000;
+  // A seperate flag to indicate whether to enable profile, not
+  // use is_report_success any more
+  84: optional bool enable_profile = false;
+  85: optional bool enable_page_cache = false;
+  86: optional i32 analyze_timeout = 43200
 }
-    
+
 
 // A scan range plus the parameters needed to execute that scan.
 struct TScanRangeParams {
@@ -176,18 +256,14 @@ struct TScanRangeParams {
   2: optional i32 volume_id = -1
 }
 
-// Specification of one output destination of a plan fragment
-struct TPlanFragmentDestination {
-  // the globally unique fragment instance id
-  1: required Types.TUniqueId fragment_instance_id
-
-  // ... which is being executed on this server
-  2: required Types.TNetworkAddress server
-  3: optional Types.TNetworkAddress brpc_server
-}
-
 struct TRuntimeFilterTargetParams {
   1: required Types.TUniqueId target_fragment_instance_id
+  // The address of the instance where the fragment is expected to run
+  2: required Types.TNetworkAddress target_fragment_instance_addr
+}
+
+struct TRuntimeFilterTargetParamsV2 {
+  1: required list<Types.TUniqueId> target_fragment_instance_ids
   // The address of the instance where the fragment is expected to run
   2: required Types.TNetworkAddress target_fragment_instance_addr
 }
@@ -205,6 +281,8 @@ struct TRuntimeFilterParams {
 
   // Number of Runtime filter producers
   4: optional map<i32, i32> runtime_filter_builder_num
+
+  5: optional map<i32, list<TRuntimeFilterTargetParamsV2>> rid_to_target_paramv2
 }
 
 // Parameters for a single execution instance of a particular TPlanFragment
@@ -228,7 +306,7 @@ struct TPlanFragmentExecParams {
   // The partitioning of the output is specified by
   // TPlanFragment.output_sink.output_partition.
   // The number of output partitions is destinations.size().
-  5: list<TPlanFragmentDestination> destinations
+  5: list<DataSinks.TPlanFragmentDestination> destinations
 
   // Debug options: perform some action in a particular phase of a particular node
   // 6: optional Types.TPlanNodeId debug_node_id // Never used
@@ -241,6 +319,7 @@ struct TPlanFragmentExecParams {
   11: optional bool send_query_statistics_with_every_batch
   // Used to merge and send runtime filter
   12: optional TRuntimeFilterParams runtime_filter_params
+  13: optional bool group_commit
 }
 
 // Global query parameters assigned by the coordinator.
@@ -250,7 +329,7 @@ struct TQueryGlobals {
   1: required string now_string
 
   // To support timezone in Doris. timestamp_ms is the millisecond uinix timestamp for
-  // this query to calculate time zone relative function 
+  // this query to calculate time zone relative function
   2: optional i64 timestamp_ms
 
   // time_zone is the timezone this query used.
@@ -258,7 +337,9 @@ struct TQueryGlobals {
   3: optional string time_zone
 
   // Set to true if in a load plan, the max_filter_ratio is 0.0
-  4: optional bool load_zero_tolerance = false;
+  4: optional bool load_zero_tolerance = false
+
+  5: optional i32 nano_seconds
 }
 
 
@@ -270,7 +351,7 @@ enum PaloInternalServiceVersion {
 
 struct TTxnParams {
   1: optional bool need_txn
-  2: optional string auth_code_uuid
+  2: optional string token
   3: optional i64 thrift_rpc_timeout_ms
   4: optional string db
   5: optional string tbl
@@ -279,6 +360,8 @@ struct TTxnParams {
   8: optional Types.TUniqueId fragment_instance_id
   9: optional i64 db_id
   10: optional double max_filter_ratio
+  // For load task with transaction, use this to indicate we use pipeline or not
+  11: optional bool enable_pipeline_txn_load = false;
 }
 
 // Definition of global dict, global dict is used to accelerate query performance of low cardinality data
@@ -331,6 +414,7 @@ struct TExecPlanFragmentParams {
 
   // required in V1
   // @Common components
+  // Deprecated
   10: optional Types.TResourceInfo resource_info
 
   // load job related
@@ -353,6 +437,14 @@ struct TExecPlanFragmentParams {
   // it will wait for the FE to send the "start execution" command before it is actually executed.
   // Otherwise, the fragment will start executing directly on the BE side.
   20: optional bool need_wait_execution_trigger = false;
+
+  21: optional bool build_hash_table_for_broadcast_join = false;
+
+  22: optional list<Types.TUniqueId> instances_sharing_hash_table;
+  23: optional string table_name;
+
+  // scan node id -> scan range params, only for external file scan
+  24: optional map<Types.TPlanNodeId, PlanNodes.TFileScanRangeParams> file_scan_params
 }
 
 struct TExecPlanFragmentParamsList {
@@ -386,6 +478,8 @@ struct TFoldConstantParams {
   1: required map<string, map<string, Exprs.TExpr>> expr_map
   2: required TQueryGlobals query_globals
   3: optional bool vec_exec
+  4: optional TQueryOptions query_options
+  5: optional Types.TUniqueId query_id
 }
 
 // TransmitData
@@ -503,10 +597,71 @@ struct TCondition {
     1:  required string column_name
     2:  required string condition_op
     3:  required list<string> condition_values
+    // In delete condition, the different column may have same column name, need
+    // using unique id to distinguish them
+    4:  optional i32 column_unique_id
+    5:  optional bool marked_by_runtime_filter = false
 }
 
 struct TExportStatusResult {
     1: required Status.TStatus status
     2: required Types.TExportState state
     3: optional list<string> files
+}
+
+struct TPipelineInstanceParams {
+  1: required Types.TUniqueId fragment_instance_id
+  2: optional bool build_hash_table_for_broadcast_join = false;
+  3: required map<Types.TPlanNodeId, list<TScanRangeParams>> per_node_scan_ranges
+  4: optional i32 sender_id
+  5: optional TRuntimeFilterParams runtime_filter_params
+  6: optional i32 backend_num
+  7: optional map<Types.TPlanNodeId, bool> per_node_shared_scans
+}
+
+struct TPipelineWorkloadGroup {
+  1: optional i64 id
+  2: optional string name
+  3: optional map<string, string> properties
+  4: optional i64 version
+}
+
+// ExecPlanFragment
+struct TPipelineFragmentParams {
+  1: required PaloInternalServiceVersion protocol_version
+  2: required Types.TUniqueId query_id
+  3: optional i32 fragment_id
+  4: required map<Types.TPlanNodeId, i32> per_exch_num_senders
+  5: optional Descriptors.TDescriptorTable desc_tbl
+  // Deprecated
+  6: optional Types.TResourceInfo resource_info
+  7: list<DataSinks.TPlanFragmentDestination> destinations
+  8: optional i32 num_senders
+  9: optional bool send_query_statistics_with_every_batch
+  10: optional Types.TNetworkAddress coord
+  11: optional TQueryGlobals query_globals
+  12: optional TQueryOptions query_options
+  // load job related
+  13: optional string import_label
+  14: optional string db_name
+  15: optional i64 load_job_id
+  16: optional TLoadErrorHubInfo load_error_hub_info
+  17: optional i32 fragment_num_on_host
+  18: optional i64 backend_id
+  19: optional bool need_wait_execution_trigger = false
+  20: optional list<Types.TUniqueId> instances_sharing_hash_table
+  21: optional bool is_simplified_param = false;
+  22: optional TGlobalDict global_dict  // scan node could use the global dict to encode the string value to an integer
+  23: optional Planner.TPlanFragment fragment
+  24: list<TPipelineInstanceParams> local_params
+  26: optional list<TPipelineWorkloadGroup> workload_groups
+  27: optional TTxnParams txn_conf
+  28: optional string table_name
+  // scan node id -> scan range params, only for external file scan
+  29: optional map<Types.TPlanNodeId, PlanNodes.TFileScanRangeParams> file_scan_params
+  30: optional bool group_commit = false;
+}
+
+struct TPipelineFragmentParamsList {
+    1: optional list<TPipelineFragmentParams> params_list;
 }

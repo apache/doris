@@ -18,19 +18,33 @@
 # specific language governing permissions and limitations
 # under the License.
 
+from dbt.adapters.sql import SQLAdapter
+
 from concurrent.futures import Future
 from enum import Enum
-from typing import Callable, Dict, List, Optional, Set, Tuple
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    Iterator,
+    List,
+    Mapping,
+    Optional,
+    Set,
+    Tuple,
+    Type,
+    Union,
+)
 
 import agate
 import dbt.exceptions
 from dbt.adapters.base.impl import _expect_row_value, catch_as_completed
-from dbt.adapters.base.relation import InformationSchema
+from dbt.adapters.base.relation import InformationSchema, BaseRelation
 from dbt.adapters.doris.column import DorisColumn
-from dbt.adapters.doris.connections import DorisAdapterConnectionManager
+from dbt.adapters.doris.connections import DorisConnectionManager
 from dbt.adapters.doris.relation import DorisRelation
 from dbt.adapters.protocol import AdapterConfig
-from dbt.adapters.sql import SQLAdapter
 from dbt.adapters.sql.impl import LIST_RELATIONS_MACRO_NAME, LIST_SCHEMAS_MACRO_NAME
 from dbt.clients.agate_helper import table_from_rows
 from dbt.contracts.graph.manifest import Manifest
@@ -63,7 +77,7 @@ class DorisConfig(AdapterConfig):
 
 
 class DorisAdapter(SQLAdapter):
-    ConnectionManager = DorisAdapterConnectionManager
+    ConnectionManager = DorisConnectionManager
     Relation = DorisRelation
     AdapterSpecificConfigs = DorisConfig
     Column = DorisColumn
@@ -90,10 +104,16 @@ class DorisAdapter(SQLAdapter):
         return exists
 
     def get_relation(self, database: Optional[str], schema: str, identifier: str):
-        if not self.Relation.include_policy.database:
-            database = None
+        return super().get_relation(None, schema, identifier)
 
-        return super().get_relation(database, schema, identifier)
+    def drop_schema(self, relation: BaseRelation):
+        relations = self.list_relations(
+            database=relation.database,
+            schema=relation.schema
+        )
+        for relation in relations:
+            self.drop_relation(relation)
+        super().drop_schema(relation)
 
     def list_relations_without_caching(self, schema_relation: DorisRelation) -> List[DorisRelation]:
         kwargs = {"schema_relation": schema_relation}
@@ -102,7 +122,7 @@ class DorisAdapter(SQLAdapter):
         relations = []
         for row in results:
             if len(row) != 4:
-                raise dbt.exceptions.RuntimeException(
+                raise dbt.exceptions.DbtRuntimeError(
                     f"Invalid value from 'show table extended ...', "
                     f"got {len(row)} values, expected 4"
                 )
@@ -120,10 +140,6 @@ class DorisAdapter(SQLAdapter):
 
     def get_catalog(self, manifest):
         schema_map = self._get_catalog_schemas(manifest)
-        if len(schema_map) > 1:
-            dbt.exceptions.raise_compiler_error(
-                f"Expected only one database in get_catalog, found " f"{list(schema_map)}"
-            )
 
         with executor(self.config) as tpe:
             futures: List[Future[agate.Table]] = []
@@ -165,10 +181,10 @@ class DorisAdapter(SQLAdapter):
         return table.where(cls._catalog_filter_schemas(manifest))
 
     def _get_one_catalog(
-        self,
-        information_schema: InformationSchema,
-        schemas: Set[str],
-        manifest: Manifest,
+            self,
+            information_schema: InformationSchema,
+            schemas: Set[str],
+            manifest: Manifest,
     ) -> agate.Table:
         if len(schemas) != 1:
             dbt.exceptions.raise_compiler_error(
@@ -176,3 +192,32 @@ class DorisAdapter(SQLAdapter):
             )
 
         return super()._get_one_catalog(information_schema, schemas, manifest)
+
+    # Methods used in adapter tests
+    def timestamp_add_sql(self, add_to: str, number: int = 1, interval: str = "hour") -> str:
+        # for backwards compatibility, we're compelled to set some sort of
+        # default. A lot of searching has lead me to believe that the
+        # '+ interval' syntax used in postgres/redshift is relatively common
+        # and might even be the SQL standard's intention.
+        return f"{add_to} + interval {number} {interval}"
+
+    @classmethod
+    def render_raw_columns_constraints(cls, raw_columns: Dict[str, Dict[str, Any]]) -> List:
+        rendered_column_constraints = []
+        for v in raw_columns.values():
+            col_name = cls.quote(v["name"]) if v.get("quote") else v["name"]
+            data_type = v.get('data_type')
+            comment = v.get('description')
+
+            if data_type is not None:
+                rendered_column_constraint = [f"cast(`{col_name}` as {data_type}) as `{col_name}`"]
+            else:
+                if comment != "":
+                    rendered_column_constraint  = [f"`{col_name}` COMMENT '{comment}'"]
+                else:
+                    rendered_column_constraint = [f"`{col_name}`"]
+
+
+            rendered_column_constraints.append(" ".join(rendered_column_constraint))
+
+        return rendered_column_constraints

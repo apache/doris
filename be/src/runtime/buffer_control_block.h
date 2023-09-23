@@ -17,13 +17,18 @@
 
 #pragma once
 
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/Types_types.h>
+#include <stdint.h>
+
+#include <atomic>
 #include <condition_variable>
 #include <deque>
 #include <list>
+#include <memory>
 #include <mutex>
 
 #include "common/status.h"
-#include "gen_cpp/Types_types.h"
 #include "runtime/query_statistics.h"
 
 namespace google {
@@ -32,13 +37,22 @@ class Closure;
 }
 } // namespace google
 
+namespace arrow {
+class RecordBatch;
+} // namespace arrow
+
 namespace brpc {
 class Controller;
 }
 
 namespace doris {
 
-class TFetchDataResult;
+namespace pipeline {
+class ResultBufferDependency;
+class CancelDependency;
+class ResultQueueDependency;
+} // namespace pipeline
+
 class PFetchDataResult;
 
 struct GetResultBatchCtx {
@@ -60,23 +74,24 @@ struct GetResultBatchCtx {
 class BufferControlBlock {
 public:
     BufferControlBlock(const TUniqueId& id, int buffer_size);
-    ~BufferControlBlock();
+    virtual ~BufferControlBlock();
 
     Status init();
-    Status add_batch(std::unique_ptr<TFetchDataResult>& result);
+    // Only one fragment is written, so can_sink returns true, then the sink must be executed
+    virtual bool can_sink();
+    virtual Status add_batch(std::unique_ptr<TFetchDataResult>& result);
+    virtual Status add_arrow_batch(std::shared_ptr<arrow::RecordBatch>& result);
 
-    // get result from batch, use timeout?
-    Status get_batch(TFetchDataResult* result);
-
-    void get_batch(GetResultBatchCtx* ctx);
+    virtual void get_batch(GetResultBatchCtx* ctx);
+    virtual Status get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* result);
 
     // close buffer block, set _status to exec_status and set _is_close to true;
     // called because data has been read or error happened.
     Status close(Status exec_status);
     // this is called by RPC, called from coordinator
-    Status cancel();
+    virtual Status cancel();
 
-    const TUniqueId& fragment_id() const { return _fragment_id; }
+    [[nodiscard]] const TUniqueId& fragment_id() const { return _fragment_id; }
 
     void set_query_statistics(std::shared_ptr<QueryStatistics> statistics) {
         _query_statistics = statistics;
@@ -86,32 +101,40 @@ public:
         // _query_statistics may be null when the result sink init failed
         // or some other failure.
         // and the number of written rows is only needed when all things go well.
-        if (_query_statistics.get() != nullptr) {
+        if (_query_statistics != nullptr) {
             _query_statistics->set_returned_rows(num_rows);
         }
     }
 
     void update_max_peak_memory_bytes() {
-        if (_query_statistics.get() != nullptr) {
+        if (_query_statistics != nullptr) {
             int64_t max_peak_memory_bytes = _query_statistics->calculate_max_peak_memory_bytes();
             _query_statistics->set_max_peak_memory_bytes(max_peak_memory_bytes);
         }
     }
 
-private:
-    typedef std::list<std::unique_ptr<TFetchDataResult>> ResultQueue;
+protected:
+    virtual bool _get_batch_queue_empty() {
+        return _fe_result_batch_queue.empty() && _arrow_flight_batch_queue.empty();
+    }
+    virtual void _update_batch_queue_empty() {}
+
+    using FeResultQueue = std::list<std::unique_ptr<TFetchDataResult>>;
+    using ArrowFlightResultQueue = std::list<std::shared_ptr<arrow::RecordBatch>>;
 
     // result's query id
     TUniqueId _fragment_id;
     bool _is_close;
-    bool _is_cancelled;
+    std::atomic_bool _is_cancelled;
     Status _status;
-    int _buffer_rows;
-    int _buffer_limit;
+    std::atomic_int _buffer_rows;
+    const int _buffer_limit;
     int64_t _packet_num;
 
     // blocking queue for batch
-    ResultQueue _batch_queue;
+    FeResultQueue _fe_result_batch_queue;
+    ArrowFlightResultQueue _arrow_flight_batch_queue;
+
     // protects all subsequent data in this block
     std::mutex _lock;
     // signal arrival of new batch or the eos/cancelled condition
@@ -125,6 +148,39 @@ private:
     // threads. But their calls are all at different time, there is no problem of
     // multithreading access.
     std::shared_ptr<QueryStatistics> _query_statistics;
+};
+
+class PipBufferControlBlock : public BufferControlBlock {
+public:
+    PipBufferControlBlock(const TUniqueId& id, int buffer_size)
+            : BufferControlBlock(id, buffer_size) {}
+
+    bool can_sink() override {
+        return _get_batch_queue_empty() || _buffer_rows < _buffer_limit || _is_cancelled;
+    }
+
+    Status add_batch(std::unique_ptr<TFetchDataResult>& result) override;
+
+    Status add_arrow_batch(std::shared_ptr<arrow::RecordBatch>& result) override;
+
+    void get_batch(GetResultBatchCtx* ctx) override;
+
+    Status get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* result) override;
+
+    Status cancel() override;
+
+    void set_dependency(std::shared_ptr<pipeline::ResultBufferDependency> buffer_dependency,
+                        std::shared_ptr<pipeline::ResultQueueDependency> queue_dependency,
+                        std::shared_ptr<pipeline::CancelDependency> cancel_dependency);
+
+private:
+    bool _get_batch_queue_empty() override { return _batch_queue_empty; }
+    void _update_batch_queue_empty() override;
+
+    std::atomic_bool _batch_queue_empty = false;
+    std::shared_ptr<pipeline::ResultBufferDependency> _buffer_dependency = nullptr;
+    std::shared_ptr<pipeline::ResultQueueDependency> _queue_dependency = nullptr;
+    std::shared_ptr<pipeline::CancelDependency> _cancel_dependency = nullptr;
 };
 
 } // namespace doris

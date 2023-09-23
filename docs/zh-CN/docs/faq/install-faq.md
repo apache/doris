@@ -35,9 +35,9 @@ under the License.
 在下线过程中，通过 show backends 查看下线节点的 tabletNum ，会观察到 tabletNum 数量在减少，说明数据分片正在从这个节点迁移走。当数量减到0时，系统会自动删除这个节点。但某些情况下，tabletNum 下降到一定数值后就不变化。这通常可能有以下两种原因：
 
 1. 这些 tablet 属于刚被删除的表、分区或物化视图。而刚被删除的对象会保留在回收站中。而下线逻辑不会处理这些分片。可以通过修改 FE 的配置参数 catalog_trash_expire_second 来修改对象在回收站中驻留的时间。当对象从回收站中被删除后，这些 tablet就会被处理了。
-2. 这些 tablet 的迁移任务出现了问题。此时需要通过 show proc "/cluster_balance" 来查看具体任务的错误了。
+2. 这些 tablet 的迁移任务出现了问题。此时需要通过 `show proc "/cluster_balance"` 来查看具体任务的错误了。
 
-对于以上情况，可以先通过 show proc "/statistic" 查看集群是否还有 unhealthy 的分片，如果为0，则可以直接通过 drop backend 语句删除这个 BE 。否则，还需要具体查看不健康分片的副本情况。
+对于以上情况，可以先通过 `show proc "/cluster_health/tablet_health";` 查看集群是否还有 unhealthy 的分片，如果为0，则可以直接通过 drop backend 语句删除这个 BE 。否则，还需要具体查看不健康分片的副本情况。
 
 ### Q2. priorty_network 应该如何设置？
 
@@ -51,7 +51,7 @@ priorty_network 的值是 CIDR 格式表示的。分为两部分，第一部分�
 
 首先明确一点，FE 只有两种角色：Follower 和 Observer。而 Master 只是一组 Follower 节点中选择出来的一个 FE。Master 可以看成是一种特殊的 Follower。所以当我们被问及一个集群有多少 FE，都是什么角色时，正确的回答当时应该是所有 FE 节点的个数，以及 Follower 角色的个数和 Observer 角色的个数。
 
-所有 Follower 角色的 FE 节点会组成一个可选择组，类似 Poxas 一致性协议里的组概念。组内会选举出一个 Follower 作为 Master。当 Master 挂了，会自动选择新的 Follower 作为 Master。而 Observer 不会参与选举，因此 Observer 也不会称为 Master 。
+所有 Follower 角色的 FE 节点会组成一个可选择组，类似 Paxos 一致性协议里的组概念。组内会选举出一个 Follower 作为 Master。当 Master 挂了，会自动选择新的 Follower 作为 Master。而 Observer 不会参与选举，因此 Observer 也不会成为 Master 。
 
 一条元数据日志需要在多数 Follower 节点写入成功，才算成功。比如3个 FE ，2个写入成功才可以。这也是为什么 Follower 角色的个数需要是奇数的原因。
 
@@ -83,7 +83,7 @@ Observer 角色和这个单词的含义一样，仅仅作为观察者来同步�
 
 3. 使用API手动迁移数据
 
-   Doris提供了[HTTP API](../admin-manual/http-actions/tablet-migration-action.md)，可以手动指定一个磁盘上的数据分片迁移到另一个磁盘上。
+   Doris提供了[HTTP API](https://doris.apache.org/zh-CN/docs/dev/admin-manual/http-actions/be/tablet-migration)，可以手动指定一个磁盘上的数据分片迁移到另一个磁盘上。
 
 ### Q5. 如何正确阅读 FE/BE 日志?
 
@@ -157,13 +157,13 @@ Observer 角色和这个单词的含义一样，仅仅作为观察者来同步�
 
 2. FE
 
-   FE 是 java 进程，健壮程度要由于 C/C++ 程序。通常FE 挂掉的原因可能是 OOM（Out-of-Memory）或者是元数据写入失败。这些错误通常在 fe.log 或者 fe.out 中有错误堆栈。需要根据错误堆栈信息进一步排查。
+   FE 是 java 进程，健壮程度要优于 C/C++ 程序。通常FE 挂掉的原因可能是 OOM（Out-of-Memory）或者是元数据写入失败。这些错误通常在 fe.log 或者 fe.out 中有错误堆栈。需要根据错误堆栈信息进一步排查。
 
 ### Q7. 关于数据目录SSD和HDD的配置, 建表有时候会遇到报错`Failed to find enough host with storage medium and tag`
 
 Doris支持一个BE节点配置多个存储路径。通常情况下，每块盘配置一个存储路径即可。同时，Doris支持指定路径的存储介质属性，如SSD或HDD。SSD代表高速存储设备，HDD代表低速存储设备。
 
-如果集群只有一种介质比如都是HDD或者都是SSD，最佳实践是不用在be.conf中显式指定介质属性。如果遇到上述报错```Failed to find enough host with storage medium and tag```，一般是因为be.conf中只配置了SSD的介质，而fe中参数default_storage_medium默认为HDD，因此建表时会发现没有HDD介质的存储而报错。解决方案可以修改此FE配置并重启FE生效；或者将be.conf中SSD的显式配置去掉；或者建表时增加properties参数 ```properties {"storage_medium" = "ssd"}```均可
+如果集群只有一种介质比如都是HDD或者都是SSD，最佳实践是不用在be.conf中显式指定介质属性。如果遇到上述报错```Failed to find enough host with storage medium and tag```，一般是因为be.conf中只配置了SSD的介质，而建表阶段中显式指定了```properties {"storage_medium" = "hdd"}```；同理如果be.conf只配置了HDD的介质，而而建表阶段中显式指定了```properties {"storage_medium" = "ssd"}```也会出现上述错误。解决方案可以修改建表的properties参数与配置匹配；或者将be.conf中SSD/HDD的显式配置去掉即可。
 
 通过指定路径的存储介质属性，我们可以利用Doris的冷热数据分区存储功能，在分区级别将热数据存储在SSD中，而冷数据会自动转移到HDD中。
 
@@ -267,7 +267,7 @@ http {
 
 ### Q12. Doris编译安装JDK版本不兼容问题
 
-在自己使用 Docker 编译 Doris 的时候，编译完成安装以后启动FE，出现 `java.lang.Suchmethoderror: java.nio. ByteBuffer. limit (I)Ljava/nio/ByteBuffer;` 异常信息，这是因为Docker里默认是JDK 11，如果你的安装环境是使用JDK8 ，需要在 Docker 里 JDK 环境切换成 JDK8，具体切换方法参照[编译文档](../install/source-install/compilation.md)
+在自己使用 Docker 编译 Doris 的时候，编译完成安装以后启动FE，出现 `java.lang.Suchmethoderror: java.nio. ByteBuffer. limit (I)Ljava/nio/ByteBuffer;` 异常信息，这是因为Docker里默认是JDK 11，如果你的安装环境是使用JDK8 ，需要在 Docker 里 JDK 环境切换成 JDK8，具体切换方法参照[编译文档](../install/source-install/compilation-general.md)
 
 ### Q13. 本地启动 FE 或者启动单元测试报错 Cannot find external parser table action_table.dat
 执行如下命令
@@ -285,7 +285,7 @@ cp fe-core/target/generated-sources/cup/org/apache/doris/analysis/action_table.d
 ```
 ERROR 1105 (HY000): errCode = 2, detailMessage = driver connect Error: HY000 [MySQL][ODBC 8.0(w) Driver]SSL connection error: Failed to set ciphers to use (2026)
 ```
-解决方式是使用`Connector/ODBC 8.0.28` 版本的 ODBC Connector， 并且在操作系统处选择 `Linux - Generic`, 这个版本的ODBC Driver 使用 openssl 1.1 版本。或者使用低版本的ODBC Connector，比如[Connector/ODBC 5.3.14](https://dev.mysql.com/downloads/connector/odbc/5.3.html)。具体使用方式见 [ODBC外表使用文档](../ecosystem/external-table/odbc-of-doris.md)。
+解决方式是使用`Connector/ODBC 8.0.28` 版本的 ODBC Connector， 并且在操作系统处选择 `Linux - Generic`, 这个版本的ODBC Driver 使用 openssl 1.1 版本。或者使用低版本的ODBC Connector，比如[Connector/ODBC 5.3.14](https://dev.mysql.com/downloads/connector/odbc/5.3.html)。具体使用方式见 [ODBC外表使用文档](../lakehouse/external-table/odbc.md)。
 
 可以通过如下方式验证 MySQL ODBC Driver 使用的openssl 版本
 
@@ -293,3 +293,24 @@ ERROR 1105 (HY000): errCode = 2, detailMessage = driver connect Error: HY000 [My
 ldd /path/to/libmyodbc8w.so |grep libssl.so
 ```
 如果输出包含 `libssl.so.10` 则使用过程中可能出现问题， 如果包含`libssl.so.1.1` 则与doris 1.0 兼容
+
+### Q15. 升级到 1.2 版本，BE NoClassDefFoundError 问题启动失败
+<version since="1.2"> Java UDF 依赖错误 </version>
+
+如果升级后启动 be 出现下面这种 Java `NoClassDefFoundError` 错误
+
+```
+Exception in thread "main" java.lang.NoClassDefFoundError: org/apache/doris/udf/JniUtil
+Caused by: java.lang.ClassNotFoundException: org.apache.doris.udf.JniUtil
+```
+需要从官网下载 `apache-doris-java-udf-jar-with-dependencies-1.2.0` 的 Java UDF 函数依赖包，放到 BE 安装目录下的 lib 目录，然后重新启动 BE
+
+### Q16. 升级到 1.2 版本，BE 启动显示 Failed to initialize JNI 问题
+<version since="1.2"> Java 环境问题 </version>
+
+如果升级后启动 BE 出现下面这种 `Failed to initialize JNI` 错误
+
+```
+Failed to initialize JNI: Failed to find the library libjvm.so.
+```
+需要在系统设置 `JAVA_HOME` 环境变量，或者在 be.conf 中设置 `JAVA_HOME` 变量，然后重新启动 BE 节点。

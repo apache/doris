@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.TimestampArithmeticExpr.TimeUnit;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DynamicPartitionUtil;
@@ -46,7 +47,8 @@ public class DynamicPartitionProperty {
     public static final String HISTORY_PARTITION_NUM = "dynamic_partition.history_partition_num";
     public static final String HOT_PARTITION_NUM = "dynamic_partition.hot_partition_num";
     public static final String RESERVED_HISTORY_PERIODS = "dynamic_partition.reserved_history_periods";
-    public static final String REMOTE_STORAGE_POLICY = "dynamic_partition.remote_storage_policy";
+    public static final String STORAGE_POLICY = "dynamic_partition.storage_policy";
+    public static final String STORAGE_MEDIUM = "dynamic_partition.storage_medium";
 
     public static final int MIN_START_OFFSET = Integer.MIN_VALUE;
     public static final int MAX_END_OFFSET = Integer.MAX_VALUE;
@@ -73,7 +75,8 @@ public class DynamicPartitionProperty {
     // If not set, default is 0
     private int hotPartitionNum;
     private String reservedHistoryPeriods;
-    private String remoteStoragePolicy;
+    private String storagePolicy;
+    private String storageMedium; // ssd or hdd
 
     public DynamicPartitionProperty(Map<String, String> properties) {
         if (properties != null && !properties.isEmpty()) {
@@ -93,7 +96,8 @@ public class DynamicPartitionProperty {
             this.hotPartitionNum = Integer.parseInt(properties.getOrDefault(HOT_PARTITION_NUM, "0"));
             this.reservedHistoryPeriods = properties.getOrDefault(
                     RESERVED_HISTORY_PERIODS, NOT_SET_RESERVED_HISTORY_PERIODS);
-            this.remoteStoragePolicy = properties.getOrDefault(REMOTE_STORAGE_POLICY, "");
+            this.storagePolicy = properties.getOrDefault(STORAGE_POLICY, "");
+            this.storageMedium = properties.getOrDefault(STORAGE_MEDIUM, Config.default_storage_medium);
             createStartOfs(properties);
         } else {
             this.exist = false;
@@ -173,8 +177,12 @@ public class DynamicPartitionProperty {
         return hotPartitionNum;
     }
 
-    public String getRemoteStoragePolicy() {
-        return remoteStoragePolicy;
+    public String getStoragePolicy() {
+        return storagePolicy;
+    }
+
+    public String getStorageMedium() {
+        return storageMedium;
     }
 
     public String getStartOfInfo() {
@@ -220,7 +228,8 @@ public class DynamicPartitionProperty {
                 + ",\n\"" + HISTORY_PARTITION_NUM + "\" = \"" + historyPartitionNum + "\""
                 + ",\n\"" + HOT_PARTITION_NUM + "\" = \"" + hotPartitionNum + "\""
                 + ",\n\"" + RESERVED_HISTORY_PERIODS + "\" = \"" + reservedHistoryPeriods + "\""
-                + ",\n\"" + REMOTE_STORAGE_POLICY + "\" = \"" + remoteStoragePolicy + "\"";
+                + ",\n\"" + STORAGE_POLICY + "\" = \"" + storagePolicy + "\""
+                + ",\n\"" + STORAGE_MEDIUM + "\" = \"" + storageMedium + "\"";
         if (getTimeUnit().equalsIgnoreCase(TimeUnit.WEEK.toString())) {
             res += ",\n\"" + START_DAY_OF_WEEK + "\" = \"" + startOfWeek.dayOfWeek + "\"";
         } else if (getTimeUnit().equalsIgnoreCase(TimeUnit.MONTH.toString())) {

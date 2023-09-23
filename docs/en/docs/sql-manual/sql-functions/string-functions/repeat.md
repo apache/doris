@@ -1,6 +1,6 @@
 ---
 {
-    "title": "repeat",
+    "title": "REPEAT",
     "language": "en"
 }
 ---
@@ -51,4 +51,4 @@ mysql> SELECT repeat("a", -1);
 +-----------------+
 ```
 ### keywords
-REPEAT,
+    REPEAT

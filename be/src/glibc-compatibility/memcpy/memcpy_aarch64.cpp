@@ -22,11 +22,6 @@ static inline __attribute__((always_inline)) __m128i _mm_loadu_si128(const __m12
     return vreinterpretq_m128i_s32(vld1q_s32((const int32_t *) p));
 }
 
-static inline __attribute__((always_inline)) __m128i _mm_load_si128(const __m128i *p)
-{
-    return vreinterpretq_m128i_s32(vld1q_s32((const int32_t *) p));
-}
-
 /** Custom memcpy implementation for ClickHouse.
   * It has the following benefits over using glibc's implementation:
   * 1. Avoiding dependency on specific version of glibc's symbol, like memcpy@@GLIBC_2.14 for portability.

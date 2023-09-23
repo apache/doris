@@ -22,40 +22,6 @@
 
 #include "vec/common/hash_table/hash_table.h"
 
-template <typename Key, typename TState = HashTableNoState>
-struct FixedHashTableCell {
-    using State = TState;
-
-    using value_type = Key;
-    using mapped_type = VoidMapped;
-    bool full;
-
-    FixedHashTableCell() {}
-    FixedHashTableCell(const Key&, const State&) : full(true) {}
-
-    const VoidKey get_key() const { return {}; }
-    VoidMapped get_mapped() const { return {}; }
-
-    bool is_zero(const State&) const { return !full; }
-    void set_zero() { full = false; }
-    static constexpr bool need_zero_value_storage = false;
-
-    /// This Cell is only stored inside an iterator. It's used to accommodate the fact
-    ///  that the iterator based API always provide a reference to a continuous memory
-    ///  containing the Key. As a result, we have to instantiate a real Key field.
-    /// All methods that return a mutable reference to the Key field are named with
-    ///  -Mutable suffix, indicating this is uncommon usage. As this is only for lookup
-    ///  tables, it's totally fine to discard the Key mutations.
-    struct CellExt {
-        Key key;
-
-        const VoidKey get_key() const { return {}; }
-        VoidMapped get_mapped() const { return {}; }
-        const value_type& get_value() const { return key; }
-        void update(Key&& key_, FixedHashTableCell*) { key = key_; }
-    };
-};
-
 /// How to obtain the size of the table.
 
 template <typename Cell>
@@ -114,9 +80,6 @@ class FixedHashTable : private boost::noncopyable,
     static constexpr size_t NUM_CELLS = 1ULL << (sizeof(Key) * 8);
 
 protected:
-    friend class const_iterator;
-    friend class iterator;
-
     using Self = FixedHashTable;
 
     Cell* buf; /// A piece of memory for all elements.
@@ -203,8 +166,9 @@ public:
         destroy_elements();
         free();
 
+        const auto new_size = rhs.size();
         std::swap(buf, rhs.buf);
-        this->setSize(rhs.size());
+        this->set_size(new_size);
 
         Allocator::operator=(std::move(rhs));
         Cell::State::operator=(std::move(rhs));
@@ -269,6 +233,31 @@ public:
         this->increase_size();
     }
 
+    class Constructor {
+    public:
+        friend class FixedHashTable;
+        template <typename... Args>
+        void operator()(Args&&... args) const {
+            new (_cell) Cell(std::forward<Args>(args)...);
+        }
+
+    private:
+        Constructor(Cell* cell) : _cell(cell) {}
+        Cell* _cell;
+    };
+
+    template <typename Func>
+    void ALWAYS_INLINE lazy_emplace(const Key& x, LookupResult& it, Func&& f) {
+        it = &buf[x];
+
+        if (!buf[x].is_zero(*this)) {
+            return;
+        }
+
+        f(Constructor(&buf[x]), x);
+        this->increase_size();
+    }
+
     std::pair<LookupResult, bool> ALWAYS_INLINE insert(const value_type& x) {
         std::pair<LookupResult, bool> res;
         emplace(Cell::get_key(x), res.first, res.second);
@@ -315,14 +304,14 @@ public:
     void read(doris::vectorized::BufferReadable& rb) {
         Cell::State::read(rb);
         destroy_elements();
-        size_t m_size;
+        doris::vectorized::UInt64 m_size;
         doris::vectorized::read_var_uint(m_size, rb);
         this->set_size(m_size);
         free();
         alloc();
 
         for (size_t i = 0; i < m_size; ++i) {
-            size_t place_value = 0;
+            doris::vectorized::UInt64 place_value = 0;
             doris::vectorized::read_var_uint(place_value, rb);
             Cell x;
             x.read(rb);

@@ -49,17 +49,17 @@ import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.Load;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlColumn;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlColumnMapping;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlFileGroup;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlIndex;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlJobProperty;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlPartition;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlPartitionInfo;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlTable;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig.FilePatternVersion;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig.SourceType;
+import org.apache.doris.sparkdpp.EtlJobConfig;
+import org.apache.doris.sparkdpp.EtlJobConfig.EtlColumn;
+import org.apache.doris.sparkdpp.EtlJobConfig.EtlColumnMapping;
+import org.apache.doris.sparkdpp.EtlJobConfig.EtlFileGroup;
+import org.apache.doris.sparkdpp.EtlJobConfig.EtlIndex;
+import org.apache.doris.sparkdpp.EtlJobConfig.EtlJobProperty;
+import org.apache.doris.sparkdpp.EtlJobConfig.EtlPartition;
+import org.apache.doris.sparkdpp.EtlJobConfig.EtlPartitionInfo;
+import org.apache.doris.sparkdpp.EtlJobConfig.EtlTable;
+import org.apache.doris.sparkdpp.EtlJobConfig.FilePatternVersion;
+import org.apache.doris.sparkdpp.EtlJobConfig.SourceType;
 import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.base.Preconditions;
@@ -71,6 +71,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -91,8 +92,8 @@ public class SparkLoadPendingTask extends LoadTask {
 
     public SparkLoadPendingTask(SparkLoadJob loadTaskCallback,
                                 Map<FileGroupAggKey, List<BrokerFileGroup>> aggKeyToBrokerFileGroups,
-                                SparkResource resource, BrokerDesc brokerDesc) {
-        super(loadTaskCallback, TaskType.PENDING);
+                                SparkResource resource, BrokerDesc brokerDesc, Priority priority) {
+        super(loadTaskCallback, TaskType.PENDING, priority);
         this.retryTime = 3;
         this.attachment = new SparkPendingTaskAttachment(signature);
         this.aggKeyToBrokerFileGroups = aggKeyToBrokerFileGroups;
@@ -104,6 +105,16 @@ public class SparkLoadPendingTask extends LoadTask {
         this.transactionId = loadTaskCallback.getTransactionId();
         this.sparkLoadAppHandle = loadTaskCallback.getHandle();
         this.failMsg = new FailMsg(FailMsg.CancelType.ETL_SUBMIT_FAIL);
+        toLowCaseForFileGroups();
+    }
+
+    void toLowCaseForFileGroups() {
+        aggKeyToBrokerFileGroups.values().forEach(fgs -> {
+            fgs.forEach(fg -> {
+                fg.getColumnExprList()
+                        .forEach(expr -> expr.setColumnName(expr.getColumnName().toLowerCase(Locale.ROOT)));
+            });
+        });
     }
 
     @Override
@@ -281,7 +292,7 @@ public class SparkLoadPendingTask extends LoadTask {
 
     private EtlColumn createEtlColumn(Column column) {
         // column name
-        String name = column.getName();
+        String name = column.getName().toLowerCase(Locale.ROOT);
         // column type
         PrimitiveType type = column.getDataType();
         String columnType = column.getDataType().toString();
@@ -334,7 +345,7 @@ public class SparkLoadPendingTask extends LoadTask {
                 partitionColumnRefs.add(column.getName());
             }
 
-            for (Map.Entry<Long, PartitionItem> entry : rangePartitionInfo.getPartitionItemEntryList(false, true)) {
+            for (Map.Entry<Long, PartitionItem> entry : rangePartitionInfo.getAllPartitionItemEntryList(true)) {
                 long partitionId = entry.getKey();
                 if (!partitionIds.contains(partitionId)) {
                     continue;
@@ -506,10 +517,8 @@ public class SparkLoadPendingTask extends LoadTask {
                     fileGroup.isNegative(), columnMappings, where, partitionIds);
         } else {
             etlFileGroup = new EtlFileGroup(SourceType.FILE, fileGroup.getFilePaths(), fileFieldNames,
-                    fileGroup.getColumnsFromPath(), fileGroup.getValueSeparator(),
-                    fileGroup.getLineDelimiter(), fileGroup.isNegative(),
-                    fileGroup.getFileFormat(), columnMappings,
-                    where, partitionIds);
+                    fileGroup.getColumnNamesFromPath(), fileGroup.getColumnSeparator(), fileGroup.getLineDelimiter(),
+                    fileGroup.isNegative(), fileGroup.getFileFormat(), columnMappings, where, partitionIds);
         }
 
         return etlFileGroup;

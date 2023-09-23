@@ -20,6 +20,7 @@ package org.apache.doris.mysql;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
@@ -28,7 +29,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.UnsupportedEncodingException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.Arrays;
+import java.security.SecureRandom;
 import java.util.Random;
 
 // this is stolen from MySQL
@@ -81,7 +82,7 @@ public class MysqlPassword {
     public static final byte PVERSION41_CHAR = '*';
     private static final byte[] DIG_VEC_UPPER = {'0', '1', '2', '3', '4', '5', '6', '7',
             '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
-    private static Random random = new Random(System.currentTimeMillis());
+    private static final Random random = new SecureRandom();
 
     public static byte[] createRandomString(int len) {
         byte[] bytes = new byte[len];
@@ -140,10 +141,10 @@ public class MysqlPassword {
 
         // compute result2: SHA-1(result1)
         md.reset();
-        byte[] candidateHash2 = md.digest(hashStage1);
-
-        // compare result2 and hashStage2
-        return Arrays.equals(candidateHash2, hashStage2);
+        md.update(hashStage1);
+        byte[] candidateHash2 = md.digest();
+        // compare result2 and hashStage2 using MessageDigest.isEqual()
+        return MessageDigest.isEqual(candidateHash2, hashStage2);
     }
 
     // MySQL client use this function to form scramble password
@@ -278,5 +279,39 @@ public class MysqlPassword {
         }
 
         return passwd;
+    }
+
+    public static final String REG_NUMBER = ".*\\d+.*";
+    public static final String REG_UPPERCASE = ".*[A-Z]+.*";
+    public static final String REG_LOWERCASE = ".*[a-z]+.*";
+    public static final String REG_SYMBOL = ".*[~!@#$%^&*()_+|<>,.?/:;'\\[\\]{}\"]+.*";
+    public static final int MIN_PASSWORD_LEN = 8;
+
+    public static void validatePlainPassword(long validaPolicy, String text) throws AnalysisException {
+        if (validaPolicy == GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG) {
+            if (Strings.isNullOrEmpty(text) || text.length() < MIN_PASSWORD_LEN) {
+                throw new AnalysisException(
+                        "Violate password validation policy: STRONG. The password must be at least 8 characters");
+            }
+
+            int i = 0;
+            if (text.matches(REG_NUMBER)) {
+                i++;
+            }
+            if (text.matches(REG_LOWERCASE)) {
+                i++;
+            }
+            if (text.matches(REG_UPPERCASE)) {
+                i++;
+            }
+            if (text.matches(REG_SYMBOL)) {
+                i++;
+            }
+            if (i < 3) {
+                throw new AnalysisException(
+                        "Violate password validation policy: STRONG. The password must contain at least 3 types of "
+                                + "numbers, uppercase letters, lowercase letters and special characters.");
+            }
+        }
     }
 }

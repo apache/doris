@@ -1,6 +1,6 @@
 ---
 {
-    "title": "hour",
+    "title": "HOUR",
     "language": "en"
 }
 ---
@@ -45,4 +45,4 @@ mysql> select hour('2018-12-31 23:59:59');
 +-----------------------------+
 ```
 ### keywords
-HOUR
+    HOUR

@@ -275,7 +275,7 @@ Note: Need to ensure that the plugin .zip file is available in the life cycle of
 
 ## Install and Uninstall
 
-Install and uninstall the plugin through the install/uninstall statements. More details, see `HELP INSTALL PLUGIN;` `HELP IUNNSTALL PLUGIN;` `HELP SHOW PLUGINS;` 
+Install and uninstall the plugin through the install/uninstall statements. More details, see `HELP INSTALL PLUGIN;` `HELP UNINSTALL PLUGIN;` `HELP SHOW PLUGINS;` 
 
 ```
 mysql> install plugin from "/home/users/doris/auditloader.zip";

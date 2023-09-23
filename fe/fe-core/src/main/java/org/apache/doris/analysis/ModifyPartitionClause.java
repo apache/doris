@@ -38,6 +38,7 @@ public class ModifyPartitionClause extends AlterTableClause {
 
     private List<String> partitionNames;
     private Map<String, String> properties;
+    private boolean isTempPartition;
     private boolean needExpand = false;
 
     public List<String> getPartitionNames() {
@@ -45,7 +46,8 @@ public class ModifyPartitionClause extends AlterTableClause {
     }
 
     // c'tor for non-star clause
-    public ModifyPartitionClause(List<String> partitionNames, Map<String, String> properties) {
+    public ModifyPartitionClause(List<String> partitionNames, Map<String, String> properties,
+                                 boolean isTempPartition) {
         super(AlterOpType.MODIFY_PARTITION);
         this.partitionNames = partitionNames;
         this.properties = properties;
@@ -57,19 +59,22 @@ public class ModifyPartitionClause extends AlterTableClause {
         // And these 3 operations does not require table to be stable.
         // If other kinds of operations be added later, "needTableStable" may be changed.
         this.needTableStable = false;
+        this.isTempPartition = isTempPartition;
     }
 
     // c'tor for 'Modify Partition(*)' clause
-    private ModifyPartitionClause(Map<String, String> properties) {
+    private ModifyPartitionClause(Map<String, String> properties, boolean isTempPartition) {
         super(AlterOpType.MODIFY_PARTITION);
         this.partitionNames = Lists.newArrayList();
         this.properties = properties;
         this.needExpand = true;
         this.needTableStable = false;
+        this.isTempPartition = isTempPartition;
     }
 
-    public static ModifyPartitionClause createStarClause(Map<String, String> properties) {
-        return new ModifyPartitionClause(properties);
+    public static ModifyPartitionClause createStarClause(Map<String, String> properties,
+                                                         boolean isTempPartition) {
+        return new ModifyPartitionClause(properties, isTempPartition);
     }
 
     @Override
@@ -100,15 +105,26 @@ public class ModifyPartitionClause extends AlterTableClause {
         PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
 
         // 2. in memory
-        PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_INMEMORY, false);
+        boolean isInMemory =
+                    PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_INMEMORY, false);
+        if (isInMemory == true) {
+            throw new AnalysisException("Not support set 'in_memory'='true' now!");
+        }
 
         // 3. tablet type
         PropertyAnalyzer.analyzeTabletType(properties);
+
+        // 4. mutable
+        PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_MUTABLE, true);
     }
 
     @Override
     public Map<String, String> getProperties() {
         return this.properties;
+    }
+
+    public boolean isTempPartition() {
+        return isTempPartition;
     }
 
     public boolean isNeedExpand() {
@@ -119,6 +135,9 @@ public class ModifyPartitionClause extends AlterTableClause {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("MODIFY PARTITION ");
+        if (isTempPartition) {
+            sb.append("TEMPORARY ");
+        }
         sb.append("(");
         if (needExpand) {
             sb.append("*");

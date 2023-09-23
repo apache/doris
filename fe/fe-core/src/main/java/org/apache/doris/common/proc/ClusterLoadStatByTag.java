@@ -68,10 +68,10 @@ public class ClusterLoadStatByTag implements ProcDirInterface {
 
     private Set<Tag> genTagMap() {
         Set<Tag> tags = Sets.newHashSet();
-        List<Long> beIds = Env.getCurrentSystemInfo().getBackendIds(false);
+        List<Long> beIds = Env.getCurrentSystemInfo().getAllBackendIds(false);
         for (long beId : beIds) {
             Backend be = Env.getCurrentSystemInfo().getBackend(beId);
-            if (be != null) {
+            if (be != null && be.isMixNode()) {
                 tags.add(be.getLocationTag());
             }
         }

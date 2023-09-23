@@ -17,52 +17,44 @@
 
 #pragma once
 
+#include <stdint.h>
+
+#include <string>
+
 #include "common/status.h"
-#include "gen_cpp/PlanNodes_types.h"
 
 namespace doris {
-
-class Status;
-class RowBatch;
-class RuntimeState;
-struct TypeDescriptor;
 
 namespace vectorized {
 class Block;
 }
+class RuntimeState;
 
 // abstract class of the result writer
 class ResultWriter {
 public:
-    ResultWriter() {};
-    ResultWriter(bool output_object_data) : _output_object_data(output_object_data) {};
-    ~ResultWriter() {};
+    ResultWriter() = default;
+    virtual ~ResultWriter() = default;
 
     virtual Status init(RuntimeState* state) = 0;
-    // convert and write one row batch
-    virtual Status append_row_batch(const RowBatch* batch) = 0;
 
-    // virtual Status append_block(const vectorized::Block& block) {
-    //     return Status::InternalError("Not support append vec block now.");
-    // }
+    virtual Status close(Status s = Status::OK()) = 0;
 
-    virtual Status close() = 0;
+    [[nodiscard]] virtual int64_t get_written_rows() const { return _written_rows; }
 
-    virtual int64_t get_written_rows() const { return _written_rows; }
+    [[nodiscard]] bool output_object_data() const { return _output_object_data; }
 
-    virtual bool output_object_data() const { return _output_object_data; }
+    virtual Status append_block(vectorized::Block& block) = 0;
 
-    static const std::string NULL_IN_CSV;
-    virtual void set_header_info(const std::string& header_type, const std::string& header) {
-        _header_type = header_type;
-        _header = header;
-    };
+    virtual bool can_sink() { return true; }
+
+    void set_output_object_data(bool output_object_data) {
+        _output_object_data = output_object_data;
+    }
 
 protected:
     int64_t _written_rows = 0; // number of rows written
     bool _output_object_data = false;
-    std::string _header_type = "";
-    std::string _header = "";
 };
 
 } // namespace doris

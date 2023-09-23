@@ -22,10 +22,10 @@ import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.ExceptionChecker;
 
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import mockit.Expectations;
 import mockit.Injectable;
-import org.codehaus.jackson.JsonParser;
-import org.codehaus.jackson.map.ObjectMapper;
 import org.junit.Assert;
 import org.junit.Test;
 

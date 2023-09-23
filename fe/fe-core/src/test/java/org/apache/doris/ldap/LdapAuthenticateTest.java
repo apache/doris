@@ -21,11 +21,12 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.mysql.privilege.PaloAuth;
-import org.apache.doris.mysql.privilege.PaloRole;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.privilege.Role;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import mockit.Delegate;
 import mockit.Expectations;
 import mockit.Mocked;
@@ -33,7 +34,6 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import java.util.ArrayList;
 import java.util.List;
 
 public class LdapAuthenticateTest {
@@ -42,16 +42,16 @@ public class LdapAuthenticateTest {
     private static final String IP = "192.168.1.1";
     private static final String TABLE_RD = "palo_rd";
 
-    private PaloRole ldapGroupsPrivs;
+    private Role ldapGroupsPrivs;
 
     @Mocked
-    private LdapClient ldapClient;
-    @Mocked
-    private LdapPrivsChecker ldapPrivsChecker;
+    private LdapManager ldapManager;
     @Mocked
     private Env env;
     @Mocked
-    private PaloAuth auth;
+    private Auth auth;
+    @Mocked
+    private AccessControllerManager accessManager;
 
     @Before
     public void setUp() throws DdlException {
@@ -61,13 +61,17 @@ public class LdapAuthenticateTest {
                 minTimes = 0;
                 result = true;
 
-                auth.mergeRolesNoCheckName((List<String>) any, (PaloRole) any);
+                auth.mergeRolesNoCheckName((List<String>) any, (Role) any);
                 minTimes = 0;
                 result = new Delegate() {
-                    void fakeMergeRolesNoCheckName(List<String> roles, PaloRole savedRole) {
+                    void fakeMergeRolesNoCheckName(List<String> roles, Role savedRole) {
                         ldapGroupsPrivs = savedRole;
                     }
                 };
+
+                env.getAccessManager();
+                minTimes = 0;
+                result = accessManager;
 
                 env.getAuth();
                 minTimes = 0;
@@ -83,7 +87,7 @@ public class LdapAuthenticateTest {
     private void setCheckPassword(boolean res) {
         new Expectations() {
             {
-                LdapClient.checkPassword(anyString, anyString);
+                ldapManager.checkUserPasswd(anyString, anyString);
                 minTimes = 0;
                 result = res;
             }
@@ -93,41 +97,29 @@ public class LdapAuthenticateTest {
     private void setCheckPasswordException() {
         new Expectations() {
             {
-                LdapClient.checkPassword(anyString, anyString);
+                ldapManager.checkUserPasswd(anyString, anyString);
                 minTimes = 0;
                 result = new RuntimeException("exception");
             }
         };
     }
 
-    private void setGetGroups(boolean res) {
+    private void setGetUserInfo(boolean res) {
         new Expectations() {
             {
                 if (res) {
-                    LdapClient.getGroups(anyString);
+                    ldapManager.getUserInfo(anyString);
                     minTimes = 0;
                     result = new Delegate() {
-                        List<String> fakeGetGroups(String user) {
-                            List<String> list = new ArrayList<>();
-                            list.add(TABLE_RD);
-                            return list;
+                        LdapUserInfo fakeGetGroups(String user) {
+                            return new LdapUserInfo(anyString, false, "", Sets.newHashSet(new Role(anyString)));
                         }
                     };
                 } else {
-                    LdapClient.getGroups(anyString);
+                    ldapManager.getUserInfo(anyString);
                     minTimes = 0;
-                    result = Lists.newArrayList();
+                    result = null;
                 }
-            }
-        };
-    }
-
-    private void setGetGroupsException() {
-        new Expectations() {
-            {
-                LdapClient.getGroups(anyString);
-                minTimes = 0;
-                result = new RuntimeException("exception");
             }
         };
     }
@@ -149,7 +141,7 @@ public class LdapAuthenticateTest {
     }
 
     private ConnectContext getContext() {
-        ConnectContext context = new ConnectContext(null);
+        ConnectContext context = new ConnectContext();
         context.setEnv(env);
         context.setThreadLocalInfo();
         return context;
@@ -160,71 +152,54 @@ public class LdapAuthenticateTest {
     public void testAuthenticate() {
         ConnectContext context = getContext();
         setCheckPassword(true);
-        setGetGroups(true);
+        setGetUserInfo(true);
         setGetCurrentUserIdentity(true);
         String qualifiedUser = ClusterNamespace.getFullName(DEFAULT_CLUSTER, USER_NAME);
         Assert.assertTrue(LdapAuthenticate.authenticate(context, "123", qualifiedUser));
-        Assert.assertFalse(context.getIsTempUser());
-        Assert.assertSame(ldapGroupsPrivs, context.getLdapGroupsPrivs());
+        Assert.assertTrue(context.getIsTempUser());
     }
 
     @Test
     public void testAuthenticateWithWrongPassword() {
         ConnectContext context = getContext();
         setCheckPassword(false);
-        setGetGroups(true);
+        setGetUserInfo(true);
         setGetCurrentUserIdentity(true);
         String qualifiedUser = ClusterNamespace.getFullName(DEFAULT_CLUSTER, USER_NAME);
         Assert.assertFalse(LdapAuthenticate.authenticate(context, "123", qualifiedUser));
         Assert.assertFalse(context.getIsTempUser());
-        Assert.assertNull(context.getLdapGroupsPrivs());
     }
 
     @Test
     public void testAuthenticateWithCheckPasswordException() {
         ConnectContext context = getContext();
         setCheckPasswordException();
-        setGetGroups(true);
+        setGetUserInfo(true);
         setGetCurrentUserIdentity(true);
         String qualifiedUser = ClusterNamespace.getFullName(DEFAULT_CLUSTER, USER_NAME);
         Assert.assertFalse(LdapAuthenticate.authenticate(context, "123", qualifiedUser));
         Assert.assertFalse(context.getIsTempUser());
-        Assert.assertNull(context.getLdapGroupsPrivs());
     }
 
     @Test
     public void testAuthenticateGetGroupsNull() {
         ConnectContext context = getContext();
         setCheckPassword(true);
-        setGetGroups(false);
+        setGetUserInfo(false);
         setGetCurrentUserIdentity(true);
         String qualifiedUser = ClusterNamespace.getFullName(DEFAULT_CLUSTER, USER_NAME);
         Assert.assertTrue(LdapAuthenticate.authenticate(context, "123", qualifiedUser));
-        Assert.assertFalse(context.getIsTempUser());
-        Assert.assertNull(context.getLdapGroupsPrivs());
-    }
-
-    @Test
-    public void testAuthenticateGetGroupsException() {
-        ConnectContext context = getContext();
-        setCheckPassword(true);
-        setGetGroupsException();
-        setGetCurrentUserIdentity(true);
-        String qualifiedUser = ClusterNamespace.getFullName(DEFAULT_CLUSTER, USER_NAME);
-        Assert.assertFalse(LdapAuthenticate.authenticate(context, "123", qualifiedUser));
-        Assert.assertFalse(context.getIsTempUser());
-        Assert.assertNull(context.getLdapGroupsPrivs());
+        Assert.assertTrue(context.getIsTempUser());
     }
 
     @Test
     public void testAuthenticateUserNotExistInDoris() {
         ConnectContext context = getContext();
         setCheckPassword(true);
-        setGetGroups(true);
+        setGetUserInfo(true);
         setGetCurrentUserIdentity(false);
         String qualifiedUser = ClusterNamespace.getFullName(DEFAULT_CLUSTER, USER_NAME);
         Assert.assertTrue(LdapAuthenticate.authenticate(context, "123", qualifiedUser));
         Assert.assertTrue(context.getIsTempUser());
-        Assert.assertSame(ldapGroupsPrivs, context.getLdapGroupsPrivs());
     }
 }

@@ -20,7 +20,7 @@ package org.apache.doris.persist.meta;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
 
-import org.codehaus.jackson.map.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
 import java.io.RandomAccessFile;

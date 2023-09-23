@@ -24,7 +24,7 @@ suite("test_unique_table") {
     sql "use ${dbName}"
 
     // test uniq table
-    def tbName = "test_uniq"
+    def tbName = "test_uniq_table"
     sql "DROP TABLE IF EXISTS ${tbName}"
     sql """
             CREATE TABLE IF NOT EXISTS ${tbName} (

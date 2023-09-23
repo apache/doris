@@ -20,7 +20,10 @@
 // and modified by Doris.
 
 suite("partition_cache") {
+    // TODO: regression-test does not support check query profile,
+    // so this suite does not check whether cache is used, :)
     def tableName = "test_partition_cache"
+    sql  "ADMIN SET FRONTEND CONFIG ('cache_last_version_interval_second' = '0')"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
@@ -40,6 +43,9 @@ suite("partition_cache") {
             "storage_format" = "V2"
             )
         """
+
+    sql "sync"
+
     sql """ INSERT INTO ${tableName} VALUES 
                     ("2022-05-27",0),
                     ("2022-05-28",0),

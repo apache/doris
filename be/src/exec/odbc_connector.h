@@ -16,35 +16,34 @@
 // under the License.
 
 #pragma once
-
 #include <fmt/format.h>
-#include <sql.h>
+#include <sqltypes.h>
+#include <stdint.h>
+#include <stdlib.h>
 
-#include <boost/format.hpp>
-#include <cstdlib>
+#include <memory>
 #include <string>
 #include <vector>
 
+#include "common/config.h"
 #include "common/status.h"
-#include "exprs/expr_context.h"
-#include "runtime/descriptors.h"
-#include "runtime/row_batch.h"
+#include "exec/table_connector.h"
 
 namespace doris {
-
-namespace vectorized {
-class VExprContext;
-}
+class RuntimeProfile;
+class RuntimeState;
+class TupleDescriptor;
 
 struct ODBCConnectorParam {
     std::string connect_string;
 
     // only use in query
     std::string query_string;
-    const TupleDescriptor* tuple_desc;
 
-    // only use in write
-    std::vector<ExprContext*> output_expr_ctxs;
+    // only use in insert
+    std::string table_name;
+    bool use_transaction = false;
+    const TupleDescriptor* tuple_desc;
 };
 
 // Because the DataBinding have the mem alloc, so
@@ -63,66 +62,54 @@ struct DataBinding {
 };
 
 // ODBC Connector for scan data from ODBC
-class ODBCConnector {
+class ODBCConnector : public TableConnector {
 public:
     explicit ODBCConnector(const ODBCConnectorParam& param);
-    ~ODBCConnector();
 
-    Status open();
+    Status open(RuntimeState* state, bool read = false);
     // query for ODBC table
-    Status query();
+    Status query() override;
+
     Status get_next_row(bool* eos);
 
-    // write for ODBC table
-    Status init_to_write(RuntimeProfile* profile);
-    Status append(const std::string& table_name, RowBatch* batch, uint32_t start_send_row,
-                  uint32_t* num_rows_sent);
+    Status exec_write_sql(const std::u16string& insert_stmt,
+                          const fmt::memory_buffer& insert_stmt_buffer) override;
 
-    Status append(const std::string& table_name, vectorized::Block* block,
-                  const std::vector<vectorized::VExprContext*>& _output_vexpr_ctxs,
-                  uint32_t start_send_row, uint32_t* num_rows_sent);
+    Status exec_stmt_write(vectorized::Block* block,
+                           const vectorized::VExprContextSPtrs& _output_vexpr_ctxs,
+                           uint32_t* num_rows_sent) override {
+        return Status::OK();
+    }
 
     // use in ODBC transaction
-    Status begin_trans();  // should be call after connect and before query or init_to_write
-    Status abort_trans();  // should be call after transaction abort
-    Status finish_trans(); // should be call after transaction commit
+    Status begin_trans() override; // should be call after connect and before query or init_to_write
+    Status abort_trans() override; // should be call after transaction abort
+    Status finish_trans() override; // should be call after transaction commit
+
+    Status append(vectorized::Block* block, const vectorized::VExprContextSPtrs& _output_vexpr_ctxs,
+                  uint32_t start_send_row, uint32_t* num_rows_sent,
+                  TOdbcTableType::type table_type = TOdbcTableType::MYSQL) override;
 
     const DataBinding& get_column_data(int i) const { return *_columns_data.at(i).get(); }
+    Status init_to_write(RuntimeProfile* profile) override;
+
+    // Now we only treat HLL, CHAR, VARCHAR as big column
+    uint32_t big_column_size_buffer = config::big_column_size_buffer;
+    uint32_t small_column_size_buffer = config::small_column_size_buffer;
+
+    Status close(Status) override;
 
 private:
-    void _init_profile(RuntimeProfile*);
-
     static Status error_status(const std::string& prefix, const std::string& error_msg);
 
     static std::string handle_diagnostic_record(SQLHANDLE hHandle, SQLSMALLINT hType,
                                                 RETCODE RetCode);
 
     std::string _connect_string;
-    // only use in query
-    std::string _sql_str;
-    const TupleDescriptor* _tuple_desc;
-
-    // only use in write
-    const std::vector<ExprContext*> _output_expr_ctxs;
-    fmt::memory_buffer _insert_stmt_buffer;
-
-    // profile use in write
-    // tuple convert timer, child timer of _append_row_batch_timer
-    RuntimeProfile::Counter* _convert_tuple_timer = nullptr;
-    // file write timer, child timer of _append_row_batch_timer
-    RuntimeProfile::Counter* _result_send_timer = nullptr;
-    // number of sent rows
-    RuntimeProfile::Counter* _sent_rows_counter = nullptr;
-
-    bool _is_open;
-    bool _is_in_transaction;
-
     SQLSMALLINT _field_num;
-
     SQLHENV _env;
     SQLHDBC _dbc;
     SQLHSTMT _stmt;
-
     std::vector<std::unique_ptr<DataBinding>> _columns_data;
 };
 

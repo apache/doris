@@ -17,27 +17,45 @@
 
 package org.apache.doris.httpv2.controller;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
+import org.apache.doris.httpv2.rest.RestBaseController;
+import org.apache.doris.httpv2.rest.manager.HttpUtils;
+import org.apache.doris.httpv2.rest.manager.NodeAction;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
+import org.apache.doris.system.Frontend;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.io.IOException;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
+import javax.servlet.http.HttpServletRequest;
 
 @RestController
 @RequestMapping("/rest/v1")
-public class SessionController extends BaseController {
+public class SessionController extends RestBaseController {
 
     private static final List<String> SESSION_TABLE_HEADER = Lists.newArrayList();
+
+    private static final List<String> ALL_SESSION_TABLE_HEADER = Lists.newArrayList("FE");
+
+    private static final Logger LOG = LogManager.getLogger(SessionController.class);
 
     static {
         SESSION_TABLE_HEADER.add("Id");
@@ -49,37 +67,72 @@ public class SessionController extends BaseController {
         SESSION_TABLE_HEADER.add("Time");
         SESSION_TABLE_HEADER.add("State");
         SESSION_TABLE_HEADER.add("Info");
+        ALL_SESSION_TABLE_HEADER.addAll(SESSION_TABLE_HEADER);
+    }
+
+    @RequestMapping(path = "/session/all", method = RequestMethod.GET)
+    public Object allSession(HttpServletRequest request) {
+        Map<String, Object> result = Maps.newHashMap();
+        result.put("column_names", ALL_SESSION_TABLE_HEADER);
+        List<Map<String, String>> sessionInfo = Env.getCurrentEnv().getFrontends(null)
+                .stream()
+                .filter(Frontend::isAlive)
+                .map(frontend -> {
+                    try {
+                        return Env.getCurrentEnv().getSelfNode().getHost().equals(frontend.getHost())
+                            ? getSessionInfo(true)
+                            : getOtherSessionInfo(request, frontend);
+                    } catch (IOException e) {
+                        LOG.warn("", e);
+                        return null;
+                    }
+                })
+                .filter(Objects::nonNull)
+                .flatMap(Collection::stream)
+                .collect(Collectors.toList());
+        result.put("rows", sessionInfo);
+        ResponseEntity entity = ResponseEntityBuilder.ok(result);
+        ((ResponseBody) entity.getBody()).setCount(sessionInfo.size());
+        return entity;
     }
 
     @RequestMapping(path = "/session", method = RequestMethod.GET)
     public Object session() {
         Map<String, Object> result = Maps.newHashMap();
-        appendSessionInfo(result);
+        result.put("column_names", SESSION_TABLE_HEADER);
+        result.put("rows", getSessionInfo(false));
         ResponseEntity entity = ResponseEntityBuilder.ok(result);
         ((ResponseBody) entity.getBody()).setCount(result.size());
         return entity;
     }
 
-    private void appendSessionInfo(Map<String, Object> result) {
+    private List<Map<String, String>> getSessionInfo(boolean showFe) {
         List<ConnectContext.ThreadInfo> threadInfos = ExecuteEnv.getInstance().getScheduler()
                 .listConnection("root", false);
-        List<List<String>> rows = Lists.newArrayList();
-
-        result.put("column_names", SESSION_TABLE_HEADER);
-        List<Map<String, String>> list = Lists.newArrayList();
-        result.put("rows", list);
-
         long nowMs = System.currentTimeMillis();
-        for (ConnectContext.ThreadInfo info : threadInfos) {
-            rows.add(info.toRow(nowMs));
-        }
+        return threadInfos.stream()
+                .map(info -> info.toRow(nowMs, showFe))
+                .map(row -> {
+                    Map<String, String> record = new HashMap<>();
+                    for (int i = 0; i < row.size(); i++) {
+                        record.put(showFe ? ALL_SESSION_TABLE_HEADER.get(i) : SESSION_TABLE_HEADER.get(i), row.get(i));
+                    }
+                    return record;
+                })
+                .collect(Collectors.toList());
+    }
 
-        for (List<String> row : rows) {
-            Map<String, String> record = new HashMap<>();
-            for (int i = 0; i < row.size(); i++) {
-                record.put(SESSION_TABLE_HEADER.get(i), row.get(i));
-            }
-            list.add(record);
-        }
+    private List<Map<String, String>> getOtherSessionInfo(HttpServletRequest request,
+                                                          Frontend frontend) throws IOException {
+        Map<String, String> header = Maps.newHashMap();
+        header.put(NodeAction.AUTHORIZATION, request.getHeader(NodeAction.AUTHORIZATION));
+        String res = HttpUtils.doGet(String.format("http://%s:%s/rest/v1/session",
+                frontend.getHost(), Env.getCurrentEnv().getMasterHttpPort()), header);
+        ObjectMapper objectMapper = new ObjectMapper();
+        Map<String, Object> jsonMap = objectMapper.readValue(res,
+            new TypeReference<Map<String, Object>>() {});
+        List<Map<String, String>> maps = (List<Map<String, String>>)
+                ((Map<String, Object>) jsonMap.get("data")).get("rows");
+        return maps;
     }
 }

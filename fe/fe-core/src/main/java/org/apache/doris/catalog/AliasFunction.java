@@ -74,7 +74,7 @@ public class AliasFunction extends Function {
     public static AliasFunction createFunction(FunctionName functionName, Type[] argTypes, Type retType,
             boolean hasVarArgs, List<String> parameters, Expr originFunction) {
         AliasFunction aliasFunction = new AliasFunction(functionName, Arrays.asList(argTypes), retType, hasVarArgs);
-        aliasFunction.setBinaryType(TFunctionBinaryType.NATIVE);
+        aliasFunction.setBinaryType(TFunctionBinaryType.JAVA_UDF);
         aliasFunction.setUserVisible(true);
         aliasFunction.originFunction = originFunction;
         aliasFunction.parameters = parameters;
@@ -136,7 +136,6 @@ public class AliasFunction extends Function {
         aliasFunction.setUserVisible(userVisible);
         aliasFunction.originFunction = originFunction;
         aliasFunction.parameters = parameters;
-        aliasFunction.vectorized = isVectorized;
         return aliasFunction;
     }
 
@@ -211,8 +210,9 @@ public class AliasFunction extends Function {
                 existFlag |= typeDefParam.equals(str);
             }
             if (!existFlag) {
-                throw new AnalysisException(
-                        "Alias function [" + functionName() + "]  do not contain parameter [" + str + "].");
+                throw new AnalysisException("Alias function [" + functionName() + "]  do not contain parameter [" + str
+                        + "]. typeDefParams="
+                        + typeDefParams.stream().map(String::toString).collect(Collectors.joining(", ")));
             }
         }
     }
@@ -234,7 +234,13 @@ public class AliasFunction extends Function {
     @Override
     public String toSql(boolean ifNotExists) {
         setSlotRefLabel(originFunction);
-        StringBuilder sb = new StringBuilder("CREATE ALIAS FUNCTION ");
+        StringBuilder sb = new StringBuilder("CREATE ");
+
+        if (this.isGlobal) {
+            sb.append("GLOBAL ");
+        }
+        sb.append("ALIAS FUNCTION ");
+
         if (ifNotExists) {
             sb.append("IF NOT EXISTS ");
         }

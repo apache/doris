@@ -1,6 +1,6 @@
 ---
 {
-    "title": "lower",
+    "title": "LOWER",
     "language": "en"
 }
 ---
@@ -28,10 +28,10 @@ under the License.
 ### Description
 #### Syntax
 
-`INT lower (VARCHAR str)`
+`VARCHAR lower (VARCHAR str)`
 
 
-Convert all strings in parameters to lowercase
+Convert all strings in parameters to lowercase. Another alias for this function is [lcase](lcase.md).
 
 ### example
 
@@ -44,4 +44,4 @@ mysql> SELECT lower("AbC123");
 +-----------------+
 ```
 ### keywords
-LOWER
+    LOWER

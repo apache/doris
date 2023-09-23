@@ -92,10 +92,10 @@ public class AnalyticPlanner {
      * a subset of the grouping exprs which should be used for the aggregate
      * hash partitioning during the parallelization of 'root'.
      * TODO: when generating sort orders for the sort groups, optimize the ordering
-     * of the partition exprs (so that subsequent sort operations see the input sorted
-     * on a prefix of their required sort exprs)
+     *  of the partition exprs (so that subsequent sort operations see the input sorted
+     *  on a prefix of their required sort exprs)
      * TODO: when merging sort groups, recognize equivalent exprs
-     * (using the equivalence classes) rather than looking for expr equality
+     *  (using the equivalence classes) rather than looking for expr equality
      * @throws AnalysisException
      * @throws UserException
      */
@@ -301,7 +301,7 @@ public class AnalyticPlanner {
         ExprSubstitutionMap sortSmap = new ExprSubstitutionMap();
         List<Expr> sortSlotExprs = Lists.newArrayList();
         sortTupleDesc.setIsMaterialized(true);
-        for (TupleId tid : input.getTupleIds()) {
+        for (TupleId tid : input.getOutputTupleIds()) {
             TupleDescriptor tupleDesc = analyzer.getTupleDesc(tid);
             for (SlotDescriptor inputSlotDesc : tupleDesc.getSlots()) {
                 if (!inputSlotDesc.isMaterialized()) {
@@ -787,7 +787,7 @@ public class AnalyticPlanner {
 
             for (WindowGroup g : windowGroups) {
                 TupleDescriptor outputTuple = g.physicalOutputTuple;
-                Preconditions.checkState(outputTuple.getIsMaterialized());
+                Preconditions.checkState(outputTuple.isMaterialized());
                 Preconditions.checkState(outputTuple.getByteSize() != -1);
                 totalOutputTupleSize += outputTuple.getByteSize();
             }

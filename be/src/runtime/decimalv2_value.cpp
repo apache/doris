@@ -17,13 +17,18 @@
 
 #include "runtime/decimalv2_value.h"
 
-#include <algorithm>
+#include <fmt/format.h>
+
+#include <cmath>
+#include <cstring>
 #include <iostream>
 #include <utility>
 
 #include "util/string_parser.hpp"
 
 namespace doris {
+
+const int128_t DecimalV2Value::MAX_DECIMAL_VALUE;
 
 static inline int128_t abs(const int128_t& x) {
     return (x < 0) ? -x : x;
@@ -243,7 +248,6 @@ static std::pair<double, double> quadratic_equation_naive(__uint128_t a, __uint1
     __uint128_t dis = b * b - 4 * a * c;
     // assert(dis >= 0);
     // not handling complex root
-    if (dis < 0) return std::make_pair(0, 0);
     double sqrtdis = std::sqrt(static_cast<double>(dis));
     double a_r = static_cast<double>(a);
     double b_r = static_cast<double>(b);
@@ -352,10 +356,11 @@ int DecimalV2Value::parse_from_str(const char* decimal_str, int32_t length) {
     int32_t error = E_DEC_OK;
     StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
 
-    _value = StringParser::string_to_decimal<__int128>(decimal_str, length, PRECISION, SCALE,
-                                                       &result);
-
-    if (result == StringParser::PARSE_FAILURE) {
+    _value = StringParser::string_to_decimal<TYPE_DECIMALV2>(decimal_str, length, PRECISION, SCALE,
+                                                             &result);
+    if (!config::allow_invalid_decimalv2_literal && result != StringParser::PARSE_SUCCESS) {
+        error = E_DEC_BAD_NUM;
+    } else if (config::allow_invalid_decimalv2_literal && result == StringParser::PARSE_FAILURE) {
         error = E_DEC_BAD_NUM;
     }
     return error;
@@ -375,7 +380,18 @@ std::string DecimalV2Value::to_string(int scale) const {
             }
         }
     } else {
-        frac_val = frac_val / SCALE_TRIM_ARRAY[scale];
+        // roundup to FIX 17191
+        if (scale < SCALE) {
+            int32_t frac_val_tmp = frac_val / SCALE_TRIM_ARRAY[scale];
+            if (frac_val / SCALE_TRIM_ARRAY[scale + 1] % 10 >= 5) {
+                frac_val_tmp++;
+                if (frac_val_tmp >= SCALE_TRIM_ARRAY[9 - scale]) {
+                    frac_val_tmp = 0;
+                    _value >= 0 ? int_val++ : int_val--;
+                }
+            }
+            frac_val = frac_val_tmp;
+        }
     }
     auto f_int = fmt::format_int(int_val);
     if (scale == 0) {
@@ -416,7 +432,18 @@ int32_t DecimalV2Value::to_buffer(char* buffer, int scale) const {
             }
         }
     } else {
-        frac_val = frac_val / SCALE_TRIM_ARRAY[scale];
+        // roundup to FIX 17191
+        if (scale < SCALE) {
+            int32_t frac_val_tmp = frac_val / SCALE_TRIM_ARRAY[scale];
+            if (frac_val / SCALE_TRIM_ARRAY[scale + 1] % 10 >= 5) {
+                frac_val_tmp++;
+                if (frac_val_tmp >= SCALE_TRIM_ARRAY[9 - scale]) {
+                    frac_val_tmp = 0;
+                    _value >= 0 ? int_val++ : int_val--;
+                }
+            }
+            frac_val = frac_val_tmp;
+        }
     }
     int extra_sign_size = 0;
     if (_value < 0 && int_val == 0 && frac_val != 0) {
@@ -449,7 +476,6 @@ std::string DecimalV2Value::to_string() const {
 
 // NOTE: only change abstract value, do not change sign
 void DecimalV2Value::to_max_decimal(int32_t precision, int32_t scale) {
-    bool is_negative = (_value < 0);
     static const int64_t INT_MAX_VALUE[PRECISION] = {9ll,
                                                      99ll,
                                                      999ll,
@@ -488,7 +514,6 @@ void DecimalV2Value::to_max_decimal(int32_t precision, int32_t scale) {
     int64_t int_value = INT_MAX_VALUE[precision - scale - 1];
     int64_t frac_value = scale == 0 ? 0 : FRAC_MAX_VALUE[scale - 1];
     _value = static_cast<int128_t>(int_value) * DecimalV2Value::ONE_BILLION + frac_value;
-    if (is_negative) _value = -_value;
 }
 
 std::size_t hash_value(DecimalV2Value const& value) {

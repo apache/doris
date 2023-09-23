@@ -42,7 +42,7 @@ public class ShowPartitionIdStmt extends ShowStmt {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
         // check access first
-        if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SHOW PARTITION");
         }
     }

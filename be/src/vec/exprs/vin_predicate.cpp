@@ -17,45 +17,53 @@
 
 #include "vec/exprs/vin_predicate.h"
 
-#include <string_view>
+#include <fmt/format.h>
+#include <gen_cpp/Exprs_types.h>
+#include <glog/logging.h>
+#include <stddef.h>
+
+#include <algorithm>
+#include <memory>
+#include <ostream>
+#include <vector>
 
 #include "common/status.h"
-#include "exprs/create_predicate_function.h"
-#include "vec/columns/column_set.h"
-#include "vec/core/field.h"
-#include "vec/data_types/data_type_factory.hpp"
-#include "vec/data_types/data_type_nullable.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/functions/simple_function_factory.h"
+
+namespace doris {
+class RowDescriptor;
+class RuntimeState;
+} // namespace doris
 
 namespace doris::vectorized {
 
 VInPredicate::VInPredicate(const TExprNode& node)
-        : VExpr(node), _is_not_in(node.in_predicate.is_not_in), _is_prepare(false) {}
+        : VExpr(node), _is_not_in(node.in_predicate.is_not_in) {}
 
 Status VInPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
                              VExprContext* context) {
-    RETURN_IF_ERROR(VExpr::prepare(state, desc, context));
+    RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
 
-    if (_is_prepare) {
-        return Status::OK();
-    }
     if (_children.size() < 1) {
         return Status::InternalError("no Function operator in.");
     }
 
     _expr_name =
             fmt::format("({} {} set)", _children[0]->expr_name(), _is_not_in ? "not_in" : "in");
-    _is_prepare = true;
 
     DCHECK(_children.size() >= 1);
     ColumnsWithTypeAndName argument_template;
     argument_template.reserve(_children.size());
     for (auto child : _children) {
-        auto column = child->data_type()->create_column();
-        argument_template.emplace_back(std::move(column), child->data_type(), child->expr_name());
+        argument_template.emplace_back(nullptr, child->data_type(), child->expr_name());
     }
 
-    // contruct the proper function_name
+    // construct the proper function_name
     std::string head(_is_not_in ? "not_" : "");
     std::string real_function_name = head + std::string(function_name);
     _function = SimpleFunctionFactory::instance().get_function(real_function_name,
@@ -75,10 +83,9 @@ Status VInPredicate::open(RuntimeState* state, VExprContext* context,
     return Status::OK();
 }
 
-void VInPredicate::close(RuntimeState* state, VExprContext* context,
-                         FunctionContext::FunctionStateScope scope) {
+void VInPredicate::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
     VExpr::close_function_context(context, scope, _function);
-    VExpr::close(state, context, scope);
+    VExpr::close(context, scope);
 }
 
 Status VInPredicate::execute(VExprContext* context, Block* block, int* result_column_id) {

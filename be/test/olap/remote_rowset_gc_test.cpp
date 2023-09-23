@@ -15,33 +15,58 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/types.pb.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stdint.h>
+#include <unistd.h>
 
+#include <map>
 #include <memory>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "common/config.h"
+#include "common/object_pool.h"
 #include "common/status.h"
+#include "exec/tablet_info.h"
 #include "gen_cpp/internal_service.pb.h"
-#include "io/fs/file_system_map.h"
+#include "gtest/gtest_pred_impl.h"
+#include "io/fs/local_file_system.h"
+#include "io/fs/remote_file_system.h"
 #include "io/fs/s3_file_system.h"
+#include "olap/data_dir.h"
 #include "olap/delta_writer.h"
+#include "olap/olap_common.h"
+#include "olap/options.h"
 #include "olap/rowset/beta_rowset.h"
+#include "olap/rowset/rowset.h"
 #include "olap/storage_engine.h"
+#include "olap/storage_policy.h"
 #include "olap/tablet.h"
+#include "olap/tablet_manager.h"
+#include "olap/tablet_meta.h"
+#include "olap/task/engine_publish_version_task.h"
+#include "olap/txn_manager.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/descriptor_helper.h"
-#include "runtime/tuple.h"
-#include "util/file_utils.h"
+#include "runtime/descriptors.h"
+#include "util/doris_metrics.h"
 #include "util/s3_util.h"
 
 namespace doris {
+class OlapMeta;
 
-static StorageEngine* k_engine = nullptr;
+static std::unique_ptr<StorageEngine> k_engine;
 
 static const std::string kTestDir = "./ut_dir/remote_rowset_gc_test";
-static const std::string kResourceId = "RemoteRowsetGcTest";
+static constexpr int64_t kResourceId = 10000;
+static constexpr int64_t kStoragePolicyId = 10002;
 
-// remove DISABLED_ when need run this test
-#define RemoteRowsetGcTest DISABLED_RemoteRowsetGcTest
 class RemoteRowsetGcTest : public testing::Test {
 public:
     static void SetUpTestSuite() {
@@ -52,9 +77,16 @@ public:
         s3_conf.region = config::test_s3_region;
         s3_conf.bucket = config::test_s3_bucket;
         s3_conf.prefix = "remote_rowset_gc_test";
-        auto s3_fs = std::make_shared<io::S3FileSystem>(std::move(s3_conf), kResourceId);
-        ASSERT_TRUE(s3_fs->connect().ok());
-        io::FileSystemMap::instance()->insert(kResourceId, s3_fs);
+        std::shared_ptr<io::S3FileSystem> s3_fs;
+        ASSERT_TRUE(
+                io::S3FileSystem::create(std::move(s3_conf), std::to_string(kResourceId), &s3_fs)
+                        .ok());
+        put_storage_resource(kResourceId, {s3_fs, 1});
+        auto storage_policy = std::make_shared<StoragePolicy>();
+        storage_policy->name = "TabletCooldownTest";
+        storage_policy->version = 1;
+        storage_policy->resource_id = kResourceId;
+        put_storage_policy(kStoragePolicyId, storage_policy);
 
         constexpr uint32_t MAX_PATH_LEN = 1024;
         char buffer[MAX_PATH_LEN];
@@ -62,8 +94,9 @@ public:
         config::storage_root_path = std::string(buffer) + "/" + kTestDir;
         config::min_file_descriptor_number = 1000;
 
-        FileUtils::remove_all(config::storage_root_path);
-        FileUtils::create_dir(config::storage_root_path);
+        EXPECT_TRUE(io::global_local_filesystem()
+                            ->delete_and_create_directory(config::storage_root_path)
+                            .ok());
 
         std::vector<StorePath> paths {{config::storage_root_path, -1}};
 
@@ -72,13 +105,7 @@ public:
         doris::StorageEngine::open(options, &k_engine);
     }
 
-    static void TearDownTestSuite() {
-        if (k_engine != nullptr) {
-            k_engine->stop();
-            delete k_engine;
-            k_engine = nullptr;
-        }
-    }
+    static void TearDownTestSuite() { k_engine.reset(); }
 };
 
 static void create_tablet_request_with_sequence_col(int64_t tablet_id, int32_t schema_hash,
@@ -140,9 +167,10 @@ static TDescriptorTable create_descriptor_tablet_with_sequence_col() {
 }
 
 TEST_F(RemoteRowsetGcTest, normal) {
+    RuntimeProfile profile("CreateTablet");
     TCreateTabletReq request;
     create_tablet_request_with_sequence_col(10005, 270068377, &request);
-    Status st = k_engine->create_tablet(request);
+    Status st = k_engine->create_tablet(request, &profile);
     ASSERT_EQ(Status::OK(), st);
 
     TDescriptorTable tdesc_tbl = create_descriptor_tablet_with_sequence_col();
@@ -150,32 +178,26 @@ TEST_F(RemoteRowsetGcTest, normal) {
     DescriptorTbl* desc_tbl = nullptr;
     DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
-    auto& slots = tuple_desc->slots();
+    OlapTableSchemaParam param;
 
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {10005, 270068377, WriteType::LOAD, 20003,
-                              30003, load_id,   tuple_desc,      &(tuple_desc->slots())};
+    WriteRequest write_req;
+    write_req.tablet_id = 10005;
+    write_req.schema_hash = 270068377;
+    write_req.txn_id = 20003;
+    write_req.partition_id = 30003;
+    write_req.load_id = load_id;
+    write_req.tuple_desc = tuple_desc;
+    write_req.slots = &(tuple_desc->slots());
+    write_req.is_high_priority = false;
+    write_req.table_schema_param = &param;
+    std::unique_ptr<RuntimeProfile> profile;
+    profile = std::make_unique<RuntimeProfile>("LoadChannels");
     DeltaWriter* delta_writer = nullptr;
-    DeltaWriter::open(&write_req, &delta_writer);
+    DeltaWriter::open(&write_req, &delta_writer, profile.get());
     ASSERT_NE(delta_writer, nullptr);
-
-    MemTracker tracker;
-    MemPool pool(&tracker);
-    // Tuple 1
-    {
-        Tuple* tuple = reinterpret_cast<Tuple*>(pool.allocate(tuple_desc->byte_size()));
-        memset(tuple, 0, tuple_desc->byte_size());
-        *(int8_t*)(tuple->get_slot(slots[0]->tuple_offset())) = 123;
-        *(int16_t*)(tuple->get_slot(slots[1]->tuple_offset())) = 456;
-        *(int32_t*)(tuple->get_slot(slots[2]->tuple_offset())) = 1;
-        ((DateTimeValue*)(tuple->get_slot(slots[3]->tuple_offset())))
-                ->from_date_str("2020-07-16 19:39:43", 19);
-
-        st = delta_writer->write(tuple);
-        ASSERT_EQ(Status::OK(), st);
-    }
 
     st = delta_writer->close();
     ASSERT_EQ(Status::OK(), st);
@@ -194,16 +216,17 @@ TEST_F(RemoteRowsetGcTest, normal) {
             write_req.txn_id, write_req.partition_id, &tablet_related_rs);
     for (auto& tablet_rs : tablet_related_rs) {
         RowsetSharedPtr rowset = tablet_rs.second;
+        TabletPublishStatistics stats;
         st = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
                                                   write_req.tablet_id, write_req.schema_hash,
-                                                  tablet_rs.first.tablet_uid, version);
+                                                  tablet_rs.first.tablet_uid, version, &stats);
         ASSERT_EQ(Status::OK(), st);
         st = tablet->add_inc_rowset(rowset);
         ASSERT_EQ(Status::OK(), st);
     }
-    EXPECT_EQ(1, tablet->num_rows());
+    EXPECT_EQ(0, tablet->num_rows());
 
-    tablet->set_storage_policy(kResourceId);
+    tablet->set_storage_policy_id(kStoragePolicyId);
     st = tablet->cooldown(); // rowset [0-1]
     ASSERT_EQ(Status::OK(), st);
     st = tablet->cooldown(); // rowset [2-2]
@@ -212,7 +235,7 @@ TEST_F(RemoteRowsetGcTest, normal) {
 
     delete delta_writer;
 
-    auto fs = io::FileSystemMap::instance()->get(kResourceId);
+    auto fs = get_storage_resource(kResourceId).fs;
     auto rowset = tablet->get_rowset_by_version({2, 2});
     ASSERT_TRUE(rowset);
     auto seg_path = BetaRowset::remote_segment_path(10005, rowset->rowset_id(), 0);

@@ -17,7 +17,10 @@
 
 #include "util/frame_of_reference_coding.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+
+#include "gtest/gtest_pred_impl.h"
 
 namespace doris {
 class TestForCoding : public testing::Test {

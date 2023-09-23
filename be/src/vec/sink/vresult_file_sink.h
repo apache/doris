@@ -17,52 +17,67 @@
 
 #pragma once
 
-#include "runtime/result_file_sink.h"
+#include <gen_cpp/Types_types.h>
+
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
+#include "runtime/descriptors.h"
+#include "vec/core/block.h"
+#include "vec/sink/async_writer_sink.h"
 #include "vec/sink/vdata_stream_sender.h"
+#include "vec/sink/vresult_sink.h"
+#include "vec/sink/writer/vfile_result_writer.h"
 
 namespace doris {
-namespace vectorized {
-class VResultWriter;
+class BufferControlBlock;
+class ObjectPool;
+class QueryStatistics;
+class RuntimeProfile;
+class RuntimeState;
+class TDataSink;
+class TExpr;
+class TPlanFragmentDestination;
+class TResultFileSink;
 
-class VResultFileSink : public VDataStreamSender {
+namespace vectorized {
+class VExprContext;
+
+inline constexpr char VRESULT_FILE_SINK[] = "VResultFileSink";
+
+class VResultFileSink : public AsyncWriterSink<VFileResultWriter, VRESULT_FILE_SINK> {
 public:
-    VResultFileSink(ObjectPool* pool, const RowDescriptor& row_desc, const TResultFileSink& sink,
-                    int per_channel_buffer_size, bool send_query_statistics_with_every_batch,
-                    const std::vector<TExpr>& t_output_expr);
-    VResultFileSink(ObjectPool* pool, int sender_id, const RowDescriptor& row_desc,
-                    const TResultFileSink& sink,
+    VResultFileSink(const RowDescriptor& row_desc, const std::vector<TExpr>& t_output_expr);
+
+    VResultFileSink(RuntimeState* state, ObjectPool* pool, int sender_id,
+                    const RowDescriptor& row_desc, const TResultFileSink& sink,
                     const std::vector<TPlanFragmentDestination>& destinations,
-                    int per_channel_buffer_size, bool send_query_statistics_with_every_batch,
+                    bool send_query_statistics_with_every_batch,
                     const std::vector<TExpr>& t_output_expr, DescriptorTbl& descs);
-    ~VResultFileSink() override = default;
+
     Status init(const TDataSink& thrift_sink) override;
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
-    // send data in 'batch' to this backend stream mgr
-    // Blocks until all rows in batch are placed in the buffer
-    Status send(RuntimeState* state, RowBatch* batch) override;
-    Status send(RuntimeState* state, Block* block) override;
+
     // Flush all buffered data and close all existing channels to destination
     // hosts. Further send() calls are illegal after calling close().
     Status close(RuntimeState* state, Status exec_status) override;
-    RuntimeProfile* profile() override { return _profile; }
 
     void set_query_statistics(std::shared_ptr<QueryStatistics> statistics) override;
 
 private:
-    Status prepare_exprs(RuntimeState* state);
     // set file options when sink type is FILE
     std::unique_ptr<ResultFileOptions> _file_opts;
     TStorageBackendType::type _storage_type;
 
     // Owned by the RuntimeState.
-    const std::vector<TExpr>& _t_output_expr;
-    std::vector<vectorized::VExprContext*> _output_vexpr_ctxs;
     RowDescriptor _output_row_descriptor;
 
     std::unique_ptr<Block> _output_block = nullptr;
     std::shared_ptr<BufferControlBlock> _sender;
-    std::shared_ptr<VResultWriter> _writer;
+    std::unique_ptr<VDataStreamSender> _stream_sender;
     int _buf_size = 1024; // Allocated from _pool
     bool _is_top_sink = true;
     std::string _header;

@@ -60,7 +60,6 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
         return false;
     }
 
-    private List<TScanRangeLocations> shardScanRanges;
     // backendPartitionInfo is set in generatePartitionInfo().
     // `backendPartitionInfo` is `List Partition` of Backend_ID, one PartitionItem only have one partitionKey
     // for example: if the alive be are: 10001, 10002, 10003, `backendPartitionInfo` like
@@ -79,31 +78,27 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
     @Override
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
-        computeColumnFilter();
+        computeColumnsFilter();
         computePartitionInfo();
     }
 
     @Override
     public void finalize(Analyzer analyzer) throws UserException {
         super.finalize(analyzer);
-        shardScanRanges = getScanRangeLocations();
+        createScanRangeLocations();
     }
 
     @Override
     public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
-        return shardScanRanges;
+        return scanRangeLocations;
     }
 
     @Override
-    public int getNumInstances() {
-        return shardScanRanges.size();
-    }
-
-    private List<TScanRangeLocations> getScanRangeLocations() throws AnalysisException {
-        List<TScanRangeLocations> result = new ArrayList<>();
+    protected void createScanRangeLocations() throws UserException {
+        scanRangeLocations = new ArrayList<>();
         for (Long partitionID : selectedPartitionIds) {
             Long backendId = partitionIDToBackendID.get(partitionID);
-            Backend be  = Env.getCurrentSystemInfo().getIdToBackend().get(backendId);
+            Backend be = Env.getCurrentSystemInfo().getIdToBackend().get(backendId);
             if (!be.isAlive()) {
                 throw new AnalysisException("backend " + be.getId() + " is not alive.");
             }
@@ -113,9 +108,8 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
             location.setServer(new TNetworkAddress(be.getHost(), be.getBePort()));
             locations.addToLocations(location);
             locations.setScanRange(new TScanRange());
-            result.add(locations);
+            scanRangeLocations.add(locations);
         }
-        return result;
     }
 
     private void computePartitionInfo() throws AnalysisException {
@@ -127,15 +121,10 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
             }
         }
         createPartitionInfo(partitionColumns);
-        PartitionPruner partitionPruner = null;
         Map<Long, PartitionItem> keyItemMap = backendPartitionInfo.getIdToItem(false);
-        if (analyzer.partitionPruneV2Enabled()) {
-            partitionPruner = new ListPartitionPrunerV2(keyItemMap, backendPartitionInfo.getPartitionColumns(),
-                    columnNameToRange);
-        } else {
-            partitionPruner = new ListPartitionPruner(keyItemMap,
-                    backendPartitionInfo.getPartitionColumns(), columnFilters);
-        }
+        PartitionPruner partitionPruner = new ListPartitionPrunerV2(keyItemMap,
+                backendPartitionInfo.getPartitionColumns(),
+                columnNameToRange);
         selectedPartitionIds = partitionPruner.prune();
     }
 

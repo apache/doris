@@ -17,13 +17,15 @@
 
 #pragma once
 
+#include <butil/macros.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <glog/logging.h>
+#include <stdint.h>
+
 #include <cstddef>
-#include <memory>
 #include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/segment_v2.pb.h"
-#include "gutil/macros.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "util/faststring.h"
 #include "util/slice.h"
@@ -77,7 +79,6 @@ private:
     uint32_t _count = 0;
 };
 
-class IndexPageIterator;
 class IndexPageReader {
 public:
     IndexPageReader() : _parsed(false) {}
@@ -122,7 +123,7 @@ public:
 
     // Find the largest index entry whose key is <= search_key.
     // Return OK status when such entry exists.
-    // Return NotFound when no such entry is found (all keys > search_key).
+    // Return ENTRY_NOT_FOUND when no such entry is found (all keys > search_key).
     // Return other error status otherwise.
     Status seek_at_or_before(const Slice& search_key);
 
@@ -137,6 +138,9 @@ public:
         }
         return true;
     }
+
+    // Return true when has next page.
+    bool has_next() { return (_pos + 1) < _reader->count(); }
 
     const Slice& current_key() const { return _reader->get_key(_pos); }
 

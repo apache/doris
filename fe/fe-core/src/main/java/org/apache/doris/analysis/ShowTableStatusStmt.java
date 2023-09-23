@@ -59,15 +59,21 @@ public class ShowTableStatusStmt extends ShowStmt {
                     .addColumn(new Column("Comment", ScalarType.createVarchar(64)))
                     .build();
 
+    private String catalog;
     private String db;
     private String wild;
     private Expr where;
     private SelectStmt selectStmt;
 
-    public ShowTableStatusStmt(String db, String wild, Expr where) {
+    public ShowTableStatusStmt(String catalog, String db, String wild, Expr where) {
+        this.catalog = catalog;
         this.db = db;
         this.wild = wild;
         this.where = where;
+    }
+
+    public String getCatalog() {
+        return catalog;
     }
 
     public String getDb() {
@@ -88,7 +94,15 @@ public class ShowTableStatusStmt extends ShowStmt {
         } else {
             db = ClusterNamespace.getFullName(analyzer.getClusterName(), db);
         }
-        if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(), db, PrivPredicate.SHOW)) {
+        if (Strings.isNullOrEmpty(catalog)) {
+            catalog = analyzer.getDefaultCatalog();
+            if (Strings.isNullOrEmpty(catalog)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_NAME_FOR_CATALOG);
+            }
+        }
+
+        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
+                catalog, db, PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, analyzer.getQualifiedUser(), db);
         }
     }
@@ -183,7 +197,7 @@ public class ShowTableStatusStmt extends ShowStmt {
         selectStmt = new SelectStmt(selectList,
                 new FromClause(Lists.newArrayList(new TableRef(TABLE_NAME, null))),
                 where, null, null, null, LimitElement.NO_LIMIT);
-        analyzer.setSchemaInfo(db, null, null);
+        analyzer.setSchemaInfo(ClusterNamespace.getNameFromFullName(db), null, null, catalog);
 
         return selectStmt;
     }

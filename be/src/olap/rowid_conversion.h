@@ -48,11 +48,15 @@ public:
 
     // set dst rowset id
     void set_dst_rowset_id(const RowsetId& dst_rowset_id) { _dst_rowst_id = dst_rowset_id; }
+    const RowsetId get_dst_rowset_id() { return _dst_rowst_id; }
 
     // add row id to the map
     void add(const std::vector<RowLocation>& rss_row_ids,
              const std::vector<uint32_t>& dst_segments_num_row) {
         for (auto& item : rss_row_ids) {
+            if (item.row_id == -1) {
+                continue;
+            }
             uint32_t id = _segment_to_id_map.at(
                     std::pair<RowsetId, uint32_t> {item.rowset_id, item.segment_id});
             if (_cur_dst_segment_id < dst_segments_num_row.size() &&
@@ -90,6 +94,10 @@ public:
     const std::vector<std::vector<std::pair<uint32_t, uint32_t>>>& get_rowid_conversion_map()
             const {
         return _segments_rowid_map;
+    }
+
+    const std::map<std::pair<RowsetId, uint32_t>, uint32_t>& get_src_segment_to_id_map() {
+        return _segment_to_id_map;
     }
 
     std::pair<RowsetId, uint32_t> get_segment_by_id(uint32_t id) const {

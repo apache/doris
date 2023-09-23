@@ -77,8 +77,8 @@ storage_flood_stage_left_capacity_bytes 默认 1GB。
 **危险水位：**
 
 ```text
-capacity_used_percent_flood_stage 默认 95 (95%)。
-capacity_min_left_bytes_flood_stage 默认 1GB。
+storage_flood_stage_usage_percent 默认 90 (90%)。
+storage_flood_stage_left_capacity_bytes 默认 1GB。
 ```
 
 当磁盘空间使用率**大于** `storage_flood_stage_usage_percent`，**并且** 磁盘空间剩余大小**小于** `storage_flood_stage_left_capacity_bytes` 时，该磁盘上的以下操作会被禁止：
@@ -125,7 +125,7 @@ capacity_min_left_bytes_flood_stage 默认 1GB。
   - snapshot/: 快照目录下的快照文件。
   - trash/：回收站中的文件。
 
-  **这种操作会对 [从 BE 回收站中恢复数据](./tablet-restore-tool.md) 产生影响。**
+  **这种操作会对 [从 BE 回收站中恢复数据](../data-admin/delete-recover.md) 产生影响。**
 
   如果BE还能够启动，则可以使用`ADMIN CLEAN TRASH ON(BackendHost:BackendHeartBeatPort);`来主动清理临时文件，会清理 **所有** trash文件和过期snapshot文件，**这将影响从回收站恢复数据的操作** 。
 

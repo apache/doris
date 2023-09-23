@@ -24,16 +24,10 @@ import com.google.common.base.Preconditions;
  */
 public class SelectStatsDerive extends BaseStatsDerive {
 
-    // Current SORT_NODE also uses this derivation method
-    @Override
-    public StatsDeriveResult deriveStats() {
-        return new StatsDeriveResult(deriveRowCount(), deriveColumnToDataSize(), deriveColumnToNdv());
-    }
-
     @Override
     protected long deriveRowCount() {
         Preconditions.checkState(!childrenStatsResult.isEmpty());
-        rowCount = childrenStatsResult.get(0).getRowCount();
+        rowCount = (long) childrenStatsResult.get(0).getRowCount();
         applyConjunctsSelectivity();
         capRowCountAtLimit();
         return rowCount;

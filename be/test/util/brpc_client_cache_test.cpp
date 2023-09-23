@@ -17,7 +17,11 @@
 
 #include "util/brpc_client_cache.h"
 
-#include <gtest/gtest.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+
+#include "gtest/gtest_pred_impl.h"
 
 namespace doris {
 

@@ -17,39 +17,53 @@
 
 #pragma once
 
+#include <gen_cpp/internal_service.pb.h>
+#include <stdint.h>
+#include <time.h>
+
+#include <algorithm>
+#include <atomic>
+#include <functional>
+#include <map>
+#include <memory>
 #include <mutex>
 #include <ostream>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
+#include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/PaloInternalService_types.h"
-#include "gen_cpp/Types_types.h"
-#include "gen_cpp/internal_service.pb.h"
+#include "olap/memtable_memory_limiter.h"
+#include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/tablets_channel.h"
-#include "runtime/thread_context.h"
+#include "util/runtime_profile.h"
+#include "util/spinlock.h"
+#include "util/thrift_util.h"
 #include "util/uid_util.h"
+//#include <gen_cpp/internal_service.pb.h>
 
 namespace doris {
 
-class Cache;
+class PTabletWriterOpenRequest;
+class OpenPartitionRequest;
 
 // A LoadChannel manages tablets channels for all indexes
 // corresponding to a certain load job
 class LoadChannel {
 public:
-    LoadChannel(const UniqueId& load_id, std::shared_ptr<MemTrackerLimiter>& mem_tracker,
-                int64_t timeout_s, bool is_high_priority, const std::string& sender_ip,
-                bool is_vec);
+    LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_high_priority,
+                const std::string& sender_ip, int64_t backend_id, bool enable_profile);
     ~LoadChannel();
 
     // open a new load channel if not exist
     Status open(const PTabletWriterOpenRequest& request);
 
     // this batch must belong to a index in one transaction
-    template <typename TabletWriterAddRequest, typename TabletWriterAddResult>
-    Status add_batch(const TabletWriterAddRequest& request, TabletWriterAddResult* response);
+    Status add_batch(const PTabletWriterAddBlockRequest& request,
+                     PTabletWriterAddBlockResult* response);
 
     // return true if this load channel has been opened and all tablets channels are closed then.
     bool is_finished();
@@ -60,27 +74,29 @@ public:
 
     const UniqueId& load_id() const { return _load_id; }
 
-    // check if this load channel mem consumption exceeds limit.
-    // If yes, it will pick a tablets channel to try to reduce memory consumption.
-    // If force is true, even if this load channel does not exceeds limit, it will still
-    // try to reduce memory.
-    void handle_mem_exceed_limit(bool force);
-
-    int64_t mem_consumption() const { return _mem_tracker->consumption(); }
-
     int64_t timeout() const { return _timeout_s; }
 
     bool is_high_priority() const { return _is_high_priority; }
+
+    RuntimeProfile::Counter* get_mgr_add_batch_timer() { return _mgr_add_batch_timer; }
+    RuntimeProfile::Counter* get_handle_mem_limit_timer() { return _handle_mem_limit_timer; }
+
+    std::unordered_map<int64_t, std::shared_ptr<TabletsChannel>> get_tablets_channels() {
+        std::lock_guard<SpinLock> l(_tablets_channels_lock);
+        return _tablets_channels;
+    }
 
 protected:
     Status _get_tablets_channel(std::shared_ptr<TabletsChannel>& channel, bool& is_finished,
                                 const int64_t index_id);
 
-    template <typename Request, typename Response>
-    Status _handle_eos(std::shared_ptr<TabletsChannel>& channel, const Request& request,
-                       Response* response) {
+    Status _handle_eos(std::shared_ptr<TabletsChannel>& channel,
+                       const PTabletWriterAddBlockRequest& request,
+                       PTabletWriterAddBlockResult* response) {
+        _self_profile->add_info_string("EosHost", fmt::format("{}", request.backend_id()));
         bool finished = false;
         auto index_id = request.index_id();
+
         RETURN_IF_ERROR(channel->close(
                 this, request.sender_id(), request.backend_id(), &finished, request.partition_ids(),
                 response->mutable_tablet_vec(), response->mutable_tablet_errors(),
@@ -88,25 +104,38 @@ protected:
                 request.write_single_replica()));
         if (finished) {
             std::lock_guard<std::mutex> l(_lock);
-            _tablets_channels.erase(index_id);
+            {
+                std::lock_guard<SpinLock> l(_tablets_channels_lock);
+                _tablets_channels.erase(index_id);
+            }
             _finished_channel_ids.emplace(index_id);
         }
         return Status::OK();
     }
 
-private:
-    // when mem consumption exceeds limit, should call this method to find the channel
-    // that consumes the largest memory(, and then we can reduce its memory usage).
-    bool _find_largest_consumption_channel(std::shared_ptr<TabletsChannel>* channel);
+    void _init_profile();
+    // thread safety
+    void _report_profile(PTabletWriterAddBlockResult* response);
 
+private:
     UniqueId _load_id;
-    // Tracks the total memory consumed by current load job on this BE
-    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
+
+    SpinLock _profile_serialize_lock;
+    std::unique_ptr<RuntimeProfile> _profile;
+    RuntimeProfile* _self_profile;
+    RuntimeProfile::Counter* _add_batch_number_counter = nullptr;
+    RuntimeProfile::Counter* _peak_memory_usage_counter = nullptr;
+    RuntimeProfile::Counter* _add_batch_timer = nullptr;
+    RuntimeProfile::Counter* _add_batch_times = nullptr;
+    RuntimeProfile::Counter* _mgr_add_batch_timer = nullptr;
+    RuntimeProfile::Counter* _handle_mem_limit_timer = nullptr;
+    RuntimeProfile::Counter* _handle_eos_timer = nullptr;
 
     // lock protect the tablets channel map
     std::mutex _lock;
     // index id -> tablets channel
     std::unordered_map<int64_t, std::shared_ptr<TabletsChannel>> _tablets_channels;
+    SpinLock _tablets_channels_lock;
     // This is to save finished channels id, to handle the retry request.
     std::unordered_set<int64_t> _finished_channel_ids;
     // set to true if at least one tablets channel has been opened
@@ -122,51 +151,15 @@ private:
     bool _is_high_priority = false;
 
     // the ip where tablet sink locate
-    std::string _sender_ip = "";
+    std::string _sender_ip;
 
-    // true if this load is vectorized
-    bool _is_vec = false;
+    int64_t _backend_id;
+
+    bool _enable_profile;
 };
 
-template <typename TabletWriterAddRequest, typename TabletWriterAddResult>
-Status LoadChannel::add_batch(const TabletWriterAddRequest& request,
-                              TabletWriterAddResult* response) {
-    int64_t index_id = request.index_id();
-    // 1. get tablets channel
-    std::shared_ptr<TabletsChannel> channel;
-    bool is_finished;
-    Status st = _get_tablets_channel(channel, is_finished, index_id);
-    if (!st.ok() || is_finished) {
-        return st;
-    }
-
-    // 2. check if mem consumption exceed limit
-    handle_mem_exceed_limit(false);
-
-    // 3. add batch to tablets channel
-    if constexpr (std::is_same_v<TabletWriterAddRequest, PTabletWriterAddBatchRequest>) {
-        if (request.has_row_batch()) {
-            RETURN_IF_ERROR(channel->add_batch(request, response));
-        }
-    } else {
-        if (request.has_block()) {
-            RETURN_IF_ERROR(channel->add_batch(request, response));
-        }
-    }
-
-    // 4. handle eos
-    if (request.has_eos() && request.eos()) {
-        st = _handle_eos(channel, request, response);
-        if (!st.ok()) {
-            return st;
-        }
-    }
-    _last_updated_time.store(time(nullptr));
-    return st;
-}
-
-inline std::ostream& operator<<(std::ostream& os, const LoadChannel& load_channel) {
-    os << "LoadChannel(id=" << load_channel.load_id() << ", mem=" << load_channel.mem_consumption()
+inline std::ostream& operator<<(std::ostream& os, LoadChannel& load_channel) {
+    os << "LoadChannel(id=" << load_channel.load_id()
        << ", last_update_time=" << static_cast<uint64_t>(load_channel.last_updated_time())
        << ", is high priority: " << load_channel.is_high_priority() << ")";
     return os;

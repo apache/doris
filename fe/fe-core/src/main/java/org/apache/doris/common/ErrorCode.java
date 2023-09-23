@@ -23,282 +23,44 @@ import java.util.MissingFormatArgumentException;
 public enum ErrorCode {
     // Try our best to compatible with MySQL's
     ERR_HASHCHK(1000, new byte[]{'H', 'Y', '0', '0', '0'}, "hashchk"),
-    ERR_NISAMCHK(1001, new byte[]{'H', 'Y', '0', '0', '0'}, "isamchk"),
-    ERR_NO(1002, new byte[]{'H', 'Y', '0', '0', '0'}, "NO"),
-    ERR_YES(1003, new byte[]{'H', 'Y', '0', '0', '0'}, "YES"),
-    ERR_CANT_CREATE_FILE(1004, new byte[]{'H', 'Y', '0', '0', '0'}, "Can't create file '%s' (errno: %d - %s)"),
     ERR_CANT_CREATE_TABLE(1005, new byte[]{'H', 'Y', '0', '0', '0'}, "Can't create table '%s' (errno: %d - %s)"),
-    ERR_CANT_CREATE_DB(1006, new byte[]{'H', 'Y', '0', '0', '0'}, "Can't create database '%s' (errno: %d - %s"),
     ERR_DB_CREATE_EXISTS(1007, new byte[]{'H', 'Y', '0', '0', '0'}, "Can't create database '%s'; database exists"),
     ERR_DB_DROP_EXISTS(1008, new byte[]{'H', 'Y', '0', '0', '0'}, "Can't drop database '%s'; database doesn't exist"),
-    ERR_DB_DROP_DELETE(1009, new byte[]{'H', 'Y', '0', '0', '0'},
-            "Error dropping database (can't delete '%s', errno: %d)"),
-    ERR_DB_DROP_RMDIR(1010, new byte[]{'H', 'Y', '0', '0', '0'},
-            "Error dropping database (can't rmdir '%s', errno: %d)"),
-    ERR_CANT_DELETE_FILE(1011, new byte[]{'H', 'Y', '0', '0', '0'}, "Error on delete of '%s' (errno: %d)"),
-    ERR_CANT_FIND_SYSTEM_REC(1012, new byte[]{'H', 'Y', '0', '0', '0'}, "Can't read record in system table"),
-    ERR_CANT_GET_STAT(1013, new byte[]{'H', 'Y', '0', '0', '0'}, "Can't get status of '%s' (errno: %d)"),
-    ERR_CANT_GET_WD(1014, new byte[]{'H', 'Y', '0', '0', '0'}, "Can't get working directory (errno: %d)"),
-    ERR_CANT_LOCK(1015, new byte[]{'H', 'Y', '0', '0', '0'}, "Can't lock file (errno: %d)"),
-    ERR_CANT_OPEN_FILE(1016, new byte[]{'H', 'Y', '0', '0', '0'}, "Can't open file: '%s' (errno: %d)"),
-    ERR_FILE_NOT_FOUND(1017, new byte[]{'H', 'Y', '0', '0', '0'}, "Can't find file: '%s' (errno: %d)"),
-    ERR_CANT_READ_DIR(1018, new byte[]{'H', 'Y', '0', '0', '0'}, "Can't read dir of '%s' (errno: %d)"),
-    ERR_CANT_SET_WD(1019, new byte[]{'H', 'Y', '0', '0', '0'}, "Can't change dir to '%s' (errno: %d)"),
-    ERR_CHECKREAD(1020, new byte[]{'H', 'Y', '0', '0', '0'}, "Record has changed since last read in table '%s'"),
-    ERR_DISK_FULL(1021, new byte[]{'H', 'Y', '0', '0', '0'}, "Disk full (%s); waiting for someone to free some space."
-            + ".."),
-    ERR_DUP_KEY(1022, new byte[]{'2', '3', '0', '0', '0'}, "Can't write; duplicate key in table '%s'"),
-    ERR_ERROR_ON_CLOSE(1023, new byte[]{'H', 'Y', '0', '0', '0'}, "Error on close of '%s' (errno: %d)"),
-    ERR_ERROR_ON_READ(1024, new byte[]{'H', 'Y', '0', '0', '0'}, "Error reading file '%s' (errno: %d)"),
-    ERR_ERROR_ON_RENAME(1025, new byte[]{'H', 'Y', '0', '0', '0'}, "Error on rename of '%s' to '%s' (errno: %d)"),
-    ERR_ERROR_ON_WRITE(1026, new byte[]{'H', 'Y', '0', '0', '0'}, "Error writing file '%s' (errno: %d)"),
-    ERR_FILE_USED(1027, new byte[]{'H', 'Y', '0', '0', '0'}, "'%s' is locked against change"),
-    ERR_FILSORT_ABORT(1028, new byte[]{'H', 'Y', '0', '0', '0'}, "Sort aborted"),
-    ERR_FORM_NOT_FOUND(1029, new byte[]{'H', 'Y', '0', '0', '0'}, "View '%s' doesn't exist for '%s'"),
-    ERR_GET_ERRN(1030, new byte[]{'H', 'Y', '0', '0', '0'}, "Got error %d from storage engine"),
-    ERR_ILLEGAL_HA(1031, new byte[]{'H', 'Y', '0', '0', '0'}, "Table storage engine for '%s' doesn't have this option"),
-    ERR_KEY_NOT_FOUND(1032, new byte[]{'H', 'Y', '0', '0', '0'}, "Can't find record in '%s'"),
-    ERR_NOT_FORM_FILE(1033, new byte[]{'H', 'Y', '0', '0', '0'}, "Incorrect information in file: '%s'"),
-    ERR_NOT_KEYFILE(1034, new byte[]{'H', 'Y', '0', '0', '0'}, "Incorrect key file for table '%s'; try to repair it"),
-    ERR_OLD_KEYFILE(1035, new byte[]{'H', 'Y', '0', '0', '0'}, "Old key file for table '%s'; repair it!"),
-    ERR_OPEN_AS_READONLY(1036, new byte[]{'H', 'Y', '0', '0', '0'}, "Table '%s' is read only"),
-    ERR_OUTOFMEMORY(1037, new byte[]{'H', 'Y', '0', '0', '1'}, "Out of memory; restart server and try again (needed "
-            + "%d bytes)"),
-    ERR_OUT_OF_SORTMEMORY(1038, new byte[]{'H', 'Y', '0', '0', '1'}, "Out of sort memory, consider increasing server "
-            + "sort buffer size"),
-    ERR_UNEXPECTED_EOF(1039, new byte[]{'H', 'Y', '0', '0', '0'}, "Unexpected EOF found when reading file '%s' "
-            + "(Errno: %d)"),
-    ERR_CON_COUNT_ERROR(1040, new byte[]{'0', '8', '0', '0', '4'}, "Too many connections"),
-    ERR_OUT_OF_RESOURCES(1041, new byte[]{'H', 'Y', '0', '0', '0'}, "Out of memory; check if mysqld or some other "
-            + "process uses all available memory; if not, you may have to use 'ulimit' to allow mysqld to use more "
-            + "memory or "
-            + "you can add more swap space"),
-    ERR_BAD_HOST_ERROR(1042, new byte[]{'0', '8', 'S', '0', '1'}, "Can't get hostname for your address"),
-    ERR_HANDSHAKE_ERROR(1043, new byte[]{'0', '8', 'S', '0', '1'}, "Bad handshake"),
     ERR_DBACCESS_DENIED_ERROR(1044, new byte[]{'4', '2', '0', '0', '0'}, "Access denied for user '%s' to "
             + "database '%s'"),
     ERR_ACCESS_DENIED_ERROR(1045, new byte[]{'2', '8', '0', '0', '0'}, "Access denied for user '%s' (using "
             + "password: %s)"),
     ERR_NO_DB_ERROR(1046, new byte[]{'3', 'D', '0', '0', '0'}, "No database selected"),
     ERR_UNKNOWN_COM_ERROR(1047, new byte[]{'0', '8', 'S', '0', '1'}, "Unknown command"),
-    ERR_BAD_NULL_ERROR(1048, new byte[]{'2', '3', '0', '0', '0'}, "Column '%s' cannot be null"),
     ERR_BAD_DB_ERROR(1049, new byte[]{'4', '2', '0', '0', '0'}, "Unknown database '%s'"),
     ERR_TABLE_EXISTS_ERROR(1050, new byte[]{'4', '2', 'S', '0', '1'}, "Table '%s' already exists"),
     ERR_BAD_TABLE_ERROR(1051, new byte[]{'4', '2', 'S', '0', '2'}, "Unknown table '%s'"),
     ERR_NON_UNIQ_ERROR(1052, new byte[]{'2', '3', '0', '0', '0'}, "Column '%s' in field list is ambiguous"),
-    ERR_SERVER_SHUTDOWN(1053, new byte[]{'0', '8', 'S', '0', '1'}, "Server shutdown in progress"),
     ERR_BAD_FIELD_ERROR(1054, new byte[]{'4', '2', 'S', '2', '2'}, "Unknown column '%s' in '%s'"),
-    ERR_WRONG_FIELD_WITH_GROUP(1055, new byte[]{'4', '2', '0', '0', '0'}, "'%s' isn't in GROUP BY"),
-    ERR_WRONG_GROUP_FIELD(1056, new byte[]{'4', '2', '0', '0', '0'}, "Can't group on '%s'"),
-    ERR_WRONG_SUM_SELECT(1057, new byte[]{'4', '2', '0', '0', '0'}, "Statement has sum functions and columns in same "
-            + "statement"),
     ERR_WRONG_VALUE_COUNT(1058, new byte[]{'2', '1', 'S', '0', '1'}, "Column count doesn't match value count"),
-    ERR_TOO_LONG_IDENT(1059, new byte[]{'4', '2', '0', '0', '0'}, "Identifier name '%s' is too long"),
     ERR_DUP_FIELDNAME(1060, new byte[]{'4', '2', 'S', '2', '1'}, "Duplicate column name '%s'"),
-    ERR_DUP_KEYNAME(1061, new byte[]{'4', '2', '0', '0', '0'}, "Duplicate key name '%s'"),
-    ERR_DUP_ENTRY(1062, new byte[]{'2', '3', '0', '0', '0'}, "Duplicate entry '%s' for key %d"),
-    ERR_WRONG_FIELD_SPEC(1063, new byte[]{'4', '2', '0', '0', '0'}, "Incorrect column specifier for column '%s'"),
-    ERR_PARSE_ERROR(1064, new byte[]{'4', '2', '0', '0', '0'}, "%s near '%s' at line %d"),
-    ERR_EMPTY_QUERY(1065, new byte[]{'4', '2', '0', '0', '0'}, "Query was empty"),
     ERR_NONUNIQ_TABLE(1066, new byte[]{'4', '2', '0', '0', '0'}, "Not unique table/alias: '%s'"),
-    ERR_INVALID_DEFAULT(1067, new byte[]{'4', '2', '0', '0', '0'}, "Invalid default value for '%s'"),
-    ERR_MULTIPLE_PRI_KEY(1068, new byte[]{'4', '2', '0', '0', '0'}, "Multiple primary key defined"),
-    ERR_TOO_MANY_KEYS(1069, new byte[]{'4', '2', '0', '0', '0'}, "Too many keys specified; max %d keys allowed"),
-    ERR_TOO_MANY_KEY_PARTS(1070, new byte[]{'4', '2', '0', '0', '0'}, "Too many key parts specified; max %d parts "
-            + "allowed"),
-    ERR_TOO_LONG_KEY(1071, new byte[]{'4', '2', '0', '0', '0'}, "Specified key was too long; max key length is %d "
-            + "bytes"),
-    ERR_KEY_COLUMN_DOES_NOT_EXITS(1072, new byte[]{'4', '2', '0', '0', '0'}, "Key column '%s' doesn't exist in table"),
-    ERR_BLOB_USED_AS_KEY(1073, new byte[]{'4', '2', '0', '0', '0'}, "BLOB column '%s' can't be used in key "
-            + "specification with the used table type"),
-    ERR_TOO_BIG_FIELDLENGTH(1074, new byte[]{'4', '2', '0', '0', '0'}, "Column length too big for column '%s' (max = "
-            + "%d); use BLOB or TEXT instead"),
-    ERR_WRONG_AUTO_KEY(1075, new byte[]{'4', '2', '0', '0', '0'}, "Incorrect table definition; there can be only one "
-            + "auto column and it must be defined as a key"),
-    ERR_READY(1076, new byte[]{'H', 'Y', '0', '0', '0'}, "%s: ready for connections. Version: '%s' socket: '%s' port:"
-            + " %d"),
-    ERR_NORMAL_SHUTDOWN(1077, new byte[]{'H', 'Y', '0', '0', '0'}, "%s: Normal shutdown"),
-    ERR_GOT_SIGNAL(1078, new byte[]{'H', 'Y', '0', '0', '0'}, "%s: Got signal %d. Aborting!"),
-    ERR_SHUTDOWN_COMPLETE(1079, new byte[]{'H', 'Y', '0', '0', '0'}, "%s: Shutdown complete"),
-    ERR_FORCING_CLOSE(1080, new byte[]{'0', '8', 'S', '0', '1'}, "%s: Forcing close of thread %d user: '%s'"),
-    ERR_IPSOCK_ERROR(1081, new byte[]{'0', '8', 'S', '0', '1'}, "Can't create IP socket"),
-    ERR_NO_SUCH_INDEX(1082, new byte[]{'4', '2', 'S', '1', '2'}, "Table '%s' has no index like the one used in CREATE"
-            + " INDEX; recreate the table"),
-    ERR_WRONG_FIELD_TERMINATORS(1083, new byte[]{'4', '2', '0', '0', '0'}, "Field separator argument is not what is "
-            + "expected; check the manual"),
-    ERR_BLOBS_AND_NO_TERMINATED(1084, new byte[]{'4', '2', '0', '0', '0'}, "You can't use fixed rowlength with BLOBs;"
-            + " please use 'fields terminated by'"),
-    ERR_TEXTFILE_NOT_READABLE(1085, new byte[]{'H', 'Y', '0', '0', '0'}, "The file '%s' must be in the database "
-            + "directory or be readable by all"),
-    ERR_FILE_EXISTS_ERROR(1086, new byte[]{'H', 'Y', '0', '0', '0'}, "File '%s' already exists"),
-    ERR_LOAD_INF(1087, new byte[]{'H', 'Y', '0', '0', '0'}, "Records: %d Deleted: %d Skipped: %d Warnings: %d"),
-    ERR_ALTER_INF(1088, new byte[]{'H', 'Y', '0', '0', '0'}, "Records: %d Duplicates: %d"),
-    ERR_WRONG_SUB_KEY(1089, new byte[]{'H', 'Y', '0', '0', '0'}, "Incorrect prefix key; the used key part isn't a "
-            + "string, the used length is longer than the key part, or the storage engine doesn't support unique prefix"
-            + " keys"),
-    ERR_CANT_REMOVE_ALL_FIELDS(1090, new byte[]{'4', '2', '0', '0', '0'}, "You can't delete all columns with ALTER "
-            + "TABLE; use DROP TABLE instead"),
-    ERR_CANT_DROP_FIELD_OR_KEY(1091, new byte[]{'4', '2', '0', '0', '0'}, "Can't DROP '%s'; check that column/key "
-            + "exists"),
-    ERR_INSERT_INF(1092, new byte[]{'H', 'Y', '0', '0', '0'}, "Records: %d Duplicates: %d Warnings: %d"),
-    ERR_UPDATE_TABLE_USED(1093, new byte[]{'H', 'Y', '0', '0', '0'}, "You can't specify target table '%s' for update "
-            + "in FROM clause"),
     ERR_NO_SUCH_THREAD(1094, new byte[]{'H', 'Y', '0', '0', '0'}, "Unknown thread id: %d"),
     ERR_KILL_DENIED_ERROR(1095, new byte[]{'H', 'Y', '0', '0', '0'}, "You are not owner of thread %d"),
     ERR_NO_TABLES_USED(1096, new byte[]{'H', 'Y', '0', '0', '0'}, "No tables used"),
-    ERR_TOO_BIG_SET(1097, new byte[]{'H', 'Y', '0', '0', '0'}, "Too many strings for column %s and SET"),
-    ERR_NO_UNIQUE_LOGFILE(1098, new byte[]{'H', 'Y', '0', '0', '0'}, "Can't generate a unique log-filename %s.(1-999)"),
-    ERR_TABLE_NOT_LOCKED_FOR_WRITE(1099, new byte[]{'H', 'Y', '0', '0', '0'}, "Table '%s' was locked with a READ lock"
-            + " and can't be updated"),
-    ERR_TABLE_NOT_LOCKED(1100, new byte[]{'H', 'Y', '0', '0', '0'}, "Table '%s' was not locked with LOCK TABLES"),
-    ERR_UNUSED_17(1101, new byte[]{}, "You should never see it"),
     ERR_WRONG_DB_NAME(1102, new byte[]{'4', '2', '0', '0', '0'}, "Incorrect database name '%s'"),
-    ERR_WRONG_TABLE_NAME(1103, new byte[]{'4', '2', '0', '0', '0'}, "Incorrect table name '%s'"),
+    ERR_WRONG_TABLE_NAME(1103, new byte[]{'4', '2', '0', '0', '0'}, "Incorrect table name '%s'. Table name regex is '%s'"),
     ERR_TOO_BIG_SELECT(1104, new byte[]{'4', '2', '0', '0', '0'}, "The SELECT would examine more than MAX_JOIN_SIZE "
             + "rows; check your WHERE and use SET SQL_BIG_SELECTS=1 or SET MAX_JOIN_SIZE=# if the SELECT is okay"),
     ERR_UNKNOWN_ERROR(1105, new byte[]{'H', 'Y', '0', '0', '0'}, "Unknown error"),
-    ERR_UNKNOWN_PROCEDURE(1106, new byte[]{'4', '2', '0', '0', '0'}, "Unknown procedure '%s'"),
-    ERR_WRONG_PARAMCOUNT_TO_PROCEDURE(1107, new byte[]{'4', '2', '0', '0', '0'}, "Incorrect parameter count to "
-            + "procedure '%s'"),
-    ERR_WRONG_PARAMETERS_TO_PROCEDURE(1108, new byte[]{'H', 'Y', '0', '0', '0'}, "Incorrect parameters to procedure "
-            + "'%s'"),
     ERR_UNKNOWN_TABLE(1109, new byte[]{'4', '2', 'S', '0', '2'}, "Unknown table '%s' in %s"),
     ERR_FIELD_SPECIFIED_TWICE(1110, new byte[]{'4', '2', '0', '0', '0'}, "Column '%s' specified twice"),
     ERR_INVALID_GROUP_FUNC_USE(1111, new byte[]{'H', 'Y', '0', '0', '0'}, "Invalid use of group function"),
-    ERR_UNSUPPORTED_EXTENSION(1112, new byte[]{'4', '2', '0', '0', '0'}, "Table '%s' uses an extension that doesn't "
-            + "exist in this MariaDB version"),
     ERR_TABLE_MUST_HAVE_COLUMNS(1113, new byte[]{'4', '2', '0', '0', '0'}, "A table must have at least 1 column"),
-    ERR_RECORD_FILE_FULL(1114, new byte[]{'H', 'Y', '0', '0', '0'}, "The table '%s' is full"),
     ERR_UNKNOWN_CHARACTER_SET(1115, new byte[]{'4', '2', '0', '0', '0'}, "Unknown character set: '%s'"),
-    ERR_TOO_MANY_TABLES(1116, new byte[]{'H', 'Y', '0', '0', '0'}, "Too many tables; MariaDB can only use %d tables "
-            + "in a join"),
-    ERR_TOO_MANY_FIELDS(1117, new byte[]{'H', 'Y', '0', '0', '0'}, "Too many columns"),
-    ERR_TOO_BIG_ROWSIZE(1118, new byte[]{'4', '2', '0', '0', '0'}, "Row size too large. The maximum row size for the "
-            + "used table type, not counting BLOBs, is %d. You have to change some columns to TEXT or BLOBs"),
-    ERR_STACK_OVERRUN(1119, new byte[]{'H', 'Y', '0', '0', '0'}, "Thread stack overrun: Used: %d of a %d stack. Use"
-            + " 'mysqld --thread_stack=#' to specify a bigger stack if needed"),
-    ERR_WRONG_OUTER_JOIN(1120, new byte[]{'4', '2', '0', '0', '0'}, "Cross dependency found in OUTER JOIN; examine "
-            + "your ON conditions"),
-    ERR_NULL_COLUMN_IN_INDEX(1121, new byte[]{'4', '2', '0', '0', '0'}, "Table handler doesn't support NULL in given "
-            + "index. Please change column '%s' to be NOT NULL or use another handler"),
-    ERR_CANT_FIND_UDF(1122, new byte[]{'H', 'Y', '0', '0', '0'}, "Can't load function '%s'"),
-    ERR_CANT_INITIALIZE_UDF(1123, new byte[]{'H', 'Y', '0', '0', '0'}, "Can't initialize function '%s'; %s"),
-    ERR_UDF_NO_PATHS(1124, new byte[]{'H', 'Y', '0', '0', '0'}, "No paths allowed for shared library"),
-    ERR_UDF_EXISTS(1125, new byte[]{'H', 'Y', '0', '0', '0'}, "Function '%s' already exists"),
-    ERR_CANT_OPEN_LIBRARY(1126, new byte[]{'H', 'Y', '0', '0', '0'}, "Can't open shared library '%s' (Errno: %d %s)"),
-    ERR_CANT_FIND_DL_ENTRY(1127, new byte[]{'H', 'Y', '0', '0', '0'}, "Can't find symbol '%s' in library"),
-    ERR_FUNCTION_NOT_DEFINED(1128, new byte[]{'H', 'Y', '0', '0', '0'}, "Function '%s' is not defined"),
-    ERR_HOST_IS_BLOCKED(1129, new byte[]{'H', 'Y', '0', '0', '0'}, "Host '%s' is blocked because of many connection "
-            + "errors; unblock with 'mysqladmin flush-hosts'"),
-    ERR_HOST_NOT_PRIVILEGED(1130, new byte[]{'H', 'Y', '0', '0', '0'}, "Host '%s' is not allowed to connect to this "
-            + "MariaDB server"),
-    ERR_PASSWORD_ANONYMOUS_USER(1131, new byte[]{'4', '2', '0', '0', '0'}, "You are using MariaDB as an anonymous "
-            + "user and anonymous users are not allowed to change passwords"),
-    ERR_PASSWORD_NOT_ALLOWED(1132, new byte[]{'4', '2', '0', '0', '0'}, "You must have privileges to update tables in"
-            + " the mysql database to be able to change passwords for others"),
-    ERR_PASSWORD_NO_MATCH(1133, new byte[]{'4', '2', '0', '0', '0'}, "Can't find any matching row in the user table"),
-    ERR_UPDATE_INF(1134, new byte[]{'H', 'Y', '0', '0', '0'}, "Rows matched: %d Changed: %d Warnings: %d"),
-    ERR_CANT_CREATE_THREAD(1135, new byte[]{'H', 'Y', '0', '0', '0'}, "Can't create a new thread (Errno %d); if you "
-            + "are not out of available memory, you can consult the manual for a possible OS-dependent bug"),
-    ERR_WRONG_VALUE_COUNT_ON_ROW(1136, new byte[]{'2', '1', 'S', '0', '1'}, "Column count doesn't match value count "
-            + "at row %d"),
-    ERR_CANT_REOPEN_TABLE(1137, new byte[]{'H', 'Y', '0', '0', '0'}, "Can't reopen table: '%s'"),
-    ERR_INVALID_USE_OF_NULL(1138, new byte[]{'2', '2', '0', '0', '4'}, "Invalid use of NULL value"),
-    ERR_REGEXP_ERROR(1139, new byte[]{'4', '2', '0', '0', '0'}, "Got error '%s' from regexp"),
-    ERR_MIX_OF_GROUP_FUNC_AND_FIELDS(1140, new byte[]{'4', '2', '0', '0', '0'}, "Mixing of GROUP columns (MIN(),MAX()"
-            + ",COUNT(),...) with no GROUP columns is illegal if there is no GROUP BY clause"),
     ERR_NONEXISTING_GRANT(1141, new byte[]{'4', '2', '0', '0', '0'}, "There is no such grant defined for user '%s' on"
             + " host '%s'"),
     ERR_TABLEACCESS_DENIED_ERROR(1142, new byte[]{'4', '2', '0', '0', '0'}, "%s command denied to user '%s'@'%s' for "
             + "table '%s'"),
-    ERR_COLUMNACCESS_DENIED_ERROR(1143, new byte[]{'4', '2', '0', '0', '0'}, "%s command denied to user '%s'@'%s' for"
-            + " column '%s' in table '%s'"),
-    ERR_ILLEGAL_GRANT_FOR_TABLE(1144, new byte[]{'4', '2', '0', '0', '0'}, "Illegal GRANT/REVOKE command; please "
-            + "consult the manual to see which privileges can be used"),
-    ERR_GRANT_WRONG_HOST_OR_USER(1145, new byte[]{'4', '2', '0', '0', '0'}, "The host or user argument to GRANT is "
-            + "too long"),
-    ERR_NO_SUCH_TABLE(1146, new byte[]{'4', '2', 'S', '0', '2'}, "Table '%s.%s' doesn't exist"),
-    ERR_NONEXISTING_TABLE_GRANT(1147, new byte[]{'4', '2', '0', '0', '0'}, "There is no such grant defined for user "
-            + "'%s' on host '%s' on table '%s'"),
-    ERR_NOT_ALLOWED_COMMAND(1148, new byte[]{'4', '2', '0', '0', '0'}, "The used command is not allowed with this "
-            + "MariaDB version"),
-    ERR_SYNTAX_ERROR(1149, new byte[]{'4', '2', '0', '0', '0'}, "You have an error in your SQL syntax; check the "
-            + "manual that corresponds to your MariaDB server version for the right syntax to use"),
-    ERR_DELAYED_CANT_CHANGE_LOCK(1150, new byte[]{'H', 'Y', '0', '0', '0'}, "Delayed insert thread couldn't get "
-            + "requested lock for table %s"),
-    ERR_TOO_MANY_DELAYED_THREADS(1151, new byte[]{'H', 'Y', '0', '0', '0'}, "Too many delayed threads in use"),
-    ERR_ABORTING_CONNECTION(1152, new byte[]{'0', '8', 'S', '0', '1'}, "Aborted connection %d to db: '%s' user: '%s'"
-            + " (%s)"),
-    ERR_NET_PACKET_TOO_LARGE(1153, new byte[]{'0', '8', 'S', '0', '1'}, "Got a packet bigger than "
-            + "'max_allowed_packet' bytes"),
-    ERR_NET_READ_ERROR_FROM_PIPE(1154, new byte[]{'0', '8', 'S', '0', '1'}, "Got a read error from the connection "
-            + "pipe"),
-    ERR_NET_FCNTL_ERROR(1155, new byte[]{'0', '8', 'S', '0', '1'}, "Got an error from fcntl()"),
-    ERR_NET_PACKETS_OUT_OF_ORDER(1156, new byte[]{'0', '8', 'S', '0', '1'}, "Got packets out of order"),
-    ERR_NET_UNCOMPRESS_ERROR(1157, new byte[]{'0', '8', 'S', '0', '1'}, "Couldn't uncompress communication packet"),
-    ERR_NET_READ_ERROR(1158, new byte[]{'0', '8', 'S', '0', '1'}, "Got an error reading communication packets"),
-    ERR_NET_READ_INTERRUPTED(1159, new byte[]{'0', '8', 'S', '0', '1'}, "Got timeout reading communication packets"),
-    ERR_NET_ERROR_ON_WRITE(1160, new byte[]{'0', '8', 'S', '0', '1'}, "Got an error writing communication packets"),
-    ERR_NET_WRITE_INTERRUPTED(1161, new byte[]{'0', '8', 'S', '0', '1'}, "Got timeout writing communication packets"),
-    ERR_TOO_LONG_STRING(1162, new byte[]{'4', '2', '0', '0', '0'}, "Result string is longer than 'max_allowed_packet'"
-            + " bytes"),
-    ERR_TABLE_CANT_HANDLE_BLOB(1163, new byte[]{'4', '2', '0', '0', '0'}, "The used table type doesn't support "
-            + "BLOB/TEXT columns"),
-    ERR_TABLE_CANT_HANDLE_AUTO_INCREMENT(1164, new byte[]{'4', '2', '0', '0', '0'}, "The used table type doesn't "
-            + "support AUTO_INCREMENT columns"),
-    ERR_DELAYED_INSERT_TABLE_LOCKED(1165, new byte[]{'H', 'Y', '0', '0', '0'}, "INSERT DELAYED can't be used with "
-            + "table '%s' because it is locked with LOCK TABLES"),
-    ERR_WRONG_COLUMN_NAME(1166, new byte[]{'4', '2', '0', '0', '0'}, "Incorrect column name '%s'"),
-    ERR_WRONG_KEY_COLUMN(1167, new byte[]{'4', '2', '0', '0', '0'}, "The used storage engine can't index column '%s'"),
-    ERR_WRONG_MRG_TABLE(1168, new byte[]{'H', 'Y', '0', '0', '0'}, "Unable to open underlying table which is "
-            + "differently defined or of non-MyISAM type or doesn't exist"),
-    ERR_DUP_UNIQUE(1169, new byte[]{'2', '3', '0', '0', '0'}, "Can't write, because of unique constraint, to table "
-            + "'%s'"),
-    ERR_BLOB_KEY_WITHOUT_LENGTH(1170, new byte[]{'4', '2', '0', '0', '0'}, "BLOB/TEXT column '%s' used in key "
-            + "specification without a key length"),
-    ERR_PRIMARY_CANT_HAVE_NULL(1171, new byte[]{'4', '2', '0', '0', '0'}, "All parts of a PRIMARY KEY must be NOT "
-            + "NULL; if you need NULL in a key, use UNIQUE instead"),
-    ERR_TOO_MANY_ROWS(1172, new byte[]{'4', '2', '0', '0', '0'}, "Result consisted of more than one row"),
-    ERR_REQUIRES_PRIMARY_KEY(1173, new byte[]{'4', '2', '0', '0', '0'}, "This table type requires a primary key"),
-    ERR_NO_RAID_COMPILED(1174, new byte[]{'H', 'Y', '0', '0', '0'}, "This version of MariaDB is not compiled with "
-            + "RAID support"),
-    ERR_UPDATE_WITHOUT_KEY_IN_SAFE_MODE(1175, new byte[]{'H', 'Y', '0', '0', '0'}, "You are using safe update mode "
-            + "and you tried to update a table without a WHERE that uses a KEY column"),
-    ERR_KEY_DOES_NOT_EXITS(1176, new byte[]{'4', '2', '0', '0', '0'}, "Key '%s' doesn't exist in table '%s'"),
-    ERR_CHECK_NO_SUCH_TABLE(1177, new byte[]{'4', '2', '0', '0', '0'}, "Can't open table"),
-    ERR_CHECK_NOT_IMPLEMENTED(1178, new byte[]{'4', '2', '0', '0', '0'}, "The storage engine for the table doesn't "
-            + "support %s"),
-    ERR_CANT_DO_THIS_DURING_AN_TRANSACTION(1179, new byte[]{'2', '5', '0', '0', '0'}, "You are not allowed to execute"
-            + " this command in a transaction"),
-    ERR_ERROR_DURING_COMMIT(1180, new byte[]{'H', 'Y', '0', '0', '0'}, "Got error %d during COMMIT"),
-    ERR_ERROR_DURING_ROLLBACK(1181, new byte[]{'H', 'Y', '0', '0', '0'}, "Got error %d during ROLLBACK"),
-    ERR_ERROR_DURING_FLUSH_LOGS(1182, new byte[]{'H', 'Y', '0', '0', '0'}, "Got error %d during FLUSH_LOGS"),
-    ERR_ERROR_DURING_CHECKPOINT(1183, new byte[]{'H', 'Y', '0', '0', '0'}, "Got error %d during CHECKPOINT"),
-    ERR_NEW_ABORTING_CONNECTION(1184, new byte[]{'0', '8', 'S', '0', '1'}, "Aborted connection %d to db: '%s' user: "
-            + "'%s' host: '%s' (%s)"),
-    ERR_UNUSED_10(1185, new byte[]{}, "You should never see it"),
-    ERR_FLUSH_MASTER_BINLOG_CLOSED(1186, new byte[]{'H', 'Y', '0', '0', '0'}, "Binlog closed, cannot RESET MASTER"),
-    ERR_INDEX_REBUILD(1187, new byte[]{'H', 'Y', '0', '0', '0'}, "Failed rebuilding the index of dumped table '%s'"),
-    ERR_MASTER(1188, new byte[]{'H', 'Y', '0', '0', '0'}, "Error from master: '%s'"),
-    ERR_MASTER_NET_READ(1189, new byte[]{'0', '8', 'S', '0', '1'}, "Net error reading from master"),
-    ERR_MASTER_NET_WRITE(1190, new byte[]{'0', '8', 'S', '0', '1'}, "Net error writing to master"),
-    ERR_FT_MATCHING_KEY_NOT_FOUND(1191, new byte[]{'H', 'Y', '0', '0', '0'}, "Can't find FULLTEXT index matching the "
-            + "column list"),
-    ERR_LOCK_OR_ACTIVE_TRANSACTION(1192, new byte[]{'H', 'Y', '0', '0', '0'}, "Can't execute the given command "
-            + "because you have active locked tables or an active transaction"),
+    ERR_NOT_ALLOWED_COMMAND(1148, new byte[]{'4', '2', '0', '0', '0'}, "The used command is not allowed"
+            + " with this MySQL version"),
+    ERR_WRONG_COLUMN_NAME(1166, new byte[]{'4', '2', '0', '0', '0'}, "Incorrect column name '%s'. Column regex is '%s'"),
     ERR_UNKNOWN_SYSTEM_VARIABLE(1193, new byte[]{'H', 'Y', '0', '0', '0'}, "Unknown system variable '%s'"),
-    ERR_CRASHED_ON_USAGE(1194, new byte[]{'H', 'Y', '0', '0', '0'}, "Table '%s' is marked as crashed and should be "
-            + "repaired"),
-    ERR_CRASHED_ON_REPAIR(1195, new byte[]{'H', 'Y', '0', '0', '0'}, "Table '%s' is marked as crashed and last "
-            + "(automatic?) repair failed"),
-    ERR_WARNING_NOT_COMPLETE_ROLLBACK(1196, new byte[]{'H', 'Y', '0', '0', '0'}, "Some non-transactional changed "
-            + "tables couldn't be rolled back"),
-    ERR_TRANS_CACHE_FULL(1197, new byte[]{'H', 'Y', '0', '0', '0'}, "Multi-statement transaction required more than "
-            + "'max_binlog_cache_size' bytes of storage; increase this mysqld variable and try again"),
-    ERR_SLAVE_MUST_STOP(1198, new byte[]{'H', 'Y', '0', '0', '0'}, "This operation cannot be performed with a running"
-            + " slave; run STOP SLAVE first"),
-    ERR_SLAVE_NOT_RUNNING(1199, new byte[]{'H', 'Y', '0', '0', '0'}, "This operation requires a running slave; "
-            + "configure slave and do START SLAVE"),
     ERR_BAD_SLAVE(1200, new byte[]{'H', 'Y', '0', '0', '0'}, "The server is not configured as slave; fix in config "
             + "file or with CHANGE MASTER TO"),
     ERR_MASTER_INF(1201, new byte[]{'H', 'Y', '0', '0', '0'}, "Could not initialize master info structure; more error"
@@ -307,42 +69,6 @@ public enum ErrorCode {
             + "resources"),
     ERR_TOO_MANY_USER_CONNECTIONS(1203, new byte[]{'4', '2', '0', '0', '0'}, "User %s already has more than "
             + "'max_user_connections' active connections"),
-    ERR_SET_CONSTANTS_ONLY(1204, new byte[]{'H', 'Y', '0', '0', '0'}, "You may only use constant expressions with SET"),
-    ERR_LOCK_WAIT_TIMEOUT(1205, new byte[]{'H', 'Y', '0', '0', '0'}, "Lock wait timeout exceeded; try restarting "
-            + "transaction"),
-    ERR_LOCK_TABLE_FULL(1206, new byte[]{'H', 'Y', '0', '0', '0'}, "The total number of locks exceeds the lock table "
-            + "size"),
-    ERR_READ_ONLY_TRANSACTION(1207, new byte[]{'2', '5', '0', '0', '0'}, "Update locks cannot be acquired during a "
-            + "READ UNCOMMITTED transaction"),
-    ERR_DROP_DB_WITH_READ_LOCK(1208, new byte[]{'H', 'Y', '0', '0', '0'}, "DROP DATABASE not allowed while thread is "
-            + "holding global read lock"),
-    ERR_CREATE_DB_WITH_READ_LOCK(1209, new byte[]{'H', 'Y', '0', '0', '0'}, "CREATE DATABASE not allowed while thread"
-            + " is holding global read lock"),
-    ERR_WRONG_ARGUMENTS(1210, new byte[]{'H', 'Y', '0', '0', '0'}, "Incorrect arguments to %s"),
-    ERR_NO_PERMISSION_TO_CREATE_USER(1211, new byte[]{'4', '2', '0', '0', '0'}, "'%s'@'%s' is not allowed to create "
-            + "new users"),
-    ERR_UNION_TABLES_IN_DIFFERENT_DIR(1212, new byte[]{'H', 'Y', '0', '0', '0'}, "Incorrect table definition; all "
-            + "MERGE tables must be in the same database"),
-    ERR_LOCK_DEADLOCK(1213, new byte[]{'4', '0', '0', '0', '1'}, "Deadlock found when trying to get lock; try "
-            + "restarting transaction"),
-    ERR_TABLE_CANT_HANDLE_FT(1214, new byte[]{'H', 'Y', '0', '0', '0'}, "The used table type doesn't support FULLTEXT"
-            + " indexes"),
-    ERR_CANNOT_ADD_FOREIGN(1215, new byte[]{'H', 'Y', '0', '0', '0'}, "Cannot add foreign key constraint"),
-    ERR_NO_REFERENCED_ROW(1216, new byte[]{'2', '3', '0', '0', '0'}, "Cannot add or update a child row: a foreign key"
-            + " constraint fails"),
-    ERR_ROW_IS_REFERENCED(1217, new byte[]{'2', '3', '0', '0', '0'}, "Cannot delete or update a parent row: a foreign"
-            + " key constraint fails"),
-    ERR_CONNECT_TO_MASTER(1218, new byte[]{'0', '8', 'S', '0', '1'}, "Error connecting to master: %s"),
-    ERR_QUERY_ON_MASTER(1219, new byte[]{'H', 'Y', '0', '0', '0'}, "Error running query on master: %s"),
-    ERR_ERROR_WHEN_EXECUTING_COMMAND(1220, new byte[]{'H', 'Y', '0', '0', '0'}, "Error when executing command %s: %s"),
-    ERR_WRONG_USAGE(1221, new byte[]{'H', 'Y', '0', '0', '0'}, "Incorrect usage of %s and %s"),
-    ERR_WRONG_NUMBER_OF_COLUMNS_IN_SELECT(1222, new byte[]{'2', '1', '0', '0', '0'}, "The used SELECT statements have"
-            + " a different number of columns"),
-    ERR_CANT_UPDATE_WITH_READLOCK(1223, new byte[]{'H', 'Y', '0', '0', '0'}, "Can't execute the query because you "
-            + "have a conflicting read lock"),
-    ERR_MIXING_NOT_ALLOWED(1224, new byte[]{'H', 'Y', '0', '0', '0'}, "Mixing of transactional and non-transactional "
-            + "tables is disabled"),
-    ERR_DUP_ARGUMENT(1225, new byte[]{'H', 'Y', '0', '0', '0'}, "Option '%s' used twice in statement"),
     ERR_USER_LIMIT_REACHED(1226, new byte[]{'4', '2', '0', '0', '0'}, "User '%s' has exceeded the '%s' resource "
             + "(current value: %d)"),
     ERR_SPECIFIC_ACCESS_DENIED_ERROR(1227, new byte[]{'4', '2', '0', '0', '0'}, "Access denied; you need (at least "
@@ -991,8 +717,7 @@ public enum ErrorCode {
     WARN_OPTION_IGNORED(1618, new byte[]{'H', 'Y', '0', '0', '0'}, "<%s> option ignored"),
     WARN_PLUGIN_DELETE_BUILTIN(1619, new byte[]{'H', 'Y', '0', '0', '0'}, "Built-in plugins cannot be deleted"),
     WARN_PLUGIN_BUSY(1620, new byte[]{'H', 'Y', '0', '0', '0'}, "Plugin is busy and will be uninstalled on shutdown"),
-    ERR_VARIABLE_IS_READONLY(1621, new byte[]{'H', 'Y', '0', '0', '0'}, "%s variable '%s' is read-only. Use SET %s to"
-            + " assign the value"),
+    ERR_VARIABLE_IS_READONLY(1621, new byte[]{'H', 'Y', '0', '0', '0'}, "Variable '%s' is a read only variable"),
     ERR_WARN_ENGINE_TRANSACTION_ROLLBACK(1622, new byte[]{'H', 'Y', '0', '0', '0'}, "Storage engine %s does not "
             + "support rollback for this statement. Transaction rolled back and must be restarted"),
     ERR_SLAVE_HEARTBEAT_FAILURE(1623, new byte[]{'H', 'Y', '0', '0', '0'}, "Unexpected master's heartbeat data: %s"),
@@ -1262,78 +987,6 @@ public enum ErrorCode {
             + "multi-threaded slave mode. %s"),
     ERR_MTS_UPDATED_DBS_GREATER_MAX(1754, new byte[]{'H', 'Y', '0', '0', '0'}, "The number of modified databases "
             + "exceeds the maximum %d; the database names will not be included in the replication event metadata."),
-    ERR_MTS_CANT_PARALLEL(1755, new byte[]{'H', 'Y', '0', '0', '0'}, "Cannot execute the current event group in the "
-            + "parallel mode. Encountered event %s, relay-log name %s, position %s which prevents execution of this "
-            + "event "
-            + "group in parallel mode. Reason: %s."),
-    ERR_MTS_INCONSISTENT_DATA(1756, new byte[]{'H', 'Y', '0', '0', '0'}, "%s"),
-    ERR_FULLTEXT_NOT_SUPPORTED_WITH_PARTITIONING(1757, new byte[]{'H', 'Y', '0', '0', '0'}, "FULLTEXT index is not "
-            + "supported for partitioned tables."),
-    ERR_DA_INVALID_CONDITION_NUMBER(1758, new byte[]{'3', '5', '0', '0', '0'}, "Invalid condition number"),
-    ERR_INSECURE_PLAIN_TEXT(1759, new byte[]{'H', 'Y', '0', '0', '0'}, "Sending passwords in plain text without "
-            + "SSL/TLS is extremely insecure."),
-    ERR_INSECURE_CHANGE_MASTER(1760, new byte[]{'H', 'Y', '0', '0', '0'}, "Storing MySQL user name or password "
-            + "information in the master info repository is not secure and is therefore not recommended. Please "
-            + "consider using"
-            + " the USER and PASSWORD connection options for START SLAVE; see the 'START SLAVE Syntax' in the MySQL "
-            + "Manual "
-            + "for more information."),
-    ERR_FOREIGN_DUPLICATE_KEY_WITH_CHILD_INFO(1761, new byte[]{'2', '3', '0', '0', '0'}, "Foreign key constraint for "
-            + "table '%s', record '%s' would lead to a duplicate entry in table '%s', key '%s'"),
-    ERR_FOREIGN_DUPLICATE_KEY_WITHOUT_CHILD_INFO(1762, new byte[]{'2', '3', '0', '0', '0'}, "Foreign key constraint "
-            + "for table '%s', record '%s' would lead to a duplicate entry in a child table"),
-    ERR_SQLTHREAD_WITH_SECURE_SLAVE(1763, new byte[]{'H', 'Y', '0', '0', '0'}, "Setting authentication options is not"
-            + " possible when only the Slave SQL Thread is being started."),
-    ERR_TABLE_HAS_NO_FT(1764, new byte[]{'H', 'Y', '0', '0', '0'}, "The table does not have FULLTEXT index to support"
-            + " this query"),
-    ERR_VARIABLE_NOT_SETTABLE_IN_SF_OR_TRIGGER(1765, new byte[]{'H', 'Y', '0', '0', '0'}, "The system variable %s "
-            + "cannot be set in stored functions or triggers."),
-    ERR_VARIABLE_NOT_SETTABLE_IN_TRANSACTION(1766, new byte[]{'H', 'Y', '0', '0', '0'}, "The system variable %s "
-            + "cannot be set when there is an ongoing transaction."),
-    ERR_GTID_NEXT_IS_NOT_IN_GTID_NEXT_LIST(1767, new byte[]{'H', 'Y', '0', '0', '0'}, "The system variable @@SESSION"
-            + ".GTID_NEXT has the value %s, which is not listed in @@SESSION.GTID_NEXT_LIST."),
-    ERR_CANT_CHANGE_GTID_NEXT_IN_TRANSACTION_WHEN_GTID_NEXT_LIST_IS_NULL(1768, new byte[]{'H', 'Y', '0', '0', '0'},
-            "The system variable @@SESSION.GTID_NEXT cannot change inside a transaction."),
-    ERR_SET_STATEMENT_CANNOT_INVOKE_FUNCTION(1769, new byte[]{'H', 'Y', '0', '0', '0'}, "The statement 'SET %s' "
-            + "cannot invoke a stored function."),
-    ERR_GTID_NEXT_CANT_BE_AUTOMATIC_IF_GTID_NEXT_LIST_IS_NON_NULL(1770, new byte[]{'H', 'Y', '0', '0', '0'}, "The "
-            + "system variable @@SESSION.GTID_NEXT cannot be 'AUTOMATIC' when @@SESSION.GTID_NEXT_LIST is non-NULL."),
-    ERR_SKIPPING_LOGGED_TRANSACTION(1771, new byte[]{'H', 'Y', '0', '0', '0'}, "Skipping transaction %s because it "
-            + "has already been executed and logged."),
-    ERR_MALFORMED_GTID_SET_SPECIFICATION(1772, new byte[]{'H', 'Y', '0', '0', '0'}, "Malformed GTID set specification"
-            + " '%s'."),
-    ERR_MALFORMED_GTID_SET_ENCODING(1773, new byte[]{'H', 'Y', '0', '0', '0'}, "Malformed GTID set encoding."),
-    ERR_MALFORMED_GTID_SPECIFICATION(1774, new byte[]{'H', 'Y', '0', '0', '0'}, "Malformed GTID specification '%s'."),
-    ERR_GNO_EXHAUSTED(1775, new byte[]{'H', 'Y', '0', '0', '0'}, "Impossible to generate Global Transaction "
-            + "Identifier: the integer component reached the maximal value. Restart the server with a new server_uuid."),
-    ERR_BAD_SLAVE_AUTO_POSITION(1776, new byte[]{'H', 'Y', '0', '0', '0'}, "Parameters MASTER_LOG_FILE, "
-            + "MASTER_LOG_POS, RELAY_LOG_FILE and RELAY_LOG_POS cannot be set when MASTER_AUTO_POSITION is active."),
-    ERR_AUTO_POSITION_REQUIRES_GTID_MODE_ON(1777, new byte[]{'H', 'Y', '0', '0', '0'}, "CHANGE MASTER TO "
-            + "MASTER_AUTO_POSITION = 1 can only be executed when @@GLOBAL.GTID_MODE = ON."),
-    ERR_CANT_DO_IMPLICIT_COMMIT_IN_TRX_WHEN_GTID_NEXT_IS_SET(1778, new byte[]{'H', 'Y', '0', '0', '0'}, "Cannot "
-            + "execute statements with implicit commit inside a transaction when @@SESSION.GTID_NEXT != AUTOMATIC."),
-    ERR_GTID_MODE_2_OR_3_REQUIRES_DISABLE_GTID_UNSAFE_STATEMENTS_ON(1779, new byte[]{'H', 'Y', '0', '0', '0'},
-            "GTID_MODE = ON or GTID_MODE = UPGRADE_STEP_2 requires DISABLE_GTID_UNSAFE_STATEMENTS = 1."),
-    ERR_GTID_MODE_2_OR_3_REQUIRES_ENFORCE_GTID_CONSISTENCY_ON(1779, new byte[]{'H', 'Y', '0', '0', '0'}, "@@GLOBAL"
-            + ".GTID_MODE = ON or UPGRADE_STEP_2 requires @@GLOBAL.ENFORCE_GTID_CONSISTENCY = 1."),
-    ERR_GTID_MODE_REQUIRES_BINLOG(1780, new byte[]{'H', 'Y', '0', '0', '0'}, "@@GLOBAL.GTID_MODE = ON or "
-            + "UPGRADE_STEP_1 or UPGRADE_STEP_2 requires --log-bin and --log-slave-updates."),
-    ERR_CANT_SET_GTID_NEXT_TO_GTID_WHEN_GTID_MODE_IS_OFF(1781, new byte[]{'H', 'Y', '0', '0', '0'}, "@@SESSION"
-            + ".GTID_NEXT cannot be set to UUID:NUMBER when @@GLOBAL.GTID_MODE = OFF."),
-    ERR_CANT_SET_GTID_NEXT_TO_ANONYMOUS_WHEN_GTID_MODE_IS_ON(1782, new byte[]{'H', 'Y', '0', '0', '0'}, "@@SESSION"
-            + ".GTID_NEXT cannot be set to ANONYMOUS when @@GLOBAL.GTID_MODE = ON."),
-    ERR_CANT_SET_GTID_NEXT_LIST_TO_NON_NULL_WHEN_GTID_MODE_IS_OFF(1783, new byte[]{'H', 'Y', '0', '0', '0'},
-            "@@SESSION.GTID_NEXT_LIST cannot be set to a non-NULL value when @@GLOBAL.GTID_MODE = OFF."),
-    ERR_FOUND_GTID_EVENT_WHEN_GTID_MODE_IS_OFF(1784, new byte[]{'H', 'Y', '0', '0', '0'}, "Found a Gtid_log_event or "
-            + "Previous_gtids_log_event when @@GLOBAL.GTID_MODE = OFF."),
-    ERR_GTID_UNSAFE_NON_TRANSACTIONAL_TABLE(1785, new byte[]{'H', 'Y', '0', '0', '0'}, "When @@GLOBAL"
-            + ".ENFORCE_GTID_CONSISTENCY = 1, updates to non-transactional tables can only be done in either "
-            + "autocommitted "
-            + "statements or single-statement transactions, and never in the same statement as updates to transactional"
-            + " "
-            + "tables."),
-    ERR_GTID_UNSAFE_CREATE_SELECT(1786, new byte[]{'H', 'Y', '0', '0', '0'}, "CREATE TABLE ... SELECT is forbidden "
-            + "when @@GLOBAL.ENFORCE_GTID_CONSISTENCY = 1."),
     ERR_GTID_UNSAFE_CREATE_DROP_TEMPORARY_TABLE_IN_TRANSACTION(1787, new byte[]{'H', 'Y', '0', '0', '0'}, "When "
             + "@@GLOBAL.ENFORCE_GTID_CONSISTENCY = 1, the statements CREATE TEMPORARY TABLE and DROP TEMPORARY TABLE "
             + "can be "
@@ -1344,37 +997,6 @@ public enum ErrorCode {
             + "note that this value must be stepped up or down simultaneously on all servers; see the Manual for "
             + "instructions"
             + "."),
-    ERR_MASTER_HAS_PURGED_REQUIRED_GTIDS(1789, new byte[]{'H', 'Y', '0', '0', '0'}, "The slave is connecting using "
-            + "CHANGE MASTER TO MASTER_AUTO_POSITION = 1, but the master has purged binary logs containing GTIDs that "
-            + "the "
-            + "slave requires."),
-    ERR_CANT_SET_GTID_NEXT_WHEN_OWNING_GTID(1790, new byte[]{'H', 'Y', '0', '0', '0'}, "@@SESSION.GTID_NEXT cannot be"
-            + " changed by a client that owns a GTID. The client owns %s. Ownership is released on COMMIT or ROLLBACK."),
-    ERR_UNKNOWN_EXPLAIN_FORMAT(1791, new byte[]{'H', 'Y', '0', '0', '0'}, "Unknown EXPLAIN format name: '%s'"),
-    ERR_CANT_EXECUTE_IN_READ_ONLY_TRANSACTION(1792, new byte[]{'2', '5', '0', '0', '6'}, "Cannot execute statement in"
-            + " a READ ONLY transaction."),
-    ERR_TOO_LONG_TABLE_PARTITION_COMMENT(1793, new byte[]{'H', 'Y', '0', '0', '0'}, "Comment for table partition '%s'"
-            + " is too long (max = %d"),
-    ERR_SLAVE_CONFIGURATION(1794, new byte[]{'H', 'Y', '0', '0', '0'}, "Slave is not configured or failed to "
-            + "initialize properly. You must at least set --server-id to enable either a master or a slave. Additional "
-            + "error "
-            + "messages can be found in the MySQL error log."),
-    ERR_INNODB_FT_LIMIT(1795, new byte[]{'H', 'Y', '0', '0', '0'}, "InnoDB presently supports one FULLTEXT index "
-            + "creation at a time"),
-    ERR_INNODB_NO_FT_TEMP_TABLE(1796, new byte[]{'H', 'Y', '0', '0', '0'}, "Cannot create FULLTEXT index on temporary"
-            + " InnoDB table"),
-    ERR_INNODB_FT_WRONG_DOCID_COLUMN(1797, new byte[]{'H', 'Y', '0', '0', '0'}, "Column '%s' is of wrong type for an "
-            + "InnoDB FULLTEXT index"),
-    ERR_INNODB_FT_WRONG_DOCID_INDEX(1798, new byte[]{'H', 'Y', '0', '0', '0'}, "Index '%s' is of wrong type for an "
-            + "InnoDB FULLTEXT index"),
-    ERR_INNODB_ONLINE_LOG_TOO_BIG(1799, new byte[]{'H', 'Y', '0', '0', '0'}, "Creating index '%s' required more than "
-            + "'innodb_online_alter_log_max_size' bytes of modification log. Please try again."),
-    ERR_UNKNOWN_ALTER_ALGORITHM(1800, new byte[]{'H', 'Y', '0', '0', '0'}, "Unknown ALGORITHM '%s'"),
-    ERR_UNKNOWN_ALTER_LOCK(1801, new byte[]{'H', 'Y', '0', '0', '0'}, "Unknown LOCK type '%s'"),
-    ERR_MTS_CHANGE_MASTER_CANT_RUN_WITH_GAPS(1802, new byte[]{'H', 'Y', '0', '0', '0'}, "CHANGE MASTER cannot be "
-            + "executed when the slave was stopped with an error or killed in MTS mode. Consider using RESET SLAVE or "
-            + "START "
-            + "SLAVE UNTIL."),
     ERR_MTS_RECOVERY_FAILURE(1803, new byte[]{'H', 'Y', '0', '0', '0'}, "Cannot recover after SLAVE errored out in "
             + "parallel execution mode. Additional error messages can be found in the MySQL error log."),
     ERR_MTS_RESET_WORKERS(1804, new byte[]{'H', 'Y', '0', '0', '0'}, "Cannot clean up worker info tables. Additional "
@@ -1394,178 +1016,48 @@ public enum ErrorCode {
             + "DISCARD the tablespace before IMPORT."),
     ERR_TABLESPACE_DISCARDED(1814, new byte[]{'H', 'Y', '0', '0', '0'}, "Tablespace has been discarded for table '%s'"),
     ERR_INTERNAL_ERROR(1815, new byte[]{'H', 'Y', '0', '0', '0'}, "Internal error: %s"),
-    ERR_INNODB_IMPORT_ERROR(1816, new byte[]{'H', 'Y', '0', '0', '0'}, "ALTER TABLE '%s' IMPORT TABLESPACE failed "
-            + "with error %d : '%s'"),
-    ERR_INNODB_INDEX_CORRUPT(1817, new byte[]{'H', 'Y', '0', '0', '0'}, "Index corrupt: %s"),
-    ERR_INVALID_YEAR_COLUMN_LENGTH(1818, new byte[]{'H', 'Y', '0', '0', '0'}, "YEAR(%d) column type is deprecated. "
-            + "Creating YEAR(4) column instead."),
-    ERR_NOT_VALID_PASSWORD(1819, new byte[]{'H', 'Y', '0', '0', '0'}, "Your password does not satisfy the current "
-            + "policy requirements"),
-    ERR_MUST_CHANGE_PASSWORD(1820, new byte[]{'H', 'Y', '0', '0', '0'}, "You must SET PASSWORD before executing this "
-            + "statement"),
-    ERR_FK_NO_INDEX_CHILD(1821, new byte[]{'H', 'Y', '0', '0', '0'}, "Failed to add the foreign key constaint. "
-            + "Missing index for constraint '%s' in the foreign table '%s'"),
-    ERR_FK_NO_INDEX_PARENT(1822, new byte[]{'H', 'Y', '0', '0', '0'}, "Failed to add the foreign key constaint. "
-            + "Missing index for constraint '%s' in the referenced table '%s'"),
-    ERR_FK_FAIL_ADD_SYSTEM(1823, new byte[]{'H', 'Y', '0', '0', '0'}, "Failed to add the foreign key constraint '%s' "
-            + "to system tables"),
-    ERR_FK_CANNOT_OPEN_PARENT(1824, new byte[]{'H', 'Y', '0', '0', '0'}, "Failed to open the referenced table '%s'"),
-    ERR_FK_INCORRECT_OPTION(1825, new byte[]{'H', 'Y', '0', '0', '0'}, "Failed to add the foreign key constraint on "
-            + "table '%s'. Incorrect options in FOREIGN KEY constraint '%s'"),
-    ERR_FK_DUP_NAME(1826, new byte[]{'H', 'Y', '0', '0', '0'}, "Duplicate foreign key constraint name '%s'"),
-    ERR_PASSWORD_FORMAT(1827, new byte[]{'H', 'Y', '0', '0', '0'}, "The password hash doesn't have the expected "
-            + "format. Check if the correct password algorithm is being used with the PASSWORD() function."),
-    ERR_FK_COLUMN_CANNOT_DROP(1828, new byte[]{'H', 'Y', '0', '0', '0'}, "Cannot drop column '%s': needed in a "
-            + "foreign key constraint '%s'"),
-    ERR_FK_COLUMN_CANNOT_DROP_CHILD(1829, new byte[]{'H', 'Y', '0', '0', '0'}, "Cannot drop column '%s': needed in a "
-            + "foreign key constraint '%s' of table '%s'"),
-    ERR_FK_COLUMN_NOT_NULL(1830, new byte[]{'H', 'Y', '0', '0', '0'}, "Column '%s' cannot be NOT NULL: needed in a "
-            + "foreign key constraint '%s' SET NULL"),
-    ERR_DUP_INDEX(1831, new byte[]{'H', 'Y', '0', '0', '0'}, "Duplicate index '%s' defined on the table '%s.%s'. This"
-            + " is deprecated and will be disallowed in a future release."),
-    ERR_FK_COLUMN_CANNOT_CHANGE(1832, new byte[]{'H', 'Y', '0', '0', '0'}, "Cannot change column '%s': used in a "
-            + "foreign key constraint '%s'"),
-    ERR_FK_COLUMN_CANNOT_CHANGE_CHILD(1833, new byte[]{'H', 'Y', '0', '0', '0'}, "Cannot change column '%s': used in "
-            + "a foreign key constraint '%s' of table '%s'"),
-    ERR_FK_CANNOT_DELETE_PARENT(1834, new byte[]{'H', 'Y', '0', '0', '0'}, "Cannot delete rows from table which is "
-            + "parent in a foreign key constraint '%s' of table '%s'"),
-    ERR_MALFORMED_PACKET(1835, new byte[]{'H', 'Y', '0', '0', '0'}, "Malformed communication packet."),
-    ERR_READ_ONLY_MODE(1836, new byte[]{'H', 'Y', '0', '0', '0'}, "Running in read-only mode"),
-    ERR_GTID_NEXT_TYPE_UNDEFINED_GROUP(1837, new byte[]{'H', 'Y', '0', '0', '0'}, "When @@SESSION.GTID_NEXT is set to"
-            + " a GTID, you must explicitly set it to a different value after a COMMIT or ROLLBACK. Please check "
-            + "GTID_NEXT "
-            + "variable manual page for detailed explanation. Current @@SESSION.GTID_NEXT is '%s'."),
-    ERR_VARIABLE_NOT_SETTABLE_IN_SP(1838, new byte[]{'H', 'Y', '0', '0', '0'}, "The system variable %s cannot be set "
-            + "in stored procedures."),
-    ERR_CANT_SET_GTID_PURGED_WHEN_GTID_MODE_IS_OFF(1839, new byte[]{'H', 'Y', '0', '0', '0'}, "@@GLOBAL.GTID_PURGED "
-            + "can only be set when @@GLOBAL.GTID_MODE = ON."),
-    ERR_CANT_SET_GTID_PURGED_WHEN_GTID_EXECUTED_IS_NOT_EMPTY(1840, new byte[]{'H', 'Y', '0', '0', '0'}, "@@GLOBAL"
-            + ".GTID_PURGED can only be set when @@GLOBAL.GTID_EXECUTED is empty."),
-    ERR_CANT_SET_GTID_PURGED_WHEN_OWNED_GTIDS_IS_NOT_EMPTY(1841, new byte[]{'H', 'Y', '0', '0', '0'}, "@@GLOBAL"
-            + ".GTID_PURGED can only be set when there are no ongoing transactions (not even in other clients)."),
-    ERR_GTID_PURGED_WAS_CHANGED(1842, new byte[]{'H', 'Y', '0', '0', '0'}, "@@GLOBAL.GTID_PURGED was changed from "
-            + "'%s' to '%s'."),
-    ERR_GTID_EXECUTED_WAS_CHANGED(1843, new byte[]{'H', 'Y', '0', '0', '0'}, "@@GLOBAL.GTID_EXECUTED was changed from"
-            + " '%s' to '%s'."),
-    ERR_BINLOG_STMT_MODE_AND_NO_REPL_TABLES(1844, new byte[]{'H', 'Y', '0', '0', '0'}, "Cannot execute statement: "
-            + "impossible to write to binary log since BINLOG_FORMAT = STATEMENT, and both replicated and non "
-            + "replicated "
-            + "tables are written to."),
-    ERR_ALTER_OPERATION_NOT_SUPPORTED(1845, new byte[]{'0', 'A', '0', '0', '0'}, "%s is not supported for this "
-            + "operation. Try %s."),
-    ERR_ALTER_OPERATION_NOT_SUPPORTED_REASON(1846, new byte[]{'0', 'A', '0', '0', '0'}, "%s is not supported. Reason:"
-            + " %s. Try %s."),
-    ERR_ALTER_OPERATION_NOT_SUPPORTED_REASON_COPY(1847, new byte[]{'H', 'Y', '0', '0', '0'}, "COPY algorithm requires"
-            + " a lock"),
-    ERR_ALTER_OPERATION_NOT_SUPPORTED_REASON_PARTITION(1848, new byte[]{'H', 'Y', '0', '0', '0'}, "Partition specific"
-            + " operations do not yet support LOCK/ALGORITHM"),
-    ERR_ALTER_OPERATION_NOT_SUPPORTED_REASON_FK_RENAME(1849, new byte[]{'H', 'Y', '0', '0', '0'}, "Columns "
-            + "participating in a foreign key are renamed"),
-    ERR_ALTER_OPERATION_NOT_SUPPORTED_REASON_COLUMN_TYPE(1850, new byte[]{'H', 'Y', '0', '0', '0'}, "Cannot change "
-            + "column type INPLACE"),
-    ERR_ALTER_OPERATION_NOT_SUPPORTED_REASON_FK_CHECK(1851, new byte[]{'H', 'Y', '0', '0', '0'}, "Adding foreign keys"
-            + " needs foreign_key_checks=OFF"),
-    ERR_ALTER_OPERATION_NOT_SUPPORTED_REASON_IGNORE(1852, new byte[]{'H', 'Y', '0', '0', '0'}, "Creating unique "
-            + "indexes with IGNORE requires COPY algorithm to remove duplicate rows"),
-    ERR_ALTER_OPERATION_NOT_SUPPORTED_REASON_NOPK(1853, new byte[]{'H', 'Y', '0', '0', '0'}, "Dropping a primary key "
-            + "is not allowed without also adding a new primary key"),
-    ERR_ALTER_OPERATION_NOT_SUPPORTED_REASON_AUTOINC(1854, new byte[]{'H', 'Y', '0', '0', '0'}, "Adding an "
-            + "auto-increment column requires a lock"),
-    ERR_ALTER_OPERATION_NOT_SUPPORTED_REASON_HIDDEN_FTS(1855, new byte[]{'H', 'Y', '0', '0', '0'}, "Cannot replace "
-            + "hidden FTS_DOC_ID with a user-visible one"),
-    ERR_ALTER_OPERATION_NOT_SUPPORTED_REASON_CHANGE_FTS(1856, new byte[]{'H', 'Y', '0', '0', '0'}, "Cannot drop or "
-            + "rename FTS_DOC_ID"),
-    ERR_ALTER_OPERATION_NOT_SUPPORTED_REASON_FTS(1857, new byte[]{'H', 'Y', '0', '0', '0'}, "Fulltext index creation "
-            + "requires a lock"),
-    ERR_SQL_SLAVE_SKIP_COUNTER_NOT_SETTABLE_IN_GTID_MODE(1858, new byte[]{'H', 'Y', '0', '0', '0'},
-            "sql_slave_skip_counter can not be set when the server is running with @@GLOBAL.GTID_MODE = ON. Instead, "
-                    + "for each"
-                    + " transaction that you want to skip, generate an empty transaction with the same GTID as the "
-                    + "transaction"),
-    ERR_DUP_UNKNOWN_IN_INDEX(1859, new byte[]{'2', '3', '0', '0', '0'}, "Duplicate entry for key '%s'"),
-    ERR_IDENT_CAUSES_TOO_LONG_PATH(1860, new byte[]{'H', 'Y', '0', '0', '0'}, "Long database name and identifier for "
-            + "object resulted in path length exceeding %d characters. Path: '%s'."),
-    ERR_ALTER_OPERATION_NOT_SUPPORTED_REASON_NOT_NULL(1861, new byte[]{'H', 'Y', '0', '0', '0'}, "cannot silently "
-            + "convert NULL values, as required in this SQL_MODE"),
     ERR_MUST_CHANGE_PASSWORD_LOGIN(1862, new byte[]{'H', 'Y', '0', '0', '0'}, "Your password has expired. To log in "
             + "you must change it using a client that supports expired passwords."),
-    ERR_ROW_IN_WRONG_PARTITION(1863, new byte[]{'H', 'Y', '0', '0', '0'}, "Found a row in wrong partition %s"),
-    ERR_MTS_EVENT_BIGGER_PENDING_JOBS_SIZE_MAX(1864, new byte[]{'H', 'Y', '0', '0', '0'}, "Cannot schedule event %s, "
-            + "relay-log name %s, position %s to Worker thread because its size %d exceeds %d of "
-            + "slave_pending_jobs_size_max"
-            + "."),
-    ERR_INNODB_NO_FT_USES_PARSER(1865, new byte[]{'H', 'Y', '0', '0', '0'}, "Cannot CREATE FULLTEXT INDEX WITH PARSER"
-            + " on InnoDB table"),
-    ERR_BINLOG_LOGICAL_CORRUPTION(1866, new byte[]{'H', 'Y', '0', '0', '0'}, "The binary log file '%s' is logically "
-            + "corrupted: %s"),
-    ERR_WARN_PURGE_LOG_IN_USE(1867, new byte[]{'H', 'Y', '0', '0', '0'}, "file %s was not purged because it was being"
-            + " read by %d thread(s), purged only %d out of %d files."),
-    ERR_WARN_PURGE_LOG_IS_ACTIVE(1868, new byte[]{'H', 'Y', '0', '0', '0'}, "file %s was not purged because it is the"
-            + " active log file."),
-    ERR_AUTO_INCREMENT_CONFLICT(1869, new byte[]{'H', 'Y', '0', '0', '0'}, "Auto-increment value in UPDATE conflicts "
-            + "with internally generated values"),
-    WARN_ON_BLOCKHOLE_IN_RBR(1870, new byte[]{'H', 'Y', '0', '0', '0'}, "Row events are not logged for %s statements "
-            + "that modify BLACKHOLE tables in row format. Table(s): '%s'"),
-    ERR_SLAVE_MI_INIT_REPOSITORY(1871, new byte[]{'H', 'Y', '0', '0', '0'}, "Slave failed to initialize master info "
-            + "structure from the repository"),
-    ERR_SLAVE_RLI_INIT_REPOSITORY(1872, new byte[]{'H', 'Y', '0', '0', '0'}, "Slave failed to initialize relay log "
-            + "info structure from the repository"),
-    ERR_ACCESS_DENIED_CHANGE_USER_ERROR(1873, new byte[]{'2', '8', '0', '0', '0'}, "Access denied trying to change to"
-            + " user '%s'@'%s' (using password: %s). Disconnecting."),
-    ERR_INNODB_READ_ONLY(1874, new byte[]{'H', 'Y', '0', '0', '0'}, "InnoDB is in read only mode."),
-    ERR_STOP_SLAVE_SQL_THREAD_TIMEOUT(1875, new byte[]{'H', 'Y', '0', '0', '0'}, "STOP SLAVE command execution is "
-            + "incomplete: Slave SQL thread got the stop signal, thread is busy, SQL thread will stop once the current "
-            + "task is"
-            + " complete."),
-    ERR_STOP_SLAVE_IO_THREAD_TIMEOUT(1876, new byte[]{'H', 'Y', '0', '0', '0'}, "STOP SLAVE command execution is "
-            + "incomplete: Slave IO thread got the stop signal, thread is busy, IO thread will stop once the current "
-            + "task is "
-            + "complete."),
-    ERR_TABLE_CORRUPT(1877, new byte[]{'H', 'Y', '0', '0', '0'}, "Operation cannot be performed. The table '%s.%s' is"
-            + " missing, corrupt or contains bad data."),
-    ERR_TEMP_FILE_WRITE_FAILURE(1878, new byte[]{'H', 'Y', '0', '0', '0'}, "Temporary file write failure."),
-    ERR_INNODB_FT_AUX_NOT_HEX_ID(1879, new byte[]{'H', 'Y', '0', '0', '0'}, "Upgrade index name failed, please use "
-            + "create index(alter table) algorithm copy to rebuild index."),
-    ERR_LAST_MYSQL_ERROR_MESSAGE(1880, new byte[]{}, ""),
+    ERR_CREDENTIALS_CONTRADICT_TO_HISTORY(3638, new byte[] {'H', 'Y', '0', '0', '0'},
+            "Cannot use these credentials for '%s'@'%s' because they contradict the password history policy"),
+    ERR_USER_ACCESS_DENIED_FOR_USER_ACCOUNT_BLOCKED_BY_PASSWORD_LOCK(3955, new byte[] {'H', 'Y', '0', '0', '0'},
+            "Access denied for user '%s'@'%s'. Account is blocked for %s second(s) (%s second(s) remaining) due to %s consecutive failed logins."),
     // Following is Palo's error code, which start from 5000
-    ERR_NOT_OLAP_TABLE(5000, new byte[]{'H', 'Y', '0', '0', '0'}, "Table '%s' is not a OLAP table"),
-    ERR_WRONG_PROC_PATH(5001, new byte[]{'H', 'Y', '0', '0', '0'}, "Proc path '%s' doesn't exist"),
-    ERR_COL_NOT_MENTIONED(5002, new byte[]{'H', 'Y', '0', '0', '0'},
+    ERR_NOT_OLAP_TABLE(5000, new byte[] {'H', 'Y', '0', '0', '0'}, "Table '%s' is not a OLAP table"),
+    ERR_WRONG_PROC_PATH(5001, new byte[] {'H', 'Y', '0', '0', '0'}, "Proc path '%s' doesn't exist"),
+    ERR_COL_NOT_MENTIONED(5002, new byte[] {'H', 'Y', '0', '0', '0'},
             "'%s' must be explicitly mentioned in column permutation"),
-    ERR_OLAP_KEY_MUST_BEFORE_VALUE(5003, new byte[]{'H', 'Y', '0', '0', '0'},
+    ERR_OLAP_KEY_MUST_BEFORE_VALUE(5003, new byte[] {'H', 'Y', '0', '0', '0'},
             "Key column must before value column"),
-    ERR_TABLE_MUST_HAVE_KEYS(5004, new byte[]{'H', 'Y', '0', '0', '0'},
+    ERR_TABLE_MUST_HAVE_KEYS(5004, new byte[] {'H', 'Y', '0', '0', '0'},
             "Table must have at least 1 key column"),
-    ERR_UNKNOWN_CLUSTER_ID(5005, new byte[]{'H', 'Y', '0', '0', '0'}, "Unknown cluster id '%s'"),
-    ERR_UNKNOWN_PLAN_HINT(5006, new byte[]{'H', 'Y', '0', '0', '0'}, "Unknown plan hint '%s'"),
-    ERR_PLAN_HINT_CONFILT(5007, new byte[]{'H', 'Y', '0', '0', '0'}, "Conflict plan hint '%s'"),
-    ERR_INSERT_HINT_NOT_SUPPORT(5008, new byte[]{'H', 'Y', '0', '0', '0'},
+    ERR_UNKNOWN_CLUSTER_ID(5005, new byte[] {'H', 'Y', '0', '0', '0'}, "Unknown cluster id '%s'"),
+    ERR_UNKNOWN_PLAN_HINT(5006, new byte[] {'H', 'Y', '0', '0', '0'}, "Unknown plan hint '%s'"),
+    ERR_PLAN_HINT_CONFILT(5007, new byte[] {'H', 'Y', '0', '0', '0'}, "Conflict plan hint '%s'"),
+    ERR_INSERT_HINT_NOT_SUPPORT(5008, new byte[] {'H', 'Y', '0', '0', '0'},
             "INSERT hints are only supported for partitioned table"),
-    ERR_PARTITION_CLAUSE_NO_ALLOWED(5009, new byte[]{'H', 'Y', '0', '0', '0'},
+    ERR_PARTITION_CLAUSE_NO_ALLOWED(5009, new byte[] {'H', 'Y', '0', '0', '0'},
             "PARTITION clause is not valid for INSERT into unpartitioned table"),
-    ERR_COL_NUMBER_NOT_MATCH(5010, new byte[]{'H', 'Y', '0', '0', '0'},
+    ERR_COL_NUMBER_NOT_MATCH(5010, new byte[] {'H', 'Y', '0', '0', '0'},
             "Number of columns don't equal number of SELECT statement's select list"),
-    ERR_UNRESOLVED_TABLE_REF(5011, new byte[]{'H', 'Y', '0', '0', '0'},
+    ERR_UNRESOLVED_TABLE_REF(5011, new byte[] {'H', 'Y', '0', '0', '0'},
             "Unresolved table reference '%s'"),
-    ERR_BAD_NUMBER(5012, new byte[]{'H', 'Y', '0', '0', '0'}, "'%s' is not a number"),
-    ERR_BAD_TIMEUNIT(5013, new byte[]{'H', 'Y', '0', '0', '0'}, "Unsupported time unit '%s'"),
-    ERR_BAD_TABLE_STATE(5014, new byte[]{'H', 'Y', '0', '0', '0'}, "Table state is not NORMAL: '%s'"),
-    ERR_BAD_PARTITION_STATE(5015, new byte[]{'H', 'Y', '0', '0', '0'}, "Partition state is not NORMAL: '%s':'%s'"),
-    ERR_PARTITION_HAS_LOADING_JOBS(5016, new byte[]{'H', 'Y', '0', '0', '0'}, "Partition has loading jobs: '%s'"),
-    ERR_NOT_KEY_COLUMN(5017, new byte[]{'H', 'Y', '0', '0', '0'}, "Column is not a key column: '%s'"),
-    ERR_INVALID_VALUE(5018, new byte[]{'H', 'Y', '0', '0', '0'}, "Invalid value format: '%s'"),
-    ERR_REPLICA_NOT_CATCH_UP_WITH_VERSION(5019, new byte[]{'H', 'Y', '0', '0', '0'},
+    ERR_BAD_NUMBER(5012, new byte[] {'H', 'Y', '0', '0', '0'}, "'%s' is not a number"),
+    ERR_BAD_TIMEUNIT(5013, new byte[] {'H', 'Y', '0', '0', '0'}, "Unsupported time unit '%s'"),
+    ERR_BAD_TABLE_STATE(5014, new byte[] {'H', 'Y', '0', '0', '0'}, "Table state is not NORMAL: '%s'"),
+    ERR_BAD_PARTITION_STATE(5015, new byte[] {'H', 'Y', '0', '0', '0'}, "Partition state is not NORMAL: '%s':'%s'"),
+    ERR_PARTITION_HAS_LOADING_JOBS(5016, new byte[] {'H', 'Y', '0', '0', '0'}, "Partition has loading jobs: '%s'"),
+    ERR_NOT_KEY_COLUMN(5017, new byte[] {'H', 'Y', '0', '0', '0'}, "Column is not a key column: '%s'"),
+    ERR_INVALID_VALUE(5018, new byte[] {'H', 'Y', '0', '0', '0'}, "Invalid value format: '%s'"),
+    ERR_REPLICA_NOT_CATCH_UP_WITH_VERSION(5019, new byte[] {'H', 'Y', '0', '0', '0'},
             "Replica does not catch up with version: '%s':'%s'"),
-    ERR_BACKEND_OFFLINE(5021, new byte[]{'H', 'Y', '0', '0', '0'}, "Backend is offline: '%s'"),
-    ERR_BAD_PARTS_IN_UNPARTITION_TABLE(5022, new byte[]{'H', 'Y', '0', '0', '0'},
+    ERR_BACKEND_OFFLINE(5021, new byte[] {'H', 'Y', '0', '0', '0'}, "Backend is offline: '%s'"),
+    ERR_BAD_PARTS_IN_UNPARTITION_TABLE(5022, new byte[] {'H', 'Y', '0', '0', '0'},
             "Number of partitions in unpartitioned table is not 1"),
-    ERR_NO_ALTER_OPERATION(5023, new byte[]{'H', 'Y', '0', '0', '0'},
+    ERR_NO_ALTER_OPERATION(5023, new byte[] {'H', 'Y', '0', '0', '0'},
             "No operation in alter statement"),
     ERR_EXECUTE_TIMEOUT(5024, new byte[]{'H', 'Y', '0', '0', '0'}, "Execute timeout"),
     ERR_FAILED_WHEN_INSERT(5025, new byte[]{'H', 'Y', '0', '0', '0'}, "Failed when INSERT execute"),
-    ERR_UNSUPPORTED_TYPE_IN_CTAS(5026, new byte[]{'H', 'Y', '0', '0', '0'},
-            "Unsupported type '%s' in create table as select statement"),
-    ERR_MISSING_PARAM(5027, new byte[]{'H', 'Y', '0', '0', '0'}, "Missing param: %s "),
     ERR_CLUSTER_NO_EXISTS(5028, new byte[]{'H', 'Y', '0', '0', '0'}, "Unknown cluster '%s'"),
     ERR_CLUSTER_NO_AUTHORITY(5030, new byte[]{'H', 'Y', '0', '0', '0'},
             "User '%s' has no permissions '%s' cluster"),
@@ -1576,7 +1068,6 @@ public enum ErrorCode {
     ERR_CLUSTER_BE_NOT_ENOUGH(5036, new byte[]{'H', 'Y', '0', '0', '0'}, "Be is not enough"),
     ERR_CLUSTER_DELETE_DB_EXIST(5037, new byte[]{'H', 'Y', '0', '0', '0'},
             "All datbases in cluster must be dropped before dropping cluster"),
-    ERR_CLUSTER_DELETE_BE_ID_ERROR(5037, new byte[]{'H', 'Y', '0', '0', '0'}, "There is no be's id in the System"),
     ERR_CLUSTER_NO_CLUSTER_NAME(5038, new byte[]{'H', 'Y', '0', '0', '0'}, "There is no cluster name"),
     ERR_CLUSTER_UNKNOWN_ERROR(5040, new byte[]{'4', '2', '0', '0', '0'}, "Unknown cluster '%s'"),
     ERR_CLUSTER_NAME_NULL(5041, new byte[]{'4', '2', '0', '0', '0'}, "No cluster name"),
@@ -1587,7 +1078,6 @@ public enum ErrorCode {
     ERR_CLUSTER_DEST_CLUSTER_NOT_EXIST(5047, new byte[]{'4', '2', '0', '0', '0'},
             "Dest cluster '%s' does not exist"),
     ERR_CLUSTER_SRC_DB_NOT_EXIST(5048, new byte[]{'4', '2', '0', '0', '0'}, "Src db '%s' no exist"),
-    ERR_CLUSTER_DES_DB_NO_EXIT(5049, new byte[]{'4', '2', '0', '0', '0'}, "Dest db '%s' no exist"),
     ERR_CLUSTER_NO_SELECT_CLUSTER(5050, new byte[]{'4', '2', '0', '0', '0'}, "Please enter cluster"),
     ERR_CLUSTER_MIGRATION_NO_LINK(5051, new byte[]{'4', '2', '0', '0', '0'}, "Db %s must be linked to %s at first"),
     ERR_CLUSTER_BACKEND_ERROR(5052, new byte[]{'4', '2', '0', '0', '0'},
@@ -1608,8 +1098,6 @@ public enum ErrorCode {
             "There is %d instance already"),
     ERR_CLUSTER_ALTER_BE_IN_DECOMMISSION(5059, new byte[]{'4', '2', '0', '0', '0'},
             "Cluster '%s' has backends in decommission"),
-    ERR_WRONG_CLUSTER_NAME(5062, new byte[]{'4', '2', '0', '0', '0'},
-            "Incorrect cluster name '%s'(name 'default_cluster' is a reserved name)"),
     ERR_WRONG_NAME_FORMAT(5063, new byte[]{'4', '2', '0', '0', '0'},
             "Incorrect %s name '%s'"),
     ERR_COMMON_ERROR(5064, new byte[]{'4', '2', '0', '0', '0'},
@@ -1631,8 +1119,10 @@ public enum ErrorCode {
     ERR_COLOCATE_NOT_COLOCATE_TABLE(5064, new byte[]{'4', '2', '0', '0', '0'},
             "Table %s is not a colocated table"),
     ERR_INVALID_OPERATION(5065, new byte[]{'4', '2', '0', '0', '0'}, "Operation %s is invalid"),
+    ERR_DYNAMIC_PARTITION_MUST_HAS_SAME_BUCKET_NUM_WITH_COLOCATE_TABLE(5063, new byte[]{'4', '2', '0', '0', '0'},
+        "Dynamic partition buckets must equal the distribution buckets if creating a colocate table: %s"),
     ERROR_DYNAMIC_PARTITION_TIME_UNIT(5065, new byte[]{'4', '2', '0', '0', '0'},
-            "Unsupported time unit %s. Expect HOUR/DAY/WEEK/MONTH."),
+            "Unsupported time unit %s. Expect HOUR/DAY/WEEK/MONTH/YEAR."),
     ERROR_DYNAMIC_PARTITION_START_ZERO(5066, new byte[]{'4', '2', '0', '0', '0'},
             "Dynamic partition start must less than 0"),
     ERROR_DYNAMIC_PARTITION_START_FORMAT(5066, new byte[]{'4', '2', '0', '0', '0'},
@@ -1691,7 +1181,30 @@ public enum ErrorCode {
     ERR_CATALOG_ACCESS_DENIED(5087, new byte[]{'4', '2', '0', '0', '0'},
             "Access denied for user '%s' to catalog '%s'"),
     ERR_NONSUPPORT_HMS_TABLE(5088, new byte[]{'4', '2', '0', '0', '0'},
-            "Nonsupport hive metastore table named '%s' in database '%s' with catalog '%s'.");
+            "Nonsupport hive metastore table named '%s' in database '%s' with catalog '%s'."),
+    ERR_TABLE_NAME_LENGTH_LIMIT(5089, new byte[]{'4', '2', '0', '0', '0'}, "Table name length exceeds limit, "
+     + "the length of table name '%s' is %d which is greater than the configuration 'table_name_length_limit' (%d)."),
+
+    ERR_NONSUPPORT_TIME_TRAVEL_TABLE(5090, new byte[]{'4', '2', '0', '0', '0'}, "Only iceberg/hudi external"
+     + " table supports time travel in current version"),
+
+    ERR_NONSSL_HANDSHAKE_RESPONSE(5091, new byte[] {'4', '2', '0', '0'},
+            "SSL mode on but received non-ssl handshake response from client."),
+
+    ERR_MORE_THAN_ONE_AUTO_INCREMENT_COLUMN(5092, new byte[]{'4', '2', '0', '0', '0'},
+            "there can be at most one auto increment column in OlapTable."),
+
+    ERR_AUTO_INCREMENT_COLUMN_NULLABLE(5093, new byte[]{'4', '2', '0', '0', '0'},
+            "the auto increment column should be NOT NULL."),
+
+    ERR_AUTO_INCREMENT_COLUMN_WITH_DEFAULT_VALUE(5094, new byte[]{'4', '2', '0', '0', '0'},
+            "the auto increment column can't have default value."),
+
+    ERR_AUTO_INCREMENT_COLUMN_NOT_BIGINT_TYPE(5095, new byte[]{'4', '2', '0', '0', '0'},
+            "the auto increment must be BIGINT type."),
+
+    ERR_AUTO_INCREMENT_COLUMN_IN_AGGREGATE_TABLE(5096, new byte[]{'4', '2', '0', '0', '0'},
+            "the auto increment is only supported in duplicate table and unique table.");
 
     // This is error code
     private final int code;

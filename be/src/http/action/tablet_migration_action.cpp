@@ -17,25 +17,24 @@
 
 #include "http/action/tablet_migration_action.h"
 
+#include <glog/logging.h>
+
+#include <exception>
 #include <string>
 
-#include "gutil/strings/substitute.h"
+#include "common/config.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
 #include "http/http_status.h"
+#include "olap/data_dir.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
 #include "olap/task/engine_storage_migration_task.h"
-#include "util/json_util.h"
 
 namespace doris {
 
 const static std::string HEADER_JSON = "application/json";
-
-TabletMigrationAction::TabletMigrationAction() {
-    _init_migration_action();
-}
 
 void TabletMigrationAction::_init_migration_action() {
     int32_t max_thread_num = config::max_tablet_migration_threads;
@@ -88,7 +87,7 @@ void TabletMigrationAction::handle(HttpRequest* req) {
                                 _migration_tasks.erase(it_task);
                             }
                             std::pair<MigrationTask, Status> finished_task =
-                                    make_pair(current_task, result_status);
+                                    std::make_pair(current_task, result_status);
                             if (_finished_migration_tasks.size() >=
                                 config::finished_migration_tasks_size) {
                                 _finished_migration_tasks.pop_front();
@@ -172,9 +171,9 @@ Status TabletMigrationAction::_check_param(HttpRequest* req, int64_t& tablet_id,
         tablet_id = std::stoull(req_tablet_id);
         schema_hash = std::stoul(req_schema_hash);
     } catch (const std::exception& e) {
-        LOG(WARNING) << "invalid argument.tablet_id:" << req_tablet_id
-                     << ", schema_hash:" << req_schema_hash;
-        return Status::InternalError("Convert failed, {}", e.what());
+        return Status::InternalError(
+                "Convert failed:{}, invalid argument.tablet_id: {}, schema_hash: {}", e.what(),
+                req_tablet_id, req_schema_hash);
     }
     dest_disk = req->param("disk");
     goal = req->param("goal");

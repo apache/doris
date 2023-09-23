@@ -111,7 +111,7 @@ public class AuditLogBuilder extends Plugin implements AuditPlugin {
                 continue;
             }
 
-            if (af.value().equals("Time")) {
+            if (af.value().equals("Time(ms)")) {
                 queryTime = (long) f.get(event);
             }
             sb.append("|").append(af.value()).append("=").append(String.valueOf(f.get(event)));
@@ -161,3 +161,4 @@ public class AuditLogBuilder extends Plugin implements AuditPlugin {
         AuditLog.getStreamLoadAudit().log(auditLog);
     }
 }
+

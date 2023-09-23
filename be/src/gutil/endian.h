@@ -26,7 +26,7 @@
 // but don't require including the dangerous netinet/in.h.
 //
 // Buffer routines will copy to and from buffers without causing
-// a bus error when the architecture requires differnt byte alignments
+// a bus error when the architecture requires different byte alignments
 
 #pragma once
 
@@ -176,7 +176,7 @@ public:
     // The caller needs to guarantee that 1 <= len <= 8.
     static uint64 Load64VariableLength(const void* const p, int len) {
         assert(len >= 1 && len <= 8);
-        const char* const buf = static_cast<const char* const>(p);
+        const char* const buf = static_cast<const char*>(p);
         uint64 val = 0;
         --len;
         do {

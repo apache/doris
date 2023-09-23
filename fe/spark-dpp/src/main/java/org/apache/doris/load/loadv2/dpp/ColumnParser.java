@@ -18,7 +18,7 @@
 package org.apache.doris.load.loadv2.dpp;
 
 import org.apache.doris.common.SparkDppException;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig;
+import org.apache.doris.sparkdpp.EtlJobConfig;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -59,9 +59,11 @@ public abstract class ColumnParser implements Serializable {
             return new DoubleParser();
         } else if (columnType.equalsIgnoreCase("BOOLEAN")) {
             return new BooleanParser();
-        } else if (columnType.equalsIgnoreCase("DATE")) {
+        } else if (columnType.equalsIgnoreCase("DATE")
+                || columnType.equalsIgnoreCase("DATEV2")) {
             return new DateParser();
-        } else if (columnType.equalsIgnoreCase("DATETIME")) {
+        } else if (columnType.equalsIgnoreCase("DATETIME")
+                || columnType.equalsIgnoreCase("DATETIMEV2")) {
             return new DatetimeParser();
         } else if (columnType.equalsIgnoreCase("STRING")
                 || columnType.equalsIgnoreCase("TEXT")) {

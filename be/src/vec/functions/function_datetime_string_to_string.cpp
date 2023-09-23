@@ -17,7 +17,9 @@
 
 #include "vec/functions/function_datetime_string_to_string.h"
 
+#include "vec/data_types/data_type_time_v2.h" // IWYU pragma: keep
 #include "vec/functions/simple_function_factory.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
 
@@ -28,16 +30,11 @@ using FunctionDateTimeV2DateFormat =
         FunctionDateTimeStringToString<DateFormatImpl<DateV2Value<DateTimeV2ValueType>, UInt64>>;
 using FunctionFromUnixTime = FunctionDateTimeStringToString<FromUnixTimeImpl<VecDateTimeValue>>;
 
-FunctionBuilderPtr createFromUnixTimeFunction() {
-    return std::make_shared<FromUnixTimeFunctionBuilder>();
-}
-
 void register_function_date_time_string_to_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDateFormat>();
     factory.register_function<FunctionDateFormatV2>();
     factory.register_function<FunctionFromUnixTime>();
     factory.register_function<FunctionDateTimeV2DateFormat>();
-    factory.register_function("from_unixtime", &createFromUnixTimeFunction);
 }
 
 } // namespace doris::vectorized

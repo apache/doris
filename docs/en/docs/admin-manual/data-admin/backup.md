@@ -69,6 +69,25 @@ ALTER TABLE tbl1 SET ("dynamic_partition.enable"="true")
    );
    ```
 
+2. Create a remote repository for s3 : s3_repo
+
+   ```
+   CREATE REPOSITORY `s3_repo`
+   WITH S3
+   ON LOCATION "s3://bucket_name/test"
+   PROPERTIES
+   (
+       "AWS_ENDPOINT" = "http://xxxx.xxxx.com",
+       "AWS_ACCESS_KEY" = "xxxx",
+       "AWS_SECRET_KEY" = "xxx",
+       "AWS_REGION" = "xxx"
+   ); 
+   ```
+
+   >Note that.
+   >
+   >ON LOCATION is followed by Bucket Name here
+
 1. Full backup of table example_tbl under example_db to warehouse example_repo:
 
    ```sql
@@ -143,7 +162,7 @@ It is recommended to import the new and old clusters in parallel for a period of
 1. Operations related to backup and recovery are currently only allowed to be performed by users with ADMIN privileges.
 2. Within a database, only one backup or restore job is allowed to be executed.
 3. Both backup and recovery support operations at the minimum partition (Partition) level. When the amount of data in the table is large, it is recommended to perform operations by partition to reduce the cost of failed retry.
-4. Because of the backup and restore operations, the operations are the actual data files. Therefore, when a table has too many shards, or a shard has too many small versions, it may take a long time to backup or restore even if the total amount of data is small. Users can use `SHOW PARTITIONS FROM table_name;` and `SHOW TABLET FROM table_name;` to view the number of shards in each partition and the number of file versions in each shard to estimate job execution time. The number of files has a great impact on the execution time of the job. Therefore, it is recommended to plan partitions and buckets reasonably when creating tables to avoid excessive sharding.
+4. Because of the backup and restore operations, the operations are the actual data files. Therefore, when a table has too many shards, or a shard has too many small versions, it may take a long time to backup or restore even if the total amount of data is small. Users can use `SHOW PARTITIONS FROM table_name;` and `SHOW TABLETS FROM table_name;` to view the number of shards in each partition and the number of file versions in each shard to estimate job execution time. The number of files has a great impact on the execution time of the job. Therefore, it is recommended to plan partitions and buckets reasonably when creating tables to avoid excessive sharding.
 5. When checking job status via `SHOW BACKUP` or `SHOW RESTORE` command. It is possible to see error messages in the `TaskErrMsg` column. But as long as the `State` column is not `CANCELLED`, the job is still continuing. These tasks may retry successfully. Of course, some Task errors will also directly cause the job to fail.
    Common `TaskErrMsg` errors are as follows:
       Q1: Backup to HDFS, the status shows UPLOADING, TaskErrMsg error message: [13333: Close broker writer failed, broker:TNetworkAddress(hostname=10.10.0.0, port=8000) msg:errors while close file output stream, cause by: DataStreamer Exception : ]

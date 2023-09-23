@@ -20,23 +20,31 @@ package org.apache.doris.load.loadv2.etl;
 import org.apache.doris.common.SparkDppException;
 import org.apache.doris.load.loadv2.dpp.GlobalDictBuilder;
 import org.apache.doris.load.loadv2.dpp.SparkDpp;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlColumn;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlColumnMapping;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlFileGroup;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlIndex;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlTable;
+import org.apache.doris.sparkdpp.EtlJobConfig;
+import org.apache.doris.sparkdpp.EtlJobConfig.EtlColumn;
+import org.apache.doris.sparkdpp.EtlJobConfig.EtlColumnMapping;
+import org.apache.doris.sparkdpp.EtlJobConfig.EtlFileGroup;
+import org.apache.doris.sparkdpp.EtlJobConfig.EtlIndex;
+import org.apache.doris.sparkdpp.EtlJobConfig.EtlTable;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.common.io.CharStreams;
 import org.apache.commons.collections.map.MultiValueMap;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
 import org.apache.spark.SparkConf;
-import org.apache.spark.sql.Dataset;
+import org.apache.spark.deploy.SparkHadoopUtil;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.functions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.DataInputStream;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -61,6 +69,7 @@ public class SparkEtlJob {
     private Set<Long> hiveSourceTables;
     private Map<Long, Set<String>> tableToBitmapDictColumns;
     private Map<Long, Set<String>> tableToBinaryBitmapColumns;
+    private final SparkConf conf;
     private SparkSession spark;
 
     private SparkEtlJob(String jobConfigFilePath) {
@@ -69,10 +78,10 @@ public class SparkEtlJob {
         this.hiveSourceTables = Sets.newHashSet();
         this.tableToBitmapDictColumns = Maps.newHashMap();
         this.tableToBinaryBitmapColumns = Maps.newHashMap();
+        conf = new SparkConf();
     }
 
-    private void initSparkEnvironment() {
-        SparkConf conf = new SparkConf();
+    private void initSpark() {
         //serialization conf
         conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer");
         conf.set("spark.kryo.registrator", "org.apache.doris.load.loadv2.dpp.DorisKryoRegistrator");
@@ -85,14 +94,19 @@ public class SparkEtlJob {
             return;
         }
         for (Map.Entry<String, String> entry : configs.entrySet()) {
-            spark.sparkContext().conf().set(entry.getKey(), entry.getValue());
+            conf.set(entry.getKey(), entry.getValue());
+            conf.set("spark.hadoop." + entry.getKey(), entry.getValue());
         }
     }
 
-    private void initConfig() {
+    private void initConfig() throws IOException {
         LOG.debug("job config file path: " + jobConfigFilePath);
-        Dataset<String> ds = spark.read().textFile(jobConfigFilePath);
-        String jsonConfig = ds.first();
+        Configuration hadoopConf = SparkHadoopUtil.get().newConfiguration(this.conf);
+        String jsonConfig;
+        Path path = new Path(jobConfigFilePath);
+        try (FileSystem fs = path.getFileSystem(hadoopConf); DataInputStream in = fs.open(path)) {
+            jsonConfig = CharStreams.toString(new InputStreamReader(in));
+        }
         LOG.debug("rdd read json config: " + jsonConfig);
         etlJobConfig = EtlJobConfig.configFromJson(jsonConfig);
         LOG.debug("etl job config: " + etlJobConfig);
@@ -240,12 +254,12 @@ public class SparkEtlJob {
             }
         }
 
+        initSpark();
         // data partition sort and aggregation
         processDpp();
     }
 
     private void run() throws Exception {
-        initSparkEnvironment();
         initConfig();
         checkConfig();
         processData();
@@ -261,7 +275,7 @@ public class SparkEtlJob {
             new SparkEtlJob(args[0]).run();
         } catch (Exception e) {
             System.err.println("spark etl job run failed");
-            e.printStackTrace();
+            LOG.warn("", e);
             System.exit(-1);
         }
     }

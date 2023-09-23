@@ -1,6 +1,6 @@
 ---
 {
-    "title": "timestampdiff",
+    "title": "TIMESTAMPDIFF",
     "language": "en"
 }
 ---
@@ -28,7 +28,7 @@ under the License.
 ### description
 #### Syntax
 
-`INT TIMESTAMPDIFF(unit,DATETIME datetime_expr1, DATETIME datetime_expr2)`
+`INT TIMESTAMPDIFF(unit, DATETIME datetime_expr1, DATETIME datetime_expr2)`
 
 Returns datetime_expr2 − datetime_expr1, where datetime_expr1 and datetime_expr2 are date or datetime expressions. 
 
@@ -64,4 +64,4 @@ MySQL> SELECT TIMESTAMPDIFF(MINUTE,'2003-02-01','2003-05-01 12:05:55');
 
 ```
 ### keywords
-TIMESTAMPDIFF
+    TIMESTAMPDIFF

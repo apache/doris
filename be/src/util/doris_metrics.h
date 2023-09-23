@@ -17,9 +17,9 @@
 
 #pragma once
 
+#include <memory>
 #include <set>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 #include "util/metrics.h"
@@ -79,6 +79,8 @@ public:
     IntCounter* delete_requests_failed;
     IntCounter* clone_requests_total;
     IntCounter* clone_requests_failed;
+    IntCounter* alter_inverted_index_requests_total;
+    IntCounter* alter_inverted_index_requests_failed;
 
     IntCounter* finish_task_requests_total;
     IntCounter* finish_task_requests_failed;
@@ -119,12 +121,6 @@ public:
     IntCounter* memtable_flush_total;
     IntCounter* memtable_flush_duration_us;
 
-    IntCounter* attach_task_thread_count;
-    IntCounter* add_thread_mem_tracker_consumer_count;
-    IntCounter* thread_mem_tracker_exceed_call_back_count;
-    // brpc server response count
-    IntCounter* switch_bthread_count;
-
     IntGauge* memory_pool_bytes_total;
     IntGauge* process_thread_num;
     IntGauge* process_fd_num_used;
@@ -137,9 +133,12 @@ public:
     IntGauge* tablet_cumulative_max_compaction_score;
     IntGauge* tablet_base_max_compaction_score;
 
+    IntGauge* all_rowsets_num;
+    IntGauge* all_segments_num;
+
     // permits have been used for all compaction tasks
     IntGauge* compaction_used_permits;
-    // permits required by the compaction task which is waitting for permits
+    // permits required by the compaction task which is waiting for permits
     IntGauge* compaction_waitting_permits;
 
     HistogramMetric* tablet_version_num_distribution;
@@ -147,21 +146,26 @@ public:
     // The following metrics will be calculated
     // by metric calculator
     IntGauge* query_scan_bytes_per_second;
-    IntGauge* max_disk_io_util_percent;
-    IntGauge* max_network_send_bytes_rate;
-    IntGauge* max_network_receive_bytes_rate;
 
     // Metrics related with file reader/writer
     IntCounter* local_file_reader_total;
     IntCounter* s3_file_reader_total;
+    IntCounter* hdfs_file_reader_total;
+    IntCounter* broker_file_reader_total;
     IntCounter* local_file_writer_total;
+    IntCounter* s3_file_writer_total;
     IntCounter* file_created_total;
+    IntCounter* s3_file_created_total;
     IntCounter* local_bytes_read_total;
     IntCounter* s3_bytes_read_total;
     IntCounter* local_bytes_written_total;
+    IntCounter* s3_bytes_written_total;
     IntGauge* local_file_open_reading;
     IntGauge* s3_file_open_reading;
+    IntGauge* hdfs_file_open_reading;
+    IntGauge* broker_file_open_reading;
     IntGauge* local_file_open_writing;
+    IntGauge* s3_file_open_writing;
 
     // Size of some global containers
     UIntGauge* rowset_count_generated_and_in_use;
@@ -177,13 +181,16 @@ public:
     UIntGauge* routine_load_task_count;
     UIntGauge* small_file_cache_count;
     UIntGauge* stream_load_pipe_count;
+    UIntGauge* new_stream_load_pipe_count;
     UIntGauge* brpc_endpoint_stub_count;
     UIntGauge* brpc_function_endpoint_stub_count;
     UIntGauge* tablet_writer_count;
 
+    UIntGauge* segcompaction_mem_consumption;
     UIntGauge* compaction_mem_consumption;
     UIntGauge* load_mem_consumption;
     UIntGauge* load_channel_mem_consumption;
+    UIntGauge* memtable_memory_limiter_mem_consumption;
     UIntGauge* query_mem_consumption;
     UIntGauge* schema_change_mem_consumption;
     UIntGauge* storage_migration_mem_consumption;
@@ -194,15 +201,32 @@ public:
     UIntGauge* query_cache_sql_total_count;
     UIntGauge* query_cache_partition_total_count;
 
+    IntCounter* tablet_schema_cache_count;
+    UIntGauge* tablet_schema_cache_memory_bytes;
+    IntGauge* lru_cache_memory_bytes;
+
     UIntGauge* scanner_thread_pool_queue_size;
     UIntGauge* add_batch_task_queue_size;
     UIntGauge* send_batch_thread_pool_thread_num;
     UIntGauge* send_batch_thread_pool_queue_size;
+    UIntGauge* download_cache_thread_pool_thread_num;
+    UIntGauge* download_cache_thread_pool_queue_size;
+    UIntGauge* fragment_thread_pool_queue_size;
 
     // Upload metrics
     UIntGauge* upload_total_byte;
     IntCounter* upload_rowset_count;
     IntCounter* upload_fail_count;
+
+    UIntGauge* light_work_pool_queue_size;
+    UIntGauge* heavy_work_pool_queue_size;
+    UIntGauge* heavy_work_active_threads;
+    UIntGauge* light_work_active_threads;
+
+    UIntGauge* heavy_work_pool_max_queue_size;
+    UIntGauge* light_work_pool_max_queue_size;
+    UIntGauge* heavy_work_max_threads;
+    UIntGauge* light_work_max_threads;
 
     static DorisMetrics* instance() {
         static DorisMetrics instance;
@@ -218,7 +242,6 @@ public:
     MetricRegistry* metric_registry() { return &_metric_registry; }
     SystemMetrics* system_metrics() { return _system_metrics.get(); }
     MetricEntity* server_entity() { return _server_metric_entity.get(); }
-    bool is_inited() { return _is_inited; }
 
 private:
     // Don't allow constructor
@@ -237,8 +260,6 @@ private:
     std::unique_ptr<SystemMetrics> _system_metrics;
 
     std::shared_ptr<MetricEntity> _server_metric_entity;
-
-    bool _is_inited = false;
 };
 
 }; // namespace doris

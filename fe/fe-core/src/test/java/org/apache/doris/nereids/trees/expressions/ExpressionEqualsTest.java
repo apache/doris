@@ -20,7 +20,8 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundStar;
-import org.apache.doris.nereids.trees.expressions.functions.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.types.IntegerType;
 
 import com.google.common.collect.Lists;
@@ -80,14 +81,6 @@ public class ExpressionEqualsTest {
         GreaterThanEqual greaterThanEqual2 = new GreaterThanEqual(left2, right2);
         Assertions.assertEquals(greaterThanEqual1, greaterThanEqual2);
         Assertions.assertEquals(greaterThanEqual1.hashCode(), greaterThanEqual2.hashCode());
-    }
-
-    @Test
-    public void testBetween() {
-        Between between1 = new Between(child1, left1, right1);
-        Between between2 = new Between(child2, left2, right2);
-        Assertions.assertEquals(between1, between2);
-        Assertions.assertEquals(between1.hashCode(), between2.hashCode());
     }
 
     @Test
@@ -154,8 +147,8 @@ public class ExpressionEqualsTest {
 
     @Test
     public void testUnboundFunction() {
-        UnboundFunction unboundFunction1 = new UnboundFunction("name", false, false, Lists.newArrayList(child1));
-        UnboundFunction unboundFunction2 = new UnboundFunction("name", false, false, Lists.newArrayList(child2));
+        UnboundFunction unboundFunction1 = new UnboundFunction("name", false, Lists.newArrayList(child1));
+        UnboundFunction unboundFunction2 = new UnboundFunction("name", false, Lists.newArrayList(child2));
         Assertions.assertEquals(unboundFunction1, unboundFunction2);
         Assertions.assertEquals(unboundFunction1.hashCode(), unboundFunction2.hashCode());
     }
@@ -166,6 +159,25 @@ public class ExpressionEqualsTest {
         Sum sum2 = new Sum(child2);
         Assertions.assertEquals(sum1, sum2);
         Assertions.assertEquals(sum1.hashCode(), sum2.hashCode());
+    }
+
+    @Test
+    public void testAggregateFunction() {
+        Count count1 = new Count();
+        Count count2 = new Count();
+        Assertions.assertEquals(count1, count2);
+        Assertions.assertEquals(count1.hashCode(), count2.hashCode());
+
+        Count count3 = new Count(true, child1);
+        Count count4 = new Count(true, child2);
+        Assertions.assertEquals(count3, count4);
+        Assertions.assertEquals(count3.hashCode(), count4.hashCode());
+
+        // bad case
+        Count count5 = new Count(true, child1);
+        Count count6 = new Count(child2);
+        Assertions.assertNotEquals(count5, count6);
+        Assertions.assertNotEquals(count5.hashCode(), count6.hashCode());
     }
 
     @Test

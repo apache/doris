@@ -26,7 +26,7 @@ under the License.
 
 # 权限管理
 
-Doris 新的权限管理系统参照了 Mysql 的权限管理机制，做到了表级别细粒度的权限控制，基于角色的权限访问控制，并且支持白名单机制。
+Doris 新的权限管理系统参照了 Mysql 的权限管理机制，做到了行级别细粒度的权限控制，基于角色的权限访问控制，并且支持白名单机制。
 
 ## 名词解释
 
@@ -38,7 +38,7 @@ Doris 新的权限管理系统参照了 Mysql 的权限管理机制，做到了�
 
 2. 权限 Privilege
 
-   权限作用的对象是节点、数据库或表。不同的权限代表不同的操作许可。
+   权限作用的对象是节点、数据目录、数据库或表。不同的权限代表不同的操作许可。
 
 3. 角色 Role
 
@@ -50,18 +50,62 @@ Doris 新的权限管理系统参照了 Mysql 的权限管理机制，做到了�
 
    用户属性包括但不限于： 用户最大连接数、导入集群配置等等。
 
+## 权限框架
+
+Doris权限设计基于RBAC(Role-Based Access Control)的权限管理模型,用户和角色关联，角色和权限关联，用户通过角色间接和权限关联。
+
+当角色被删除时，用户自动失去该角色的所有权限。
+
+当用户和角色取消关联，用户自动失去角色的所有权限。
+
+当角色的权限被增加或删除，用户的权限也会随之变更。
+
+```
+┌────────┐        ┌────────┐         ┌────────┐
+│  user1 ├────┬───►  role1 ├────┬────►  priv1 │
+└────────┘    │   └────────┘    │    └────────┘
+              │                 │
+              │                 │
+              │   ┌────────┐    │
+              │   │  role2 ├────┤
+┌────────┐    │   └────────┘    │    ┌────────┐
+│  user2 ├────┘                 │  ┌─►  priv2 │
+└────────┘                      │  │ └────────┘
+                  ┌────────┐    │  │
+           ┌──────►  role3 ├────┘  │
+           │      └────────┘       │
+           │                       │
+           │                       │
+┌────────┐ │      ┌────────┐       │ ┌────────┐
+│  userN ├─┴──────►  roleN ├───────┴─►  privN │
+└────────┘        └────────┘         └────────┘
+```
+
+如上图所示：
+
+user1和user2都是通过role1拥有了priv1的权限。
+
+userN通过role3拥有了priv1的权限，通过roleN拥有了priv2和privN的权限，因此userN同时拥有priv1，priv2和privN的权限。
+
+为了方便用户操作，是可以直接给用户授权的，底层实现上，是为每个用户创建了一个专属于该用户的默认角色，当给用户授权时，实际上是在给该用户的默认角色授权。
+
+默认角色不能被删除，不能被分配给其他人，删除用户时，默认角色也自动删除。
+
 ## 支持的操作
 
-1. 创建用户：CREATE USER
-2. 删除用户：DROP USER
-3. 授权：GRANT
-4. 撤权：REVOKE
-5. 创建角色：CREATE ROLE
-6. 删除角色：DROP ROLE
-7. 查看当前用户权限：SHOW GRANTS
-8. 查看所有用户权限：SHOW ALL GRANTS
-9. 查看已创建的角色：SHOW ROLES
-10. 查看用户属性：SHOW PROPERTY
+1. 创建用户：[CREATE USER](../../sql-manual/sql-reference/Account-Management-Statements/CREATE-USER.md)
+2. 修改用户：[ALTER USER](../../sql-manual/sql-reference/Account-Management-Statements/ALTER-USER.md)
+3. 删除用户：[DROP USER](../../sql-manual/sql-reference/Account-Management-Statements/DROP-USER.md)
+4. 授权/分配角色：[GRANT](../../sql-manual/sql-reference/Account-Management-Statements/GRANT.md)
+5. 撤权/撤销角色：[REVOKE](../../sql-manual/sql-reference/Account-Management-Statements/REVOKE.md)
+6. 创建角色：[CREATE ROLE](../../sql-manual/sql-reference/Account-Management-Statements/CREATE-ROLE.md)
+7. 删除角色：[DROP ROLE](../../sql-manual/sql-reference/Account-Management-Statements/DROP-ROLE.md)
+8. 查看当前用户权限和角色：[SHOW GRANTS](../../sql-manual/sql-reference/Show-Statements/SHOW-GRANTS.md)
+9. 查看所有用户权限和角色：[SHOW ALL GRANTS](../../sql-manual/sql-reference/Show-Statements/SHOW-GRANTS.md)
+10. 查看已创建的角色：[SHOW ROLES](../../sql-manual/sql-reference/Show-Statements/SHOW-ROLES.md)
+11. 设置用户属性: [SET PROPERTY](../../sql-manual/sql-reference/Account-Management-Statements/SET-PROPERTY.md)
+12. 查看用户属性：[SHOW PROPERTY](../../sql-manual/sql-reference/Show-Statements/SHOW-PROPERTY.md)
+13. 修改密码：[SET PASSWORD](../../sql-manual/sql-reference/Account-Management-Statements/SET-PASSWORD.md)
 
 关于以上命令的详细帮助，可以通过 mysql 客户端连接 Doris 后，使用 help + command 获取帮助。如 `HELP CREATE USER`。
 
@@ -105,21 +149,26 @@ Doris 目前支持以下几种权限
 
 8. Usage_priv
 
-   资源的使用权限。
+   资源的使用权限<version since="dev" type="inline" >和workload group权限</version>。
 
 ## 权限层级
 
 同时，根据权限适用范围的不同，我们将库表的权限分为以下四个层级：
 
 1. GLOBAL LEVEL：全局权限。即通过 GRANT 语句授予的 `*.*.*` 上的权限。被授予的权限适用于任意数据库中的任意表。
-2. CATALOG LEVEL：Catalog级权限。即通过 GRANT 语句授予的 `ctl.*.*` 上的权限。被授予的权限适用于指定Catalog中的任意库表。
+2. CATALOG LEVEL：数据目录（Catalog）级权限。即通过 GRANT 语句授予的 `ctl.*.*` 上的权限。被授予的权限适用于指定Catalog中的任意库表。
 3. DATABASE LEVEL：数据库级权限。即通过 GRANT 语句授予的 `ctl.db.*` 上的权限。被授予的权限适用于指定数据库中的任意表。
 4. TABLE LEVEL：表级权限。即通过 GRANT 语句授予的 `ctl.db.tbl` 上的权限。被授予的权限适用于指定数据库中的指定表。
 
 将资源的权限分为以下两个层级：
 
 1. GLOBAL LEVEL：全局权限。即通过 GRANT 语句授予的 `*` 上的权限。被授予的权限适用于资源。
-2. RESOURCE LEVEL: 资源级权限。即通过 GRANT 语句授予的 `resource_name` 上的权限。被授予的权限适用于指定资源。
+2. RESOURCE LEVEL： 资源级权限。即通过 GRANT 语句授予的 `resource_name` 上的权限。被授予的权限适用于指定资源。
+
+<version since="dev">
+workload group 只有一个层级：
+1. WORKLOAD GROUP LEVEL：可以通过 GRANT 语句授予 `workload_group_name` 上的权限。被授予的权限适用于指定workload group。workload_group_name 支持 `%`和`_`匹配符，`%`可匹配任意字符串，`_`匹配任意单个字符。
+</version>
 
 ## ADMIN/GRANT 权限说明
 
@@ -184,9 +233,9 @@ ADMIN_PRIV 和 GRANT_PRIV 权限同时拥有**授予权限**的权限，较为�
 
 5. 忘记密码
 
-   如果忘记了密码无法登陆 Doris，可以在 Doris FE 节点所在机器，使用如下命令无密码登陆 Doris：
+   如果忘记了密码无法登陆 Doris，可以在 FE 的 config 文件中添加 `skip_localhost_auth_check` 参数，并且重启FE，从而无密码在本机通过localhost登陆 Doris：
 
-   `mysql-client -h 127.0.0.1 -P query_port -uroot`
+   `skip_localhost_auth_check = true`
 
    登陆后，可以通过 SET PASSWORD 命令重置密码。
 
@@ -203,6 +252,13 @@ ADMIN_PRIV 和 GRANT_PRIV 权限同时拥有**授予权限**的权限，较为�
    假设创建了 `user1@'192.%'` 这个用户，然后以为来自 192.168.10.1 的用户 user1 登陆了系统，则此时的 `current_user` 为 `user1@'192.%'`，而 `user` 为 `user1@'192.168.10.1'`。
 
    所有的权限都是赋予某一个 `current_user` 的，真实用户拥有对应的 `current_user` 的所有权限。
+   
+10. 密码强度
+
+	在 1.2 版本中，新增了对用户密码强度的校验功能。该功能由全局变量 `validate_password_policy` 控制。默认为 `NONE/0`，即不检查密码强度。如果设置为 `STRONG/2`，则密码必须包含“大写字母”，“小写字母”，“数字”和“特殊字符”中的3项，并且长度必须大于等于8。
+	
+## 行级权限
+从1.2版本开始，可以通过 [CREATE ROW POLICY](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-POLICY.md) 命令创建行级权限。
 
 ## 最佳实践
 

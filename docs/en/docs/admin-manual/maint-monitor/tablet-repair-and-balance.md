@@ -28,7 +28,7 @@ under the License.
 
 Beginning with version 0.9.0, Doris introduced an optimized replica management strategy and supported a richer replica status viewing tool. This document focuses on Doris data replica balancing, repair scheduling strategies, and replica management operations and maintenance methods. Help users to more easily master and manage the replica status in the cluster.
 
-> Repairing and balancing copies of tables with Collocation attributes can be referred to [HERE](../../advanced/join-optimization/colocation-join.md)
+> Repairing and balancing copies of tables with Collocation attributes can be referred to [HERE](../../query-acceleration/join-optimization/colocation-join.md)
 
 ## Noun Interpretation
 
@@ -99,7 +99,7 @@ Multiple copies of a Tablet may cause state inconsistencies due to certain circu
 
 6. FORCE\_REDUNDANT
 
-	This is a special state. It only occurs when the number of expected replicas is greater than or equal to the number of available nodes, and when the Tablet is in the state of replica missing. In this case, you need to delete a copy first to ensure that there are available nodes for creating a new copy.
+	This is a special state. It only occurs when the number of existed replicas is greater than or equal to the number of available nodes, and the number of available nodes is greater than or equal to the number of expected replicas, and when the number of alive replicas is less than the number of expected replicas. In this case, you need to delete a copy first to ensure that there are available nodes for creating a new copy.
 
 7. COLOCATE\_MISMATCH
 
@@ -212,7 +212,7 @@ Priority ensures that severely damaged fragments can be repaired first, and impr
 
 At the same time, in order to ensure the weight of the initial priority, we stipulate that the initial priority is VERY HIGH, and the lowest is lowered to NORMAL. When the initial priority is LOW, it is raised to HIGH at most. The priority adjustment here also adjusts the priority set manually by the user.
 
-## Duplicate Equilibrium
+## Replicas Balance
 
 Doris automatically balances replicas within the cluster. Currently supports two rebalance strategies, BeLoad and Partition. BeLoad rebalance will consider about the disk usage and replica count for each BE. Partition rebalance just aim at replica count for each partition, this helps to avoid hot spots. If you want high read/write performance, you may need this. Note that Partition rebalance do not consider about the disk usage, pay more attention to it when you are using Partition rebalance. The strategy selection config is not mutable at runtime. 
 
@@ -319,7 +319,7 @@ Tablet state view mainly looks at the state of the tablet, as well as the state 
 
 	` The ADMIN SHOW REPLICA STATUS `command is mainly used to view the health status of copies. Users can also view additional information about copies of a specified table by using the following commands:
 
-	`SHOW TABLET FROM tbl1;`
+	`SHOW TABLETS FROM tbl1;`
 
     ```
 	+----------+-----------+-----------+------------+---------+-------------+-------------------+-----------------------+------------------+----------------------+---------------+----------+----------+--------+-------------------------+--------------+----------------------+--------------+----------------------+----------------------+----------------------+
@@ -385,7 +385,7 @@ Tablet state view mainly looks at the state of the tablet, as well as the state 
 	+-----------+-----------+---------+-------------+-------------------+-----------------------+------------------+----------------------+---------------+------------+----------+----------+--------+-------+--------------+----------------------+
     ```
    
-	The figure above shows all replicas of the corresponding Tablet. The content shown here is the same as `SHOW TABLET FROM tbl1;`. But here you can clearly see the status of all copies of a specific Tablet.
+	The figure above shows all replicas of the corresponding Tablet. The content shown here is the same as `SHOW TABLETS FROM tbl1;`. But here you can clearly see the status of all copies of a specific Tablet.
 
 ### Duplicate Scheduling Task
 
@@ -443,7 +443,7 @@ Tablet state view mainly looks at the state of the tablet, as well as the state 
 
 	You can view the current load of the cluster by following commands:
 
-	`SHOW PROC '/cluster_balance/cluster_load_stat';`
+	`SHOW PROC '/cluster_balance/cluster_load_stat/location_default';`
 
 	First of all, we can see the division of different storage media:
 
@@ -458,7 +458,7 @@ Tablet state view mainly looks at the state of the tablet, as well as the state 
 
 	Click on a storage medium to see the equilibrium state of the BE node that contains the storage medium:
 
-	`SHOW PROC '/cluster_balance/cluster_load_stat/HDD';`
+	`SHOW PROC '/cluster_balance/cluster_load_stat/location_default/HDD';`
 
 	```
 	+----------+-----------------+-----------+---------------+----------------+-------------+------------+----------+-----------+--------------------+-------+
@@ -488,7 +488,7 @@ Tablet state view mainly looks at the state of the tablet, as well as the state 
 
 	Users can further view the utilization of each path on a BE, such as the BE with ID 10001:
 
-	`SHOW PROC '/cluster_balance/cluster_load_stat/HDD/10001';`
+	`SHOW PROC '/cluster_balance/cluster_load_stat/location_default/HDD/10001';`
 
     ```
 	+------------------+------------------+---------------+---------------+---------+--------+----------------------+
@@ -630,7 +630,7 @@ The following adjustable parameters are all configurable parameters in fe.conf.
 * storage\_high\_watermark\_usage\_percent 和 storage\_min\_left\_capacity\_bytes
 
 	* Description: These two parameters represent the upper limit of the maximum space utilization of a disk and the lower limit of the minimum space remaining, respectively. When the space utilization of a disk is greater than the upper limit or the remaining space is less than the lower limit, the disk will no longer be used as the destination address for balanced scheduling.
-	* Default values: 0.85 and 1048576000 (1GB)
+	* Default values: 0.85 and 2097152000 (2GB)
 	* Importance:
 
 * disable\_balance
@@ -639,6 +639,13 @@ The following adjustable parameters are all configurable parameters in fe.conf.
 	* Default value: false
 	* Importance:
 
+The following adjustable parameters are all configurable parameters in be.conf.
+
+* clone\_worker\_count
+
+     * Description: Affects the speed of copy equalization. In the case of low disk pressure, you can speed up replica balancing by adjusting this parameter.
+     * Default: 3
+     * Importance: Medium
 ### Unadjustable parameters
 
 The following parameters do not support modification for the time being, just for illustration.

@@ -17,6 +17,8 @@
 
 #include "runtime/record_batch_queue.h"
 
+#include "util/spinlock.h"
+
 namespace doris {
 
 void RecordBatchQueue::update_status(const Status& status) {

@@ -17,18 +17,52 @@
 
 #pragma once
 
+#include <gen_cpp/olap_file.pb.h>
+#include <gen_cpp/types.pb.h>
+
+#include <functional>
+#include <optional>
+
+#include "common/factory_creator.h"
 #include "gen_cpp/olap_file.pb.h"
-#include "gen_cpp/types.pb.h"
 #include "gutil/macros.h"
 #include "olap/column_mapping.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_writer_context.h"
+#include "olap/tablet_schema.h"
 #include "vec/core/block.h"
 
 namespace doris {
 
-struct ContiguousRow;
-class MemTable;
+struct SegmentStatistics {
+    int64_t row_num;
+    int64_t data_size;
+    int64_t index_size;
+    KeyBoundsPB key_bounds;
+
+    SegmentStatistics() = default;
+
+    SegmentStatistics(SegmentStatisticsPB pb)
+            : row_num(pb.row_num()),
+              data_size(pb.data_size()),
+              index_size(pb.index_size()),
+              key_bounds(pb.key_bounds()) {}
+
+    void to_pb(SegmentStatisticsPB* segstat_pb) {
+        segstat_pb->set_row_num(row_num);
+        segstat_pb->set_data_size(data_size);
+        segstat_pb->set_index_size(index_size);
+        segstat_pb->mutable_key_bounds()->CopyFrom(key_bounds);
+    }
+
+    std::string to_string() {
+        std::stringstream ss;
+        ss << "row_num: " << row_num << ", data_size: " << data_size
+           << ", index_size: " << index_size << ", key_bounds: " << key_bounds.ShortDebugString();
+        return ss.str();
+    }
+};
+using SegmentStatisticsSharedPtr = std::shared_ptr<SegmentStatistics>;
 
 class RowsetWriter {
 public:
@@ -37,45 +71,65 @@ public:
 
     virtual Status init(const RowsetWriterContext& rowset_writer_context) = 0;
 
-    // Memory note: input `row` is guaranteed to be copied into writer's internal buffer, including all slice data
-    // referenced by `row`. That means callers are free to de-allocate memory for `row` after this method returns.
-    virtual Status add_row(const RowCursor& row) = 0;
-    virtual Status add_row(const ContiguousRow& row) = 0;
-
     virtual Status add_block(const vectorized::Block* block) {
-        return Status::OLAPInternalError(OLAP_ERR_FUNC_NOT_IMPLEMENTED);
+        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
+                "RowsetWriter not support add_block");
+    }
+    virtual Status add_columns(const vectorized::Block* block, const std::vector<uint32_t>& col_ids,
+                               bool is_key, uint32_t max_rows_per_segment) {
+        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
+                "RowsetWriter not support add_columns");
     }
 
     // Precondition: the input `rowset` should have the same type of the rowset we're building
     virtual Status add_rowset(RowsetSharedPtr rowset) = 0;
 
     // Precondition: the input `rowset` should have the same type of the rowset we're building
-    virtual Status add_rowset_for_linked_schema_change(RowsetSharedPtr rowset,
-                                                       const SchemaMapping& schema_mapping) = 0;
+    virtual Status add_rowset_for_linked_schema_change(RowsetSharedPtr rowset) = 0;
+
+    virtual Status create_file_writer(uint32_t segment_id, io::FileWriterPtr& writer) {
+        return Status::NotSupported("RowsetWriter does not support create_file_writer");
+    }
 
     // explicit flush all buffered rows into segment file.
     // note that `add_row` could also trigger flush when certain conditions are met
     virtual Status flush() = 0;
-
-    virtual Status flush_single_memtable(MemTable* memtable, int64_t* flush_size) {
-        return Status::OLAPInternalError(OLAP_ERR_FUNC_NOT_IMPLEMENTED);
+    virtual Status flush_columns(bool is_key) {
+        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
+                "RowsetWriter not support flush_columns");
     }
-    virtual Status flush_single_memtable(const vectorized::Block* block) {
-        return Status::OLAPInternalError(OLAP_ERR_FUNC_NOT_IMPLEMENTED);
+    virtual Status final_flush() {
+        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
+                "RowsetWriter not support final_flush");
+    }
+
+    virtual Status flush_memtable(vectorized::Block* block, int32_t segment_id,
+                                  int64_t* flush_size) {
+        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
+                "RowsetWriter not support flush_memtable");
+    }
+
+    virtual Status flush_single_block(const vectorized::Block* block) {
+        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
+                "RowsetWriter not support flush_single_block");
+    }
+
+    virtual Status add_segment(uint32_t segment_id, SegmentStatistics& segstat) {
+        return Status::NotSupported("RowsetWriter does not support add_segment");
     }
 
     // finish building and return pointer to the built rowset (guaranteed to be inited).
     // return nullptr when failed
     virtual RowsetSharedPtr build() = 0;
 
-    // we have to load segment data to build delete_bitmap for current segment,
-    // so we  build a tmp rowset ptr to load segment data.
-    // real build will be called in DeltaWriter close_wait.
-    virtual RowsetSharedPtr build_tmp() = 0;
+    // For ordered rowset compaction, manual build rowset
+    virtual RowsetSharedPtr manual_build(const RowsetMetaSharedPtr& rowset_meta) = 0;
 
     virtual Version version() = 0;
 
     virtual int64_t num_rows() const = 0;
+
+    virtual int64_t num_rows_filtered() const = 0;
 
     virtual RowsetId rowset_id() = 0;
 
@@ -84,6 +138,18 @@ public:
     virtual Status get_segment_num_rows(std::vector<uint32_t>* segment_num_rows) const {
         return Status::NotSupported("to be implemented");
     }
+
+    virtual int32_t allocate_segment_id() = 0;
+
+    virtual bool is_doing_segcompaction() const = 0;
+
+    virtual Status wait_flying_segcompaction() = 0;
+
+    virtual void set_segment_start_id(int num_segment) { LOG(FATAL) << "not supported!"; }
+
+    virtual int64_t delete_bitmap_ns() { return 0; }
+
+    virtual int64_t segment_writer_ns() { return 0; }
 
 private:
     DISALLOW_COPY_AND_ASSIGN(RowsetWriter);

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "explode_json_array",
+    "title": "EXPLODE_JSON_ARRAY",
     "language": "en"
 }
 ---
@@ -32,12 +32,13 @@ Table functions must be used in conjunction with Lateral View.
 
 Expand a json array. According to the array element type, there are three function names. Corresponding to integer, floating point and string arrays respectively.
 
-grammar:
+#### syntax
 
-```
+```sql
 explode_json_array_int(json_str)
 explode_json_array_double(json_str)
 explode_json_array_string(json_str)
+explode_json_array_json(json_str)
 ```
 
 ### example
@@ -52,9 +53,6 @@ mysql> select k1 from example1 order by k1;
 |    1 |
 |    2 |
 |    3 |
-|    4 |
-|    5 |
-|    6 |
 +------+
 ```
 
@@ -279,6 +277,21 @@ mysql> select k1, e1 from example1 lateral view explode_json_array_string('{"a":
 |    2 | NULL |
 |    3 | NULL |
 +------+------+
+
+mysql> select k1, e1 from example1 lateral view explode_json_array_json('[{"id":1,"name":"John"},{"id":2,"name":"Mary"},{"id":3,"name":"Bob"}]') tmp1 as e1 order by k1, e1;
++------+------------------------+
+| k1   | e1                     |
++------+------------------------+
+|    1 | {"id":1,"name":"John"} |
+|    1 | {"id":2,"name":"Mary"} |
+|    1 | {"id":3,"name":"Bob"}  |
+|    2 | {"id":1,"name":"John"} |
+|    2 | {"id":2,"name":"Mary"} |
+|    2 | {"id":3,"name":"Bob"}  |
+|    3 | {"id":1,"name":"John"} |
+|    3 | {"id":2,"name":"Mary"} |
+|    3 | {"id":3,"name":"Bob"}  |
++------+------------------------+
 ```
 
 ### keywords

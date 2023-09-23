@@ -237,5 +237,9 @@ module.exports = {
             ignoreOrder: true
         }),
         new CleanWebpackPlugin()
-    ]
+    ],
+    performance: {
+        maxAssetSize: 2097152,
+        maxEntrypointSize: 2097152
+    }
 };

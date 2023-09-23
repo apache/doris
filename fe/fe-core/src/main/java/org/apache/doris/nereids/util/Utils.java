@@ -17,15 +17,26 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 
-import java.util.HashSet;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Utils for Nereids.
@@ -48,7 +59,7 @@ public class Utils {
      *
      * @param f function which would invoke the logic of
      *        stale code from old optimizer that could throw
-     *        a checked exception
+     *        a checked exception.
      */
     public static void execWithUncheckedException(FuncWrapper f) {
         try {
@@ -73,6 +84,18 @@ public class Utils {
     }
 
     /**
+     * Check whether lhs and rhs are intersecting.
+     */
+    public static <T> boolean isIntersecting(Set<T> lhs, Collection<T> rhs) {
+        for (T rh : rhs) {
+            if (lhs.contains(rh)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Wrapper to a function without return value.
      */
     public interface FuncWrapper {
@@ -80,7 +103,7 @@ public class Utils {
     }
 
     /**
-     * Wrapper to a funciton with return value.
+     * Wrapper to a function with return value.
      */
     public interface Supplier<R> {
         R get() throws Exception;
@@ -100,23 +123,142 @@ public class Utils {
         return StringUtils.join(qualifiedNameParts(qualifier, name), ".");
     }
 
-
     /**
-     * equals for List but ignore order.
+     * Get sql string for plan.
+     *
+     * @param planName name of plan, like LogicalJoin.
+     * @param variables variable needed to add into sqlString.
+     * @return the string of PlanNode.
      */
-    public static <E> boolean equalsIgnoreOrder(List<E> one, List<E> other) {
-        if (one.size() != other.size()) {
-            return false;
+    public static String toSqlString(String planName, Object... variables) {
+        Preconditions.checkState(variables.length % 2 == 0);
+        StringBuilder stringBuilder = new StringBuilder();
+        stringBuilder.append(planName).append(" ( ");
+
+        if (variables.length == 0) {
+            return stringBuilder.append(" )").toString();
         }
-        return new HashSet<>(one).containsAll(other) && new HashSet<>(other).containsAll(one);
+
+        for (int i = 0; i < variables.length - 1; i += 2) {
+            stringBuilder.append(variables[i]).append("=").append(variables[i + 1]);
+            if (i < variables.length - 2) {
+                stringBuilder.append(", ");
+            }
+        }
+
+        return stringBuilder.append(" )").toString();
     }
 
     /**
-     * Get SlotReference from output of plam.
-     * Warning, plan must have bound, because exists Slot Cast to SlotReference.
+     * Get the correlated columns that belong to the subquery,
+     * that is, the correlated columns that can be resolved within the subquery.
+     * eg:
+     * select * from t1 where t1.a = (select sum(t2.b) from t2 where t1.c = t2.d));
+     * correlatedPredicates : t1.c = t2.d
+     * correlatedSlots : t1.c
+     * return t2.d
      */
-    public static List<SlotReference> getOutputSlotReference(Plan plan) {
-        return plan.getOutput().stream().map(SlotReference.class::cast)
-                .collect(Collectors.toList());
+    public static List<Expression> getCorrelatedSlots(List<Expression> correlatedPredicates,
+            List<Expression> correlatedSlots) {
+        List<Expression> slots = new ArrayList<>();
+        correlatedPredicates.forEach(predicate -> {
+            if (!(predicate instanceof BinaryExpression) && !(predicate instanceof Not)) {
+                throw new AnalysisException("UnSupported expr type: " + correlatedPredicates);
+            }
+
+            BinaryExpression binaryExpression;
+            if (predicate instanceof Not) {
+                binaryExpression = (BinaryExpression) ((Not) predicate).child();
+            } else {
+                binaryExpression = (BinaryExpression) predicate;
+            }
+            slots.addAll(collectCorrelatedSlotsFromChildren(binaryExpression, correlatedSlots));
+        });
+        return slots;
+    }
+
+    private static List<Expression> collectCorrelatedSlotsFromChildren(
+            BinaryExpression binaryExpression, List<Expression> correlatedSlots) {
+        List<Expression> slots = new ArrayList<>();
+        if (binaryExpression.left().anyMatch(correlatedSlots::contains)) {
+            if (binaryExpression.right() instanceof SlotReference) {
+                slots.add(binaryExpression.right());
+            } else if (binaryExpression.right() instanceof Cast) {
+                slots.add(((Cast) binaryExpression.right()).child());
+            }
+        } else {
+            if (binaryExpression.left() instanceof SlotReference) {
+                slots.add(binaryExpression.left());
+            } else if (binaryExpression.left() instanceof Cast) {
+                slots.add(((Cast) binaryExpression.left()).child());
+            }
+        }
+        return slots;
+    }
+
+    public static Map<Boolean, List<Expression>> splitCorrelatedConjuncts(
+            Set<Expression> conjuncts, List<Expression> slots) {
+        return conjuncts.stream().collect(Collectors.partitioningBy(
+                expr -> expr.anyMatch(slots::contains)));
+    }
+
+    /**
+     * Replace one item in a list with another item.
+     */
+    public static <T> void replaceList(List<T> list, T oldItem, T newItem) {
+        boolean result = false;
+        for (int i = 0; i < list.size(); i++) {
+            if (list.get(i).equals(oldItem)) {
+                list.set(i, newItem);
+                result = true;
+            }
+        }
+        Preconditions.checkState(result);
+    }
+
+    /**
+     * Remove item from a list without equals method.
+     */
+    public static <T> void identityRemove(List<T> list, T item) {
+        for (int i = 0; i < list.size(); i++) {
+            if (list.get(i) == item) {
+                list.remove(i);
+                i--;
+                return;
+            }
+        }
+        Preconditions.checkState(false, "item not found in list");
+    }
+
+    /** allCombinations */
+    public static <T> List<List<T>> allCombinations(List<List<T>> lists) {
+        int size = lists.size();
+        if (size == 0) {
+            return ImmutableList.of();
+        }
+        List<T> first = lists.get(0);
+        if (size == 1) {
+            return first
+                    .stream()
+                    .map(ImmutableList::of)
+                    .collect(ImmutableList.toImmutableList());
+        }
+        List<List<T>> rest = lists.subList(1, size);
+        List<List<T>> combinationWithoutFirst = allCombinations(rest);
+        return first.stream()
+                .flatMap(firstValue -> combinationWithoutFirst.stream()
+                        .map(restList ->
+                                Stream.concat(Stream.of(firstValue), restList.stream())
+                                .collect(ImmutableList.toImmutableList())
+                        )
+                ).collect(ImmutableList.toImmutableList());
+    }
+
+    public static <T> List<T> copyRequiredList(List<T> list) {
+        return ImmutableList.copyOf(Objects.requireNonNull(list, "non-null list is required"));
+    }
+
+    public static <T> List<T> copyRequiredMutableList(List<T> list) {
+        return Lists.newArrayList(Objects.requireNonNull(list, "non-null list is required"));
     }
 }

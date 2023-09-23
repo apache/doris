@@ -18,7 +18,16 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/Multiply.cpp
 // and modified by Doris
 
+#include <stddef.h>
+
+#include <utility>
+
+#include "gutil/integral_types.h"
+#include "runtime/decimalv2_value.h"
+#include "vec/columns/columns_number.h"
 #include "vec/common/arithmetic_overflow.h"
+#include "vec/core/types.h"
+#include "vec/data_types/number_traits.h"
 #include "vec/functions/function_binary_arithmetic.h"
 #include "vec/functions/simple_function_factory.h"
 
@@ -35,10 +44,39 @@ struct MultiplyImpl {
     }
 
     template <typename Result = DecimalV2Value>
-    static inline DecimalV2Value apply(DecimalV2Value a, DecimalV2Value b) {
+    static inline DecimalV2Value apply(const DecimalV2Value& a, const DecimalV2Value& b) {
         return a * b;
     }
-    /// Apply operation and check overflow. It's used for Deciamal operations. @returns true if overflowed, false otherwise.
+
+    static void vector_vector(const ColumnDecimal128::Container::value_type* __restrict a,
+                              const ColumnDecimal128::Container::value_type* __restrict b,
+                              ColumnDecimal128::Container::value_type* c, size_t size) {
+        int8 sgn[size];
+
+        for (int i = 0; i < size; i++) {
+            sgn[i] = ((DecimalV2Value(a[i]).value() > 0) && (DecimalV2Value(b[i]).value() > 0)) ||
+                                     ((DecimalV2Value(a[i]).value() < 0) &&
+                                      (DecimalV2Value(b[i]).value() < 0))
+                             ? 1
+                     : ((DecimalV2Value(a[i]).value() == 0) || (DecimalV2Value(b[i]).value() == 0))
+                             ? 0
+                             : -1;
+        }
+
+        for (int i = 0; i < size; i++) {
+            int128_t i128_mul_result;
+            if (common::mul_overflow(DecimalV2Value(a[i]).value(), DecimalV2Value(b[i]).value(),
+                                     i128_mul_result)) {
+                VLOG_DEBUG << "Decimal multiply overflow";
+                c[i] = (sgn[i] == -1) ? -DecimalV2Value::MAX_DECIMAL_VALUE
+                                      : DecimalV2Value::MAX_DECIMAL_VALUE;
+            } else {
+                c[i] = (i128_mul_result - sgn[i]) / DecimalV2Value::ONE_BILLION + sgn[i];
+            }
+        }
+    }
+
+    /// Apply operation and check overflow. It's used for Decimal operations. @returns true if overflowed, false otherwise.
     template <typename Result = ResultType>
     static inline bool apply(A a, B b, Result& c) {
         return common::mul_overflow(static_cast<Result>(a), b, c);

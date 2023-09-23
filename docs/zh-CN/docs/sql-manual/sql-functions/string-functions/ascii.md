@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ascii",
+    "title": "ASCII",
     "language": "zh-CN"
 }
 ---
@@ -51,4 +51,4 @@ mysql> select ascii('234');
 +--------------+
 ```
 ### keywords
-ASCII
+    ASCII

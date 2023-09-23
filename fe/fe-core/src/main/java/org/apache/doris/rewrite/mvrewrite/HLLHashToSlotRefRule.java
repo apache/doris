@@ -26,8 +26,10 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.rewrite.ExprRewriteRule;
 import org.apache.doris.rewrite.ExprRewriter;
@@ -57,16 +59,16 @@ public class HLLHashToSlotRefRule implements ExprRewriteRule {
         }
         FunctionCallExpr fnExpr = (FunctionCallExpr) expr;
         String fnNameString = fnExpr.getFnName().getFunction();
-        if (!fnNameString.equalsIgnoreCase("hll_union")
-                && !fnNameString.equalsIgnoreCase("hll_raw_agg")
-                && !fnNameString.equalsIgnoreCase("hll_union_agg")) {
+        if (!fnNameString.equalsIgnoreCase(FunctionSet.HLL_UNION)
+                && !fnNameString.equalsIgnoreCase(FunctionSet.HLL_RAW_AGG)
+                && !fnNameString.equalsIgnoreCase(FunctionSet.HLL_UNION_AGG)) {
             return expr;
         }
         if (!(fnExpr.getChild(0) instanceof FunctionCallExpr)) {
             return expr;
         }
         FunctionCallExpr child0FnExpr = (FunctionCallExpr) fnExpr.getChild(0);
-        if (!child0FnExpr.getFnName().getFunction().equalsIgnoreCase("hll_hash")) {
+        if (!child0FnExpr.getType().equals(Type.HLL)) {
             return expr;
         }
         if (child0FnExpr.getChild(0) instanceof SlotRef) {
@@ -97,7 +99,7 @@ public class HLLHashToSlotRefRule implements ExprRewriteRule {
         }
 
         // equal expr
-        return rewriteExpr(fnNameString, queryColumnSlotRef, mvColumn, analyzer);
+        return rewriteExpr(fnExpr.getFnName().getFunction(), queryColumnSlotRef, mvColumn, analyzer);
     }
 
     private Expr rewriteExpr(String fnName, SlotRef queryColumnSlotRef, Column mvColumn, Analyzer analyzer) {

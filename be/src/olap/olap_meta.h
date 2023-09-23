@@ -17,20 +17,35 @@
 
 #pragma once
 
-#include <functional>
-#include <map>
-#include <string>
+#include <rocksdb/iterator.h>
 
-#include "olap/olap_define.h"
-#include "rocksdb/db.h"
+#include <functional>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
+
+namespace rocksdb {
+class ColumnFamilyHandle;
+class DB;
+class WriteBatch;
+} // namespace rocksdb
 
 namespace doris {
 
-class OlapMeta {
+class OlapMeta final {
 public:
-    OlapMeta(const std::string& root_path);
+    struct BatchEntry {
+        const std::string& key;
+        const std::string& value;
 
-    virtual ~OlapMeta();
+        BatchEntry(const std::string& key_arg, const std::string& value_arg)
+                : key(key_arg), value(value_arg) {}
+    };
+
+    OlapMeta(const std::string& root_path);
+    ~OlapMeta();
 
     Status init();
 
@@ -39,18 +54,33 @@ public:
     bool key_may_exist(const int column_family_index, const std::string& key, std::string* value);
 
     Status put(const int column_family_index, const std::string& key, const std::string& value);
+    Status put(const int column_family_index, const std::vector<BatchEntry>& entries);
+    Status put(rocksdb::WriteBatch* batch);
 
     Status remove(const int column_family_index, const std::string& key);
+    Status remove(const int column_family_index, const std::vector<std::string>& keys);
 
     Status iterate(const int column_family_index, const std::string& prefix,
                    std::function<bool(const std::string&, const std::string&)> const& func);
 
-    std::string get_root_path();
+    Status iterate(const int column_family_index, const std::string& seek_key,
+                   const std::string& prefix,
+                   std::function<bool(const std::string&, const std::string&)> const& func);
+
+    [[nodiscard]] std::string get_root_path() const { return _root_path; }
+
+    rocksdb::ColumnFamilyHandle* get_handle(const int column_family_index) {
+        return _handles[column_family_index].get();
+    }
 
 private:
+    Status get_iterator(const int column_family_index, const std::string& seek_key,
+                        const std::string& prefix, rocksdb::Iterator*);
+
     std::string _root_path;
-    rocksdb::DB* _db;
-    std::vector<rocksdb::ColumnFamilyHandle*> _handles;
+    // keep order of _db && _handles, we need destroy _handles before _db
+    std::unique_ptr<rocksdb::DB, std::function<void(rocksdb::DB*)>> _db;
+    std::vector<std::unique_ptr<rocksdb::ColumnFamilyHandle>> _handles;
 };
 
 } // namespace doris

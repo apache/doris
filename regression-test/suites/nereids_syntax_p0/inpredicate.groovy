@@ -17,12 +17,10 @@
 
 suite("inpredicate") {
     sql """
-        SET enable_vectorized_engine=true
-    """
-
-    sql """
         SET enable_nereids_planner=true
     """
+
+    sql "SET enable_fallback_to_original_planner=false"
 
     order_qt_in_predicate_1 """
         SELECT * FROM supplier WHERE s_suppkey in (1, 2, 3);
@@ -54,6 +52,14 @@ suite("inpredicate") {
 
     order_qt_in_predicate_8 """
         SELECT * FROM supplier WHERE s_nation not in ('PERU', 'ETHIOPIA');
+    """
+
+    order_qt_in_predicate_9 """
+        SELECT * FROM supplier WHERE s_suppkey in (15);
+    """
+
+    order_qt_in_predicate_10 """
+        SELECT * FROM supplier WHERE s_suppkey not in (15);
     """
 }
 

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ALTER-TABLE-REPLACE-COLUMN",
+    "title": "ALTER-TABLE-REPLACE",
     "language": "en"
 }
 ---
@@ -67,12 +67,23 @@ If `swap` is `false`, do as follows:
 
 ### Example
 
-1. Swap `tbl1` with `tbl2` without deleting the `tbl1` table
+1. Atomic swap `tbl1` with `tbl2` without dropping any tables(Note: if you delete it, you actually delete tbl1 and rename tbl2 to tbl1.)
 
 ```sql
-ALTER TABLE tbl1 REPLACE WITH TABLE tbl2
-    [PROPERTIES('swap' = 'true')];
+ALTER TABLE tbl1 REPLACE WITH TABLE tbl2;
 ```
+or
+```sql
+ALTER TABLE tbl1 REPLACE WITH TABLE tbl2 PROPERTIES('swap' = 'true');
+```
+
+2. Atomic swap `tbl1` with `tbl2` and deleting the `tbl2` table(Keep `tbl1` and the data of the original `tbl2`)
+
+```sql
+ALTER TABLE tbl1 REPLACE WITH TABLE tbl2 PROPERTIES('swap' = 'false');
+```
+
+
 
 ### Keywords
 
@@ -83,4 +94,4 @@ ALTER, TABLE, REPLACE, ALTER TABLE
 ### Best Practice
 1. Atomic overlay write operations
 
-   In some cases, the user wants to be able to rewrite the data of a table, but if the deletion and then import method is used, the data cannot be viewed for a period of time. In this case, you can use the `CREATE TABLE LIKE` statement to CREATE a new TABLE with the same structure. After importing the new data into the new TABLE, you can replace the old TABLE atomic to achieve the purpose.
+  In some cases, the user wants to be able to rewrite the data of a certain table, but if the data is deleted first and then imported, the data cannot be viewed for a period of time in between. At this time, the user can first use the `CREATE TABLE LIKE` statement to create a new table with the same structure, import the new data into the new table, and use the replacement operation to atomically replace the old table to achieve the goal. Atomic overwrite write operations at the partition level, see [temp partition documentation](../../../../advanced/partition/table-temp-partition.md).

@@ -19,9 +19,10 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DecimalType;
+import org.apache.doris.nereids.types.DecimalV2Type;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.Objects;
 
 /**
@@ -32,8 +33,13 @@ public class DecimalLiteral extends Literal {
     private final BigDecimal value;
 
     public DecimalLiteral(BigDecimal value) {
-        super(DecimalType.createDecimalType(value));
-        this.value = Objects.requireNonNull(value);
+        this(DecimalV2Type.createDecimalV2Type(value), value);
+    }
+
+    public DecimalLiteral(DecimalV2Type dataType, BigDecimal value) {
+        super(dataType);
+        BigDecimal adjustedValue = value.scale() < 0 ? value : value.setScale(dataType.getScale(), RoundingMode.DOWN);
+        this.value = Objects.requireNonNull(adjustedValue);
     }
 
     @Override
@@ -48,6 +54,11 @@ public class DecimalLiteral extends Literal {
 
     @Override
     public LiteralExpr toLegacyLiteral() {
-        return new org.apache.doris.analysis.DecimalLiteral(value);
+        return new org.apache.doris.analysis.DecimalLiteral(value, dataType.toCatalogDataType());
+    }
+
+    @Override
+    public double getDouble() {
+        return value.doubleValue();
     }
 }

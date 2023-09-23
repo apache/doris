@@ -23,6 +23,7 @@
 #include <atomic>
 
 #include "olap/olap_common.h"
+#include "util/lock.h"
 
 namespace doris {
 
@@ -54,10 +55,16 @@ public:
     // lambda and stores its return value. Otherwise, returns the stored Status.
     template <typename Fn>
     ReturnType call(Fn fn) {
-        std::call_once(_once_flag, [this, fn] {
-            _status = fn();
-            _has_called.store(true, std::memory_order_release);
-        });
+        if (!_has_called.load(std::memory_order_acquire)) {
+            do {
+                std::lock_guard l(_mutex);
+                if (_has_called.load(std::memory_order_acquire)) break;
+
+                _status = fn();
+                _has_called.store(true, std::memory_order_release);
+
+            } while (false);
+        }
         return _status;
     }
 
@@ -74,7 +81,7 @@ public:
 
 private:
     std::atomic<bool> _has_called;
-    std::once_flag _once_flag;
+    doris::Mutex _mutex;
     ReturnType _status;
 };
 

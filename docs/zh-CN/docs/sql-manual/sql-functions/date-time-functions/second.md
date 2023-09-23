@@ -1,6 +1,6 @@
 ---
 {
-    "title": "second",
+    "title": "SECOND",
     "language": "zh-CN"
 }
 ---
@@ -46,4 +46,4 @@ mysql> select second('2018-12-31 23:59:59');
 +-----------------------------+
 ```
 ### keywords
-SECOND
+    SECOND

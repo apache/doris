@@ -20,13 +20,19 @@
 
 #pragma once
 
+#include <stddef.h>
+
+#include <tuple>
+#include <type_traits>
+
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/block.h"
-#include "vec/core/call_on_type_index.h"
 #include "vec/core/column_numbers.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
@@ -75,25 +81,30 @@ const ColumnConst* check_and_get_column_const_string_or_fixedstring(const IColum
 
 /// Transform anything to Field.
 template <typename T>
-inline std::enable_if_t<!IsDecimalNumber<T>, Field> to_field(const T& x) {
+    requires(!IsDecimalNumber<T>)
+Field to_field(const T& x) {
     return Field(NearestFieldType<T>(x));
 }
 
 template <typename T>
-inline std::enable_if_t<IsDecimalNumber<T>, Field> to_field(const T& x, UInt32 scale) {
+    requires IsDecimalNumber<T>
+Field to_field(const T& x, UInt32 scale) {
     return Field(NearestFieldType<T>(x, scale));
 }
 
 Columns convert_const_tuple_to_constant_elements(const ColumnConst& column);
 
-/// Returns the copy of a given block in which each column specified in
-/// the "arguments" parameter is replaced with its respective nested
-/// column if it is nullable.
-Block create_block_with_nested_columns(const Block& block, const ColumnNumbers& args);
+/// Returns the copy of a tmp block and temp args order same as args
+/// in which only args column each column specified in the "arguments"
+/// parameter is replaced with its respective nested column if it is nullable.
+std::tuple<Block, ColumnNumbers> create_block_with_nested_columns(const Block& block,
+                                                                  const ColumnNumbers& args,
+                                                                  const bool need_check_same);
 
-/// Similar function as above. Additionally transform the result type if needed.
-Block create_block_with_nested_columns(const Block& block, const ColumnNumbers& args,
-                                       size_t result);
+// Same as above and return the new_res loc in tuple
+std::tuple<Block, ColumnNumbers, size_t> create_block_with_nested_columns(const Block& block,
+                                                                          const ColumnNumbers& args,
+                                                                          size_t result);
 
 /// Checks argument type at specified index with predicate.
 /// throws if there is no argument at specified index or if predicate returns false.

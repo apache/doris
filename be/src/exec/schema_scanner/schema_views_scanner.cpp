@@ -17,31 +17,38 @@
 
 #include "exec/schema_scanner/schema_views_scanner.h"
 
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/FrontendService_types.h>
+
+#include <string>
+
 #include "exec/schema_scanner/schema_helper.h"
-#include "runtime/primitive_type.h"
-#include "runtime/string_value.h"
+#include "runtime/define_primitive_type.h"
+#include "util/runtime_profile.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
+class RuntimeState;
+namespace vectorized {
+class Block;
+} // namespace vectorized
 
-SchemaScanner::ColumnDesc SchemaViewsScanner::_s_tbls_columns[] = {
+std::vector<SchemaScanner::ColumnDesc> SchemaViewsScanner::_s_tbls_columns = {
         //   name,       type,          size,     is_null
-        {"TABLE_CATALOG", TYPE_VARCHAR, sizeof(StringValue), true},
-        {"TABLE_SCHEMA", TYPE_VARCHAR, sizeof(StringValue), false},
-        {"TABLE_NAME", TYPE_VARCHAR, sizeof(StringValue), false},
-        {"VIEW_DEFINITION", TYPE_VARCHAR, sizeof(StringValue), true},
-        {"CHECK_OPTION", TYPE_VARCHAR, sizeof(StringValue), true},
-        {"IS_UPDATABLE", TYPE_VARCHAR, sizeof(StringValue), true},
-        {"DEFINER", TYPE_VARCHAR, sizeof(StringValue), true},
-        {"SECURITY_TYPE", TYPE_VARCHAR, sizeof(StringValue), true},
-        {"CHARACTER_SET_CLIENT", TYPE_VARCHAR, sizeof(StringValue), true},
-        {"COLLATION_CONNECTION", TYPE_VARCHAR, sizeof(StringValue), true},
+        {"TABLE_CATALOG", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"TABLE_SCHEMA", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"TABLE_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"VIEW_DEFINITION", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"CHECK_OPTION", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"IS_UPDATABLE", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"DEFINER", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"SECURITY_TYPE", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"CHARACTER_SET_CLIENT", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"COLLATION_CONNECTION", TYPE_VARCHAR, sizeof(StringRef), true},
 };
 
 SchemaViewsScanner::SchemaViewsScanner()
-        : SchemaScanner(_s_tbls_columns,
-                        sizeof(_s_tbls_columns) / sizeof(SchemaScanner::ColumnDesc)),
-          _db_index(0),
-          _table_index(0) {}
+        : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_VIEWS), _db_index(0) {}
 
 SchemaViewsScanner::~SchemaViewsScanner() {}
 
@@ -49,9 +56,13 @@ Status SchemaViewsScanner::start(RuntimeState* state) {
     if (!_is_init) {
         return Status::InternalError("used before initialized.");
     }
+    SCOPED_TIMER(_get_db_timer);
     TGetDbsParams db_params;
     if (nullptr != _param->db) {
         db_params.__set_pattern(*(_param->db));
+    }
+    if (nullptr != _param->catalog) {
+        db_params.__set_catalog(*(_param->catalog));
     }
     if (nullptr != _param->current_user_ident) {
         db_params.__set_current_user_ident(*(_param->current_user_ident));
@@ -73,117 +84,8 @@ Status SchemaViewsScanner::start(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaViewsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
-    // set all bit to not null
-    memset((void*)tuple, 0, _tuple_desc->num_null_bytes());
-    const TTableStatus& tbl_status = _table_result.tables[_table_index];
-    // catalog
-    { tuple->set_null(_tuple_desc->slots()[0]->null_indicator_offset()); }
-    // schema
-    {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[1]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        std::string db_name = SchemaHelper::extract_db_name(_db_result.dbs[_db_index - 1]);
-        str_slot->ptr = (char*)pool->allocate(db_name.size());
-        str_slot->len = db_name.size();
-        memcpy(str_slot->ptr, db_name.c_str(), str_slot->len);
-    }
-    // name
-    {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[2]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        const std::string* src = &tbl_status.name;
-        str_slot->len = src->length();
-        str_slot->ptr = (char*)pool->allocate(str_slot->len);
-        if (nullptr == str_slot->ptr) {
-            return Status::InternalError("Allocate memcpy failed.");
-        }
-        memcpy(str_slot->ptr, src->c_str(), str_slot->len);
-    }
-    // definition
-    {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[3]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        const std::string* ddl_sql = &tbl_status.ddl_sql;
-        str_slot->len = ddl_sql->length();
-        str_slot->ptr = (char*)pool->allocate(str_slot->len);
-        if (nullptr == str_slot->ptr) {
-            return Status::InternalError("Allocate memcpy failed.");
-        }
-        memcpy(str_slot->ptr, ddl_sql->c_str(), str_slot->len);
-    }
-    // check_option
-    {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[4]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        // This is from views in mysql
-        const std::string check_option = "NONE";
-        str_slot->len = check_option.length();
-        str_slot->ptr = (char*)pool->allocate(str_slot->len);
-        if (nullptr == str_slot->ptr) {
-            return Status::InternalError("Allocate memcpy failed.");
-        }
-        memcpy(str_slot->ptr, check_option.c_str(), str_slot->len);
-    }
-    // is_updatable
-    {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[5]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        // This is from views in mysql
-        const std::string is_updatable = "NO";
-        str_slot->len = is_updatable.length();
-        str_slot->ptr = (char*)pool->allocate(str_slot->len);
-        if (nullptr == str_slot->ptr) {
-            return Status::InternalError("Allocate memcpy failed.");
-        }
-        memcpy(str_slot->ptr, is_updatable.c_str(), str_slot->len);
-    }
-    // definer
-    {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[6]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        // This is from views in mysql
-        const std::string definer = "root@%";
-        str_slot->len = definer.length();
-        str_slot->ptr = (char*)pool->allocate(str_slot->len);
-        if (nullptr == str_slot->ptr) {
-            return Status::InternalError("Allocate memcpy failed.");
-        }
-        memcpy(str_slot->ptr, definer.c_str(), str_slot->len);
-    }
-    // security_type
-    {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[7]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        // This is from views in mysql
-        const std::string security_type = "DEFINER";
-        str_slot->len = security_type.length();
-        str_slot->ptr = (char*)pool->allocate(str_slot->len);
-        if (nullptr == str_slot->ptr) {
-            return Status::InternalError("Allocate memcpy failed.");
-        }
-        memcpy(str_slot->ptr, security_type.c_str(), str_slot->len);
-    }
-    // character_set_client
-    {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[8]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        // This is from views in mysql
-        const std::string encoding = "utf8";
-        str_slot->len = encoding.length();
-        str_slot->ptr = (char*)pool->allocate(str_slot->len);
-        if (nullptr == str_slot->ptr) {
-            return Status::InternalError("Allocate memcpy failed.");
-        }
-        memcpy(str_slot->ptr, encoding.c_str(), str_slot->len);
-    }
-    // collation_connection
-    { tuple->set_null(_tuple_desc->slots()[9]->null_indicator_offset()); }
-    _table_index++;
-    return Status::OK();
-}
-
-Status SchemaViewsScanner::get_new_table() {
+Status SchemaViewsScanner::_get_new_table() {
+    SCOPED_TIMER(_get_table_timer);
     TGetTablesParams table_params;
     table_params.__set_db(_db_result.dbs[_db_index++]);
     if (nullptr != _param->wild) {
@@ -207,27 +109,120 @@ Status SchemaViewsScanner::get_new_table() {
     } else {
         return Status::InternalError("IP or port doesn't exists");
     }
-    _table_index = 0;
     return Status::OK();
 }
 
-Status SchemaViewsScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eos) {
+Status SchemaViewsScanner::get_next_block(vectorized::Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }
-    if (nullptr == tuple || nullptr == pool || nullptr == eos) {
+    if (nullptr == block || nullptr == eos) {
         return Status::InternalError("input pointer is nullptr.");
     }
-    while (_table_index >= _table_result.tables.size()) {
-        if (_db_index < _db_result.dbs.size()) {
-            RETURN_IF_ERROR(get_new_table());
-        } else {
-            *eos = true;
-            return Status::OK();
-        }
+    if (_db_index < _db_result.dbs.size()) {
+        RETURN_IF_ERROR(_get_new_table());
+    } else {
+        *eos = true;
+        return Status::OK();
     }
     *eos = false;
-    return fill_one_row(tuple, pool);
+    return _fill_block_impl(block);
+}
+
+Status SchemaViewsScanner::_fill_block_impl(vectorized::Block* block) {
+    SCOPED_TIMER(_fill_block_timer);
+    auto tables_num = _table_result.tables.size();
+    if (tables_num == 0) {
+        return Status::OK();
+    }
+    std::vector<void*> null_datas(tables_num, nullptr);
+    std::vector<void*> datas(tables_num);
+
+    // catalog
+    { fill_dest_column_for_range(block, 0, null_datas); }
+    // schema
+    {
+        std::string db_name = SchemaHelper::extract_db_name(_db_result.dbs[_db_index - 1]);
+        StringRef str = StringRef(db_name.c_str(), db_name.size());
+        for (int i = 0; i < tables_num; ++i) {
+            datas[i] = &str;
+        }
+        fill_dest_column_for_range(block, 1, datas);
+    }
+    // name
+    {
+        StringRef strs[tables_num];
+        for (int i = 0; i < tables_num; ++i) {
+            const TTableStatus& tbl_status = _table_result.tables[i];
+            const std::string* src = &tbl_status.name;
+            strs[i] = StringRef(src->c_str(), src->size());
+            datas[i] = strs + i;
+        }
+        fill_dest_column_for_range(block, 2, datas);
+    }
+    // definition
+    {
+        StringRef strs[tables_num];
+        for (int i = 0; i < tables_num; ++i) {
+            const TTableStatus& tbl_status = _table_result.tables[i];
+            const std::string* src = &tbl_status.ddl_sql;
+            strs[i] = StringRef(src->c_str(), src->length());
+            datas[i] = strs + i;
+        }
+        fill_dest_column_for_range(block, 3, datas);
+    }
+    // check_option
+    {
+        const std::string check_option = "NONE";
+        StringRef str = StringRef(check_option.c_str(), check_option.length());
+        for (int i = 0; i < tables_num; ++i) {
+            datas[i] = &str;
+        }
+        fill_dest_column_for_range(block, 4, datas);
+    }
+    // is_updatable
+    {
+        // This is from views in mysql
+        const std::string is_updatable = "NO";
+        StringRef str = StringRef(is_updatable.c_str(), is_updatable.length());
+        for (int i = 0; i < tables_num; ++i) {
+            datas[i] = &str;
+        }
+        fill_dest_column_for_range(block, 5, datas);
+    }
+    // definer
+    {
+        // This is from views in mysql
+        const std::string definer = "root@%";
+        StringRef str = StringRef(definer.c_str(), definer.length());
+        for (int i = 0; i < tables_num; ++i) {
+            datas[i] = &str;
+        }
+        fill_dest_column_for_range(block, 6, datas);
+    }
+    // security_type
+    {
+        // This is from views in mysql
+        const std::string security_type = "DEFINER";
+        StringRef str = StringRef(security_type.c_str(), security_type.length());
+        for (int i = 0; i < tables_num; ++i) {
+            datas[i] = &str;
+        }
+        fill_dest_column_for_range(block, 7, datas);
+    }
+    // character_set_client
+    {
+        // This is from views in mysql
+        const std::string encoding = "utf8";
+        StringRef str = StringRef(encoding.c_str(), encoding.length());
+        for (int i = 0; i < tables_num; ++i) {
+            datas[i] = &str;
+        }
+        fill_dest_column_for_range(block, 8, datas);
+    }
+    // collation_connection
+    { fill_dest_column_for_range(block, 9, null_datas); }
+    return Status::OK();
 }
 
 } // namespace doris

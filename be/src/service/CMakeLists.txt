@@ -21,19 +21,19 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/service")
 # where to put generated binaries
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/service")
 
-add_library(Service
-    backend_options.cpp
-    backend_service.cpp
-    brpc_service.cpp
-    http_service.cpp
-    single_replica_load_download_service.cpp
-    internal_service.cpp
-)
+file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS *.cpp)
+list(REMOVE_ITEM SRC_FILES ${CMAKE_CURRENT_SOURCE_DIR}/doris_main.cpp)
+
+add_library(Service STATIC ${SRC_FILES})
+
+pch_reuse(Service)
 
 if (${MAKE_TEST} STREQUAL "OFF")
     add_executable(doris_be
         doris_main.cpp
     )
+
+    pch_reuse(doris_be)
 
     # This permits libraries loaded by dlopen to link to the symbols in the program.
     set_target_properties(doris_be PROPERTIES ENABLE_EXPORTS 1)

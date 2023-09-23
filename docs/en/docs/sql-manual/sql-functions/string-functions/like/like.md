@@ -1,6 +1,6 @@
 ---
 {
-    "title": "like",
+    "title": "LIKE",
     "language": "en"
 }
 ---
@@ -80,4 +80,4 @@ mysql> select k1 from test where k1 like 'a';
 ```
 
 ### keywords
-LIKE
+    LIKE

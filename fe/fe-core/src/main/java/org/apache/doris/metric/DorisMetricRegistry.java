@@ -24,13 +24,12 @@ import com.google.common.collect.Lists;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
-import java.util.PriorityQueue;
 import java.util.stream.Collectors;
 
 public class DorisMetricRegistry {
 
-    private Collection<Metric> metrics = new PriorityQueue<>(Comparator.comparing(Metric::getName));
-    private Collection<Metric> systemMetrics = new PriorityQueue<>(Comparator.comparing(Metric::getName));
+    private Collection<Metric> metrics = Lists.newArrayList();
+    private Collection<Metric> systemMetrics = Lists.newArrayList();
 
     public DorisMetricRegistry() {
 
@@ -51,12 +50,16 @@ public class DorisMetricRegistry {
         }
     }
 
+    public synchronized int getAllMetricSize() {
+        return metrics.size() + systemMetrics.size();
+    }
+
     public synchronized List<Metric> getMetrics() {
-        return Lists.newArrayList(metrics);
+        return metrics.stream().sorted(Comparator.comparing(Metric::getName)).collect(Collectors.toList());
     }
 
     public synchronized List<Metric> getSystemMetrics() {
-        return Lists.newArrayList(systemMetrics);
+        return systemMetrics.stream().sorted(Comparator.comparing(Metric::getName)).collect(Collectors.toList());
     }
 
     // the metrics by metric name

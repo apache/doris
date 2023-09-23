@@ -19,10 +19,13 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
+import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.qe.ConnectContext;
+
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Optional;
@@ -30,28 +33,23 @@ import java.util.Optional;
 /**
  * Abstract class for all concrete logical plan.
  */
-public abstract class AbstractLogicalPlan extends AbstractPlan implements LogicalPlan {
-
-    public AbstractLogicalPlan(PlanType type, Plan... children) {
+public abstract class AbstractLogicalPlan extends AbstractPlan implements LogicalPlan, Explainable {
+    protected AbstractLogicalPlan(PlanType type, List<Plan> children) {
         super(type, children);
     }
 
-    public AbstractLogicalPlan(PlanType type, Optional<LogicalProperties> logicalProperties, Plan... children) {
-        super(type, logicalProperties, children);
+    protected AbstractLogicalPlan(PlanType type, Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, Plan... children) {
+        super(type, groupExpression, logicalProperties, null, ImmutableList.copyOf(children));
     }
 
-    public AbstractLogicalPlan(PlanType type, Optional<GroupExpression> groupExpression,
-                               Optional<LogicalProperties> logicalProperties, Plan... children) {
-        super(type, groupExpression, logicalProperties, children);
-    }
-
-    @Override
-    public LogicalProperties getLogicalProperties() {
-        return logicalProperties;
+    protected AbstractLogicalPlan(PlanType type, Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        super(type, groupExpression, logicalProperties, null, children);
     }
 
     @Override
-    public List<Slot> getOutput() {
-        return logicalProperties.getOutput();
+    public Plan getExplainPlan(ConnectContext ctx) {
+        return this;
     }
 }

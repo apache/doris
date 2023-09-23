@@ -28,9 +28,8 @@ import org.apache.doris.common.util.CommandResult;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.loadv2.SparkLoadAppHandle.State;
-import org.apache.doris.load.loadv2.dpp.DppResult;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig;
-import org.apache.doris.load.loadv2.etl.SparkEtlJob;
+import org.apache.doris.sparkdpp.DppResult;
+import org.apache.doris.sparkdpp.EtlJobConfig;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TEtlState;
 
@@ -76,6 +75,8 @@ public class SparkEtlJobHandler {
     private static final String YARN_STATUS_CMD = "%s --config %s application -status %s";
     private static final String YARN_KILL_CMD = "%s --config %s application -kill %s";
 
+    private static final String SPARK_ETL_JOB_CLASS = "org.apache.doris.load.loadv2.etl.SparkEtlJob";
+
     public void submitEtlJob(long loadJobId, String loadLabel, EtlJobConfig etlJobConfig, SparkResource resource,
             BrokerDesc brokerDesc, SparkLoadAppHandle handle, SparkPendingTaskAttachment attachment)
             throws LoadException {
@@ -116,6 +117,8 @@ public class SparkEtlJobHandler {
             sparkConfigs.put("spark.yarn.stage.dir", jobStageHdfsPath);
         }
 
+        LOG.info("submit etl spark job, sparkConfigs:{}", sparkConfigs);
+
         try {
             byte[] configData = etlJobConfig.configToJson().getBytes("UTF-8");
             BrokerUtil.writeFile(configData, jobConfigHdfsPath, brokerDesc);
@@ -123,7 +126,10 @@ public class SparkEtlJobHandler {
             throw new LoadException(e.getMessage());
         }
 
-        SparkLauncher launcher = new SparkLauncher();
+        Map<String, String> envParams = resource.getEnvConfigsWithoutPrefix();
+        LOG.info("submit etl job,env:{}", envParams);
+
+        SparkLauncher launcher = new SparkLauncher(envParams);
         // master      |  deployMode
         // ------------|-------------
         // yarn        |  cluster
@@ -131,7 +137,7 @@ public class SparkEtlJobHandler {
         launcher.setMaster(resource.getMaster())
                 .setDeployMode(resource.getDeployMode().name().toLowerCase())
                 .setAppResource(appResourceHdfsPath)
-                .setMainClass(SparkEtlJob.class.getCanonicalName())
+                .setMainClass(SPARK_ETL_JOB_CLASS)
                 .setAppName(String.format(ETL_JOB_NAME, loadLabel))
                 .setSparkHome(sparkHome)
                 .addAppArgs(jobConfigHdfsPath)
@@ -150,7 +156,8 @@ public class SparkEtlJobHandler {
             Process process = launcher.launch();
             handle.setProcess(process);
             if (!FeConstants.runningUnitTest) {
-                SparkLauncherMonitor.LogMonitor logMonitor = SparkLauncherMonitor.createLogMonitor(handle);
+                SparkLauncherMonitor.LogMonitor logMonitor =
+                        SparkLauncherMonitor.createLogMonitor(handle, sparkConfigs);
                 logMonitor.setSubmitTimeoutMs(GET_APPID_TIMEOUT_MS);
                 logMonitor.setRedirectLogPath(logFilePath);
                 logMonitor.start();
@@ -195,7 +202,19 @@ public class SparkEtlJobHandler {
             // command: yarn --config configDir application -status appId
             String yarnStatusCmd = String.format(YARN_STATUS_CMD, yarnClient, configDir, appId);
             LOG.info(yarnStatusCmd);
-            String[] envp = { "LC_ALL=" + Config.locale };
+
+            Map<String, String> envParams = resource.getEnvConfigsWithoutPrefix();
+            int envNums = envParams.size() + 1;
+            String[] envp = new String[envNums];
+            int idx = 0;
+            envp[idx++] = "LC_ALL=" + Config.locale;
+            if (envParams.size() > 0) {
+                for (Map.Entry<String, String> entry : envParams.entrySet()) {
+                    String envItem = entry.getKey() + "=" + entry.getValue();
+                    envp[idx++] = envItem;
+                }
+            }
+            LOG.info("getEtlJobStatus,appId:{}, loadJobId:{}, env:{},resource:{}", appId, loadJobId, envp, resource);
             CommandResult result = Util.executeCommand(yarnStatusCmd, envp, EXEC_CMD_TIMEOUT_MS);
             if (result.getReturnCode() != 0) {
                 String stderr = result.getStderr();
@@ -204,11 +223,13 @@ public class SparkEtlJobHandler {
                     if (stderr.contains("doesn't exist in RM")) {
                         LOG.warn("spark app not found. spark app id: {}, load job id: {}", appId, loadJobId);
                         status.setState(TEtlState.CANCELLED);
+                        status.setFailMsg(stderr);
                     }
                 }
                 LOG.warn("yarn application status failed. spark app id: {}, load job id: {}, timeout: {}, msg: {}",
                             appId, loadJobId, EXEC_CMD_TIMEOUT_MS, stderr);
                 status.setState(TEtlState.CANCELLED);
+                status.setFailMsg(stderr);
                 return status;
             }
             ApplicationReport report = new YarnApplicationReport(result.getStdout()).getReport();
@@ -284,7 +305,18 @@ public class SparkEtlJobHandler {
             // command: yarn --config configDir application -kill appId
             String yarnKillCmd = String.format(YARN_KILL_CMD, yarnClient, configDir, appId);
             LOG.info(yarnKillCmd);
-            String[] envp = { "LC_ALL=" + Config.locale };
+            Map<String, String> envParams = resource.getEnvConfigsWithoutPrefix();
+            int envNums = envParams.size() + 1;
+            String[] envp = new String[envNums];
+            int idx = 0;
+            envp[idx++] = "LC_ALL=" + Config.locale;
+            if (envParams.size() > 0) {
+                for (Map.Entry<String, String> entry : envParams.entrySet()) {
+                    String envItem = entry.getKey() + "=" + entry.getValue();
+                    envp[idx++] = envItem;
+                }
+            }
+            LOG.info("killEtlJob, env:{}", envp);
             CommandResult result = Util.executeCommand(yarnKillCmd, envp, EXEC_CMD_TIMEOUT_MS);
             LOG.info("yarn application -kill {}, output: {}", appId, result.getStdout());
             if (result.getReturnCode() != 0) {

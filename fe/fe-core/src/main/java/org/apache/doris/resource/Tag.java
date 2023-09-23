@@ -55,13 +55,13 @@ public class Tag implements Writable {
     public static final String TYPE_ROLE = "role";
     public static final String TYPE_FUNCTION = "function";
     public static final String TYPE_LOCATION = "location";
-
     public static final String VALUE_FRONTEND = "frontend";
     public static final String VALUE_BACKEND = "backend";
     public static final String VALUE_BROKER = "broker";
     public static final String VALUE_REMOTE_STORAGE = "remote_storage";
     public static final String VALUE_STORE = "store";
     public static final String VALUE_COMPUTATION = "computation";
+    public static final String VALUE_MIX = "mix";
     public static final String VALUE_DEFAULT_CLUSTER = "default_cluster";
     public static final String VALUE_DEFAULT_TAG = "default";
     public static final String VALUE_INVALID_TAG = "invalid";
@@ -70,14 +70,18 @@ public class Tag implements Writable {
             TYPE_ROLE, TYPE_FUNCTION, TYPE_LOCATION);
     public static final ImmutableSet<String> RESERVED_TAG_VALUES = ImmutableSet.of(
             VALUE_FRONTEND, VALUE_BACKEND, VALUE_BROKER, VALUE_REMOTE_STORAGE, VALUE_STORE, VALUE_COMPUTATION,
-            VALUE_DEFAULT_CLUSTER);
-    private static final String TAG_REGEX = "^[a-z][a-z0-9_]{0,32}$";
+            VALUE_MIX, VALUE_DEFAULT_CLUSTER);
+    private static final String TAG_TYPE_REGEX = "^[a-z][a-z0-9_]{0,32}$";
+    private static final String TAG_VALUE_REGEX = "^[a-zA-Z][a-zA-Z0-9_]{0,32}$";
+
 
     public static final Tag DEFAULT_BACKEND_TAG;
+    public static final Tag DEFAULT_NODE_ROLE_TAG;
     public static final Tag INVALID_TAG;
 
     static {
         DEFAULT_BACKEND_TAG = new Tag(TYPE_LOCATION, VALUE_DEFAULT_TAG);
+        DEFAULT_NODE_ROLE_TAG = new Tag(TYPE_ROLE, VALUE_MIX);
         INVALID_TAG = new Tag(TYPE_LOCATION, VALUE_INVALID_TAG);
     }
 
@@ -87,19 +91,27 @@ public class Tag implements Writable {
     public String value;
 
     private Tag(String type, String val) {
-        this.type = type.toLowerCase();
-        this.value = val.toLowerCase();
+        this.type = type;
+        this.value = val;
     }
 
     public static Tag create(String type, String value) throws AnalysisException {
-        if (!type.matches(TAG_REGEX) || !value.matches(TAG_REGEX)) {
-            throw new AnalysisException("Invalid tag format: " + type + ":" + value);
+        if (!type.matches(TAG_TYPE_REGEX)) {
+            throw new AnalysisException("Invalid tag type format: " + type);
+        }
+        if (!value.matches(TAG_VALUE_REGEX)) {
+            throw new AnalysisException("Invalid tag value format: " + value);
         }
         return new Tag(type, value);
     }
 
     public static Tag createNotCheck(String type, String value) {
         return new Tag(type, value);
+    }
+
+    // only support be and cn node role tag for be.
+    public static boolean validNodeRoleTag(String value) {
+        return value != null && (value.equals(VALUE_MIX) || value.equals(VALUE_COMPUTATION));
     }
 
     public String toKey() {

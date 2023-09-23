@@ -20,9 +20,9 @@
 
 #include "vec/common/mremap.h"
 
-#include <errno.h>
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
 
-#include <cstddef>
 #include <cstdlib>
 #include <cstring>
 

@@ -518,7 +518,7 @@ thread, lazyCheck, events, connect, selectUnionAll
 # 测试suiteName包含'sql'的用例，**注意需要用单引号括起来**
 ./run-regression-test.sh --run '*sql*' 
 
-# 测试demo和perfomance group
+# 测试demo和performance group
 ./run-regression-test.sh --run -g 'demo,performance'
 
 # 测试demo group下的sql_action
@@ -590,3 +590,236 @@ TeamCity可以通过stdout识别Service Message。当使用`--teamcity`参数启
 ```shell
 JAVA_OPTS="-Dteamcity.enableStdErr=${enableStdErr}" ./run-regression-test.sh --teamcity --run
 ```
+
+## 外部数据源 e2e 测试
+
+Doris 支持一些外部署数据源的查询。所以回归框架也提供了通过 Docker Compose 搭建外部数据源的功能，以提供 Doris 对外部数据源的 e2e 测试。
+
+0. 准备工作
+
+    在启动 Docker 前，请先修改 `docker/thirdparties/custom_settings.env` 文件中的 `CONTAINER_UID` 变量。
+
+    可以修改为如：`doris-10002-18sda1-`。
+
+    之后的启动脚本会，将 docker compose 中对应的名称进行替换，这样可以保证多套 containers 环境的容器名称和网络不会冲突。
+
+1. 启动 Container
+
+    Doris 目前支持 es, mysql, pg, hive, sqlserver, oracle, iceberg, hudi, trino 等数据源的 Docker compose。相关文件存放在 `docker/thirdparties/docker-compose` 目录下。
+
+    默认情况下，可以直接通过以下命令启动所有外部数据源的 Docker container：
+    （注意，hive和hudi container 需要下载预制的数据文件，请参阅下面 hive和hudi 相关的文档。）
+
+    ```
+    cd docker/thirdparties && sh run-thirdparties-docker.sh
+    ```
+
+    该命令需要 root 或 sudo 权限。命令返回成功，则代表所有 container 启动完成。可以通过 `docker ps -a` 命令查看。
+
+    可以通过以下命令停止所有 container：
+
+    ```
+    cd docker/thirdparties && sh run-thirdparties-docker.sh --stop
+    ```
+
+    也可以通过以下命令启动或停止指定的组件：
+
+    ```
+    cd docker/thirdparties
+    # 启动 mysql
+    sh run-thirdparties-docker.sh -c mysql
+    # 启动 mysql,pg,iceberg
+    sh run-thirdparties-docker.sh -c mysql,pg,iceberg
+    # 停止 mysql,pg,iceberg
+    sh run-thirdparties-docker.sh -c mysql,pg,iceberg --stop
+    ```
+    
+    1. MySQL
+
+        MySQL 相关的 Docker compose 文件存放在 docker/thirdparties/docker-compose/mysql 下。
+
+        * `mysql-5.7.yaml.tpl`：Docker compose 文件模板，无需修改。默认用户名密码为 root/123456
+        * `mysql-5.7.env`：配置文件，其中可以配置 MySQL container 对外暴露的端口，默认为 3316。
+        * `init/`：该目录存放的 sql 文件会在 container 创建后自动执行。目前默认会创建库、表并插入少量数据。
+        * `data/`：container 启动后挂载的本地数据目录，`run-thirdparties-docker.sh` 脚本会在每次启动时，自动清空并重建这个目录。
+
+    2. Postgresql
+
+        Postgresql 相关的 Docker compose 文件存放在 docker/thirdparties/docker-compose/postgresql 下。
+
+        * `postgresql-14.yaml.tpl`：Docker compose 文件模板，无需修改。默认用户名密码为 postgres/123456
+        * `postgresql-14.env`：配置文件，其中可以配置 Postgresql container 对外暴露的端口，默认为 5442。
+        * `init/`：该目录存放的 sql 文件会在 container 创建后自动执行。目前默认会创建库、表并插入少量数据。
+        * `data/`：container 启动后挂载的本地数据目录，`run-thirdparties-docker.sh` 脚本会在每次启动时，自动清空并重建这个目录。
+
+    3. Hive
+
+        Hive 相关的 Docker compose 文件存放在 docker/thirdparties/docker-compose/hive 下。
+
+        * `hive-2x.yaml.tpl`：Docker compose 文件模板，无需修改。
+        * `hadoop-hive.env.tpl`：配置文件的模板，无需修改。
+        * `gen_env.sh`：初始化配置文件的脚本，可以在其中修改：`FS_PORT` 和 `HMS_PORT` 两个对外端口，分别对应 defaultFs 和 Hive metastore 的端口。默认为 8120 和 9183。`run-thirdparties-docker.sh` 启动时会自动调用这个脚本。
+        * `scripts/` 目录会在 container 启动后挂载到 container 中。其中的文件内容无需修改。但须注意，在启动 container 之前，需要先下载预制文件：
+
+            将 `https://doris-build-hk-1308700295.cos.ap-hongkong.myqcloud.com/regression/load/tpch1_parquet/tpch1.db.tar.gz` 文件下载到 `scripts/` 目录并解压即可。 
+
+    4. Elasticsearch
+
+        包括 ES6，ES7，ES8 三个版本的 docker 镜像，存放在 docker/thirdparties/docker-compose/elasticsearch/ 下。
+
+        * `es.yaml.tpl`：Docker compose 文件模板。包括 ES6，ES7，ES8 三个版本。无需修改。
+        * `es.env`：配置文件，需配置 ES 的端口号。
+        * `scripts` 目录下存放了启动镜像后的初始化脚本。
+
+    5. Oracle
+
+        提供 Oracle 11 镜像，存放在 docker/thirdparties/docker-compose/oracle/ 下。
+
+        * `oracle-11.yaml.tpl`：Docker compose 文件模板。无需修改。
+        * `oracle-11.env`：配置 Oracle 对外端口，默认为 1521。
+
+    6. SQLServer
+
+        提供 SQLServer 2022 镜像，存放在 docker/thirdparties/docker-compose/sqlserver/ 下。
+
+        * `sqlserver.yaml.tpl`：Docker compose 文件模板。无需修改。
+        * `sqlserver.env`：配置 SQLServer 对外端口，默认为 1433。
+
+   7. ClickHouse
+
+      提供 ClickHouse 22 镜像，存放在 docker/thirdparties/docker-compose/clickhouse/ 下。
+
+       * `clickhouse.yaml.tpl`：Docker compose 文件模板。无需修改。
+       * `clickhouse.env`：配置 ClickHouse 对外端口，默认为 8123。
+
+   8. Iceberg
+
+       提供 Iceberg + Spark + Minio 镜像组合。存放在 docker/thirdparties/docker-compose/iceberg/ 下。
+
+       * `iceberg.yaml.tpl`：Docker compose 文件模板。无需修改。
+       * `entrypoint.sh.tpl`：镜像启动后的初始化脚本模板。无需修改。
+       * `spark-defaults.conf.tpl`：Spark 的配置文件模板。无需修改。
+       * `iceberg.env`：对外端口配置文件，需修改各个对外端口，避免端口冲突。
+
+       启动后，可以通过如下命令启动 spark-sql
+
+       `docker exec -it doris-xx-spark-iceberg spark-sql`        
+
+       其中 `doris-xx-spark-iceberg` 为 container 名称。
+
+       spark-sql iceberg 操作示例：
+
+       ```
+       create database db1;
+       show databases;
+       create table db1.test1(k1 bigint, k2 bigint, k3 string) partitioned by (k1);
+       insert into db1.test1 values(1,2,'abc');
+       select * from db1.test1;
+       quit;
+       ```
+
+       也可以通过 spark-shell 进行访问：
+
+       ```
+       docker exec -it doris-xx-spark-iceberg spark-shell
+       
+       spark.sql(s"create database db1")
+       spark.sql(s"show databases").show()
+       spark.sql(s"create table db1.test1(k1 bigint, k2 bigint, k3 string) partitioned by (k1)").show()
+       spark.sql(s"show tables from db1").show()
+       spark.sql(s"insert into db1.test1 values(1,2,'abc')").show()
+       spark.sql(s"select * from db1.test1").show()
+       :q
+       ```
+
+       更多使用方式可参阅 [Tabular 官方文档](https://tabular.io/blog/docker-spark-and-iceberg/)。
+   9. Hudi
+
+      Hudi 相关的 Docker compose 文件存放在 docker/thirdparties/docker-compose/hudi 下。
+
+      * `hudi.yaml.tpl`：Docker compose 文件模板，无需修改。
+      * `hadoop.env`：配置文件的模板，无需修改。
+      * `scripts/` 目录会在 container 启动后挂载到 container 中。其中的文件内容无需修改。但须注意，在启动 container 之前，需要先下载预制文件：
+        将 `https://doris-build-hk-1308700295.cos.ap-hongkong.myqcloud.com/regression/load/hudi/hudi_docker_compose_attached_file.zip` 文件下载到 `scripts/` 目录并解压即可。
+        
+      * 
+      启动前，可以将以下设置添加到`/etc/hosts`中，以避免出现`UnknownHostException`错误
+      ```
+      127.0.0.1 adhoc-1
+      127.0.0.1 adhoc-2
+      127.0.0.1 namenode
+      127.0.0.1 datanode1
+      127.0.0.1 hiveserver
+      127.0.0.1 hivemetastore
+      127.0.0.1 sparkmaster
+      ```
+         
+      启动后，可以通过如下命令启动 hive query
+      
+      ```
+      docker exec -it adhoc-2 /bin/bash
+      
+      beeline -u jdbc:hive2://hiveserver:10000 \
+      --hiveconf hive.input.format=org.apache.hadoop.hive.ql.io.HiveInputFormat \
+      --hiveconf hive.stats.autogather=false
+      
+      show tables;
+      show partitions stock_ticks_mor_rt;
+      select symbol, max(ts) from stock_ticks_cow group by symbol HAVING symbol = 'GOOG';
+      select symbol, max(ts) from stock_ticks_mor_ro group by symbol HAVING symbol = 'GOOG';
+      exit;
+      ```
+
+      也可以通过 spark-shell 进行访问：
+
+      ```
+      docker exec -it adhoc-1 /bin/bash
+      
+      $SPARK_INSTALL/bin/spark-shell \
+        --jars /var/scripts/hudi_docker_compose_attached_file/jar/hoodie-hive-sync-bundle.jar \
+        --master local[2] \
+        --driver-class-path $HADOOP_CONF_DIR \
+        --conf spark.sql.hive.convertMetastoreParquet=false \
+        --deploy-mode client \
+        --driver-memory 1G \
+        --executor-memory 3G \
+        --num-executors 1
+      
+      spark.sql("show tables").show(100, false)
+      spark.sql("select symbol, max(ts) from stock_ticks_cow group by symbol HAVING symbol = 'GOOG'").show(100, false)
+      spark.sql("select `_hoodie_commit_time`, symbol, ts, volume, open, close  from stock_ticks_cow where  symbol = 'GOOG'").show(100, false)
+      spark.sql("select symbol, max(ts) from stock_ticks_mor_ro group by symbol HAVING symbol = 'GOOG'").show(100, false)
+      spark.sql("select symbol, max(ts) from stock_ticks_mor_rt group by symbol HAVING symbol = 'GOOG'").show(100, false)
+      spark.sql("select `_hoodie_commit_time`, symbol, ts, volume, open, close  from stock_ticks_mor_ro where  symbol = 'GOOG'").show(100, false)
+      :q
+      ```
+
+      更多使用方式可参阅 [Hudi 官方文档](https://hudi.apache.org/docs/docker_demo)。
+
+   10. Trino
+       Trino 相关的 Docker compose 文件存放在 docker/thirdparties/docker-compose/trino 下。
+       模版文件：
+       * gen_env.sh.tpl ：用于生成 HDFS相关端口号，无需修改，若出现端口冲突，可以对端口号进行修改。
+       * hive.properties.tpl ：用于配置trino catalog 信息，无需修改。
+       * trino_hive.env.tpl ：Hive 的环境配置信息，无需修改。
+       * trino_hive.yaml.tpl ：Docker compose 文件，无需修改。
+         启动 Trino docker 后，会配置一套 Trino + hive catalog 环境，此时 Trino 拥有两个catalog
+       1. hive
+       2. tpch（trino docker 自带）
+
+       更多使用方式可参阅 [Trino 官方文档](https://trino.io/docs/current/installation/containers.html)
+
+2. 运行回归测试
+
+    外表相关的回归测试默认是关闭的，可以修改 `regression-test/conf/regression-conf.groovy` 中的以下配置来开启：
+
+    * `enableJdbcTest`：开启 jdbc 外表测试，需要启动 MySQL 和 Postgresql 的 container。
+    * `mysql_57_port` 和 `pg_14_port` 分别对应 MySQL 和 Postgresql 的对外端口，默认为 3316 和 5442。
+    * `enableHiveTest`：开启 hive 外表测试，需要启动 hive 的 container。
+    * `hms_port` 对应 hive metastore 的对外端口，默认为 9183。
+    * `enableEsTest`：开启 es 外表测试。需要启动 es 的 container。
+    * `es_6_port`：ES6 的端口。
+    * `es_7_port`：ES7 的端口。
+    * `es_8_port`：ES8 的端口。
+
+

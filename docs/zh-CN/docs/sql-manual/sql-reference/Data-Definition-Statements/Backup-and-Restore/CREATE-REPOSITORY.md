@@ -48,6 +48,7 @@ PROPERTIES ("key"="value", ...);
 - 仓库的创建，依赖于已存在的 broker 或者直接通过AWS s3 协议访问云存储，或者直接访问HDFS
 - 如果是只读仓库，则只能在仓库上进行恢复。如果不是，则可以进行备份和恢复操作。
 - 根据 broker 或者S3、hdfs的不同类型，PROPERTIES 有所不同，具体见示例。
+- ON LOCATION ,如果是 S3 , 这里后面跟的是 Bucket Name。
 
 ### Example
 
@@ -100,10 +101,10 @@ WITH S3
 ON LOCATION "s3://s3-repo"
 PROPERTIES
 (
-    "AWS_ENDPOINT" = "http://s3-REGION.amazonaws.com",
-    "AWS_ACCESS_KEY" = "AWS_ACCESS_KEY",
-    "AWS_SECRET_KEY"="AWS_SECRET_KEY",
-    "AWS_REGION" = "REGION"
+    "s3.endpoint" = "http://s3-REGION.amazonaws.com",
+    "s3.access_key" = "AWS_ACCESS_KEY",
+    "s3.secret_key"="AWS_SECRET_KEY",
+    "s3.region" = "REGION"
 );
 ```
 
@@ -128,11 +129,44 @@ WITH S3
 ON LOCATION "s3://minio_repo"
 PROPERTIES
 (
-    "AWS_ENDPOINT" = "http://minio.com",
-    "AWS_ACCESS_KEY" = "MINIO_USER",
-    "AWS_SECRET_KEY"="MINIO_PASSWORD",
-    "AWS_REGION" = "REGION",
+    "s3.endpoint" = "http://minio.com",
+    "s3.access_key" = "MINIO_USER",
+    "s3.secret_key"="MINIO_PASSWORD",
+    "s3.region" = "REGION"
     "use_path_style" = "true"
+);
+```
+
+7. 使用临时秘钥创建名为 minio_repo 的仓库
+
+<version since="1.2"></version>
+
+```
+CREATE REPOSITORY `minio_repo`
+WITH S3
+ON LOCATION "s3://minio_repo"
+PROPERTIES
+(
+    "s3.endpoint" = "AWS_ENDPOINT",
+    "s3.access_key" = "AWS_TEMP_ACCESS_KEY",
+    "s3.secret_key" = "AWS_TEMP_SECRET_KEY",
+    "s3.session_token" = "AWS_TEMP_TOKEN",
+    "s3.region" = "AWS_REGION"
+)
+```
+
+8. 使用腾讯云 COS 创建仓库
+
+```
+CREATE REPOSITORY `cos_repo`
+WITH S3
+ON LOCATION "s3://backet1/"
+PROPERTIES
+(
+    "s3.access_key" = "ak",
+    "s3.secret_key" = "sk",
+    "s3.endpoint" = "http://cos.ap-beijing.myqcloud.com",
+    "s3.region" = "ap-beijing"
 );
 ```
 

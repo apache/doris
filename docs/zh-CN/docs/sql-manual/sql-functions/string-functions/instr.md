@@ -1,6 +1,6 @@
 ---
 {
-    "title": "instr",
+    "title": "INSTR",
     "language": "zh-CN"
 }
 ---
@@ -51,4 +51,4 @@ mysql> select instr("abc", "d");
 +-------------------+
 ```
 ### keywords
-INSTR
+    INSTR

@@ -18,14 +18,20 @@
 #include "olap/version_graph.h"
 
 #include <cctz/time_zone.h>
+#include <stddef.h>
 
+#include <algorithm>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <list>
 #include <memory>
-#include <queue>
+#include <ostream>
+#include <utility>
 
 #include "common/logging.h"
-#include "util/time.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 void TimestampedVersionTracker::_construct_versioned_tracker(
         const std::vector<RowsetMetaSharedPtr>& rs_metas) {
@@ -515,9 +521,8 @@ Status VersionGraph::delete_version_from_graph(const Version& version) {
 
     if (_vertex_index_map.find(start_vertex_value) == _vertex_index_map.end() ||
         _vertex_index_map.find(end_vertex_value) == _vertex_index_map.end()) {
-        LOG(WARNING) << "vertex for version does not exists. "
-                     << "version=" << version.first << "-" << version.second;
-        return Status::OLAPInternalError(OLAP_ERR_HEADER_DELETE_VERSION);
+        return Status::Error<HEADER_DELETE_VERSION>(
+                "vertex for version does not exists. version={}-{}", version.first, version.second);
     }
 
     int64_t start_vertex_index = _vertex_index_map[start_vertex_value];
@@ -561,9 +566,8 @@ void VersionGraph::_add_vertex_to_graph(int64_t vertex_value) {
 Status VersionGraph::capture_consistent_versions(const Version& spec_version,
                                                  std::vector<Version>* version_path) const {
     if (spec_version.first > spec_version.second) {
-        LOG(WARNING) << "invalid specified version. "
-                     << "spec_version=" << spec_version.first << "-" << spec_version.second;
-        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+        return Status::Error<INVALID_ARGUMENT>("invalid specified version. spec_version={}-{}",
+                                               spec_version.first, spec_version.second);
     }
 
     int64_t cur_idx = -1;
@@ -575,9 +579,8 @@ Status VersionGraph::capture_consistent_versions(const Version& spec_version,
     }
 
     if (cur_idx < 0) {
-        LOG(WARNING) << "failed to find path in version_graph. "
-                     << "spec_version: " << spec_version.first << "-" << spec_version.second;
-        return Status::OLAPInternalError(OLAP_ERR_WRITE_PROTOBUF_ERROR);
+        return Status::InternalError("failed to find path in version_graph. spec_version: {}-{}",
+                                     spec_version.first, spec_version.second);
     }
 
     int64_t end_value = spec_version.second + 1;
@@ -606,9 +609,8 @@ Status VersionGraph::capture_consistent_versions(const Version& spec_version,
             }
             cur_idx = next_idx;
         } else {
-            VLOG_NOTICE << "fail to find path in version_graph. "
-                        << "spec_version: " << spec_version.first << "-" << spec_version.second;
-            return Status::OLAPInternalError(OLAP_ERR_WRITE_PROTOBUF_ERROR);
+            return Status::InternalError("fail to find path in version_graph. spec_version: {}-{}",
+                                         spec_version.first, spec_version.second);
         }
     }
 

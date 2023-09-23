@@ -32,7 +32,8 @@ public enum AlterOpType {
     RENAME,
     // table property
     MODIFY_TABLE_PROPERTY,
-    MODIFY_TABLE_PROPERTY_SYNC, // Some operations are performed synchronously, so we distinguish them by suffix _SYNC
+    // Some operations are performed synchronously, so we distinguish them by suffix _SYNC
+    MODIFY_TABLE_PROPERTY_SYNC,
     // others operation, such as add/drop backend. currently, we do not care about them
     ALTER_OTHER,
     ENABLE_FEATURE,
@@ -61,6 +62,9 @@ public enum AlterOpType {
         COMPATIBILITY_MATRIX[SCHEMA_CHANGE.ordinal()][SCHEMA_CHANGE.ordinal()] = true;
         // can modify multi column comments at same time
         COMPATIBILITY_MATRIX[MODIFY_COLUMN_COMMENT.ordinal()][MODIFY_COLUMN_COMMENT.ordinal()] = true;
+        // can drop multi partition at same time
+        COMPATIBILITY_MATRIX[DROP_PARTITION.ordinal()][DROP_PARTITION.ordinal()] = true;
+
     }
 
     public boolean needCheckCapacity() {

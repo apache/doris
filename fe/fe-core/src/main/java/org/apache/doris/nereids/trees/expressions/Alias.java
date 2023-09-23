@@ -22,7 +22,6 @@ import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
@@ -37,6 +36,7 @@ public class Alias extends NamedExpression implements UnaryExpression {
     private final ExprId exprId;
     private final String name;
     private final List<String> qualifier;
+    private final boolean nameFromChild;
 
     /**
      * constructor of Alias.
@@ -45,27 +45,35 @@ public class Alias extends NamedExpression implements UnaryExpression {
      * @param name alias name
      */
     public Alias(Expression child, String name) {
-        this(NamedExpressionUtil.newExprId(), child, name);
+        this(StatementScopeIdGenerator.newExprId(), child, name, false);
     }
 
-    @VisibleForTesting
-    Alias(ExprId exprId, Expression child, String name) {
-        super(child);
-        this.exprId = exprId;
-        this.name = name;
-        this.qualifier = ImmutableList.of();
+    public Alias(Expression child) {
+        this(StatementScopeIdGenerator.newExprId(), child, child.toSql(), true);
     }
 
-    private Alias(ExprId exprId, Expression child, String name, List<String> qualifier) {
+    public Alias(ExprId exprId, Expression child, String name) {
+        this(exprId, ImmutableList.of(child), name, ImmutableList.of(), false);
+    }
+
+    public Alias(ExprId exprId, Expression child, String name, boolean nameFromChild) {
+        this(exprId, ImmutableList.of(child), name, ImmutableList.of(), nameFromChild);
+    }
+
+    public Alias(ExprId exprId, List<Expression> child, String name, List<String> qualifier, boolean nameFromChild) {
         super(child);
         this.exprId = exprId;
         this.name = name;
         this.qualifier = qualifier;
+        this.nameFromChild = nameFromChild;
     }
 
     @Override
     public Slot toSlot() throws UnboundException {
-        return new SlotReference(exprId, name, child().getDataType(), child().nullable(), qualifier);
+        return new SlotReference(exprId, name, child().getDataType(), child().nullable(), qualifier,
+                child() instanceof SlotReference
+                        ? ((SlotReference) child()).getColumn().orElse(null)
+                        : null);
     }
 
     @Override
@@ -126,11 +134,11 @@ public class Alias extends NamedExpression implements UnaryExpression {
     @Override
     public Alias withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Alias(exprId, children.get(0), name);
-    }
-
-    public Expression withQualifier(List<String> qualifier) {
-        return new Alias(this.exprId, this.child(0), this.name, qualifier);
+        if (nameFromChild) {
+            return new Alias(exprId, children, children.get(0).toSql(), qualifier, nameFromChild);
+        } else {
+            return new Alias(exprId, children, name, qualifier, nameFromChild);
+        }
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {

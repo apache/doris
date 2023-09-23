@@ -20,11 +20,36 @@
 
 #pragma once
 
-#include "vec/data_types/data_type_date.h"
-#include "vec/data_types/data_type_date_time.h"
-#include "vec/data_types/data_type_string.h"
+#include <stddef.h>
+
+#include <memory>
+#include <utility>
+
+#include "common/status.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/functions/date_time_transforms.h"
 #include "vec/functions/function.h"
+#include "vec/utils/util.hpp"
+
+namespace doris {
+class FunctionContext;
+
+namespace vectorized {
+class DataTypeString;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -39,9 +64,10 @@ public:
     String get_name() const override { return name; }
 
     size_t get_number_of_arguments() const override { return 1; }
+    bool use_default_implementation_for_nulls() const override { return false; }
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
-        return make_nullable(std::make_shared<DataTypeString>());
+        RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(DataTypeString);
     }
 
     bool is_variadic() const override { return true; }
@@ -51,23 +77,38 @@ public:
         return {};
     }
 
-    bool use_default_implementation_for_constants() const override { return true; }
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
         const ColumnPtr source_col = block.get_by_position(arguments[0]).column;
-        const auto* sources =
-                check_and_get_column<ColumnVector<typename Transform::ARG_TYPE>>(source_col.get());
+        const auto is_nullable = block.get_by_position(result).type->is_nullable();
+        const auto* sources = check_and_get_column<ColumnVector<typename Transform::OpArgType>>(
+                remove_nullable(source_col).get());
         auto col_res = ColumnString::create();
-        auto null_map = ColumnVector<UInt8>::create();
+
         // Support all input of datetime is valind to make sure not null return
         if (sources) {
-            TransformerToStringOneArgument<Transform>::vector(
-                    sources->get_data(), col_res->get_chars(), col_res->get_offsets(),
-                    null_map->get_data());
-            block.replace_by_position(
-                    result, ColumnNullable::create(std::move(col_res), std::move(null_map)));
+            if (is_nullable) {
+                auto null_map = ColumnVector<UInt8>::create(input_rows_count);
+                TransformerToStringOneArgument<Transform>::vector(
+                        context, sources->get_data(), col_res->get_chars(), col_res->get_offsets(),
+                        null_map->get_data());
+                if (const auto* nullable_col =
+                            check_and_get_column<ColumnNullable>(source_col.get())) {
+                    NullMap& result_null_map = assert_cast<ColumnUInt8&>(*null_map).get_data();
+                    const NullMap& src_null_map =
+                            assert_cast<const ColumnUInt8&>(nullable_col->get_null_map_column())
+                                    .get_data();
+                    VectorizedUtils::update_null_map(result_null_map, src_null_map);
+                }
+                block.replace_by_position(
+                        result, ColumnNullable::create(std::move(col_res), std::move(null_map)));
+            } else {
+                TransformerToStringOneArgument<Transform>::vector(
+                        context, sources->get_data(), col_res->get_chars(), col_res->get_offsets());
+                block.replace_by_position(result, std::move(col_res));
+            }
         } else {
             return Status::InternalError("Illegal column {} of first argument of function {}",
                                          block.get_by_position(arguments[0]).column->get_name(),

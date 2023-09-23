@@ -19,7 +19,7 @@
 
 #include "runtime/datetime_value.h"
 #include "runtime/decimalv2_value.h"
-#include "runtime/string_value.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 
@@ -30,9 +30,9 @@ struct type_limit {
 };
 
 template <>
-struct type_limit<StringValue> {
-    static StringValue min() { return StringValue::min_string_val(); }
-    static StringValue max() { return StringValue::max_string_val(); }
+struct type_limit<StringRef> {
+    static StringRef min() { return StringRef::min_string_val(); }
+    static StringRef max() { return StringRef::max_string_val(); }
 };
 
 template <>
@@ -42,9 +42,43 @@ struct type_limit<DecimalV2Value> {
 };
 
 template <>
-struct type_limit<DateTimeValue> {
-    static DateTimeValue min() { return DateTimeValue::datetime_min_value(); }
-    static DateTimeValue max() { return DateTimeValue::datetime_max_value(); }
+struct type_limit<vectorized::Decimal32> {
+    static vectorized::Decimal32 max() { return 999999999; }
+    static vectorized::Decimal32 min() { return -max(); }
+};
+
+template <>
+struct type_limit<vectorized::Decimal64> {
+    static vectorized::Decimal64 max() { return int64_t(999999999999999999ll); }
+    static vectorized::Decimal64 min() { return -max(); }
+};
+
+template <>
+struct type_limit<vectorized::Decimal128I> {
+    static vectorized::Decimal128I max() {
+        return (static_cast<int128_t>(999999999999999999ll) * 100000000000000000ll * 1000ll +
+                static_cast<int128_t>(99999999999999999ll) * 1000ll + 999ll);
+    }
+    static vectorized::Decimal128I min() { return -max(); }
+};
+
+template <>
+struct type_limit<vectorized::Decimal128> {
+    static vectorized::Decimal128 max() {
+        return (static_cast<int128_t>(999999999999999999ll) * 100000000000000000ll * 1000ll +
+                static_cast<int128_t>(99999999999999999ll) * 1000ll + 999ll);
+    }
+    static vectorized::Decimal128 min() { return -max(); }
+};
+
+template <>
+struct type_limit<vectorized::VecDateTimeValue> {
+    static vectorized::VecDateTimeValue min() {
+        return vectorized::VecDateTimeValue::datetime_min_value();
+    }
+    static vectorized::VecDateTimeValue max() {
+        return vectorized::VecDateTimeValue::datetime_max_value();
+    }
 };
 
 template <>

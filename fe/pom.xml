@@ -23,7 +23,7 @@ under the License.
     <parent>
         <groupId>org.apache</groupId>
         <artifactId>apache</artifactId>
-        <version>23</version>
+        <version>29</version>
     </parent>
     <groupId>org.apache.doris</groupId>
     <artifactId>fe</artifactId>
@@ -68,6 +68,31 @@ under the License.
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>flatten-maven-plugin</artifactId>
                 <version>1.2.5</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.commonjava.maven.plugins</groupId>
+                <artifactId>directory-maven-plugin</artifactId>
+                <version>0.1</version>
+                <executions>
+                    <execution>
+                        <id>directories</id>
+                        <goals>
+                            <goal>directory-of</goal>
+                        </goals>
+                        <phase>initialize</phase>
+                        <configuration>
+                            <property>fe.dir</property>
+                            <project>
+                                <groupId>org.apache.doris</groupId>
+                                <artifactId>fe</artifactId>
+                            </project>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -133,6 +158,10 @@ under the License.
                         <failsOnError>true</failsOnError>
                         <linkXRef>false</linkXRef>
                         <includeTestSourceDirectory>true</includeTestSourceDirectory>
+                        <excludes>
+                            **/apache/doris/thrift/*,
+                            **/apache/parquet/**/*
+                        </excludes>
                     </configuration>
                     <executions>
                         <execution>
@@ -157,77 +186,110 @@ under the License.
         <module>spark-dpp</module>
         <module>fe-core</module>
         <module>hive-udf</module>
-        <module>java-udf</module>
+        <module>be-java-extensions</module>
     </modules>
     <properties>
-        <doris.home>${basedir}/../</doris.home>
+        <!--suppress UnresolvedMavenProperty -->
+        <doris.thirdparty>${fe.dir}/../thirdparty</doris.thirdparty>
+        <!--suppress UnresolvedMavenProperty -->
+        <doris.home>${fe.dir}/../</doris.home>
+        <revision>1.2-SNAPSHOT</revision>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <doris.hive.catalog.shade.version>1.0.1</doris.hive.catalog.shade.version>
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
+        <!--plugin parameters-->
+        <skip.plugin>false</skip.plugin>
         <sonar.organization>apache</sonar.organization>
         <sonar.host.url>https://sonarcloud.io</sonar.host.url>
-
+        <aspectj.version>1.9.7</aspectj.version>
         <cglib.version>2.2</cglib.version>
         <commons-cli.version>1.4</commons-cli.version>
-        <commons-codec.version>1.9</commons-codec.version>
+        <commons-filerupload.version>1.5</commons-filerupload.version>
+        <commons-codec.version>1.13</commons-codec.version>
         <commons-lang.version>2.6</commons-lang.version>
         <commons-lang3.version>3.9</commons-lang3.version>
         <commons-pool2.version>2.2</commons-pool2.version>
+        <commons-pool.version>1.5.1</commons-pool.version>
+        <commons-text.version>1.10.0</commons-text.version>
         <commons-validator.version>1.7</commons-validator.version>
-        <gson.version>2.8.6</gson.version>
-        <guava.version>29.0-jre</guava.version>
-        <jackson.version>2.12.1</jackson.version>
-        <jackson-mapper-asl.version>1.9.13</jackson-mapper-asl.version>
+        <gson.version>2.8.9</gson.version>
+        <guava.version>32.1.2-jre</guava.version>
+        <jackson.version>2.15.2</jackson.version>
         <java-cup.version>0.11-a-czt02-cdh</java-cup.version>
         <javassist.version>3.18.2-GA</javassist.version>
-        <javax.servlet-api.version>3.0.1</javax.servlet-api.version>
-        <je.version>18.3.13-doris-SNAPSHOT</je.version>
-        <jetty.version>6.1.14</jetty.version>
+        <javax.servlet-api.version>3.1.0</javax.servlet-api.version>
+        <je.version>18.3.14-doris-SNAPSHOT</je.version>
         <jflex.version>1.4.3</jflex.version>
         <jmockit.version>1.49</jmockit.version>
-        <commons-io.version>2.6</commons-io.version>
+        <commons-io.version>2.7</commons-io.version>
         <json-simple.version>1.1.1</json-simple.version>
         <junit.version>5.8.2</junit.version>
-        <thrift.version>0.13.0</thrift.version>
+        <druid.version>1.2.5</druid.version>
+        <clickhouse.version>0.4.6</clickhouse.version>
+        <thrift.version>0.16.0</thrift.version>
+        <tomcat-embed-core.version>8.5.86</tomcat-embed-core.version>
         <log4j2.version>2.18.0</log4j2.version>
+        <log4j-1.2.version>2.18.0</log4j-1.2.version>
+        <slf4j.version>2.0.6</slf4j.version>
         <metrics-core.version>4.0.2</metrics-core.version>
-        <netty-all.version>4.1.42.Final</netty-all.version>
+        <!--Netty 4.1.94 is not compatible with arrow flight.-->
+        <netty-all.version>4.1.96.Final</netty-all.version>
+        <!--The dependence of transitive dependence cannot be ruled out, only Saving the nation through twisted ways.-->
+        <netty-3-test.version>3.10.6.Final</netty-3-test.version>
         <objenesis.version>2.1</objenesis.version>
-        <grpc.version>1.30.0</grpc.version>
-        <protobuf.version>3.14.0</protobuf.version>
+        <!-- NOTE: Using grpc-java whose version is newer than 1.34.0 will break the build on CentOS 6 due to the obsolete GLIBC -->
+        <grpc-java.version>1.34.0</grpc-java.version>
+        <grpc.version>1.58.0</grpc.version>
+        <check.freamework.version>3.38.0</check.freamework.version>
+        <protobuf.version>3.24.3</protobuf.version>
+        <!-- we use protoc-jar-maven-plugin to generate protobuf generated code -->
+        <!-- see https://repo.maven.apache.org/maven2/com/google/protobuf/protoc/ to get correct version -->
+        <protoc.artifact.version>3.24.3</protoc.artifact.version>
+        <protoc.artifact>com.google.protobuf:protoc:${protoc.artifact.version}</protoc.artifact>
+        <grpc.java.artifact>io.grpc:protoc-gen-grpc-java:${grpc-java.version}</grpc.java.artifact>
         <protoparser.version>3.1.5</protoparser.version>
-        <snappy-java.version>1.1.7.2</snappy-java.version>
+        <snappy-java.version>1.1.10.1</snappy-java.version>
         <automaton.version>1.11-8</automaton.version>
         <generex.version>1.0.1</generex.version>
-        <kubernetes-client.version>5.12.2</kubernetes-client.version>
-        <kubernetes-model.version>5.12.2</kubernetes-model.version>
+        <fabric8.kubernetes.version>6.7.2</fabric8.kubernetes.version>
         <logging-interceptor.version>4.7.2</logging-interceptor.version>
-        <okhttp.version>4.7.2</okhttp.version>
-        <okhttp-ws.version>3.4.2</okhttp-ws.version>
-        <okio.version>2.6.0</okio.version>
-        <snakeyaml.version>1.15</snakeyaml.version>
+        <okhttp.version>4.9.3</okhttp.version>
+        <okio.version>3.4.0</okio.version>
+        <snakeyaml.version>2.0</snakeyaml.version>
         <validation-api.version>1.1.0.Final</validation-api.version>
         <zjsonpatch.version>0.2.3</zjsonpatch.version>
-        <slf4j.version>1.7.5</slf4j.version>
-        <kafka-clients.version>0.10.1.1</kafka-clients.version>
-        <oshi-core.version>4.0.0</oshi-core.version>
-        <xnio-nio.version>3.6.5.Final</xnio-nio.version>
+        <kafka-clients.version>3.4.0</kafka-clients.version>
+        <oshi-core.version>6.4.5</oshi-core.version>
+        <xnio-nio.version>3.8.9.Final</xnio-nio.version>
         <javax.annotation-api.version>1.3.2</javax.annotation-api.version>
         <javax.activation.version>1.2.0</javax.activation.version>
         <jaxws-api.version>2.3.0</jaxws-api.version>
         <RoaringBitmap.version>0.8.13</RoaringBitmap.version>
         <spark.version>2.4.6</spark.version>
-        <hive.version>2.3.7</hive.version>
-        <hadoop.version>2.8.0</hadoop.version>
+        <hive.version>3.1.3</hive.version>
+        <hive.common.version>2.3.9</hive.common.version>
+        <hbase.version>2.5.5</hbase.version>
+        <nimbusds.version>9.35</nimbusds.version>
+        <mapreduce.client.version>2.10.1</mapreduce.client.version>
+        <calcite.version>1.33.0</calcite.version>
+        <avatica.version>1.22.0</avatica.version>
         <!-- ATTN: avro version must be consistent with Iceberg version -->
         <!-- Please modify iceberg.version and avro.version together,
          you can find avro version info in iceberg mvn repository -->
-        <iceberg.version>0.12.0</iceberg.version>
-        <avro.version>1.10.1</avro.version>
+        <iceberg.version>1.1.0</iceberg.version>
+        <delta.version>3.0.0rc1</delta.version>
+        <maxcompute.version>0.45.2-public</maxcompute.version>
+        <avro.version>1.11.2</avro.version>
+        <arrow.version>13.0.0</arrow.version>
         <!-- hudi -->
-        <hudi.version>0.10.0</hudi.version>
-        <parquet.version>1.10.1</parquet.version>
+        <hudi.version>0.13.1</hudi.version>
+        <presto.hadoop.version>2.7.4-11</presto.hadoop.version>
+        <presto.hive.version>3.0.0-8</presto.hive.version>
+
+        <parquet.version>1.13.1</parquet.version>
         <commons-collections.version>3.2.2</commons-collections.version>
+        <commons-compress.version>1.22</commons-compress.version>
         <scala.version>2.12.10</scala.version>
         <kryo.version>4.0.2</kryo.version>
         <lombok.version>1.18.24</lombok.version>
@@ -235,35 +297,34 @@ under the License.
         <hamcrest.version>2.1</hamcrest.version>
         <httpclient.version>4.5.13</httpclient.version>
         <httpcore.version>4.4.15</httpcore.version>
-        <aws-java-sdk-s3.version>1.11.95</aws-java-sdk-s3.version>
+        <aws-java-sdk.version>1.12.519</aws-java-sdk.version>
         <mariadb-java-client.version>3.0.4</mariadb-java-client.version>
-
-        <revision>1.0-SNAPSHOT</revision>
+        <dlf-metastore-client-hive.version>0.2.14</dlf-metastore-client-hive.version>
+        <hadoop.version>3.3.6</hadoop.version>
+        <joda.version>2.8.1</joda.version>
         <project.scm.id>github</project.scm.id>
+        <spring.version>2.7.13</spring.version>
+        <orc.version>1.8.4</orc.version>
+        <ojdbc8.version>12.2.0.1</ojdbc8.version>
+        <zookeeper.version>3.4.14</zookeeper.version>
+        <velocity-engine-core.version>2.3</velocity-engine-core.version>
+        <opentelemetry.version>1.26.0</opentelemetry.version>
+        <ranger-plugins-common.version>2.4.0</ranger-plugins-common.version>
+        <bcprov-jdk15on.version>1.70</bcprov-jdk15on.version>
+        <woodstox.version>6.5.1</woodstox.version>
+        <kerby.version>2.0.3</kerby.version>
+        <jettison.version>1.5.4</jettison.version>
+        <vesoft.client.version>3.0.0</vesoft.client.version>
+        <!--todo waiting release-->
+        <quartz.version>2.3.2</quartz.version>
+        <!-- paimon -->
+        <paimon.version>0.4.0-incubating</paimon.version>
+        <disruptor.version>3.4.4</disruptor.version>
+        <!-- arrow flight sql -->
+        <arrow.vector.classifier>shade-format-flatbuffers</arrow.vector.classifier>
+        <flatbuffers.version>1.12.0</flatbuffers.version>
     </properties>
     <profiles>
-        <!-- for custom internal repository -->
-        <profile>
-            <id>custom-env</id>
-            <activation>
-                <property>
-                    <name>env.CUSTOM_MAVEN_REPO</name>
-                </property>
-            </activation>
-            <repositories>
-                <repository>
-                    <id>custom-nexus</id>
-                    <url>${env.CUSTOM_MAVEN_REPO}</url>
-                </repository>
-            </repositories>
-            <pluginRepositories>
-                <pluginRepository>
-                    <id>custom-nexus</id>
-                    <url>${env.CUSTOM_MAVEN_REPO}</url>
-                </pluginRepository>
-            </pluginRepositories>
-        </profile>
-        <!-- for general repository -->
         <profile>
             <id>general-env</id>
             <activation>
@@ -304,11 +365,206 @@ under the License.
     <dependencyManagement>
         <dependencies>
             <dependency>
+                <groupId>org.quartz-scheduler</groupId>
+                <artifactId>quartz</artifactId>
+                <version>${quartz.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.nimbusds</groupId>
+                <artifactId>nimbus-jose-jwt</artifactId>
+                <version>${nimbusds.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.hbase</groupId>
+                <artifactId>hbase-protocol-shaded</artifactId>
+                <version>${hbase.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.hbase</groupId>
+                <artifactId>hbase-server</artifactId>
+                <version>${hbase.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.hbase</groupId>
+                <artifactId>hbase-client</artifactId>
+                <version>${hbase.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.amazonaws</groupId>
+                <artifactId>aws-java-sdk-bundle</artifactId>
+                <version>${aws-java-sdk.version}</version>
+            </dependency>
+            <!-- opentelemetry-->
+            <dependency>
+                <groupId>io.opentelemetry</groupId>
+                <artifactId>opentelemetry-api</artifactId>
+                <version>${opentelemetry.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>io.opentelemetry</groupId>
+                <artifactId>opentelemetry-sdk</artifactId>
+                <version>${opentelemetry.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>io.opentelemetry</groupId>
+                <artifactId>opentelemetry-exporter-otlp</artifactId>
+                <version>${opentelemetry.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.opentelemetry</groupId>
+                <artifactId>opentelemetry-exporter-zipkin</artifactId>
+                <version>${opentelemetry.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.orc</groupId>
+                <artifactId>orc-core</artifactId>
+                <version>${orc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-starter</artifactId>
+                <version>${spring.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>log4j</groupId>
+                        <artifactId>*</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.slf4j</groupId>
+                        <artifactId>*</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.apache.logging.log4j</groupId>
+                        <artifactId>*</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>ch.qos.logback</groupId>
+                        <artifactId>logback-classic</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.apache.logging.log4j</groupId>
+                        <artifactId>log4j-slf4j-impl</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+            <!-- woodstox -->
+            <dependency>
+                <groupId>com.fasterxml.woodstox</groupId>
+                <artifactId>woodstox-core</artifactId>
+                <version>${woodstox.version}</version>
+            </dependency>
+            <!-- bcprov-jdk15on -->
+            <dependency>
+                <groupId>org.bouncycastle</groupId>
+                <artifactId>bcprov-jdk15on</artifactId>
+                <version>${bcprov-jdk15on.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-dependencies</artifactId>
+                <version>${spring.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-devtools</artifactId>
+                <version>${spring.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-starter-data-ldap</artifactId>
+                <version>${spring.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-starter-jetty</artifactId>
+                <version>${spring.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-configuration-processor</artifactId>
+                <version>${spring.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-starter-web</artifactId>
+                <version>${spring.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>validator</groupId>
+                        <artifactId>hibernate-validator</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>ch.qos.logback</groupId>
+                        <artifactId>logback-classic</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.slf4j</groupId>
+                        <artifactId>slf4j-log4j12</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.apache.logging.log4j</groupId>
+                        <artifactId>log4j-slf4j-impl</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.springframework.boot</groupId>
+                        <artifactId>spring-boot-starter-tomcat</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+            <dependency>
                 <groupId>org.apache.hadoop</groupId>
                 <artifactId>hadoop-client</artifactId>
-                <version>2.8.0</version>
-                <scope>compile</scope>
+                <version>${hadoop.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>javax.servlet</groupId>
+                        <artifactId>servlet-api</artifactId>
+                    </exclusion>
+                </exclusions>
             </dependency>
+            <dependency>
+                <groupId>org.apache.hadoop</groupId>
+                <artifactId>hadoop-auth</artifactId>
+                <version>${hadoop.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.hadoop</groupId>
+                <artifactId>hadoop-aliyun</artifactId>
+                <version>${hadoop.version}</version>
+                <exclusions>
+                    <!-- pls confirm if this is a mandatory dependency  -->
+                    <exclusion>
+                        <groupId>org.ini4j</groupId>
+                        <artifactId>ini4j</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.doris</groupId>
+                <artifactId>hive-catalog-shade</artifactId>
+                <version>${doris.hive.catalog.shade.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.kerby</groupId>
+                <artifactId>kerb-simplekdc</artifactId>
+                <version>${kerby.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.kerby</groupId>
+                <artifactId>kerb-core</artifactId>
+                <version>${kerby.version}</version>
+            </dependency>
+            <!-- https://mvnrepository.com/artifact/org.apache.zookeeper/zookeeper -->
+            <dependency>
+                <groupId>org.apache.zookeeper</groupId>
+                <artifactId>zookeeper</artifactId>
+                <version>${zookeeper.version}</version>
+            </dependency>
+
             <dependency>
                 <groupId>${project.groupId}</groupId>
                 <artifactId>fe-common</artifactId>
@@ -331,6 +587,13 @@ under the License.
                 <artifactId>commons-cli</artifactId>
                 <version>${commons-cli.version}</version>
             </dependency>
+
+            <dependency>
+                <groupId>commons-fileupload</groupId>
+                <artifactId>commons-fileupload</artifactId>
+                <version>${commons-filerupload.version}</version>
+            </dependency>
+
             <!-- https://mvnrepository.com/artifact/commons-codec/commons-codec -->
             <dependency>
                 <groupId>commons-codec</groupId>
@@ -356,6 +619,16 @@ under the License.
                 <artifactId>commons-pool2</artifactId>
                 <version>${commons-pool2.version}</version>
             </dependency>
+            <dependency>
+                <groupId>commons-pool</groupId>
+                <artifactId>commons-pool</artifactId>
+                <version>${commons-pool.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-text</artifactId>
+                <version>${commons-text.version}</version>
+            </dependency>
             <!-- https://mvnrepository.com/artifact/commons-validator/commons-validator -->
             <dependency>
                 <groupId>commons-validator</groupId>
@@ -380,11 +653,10 @@ under the License.
                 <artifactId>jackson</artifactId>
                 <version>${jackson.version}</version>
             </dependency>
-            <!-- https://mvnrepository.com/artifact/org.codehaus.jackson/jackson-mapper-asl -->
             <dependency>
-                <groupId>org.codehaus.jackson</groupId>
-                <artifactId>jackson-mapper-asl</artifactId>
-                <version>${jackson-mapper-asl.version}</version>
+                <groupId>com.fasterxml.jackson.core</groupId>
+                <artifactId>jackson-core</artifactId>
+                <version>${jackson.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/net.sourceforge.czt.dev/java-cup -->
             <dependency>
@@ -403,24 +675,11 @@ under the License.
                 <groupId>javax.servlet</groupId>
                 <artifactId>javax.servlet-api</artifactId>
                 <version>${javax.servlet-api.version}</version>
-                <scope>provided</scope>
             </dependency>
             <dependency>
                 <groupId>org.apache.doris</groupId>
                 <artifactId>je</artifactId>
                 <version>${je.version}</version>
-            </dependency>
-            <!-- https://mvnrepository.com/artifact/org.mortbay.jetty/jetty -->
-            <dependency>
-                <groupId>org.mortbay.jetty</groupId>
-                <artifactId>jetty</artifactId>
-                <version>${jetty.version}</version>
-            </dependency>
-            <!-- https://mvnrepository.com/artifact/org.mortbay.jetty/jetty-util -->
-            <dependency>
-                <groupId>org.mortbay.jetty</groupId>
-                <artifactId>jetty-util</artifactId>
-                <version>${jetty.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/de.jflex/jflex -->
             <dependency>
@@ -445,6 +704,11 @@ under the License.
                 <artifactId>json-simple</artifactId>
                 <version>${json-simple.version}</version>
             </dependency>
+            <dependency>
+                <groupId>com.oracle.database.jdbc</groupId>
+                <artifactId>ojdbc8</artifactId>
+                <version>${ojdbc8.version}</version>
+            </dependency>
             <!-- https://mvnrepository.com/artifact/org.junit.jupiter/junit-jupiter-engine -->
             <dependency>
                 <groupId>org.junit.jupiter</groupId>
@@ -456,6 +720,13 @@ under the License.
             <dependency>
                 <groupId>org.junit.vintage</groupId>
                 <artifactId>junit-vintage-engine</artifactId>
+                <version>${junit.version}</version>
+                <scope>test</scope>
+            </dependency>
+            <!-- https://mvnrepository.com/artifact/org.junit.jupiter/junit-jupiter-params -->
+            <dependency>
+                <groupId>org.junit.jupiter</groupId>
+                <artifactId>junit-jupiter-params</artifactId>
                 <version>${junit.version}</version>
                 <scope>test</scope>
             </dependency>
@@ -476,23 +747,41 @@ under the License.
                     </exclusion>
                 </exclusions>
             </dependency>
-            <!-- https://mvnrepository.com/artifact/org.apache.logging.log4j/log4j-api -->
-            <dependency>
-                <groupId>org.apache.logging.log4j</groupId>
-                <artifactId>log4j-api</artifactId>
-                <version>${log4j2.version}</version>
-            </dependency>
-            <!-- https://mvnrepository.com/artifact/org.apache.logging.log4j/log4j-core -->
             <dependency>
                 <groupId>org.apache.logging.log4j</groupId>
                 <artifactId>log4j-core</artifactId>
                 <version>${log4j2.version}</version>
             </dependency>
-            <!-- https://mvnrepository.com/artifact/org.apache.logging.log4j/log4j-slf4j-impl -->
             <dependency>
                 <groupId>org.apache.logging.log4j</groupId>
                 <artifactId>log4j-slf4j-impl</artifactId>
                 <version>${log4j2.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>org.apache.logging.log4j</groupId>
+                        <artifactId>log4j-core</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>org.slf4j</groupId>
+                <artifactId>jcl-over-slf4j</artifactId>
+                <version>${slf4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.slf4j</groupId>
+                <artifactId>log4j-over-slf4j</artifactId>
+                <version>${slf4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.logging.log4j</groupId>
+                <artifactId>log4j-api</artifactId>
+                <version>${log4j2.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.lmax</groupId>
+                <artifactId>disruptor</artifactId>
+                <version>${disruptor.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/io.dropwizard.metrics/metrics-core -->
             <dependency>
@@ -500,22 +789,108 @@ under the License.
                 <artifactId>metrics-core</artifactId>
                 <version>${metrics-core.version}</version>
             </dependency>
-            <!-- https://mvnrepository.com/artifact/io.netty/netty-all -->
+            <!-- netty dependencies -->
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty</artifactId>
+                <scope>test</scope>
+                <version>${netty-3-test.version}</version>
+            </dependency>
             <dependency>
                 <groupId>io.netty</groupId>
                 <artifactId>netty-all</artifactId>
                 <version>${netty-all.version}</version>
             </dependency>
-            <!-- https://mvnrepository.com/artifact/org.objenesis/objenesis -->
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-buffer</artifactId>
+                <version>${netty-all.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-common</artifactId>
+                <version>${netty-all.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-codec</artifactId>
+                <version>${netty-all.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-codec-memcache</artifactId>
+                <version>${netty-all.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-codec-mqtt</artifactId>
+                <version>${netty-all.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-transport</artifactId>
+                <version>${netty-all.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-codec-http</artifactId>
+                <version>${netty-all.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-codec-http2</artifactId>
+                <version>${netty-all.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-resolver</artifactId>
+                <version>${netty-all.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-handler</artifactId>
+                <version>${netty-all.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-transport-classes-epoll</artifactId>
+                <version>${netty-all.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-transport-native-unix-common</artifactId>
+                <version>${netty-all.version}</version>
+            </dependency>
+            <!-- velocity-engine-core dependency-->
+            <dependency>
+                <groupId>org.apache.velocity</groupId>
+                <artifactId>velocity-engine-core</artifactId>
+                <version>${velocity-engine-core.version}</version>
+            </dependency>
+            <!-- ranger-plugins-common -->
+            <dependency>
+                <groupId>org.apache.ranger</groupId>
+                <artifactId>ranger-plugins-common</artifactId>
+                <version>${ranger-plugins-common.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>ch.qos.logback</groupId>
+                        <artifactId>logback-classic</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <artifactId>elasticsearch-rest-high-level-client</artifactId>
+                        <groupId>org.elasticsearch.client</groupId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.apache.hive</groupId>
+                        <artifactId>hive-storage-api</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
             <dependency>
                 <groupId>org.objenesis</groupId>
                 <artifactId>objenesis</artifactId>
                 <version>${objenesis.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.grpc</groupId>
-                <artifactId>grpc-netty-shaded</artifactId>
-                <version>${grpc.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.grpc</groupId>
@@ -527,11 +902,21 @@ under the License.
                 <artifactId>grpc-stub</artifactId>
                 <version>${grpc.version}</version>
             </dependency>
+            <dependency>
+                <groupId>io.grpc</groupId>
+                <artifactId>grpc-core</artifactId>
+                <version>${grpc.version}</version>
+            </dependency>
             <!-- https://mvnrepository.com/artifact/com.google.protobuf/protobuf-java -->
             <dependency>
                 <groupId>com.google.protobuf</groupId>
                 <artifactId>protobuf-java</artifactId>
                 <version>${protobuf.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.checkerframework</groupId>
+                <artifactId>checker</artifactId>
+                <version>${check.freamework.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/com.squareup/protoparser -->
             <dependency>
@@ -586,13 +971,13 @@ under the License.
             <dependency>
                 <groupId>io.fabric8</groupId>
                 <artifactId>kubernetes-client</artifactId>
-                <version>${kubernetes-client.version}</version>
+                <version>${fabric8.kubernetes.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/io.fabric8/kubernetes-model -->
             <dependency>
                 <groupId>io.fabric8</groupId>
                 <artifactId>kubernetes-model</artifactId>
-                <version>${kubernetes-model.version}</version>
+                <version>${fabric8.kubernetes.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/com.squareup.okhttp3/logging-interceptor -->
             <dependency>
@@ -605,12 +990,6 @@ under the License.
                 <groupId>com.squareup.okhttp3</groupId>
                 <artifactId>okhttp</artifactId>
                 <version>${okhttp.version}</version>
-            </dependency>
-            <!-- https://mvnrepository.com/artifact/com.squareup.okhttp3/okhttp-ws -->
-            <dependency>
-                <groupId>com.squareup.okhttp3</groupId>
-                <artifactId>okhttp-ws</artifactId>
-                <version>${okhttp-ws.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/com.squareup.okio/okio -->
             <dependency>
@@ -633,8 +1012,18 @@ under the License.
             <!-- https://mvnrepository.com/artifact/org.slf4j/slf4j-api -->
             <dependency>
                 <groupId>org.slf4j</groupId>
-                <artifactId>slf4j-api</artifactId>
+                <artifactId>slf4j-1.2-api</artifactId>
+                <version>${slf4j-1.2.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.slf4j</groupId>
+                <artifactId>slf4j-log4j12</artifactId>
                 <version>${slf4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.logging.log4j</groupId>
+                <artifactId>log4j-1.2-api</artifactId>
+                <version>${log4j-1.2.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.kafka</groupId>
@@ -683,6 +1072,7 @@ under the License.
                 <groupId>org.apache.spark</groupId>
                 <artifactId>spark-core_2.12</artifactId>
                 <version>${spark.version}</version>
+                <scope>provided</scope>
                 <exclusions>
                     <exclusion>
                         <groupId>log4j</groupId>
@@ -692,6 +1082,14 @@ under the License.
                         <groupId>org.slf4j</groupId>
                         <artifactId>slf4j-log4j12</artifactId>
                     </exclusion>
+                    <exclusion>
+                        <groupId>org.eclipse.jetty</groupId>
+                        <artifactId>jetty-util</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>io.netty</groupId>
+                        <artifactId>netty</artifactId>
+                    </exclusion>
                 </exclusions>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.apache.spark/spark-launcher_2.12 -->
@@ -699,73 +1097,44 @@ under the License.
                 <groupId>org.apache.spark</groupId>
                 <artifactId>spark-launcher_2.12</artifactId>
                 <version>${spark.version}</version>
+                <scope>provided</scope>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.apache.spark/spark-sql_2.12 -->
             <dependency>
                 <groupId>org.apache.spark</groupId>
                 <artifactId>spark-sql_2.12</artifactId>
                 <version>${spark.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>org.apache.arrow</groupId>
+                        <artifactId>arrow-vector</artifactId>
+                    </exclusion>
+                </exclusions>
                 <scope>provided</scope>
             </dependency>
             <dependency>
-                <groupId>org.apache.hive</groupId>
-                <artifactId>hive-metastore</artifactId>
-                <version>${hive.version}</version>
+                <groupId>org.apache.spark</groupId>
+                <artifactId>spark-tags_2.12</artifactId>
+                <version>${spark.version}</version>
                 <scope>provided</scope>
-                <exclusions>
-                    <exclusion>
-                        <artifactId>servlet-api</artifactId>
-                        <groupId>javax.servlet</groupId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>jdk.tools</groupId>
-                        <artifactId>jdk.tools</artifactId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>org.apache.logging.log4j</groupId>
-                        <artifactId>log4j-1.2-api</artifactId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>tomcat</groupId>
-                        <artifactId>jasper-compiler</artifactId>
-                    </exclusion>
-                    <!-- confilict with parquet version in iceberg -->
-                    <exclusion>
-                        <groupId>org.apache.parquet</groupId>
-                        <artifactId>parquet-hadoop-bundle</artifactId>
-                    </exclusion>
-                </exclusions>
             </dependency>
-            <dependency>
-                <groupId>org.apache.hive</groupId>
-                <artifactId>hive-exec</artifactId>
-                <classifier>core</classifier>
-                <version>${hive.version}</version>
-                <scope>provided</scope>
-                <exclusions>
-                    <exclusion>
-                        <groupId>org.apache.logging.log4j</groupId>
-                        <artifactId>log4j-1.2-api</artifactId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>org.codehaus.groovy</groupId>
-                        <artifactId>groovy-all</artifactId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>org.pentaho</groupId>
-                        <artifactId>*</artifactId>
-                    </exclusion>
-                </exclusions>
-            </dependency>
+
             <dependency>
                 <groupId>org.apache.hadoop</groupId>
                 <artifactId>hadoop-hdfs</artifactId>
                 <version>${hadoop.version}</version>
-                <scope>provided</scope>
                 <exclusions>
                     <exclusion>
                         <artifactId>servlet-api</artifactId>
                         <groupId>javax.servlet</groupId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>io.netty</groupId>
+                        <artifactId>netty</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <artifactId>jackson-databind</artifactId>
+                        <groupId>com.fasterxml.jackson.core</groupId>
                     </exclusion>
                 </exclusions>
             </dependency>
@@ -788,22 +1157,63 @@ under the License.
                     </exclusion>
                     <!-- https://github.com/aws/aws-sdk-java/issues/1032 -->
                     <exclusion>
-                        <artifactId>com.amazonaws</artifactId>
-                        <groupId>aws-java-sdk-s3</groupId>
+                        <groupId>com.amazonaws</groupId>
+                        <artifactId>aws-java-sdk-s3</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>com.amazonaws</groupId>
+                        <artifactId>aws-java-sdk-bundle</artifactId>
                     </exclusion>
                 </exclusions>
             </dependency>
             <dependency>
                 <groupId>org.apache.hadoop</groupId>
+                <artifactId>hadoop-distcp</artifactId>
+                <version>${hadoop.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.hadoop</groupId>
                 <artifactId>hadoop-common</artifactId>
                 <version>${hadoop.version}</version>
-                <scope>provided</scope>
                 <exclusions>
                     <exclusion>
                         <groupId>jdk.tools</groupId>
                         <artifactId>jdk.tools</artifactId>
                     </exclusion>
+                    <exclusion>
+                        <groupId>org.eclipse.jetty</groupId>
+                        <artifactId>jetty-util</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.eclipse.jetty</groupId>
+                        <artifactId>jetty-servlet</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>io.netty</groupId>
+                        <artifactId>netty-all</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>log4j</groupId>
+                        <artifactId>log4j</artifactId>
+                    </exclusion>
                 </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.hadoop</groupId>
+                <artifactId>hadoop-mapreduce-client</artifactId>
+                <version>${hadoop.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>javax.servlet</groupId>
+                        <artifactId>servlet-api</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+            <!-- jettison -->
+            <dependency>
+                <groupId>org.codehaus.jettison</groupId>
+                <artifactId>jettison</artifactId>
+                <version>${jettison.version}</version>
             </dependency>
 
             <!-- https://mvnrepository.com/artifact/org.apache.iceberg/iceberg-core -->
@@ -812,26 +1222,66 @@ under the License.
                 <artifactId>iceberg-core</artifactId>
                 <version>${iceberg.version}</version>
             </dependency>
-
-            <!-- https://mvnrepository.com/artifact/org.apache.iceberg/iceberg-hive-metastore -->
             <dependency>
                 <groupId>org.apache.iceberg</groupId>
-                <artifactId>iceberg-hive-metastore</artifactId>
+                <artifactId>iceberg-aws</artifactId>
                 <version>${iceberg.version}</version>
             </dependency>
-
+            <dependency>
+                <groupId>com.aliyun.odps</groupId>
+                <artifactId>odps-sdk-core</artifactId>
+                <version>${maxcompute.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>org.apache.arrow</groupId>
+                        <artifactId>arrow-vector</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
             <!-- For Iceberg, must be consistent with Iceberg version -->
             <dependency>
                 <groupId>org.apache.avro</groupId>
                 <artifactId>avro</artifactId>
                 <version>${avro.version}</version>
             </dependency>
-
+            <dependency>
+                <groupId>org.apache.avro</groupId>
+                <artifactId>avro-ipc</artifactId>
+                <version>${avro.version}</version>
+            </dependency>
             <!-- https://mvnrepository.com/artifact/org.apache.hudi/hudi-common -->
             <dependency>
                 <groupId>org.apache.hudi</groupId>
                 <artifactId>hudi-common</artifactId>
                 <version>${hudi.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <artifactId>commons-httpclient</artifactId>
+                        <groupId>commons-httpclient</groupId>
+                    </exclusion>
+                    <exclusion>
+                        <artifactId>netty-all</artifactId>
+                        <groupId>io.netty</groupId>
+                    </exclusion>
+                    <exclusion>
+                        <artifactId>log4j</artifactId>
+                        <groupId>log4j</groupId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.apache.hive</groupId>
+                        <artifactId>hive-storage-api</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>org.aspectj</groupId>
+                <artifactId>aspectjweaver</artifactId>
+                <version>${aspectj.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.aspectj</groupId>
+                <artifactId>aspectjrt</artifactId>
+                <version>${aspectj.version}</version>
             </dependency>
 
             <!-- https://mvnrepository.com/artifact/org.apache.hudi/hudi-hadoop-mr -->
@@ -840,30 +1290,36 @@ under the License.
                 <artifactId>hudi-hadoop-mr</artifactId>
                 <version>${hudi.version}</version>
             </dependency>
+            <dependency>
+                <groupId>org.apache.parquet</groupId>
+                <artifactId>parquet-avro</artifactId>
+                <version>${parquet.version}</version>
+            </dependency>
 
             <dependency>
                 <groupId>org.apache.parquet</groupId>
                 <artifactId>parquet-column</artifactId>
                 <version>${parquet.version}</version>
-                <scope>provided</scope>
             </dependency>
             <dependency>
                 <groupId>org.apache.parquet</groupId>
                 <artifactId>parquet-hadoop</artifactId>
                 <version>${parquet.version}</version>
-                <scope>provided</scope>
             </dependency>
             <dependency>
                 <groupId>org.apache.parquet</groupId>
                 <artifactId>parquet-common</artifactId>
                 <version>${parquet.version}</version>
-                <scope>provided</scope>
             </dependency>
             <dependency>
                 <groupId>commons-collections</groupId>
                 <artifactId>commons-collections</artifactId>
                 <version>${commons-collections.version}</version>
-                <scope>compile</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-compress</artifactId>
+                <version>${commons-compress.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.scala-lang</groupId>
@@ -875,7 +1331,6 @@ under the License.
                 <groupId>com.esotericsoftware</groupId>
                 <artifactId>kryo-shaded</artifactId>
                 <version>${kryo.version}</version>
-                <scope>compile</scope>
             </dependency>
             <dependency>
                 <groupId>org.apache.spark</groupId>
@@ -914,15 +1369,200 @@ under the License.
             <dependency>
                 <groupId>com.amazonaws</groupId>
                 <artifactId>aws-java-sdk-s3</artifactId>
-                <version>${aws-java-sdk-s3.version}</version>
+                <version>${aws-java-sdk.version}</version>
             </dependency>
-            <dependency> 
+            <dependency>
+                <groupId>com.amazonaws</groupId>
+                <artifactId>aws-java-sdk-glue</artifactId>
+                <version>${aws-java-sdk.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.amazonaws</groupId>
+                <artifactId>aws-java-sdk-dynamodb</artifactId>
+                <version>${aws-java-sdk.version}</version>
+            </dependency>
+            <dependency>
                 <groupId>org.mariadb.jdbc</groupId>
                 <artifactId>mariadb-java-client</artifactId>
                 <version>${mariadb-java-client.version}</version>
             </dependency>
+            <dependency>
+                <groupId>com.aliyun.datalake</groupId>
+                <artifactId>metastore-client-hive3</artifactId>
+                <version>${dlf-metastore-client-hive.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.hive</groupId>
+                <artifactId>hive-common</artifactId>
+                <version>${hive.common.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>log4j</groupId>
+                        <artifactId>log4j</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>io.netty</groupId>
+                        <artifactId>netty</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.eclipse.jetty.aggregate</groupId>
+                        <artifactId>jetty-all</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.hadoop</groupId>
+                <artifactId>hadoop-mapreduce-client-core</artifactId>
+                <version>${hadoop.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>javax.servlet</groupId>
+                        <artifactId>servlet-api</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>io.netty</groupId>
+                        <artifactId>netty</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.hadoop</groupId>
+                <artifactId>hadoop-mapreduce-client-common</artifactId>
+                <version>${hadoop.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>io.netty</groupId>
+                        <artifactId>netty</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>com.alibaba</groupId>
+                <artifactId>druid</artifactId>
+                <version>${druid.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.clickhouse</groupId>
+                <artifactId>clickhouse-jdbc</artifactId>
+                <version>${clickhouse.version}</version>
+                <scope>provided</scope>
+                <classifier>all</classifier>
+            </dependency>
+            <!-- https://mvnrepository.com/artifact/joda-time/joda-time -->
+            <dependency>
+                <groupId>joda-time</groupId>
+                <artifactId>joda-time</artifactId>
+                <version>${joda.version}</version>
+            </dependency>
+            <!--tomcat-->
+            <dependency>
+                <groupId>org.apache.tomcat.embed</groupId>
+                <artifactId>tomcat-embed-core</artifactId>
+                <version>${tomcat-embed-core.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.vesoft</groupId>
+                <artifactId>client</artifactId>
+                <version>${vesoft.client.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.grpc</groupId>
+                <artifactId>grpc-netty</artifactId>
+                <version>${grpc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.grpc</groupId>
+                <artifactId>grpc-core</artifactId>
+                <version>${grpc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.grpc</groupId>
+                <artifactId>grpc-context</artifactId>
+                <version>${grpc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-tcnative-boringssl-static</artifactId>
+            </dependency>
+            <dependency>
+                <groupId>io.grpc</groupId>
+                <artifactId>grpc-api</artifactId>
+                <version>${grpc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.google.flatbuffers</groupId>
+                <artifactId>flatbuffers-java</artifactId>
+                <version>${flatbuffers.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.arrow</groupId>
+                <artifactId>arrow-vector</artifactId>
+                <version>${arrow.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.arrow</groupId>
+                <artifactId>arrow-memory-netty</artifactId>
+                <version>${arrow.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.arrow</groupId>
+                <artifactId>flight-core</artifactId>
+                <version>${arrow.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.arrow</groupId>
+                <artifactId>flight-sql</artifactId>
+                <version>${arrow.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.arrow</groupId>
+                <artifactId>arrow-memory-core</artifactId>
+                <version>${arrow.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.arrow</groupId>
+                <artifactId>arrow-jdbc</artifactId>
+                <version>${arrow.version}</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
+    <dependencies>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-slf4j-impl</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-1.2-api</artifactId>
+        </dependency>
+        <!-- test dependency -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-engine</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.vintage</groupId>
+            <artifactId>junit-vintage-engine</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-params</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.jmockit</groupId>
+            <artifactId>jmockit</artifactId>
+        </dependency>
+        <!-- should be used in test scope -->
+        <dependency>
+            <groupId>org.awaitility</groupId>
+            <artifactId>awaitility</artifactId>
+        </dependency>
+
+    </dependencies>
     <reporting>
         <plugins>
             <plugin>
@@ -931,4 +1571,15 @@ under the License.
             </plugin>
         </plugins>
     </reporting>
+    <repositories>
+        <!--todo waiting hive-catalog release-->
+        <repository>
+            <id>snapshots</id>
+            <name>apache snapshots maven repo https</name>
+            <url>https://repository.apache.org/content/repositories/snapshots/</url>
+            <snapshots>
+                <updatePolicy>always</updatePolicy>
+            </snapshots>
+        </repository>
+    </repositories>
 </project>

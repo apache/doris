@@ -21,17 +21,16 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SortInfo;
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TExchangeNode;
+import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
-import org.apache.doris.thrift.TSortInfo;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.MoreObjects.ToStringHelper;
@@ -39,6 +38,8 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.util.Collections;
 
 /**
  * Receiver side of a 1:n data stream. Logically, an ExchangeNode consumes the data
@@ -62,9 +63,19 @@ public class ExchangeNode extends PlanNode {
     // exchange node. Null if this exchange does not merge sorted streams
     private SortInfo mergeInfo;
 
-    // Offset after which the exchange begins returning rows. Currently valid
-    // only if mergeInfo_ is non-null, i.e. this is a merging exchange node.
-    private long offset;
+    private boolean isRightChildOfBroadcastHashJoin = false;
+
+    /**
+     * use for Nereids only.
+     */
+    public ExchangeNode(PlanNodeId id, PlanNode inputNode) {
+        super(id, inputNode, EXCHANGE_NODE, StatisticalType.EXCHANGE_NODE);
+        offset = 0;
+        limit = -1;
+        this.conjuncts = Collections.emptyList();
+        children.add(inputNode);
+        computeTupleIds();
+    }
 
     /**
      * Create ExchangeNode that consumes output of inputNode.
@@ -82,6 +93,9 @@ public class ExchangeNode extends PlanNode {
         if (inputNode.getFragment().isPartitioned()) {
             limit = inputNode.limit;
         }
+        if (!(inputNode instanceof ExchangeNode)) {
+            offset = inputNode.offset;
+        }
         computeTupleIds();
     }
 
@@ -94,10 +108,23 @@ public class ExchangeNode extends PlanNode {
 
     @Override
     public final void computeTupleIds() {
-        clearTupleIds();
-        tupleIds.addAll(getChild(0).getTupleIds());
-        tblRefIds.addAll(getChild(0).getTblRefIds());
-        nullableTupleIds.addAll(getChild(0).getNullableTupleIds());
+        PlanNode inputNode = getChild(0);
+        TupleDescriptor outputTupleDesc = inputNode.getOutputTupleDesc();
+        updateTupleIds(outputTupleDesc);
+    }
+
+    public void updateTupleIds(TupleDescriptor outputTupleDesc) {
+        if (outputTupleDesc != null) {
+            tupleIds.clear();
+            tupleIds.add(outputTupleDesc.getId());
+            tblRefIds.add(outputTupleDesc.getId());
+            nullableTupleIds.add(outputTupleDesc.getId());
+        } else {
+            clearTupleIds();
+            tupleIds.addAll(getChild(0).getTupleIds());
+            tblRefIds.addAll(getChild(0).getTblRefIds());
+            nullableTupleIds.addAll(getChild(0).getNullableTupleIds());
+        }
     }
 
     @Override
@@ -114,10 +141,14 @@ public class ExchangeNode extends PlanNode {
     protected void computeStats(Analyzer analyzer) throws UserException {
         Preconditions.checkState(children.size() == 1);
         StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = statsDeriveResult.getRowCount();
+        cardinality = (long) statsDeriveResult.getRowCount();
         if (LOG.isDebugEnabled()) {
             LOG.debug("stats Exchange:" + id + ", cardinality: " + cardinality);
         }
+    }
+
+    public SortInfo getMergeInfo() {
+        return mergeInfo;
     }
 
     /**
@@ -126,19 +157,7 @@ public class ExchangeNode extends PlanNode {
      */
     public void setMergeInfo(SortInfo info) {
         this.mergeInfo = info;
-        this.planNodeName = VectorizedUtil.isVectorized() ? "V" + MERGING_EXCHANGE_NODE
-                : MERGING_EXCHANGE_NODE;
-    }
-
-    /**
-     * This function is used to translate PhysicalLimit.
-     * Ignore the offset if this is not a merging exchange node.
-     * @param offset
-     */
-    public void setOffset(long offset) {
-        if (isMergingExchange()) {
-            this.offset = offset;
-        }
+        this.planNodeName =  "V" + MERGING_EXCHANGE_NODE;
     }
 
     @Override
@@ -149,12 +168,9 @@ public class ExchangeNode extends PlanNode {
             msg.exchange_node.addToInputRowTuples(tid.asInt());
         }
         if (mergeInfo != null) {
-            TSortInfo sortInfo = new TSortInfo(
-                    Expr.treesToThrift(mergeInfo.getOrderingExprs()),
-                    mergeInfo.getIsAscOrder(), mergeInfo.getNullsFirst());
-            msg.exchange_node.setSortInfo(sortInfo);
-            msg.exchange_node.setOffset(offset);
+            msg.exchange_node.setSortInfo(mergeInfo.toThrift());
         }
+        msg.exchange_node.setOffset(offset);
     }
 
     @Override
@@ -170,4 +186,16 @@ public class ExchangeNode extends PlanNode {
         return numInstances;
     }
 
+    @Override
+    public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
+        return prefix + "offset: " + offset + "\n";
+    }
+
+    public boolean isRightChildOfBroadcastHashJoin() {
+        return isRightChildOfBroadcastHashJoin;
+    }
+
+    public void setRightChildOfBroadcastHashJoin(boolean value) {
+        isRightChildOfBroadcastHashJoin = value;
+    }
 }

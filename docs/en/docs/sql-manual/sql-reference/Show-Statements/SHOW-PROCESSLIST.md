@@ -46,11 +46,20 @@ illustrate:
 - User: refers to the user who started this thread.
 - Host: Records the IP and port number of the client sending the request. Through this information, when troubleshooting the problem, we can locate which client and which process sent the request.
 - Cluster: Cluster name
-- DB: which database the currently executed command is on. If no database is specified, the value is NULL .
-- Command: refers to the command that the thread is executing at the moment. This is very complicated, and is explained separately below
+- Db: which database the currently executed command is on. If no database is specified, the value is NULL .
+- Command: refers to the command that the thread is executing at the moment. 
 - Time: Indicates the time the thread is in the current state.
-- State: The state of the thread, corresponding to Command, explained separately below.
+- State: The state of the thread, corresponding to Command.
 - Info: Generally recorded is the statement executed by the thread. By default, only the first 100 characters are displayed, that is, the statement you see may be truncated. To see all the information, you need to use show full processlist.
+
+Common Command types are as follows：
+
+- Query: The thread is executing a statement
+- Sleep: is waiting for a client to send it an execute statement
+- Quit: the thread is exiting
+- Kill : The kill statement is being executed to kill the specified thread
+
+Other types can refer to [MySQL official website for explanation](https://dev.mysql.com/doc/refman/5.6/en/thread-commands.html)
 
 ### Example
 

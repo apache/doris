@@ -135,27 +135,30 @@ private:
     }
 
     template <typename T, typename U>
-    static std::enable_if_t<IsDecimalNumber<T> && IsDecimalNumber<U>, Shift> getScales(
-            const DataTypePtr& left_type, const DataTypePtr& right_type) {
+        requires IsDecimalNumber<T> && IsDecimalNumber<U>
+    static Shift getScales(const DataTypePtr& left_type, const DataTypePtr& right_type) {
         const DataTypeDecimal<T>* decimal0 = check_decimal<T>(*left_type);
         const DataTypeDecimal<U>* decimal1 = check_decimal<U>(*right_type);
 
         Shift shift;
         if (decimal0 && decimal1) {
-            auto result_type = decimal_result_type(*decimal0, *decimal1, false, false);
-            shift.a = result_type.scale_factor_for(*decimal0, false);
-            shift.b = result_type.scale_factor_for(*decimal1, false);
-        } else if (decimal0)
+            using Type = std::conditional_t<sizeof(T) >= sizeof(U), T, U>;
+            auto type_ptr = decimal_result_type(*decimal0, *decimal1, false, false, false);
+            const DataTypeDecimal<Type>* result_type = check_decimal<Type>(*type_ptr);
+            shift.a = result_type->scale_factor_for(*decimal0, false);
+            shift.b = result_type->scale_factor_for(*decimal1, false);
+        } else if (decimal0) {
             shift.b = decimal0->get_scale_multiplier();
-        else if (decimal1)
+        } else if (decimal1) {
             shift.a = decimal1->get_scale_multiplier();
+        }
 
         return shift;
     }
 
     template <typename T, typename U>
-    static std::enable_if_t<IsDecimalNumber<T> && !IsDecimalNumber<U>, Shift> getScales(
-            const DataTypePtr& left_type, const DataTypePtr&) {
+        requires(IsDecimalNumber<T> && !IsDecimalNumber<U>)
+    static Shift getScales(const DataTypePtr& left_type, const DataTypePtr&) {
         Shift shift;
         const DataTypeDecimal<T>* decimal0 = check_decimal<T>(*left_type);
         if (decimal0) shift.b = decimal0->get_scale_multiplier();
@@ -163,8 +166,8 @@ private:
     }
 
     template <typename T, typename U>
-    static std::enable_if_t<!IsDecimalNumber<T> && IsDecimalNumber<U>, Shift> getScales(
-            const DataTypePtr&, const DataTypePtr& right_type) {
+        requires(!IsDecimalNumber<T> && IsDecimalNumber<U>)
+    static Shift getScales(const DataTypePtr&, const DataTypePtr& right_type) {
         Shift shift;
         const DataTypeDecimal<U>* decimal1 = check_decimal<U>(*right_type);
         if (decimal1) shift.a = decimal1->get_scale_multiplier();

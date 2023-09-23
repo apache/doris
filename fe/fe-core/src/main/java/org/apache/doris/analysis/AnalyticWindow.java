@@ -41,7 +41,7 @@ public class AnalyticWindow {
             new Boundary(BoundaryType.UNBOUNDED_PRECEDING, null),
             new Boundary(BoundaryType.CURRENT_ROW, null));
 
-    enum Type {
+    public enum Type {
         ROWS("ROWS"),
         RANGE("RANGE");
 
@@ -61,7 +61,7 @@ public class AnalyticWindow {
         }
     }
 
-    enum BoundaryType {
+    public enum BoundaryType {
         UNBOUNDED_PRECEDING("UNBOUNDED PRECEDING"),
         UNBOUNDED_FOLLOWING("UNBOUNDED FOLLOWING"),
         CURRENT_ROW("CURRENT ROW"),
@@ -152,7 +152,7 @@ public class AnalyticWindow {
         }
 
         // c'tor used by clone()
-        private Boundary(BoundaryType type, Expr e, BigDecimal offsetValue) {
+        public Boundary(BoundaryType type, Expr e, BigDecimal offsetValue) {
             Preconditions.checkState(
                     (type.isOffset() && e != null)
                     || (!type.isOffset() && e == null));

@@ -17,11 +17,15 @@
 
 #pragma once
 
-#include "gen_cpp/AgentService_types.h"
-#include "olap/olap_define.h"
+#include <memory>
+
+#include "common/status.h"
 #include "olap/task/engine_task.h"
 
 namespace doris {
+class MemTrackerLimiter;
+class TAlterInvertedIndexReq;
+class TAlterTabletReqV2;
 
 // base class for storage engine
 // add "Engine" as task prefix to prevent duplicate name with agent task
@@ -29,9 +33,8 @@ class EngineAlterTabletTask : public EngineTask {
 public:
     Status execute() override;
 
-public:
     EngineAlterTabletTask(const TAlterTabletReqV2& alter_tablet_request);
-    ~EngineAlterTabletTask() = default;
+    ~EngineAlterTabletTask() override = default;
 
 private:
     const TAlterTabletReqV2& _alter_tablet_req;

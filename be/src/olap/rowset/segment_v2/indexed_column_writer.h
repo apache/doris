@@ -17,17 +17,18 @@
 
 #pragma once
 
+#include <butil/macros.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <stdint.h>
+
 #include <cstddef>
 #include <memory>
-#include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/segment_v2.pb.h"
-#include "gutil/macros.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
-#include "runtime/mem_pool.h"
-#include "util/slice.h"
+#include "util/faststring.h"
+#include "vec/common/arena.h"
 
 namespace doris {
 
@@ -46,6 +47,7 @@ class PageBuilder;
 
 struct IndexedColumnWriterOptions {
     size_t index_page_size = 64 * 1024;
+    size_t data_page_size = 1024 * 1024;
     bool write_ordinal_index = false;
     bool write_value_index = false;
     EncodingTypePB encoding = DEFAULT_ENCODING;
@@ -81,8 +83,10 @@ public:
 
     Status finish(IndexedColumnMetaPB* meta);
 
+    uint64_t disk_size() const { return _disk_size; }
+
 private:
-    Status _finish_current_data_page();
+    Status _finish_current_data_page(size_t& num_val);
 
     Status _flush_index(IndexPageBuilder* index_builder, BTreeMetaPB* meta);
 
@@ -90,10 +94,11 @@ private:
     const TypeInfo* _type_info;
     io::FileWriter* _file_writer;
     // only used for `_first_value`
-    MemPool _mem_pool;
+    vectorized::Arena _arena;
 
     ordinal_t _num_values;
     uint32_t _num_data_pages;
+    uint64_t _disk_size;
     // remember the first value in current page
     faststring _first_value;
     PagePointer _last_data_page;
@@ -108,7 +113,7 @@ private:
     std::unique_ptr<IndexPageBuilder> _value_index_builder;
     // encoder for value index's key
     const KeyCoder* _value_key_coder;
-    std::unique_ptr<BlockCompressionCodec> _compress_codec;
+    BlockCompressionCodec* _compress_codec;
 
     DISALLOW_COPY_AND_ASSIGN(IndexedColumnWriter);
 };

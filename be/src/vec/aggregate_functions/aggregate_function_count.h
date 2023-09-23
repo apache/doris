@@ -20,14 +20,33 @@
 
 #pragma once
 
-#include <array>
+#include <stddef.h>
 
-#include "common/logging.h"
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <memory>
+#include <vector>
+
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_fixed_length_object.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_fixed_length_object.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/io/io_helper.h"
+#include "vec/io/var_int.h"
+
+namespace doris {
+namespace vectorized {
+class Arena;
+class BufferReadable;
+class BufferWritable;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -40,7 +59,7 @@ class AggregateFunctionCount final
         : public IAggregateFunctionDataHelper<AggregateFunctionCountData, AggregateFunctionCount> {
 public:
     AggregateFunctionCount(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper(argument_types_, {}) {}
+            : IAggregateFunctionDataHelper(argument_types_) {}
 
     String get_name() const override { return "count"; }
 
@@ -74,60 +93,102 @@ public:
 
     void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena* arena,
                                  size_t num_rows) const override {
-        auto data = assert_cast<const ColumnUInt64&>(column).get_data().data();
-        auto* dst_data = reinterpret_cast<Data*>(places);
-        for (size_t i = 0; i != num_rows; ++i) {
-            dst_data[i].count = data[i];
-        }
+        auto data = assert_cast<const ColumnFixedLengthObject&>(column).get_data().data();
+        memcpy(places, data, sizeof(Data) * num_rows);
     }
 
     void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,
                              MutableColumnPtr& dst, const size_t num_rows) const override {
-        auto& col = assert_cast<ColumnUInt64&>(*dst);
+        auto& col = assert_cast<ColumnFixedLengthObject&>(*dst);
+        DCHECK(col.item_size() == sizeof(Data))
+                << "size is not equal: " << col.item_size() << " " << sizeof(Data);
         col.resize(num_rows);
         auto* data = col.get_data().data();
         for (size_t i = 0; i != num_rows; ++i) {
-            data[i] = this->data(places[i] + offset).count;
+            *reinterpret_cast<Data*>(&data[sizeof(Data) * i]) =
+                    *reinterpret_cast<Data*>(places[i] + offset);
         }
     }
 
     void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
                                            const size_t num_rows, Arena* arena) const override {
-        auto& col = assert_cast<ColumnUInt64&>(*dst);
-        col.resize(num_rows);
-        col.get_data().assign(num_rows, 1UL);
+        auto& dst_col = assert_cast<ColumnFixedLengthObject&>(*dst);
+        DCHECK(dst_col.item_size() == sizeof(Data))
+                << "size is not equal: " << dst_col.item_size() << " " << sizeof(Data);
+        dst_col.resize(num_rows);
+        auto* data = dst_col.get_data().data();
+        for (size_t i = 0; i != num_rows; ++i) {
+            auto& state = *reinterpret_cast<Data*>(&data[sizeof(Data) * i]);
+            state.count = 1;
+        }
     }
 
     void deserialize_and_merge_from_column(AggregateDataPtr __restrict place, const IColumn& column,
                                            Arena* arena) const override {
-        auto data = assert_cast<const ColumnUInt64&>(column).get_data().data();
+        auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
         const size_t num_rows = column.size();
+        auto* data = reinterpret_cast<const Data*>(col.get_data().data());
         for (size_t i = 0; i != num_rows; ++i) {
-            this->data(place).count += data[i];
+            AggregateFunctionCount::data(place).count += data[i].count;
         }
     }
 
+    void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
+                                                 const IColumn& column, size_t begin, size_t end,
+                                                 Arena* arena) const override {
+        DCHECK(end <= column.size() && begin <= end)
+                << ", begin:" << begin << ", end:" << end << ", column.size():" << column.size();
+        auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
+        auto* data = reinterpret_cast<const Data*>(col.get_data().data());
+        for (size_t i = begin; i <= end; ++i) {
+            doris::vectorized::AggregateFunctionCount::data(place).count += data[i].count;
+        }
+    }
+
+    void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
+                                   AggregateDataPtr rhs, const ColumnString* column, Arena* arena,
+                                   const size_t num_rows) const override {
+        this->deserialize_from_column(rhs, *column, arena, num_rows);
+        DEFER({ this->destroy_vec(rhs, num_rows); });
+        this->merge_vec(places, offset, rhs, arena, num_rows);
+    }
+
+    void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
+                                            AggregateDataPtr rhs, const ColumnString* column,
+                                            Arena* arena, const size_t num_rows) const override {
+        this->deserialize_from_column(rhs, *column, arena, num_rows);
+        DEFER({ this->destroy_vec(rhs, num_rows); });
+        this->merge_vec_selected(places, offset, rhs, arena, num_rows);
+    }
+
     void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
-                                         MutableColumnPtr& dst) const override {
-        auto& col = assert_cast<ColumnUInt64&>(*dst);
-        col.resize(1);
-        reinterpret_cast<Data*>(col.get_data().data())->count = this->data(place).count;
+                                         IColumn& to) const override {
+        auto& col = assert_cast<ColumnFixedLengthObject&>(to);
+        DCHECK(col.item_size() == sizeof(Data))
+                << "size is not equal: " << col.item_size() << " " << sizeof(Data);
+        size_t old_size = col.size();
+        col.resize(old_size + 1);
+        (reinterpret_cast<Data*>(col.get_data().data()) + old_size)->count =
+                AggregateFunctionCount::data(place).count;
     }
 
     MutableColumnPtr create_serialize_column() const override {
-        return ColumnVector<UInt64>::create();
+        return ColumnFixedLengthObject::create(sizeof(Data));
     }
 
-    DataTypePtr get_serialized_type() const override { return std::make_shared<DataTypeUInt64>(); }
+    DataTypePtr get_serialized_type() const override {
+        return std::make_shared<DataTypeFixedLengthObject>();
+    }
 };
 
-/// Simply count number of not-NULL values.
+// TODO: Maybe AggregateFunctionCountNotNullUnary should be a subclass of AggregateFunctionCount
+// Simply count number of not-NULL values.
 class AggregateFunctionCountNotNullUnary final
         : public IAggregateFunctionDataHelper<AggregateFunctionCountData,
                                               AggregateFunctionCountNotNullUnary> {
 public:
     AggregateFunctionCountNotNullUnary(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper(argument_types_, {}) {}
+            : IAggregateFunctionDataHelper(argument_types_) {}
 
     String get_name() const override { return "count"; }
 
@@ -168,51 +229,93 @@ public:
 
     void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena* arena,
                                  size_t num_rows) const override {
-        auto data = assert_cast<const ColumnUInt64&>(column).get_data().data();
-        auto* dst_data = reinterpret_cast<Data*>(places);
-        for (size_t i = 0; i != num_rows; ++i) {
-            dst_data[i].count = data[i];
-        }
+        auto data = assert_cast<const ColumnFixedLengthObject&>(column).get_data().data();
+        memcpy(places, data, sizeof(Data) * num_rows);
     }
 
     void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,
                              MutableColumnPtr& dst, const size_t num_rows) const override {
-        auto& col = assert_cast<ColumnUInt64&>(*dst);
+        auto& col = assert_cast<ColumnFixedLengthObject&>(*dst);
+        DCHECK(col.item_size() == sizeof(Data))
+                << "size is not equal: " << col.item_size() << " " << sizeof(Data);
         col.resize(num_rows);
         auto* data = col.get_data().data();
         for (size_t i = 0; i != num_rows; ++i) {
-            data[i] = this->data(places[i] + offset).count;
+            *reinterpret_cast<Data*>(&data[sizeof(Data) * i]) =
+                    *reinterpret_cast<Data*>(places[i] + offset);
         }
     }
 
     void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
                                            const size_t num_rows, Arena* arena) const override {
-        auto& col = assert_cast<ColumnUInt64&>(*dst);
+        auto& col = assert_cast<ColumnFixedLengthObject&>(*dst);
+        DCHECK(col.item_size() == sizeof(Data))
+                << "size is not equal: " << col.item_size() << " " << sizeof(Data);
         col.resize(num_rows);
-        col.get_data().assign(num_rows, 1UL);
+        auto& data = col.get_data();
+        const ColumnNullable& input_col = assert_cast<const ColumnNullable&>(*columns[0]);
+        for (size_t i = 0; i < num_rows; i++) {
+            auto& state = *reinterpret_cast<Data*>(&data[sizeof(Data) * i]);
+            state.count = !input_col.is_null_at(i);
+        }
     }
 
     void deserialize_and_merge_from_column(AggregateDataPtr __restrict place, const IColumn& column,
                                            Arena* arena) const override {
-        auto data = assert_cast<const ColumnUInt64&>(column).get_data().data();
+        auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
         const size_t num_rows = column.size();
+        auto* data = reinterpret_cast<const Data*>(col.get_data().data());
         for (size_t i = 0; i != num_rows; ++i) {
-            this->data(place).count += data[i];
+            AggregateFunctionCountNotNullUnary::data(place).count += data[i].count;
         }
     }
 
+    void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
+                                                 const IColumn& column, size_t begin, size_t end,
+                                                 Arena* arena) const override {
+        DCHECK(end <= column.size() && begin <= end)
+                << ", begin:" << begin << ", end:" << end << ", column.size():" << column.size();
+        auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
+        auto* data = reinterpret_cast<const Data*>(col.get_data().data());
+        for (size_t i = begin; i <= end; ++i) {
+            doris::vectorized::AggregateFunctionCountNotNullUnary::data(place).count +=
+                    data[i].count;
+        }
+    }
+
+    void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
+                                   AggregateDataPtr rhs, const ColumnString* column, Arena* arena,
+                                   const size_t num_rows) const override {
+        this->deserialize_from_column(rhs, *column, arena, num_rows);
+        DEFER({ this->destroy_vec(rhs, num_rows); });
+        this->merge_vec(places, offset, rhs, arena, num_rows);
+    }
+
+    void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
+                                            AggregateDataPtr rhs, const ColumnString* column,
+                                            Arena* arena, const size_t num_rows) const override {
+        this->deserialize_from_column(rhs, *column, arena, num_rows);
+        DEFER({ this->destroy_vec(rhs, num_rows); });
+        this->merge_vec_selected(places, offset, rhs, arena, num_rows);
+    }
+
     void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
-                                         MutableColumnPtr& dst) const override {
-        auto& col = assert_cast<ColumnUInt64&>(*dst);
+                                         IColumn& to) const override {
+        auto& col = assert_cast<ColumnFixedLengthObject&>(to);
+        DCHECK(col.item_size() == sizeof(Data))
+                << "size is not equal: " << col.item_size() << " " << sizeof(Data);
         col.resize(1);
-        reinterpret_cast<Data*>(col.get_data().data())->count = this->data(place).count;
+        reinterpret_cast<Data*>(col.get_data().data())->count =
+                AggregateFunctionCountNotNullUnary::data(place).count;
     }
 
     MutableColumnPtr create_serialize_column() const override {
-        return ColumnVector<UInt64>::create();
+        return ColumnFixedLengthObject::create(sizeof(Data));
     }
 
-    DataTypePtr get_serialized_type() const override { return std::make_shared<DataTypeUInt64>(); }
+    DataTypePtr get_serialized_type() const override {
+        return std::make_shared<DataTypeFixedLengthObject>();
+    }
 };
 
 } // namespace doris::vectorized

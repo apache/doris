@@ -19,18 +19,20 @@
 // and modified by Doris
 
 #pragma once
-
+#include <butil/macros.h>
 #include <pthread.h>
-#include <syscall.h>
+#include <stdint.h>
 
-#include <atomic>
+#include <functional>
+#include <string>
+#include <utility>
 
 #include "common/status.h"
 #include "gutil/ref_counted.h"
-#include "http/web_page_handler.h"
 #include "util/countdown_latch.h"
 
 namespace doris {
+class WebPageHandler;
 
 class Thread : public RefCountedThreadSafe<Thread> {
 public:
@@ -89,7 +91,11 @@ public:
 
     static void set_self_name(const std::string& name);
 
+#ifndef __APPLE__
     static void set_idle_sched();
+
+    static void set_thread_nice_value();
+#endif
 
     ~Thread();
 

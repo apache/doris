@@ -1,6 +1,6 @@
 ---
 {
-    "title": "使用JDBC同步数据",
+    "title": "使用 Insert 方式同步数据",
     "language": "zh-CN"
 }
 
@@ -24,9 +24,9 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-# 使用JDBC同步数据
+# 使用 Insert 方式同步数据
 
-用户可以通过 JDBC 协议，使用 INSERT 语句进行数据导入。
+用户可以通过 MySQL 协议，使用 INSERT 语句进行数据导入。
 
 INSERT 语句的使用方式和 MySQL 等数据库中 INSERT 语句的使用方式类似。 INSERT 语句支持以下两种语法：
 
@@ -150,7 +150,7 @@ public class DorisJDBCDemo {
 
 2. 批次大小
 
-   因为是在客户端进行批量处理，因此一批次如果过大的话，话占用客户端的内存资源，需关注。
+   因为是在客户端进行批量处理，所以一批次过大的话，会占用客户端的内存资源，需关注。
 
    Doris 后续会支持服务端的 PrepareStatemnt，敬请期待。
 
@@ -160,4 +160,4 @@ public class DorisJDBCDemo {
 
    前面提到，我们建议在使用 INSERT 导入数据时，采用 ”批“ 的方式进行导入，而不是单条插入。
 
-   同时，我们可以为每次 INSERT 操作设置一个 Label。通过 [Label 机制](./load-atomicity.html#label-机制) 可以保证操作的幂等性和原子性，最终做到数据的不丢不重。关于 INSERT 中 Label 的具体用法，可以参阅 [INSERT](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/INSERT.md) 文档。
+   同时，我们可以为每次 INSERT 操作设置一个 Label。通过 [Label 机制](./load-atomicity.md) 可以保证操作的幂等性和原子性，最终做到数据的不丢不重。关于 INSERT 中 Label 的具体用法，可以参阅 [INSERT](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/INSERT.md) 文档。

@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.processor.pre;
 
-
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 

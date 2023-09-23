@@ -19,8 +19,9 @@
 //
 #pragma once
 
-#include <stddef.h>
+// IWYU pragma: no_include <pstl/glue_algorithm_defs.h>
 
+#include <stddef.h>
 #include <algorithm>
 
 using std::copy;
@@ -30,32 +31,36 @@ using std::reverse;
 using std::sort;
 using std::swap;
 #include <iterator>
+
 using std::back_insert_iterator;
 using std::iterator_traits;
 #include <map>
+
 using std::map;
 using std::multimap;
 #include <set>
+
 using std::multiset;
 using std::set;
 #include <string>
+
 using std::string;
 #include <utility>
+
 using std::make_pair;
 using std::pair;
 #include <vector>
-using std::vector;
-#include <common/logging.h>
 
+using std::vector;
+#include "common/logging.h"
 #include <unordered_map>
 #include <unordered_set>
 
 #include "gutil/integral_types.h"
-#include "gutil/logging-inl.h"
 #include "gutil/strings/charset.h"
-#include "gutil/strings/split_internal.h"
 #include "gutil/strings/stringpiece.h"
 #include "gutil/strings/strip.h"
+#include "gutil/strings/split_internal.h" // IWYU pragma: keep
 
 namespace strings {
 
@@ -292,12 +297,12 @@ namespace strings {
 
 // Definitions of the main Split() function.
 template <typename Delimiter>
-inline internal::Splitter<Delimiter> Split(StringPiece text, Delimiter d) {
+internal::Splitter<Delimiter> Split(StringPiece text, Delimiter d) {
     return internal::Splitter<Delimiter>(text, d);
 }
 
 template <typename Delimiter, typename Predicate>
-inline internal::Splitter<Delimiter, Predicate> Split(StringPiece text, Delimiter d, Predicate p) {
+internal::Splitter<Delimiter, Predicate> Split(StringPiece text, Delimiter d, Predicate p) {
     return internal::Splitter<Delimiter, Predicate>(text, d, p);
 }
 
@@ -415,7 +420,7 @@ private:
 // Literal as the default if string-like objects are passed as the delimiter
 // parameter. This is similar to the overloads for Split() below.
 template <typename Delimiter>
-inline LimitImpl<Delimiter> Limit(Delimiter delim, int limit) {
+LimitImpl<Delimiter> Limit(Delimiter delim, int limit) {
     return LimitImpl<Delimiter>(delim, limit);
 }
 
@@ -499,23 +504,22 @@ inline internal::Splitter<delimiter::Literal> Split(StringPiece text, StringPiec
 
 // Same overloads as above, but also including a Predicate argument.
 template <typename Predicate>
-inline internal::Splitter<delimiter::Literal, Predicate> Split(StringPiece text,
-                                                               const char* delimiter, Predicate p) {
+internal::Splitter<delimiter::Literal, Predicate> Split(StringPiece text, const char* delimiter,
+                                                        Predicate p) {
     return internal::Splitter<delimiter::Literal, Predicate>(text, delimiter::Literal(delimiter),
                                                              p);
 }
 
 template <typename Predicate>
-inline internal::Splitter<delimiter::Literal, Predicate> Split(StringPiece text,
-                                                               const string& delimiter,
-                                                               Predicate p) {
+internal::Splitter<delimiter::Literal, Predicate> Split(StringPiece text, const string& delimiter,
+                                                        Predicate p) {
     return internal::Splitter<delimiter::Literal, Predicate>(text, delimiter::Literal(delimiter),
                                                              p);
 }
 
 template <typename Predicate>
-inline internal::Splitter<delimiter::Literal, Predicate> Split(StringPiece text,
-                                                               StringPiece delimiter, Predicate p) {
+internal::Splitter<delimiter::Literal, Predicate> Split(StringPiece text, StringPiece delimiter,
+                                                        Predicate p) {
     return internal::Splitter<delimiter::Literal, Predicate>(text, delimiter::Literal(delimiter),
                                                              p);
 }

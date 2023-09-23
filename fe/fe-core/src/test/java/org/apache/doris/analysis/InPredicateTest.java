@@ -175,7 +175,7 @@ public class InPredicateTest {
         InPredicate union = inPredicate1.union(inPredicate2);
         Assert.assertEquals(slotRef1, union.getChild(0));
         Assert.assertTrue(union.isLiteralChildren());
-        Assert.assertEquals(2, union.getListChildren().size());
+        Assert.assertEquals(3, union.getListChildren().size());
         Assert.assertTrue(union.getListChildren().contains(literalChild1));
         Assert.assertTrue(union.getListChildren().contains(literalChild2));
         Assert.assertTrue(union.getListChildren().contains(literalChild5));

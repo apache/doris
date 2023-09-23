@@ -21,7 +21,7 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
@@ -61,7 +61,7 @@ public class SetUserPropertyStmt extends DdlStmt {
             user = ConnectContext.get().getQualifiedUser();
         } else {
             // If param 'user' is set, check if it need to be full-qualified
-            if (!user.equals(PaloAuth.ROOT_USER) && !user.equals(PaloAuth.ADMIN_USER)) {
+            if (!user.equals(Auth.ROOT_USER) && !user.equals(Auth.ADMIN_USER)) {
                 user = ClusterNamespace.getFullName(getClusterName(), user);
             }
         }

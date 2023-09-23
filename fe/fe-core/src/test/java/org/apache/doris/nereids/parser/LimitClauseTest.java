@@ -17,34 +17,30 @@
 
 package org.apache.doris.nereids.parser;
 
-import org.apache.doris.nereids.exceptions.ParseException;
-
 import org.junit.jupiter.api.Test;
 
 public class LimitClauseTest extends ParserTestBase {
     @Test
     public void testLimit() {
         parsePlan("SELECT b FROM test order by a limit 3 offset 100")
-                .matchesFromRoot(
+                .matches(
                         logicalLimit(
                                 logicalSort()
                         ).when(limit -> limit.getLimit() == 3 && limit.getOffset() == 100)
                 );
 
         parsePlan("SELECT b FROM test order by a limit 100, 3")
-                .matchesFromRoot(
+                .matches(
                         logicalLimit(
                                 logicalSort()
                         ).when(limit -> limit.getLimit() == 3 && limit.getOffset() == 100)
                 );
 
-
         parsePlan("SELECT b FROM test limit 3")
-                .matchesFromRoot(logicalLimit().when(limit -> limit.getLimit() == 3 && limit.getOffset() == 0));
-
+                .matches(logicalLimit().when(limit -> limit.getLimit() == 3 && limit.getOffset() == 0));
 
         parsePlan("SELECT b FROM test order by a limit 3")
-                .matchesFromRoot(
+                .matches(
                         logicalLimit(
                                 logicalSort()
                         ).when(limit -> limit.getLimit() == 3 && limit.getOffset() == 0)
@@ -52,37 +48,18 @@ public class LimitClauseTest extends ParserTestBase {
     }
 
     @Test
-    public void testLimitExceptionCase() {
-        parsePlan("SELECT b FROM test limit 3 offset 100")
-                .assertThrowsExactly(ParseException.class)
-                .assertMessageContains("\n"
-                        + "OFFSET requires an ORDER BY clause(line 1, pos19)\n"
-                        + "\n"
-                        + "== SQL ==\n"
-                        + "SELECT b FROM test limit 3 offset 100\n"
-                        + "-------------------^^^");
-
-        parsePlan("SELECT b FROM test limit 100, 3")
-                .assertThrowsExactly(ParseException.class)
-                .assertMessageContains("\n"
-                        + "OFFSET requires an ORDER BY clause(line 1, pos19)\n"
-                        + "\n"
-                        + "== SQL ==\n"
-                        + "SELECT b FROM test limit 100, 3\n"
-                        + "-------------------^^^");
-    }
-
-    @Test
     public void testNoLimit() {
-        parsePlan("select a from tbl order by x").matchesFromRoot(logicalSort());
+        parsePlan("select a from tbl order by x").matches(logicalSort());
     }
 
     @Test
     public void testNoQueryOrganization() {
         parsePlan("select a from tbl")
-                .matchesFromRoot(
+                .matches(
                         logicalProject(
-                                unboundRelation()
+                                logicalCheckPolicy(
+                                        unboundRelation()
+                                )
                         )
                 );
     }

@@ -15,17 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
+#include <glog/logging.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stddef.h>
 
-#include "common/logging.h"
-#include "gtest/gtest.h"
+#include <memory>
+#include <ostream>
+
+#include "gtest/gtest_pred_impl.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
-#include "vec/aggregate_functions/aggregate_function_topn.h"
+#include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/data_types/data_type.h"
+#include "vec/common/string_buffer.hpp"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/runtime/vdatetime_value.h"
+
+namespace doris {
+namespace vectorized {
+class IColumn;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -43,10 +57,8 @@ public:
                 std::make_shared<DataTypeInt64>(),    std::make_shared<DataTypeString>(),
                 std::make_shared<DataTypeDateTime>(), std::make_shared<DataTypeUInt8>(),
                 std::make_shared<DataTypeUInt8>(),    std::make_shared<DataTypeUInt8>(),
-                std::make_shared<DataTypeUInt8>(),
-        };
-        Array array;
-        agg_function = factory.get("window_funnel", data_types, array, false);
+                std::make_shared<DataTypeUInt8>()};
+        agg_function = factory.get("window_funnel", data_types, false);
         EXPECT_NE(agg_function, nullptr);
     }
 

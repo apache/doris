@@ -20,33 +20,45 @@
 
 #pragma once
 
-#include <sys/resource.h>
-#include <sys/time.h>
+#include <gen_cpp/Metrics_types.h>
+#include <glog/logging.h>
+#include <stdint.h>
 
+#include <algorithm>
 #include <atomic>
 #include <functional>
 #include <iostream>
+#include <map>
+#include <memory>
 #include <mutex>
-#include <thread>
+#include <set>
+#include <string>
+#include <utility>
+#include <vector>
 
-#include "gen_cpp/RuntimeProfile_types.h"
-#include "rapidjson/stringbuffer.h"
-#include "rapidjson/writer.h"
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "util/binary_cast.hpp"
 #include "util/pretty_printer.h"
 #include "util/stopwatch.hpp"
 #include "util/telemetry/telemetry.h"
 
 namespace doris {
+class TRuntimeProfileNode;
+class TRuntimeProfileTree;
 
 // Some macro magic to generate unique ids using __COUNTER__
 #define CONCAT_IMPL(x, y) x##y
 #define MACRO_CONCAT(x, y) CONCAT_IMPL(x, y)
 
+#define ADD_LABEL_COUNTER(profile, name) (profile)->add_counter(name, TUnit::NONE)
 #define ADD_COUNTER(profile, name, type) (profile)->add_counter(name, type)
 #define ADD_TIMER(profile, name) (profile)->add_counter(name, TUnit::TIME_NS)
+#define ADD_CHILD_COUNTER(profile, name, type, parent) (profile)->add_counter(name, type, parent)
 #define ADD_CHILD_TIMER(profile, name, parent) (profile)->add_counter(name, TUnit::TIME_NS, parent)
 #define SCOPED_TIMER(c) ScopedTimer<MonotonicStopWatch> MACRO_CONCAT(SCOPED_TIMER, __COUNTER__)(c)
+#define SCOPED_TIMER_ATOMIC(c) \
+    ScopedTimer<MonotonicStopWatch, std::atomic_bool> MACRO_CONCAT(SCOPED_TIMER, __COUNTER__)(c)
 #define SCOPED_CPU_TIMER(c) \
     ScopedTimer<ThreadCpuStopWatch> MACRO_CONCAT(SCOPED_TIMER, __COUNTER__)(c)
 #define CANCEL_SAFE_SCOPED_TIMER(c, is_cancelled) \
@@ -103,10 +115,6 @@ public:
         TUnit::type _type;
     };
 
-    class DerivedCounter;
-    class EventSequence;
-    class HighWaterMarkCounter;
-
     /// A counter that keeps track of the highest value seen (reporting that
     /// as value()) and the current value.
     class HighWaterMarkCounter : public Counter {
@@ -114,9 +122,9 @@ public:
         HighWaterMarkCounter(TUnit::type unit) : Counter(unit), current_value_(0) {}
 
         virtual void add(int64_t delta) {
-            int64_t new_val = current_value_.fetch_add(delta, std::memory_order_relaxed);
+            current_value_.fetch_add(delta, std::memory_order_relaxed);
             if (delta > 0) {
-                UpdateMax(new_val);
+                UpdateMax(current_value_);
             }
         }
 
@@ -232,6 +240,8 @@ public:
     // already be added to the profile.
     void add_child(RuntimeProfile* child, bool indent, RuntimeProfile* location);
 
+    void insert_child_head(RuntimeProfile* child, bool indent);
+
     void add_child_unlock(RuntimeProfile* child, bool indent, RuntimeProfile* loc);
 
     /// Creates a new child profile with the given 'name'. A child profile with that name
@@ -312,7 +322,7 @@ public:
     // Does not hold locks when it makes any function calls.
     void pretty_print(std::ostream* s, const std::string& prefix = "") const;
 
-    void add_to_span();
+    void add_to_span(OpentelemetrySpan span);
 
     // Serializes profile to thrift.
     // Does not hold locks when it makes any function calls.
@@ -339,6 +349,9 @@ public:
 
     int64_t metadata() const { return _metadata; }
     void set_metadata(int64_t md) { _metadata = md; }
+
+    time_t timestamp() const { return _timestamp; }
+    void set_timestamp(time_t ss) { _timestamp = ss; }
 
     // Derived counter function: return measured throughput as input_value/second.
     static int64_t units_per_second(const Counter* total_counter, const Counter* timer);
@@ -382,6 +395,8 @@ public:
     // This function updates _local_time_percent for each profile.
     void compute_time_in_profile();
 
+    void clear_children();
+
 private:
     // Pool for allocated counters. Usually owned by the creator of this
     // object, but occasionally allocated in the constructor.
@@ -395,6 +410,9 @@ private:
 
     // user-supplied, uninterpreted metadata.
     int64_t _metadata;
+
+    // The timestamp when the profile was modified, make sure the update is up to date.
+    time_t _timestamp;
 
     /// True if this profile is an average derived from other profiles.
     /// All counters in this profile must be of unit AveragedCounter.
@@ -477,7 +495,7 @@ private:
 
     // Helper function to compute compute the fraction of the total time spent in
     // this profile and its children.
-    // Called recusively.
+    // Called recursively.
     void compute_time_in_profile(int64_t total_time);
 
     // Print the child counters of the given counter name
@@ -490,12 +508,9 @@ private:
                                            const CounterMap& counter_map,
                                            const ChildCounterMap& child_counter_map);
 
-    static std::string print_json_counter(const std::string& profile_name, Counter* counter) {
-        return print_json_info(profile_name,
-                               PrettyPrinter::print(counter->value(), counter->type()));
+    static std::string print_counter(Counter* counter) {
+        return PrettyPrinter::print(counter->value(), counter->type());
     }
-
-    static std::string print_json_info(const std::string& profile_name, std::string value);
 };
 
 // Utility class to update the counter at object construction and destruction.
@@ -530,15 +545,15 @@ private:
 // Utility class to update time elapsed when the object goes out of scope.
 // 'T' must implement the stopWatch "interface" (start,stop,elapsed_time) but
 // we use templates not to pay for virtual function overhead.
-template <class T>
+template <class T, typename Bool = bool>
 class ScopedTimer {
 public:
-    ScopedTimer(RuntimeProfile::Counter* counter, const bool* is_cancelled = nullptr)
+    ScopedTimer(RuntimeProfile::Counter* counter, const Bool* is_cancelled = nullptr)
             : _counter(counter), _is_cancelled(is_cancelled) {
         if (counter == nullptr) {
             return;
         }
-        DCHECK(counter->type() == TUnit::TIME_NS);
+        DCHECK_EQ(counter->type(), TUnit::TIME_NS);
         _sw.start();
     }
 
@@ -556,6 +571,9 @@ public:
 
     // Update counter when object is destroyed
     ~ScopedTimer() {
+        if (_counter == nullptr) {
+            return;
+        }
         _sw.stop();
         UpdateCounter();
     }
@@ -567,7 +585,7 @@ public:
 private:
     T _sw;
     RuntimeProfile::Counter* _counter;
-    const bool* _is_cancelled;
+    const Bool* _is_cancelled;
 };
 
 // Utility class to update time elapsed when the object goes out of scope.

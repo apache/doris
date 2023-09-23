@@ -17,17 +17,23 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.load.routineload.AbstractDataSourceProperties;
+import org.apache.doris.load.routineload.RoutineLoadDataSourcePropertyFactory;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
+import lombok.Getter;
+import org.apache.commons.collections.MapUtils;
 
 import java.util.Map;
 import java.util.Optional;
@@ -48,6 +54,7 @@ public class AlterRoutineLoadStmt extends DdlStmt {
     private static final ImmutableSet<String> CONFIGURABLE_JOB_PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY)
             .add(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY)
+            .add(CreateRoutineLoadStmt.MAX_FILTER_RATIO_PROPERTY)
             .add(CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY)
             .add(CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY)
             .add(CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY)
@@ -56,23 +63,28 @@ public class AlterRoutineLoadStmt extends DdlStmt {
             .add(CreateRoutineLoadStmt.STRIP_OUTER_ARRAY)
             .add(CreateRoutineLoadStmt.NUM_AS_STRING)
             .add(CreateRoutineLoadStmt.FUZZY_PARSE)
+            .add(CreateRoutineLoadStmt.PARTIAL_COLUMNS)
             .add(LoadStmt.STRICT_MODE)
             .add(LoadStmt.TIMEZONE)
             .build();
 
     private final LabelName labelName;
     private final Map<String, String> jobProperties;
-    private final RoutineLoadDataSourceProperties dataSourceProperties;
+    private final Map<String, String> dataSourceMapProperties;
+
+    private boolean isPartialUpdate;
 
     // save analyzed job properties.
     // analyzed data source properties are saved in dataSourceProperties.
     private Map<String, String> analyzedJobProperties = Maps.newHashMap();
 
     public AlterRoutineLoadStmt(LabelName labelName, Map<String, String> jobProperties,
-                                RoutineLoadDataSourceProperties dataSourceProperties) {
+                                Map<String, String> dataSourceProperties) {
         this.labelName = labelName;
         this.jobProperties = jobProperties != null ? jobProperties : Maps.newHashMap();
-        this.dataSourceProperties = dataSourceProperties;
+        this.dataSourceMapProperties = dataSourceProperties != null ? dataSourceProperties : Maps.newHashMap();
+        this.isPartialUpdate = this.jobProperties.getOrDefault(CreateRoutineLoadStmt.PARTIAL_COLUMNS, "false")
+                .equalsIgnoreCase("true");
     }
 
     public String getDbName() {
@@ -88,12 +100,15 @@ public class AlterRoutineLoadStmt extends DdlStmt {
     }
 
     public boolean hasDataSourceProperty() {
-        return dataSourceProperties.hasAnalyzedProperties();
+        return MapUtils.isNotEmpty(dataSourceMapProperties);
     }
 
-    public RoutineLoadDataSourceProperties getDataSourceProperties() {
-        return dataSourceProperties;
+    public Map<String, String> getDataSourceMapProperties() {
+        return dataSourceMapProperties;
     }
+
+    @Getter
+    public AbstractDataSourceProperties dataSourceProperties;
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
@@ -105,9 +120,26 @@ public class AlterRoutineLoadStmt extends DdlStmt {
         checkJobProperties();
         // check data source properties
         checkDataSourceProperties();
+        checkPartialUpdate();
 
-        if (analyzedJobProperties.isEmpty() && !dataSourceProperties.hasAnalyzedProperties()) {
+        if (analyzedJobProperties.isEmpty() && MapUtils.isEmpty(dataSourceMapProperties)) {
             throw new AnalysisException("No properties are specified");
+        }
+    }
+
+    private void checkPartialUpdate() throws UserException {
+        if (!isPartialUpdate) {
+            return;
+        }
+        RoutineLoadJob job = Env.getCurrentEnv().getRoutineLoadManager()
+                .getJob(getDbName(), getLabel());
+        if (job.isMultiTable()) {
+            throw new AnalysisException("load by PARTIAL_COLUMNS is not supported in multi-table load.");
+        }
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(job.getDbFullName());
+        Table table = db.getTableOrAnalysisException(job.getTableName());
+        if (isPartialUpdate && !((OlapTable) table).getEnableUniqueKeyMergeOnWrite()) {
+            throw new AnalysisException("load by PARTIAL_COLUMNS is only supported in unique table MoW");
         }
     }
 
@@ -136,11 +168,20 @@ public class AlterRoutineLoadStmt extends DdlStmt {
                     String.valueOf(maxErrorNum));
         }
 
+        if (jobProperties.containsKey(CreateRoutineLoadStmt.MAX_FILTER_RATIO_PROPERTY)) {
+            double maxFilterRatio = Util.getDoublePropertyOrDefault(
+                    jobProperties.get(CreateRoutineLoadStmt.MAX_FILTER_RATIO_PROPERTY),
+                    -1, CreateRoutineLoadStmt.MAX_FILTER_RATIO_PRED,
+                    CreateRoutineLoadStmt.MAX_FILTER_RATIO_PROPERTY + " should between 0 and 1");
+            analyzedJobProperties.put(CreateRoutineLoadStmt.MAX_FILTER_RATIO_PROPERTY,
+                    String.valueOf(maxFilterRatio));
+        }
+
         if (jobProperties.containsKey(CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY)) {
             long maxBatchIntervalS = Util.getLongPropertyOrDefault(
                     jobProperties.get(CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY),
                     -1, CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_PRED,
-                    CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY + " should between 5 and 60");
+                    CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY + " should between 1 and 60");
             analyzedJobProperties.put(CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY,
                     String.valueOf(maxBatchIntervalS));
         }
@@ -197,16 +238,22 @@ public class AlterRoutineLoadStmt extends DdlStmt {
             boolean fuzzyParse = Boolean.parseBoolean(jobProperties.get(CreateRoutineLoadStmt.FUZZY_PARSE));
             analyzedJobProperties.put(CreateRoutineLoadStmt.FUZZY_PARSE, String.valueOf(fuzzyParse));
         }
+        if (jobProperties.containsKey(CreateRoutineLoadStmt.PARTIAL_COLUMNS)) {
+            analyzedJobProperties.put(CreateRoutineLoadStmt.PARTIAL_COLUMNS,
+                    String.valueOf(isPartialUpdate));
+        }
     }
 
     private void checkDataSourceProperties() throws UserException {
-        if (!FeConstants.runningUnitTest) {
-            RoutineLoadJob job = Env.getCurrentEnv().getRoutineLoadManager()
-                    .checkPrivAndGetJob(getDbName(), getLabel());
-            dataSourceProperties.setTimezone(job.getTimezone());
-        } else {
-            dataSourceProperties.setTimezone(TimeUtils.DEFAULT_TIME_ZONE);
+        if (MapUtils.isEmpty(dataSourceMapProperties)) {
+            return;
         }
+        RoutineLoadJob job = Env.getCurrentEnv().getRoutineLoadManager()
+                .getJob(getDbName(), getLabel());
+        this.dataSourceProperties = RoutineLoadDataSourcePropertyFactory
+                .createDataSource(job.getDataSourceType().name(), dataSourceMapProperties, job.isMultiTable());
+        dataSourceProperties.setAlter(true);
+        dataSourceProperties.setTimezone(job.getTimezone());
         dataSourceProperties.analyze();
     }
 }

@@ -22,7 +22,7 @@ suite("test_dup_tab_basic_int_nullable") {
     sql "drop table if exists ${table1}"
 
     sql """
-CREATE TABLE `${table1}` (
+CREATE TABLE IF NOT EXISTS `${table1}` (
   `siteid` int(11) NULL COMMENT "",
   `citycode` int(11) NULL COMMENT "",
   `userid` int(11) NULL COMMENT "",
@@ -37,8 +37,6 @@ PROPERTIES (
 "storage_format" = "V2"
 )
 """
-
-    sql "set enable_vectorized_engine = false"
 
     sql """insert into ${table1} values
         (9,10,11,12),
@@ -58,8 +56,6 @@ PROPERTIES (
         (5,6,7,8),
         (5,6,7,8)
 """
-
-    sql "set enable_vectorized_engine = true"
 
     test {
         // siteid column not contain null

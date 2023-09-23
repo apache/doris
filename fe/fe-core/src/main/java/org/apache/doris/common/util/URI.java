@@ -19,8 +19,8 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.common.AnalysisException;
 
-import org.apache.commons.lang.StringUtils;
-import org.apache.parquet.Strings;
+import com.google.common.base.Strings;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.TreeMap;
 

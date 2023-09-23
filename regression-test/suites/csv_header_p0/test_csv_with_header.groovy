@@ -61,8 +61,9 @@ suite("test_csv_with_header") {
     def check_import_result = {checklabel, testTable4, expected_rows->
         max_try_secs = 100000
         while(max_try_secs--) {
-            result = sql "show load where label = '${checklabel}'"
+            def result = sql "show load where label = '${checklabel}'"
             if(result[0][2] == "FINISHED") {
+                sql "sync"
                 result_count = sql "select count(*) from ${testTable4}"
                 assertEquals(result_count[0][0], expected_rows)
                 break
@@ -78,7 +79,7 @@ suite("test_csv_with_header") {
 
     sql "DROP TABLE IF EXISTS ${testTable}"
     def result1 = sql """
-            CREATE TABLE `${testTable}` (
+            CREATE TABLE IF NOT EXISTS `${testTable}` (
                 `event_day` date NULL COMMENT "",
                 `event_day1` datev2 NULL COMMENT "",
                 `event_day2` datetimev2 NULL COMMENT "",
@@ -110,6 +111,7 @@ suite("test_csv_with_header") {
     label = UUID.randomUUID().toString()
     test_stream_load.call(testTable, label, format_csv_with_names_and_types, format_csv_with_names_and_types_file, expect_rows)
 
+    sql "sync"
     // check total rows
     def result_count = sql "select count(*) from ${testTable}"
     assertEquals(result_count[0][0], expect_rows*3)
@@ -149,7 +151,7 @@ suite("test_csv_with_header") {
         def check_export_result = {checklabel1->
             max_try_secs = 100000
             while(max_try_secs--) {
-                result = sql "show export where label='${checklabel1}'"
+                def result = sql "show export where label='${checklabel1}'"
                 if(result[0][2] == "FINISHED") {
                     break
                 } else {
@@ -176,6 +178,7 @@ suite("test_csv_with_header") {
             assertEquals(expectedTotalRows,totalLines)
         }
 
+        sql "sync"
         resultCount = sql "select count(*) from ${testTable}"
         currentTotalRows = resultCount[0][0]
 
@@ -191,7 +194,7 @@ suite("test_csv_with_header") {
         label = UUID.randomUUID().toString().replaceAll("-", "")
         export_to_hdfs.call(testTable, label, hdfsDataDir + "/" + label, format_csv_with_names, brokerName, hdfsUser, hdfsPasswd)
         check_export_result(label)
-        result = downloadExportFromHdfs(label + "/export-data")
+        def result = downloadExportFromHdfs(label + "/export-data")
         check_download_result(result, format_csv_with_names, currentTotalRows)
 
         // export table to hdfs format=csv_with_names_and_types
@@ -203,6 +206,7 @@ suite("test_csv_with_header") {
         
         // select out file to hdfs 
         select_out_file = {outTable, outHdfsPath, outFormat, outHdfsFs, outBroker, outHdfsUser, outPasswd->
+            sql "sync"
             sql """
                 SELECT * FROM ${outTable}
                 INTO OUTFILE "${outHdfsPath}"

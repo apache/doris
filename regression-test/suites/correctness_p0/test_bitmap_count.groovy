@@ -20,7 +20,7 @@
 
      sql """ DROP TABLE IF EXISTS ${tableName} """
      sql """
-        CREATE TABLE ${tableName}  (
+        CREATE TABLE IF NOT EXISTS ${tableName}  (
         `a` datetime NOT NULL,
         `b` date NOT NULL,
         `c` int(11) NOT NULL,

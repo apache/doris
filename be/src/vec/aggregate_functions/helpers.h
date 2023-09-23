@@ -21,232 +21,236 @@
 #pragma once
 
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/aggregate_functions/aggregate_function_null.h"
 #include "vec/data_types/data_type.h"
+#include "vec/utils/template_helpers.hpp"
 
-#define FOR_NUMERIC_TYPES(M) \
+#define FOR_INTEGER_TYPES(M) \
     M(UInt8)                 \
-    M(UInt16)                \
-    M(UInt32)                \
-    M(UInt64)                \
     M(Int8)                  \
     M(Int16)                 \
     M(Int32)                 \
     M(Int64)                 \
-    M(Int128)                \
-    M(Float32)               \
+    M(Int128)
+
+#define FOR_FLOAT_TYPES(M) \
+    M(Float32)             \
     M(Float64)
+
+#define FOR_NUMERIC_TYPES(M) \
+    FOR_INTEGER_TYPES(M)     \
+    FOR_FLOAT_TYPES(M)
+
+#define FOR_DECIMAL_TYPES(M) \
+    M(Decimal32)             \
+    M(Decimal64)             \
+    M(Decimal128)            \
+    M(Decimal128I)
+
+/** If the serialized type is not the default type(string),
+ * aggregation function need to override these functions:
+ * 1. serialize_to_column
+ * 2. streaming_agg_serialize_to_column
+ * 3. deserialize_and_merge_vec
+ * 4. deserialize_and_merge_vec_selected
+ * 5. serialize_without_key_to_column
+ * 6. deserialize_and_merge_from_column
+ */
+#define CHECK_AGG_FUNCTION_SERIALIZED_TYPE(FunctionTemplate)                                       \
+    do {                                                                                           \
+        constexpr bool _is_new_serialized_type =                                                   \
+                !std::is_same_v<decltype(&FunctionTemplate::get_serialized_type),                  \
+                                decltype(&IAggregateFunction::get_serialized_type)>;               \
+        if constexpr (_is_new_serialized_type) {                                                   \
+            static_assert(!std::is_same_v<decltype(&FunctionTemplate::serialize_to_column),        \
+                                          decltype(&IAggregateFunctionHelper<                      \
+                                                   FunctionTemplate>::serialize_to_column)>,       \
+                          "need to override serialize_to_column");                                 \
+            static_assert(                                                                         \
+                    !std::is_same_v<                                                               \
+                            decltype(&FunctionTemplate::streaming_agg_serialize_to_column),        \
+                            decltype(&IAggregateFunction::streaming_agg_serialize_to_column)>,     \
+                    "need to override "                                                            \
+                    "streaming_agg_serialize_to_column");                                          \
+            static_assert(!std::is_same_v<decltype(&FunctionTemplate::deserialize_and_merge_vec),  \
+                                          decltype(&IAggregateFunctionHelper<                      \
+                                                   FunctionTemplate>::deserialize_and_merge_vec)>, \
+                          "need to override deserialize_and_merge_vec");                           \
+            static_assert(                                                                         \
+                    !std::is_same_v<                                                               \
+                            decltype(&FunctionTemplate::deserialize_and_merge_vec_selected),       \
+                            decltype(&IAggregateFunctionHelper<                                    \
+                                     FunctionTemplate>::deserialize_and_merge_vec_selected)>,      \
+                    "need to override "                                                            \
+                    "deserialize_and_merge_vec_selected");                                         \
+            static_assert(                                                                         \
+                    !std::is_same_v<decltype(&FunctionTemplate::serialize_without_key_to_column),  \
+                                    decltype(&IAggregateFunctionHelper<                            \
+                                             FunctionTemplate>::serialize_without_key_to_column)>, \
+                    "need to override serialize_without_key_to_column");                           \
+            static_assert(!std::is_same_v<                                                         \
+                                  decltype(&FunctionTemplate::deserialize_and_merge_from_column),  \
+                                  decltype(&IAggregateFunctionHelper<                              \
+                                           FunctionTemplate>::deserialize_and_merge_from_column)>, \
+                          "need to override "                                                      \
+                          "deserialize_and_merge_from_column");                                    \
+        }                                                                                          \
+    } while (false)
 
 namespace doris::vectorized {
 
-/** Create an aggregate function with a numeric type in the template parameter, depending on the type of the argument.
-  */
-template <template <typename> class AggregateFunctionTemplate, typename... TArgs>
-static IAggregateFunction* create_with_numeric_type(const IDataType& argument_type,
-                                                    TArgs&&... args) {
-    WhichDataType which(argument_type);
-#define DISPATCH(TYPE)                \
-    if (which.idx == TypeIndex::TYPE) \
-        return new AggregateFunctionTemplate<TYPE>(std::forward<TArgs>(args)...);
-    FOR_NUMERIC_TYPES(DISPATCH)
-#undef DISPATCH
-    if (which.idx == TypeIndex::Enum8) {
-        return new AggregateFunctionTemplate<Int8>(std::forward<TArgs>(args)...);
-    }
-    if (which.idx == TypeIndex::Enum16) {
-        return new AggregateFunctionTemplate<Int16>(std::forward<TArgs>(args)...);
-    }
-    return nullptr;
-}
+struct creator_without_type {
+    template <bool multi_arguments, bool f, typename T>
+    using NullableT = std::conditional_t<multi_arguments, AggregateFunctionNullVariadicInline<T, f>,
+                                         AggregateFunctionNullUnaryInline<T, f>>;
 
-template <template <typename, bool> class AggregateFunctionTemplate, bool bool_param,
-          typename... TArgs>
-static IAggregateFunction* create_with_numeric_type(const IDataType& argument_type,
-                                                    TArgs&&... args) {
-    WhichDataType which(argument_type);
-#define DISPATCH(TYPE)                \
-    if (which.idx == TypeIndex::TYPE) \
-        return new AggregateFunctionTemplate<TYPE, bool_param>(std::forward<TArgs>(args)...);
-    FOR_NUMERIC_TYPES(DISPATCH)
-#undef DISPATCH
-    if (which.idx == TypeIndex::Enum8) {
-        return new AggregateFunctionTemplate<Int8, bool_param>(std::forward<TArgs>(args)...);
+    template <typename AggregateFunctionTemplate>
+    static AggregateFunctionPtr creator(const std::string& name, const DataTypes& argument_types,
+                                        const bool result_is_nullable) {
+        CHECK_AGG_FUNCTION_SERIALIZED_TYPE(AggregateFunctionTemplate);
+        return create<AggregateFunctionTemplate>(argument_types, result_is_nullable);
     }
-    if (which.idx == TypeIndex::Enum16) {
-        return new AggregateFunctionTemplate<Int16, bool_param>(std::forward<TArgs>(args)...);
-    }
-    return nullptr;
-}
 
-template <template <typename, typename> class AggregateFunctionTemplate, typename Data,
-          typename... TArgs>
-static IAggregateFunction* create_with_numeric_type(const IDataType& argument_type,
-                                                    TArgs&&... args) {
-    WhichDataType which(argument_type);
-#define DISPATCH(TYPE)                \
-    if (which.idx == TypeIndex::TYPE) \
-        return new AggregateFunctionTemplate<TYPE, Data>(std::forward<TArgs>(args)...);
-    FOR_NUMERIC_TYPES(DISPATCH)
-#undef DISPATCH
-    if (which.idx == TypeIndex::Enum8) {
-        return new AggregateFunctionTemplate<Int8, Data>(std::forward<TArgs>(args)...);
-    }
-    if (which.idx == TypeIndex::Enum16) {
-        return new AggregateFunctionTemplate<Int16, Data>(std::forward<TArgs>(args)...);
-    }
-    return nullptr;
-}
+    template <typename AggregateFunctionTemplate, typename... TArgs>
+    static AggregateFunctionPtr create(const DataTypes& argument_types,
+                                       const bool result_is_nullable, TArgs&&... args) {
+        IAggregateFunction* result(new AggregateFunctionTemplate(std::forward<TArgs>(args)...,
+                                                                 remove_nullable(argument_types)));
+        if (have_nullable(argument_types)) {
+            std::visit(
+                    [&](auto multi_arguments, auto result_is_nullable) {
+                        result = new NullableT<multi_arguments, result_is_nullable,
+                                               AggregateFunctionTemplate>(result, argument_types);
+                    },
+                    make_bool_variant(argument_types.size() > 1),
+                    make_bool_variant(result_is_nullable));
+        }
 
-template <template <typename, typename> class AggregateFunctionTemplate,
-          template <typename> class Data, typename... TArgs>
-static IAggregateFunction* create_with_numeric_type(const IDataType& argument_type,
-                                                    TArgs&&... args) {
-    WhichDataType which(argument_type);
-#define DISPATCH(TYPE)                \
-    if (which.idx == TypeIndex::TYPE) \
-        return new AggregateFunctionTemplate<TYPE, Data<TYPE>>(std::forward<TArgs>(args)...);
-    FOR_NUMERIC_TYPES(DISPATCH)
-#undef DISPATCH
-    if (which.idx == TypeIndex::Enum8) {
-        return new AggregateFunctionTemplate<Int8, Data<Int8>>(std::forward<TArgs>(args)...);
+        CHECK_AGG_FUNCTION_SERIALIZED_TYPE(AggregateFunctionTemplate);
+        return AggregateFunctionPtr(result);
     }
-    if (which.idx == TypeIndex::Enum16) {
-        return new AggregateFunctionTemplate<Int16, Data<Int16>>(std::forward<TArgs>(args)...);
-    }
-    return nullptr;
-}
 
+    /// AggregateFunctionTemplate will handle the nullable arguments, no need to use
+    /// AggregateFunctionNullVariadicInline/AggregateFunctionNullUnaryInline
+    template <typename AggregateFunctionTemplate, typename... TArgs>
+    static AggregateFunctionPtr create_ignore_nullable(const DataTypes& argument_types,
+                                                       const bool /*result_is_nullable*/,
+                                                       TArgs&&... args) {
+        IAggregateFunction* result(
+                new AggregateFunctionTemplate(std::forward<TArgs>(args)..., argument_types));
+        CHECK_AGG_FUNCTION_SERIALIZED_TYPE(AggregateFunctionTemplate);
+        return AggregateFunctionPtr(result);
+    }
+};
+
+template <template <typename> class AggregateFunctionTemplate>
+struct CurryDirect {
+    template <typename Type>
+    using T = AggregateFunctionTemplate<Type>;
+};
+template <template <typename> class AggregateFunctionTemplate, template <typename> class Data>
+struct CurryData {
+    template <typename Type>
+    using T = AggregateFunctionTemplate<Data<Type>>;
+};
 template <template <typename> class AggregateFunctionTemplate, template <typename> class Data,
-          typename... TArgs>
-static IAggregateFunction* create_with_numeric_type(const IDataType& argument_type,
-                                                    TArgs&&... args) {
-    WhichDataType which(argument_type);
-#define DISPATCH(TYPE)                \
-    if (which.idx == TypeIndex::TYPE) \
-        return new AggregateFunctionTemplate<Data<TYPE>>(std::forward<TArgs>(args)...);
-    FOR_NUMERIC_TYPES(DISPATCH)
-#undef DISPATCH
-    // if (which.idx == TypeIndex::Enum8) return new AggregateFunctionTemplate<Data<Int8>>(std::forward<TArgs>(args)...);
-    // if (which.idx == TypeIndex::Enum16) return new AggregateFunctionTemplate<Data<Int16>>(std::forward<TArgs>(args)...);
-    return nullptr;
-}
-
+          template <typename> class Impl>
+struct CurryDataImpl {
+    template <typename Type>
+    using T = AggregateFunctionTemplate<Data<Impl<Type>>>;
+};
 template <template <typename, typename> class AggregateFunctionTemplate,
-          template <typename> class Data, typename... TArgs>
-static IAggregateFunction* create_with_unsigned_integer_type(const IDataType& argument_type,
-                                                             TArgs&&... args) {
-    WhichDataType which(argument_type);
-    if (which.idx == TypeIndex::UInt8) {
-        return new AggregateFunctionTemplate<UInt8, Data<UInt8>>(std::forward<TArgs>(args)...);
-    }
-    if (which.idx == TypeIndex::UInt16) {
-        return new AggregateFunctionTemplate<UInt16, Data<UInt16>>(std::forward<TArgs>(args)...);
-    }
-    if (which.idx == TypeIndex::UInt32) {
-        return new AggregateFunctionTemplate<UInt32, Data<UInt32>>(std::forward<TArgs>(args)...);
-    }
-    if (which.idx == TypeIndex::UInt64) {
-        return new AggregateFunctionTemplate<UInt64, Data<UInt64>>(std::forward<TArgs>(args)...);
-    }
-    return nullptr;
-}
+          template <typename> class Data>
+struct CurryDirectAndData {
+    template <typename Type>
+    using T = AggregateFunctionTemplate<Type, Data<Type>>;
+};
 
-template <template <typename> class AggregateFunctionTemplate, typename... TArgs>
-static IAggregateFunction* create_with_numeric_based_type(const IDataType& argument_type,
-                                                          TArgs&&... args) {
-    IAggregateFunction* f = create_with_numeric_type<AggregateFunctionTemplate>(
-            argument_type, std::forward<TArgs>(args)...);
-    if (f) {
-        return f;
+template <bool allow_integer, bool allow_float, bool allow_decimal, int define_index = 0>
+struct creator_with_type_base {
+    template <typename Class, typename... TArgs>
+    static AggregateFunctionPtr create_base(const DataTypes& argument_types,
+                                            const bool result_is_nullable, TArgs&&... args) {
+        WhichDataType which(remove_nullable(argument_types[define_index]));
+#define DISPATCH(TYPE)                                                             \
+    if (which.idx == TypeIndex::TYPE) {                                            \
+        return creator_without_type::create<typename Class::template T<TYPE>>(     \
+                argument_types, result_is_nullable, std::forward<TArgs>(args)...); \
     }
 
-    /// expects that DataTypeDate based on UInt16, DataTypeDateTime based on UInt32 and UUID based on UInt128
-    WhichDataType which(argument_type);
-    if (which.idx == TypeIndex::Date) {
-        return new AggregateFunctionTemplate<UInt16>(std::forward<TArgs>(args)...);
-    }
-    if (which.idx == TypeIndex::DateTime) {
-        return new AggregateFunctionTemplate<UInt32>(std::forward<TArgs>(args)...);
-    }
-    if (which.idx == TypeIndex::UUID) {
-        return new AggregateFunctionTemplate<UInt128>(std::forward<TArgs>(args)...);
-    }
-    return nullptr;
-}
-
-template <template <typename> class AggregateFunctionTemplate, typename... TArgs>
-static IAggregateFunction* create_with_decimal_type(const IDataType& argument_type,
-                                                    TArgs&&... args) {
-    WhichDataType which(argument_type);
-    if (which.idx == TypeIndex::Decimal32) {
-        return new AggregateFunctionTemplate<Decimal32>(std::forward<TArgs>(args)...);
-    }
-    if (which.idx == TypeIndex::Decimal64) {
-        return new AggregateFunctionTemplate<Decimal64>(std::forward<TArgs>(args)...);
-    }
-    if (which.idx == TypeIndex::Decimal128) {
-        return new AggregateFunctionTemplate<Decimal128>(std::forward<TArgs>(args)...);
-    }
-    return nullptr;
-}
-
-template <template <typename, typename> class AggregateFunctionTemplate, typename Data,
-          typename... TArgs>
-static IAggregateFunction* create_with_decimal_type(const IDataType& argument_type,
-                                                    TArgs&&... args) {
-    WhichDataType which(argument_type);
-    if (which.idx == TypeIndex::Decimal32) {
-        return new AggregateFunctionTemplate<Decimal32, Data>(std::forward<TArgs>(args)...);
-    }
-    if (which.idx == TypeIndex::Decimal64) {
-        return new AggregateFunctionTemplate<Decimal64, Data>(std::forward<TArgs>(args)...);
-    }
-    if (which.idx == TypeIndex::Decimal128) {
-        return new AggregateFunctionTemplate<Decimal128, Data>(std::forward<TArgs>(args)...);
-    }
-    return nullptr;
-}
-
-/** For template with two arguments.
-  */
-template <typename FirstType, template <typename, typename> class AggregateFunctionTemplate,
-          typename... TArgs>
-static IAggregateFunction* create_with_two_numeric_types_second(const IDataType& second_type,
-                                                                TArgs&&... args) {
-    WhichDataType which(second_type);
-#define DISPATCH(TYPE)                \
-    if (which.idx == TypeIndex::TYPE) \
-        return new AggregateFunctionTemplate<FirstType, TYPE>(std::forward<TArgs>(args)...);
-    FOR_NUMERIC_TYPES(DISPATCH)
+        if constexpr (allow_integer) {
+            FOR_INTEGER_TYPES(DISPATCH);
+        }
+        if constexpr (allow_float) {
+            FOR_FLOAT_TYPES(DISPATCH);
+        }
+        if constexpr (allow_decimal) {
+            FOR_DECIMAL_TYPES(DISPATCH);
+        }
 #undef DISPATCH
-    if (which.idx == TypeIndex::Enum8) {
-        return new AggregateFunctionTemplate<FirstType, Int8>(std::forward<TArgs>(args)...);
+        return nullptr;
     }
-    if (which.idx == TypeIndex::Enum16) {
-        return new AggregateFunctionTemplate<FirstType, Int16>(std::forward<TArgs>(args)...);
-    }
-    return nullptr;
-}
 
-template <template <typename, typename> class AggregateFunctionTemplate, typename... TArgs>
-static IAggregateFunction* create_with_two_numeric_types(const IDataType& first_type,
-                                                         const IDataType& second_type,
-                                                         TArgs&&... args) {
-    WhichDataType which(first_type);
-#define DISPATCH(TYPE)                                                                \
-    if (which.idx == TypeIndex::TYPE)                                                 \
-        return create_with_two_numeric_types_second<TYPE, AggregateFunctionTemplate>( \
-                second_type, std::forward<TArgs>(args)...);
-    FOR_NUMERIC_TYPES(DISPATCH)
-#undef DISPATCH
-    if (which.idx == TypeIndex::Enum8) {
-        return create_with_two_numeric_types_second<Int8, AggregateFunctionTemplate>(
-                second_type, std::forward<TArgs>(args)...);
+    template <template <typename> class AggregateFunctionTemplate>
+    static AggregateFunctionPtr creator(const std::string& name, const DataTypes& argument_types,
+                                        const bool result_is_nullable) {
+        return create_base<CurryDirect<AggregateFunctionTemplate>>(argument_types,
+                                                                   result_is_nullable);
     }
-    if (which.idx == TypeIndex::Enum16) {
-        return create_with_two_numeric_types_second<Int16, AggregateFunctionTemplate>(
-                second_type, std::forward<TArgs>(args)...);
+
+    template <template <typename> class AggregateFunctionTemplate, typename... TArgs>
+    static AggregateFunctionPtr create(TArgs&&... args) {
+        return create_base<CurryDirect<AggregateFunctionTemplate>>(std::forward<TArgs>(args)...);
     }
-    return nullptr;
-}
+
+    template <template <typename> class AggregateFunctionTemplate, template <typename> class Data>
+    static AggregateFunctionPtr creator(const std::string& name, const DataTypes& argument_types,
+                                        const bool result_is_nullable) {
+        return create_base<CurryData<AggregateFunctionTemplate, Data>>(argument_types,
+                                                                       result_is_nullable);
+    }
+
+    template <template <typename> class AggregateFunctionTemplate, template <typename> class Data,
+              typename... TArgs>
+    static AggregateFunctionPtr create(TArgs&&... args) {
+        return create_base<CurryData<AggregateFunctionTemplate, Data>>(
+                std::forward<TArgs>(args)...);
+    }
+
+    template <template <typename> class AggregateFunctionTemplate, template <typename> class Data,
+              template <typename> class Impl>
+    static AggregateFunctionPtr creator(const std::string& name, const DataTypes& argument_types,
+                                        const bool result_is_nullable) {
+        return create_base<CurryDataImpl<AggregateFunctionTemplate, Data, Impl>>(
+                argument_types, result_is_nullable);
+    }
+
+    template <template <typename> class AggregateFunctionTemplate, template <typename> class Data,
+              template <typename> class Impl, typename... TArgs>
+    static AggregateFunctionPtr create(TArgs&&... args) {
+        return create_base<CurryDataImpl<AggregateFunctionTemplate, Data, Impl>>(
+                std::forward<TArgs>(args)...);
+    }
+
+    template <template <typename, typename> class AggregateFunctionTemplate,
+              template <typename> class Data>
+    static AggregateFunctionPtr creator(const std::string& name, const DataTypes& argument_types,
+                                        const bool result_is_nullable) {
+        return create_base<CurryDirectAndData<AggregateFunctionTemplate, Data>>(argument_types,
+                                                                                result_is_nullable);
+    }
+
+    template <template <typename, typename> class AggregateFunctionTemplate,
+              template <typename> class Data, typename... TArgs>
+    static AggregateFunctionPtr create(TArgs&&... args) {
+        return create_base<CurryDirectAndData<AggregateFunctionTemplate, Data>>(
+                std::forward<TArgs>(args)...);
+    }
+};
+
+using creator_with_integer_type = creator_with_type_base<true, false, false>;
+using creator_with_numeric_type = creator_with_type_base<true, true, false>;
+using creator_with_decimal_type = creator_with_type_base<false, false, true>;
+using creator_with_type = creator_with_type_base<true, true, true>;
 
 } // namespace  doris::vectorized

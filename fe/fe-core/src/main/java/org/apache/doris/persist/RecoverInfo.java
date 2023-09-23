@@ -17,25 +17,44 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
+
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
 public class RecoverInfo implements Writable {
+    @SerializedName(value = "dbId")
     private long dbId;
+    @SerializedName(value = "newDbName")
+    private String newDbName;
+    @SerializedName(value = "tableId")
     private long tableId;
+    @SerializedName(value = "newTableName")
+    private String newTableName;
+    @SerializedName(value = "partitionId")
     private long partitionId;
+    @SerializedName(value = "newPartitionName")
+    private String newPartitionName;
 
-    public RecoverInfo() {
+    private RecoverInfo() {
         // for persist
     }
 
-    public RecoverInfo(long dbId, long tableId, long partitionId) {
+    public RecoverInfo(long dbId, long tableId, long partitionId, String newDbName, String newTableName,
+                       String newPartitionName) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.partitionId = partitionId;
+        this.newDbName = newDbName;
+        this.newTableName = newTableName;
+        this.newPartitionName = newPartitionName;
     }
 
     public long getDbId() {
@@ -50,17 +69,37 @@ public class RecoverInfo implements Writable {
         return partitionId;
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        out.writeLong(dbId);
-        out.writeLong(tableId);
-        out.writeLong(partitionId);
+    public String getNewDbName() {
+        return newDbName;
     }
 
-    public void readFields(DataInput in) throws IOException {
+    public String getNewTableName() {
+        return newTableName;
+    }
+
+    public String getNewPartitionName() {
+        return newPartitionName;
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
+    }
+
+    public static RecoverInfo read(DataInput in) throws IOException {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_114) {
+            return GsonUtils.GSON.fromJson(Text.readString(in), RecoverInfo.class);
+        } else {
+            RecoverInfo recoverInfo = new RecoverInfo();
+            recoverInfo.readFields(in);
+            return recoverInfo;
+        }
+    }
+
+    @Deprecated
+    private void readFields(DataInput in) throws IOException {
         dbId = in.readLong();
         tableId = in.readLong();
         partitionId = in.readLong();
     }
-
 }

@@ -48,32 +48,16 @@ suite("test_case_when") {
     sql " INSERT INTO ${tableName} (`dt`, `hour_time`, `merchant_id`, `channel_id`, `station_type`, `station_name`, `source`, `passenger_flow`, `user_id`, `price`, `discount`) VALUES ('2019-01-01', 3, 45010002, '01', '00', 'xxxx站', '', 2, to_bitmap(0), 200, 200); "
     sql " INSERT INTO ${tableName} (`dt`, `hour_time`, `merchant_id`, `channel_id`, `station_type`, `station_name`, `source`, `passenger_flow`, `user_id`, `price`, `discount`) VALUES ('2019-01-01', 4, 45010002, '01', '00', 'xxxx站', '', 5, to_bitmap(0), 1000, 1000); "
     sql " INSERT INTO ${tableName} (`dt`, `hour_time`, `merchant_id`, `channel_id`, `station_type`, `station_name`, `source`, `passenger_flow`, `user_id`, `price`, `discount`) VALUES ('2019-01-01', 4, 45010002, '01', '00', 'xxx站', '', 1, to_bitmap(0), 20, 20); "
-        
 
-    // not_vectorized
-    sql """ set enable_vectorized_engine = false """
-
-    qt_select_default """ 
-    select  hour_time as date_hour, station_type,
-            CASE WHEN station_type = '00' THEN sum(passenger_flow)
-            ELSE -ABS(sum(passenger_flow))
-            end passenger_flow
-            from ${tableName}
-            where dt = '2019-01-01'
-            and merchant_id in (45010002, 45010003)
-            and channel_id = '00'
-            group by hour_time, station_type; 
-    """
-
-    qt_select_agg """
-    SELECT
-      hour_time,
-      sum((CASE WHEN TRUE THEN merchant_id ELSE 0 END)) mid
+    try_sql """
+    select
+        CAST(
+            CASE
+            WHEN source is null THEN null
+            ELSE null
+            END AS bitmap
+        ) as c0
     FROM
-      dws_scan_qrcode_user_ts
-    GROUP BY
-      hour_time
-    ORDER BY
-      hour_time;
+        dws_scan_qrcode_user_ts;
     """
 }

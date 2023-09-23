@@ -52,7 +52,8 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.Load;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
@@ -204,24 +205,24 @@ public class CatalogMocker {
         ROLLUP_SCHEMA_HASH = Util.generateSchemaHash();
     }
 
-    private static PaloAuth fetchAdminAccess() {
-        PaloAuth auth = new PaloAuth();
-        new Expectations(auth) {
+    private static AccessControllerManager fetchAdminAccess() {
+        AccessControllerManager accessManager = new AccessControllerManager(new Auth());
+        new Expectations(accessManager) {
             {
-                auth.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
+                accessManager.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
 
-                auth.checkDbPriv((ConnectContext) any, anyString, (PrivPredicate) any);
+                accessManager.checkDbPriv((ConnectContext) any, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
 
-                auth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
             }
         };
-        return auth;
+        return accessManager;
     }
 
     public static SystemInfoService fetchSystemInfoService() {
@@ -399,13 +400,13 @@ public class CatalogMocker {
             InternalCatalog catalog = Deencapsulation.newInstance(InternalCatalog.class);
 
             Database db = new Database();
-            PaloAuth paloAuth = fetchAdminAccess();
+            AccessControllerManager accessManager = fetchAdminAccess();
 
             new Expectations(env, catalog) {
                 {
-                    env.getAuth();
+                    env.getAccessManager();
                     minTimes = 0;
-                    result = paloAuth;
+                    result = accessManager;
 
                     env.getInternalCatalog();
                     minTimes = 0;
@@ -455,25 +456,5 @@ public class CatalogMocker {
         } catch (DdlException e) {
             return null;
         }
-    }
-
-    public static PaloAuth fetchBlockAccess() {
-        PaloAuth auth = new PaloAuth();
-        new Expectations(auth) {
-            {
-                auth.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
-                minTimes = 0;
-                result = false;
-
-                auth.checkDbPriv((ConnectContext) any, anyString, (PrivPredicate) any);
-                minTimes = 0;
-                result = false;
-
-                auth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
-                minTimes = 0;
-                result = false;
-            }
-        };
-        return auth;
     }
 }

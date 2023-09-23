@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.pattern.generator.javaast;
 
-
 /** java ast base interface. */
 public interface JavaAstNode {
 }

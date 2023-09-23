@@ -108,11 +108,6 @@ public class CompoundPredicate extends Predicate {
     }
 
     @Override
-    public boolean isVectorized() {
-        return false;
-    }
-
-    @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         super.analyzeImpl(analyzer);
 
@@ -213,9 +208,30 @@ public class CompoundPredicate extends Predicate {
         return conjunctivePred;
     }
 
+    /**
+     * Creates a disjunctive predicate from a list of exprs,
+     * reserve the expr order
+     */
+    public static Expr createDisjunctivePredicate(List<Expr> disjunctions) {
+        Expr result = null;
+        for (Expr expr : disjunctions) {
+            if (result == null) {
+                result = expr;
+                continue;
+            }
+            result = new CompoundPredicate(CompoundPredicate.Operator.OR, result, expr);
+        }
+        return result;
+    }
+
+    public static boolean isOr(Expr expr) {
+        return expr instanceof CompoundPredicate
+                && ((CompoundPredicate) expr).getOp() == Operator.OR;
+    }
+
     @Override
-    public Expr getResultValue() throws AnalysisException {
-        recursiveResetChildrenResult();
+    public Expr getResultValue(boolean inView) throws AnalysisException {
+        recursiveResetChildrenResult(inView);
         boolean compoundResult = false;
         if (op == Operator.NOT) {
             final Expr childValue = getChild(0);
@@ -258,7 +274,37 @@ public class CompoundPredicate extends Predicate {
     }
 
     @Override
-    public void finalizeImplForNereids() throws AnalysisException {
+    public String toString() {
+        return toSqlImpl();
+    }
 
+    @Override
+    public boolean containsSubPredicate(Expr subExpr) throws AnalysisException {
+        if (op.equals(Operator.AND)) {
+            for (Expr child : children) {
+                if (child.containsSubPredicate(subExpr)) {
+                    return true;
+                }
+            }
+        }
+        return super.containsSubPredicate(subExpr);
+    }
+
+    @Override
+    public Expr replaceSubPredicate(Expr subExpr) {
+        if (toSqlWithoutTbl().equals(subExpr.toSqlWithoutTbl())) {
+            return null;
+        }
+        if (op.equals(Operator.AND)) {
+            Expr lhs = children.get(0);
+            Expr rhs = children.get(1);
+            if (lhs.replaceSubPredicate(subExpr) == null) {
+                return rhs;
+            }
+            if (rhs.replaceSubPredicate(subExpr) == null) {
+                return lhs;
+            }
+        }
+        return this;
     }
 }

@@ -179,12 +179,21 @@ public class RoutineLoadJobTest {
     }
 
     @Test
-    public void testGetShowInfo(@Mocked KafkaProgress kafkaProgress) {
+    public void testGetShowInfo(@Mocked KafkaProgress kafkaProgress, @Injectable UserIdentity userIdentity) {
+        new Expectations() {
+            {
+                userIdentity.getQualifiedUser();
+                minTimes = 0;
+                result = "root";
+            }
+        };
         RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
         Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.PAUSED);
-        ErrorReason errorReason = new ErrorReason(InternalErrorCode.INTERNAL_ERR, TransactionState.TxnStatusChangeReason.OFFSET_OUT_OF_RANGE.toString());
+        ErrorReason errorReason = new ErrorReason(InternalErrorCode.INTERNAL_ERR,
+                TransactionState.TxnStatusChangeReason.OFFSET_OUT_OF_RANGE.toString());
         Deencapsulation.setField(routineLoadJob, "pauseReason", errorReason);
         Deencapsulation.setField(routineLoadJob, "progress", kafkaProgress);
+        Deencapsulation.setField(routineLoadJob, "userIdentity", userIdentity);
 
         List<String> showInfo = routineLoadJob.getShowInfo();
         Assert.assertEquals(true, showInfo.stream().filter(entity -> !Strings.isNullOrEmpty(entity))
@@ -340,6 +349,7 @@ public class RoutineLoadJobTest {
                 + "(\n"
                 + "\"desired_concurrent_number\" = \"0\",\n"
                 + "\"max_error_number\" = \"10\",\n"
+                + "\"max_filter_ratio\" = \"1.0\",\n"
                 + "\"max_batch_interval\" = \"10\",\n"
                 + "\"max_batch_rows\" = \"10\",\n"
                 + "\"max_batch_size\" = \"104857600\",\n"

@@ -41,8 +41,9 @@ data_desc1[, data_desc2, ...]
 )
 WITH BROKER broker_name
 [broker_properties]
-[load_properties];
-````
+[load_properties]
+[COMMENT "comment"];
+```
 
 - `load_label`
 
@@ -64,14 +65,17 @@ WITH BROKER broker_name
   INTO TABLE `table_name`
   [PARTITION (p1, p2, ...)]
   [COLUMNS TERMINATED BY "column_separator"]
+  [LINES TERMINATED BY "line_delimiter"]
   [FORMAT AS "file_type"]
+  [COMPRESS_TYPE AS "compress_type"]
   [(column_list)]
   [COLUMNS FROM PATH AS (c1, c2, ...)]
-  [PRECEDING FILTER predicate]
   [SET (column_mapping)]
+  [PRECEDING FILTER predicate]
   [WHERE predicate]
   [DELETE ON expr]
   [ORDER BY source_sequence]
+  [PROPERTIES ("key1"="value1", ...)]
   ````
 
   - `[MERGE|APPEND|DELETE]`
@@ -82,7 +86,7 @@ WITH BROKER broker_name
 
     Specify the file path to be imported. Can be multiple. Wildcards can be used. The path must eventually match to a file, if it only matches a directory the import will fail.
 
-  - `NEGTIVE`
+  - `NEGATIVE`
 
     This keyword is used to indicate that this import is a batch of "negative" imports. This method is only for aggregate data tables with integer SUM aggregate type. This method will reverse the integer value corresponding to the SUM aggregate column in the imported data. Mainly used to offset previously imported wrong data.
 
@@ -94,13 +98,20 @@ WITH BROKER broker_name
 
     Specifies the column separator. Only valid in CSV format. Only single-byte delimiters can be specified.
 
+  - `LINES TERMINATED BY`
+
+    Specifies the line delimiter. Only valid in CSV format. Only single-byte delimiters can be specified.
+
   - `FORMAT AS`
 
     Specifies the file type, CSV, PARQUET and ORC formats are supported. Default is CSV.
 
+  - `COMPRESS_TYPE AS`
+    Specifies the file compress type, GZ/LZO/BZ2/LZ4FRAME/DEFLATE/LZOP
+
   - `column list`
 
-    Used to specify the column order in the original file. For a detailed introduction to this part, please refer to the [Column Mapping, Conversion and Filtering](..../../../data-operate/import/import-scenes/load-data-convert.md) document.
+    Used to specify the column order in the original file. For a detailed introduction to this part, please refer to the [Column Mapping, Conversion and Filtering](../../../../data-operate/import/import-scenes/load-data-convert.md) document.
 
     `(k1, k2, tmpk1)`
 
@@ -108,17 +119,17 @@ WITH BROKER broker_name
 
     Specifies the columns to extract from the import file path.
 
-  - `PRECEDING FILTER predicate`
-
-    Pre-filter conditions. The data is first concatenated into raw data rows in order according to `column list` and `COLUMNS FROM PATH AS`. Then filter according to the pre-filter conditions. For a detailed introduction to this part, please refer to the [Column Mapping, Conversion and Filtering](../../../data-operate/import/import-scenes/load-data-convert.md) document.
-
   - `SET (column_mapping)`
 
     Specifies the conversion function for the column.
+  
+  - `PRECEDING FILTER predicate`
+
+    Pre-filter conditions. The data is first concatenated into raw data rows in order according to `column list` and `COLUMNS FROM PATH AS`. Then filter according to the pre-filter conditions. For a detailed introduction to this part, please refer to the [Column Mapping, Conversion and Filtering](../../../../data-operate/import/import-scenes/load-data-convert.md) document.
 
   - `WHERE predicate`
 
-    Filter imported data based on conditions. For a detailed introduction to this part, please refer to the [Column Mapping, Conversion and Filtering](../../../data-operate/import/import-scenes/load-data-convert.md) document.
+    Filter imported data based on conditions. For a detailed introduction to this part, please refer to the [Column Mapping, Conversion and Filtering](../../../../data-operate/import/import-scenes/load-data-convert.md) document.
 
   - `DELETE ON expr`
 
@@ -128,13 +139,17 @@ WITH BROKER broker_name
 
     Tables only for the Unique Key model. Used to specify the column in the imported data that represents the Sequence Col. Mainly used to ensure data order when importing.
 
+  - `PROPERTIES ("key1"="value1", ...)`
+
+    Specify some parameters of the imported format. For example, if the imported file is in `json` format, you can specify parameters such as `json_root`, `jsonpaths`, `fuzzy parse`, etc.
+
 - `WITH BROKER broker_name`
 
   Specify the Broker service name to be used. In the public cloud Doris. Broker service name is `bos`
 
 - `broker_properties`
 
-  Specifies the information required by the broker. This information is usually used by the broker to be able to access remote storage systems. Such as BOS or HDFS. See the [Broker](../../../advanced/broker.md) documentation for specific information.
+  Specifies the information required by the broker. This information is usually used by the broker to be able to access remote storage systems. Such as BOS or HDFS. See the [Broker](../../../../advanced/broker.md) documentation for specific information.
 
   ````text
   (
@@ -164,9 +179,34 @@ WITH BROKER broker_name
 
     Whether to impose strict restrictions on data. Defaults to false.
 
+  - `partial_columns`
+
+    Boolean type, True means that use partial column update, the default value is false, this parameter is only allowed to be set when the table model is Unique and Merge on Write is used.
+
   - `timezone`
 
-    Specify the time zone for some functions that are affected by time zones, such as `strftime/alignment_timestamp/from_unixtime`, etc. Please refer to the [timezone](../../advanced/time-zone.md) documentation for details. If not specified, the "Asia/Shanghai" timezone is used
+    Specify the time zone for some functions that are affected by time zones, such as `strftime/alignment_timestamp/from_unixtime`, etc. Please refer to the [timezone](../../../../advanced/time-zone.md) documentation for details. If not specified, the "Asia/Shanghai" timezone is used
+
+  - `load_parallelism`
+
+    It allows the user to set the parallelism of the load execution plan
+    on a single node when the broker load is submitted, default value is 1.
+
+  - `send_batch_parallelism`
+  
+    Used to set the default parallelism for sending batch, if the value for parallelism exceed `max_send_batch_parallelism_per_job` in BE config, then the coordinator BE will use the value of `max_send_batch_parallelism_per_job`. 
+    
+  - `load_to_single_tablet`
+  
+    Boolean type, True means that one task can only load data to one tablet in the corresponding partition at a time. The default value is false. The number of tasks for the job depends on the overall concurrency. This parameter can only be set when loading data into the OLAP table with random bucketing.
+    
+  - <version since="dev" type="inline"> priority </version>
+    
+    Set the priority of the load job, there are three options: `HIGH/NORMAL/LOW`, use `NORMAL` priority as default. The pending broker load jobs which have higher priority will be chosen to execute earlier.
+
+-  <version since="1.2.3" type="inline"> comment </version>
+    
+   Specify the comment for the import job. The comment can be viewed in the `show load` statement.
 
 ### Example
 
@@ -229,6 +269,7 @@ WITH BROKER broker_name
    (
        "username" = "",
        "password" = "",
+       "fs.defaultFS" = "hdfs://my_ha",
        "dfs.nameservices" = "my_ha",
        "dfs.ha.namenodes.my_ha" = "my_namenode1, my_namenode2",
        "dfs.namenode.rpc-address.my_ha.my_namenode1" = "nn1_host:rpc_port",
@@ -295,10 +336,10 @@ WITH BROKER broker_name
        DATA INFILE("hdfs://host:port/input/file")
        INTO TABLE `my_table`
        (k1, k2, k3)
-       PRECEDING FILTER k1 = 1
        SET (
            k2 = k2 + 1
        )
+       PRECEDING FILTER k1 = 1
        WHERE k1 > k2
    )
    WITH BROKER hdfs
@@ -348,25 +389,25 @@ WITH BROKER broker_name
 
 8. Import a batch of data from HDFS, specify the timeout and filter ratio. Broker with clear text my_hdfs_broker. Simple authentication. And delete the columns in the original data that match the columns with v2 greater than 100 in the imported data, and other columns are imported normally
 
-   ```sql
-   LOAD LABEL example_db.label8
-   (
-       MERGE DATA INFILE("HDFS://test:802/input/file")
-       INTO TABLE `my_table`
-       (k1, k2, k3, v2, v1)
-       DELETE ON v2 > 100
-   )
-   WITH HDFS
-   (
-       "username"="user",
-       "password"="pass"
-   )
-   PROPERTIES
-   (
-       "timeout" = "3600",
-       "max_filter_ratio" = "0.1"
-   );
-   ````
+    ```sql
+    LOAD LABEL example_db.label8
+    (
+        MERGE DATA INFILE("HDFS://test:802/input/file")
+        INTO TABLE `my_table`
+        (k1, k2, k3, v2, v1)
+        DELETE ON v2 > 100
+    )
+    WITH HDFS
+    (
+        "hadoop.username"="user",
+        "password"="pass"
+    )
+    PROPERTIES
+    (
+        "timeout" = "3600",
+        "max_filter_ratio" = "0.1"
+    );
+    ````
 
    Import using the MERGE method. `my_table` must be a table with Unique Key. When the value of the v2 column in the imported data is greater than 100, the row is considered a delete row.
 
@@ -374,23 +415,108 @@ WITH BROKER broker_name
 
 9. Specify the source_sequence column when importing to ensure the replacement order in the UNIQUE_KEYS table:
 
-   ```sql
-   LOAD LABEL example_db.label9
-   (
-       DATA INFILE("HDFS://test:802/input/file")
-       INTO TABLE `my_table`
-       COLUMNS TERMINATED BY ","
-       (k1,k2,source_sequence,v1,v2)
-       ORDER BY source_sequence
-   )
-   WITH HDFS
-   (
-       "username"="user",
-       "password"="pass"
-   )
-   ````
+    ```sql
+    LOAD LABEL example_db.label9
+    (
+        DATA INFILE("HDFS://test:802/input/file")
+        INTO TABLE `my_table`
+        COLUMNS TERMINATED BY ","
+        (k1,k2,source_sequence,v1,v2)
+        ORDER BY source_sequence
+    )
+    WITH HDFS
+    (
+        "hadoop.username"="user",
+        "password"="pass"
+    )
+    ````
 
-   `my_table` must be an Unqiue Key model table with Sequence Col specified. The data will be ordered according to the value of the `source_sequence` column in the source data.
+   `my_table` must be an Unique Key model table with Sequence Col specified. The data will be ordered according to the value of the `source_sequence` column in the source data.
+
+10. Import a batch of data from HDFS, specify the file format as `json`, and specify parameters of `json_root` and `jsonpaths`.
+
+    ```sql
+    LOAD LABEL example_db.label10
+    (
+        DATA INFILE("HDFS://test:port/input/file.json")
+        INTO TABLE `my_table`
+        FORMAT AS "json"
+        PROPERTIES(
+          "json_root" = "$.item",
+          "jsonpaths" = "[$.id, $.city, $.code]"
+        )       
+    )
+    with HDFS (
+    "hadoop.username" = "user"
+    "password" = ""
+    )
+    PROPERTIES
+    (
+    "timeout"="1200",
+    "max_filter_ratio"="0.1"
+    );
+    ```
+
+    `jsonpaths` can be use with `column list` and `SET(column_mapping)`:
+
+    ```sql
+    LOAD LABEL example_db.label10
+    (
+        DATA INFILE("HDFS://test:port/input/file.json")
+        INTO TABLE `my_table`
+        FORMAT AS "json"
+        (id, code, city)
+        SET (id = id * 10)
+        PROPERTIES(
+          "json_root" = "$.item",
+          "jsonpaths" = "[$.id, $.code, $.city]"
+        )       
+    )
+    with HDFS (
+    "hadoop.username" = "user"
+    "password" = ""
+    )
+    PROPERTIES
+    (
+    "timeout"="1200",
+    "max_filter_ratio"="0.1"
+    );
+    ```
+
+11. Load data in csv format from cos(Tencent Cloud Object Storage).
+
+    ```SQL
+    LOAD LABEL example_db.label10
+    (
+    DATA INFILE("cosn://my_bucket/input/file.csv")
+    INTO TABLE `my_table`
+    (k1, k2, k3)
+    )
+    WITH BROKER "broker_name"
+    (
+        "fs.cosn.userinfo.secretId" = "xxx",
+        "fs.cosn.userinfo.secretKey" = "xxxx",
+        "fs.cosn.bucket.endpoint_suffix" = "cos.xxxxxxxxx.myqcloud.com"
+    )
+    ```
+
+12. Load CSV date and trim double quotes and skip first 5 lines
+
+    ```SQL
+    LOAD LABEL example_db.label12
+    (
+    DATA INFILE("cosn://my_bucket/input/file.csv")
+    INTO TABLE `my_table`
+    (k1, k2, k3)
+    PROPERTIES("trim_double_quotes" = "true", "skip_lines" = "5")
+    )
+    WITH BROKER "broker_name"
+    (
+        "fs.cosn.userinfo.secretId" = "xxx",
+        "fs.cosn.userinfo.secretKey" = "xxxx",
+        "fs.cosn.bucket.endpoint_suffix" = "cos.xxxxxxxxx.myqcloud.com"
+    )
+    ```
 
 ### Keywords
 
@@ -408,21 +534,21 @@ WITH BROKER broker_name
 
 3. Label, import transaction, multi-table atomicity
 
-   All import tasks in Doris are atomic. And the import of multiple tables in the same import task can also guarantee atomicity. At the same time, Doris can also use the Label mechanism to ensure that the data imported is not lost or heavy. For details, see the [Import Transactions and Atomicity](../../../data-operate/import/import-scenes/load-atomicity.md) documentation.
+   All import tasks in Doris are atomic. And the import of multiple tables in the same import task can also guarantee atomicity. At the same time, Doris can also use the Label mechanism to ensure that the data imported is not lost or heavy. For details, see the [Import Transactions and Atomicity](../../../../data-operate/import/import-scenes/load-atomicity.md) documentation.
 
 4. Column mapping, derived columns and filtering
 
-   Doris can support very rich column transformation and filtering operations in import statements. Most built-in functions and UDFs are supported. For how to use this function correctly, please refer to the [Column Mapping, Conversion and Filtering](../../../data-operate/import/import-scenes/load-data-convert.md) document.
+   Doris can support very rich column transformation and filtering operations in import statements. Most built-in functions and UDFs are supported. For how to use this function correctly, please refer to the [Column Mapping, Conversion and Filtering](../../../../data-operate/import/import-scenes/load-data-convert.md) document.
 
 5. Error data filtering
 
    Doris' import tasks can tolerate a portion of malformed data. Tolerated via `max_filter_ratio` setting. The default is 0, which means that the entire import task will fail when there is an error data. If the user wants to ignore some problematic data rows, the secondary parameter can be set to a value between 0 and 1, and Doris will automatically skip the rows with incorrect data format.
 
-   For some calculation methods of the tolerance rate, please refer to the [Column Mapping, Conversion and Filtering](../../../data-operate/import/import-scenes/load-data-convert.md) document.
+   For some calculation methods of the tolerance rate, please refer to the [Column Mapping, Conversion and Filtering](../../../../data-operate/import/import-scenes/load-data-convert.md) document.
 
 6. Strict Mode
 
-   The `strict_mode` attribute is used to set whether the import task runs in strict mode. The format affects the results of column mapping, transformation, and filtering. For a detailed description of strict mode, see the [strict mode](../../../data-operate/import/import-scenes/load-strict-mode.md) documentation.
+   The `strict_mode` attribute is used to set whether the import task runs in strict mode. The format affects the results of column mapping, transformation, and filtering. For a detailed description of strict mode, see the [strict mode](../../../../data-operate/import/import-scenes/load-strict-mode.md) documentation.
 
 7. Timeout
 

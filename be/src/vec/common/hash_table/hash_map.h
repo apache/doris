@@ -57,8 +57,9 @@ struct HashMapCell {
 
     value_type value;
 
-    HashMapCell() {}
+    HashMapCell() = default;
     HashMapCell(const Key& key_, const State&) : value(key_, NoInitTag()) {}
+    HashMapCell(const Key& key_, const Mapped& mapped_) : value(key_, mapped_) {}
     HashMapCell(const value_type& value_, const State&) : value(value_) {}
 
     const Key& get_first() const { return value.first; }
@@ -196,14 +197,6 @@ public:
         for (auto& v : *this) func(v.get_second());
     }
 
-    size_t get_size() {
-        size_t count = 0;
-        for (auto& v : *this) {
-            count += v.get_second().get_row_count();
-        }
-        return count;
-    }
-
     mapped_type& ALWAYS_INLINE operator[](Key x) {
         typename HashMapTable::LookupResult it;
         bool inserted;
@@ -240,3 +233,10 @@ template <typename Key, typename Mapped, typename Hash = DefaultHash<Key>,
           typename Grower = HashTableGrower<>, typename Allocator = HashTableAllocator>
 using HashMapWithSavedHash =
         HashMapTable<Key, HashMapCellWithSavedHash<Key, Mapped, Hash>, Hash, Grower, Allocator>;
+
+template <typename Key, typename Mapped, typename Hash, size_t initial_size_degree>
+using HashMapWithStackMemory = HashMapTable<
+        Key, HashMapCellWithSavedHash<Key, Mapped, Hash>, Hash,
+        HashTableGrower<initial_size_degree>,
+        HashTableAllocatorWithStackMemory<(1ULL << initial_size_degree) *
+                                          sizeof(HashMapCellWithSavedHash<Key, Mapped, Hash>)>>;

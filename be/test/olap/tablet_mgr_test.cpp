@@ -15,24 +15,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <filesystem>
-#include <fstream>
-#include <sstream>
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gmock/gmock-actions.h>
+#include <gmock/gmock-matchers.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+
+#include <algorithm>
+#include <memory>
 #include <string>
+#include <vector>
 
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
-#include "json2pb/json_to_pb.h"
-#include "olap/olap_meta.h"
-#include "olap/rowset/rowset_meta_manager.h"
+#include "common/config.h"
+#include "common/status.h"
+#include "gtest/gtest_pred_impl.h"
+#include "io/fs/local_file_system.h"
+#include "olap/data_dir.h"
+#include "olap/olap_common.h"
+#include "olap/olap_define.h"
+#include "olap/options.h"
 #include "olap/storage_engine.h"
+#include "olap/tablet.h"
+#include "olap/tablet_manager.h"
+#include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
-#include "olap/txn_manager.h"
-#include "util/file_utils.h"
-
-#ifndef BE_TEST
-#define BE_TEST
-#endif
+#include "runtime/exec_env.h"
+#include "util/uid_util.h"
 
 using ::testing::_;
 using ::testing::Return;
@@ -45,9 +55,10 @@ class TabletMgrTest : public testing::Test {
 public:
     virtual void SetUp() {
         _engine_data_path = "./be/test/olap/test_data/converter_test_data/tmp";
-        std::filesystem::remove_all(_engine_data_path);
-        FileUtils::create_dir(_engine_data_path);
-        FileUtils::create_dir(_engine_data_path + "/meta");
+        EXPECT_TRUE(
+                io::global_local_filesystem()->delete_and_create_directory(_engine_data_path).ok());
+        EXPECT_TRUE(
+                io::global_local_filesystem()->create_directory(_engine_data_path + "/meta").ok());
 
         config::tablet_map_shard_size = 1;
         config::txn_map_shard_size = 1;
@@ -56,6 +67,7 @@ public:
         // won't open engine, options.path is needless
         options.backend_uid = UniqueId::gen_uid();
         k_engine = new StorageEngine(options);
+        ExecEnv::GetInstance()->set_storage_engine(k_engine);
         _data_dir = new DataDir(_engine_data_path, 1000000000);
         _data_dir->init();
         _tablet_mgr = k_engine->tablet_manager();
@@ -63,12 +75,11 @@ public:
 
     virtual void TearDown() {
         SAFE_DELETE(_data_dir);
-        if (std::filesystem::exists(_engine_data_path)) {
-            EXPECT_TRUE(std::filesystem::remove_all(_engine_data_path));
-        }
+        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_engine_data_path).ok());
         if (k_engine != nullptr) {
             k_engine->stop();
         }
+        ExecEnv::GetInstance()->set_storage_engine(nullptr);
         SAFE_DELETE(k_engine);
         _tablet_mgr = nullptr;
     }
@@ -101,12 +112,14 @@ TEST_F(TabletMgrTest, CreateTablet) {
     create_tablet_req.__set_version(2);
     std::vector<DataDir*> data_dirs;
     data_dirs.push_back(_data_dir);
-    Status create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
+    RuntimeProfile profile("CreateTablet");
+    Status create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs, &profile);
     EXPECT_TRUE(create_st == Status::OK());
     TabletSharedPtr tablet = _tablet_mgr->get_tablet(111);
     EXPECT_TRUE(tablet != nullptr);
     // check dir exist
-    bool dir_exist = FileUtils::check_exist(tablet->tablet_path());
+    bool dir_exist = false;
+    EXPECT_TRUE(io::global_local_filesystem()->exists(tablet->tablet_path(), &dir_exist).ok());
     EXPECT_TRUE(dir_exist);
     // check meta has this tablet
     TabletMetaSharedPtr new_tablet_meta(new TabletMeta());
@@ -114,7 +127,7 @@ TEST_F(TabletMgrTest, CreateTablet) {
     EXPECT_TRUE(check_meta_st == Status::OK());
 
     // retry create should be successfully
-    create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
+    create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs, &profile);
     EXPECT_TRUE(create_st == Status::OK());
 
     Status drop_st = _tablet_mgr->drop_tablet(111, create_tablet_req.replica_id, false);
@@ -146,6 +159,7 @@ TEST_F(TabletMgrTest, CreateTabletWithSequence) {
     col3.__set_aggregation_type(TAggregationType::REPLACE);
     cols.push_back(col3);
 
+    RuntimeProfile profile("CreateTablet");
     TTabletSchema tablet_schema;
     tablet_schema.__set_short_key_column_count(1);
     tablet_schema.__set_schema_hash(3333);
@@ -159,14 +173,15 @@ TEST_F(TabletMgrTest, CreateTabletWithSequence) {
     create_tablet_req.__set_version(2);
     std::vector<DataDir*> data_dirs;
     data_dirs.push_back(_data_dir);
-    Status create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
+    Status create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs, &profile);
     EXPECT_TRUE(create_st == Status::OK());
 
     TabletSharedPtr tablet = _tablet_mgr->get_tablet(111);
     EXPECT_TRUE(tablet != nullptr);
     // check dir exist
-    bool dir_exist = FileUtils::check_exist(tablet->tablet_path());
-    EXPECT_TRUE(dir_exist) << tablet->tablet_path();
+    bool dir_exist = false;
+    EXPECT_TRUE(io::global_local_filesystem()->exists(tablet->tablet_path(), &dir_exist).ok());
+    EXPECT_TRUE(dir_exist);
     // check meta has this tablet
     TabletMetaSharedPtr new_tablet_meta(new TabletMeta());
     Status check_meta_st = TabletMetaManager::get_meta(_data_dir, 111, 3333, new_tablet_meta);
@@ -180,6 +195,7 @@ TEST_F(TabletMgrTest, CreateTabletWithSequence) {
 }
 
 TEST_F(TabletMgrTest, DropTablet) {
+    RuntimeProfile profile("CreateTablet");
     TColumnType col_type;
     col_type.__set_type(TPrimitiveType::SMALLINT);
     TColumn col1;
@@ -200,7 +216,7 @@ TEST_F(TabletMgrTest, DropTablet) {
     create_tablet_req.__set_version(2);
     std::vector<DataDir*> data_dirs;
     data_dirs.push_back(_data_dir);
-    Status create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
+    Status create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs, &profile);
     EXPECT_TRUE(create_st == Status::OK());
     TabletSharedPtr tablet = _tablet_mgr->get_tablet(111);
     EXPECT_TRUE(tablet != nullptr);
@@ -221,7 +237,8 @@ TEST_F(TabletMgrTest, DropTablet) {
 
     // check dir exist
     std::string tablet_path = tablet->tablet_path();
-    bool dir_exist = FileUtils::check_exist(tablet_path);
+    bool dir_exist = false;
+    EXPECT_TRUE(io::global_local_filesystem()->exists(tablet_path, &dir_exist).ok());
     EXPECT_TRUE(dir_exist);
 
     // do trash sweep, tablet will not be garbage collected
@@ -230,7 +247,7 @@ TEST_F(TabletMgrTest, DropTablet) {
     EXPECT_TRUE(trash_st == Status::OK());
     tablet = _tablet_mgr->get_tablet(111, true);
     EXPECT_TRUE(tablet != nullptr);
-    dir_exist = FileUtils::check_exist(tablet_path);
+    EXPECT_TRUE(io::global_local_filesystem()->exists(tablet_path, &dir_exist).ok());
     EXPECT_TRUE(dir_exist);
 
     // reset tablet ptr
@@ -239,8 +256,8 @@ TEST_F(TabletMgrTest, DropTablet) {
     EXPECT_TRUE(trash_st == Status::OK());
     tablet = _tablet_mgr->get_tablet(111, true);
     EXPECT_TRUE(tablet == nullptr);
-    dir_exist = FileUtils::check_exist(tablet_path);
-    EXPECT_TRUE(!dir_exist);
+    EXPECT_TRUE(io::global_local_filesystem()->exists(tablet_path, &dir_exist).ok());
+    EXPECT_FALSE(dir_exist);
 }
 
 TEST_F(TabletMgrTest, GetRowsetId) {

@@ -24,7 +24,7 @@ import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.analysis.DropResourceStmt;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
@@ -88,18 +88,19 @@ public class ResourceMgrTest {
         s3ConnTimeoutMs = "1000";
         s3Properties = new HashMap<>();
         s3Properties.put("type", s3ResType);
-        s3Properties.put("s3_endpoint", s3Endpoint);
-        s3Properties.put("s3_region", s3Region);
-        s3Properties.put("s3_root_path", s3RootPath);
-        s3Properties.put("s3_access_key", s3AccessKey);
-        s3Properties.put("s3_secret_key", s3SecretKey);
-        s3Properties.put("s3_bucket", "test-bucket");
+        s3Properties.put("AWS_ENDPOINT", s3Endpoint);
+        s3Properties.put("AWS_REGION", s3Region);
+        s3Properties.put("AWS_ROOT_PATH", s3RootPath);
+        s3Properties.put("AWS_ACCESS_KEY", s3AccessKey);
+        s3Properties.put("AWS_SECRET_KEY", s3SecretKey);
+        s3Properties.put("AWS_BUCKET", "test-bucket");
+        s3Properties.put("s3_validity_check", "false");
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
     }
 
     @Test
     public void testAddAlterDropResource(@Injectable BrokerMgr brokerMgr, @Injectable EditLog editLog,
-                                    @Mocked Env env, @Injectable PaloAuth auth) throws UserException {
+            @Mocked Env env, @Injectable AccessControllerManager accessManager) throws UserException {
         new Expectations() {
             {
                 env.getBrokerMgr();
@@ -108,9 +109,9 @@ public class ResourceMgrTest {
                 result = true;
                 env.getEditLog();
                 result = editLog;
-                env.getAuth();
-                result = auth;
-                auth.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
+                env.getAccessManager();
+                result = accessManager;
+                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
                 result = true;
             }
         };
@@ -118,7 +119,7 @@ public class ResourceMgrTest {
         // spark resource
         // add
         ResourceMgr mgr = new ResourceMgr();
-        CreateResourceStmt stmt = new CreateResourceStmt(true, sparkResName, sparkProperties);
+        CreateResourceStmt stmt = new CreateResourceStmt(true, false, sparkResName, sparkProperties);
         stmt.analyze(analyzer);
         Assert.assertEquals(0, mgr.getResourceNum());
         mgr.createResource(stmt);
@@ -138,12 +139,12 @@ public class ResourceMgrTest {
         Assert.assertEquals(workingDir, ((SparkResource) mgr.getResource(sparkResName)).getWorkingDir());
 
         // drop
-        DropResourceStmt dropStmt = new DropResourceStmt(sparkResName);
+        DropResourceStmt dropStmt = new DropResourceStmt(false, sparkResName);
         mgr.dropResource(dropStmt);
         Assert.assertEquals(0, mgr.getResourceNum());
 
         // s3 resource
-        stmt = new CreateResourceStmt(true, s3ResName, s3Properties);
+        stmt = new CreateResourceStmt(true, false, s3ResName, s3Properties);
         stmt.analyze(analyzer);
         Assert.assertEquals(0, mgr.getResourceNum());
         mgr.createResource(stmt);
@@ -152,22 +153,22 @@ public class ResourceMgrTest {
         // alter
         s3Region = "sh";
         Map<String, String> copiedS3Properties = Maps.newHashMap(s3Properties);
-        copiedS3Properties.put("s3_region", s3Region);
+        copiedS3Properties.put("AWS_REGION", s3Region);
         copiedS3Properties.remove("type");
-        alterResourceStmt = new AlterResourceStmt(s3ResName, copiedS3Properties);
         // current not support modify s3 property
         // mgr.alterResource(alterResourceStmt);
-        // Assert.assertEquals(s3Region, ((S3Resource) mgr.getResource(s3ResName)).getProperty("s3_region"));
+        // Assert.assertEquals(s3Region, ((S3Resource) mgr.getResource(s3ResName)).getProperty("AWS_REGION"));
 
         // drop
-        dropStmt = new DropResourceStmt(s3ResName);
+        dropStmt = new DropResourceStmt(false, s3ResName);
         mgr.dropResource(dropStmt);
         Assert.assertEquals(0, mgr.getResourceNum());
 
     }
 
     @Test(expected = DdlException.class)
-    public void testAddResourceExist(@Injectable BrokerMgr brokerMgr, @Mocked Env env, @Injectable PaloAuth auth)
+    public void testAddResourceExist(@Injectable BrokerMgr brokerMgr, @Mocked Env env,
+            @Injectable AccessControllerManager accessManager)
             throws UserException {
         new Expectations() {
             {
@@ -175,16 +176,16 @@ public class ResourceMgrTest {
                 result = brokerMgr;
                 brokerMgr.containsBroker(broker);
                 result = true;
-                env.getAuth();
-                result = auth;
-                auth.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
+                env.getAccessManager();
+                result = accessManager;
+                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
                 result = true;
             }
         };
 
         // add
         ResourceMgr mgr = new ResourceMgr();
-        CreateResourceStmt stmt = new CreateResourceStmt(true, sparkResName, sparkProperties);
+        CreateResourceStmt stmt = new CreateResourceStmt(true, false, sparkResName, sparkProperties);
         stmt.analyze(analyzer);
         Assert.assertEquals(0, mgr.getResourceNum());
         mgr.createResource(stmt);
@@ -199,7 +200,7 @@ public class ResourceMgrTest {
         // drop
         ResourceMgr mgr = new ResourceMgr();
         Assert.assertEquals(0, mgr.getResourceNum());
-        DropResourceStmt stmt = new DropResourceStmt(sparkResName);
+        DropResourceStmt stmt = new DropResourceStmt(false, sparkResName);
         mgr.dropResource(stmt);
     }
 }

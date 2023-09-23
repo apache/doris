@@ -20,28 +20,78 @@ package org.apache.doris.persist.gson;
 import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.alter.RollupJobV2;
 import org.apache.doris.alter.SchemaChangeJobV2;
+import org.apache.doris.catalog.AggStateType;
 import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DistributionInfo;
+import org.apache.doris.catalog.EsResource;
+import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.HdfsResource;
+import org.apache.doris.catalog.JdbcResource;
+import org.apache.doris.catalog.ListPartitionInfo;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.OdbcCatalogResource;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.RandomDistributionInfo;
+import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.SparkResource;
 import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.external.DeltaLakeExternalDataBase;
+import org.apache.doris.catalog.external.DeltaLakeExternalTable;
+import org.apache.doris.catalog.external.EsExternalDatabase;
+import org.apache.doris.catalog.external.EsExternalTable;
+import org.apache.doris.catalog.external.ExternalDatabase;
+import org.apache.doris.catalog.external.ExternalTable;
+import org.apache.doris.catalog.external.HMSExternalDatabase;
+import org.apache.doris.catalog.external.HMSExternalTable;
+import org.apache.doris.catalog.external.IcebergExternalDatabase;
+import org.apache.doris.catalog.external.IcebergExternalTable;
+import org.apache.doris.catalog.external.JdbcExternalDatabase;
+import org.apache.doris.catalog.external.JdbcExternalTable;
+import org.apache.doris.catalog.external.MaxComputeExternalDatabase;
+import org.apache.doris.catalog.external.MaxComputeExternalTable;
+import org.apache.doris.catalog.external.PaimonExternalDatabase;
+import org.apache.doris.catalog.external.PaimonExternalTable;
+import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.EsExternalCatalog;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.MaxComputeExternalCatalog;
+import org.apache.doris.datasource.deltalake.DeltaLakeExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergDLFExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergGlueExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergHMSExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergHadoopExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergRestExternalCatalog;
+import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
+import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
+import org.apache.doris.datasource.paimon.PaimonFileExternalCatalog;
+import org.apache.doris.datasource.paimon.PaimonHMSExternalCatalog;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.SparkLoadJob.SparkLoadJobStateUpdateInfo;
+import org.apache.doris.load.routineload.AbstractDataSourceProperties;
+import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.load.sync.canal.CanalSyncJob;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.RowPolicy;
 import org.apache.doris.policy.StoragePolicy;
+import org.apache.doris.scheduler.executor.JobExecutor;
+import org.apache.doris.scheduler.executor.SqlJobExecutor;
+import org.apache.doris.system.BackendHbResponse;
+import org.apache.doris.system.BrokerHbResponse;
+import org.apache.doris.system.FrontendHbResponse;
+import org.apache.doris.system.HeartbeatResponse;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
@@ -51,6 +101,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.LinkedListMultimap;
 import com.google.common.collect.Multimap;
+import com.google.common.collect.Range;
 import com.google.common.collect.Table;
 import com.google.gson.ExclusionStrategy;
 import com.google.gson.FieldAttributes;
@@ -106,7 +157,8 @@ public class GsonUtils {
             .registerSubtype(ScalarType.class, ScalarType.class.getSimpleName())
             .registerSubtype(ArrayType.class, ArrayType.class.getSimpleName())
             .registerSubtype(MapType.class, MapType.class.getSimpleName())
-            .registerSubtype(StructType.class, StructType.class.getSimpleName());
+            .registerSubtype(StructType.class, StructType.class.getSimpleName())
+            .registerSubtype(AggStateType.class, AggStateType.class.getSimpleName());
 
     // runtime adapter for class "DistributionInfo"
     private static RuntimeTypeAdapterFactory<DistributionInfo> distributionInfoTypeAdapterFactory
@@ -120,7 +172,11 @@ public class GsonUtils {
             .of(Resource.class, "clazz")
             .registerSubtype(SparkResource.class, SparkResource.class.getSimpleName())
             .registerSubtype(OdbcCatalogResource.class, OdbcCatalogResource.class.getSimpleName())
-            .registerSubtype(S3Resource.class, S3Resource.class.getSimpleName());
+            .registerSubtype(S3Resource.class, S3Resource.class.getSimpleName())
+            .registerSubtype(JdbcResource.class, JdbcResource.class.getSimpleName())
+            .registerSubtype(HdfsResource.class, HdfsResource.class.getSimpleName())
+            .registerSubtype(HMSResource.class, HMSResource.class.getSimpleName())
+            .registerSubtype(EsResource.class, EsResource.class.getSimpleName());
 
     // runtime adapter for class "AlterJobV2"
     private static RuntimeTypeAdapterFactory<AlterJobV2> alterJobV2TypeAdapterFactory = RuntimeTypeAdapterFactory
@@ -138,7 +194,6 @@ public class GsonUtils {
             = RuntimeTypeAdapterFactory.of(LoadJobStateUpdateInfo.class, "clazz")
             .registerSubtype(SparkLoadJobStateUpdateInfo.class, SparkLoadJobStateUpdateInfo.class.getSimpleName());
 
-
     // runtime adapter for class "Policy"
     private static RuntimeTypeAdapterFactory<Policy> policyTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
                     Policy.class, "clazz").registerSubtype(RowPolicy.class, RowPolicy.class.getSimpleName())
@@ -148,7 +203,64 @@ public class GsonUtils {
                     CatalogIf.class, "clazz")
             .registerSubtype(InternalCatalog.class, InternalCatalog.class.getSimpleName())
             .registerSubtype(HMSExternalCatalog.class, HMSExternalCatalog.class.getSimpleName())
-            .registerSubtype(EsExternalCatalog.class, EsExternalCatalog.class.getSimpleName());
+            .registerSubtype(EsExternalCatalog.class, EsExternalCatalog.class.getSimpleName())
+            .registerSubtype(JdbcExternalCatalog.class, JdbcExternalCatalog.class.getSimpleName())
+            .registerSubtype(IcebergExternalCatalog.class, IcebergExternalCatalog.class.getSimpleName())
+            .registerSubtype(IcebergHMSExternalCatalog.class, IcebergHMSExternalCatalog.class.getSimpleName())
+            .registerSubtype(IcebergGlueExternalCatalog.class, IcebergGlueExternalCatalog.class.getSimpleName())
+            .registerSubtype(IcebergRestExternalCatalog.class, IcebergRestExternalCatalog.class.getSimpleName())
+            .registerSubtype(IcebergDLFExternalCatalog.class, IcebergDLFExternalCatalog.class.getSimpleName())
+            .registerSubtype(IcebergHadoopExternalCatalog.class, IcebergHadoopExternalCatalog.class.getSimpleName())
+            .registerSubtype(PaimonExternalCatalog.class, PaimonExternalCatalog.class.getSimpleName())
+            .registerSubtype(PaimonHMSExternalCatalog.class, PaimonHMSExternalCatalog.class.getSimpleName())
+            .registerSubtype(PaimonFileExternalCatalog.class, PaimonFileExternalCatalog.class.getSimpleName())
+            .registerSubtype(MaxComputeExternalCatalog.class, MaxComputeExternalCatalog.class.getSimpleName())
+            .registerSubtype(DeltaLakeExternalCatalog.class, DeltaLakeExternalCatalog.class.getSimpleName());
+    // routine load data source
+    private static RuntimeTypeAdapterFactory<AbstractDataSourceProperties> rdsTypeAdapterFactory =
+            RuntimeTypeAdapterFactory.of(
+                            AbstractDataSourceProperties.class, "clazz")
+                    .registerSubtype(KafkaDataSourceProperties.class, KafkaDataSourceProperties.class.getSimpleName());
+    private static RuntimeTypeAdapterFactory<JobExecutor> jobExecutorRuntimeTypeAdapterFactory =
+            RuntimeTypeAdapterFactory.of(
+                            JobExecutor.class, "clazz")
+                    .registerSubtype(SqlJobExecutor.class, SqlJobExecutor.class.getSimpleName());
+
+    private static RuntimeTypeAdapterFactory<DatabaseIf> dbTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
+                    DatabaseIf.class, "clazz")
+            .registerSubtype(ExternalDatabase.class, ExternalDatabase.class.getSimpleName())
+            .registerSubtype(EsExternalDatabase.class, EsExternalDatabase.class.getSimpleName())
+            .registerSubtype(HMSExternalDatabase.class, HMSExternalDatabase.class.getSimpleName())
+            .registerSubtype(JdbcExternalDatabase.class, JdbcExternalDatabase.class.getSimpleName())
+            .registerSubtype(IcebergExternalDatabase.class, IcebergExternalDatabase.class.getSimpleName())
+            .registerSubtype(PaimonExternalDatabase.class, PaimonExternalDatabase.class.getSimpleName())
+            .registerSubtype(MaxComputeExternalDatabase.class, MaxComputeExternalDatabase.class.getSimpleName())
+            .registerSubtype(DeltaLakeExternalDataBase.class, DeltaLakeExternalDataBase.class.getSimpleName());
+
+    private static RuntimeTypeAdapterFactory<TableIf> tblTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
+                    TableIf.class, "clazz").registerSubtype(ExternalTable.class, ExternalTable.class.getSimpleName())
+            .registerSubtype(EsExternalTable.class, EsExternalTable.class.getSimpleName())
+            .registerSubtype(OlapTable.class, OlapTable.class.getSimpleName())
+            .registerSubtype(HMSExternalTable.class, HMSExternalTable.class.getSimpleName())
+            .registerSubtype(JdbcExternalTable.class, JdbcExternalTable.class.getSimpleName())
+            .registerSubtype(IcebergExternalTable.class, IcebergExternalTable.class.getSimpleName())
+            .registerSubtype(PaimonExternalTable.class, PaimonExternalTable.class.getSimpleName())
+            .registerSubtype(MaxComputeExternalTable.class, MaxComputeExternalTable.class.getSimpleName())
+            .registerSubtype(DeltaLakeExternalTable.class, DeltaLakeExternalTable.class.getSimpleName());
+
+    // runtime adapter for class "PartitionInfo"
+    private static RuntimeTypeAdapterFactory<PartitionInfo> partitionInfoTypeAdapterFactory
+            = RuntimeTypeAdapterFactory.of(PartitionInfo.class, "clazz")
+            .registerSubtype(ListPartitionInfo.class, ListPartitionInfo.class.getSimpleName())
+            .registerSubtype(RangePartitionInfo.class, RangePartitionInfo.class.getSimpleName())
+            .registerSubtype(SinglePartitionInfo.class, SinglePartitionInfo.class.getSimpleName());
+
+    // runtime adapter for class "HeartbeatResponse"
+    private static RuntimeTypeAdapterFactory<HeartbeatResponse> hbResponseTypeAdapterFactory
+            = RuntimeTypeAdapterFactory.of(HeartbeatResponse.class, "clazz")
+            .registerSubtype(BackendHbResponse.class, BackendHbResponse.class.getSimpleName())
+            .registerSubtype(FrontendHbResponse.class, FrontendHbResponse.class.getSimpleName())
+            .registerSubtype(BrokerHbResponse.class, BrokerHbResponse.class.getSimpleName());
 
     // the builder of GSON instance.
     // Add any other adapters if necessary.
@@ -164,8 +276,29 @@ public class GsonUtils {
             .registerTypeAdapterFactory(syncJobTypeAdapterFactory)
             .registerTypeAdapterFactory(loadJobStateUpdateInfoTypeAdapterFactory)
             .registerTypeAdapterFactory(policyTypeAdapterFactory).registerTypeAdapterFactory(dsTypeAdapterFactory)
+            .registerTypeAdapterFactory(dbTypeAdapterFactory).registerTypeAdapterFactory(tblTypeAdapterFactory)
+            .registerTypeAdapterFactory(partitionInfoTypeAdapterFactory)
+            .registerTypeAdapterFactory(hbResponseTypeAdapterFactory)
+            .registerTypeAdapterFactory(rdsTypeAdapterFactory)
+            .registerTypeAdapterFactory(jobExecutorRuntimeTypeAdapterFactory)
             .registerTypeAdapter(ImmutableMap.class, new ImmutableMapDeserializer())
-            .registerTypeAdapter(AtomicBoolean.class, new AtomicBooleanAdapter());
+            .registerTypeAdapter(AtomicBoolean.class, new AtomicBooleanAdapter())
+            .registerTypeAdapter(PartitionKey.class, new PartitionKey.PartitionKeySerializer())
+            .registerTypeAdapter(Range.class, new RangeUtils.RangeSerializer()).setExclusionStrategies(
+                    new ExclusionStrategy() {
+                        @Override
+                        public boolean shouldSkipField(FieldAttributes f) {
+                            return false;
+                        }
+
+                        @Override
+                        public boolean shouldSkipClass(Class<?> clazz) {
+                            /* due to java.lang.IllegalArgumentException: com.lmax.disruptor.RingBuffer
+                            <org.apache.doris.scheduler.disruptor.TimerTaskEvent> declares multiple
+                            JSON fields named p1 */
+                            return clazz.getName().startsWith("com.lmax.disruptor.RingBuffer");
+                        }
+                    });
 
     private static final GsonBuilder GSON_BUILDER_PRETTY_PRINTING = GSON_BUILDER.setPrettyPrinting();
 
@@ -395,7 +528,7 @@ public class GsonUtils {
     public static final class ImmutableMapDeserializer implements JsonDeserializer<ImmutableMap<?, ?>> {
         @Override
         public ImmutableMap<?, ?> deserialize(final JsonElement json, final Type type,
-                final JsonDeserializationContext context) throws JsonParseException {
+                                              final JsonDeserializationContext context) throws JsonParseException {
             final Type type2 = TypeUtils.parameterize(Map.class, ((ParameterizedType) type).getActualTypeArguments());
             final Map<?, ?> map = context.deserialize(json, type2);
             return ImmutableMap.copyOf(map);
@@ -428,3 +561,4 @@ public class GsonUtils {
     }
 
 }
+

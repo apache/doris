@@ -22,7 +22,7 @@ import org.apache.doris.analysis.SetStmt;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StringLiteral;
-import org.apache.doris.analysis.SysVariableDesc;
+import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -64,6 +64,7 @@ public class VariableMgrTest {
         long originExecMemLimit = var.getMaxExecMemByte();
         boolean originEnableProfile = var.enableProfile();
         long originQueryTimeOut = var.getQueryTimeoutS();
+        final int originInsertTimeout = var.getInsertTimeoutS();
 
         List<List<String>> rows = VariableMgr.dump(SetType.SESSION, var, null);
         Assert.assertTrue(rows.size() > 5);
@@ -76,6 +77,8 @@ public class VariableMgrTest {
                 Assert.assertEquals(String.valueOf(originQueryTimeOut), row.get(1));
             } else if (row.get(0).equalsIgnoreCase("sql_mode")) {
                 Assert.assertEquals("", row.get(1));
+            } else if (row.get(0).equalsIgnoreCase("insert_timeout")) {
+                Assert.assertEquals(String.valueOf(originInsertTimeout), row.get(1));
             }
         }
 
@@ -87,7 +90,7 @@ public class VariableMgrTest {
         var = VariableMgr.newSessionVariable();
         Assert.assertEquals(1234L, var.getMaxExecMemByte());
 
-        stmt = (SetStmt) UtFrameUtils.parseAndAnalyzeStmt("set global parallel_fragment_exec_instance_num=5", ctx);
+        stmt = (SetStmt) UtFrameUtils.parseAndAnalyzeStmt("set global parallel_pipeline_task_num=5", ctx);
         executor = new SetExecutor(ctx, stmt);
         executor.execute();
         Assert.assertEquals(1L, var.getParallelExecInstanceNum());
@@ -151,7 +154,7 @@ public class VariableMgrTest {
         Assert.assertEquals(8L, ctx.getSessionVariable().getRuntimeFilterType());
 
         // Get from name
-        SysVariableDesc desc = new SysVariableDesc("exec_mem_limit");
+        VariableExpr desc = new VariableExpr("exec_mem_limit");
         Assert.assertEquals(var.getMaxExecMemByte() + "", VariableMgr.getValue(var, desc));
     }
 
@@ -232,5 +235,23 @@ public class VariableMgrTest {
         SetVar setVar = new SetVar(SetType.SESSION, "version_comment", null);
         VariableMgr.setVar(null, setVar);
         Assert.fail("No exception throws.");
+    }
+
+    @Test
+    public void testVariableCallback() throws Exception {
+        SetStmt stmt = (SetStmt) UtFrameUtils.parseAndAnalyzeStmt("set session_context='trace_id:123'", ctx);
+        SetExecutor executor = new SetExecutor(ctx, stmt);
+        executor.execute();
+        Assert.assertEquals("123", ctx.traceId());
+    }
+
+    @Test
+    public void testSetGlobalDefault() throws Exception {
+        // Set global variable with default value
+        SetStmt stmt = (SetStmt) UtFrameUtils.parseAndAnalyzeStmt("set global enable_profile = default", ctx);
+        SetExecutor executor = new SetExecutor(ctx, stmt);
+        executor.execute();
+        SessionVariable defaultSessionVar = new SessionVariable();
+        Assert.assertEquals(defaultSessionVar.enableProfile(), VariableMgr.newSessionVariable().enableProfile());
     }
 }

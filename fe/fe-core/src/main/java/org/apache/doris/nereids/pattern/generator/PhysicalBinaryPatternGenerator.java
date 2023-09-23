@@ -22,18 +22,17 @@ import org.apache.doris.nereids.pattern.generator.javaast.ClassDeclaration;
 import java.util.Set;
 import java.util.TreeSet;
 
-
 /** used to generate pattern for PhysicalBinary. */
 public class PhysicalBinaryPatternGenerator extends PatternGenerator {
 
     public PhysicalBinaryPatternGenerator(PatternGeneratorAnalyzer analyzer,
-            ClassDeclaration opType, Set<String> parentClass) {
-        super(analyzer, opType, parentClass);
+            ClassDeclaration opType, Set<String> parentClass, boolean isMemoPattern) {
+        super(analyzer, opType, parentClass, isMemoPattern);
     }
 
     @Override
     public String genericType() {
-        return "<" + opType.name + "<GroupPlan, GroupPlan>>";
+        return "<" + opType.name + "<" + childType() + ", " + childType() + ">>";
     }
 
     @Override
@@ -45,7 +44,9 @@ public class PhysicalBinaryPatternGenerator extends PatternGenerator {
     public Set<String> getImports() {
         Set<String> imports = new TreeSet<>();
         imports.add(opType.getFullQualifiedName());
-        imports.add("org.apache.doris.nereids.trees.plans.GroupPlan");
+        if (isMemoPattern) {
+            imports.add("org.apache.doris.nereids.trees.plans.GroupPlan");
+        }
         imports.add("org.apache.doris.nereids.trees.plans.Plan");
         enumFieldPatternInfos.stream()
                 .map(info -> info.enumFullName)

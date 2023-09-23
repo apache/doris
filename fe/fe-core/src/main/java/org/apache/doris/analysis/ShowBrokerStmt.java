@@ -34,8 +34,8 @@ public class ShowBrokerStmt extends ShowStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
-        if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)
-                && !Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(),
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)
+                && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(),
                                                                           PrivPredicate.OPERATOR)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN/OPERATOR");
         }
@@ -45,10 +45,6 @@ public class ShowBrokerStmt extends ShowStmt {
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         for (String title : BrokerMgr.BROKER_PROC_NODE_TITLE_NAMES) {
-            if (title.equals(BrokerMgr.BROKER_PROC_NODE_TITLE_NAMES.get(BrokerMgr.HOSTNAME_INDEX))) {
-                // SHOW BROKER does not show hostname
-                continue;
-            }
             builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
         }
         return builder.build();

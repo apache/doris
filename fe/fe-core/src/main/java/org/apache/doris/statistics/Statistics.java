@@ -17,166 +17,203 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
+import org.apache.doris.nereids.stats.StatsMathUtil;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 
-import com.google.common.collect.Maps;
-
+import java.text.DecimalFormat;
+import java.util.HashMap;
 import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Set;
 
-/**
- * There are the statistics of all of tables.
- * The @Statistics are mainly used to provide input for the Optimizer's cost model.
- *
- * @idToTableStats: <@Long tableId, @TableStats tableStats>
- * Each table will have corresponding @TableStats.
- * Those @TableStats are recorded in @idToTableStats form of MAP.
- * This facilitates the optimizer to quickly find the corresponding
- * @TableStats based on the table id.
- */
 public class Statistics {
+    private static final int K_BYTES = 1024;
 
-    private final Map<Long, TableStats> idToTableStats = Maps.newConcurrentMap();
+    private final double rowCount;
 
-    public void updateTableStats(long tableId, Map<StatsType, String> statsTypeToValue) throws AnalysisException {
-        TableStats tableStats = getNotNullTableStats(tableId);
-        tableStats.updateTableStats(statsTypeToValue);
+    private final Map<Expression, ColumnStatistic> expressionToColumnStats;
+
+    // the byte size of one tuple
+    private double tupleSize;
+
+    /**
+     * after filter, compute the new ndv of a column
+     * @param ndv original ndv of column
+     * @param newRowCount the row count of table after filter
+     * @param oldRowCount the row count of table before filter
+     * @return the new ndv after filter
+     */
+    public static double computeNdv(double ndv, double newRowCount, double oldRowCount) {
+        if (newRowCount > oldRowCount) {
+            return ndv;
+        }
+        double selectOneTuple = newRowCount / StatsMathUtil.nonZeroDivisor(oldRowCount);
+        double allTuplesOfSameDistinctValueNotSelected = Math.pow((1 - selectOneTuple), oldRowCount / ndv);
+        if (allTuplesOfSameDistinctValueNotSelected == 1.0) {
+            // avoid NaN
+            return ndv;
+        }
+        return Math.min(ndv * (1 - allTuplesOfSameDistinctValueNotSelected), newRowCount);
     }
 
-    public void updatePartitionStats(long tableId, String partitionName, Map<StatsType, String> statsTypeToValue)
-            throws AnalysisException {
-        TableStats tableStats = getNotNullTableStats(tableId);
-        tableStats.updatePartitionStats(partitionName, statsTypeToValue);
+    public Statistics(Statistics another) {
+        this.rowCount = another.rowCount;
+        this.expressionToColumnStats = new HashMap<>(another.expressionToColumnStats);
+        this.tupleSize = another.tupleSize;
     }
 
-    public void updateColumnStats(long tableId, String columnName, Type columnType,
-                                  Map<StatsType, String> statsTypeToValue) throws AnalysisException {
-        TableStats tableStats = getNotNullTableStats(tableId);
-        tableStats.updateColumnStats(columnName, columnType, statsTypeToValue);
+    public Statistics(double rowCount, Map<Expression, ColumnStatistic> expressionToColumnStats) {
+        this.rowCount = rowCount;
+        this.expressionToColumnStats = expressionToColumnStats;
     }
 
-    public void updateColumnStats(long tableId, String partitionName, String columnName, Type columnType,
-                                  Map<StatsType, String> statsTypeToValue) throws AnalysisException {
-        TableStats tableStats = getNotNullTableStats(tableId);
-        Map<String, PartitionStats> nameToPartitionStats = tableStats.getNameToPartitionStats();
-        PartitionStats partitionStats = nameToPartitionStats.get(partitionName);
-        partitionStats.updateColumnStats(columnName, columnType, statsTypeToValue);
+    public ColumnStatistic findColumnStatistics(Expression expression) {
+        return expressionToColumnStats.get(expression);
+    }
+
+    public Map<Expression, ColumnStatistic> columnStatistics() {
+        return expressionToColumnStats;
+    }
+
+    public double getRowCount() {
+        return rowCount;
+    }
+
+    /*
+     * Return a stats with new rowCount and fix each column stats.
+     */
+    public Statistics withRowCount(double rowCount) {
+        if (Double.isNaN(rowCount)) {
+            return this;
+        }
+        Statistics statistics = new Statistics(rowCount, new HashMap<>(expressionToColumnStats));
+        statistics.fix(rowCount, StatsMathUtil.nonZeroDivisor(this.rowCount));
+        return statistics;
     }
 
     /**
-     * if the table stats is not exist, create a new one.
-     *
-     * @param tableId table id
-     * @return @TableStats
+     * Update by count.
      */
-    public TableStats getNotNullTableStats(long tableId) {
-        TableStats tableStats = idToTableStats.get(tableId);
-        if (tableStats == null) {
-            tableStats = new TableStats();
-            idToTableStats.put(tableId, tableStats);
+    public Statistics updateRowCountOnly(double rowCount) {
+        Statistics statistics = new Statistics(rowCount, expressionToColumnStats);
+        for (Entry<Expression, ColumnStatistic> entry : expressionToColumnStats.entrySet()) {
+            ColumnStatistic columnStatistic = entry.getValue();
+            ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(columnStatistic);
+            columnStatisticBuilder.setNdv(Math.min(columnStatistic.ndv, rowCount));
+            columnStatisticBuilder.setNumNulls(rowCount - columnStatistic.numNulls);
+            columnStatisticBuilder.setCount(rowCount);
+            expressionToColumnStats.put(entry.getKey(), columnStatisticBuilder.build());
         }
-        return tableStats;
+        return statistics;
     }
 
     /**
-     * Get the table stats for the given table id.
-     *
-     * @param tableId table id
-     * @return @TableStats
-     * @throws AnalysisException if table stats not exists
+     * Fix by sel.
      */
-    public TableStats getTableStats(long tableId) throws AnalysisException {
-        TableStats tableStats = idToTableStats.get(tableId);
-        if (tableStats == null) {
-            throw new AnalysisException("Table " + tableId + " has no statistics");
+    public void fix(double newRowCount, double originRowCount) {
+        double sel = newRowCount / originRowCount;
+        for (Entry<Expression, ColumnStatistic> entry : expressionToColumnStats.entrySet()) {
+            ColumnStatistic columnStatistic = entry.getValue();
+            ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(columnStatistic);
+            columnStatisticBuilder.setNdv(computeNdv(columnStatistic.ndv, newRowCount, originRowCount));
+            columnStatisticBuilder.setNumNulls(Math.min(columnStatistic.numNulls * sel, newRowCount));
+            columnStatisticBuilder.setCount(newRowCount);
+            expressionToColumnStats.put(entry.getKey(), columnStatisticBuilder.build());
         }
-        return tableStats;
+    }
+
+    public Statistics withSel(double sel) {
+        sel = StatsMathUtil.minNonNaN(sel, 1);
+        return withRowCount(rowCount * sel);
+    }
+
+    public Statistics addColumnStats(Expression expression, ColumnStatistic columnStatistic) {
+        expressionToColumnStats.put(expression, columnStatistic);
+        return this;
+    }
+
+    public boolean isInputSlotsUnknown(Set<Slot> inputs) {
+        return inputs.stream()
+                .allMatch(s -> expressionToColumnStats.containsKey(s)
+                        && expressionToColumnStats.get(s).isUnKnown);
+    }
+
+    public Statistics merge(Statistics statistics) {
+        expressionToColumnStats.putAll(statistics.expressionToColumnStats);
+        return this;
+    }
+
+    private double computeTupleSize() {
+        if (tupleSize <= 0) {
+            double tempSize = 0.0;
+            for (ColumnStatistic s : expressionToColumnStats.values()) {
+                tempSize += s.avgSizeByte;
+            }
+            tupleSize = Math.max(1, tempSize);
+        }
+        return tupleSize;
+    }
+
+    public double computeSize() {
+        return computeTupleSize() * rowCount;
+    }
+
+    public double dataSizeFactor() {
+        return computeTupleSize() / K_BYTES;
+    }
+
+    @Override
+    public String toString() {
+        if (Double.isNaN(rowCount)) {
+            return "NaN";
+        }
+        if (Double.POSITIVE_INFINITY == rowCount) {
+            return "Infinite";
+        }
+        if (Double.NEGATIVE_INFINITY == rowCount) {
+            return "-Infinite";
+        }
+        DecimalFormat format = new DecimalFormat("#,###.##");
+        return format.format(rowCount);
+    }
+
+    public int getBENumber() {
+        return 1;
+    }
+
+    public static Statistics zero(Statistics statistics) {
+        Statistics zero = new Statistics(0, new HashMap<>());
+        for (Map.Entry<Expression, ColumnStatistic> entry : statistics.expressionToColumnStats.entrySet()) {
+            zero.addColumnStats(entry.getKey(), ColumnStatistic.ZERO);
+        }
+        return zero;
     }
 
     /**
-     * Get the partitions stats for the given table id.
-     *
-     * @param tableId table id
-     * @return partition name and @PartitionStats
-     * @throws AnalysisException if partitions stats not exists
+     * merge this and other colStats.ndv, choose min
      */
-    public Map<String, PartitionStats> getPartitionStats(long tableId) throws AnalysisException {
-        TableStats tableStats = getTableStats(tableId);
-        Map<String, PartitionStats> nameToPartitionStats = tableStats.getNameToPartitionStats();
-        if (nameToPartitionStats == null) {
-            throw new AnalysisException("Table " + tableId + " has no partition statistics");
-        }
-        return nameToPartitionStats;
-    }
-
-    /**
-     * Get the partition stats for the given table id and partition name.
-     *
-     * @param tableId table id
-     * @param partitionName partition name
-     * @return partition name and @PartitionStats
-     * @throws AnalysisException if partition stats not exists
-     */
-    public Map<String, PartitionStats> getPartitionStats(long tableId, String partitionName)
-            throws AnalysisException {
-        Map<String, PartitionStats> partitionStats = getPartitionStats(tableId);
-        PartitionStats partitionStat = partitionStats.get(partitionName);
-        if (partitionStat == null) {
-            throw new AnalysisException("Partition " + partitionName + " of table " + tableId + " has no statistics");
-        }
-        Map<String, PartitionStats> statsMap = Maps.newHashMap();
-        statsMap.put(partitionName, partitionStat);
-        return statsMap;
-    }
-
-    /**
-     * Get the columns stats for the given table id.
-     *
-     * @param tableId table id
-     * @return column name and @ColumnStats
-     * @throws AnalysisException if columns stats not exists
-     */
-    public Map<String, ColumnStats> getColumnStats(long tableId) throws AnalysisException {
-        TableStats tableStats = getTableStats(tableId);
-        Map<String, ColumnStats> nameToColumnStats = tableStats.getNameToColumnStats();
-        if (nameToColumnStats == null) {
-            throw new AnalysisException("Table " + tableId + " has no column statistics");
-        }
-        return nameToColumnStats;
-    }
-
-    /**
-     * Get the columns stats for the given table id and partition name.
-     *
-     * @param tableId table id
-     * @param partitionName partition name
-     * @return column name and @ColumnStats
-     * @throws AnalysisException if column stats not exists
-     */
-    public Map<String, ColumnStats> getColumnStats(long tableId, String partitionName) throws AnalysisException {
-        Map<String, PartitionStats> partitionStats = getPartitionStats(tableId, partitionName);
-        PartitionStats partitionStat = partitionStats.get(partitionName);
-        if (partitionStat == null) {
-            throw new AnalysisException("Partition " + partitionName + " of table " + tableId + " has no statistics");
-        }
-        return partitionStat.getNameToColumnStats();
-    }
-
-    // TODO: mock statistics need to be removed in the future
-    public void mockTableStatsWithRowCount(long tableId, long rowCount) {
-        TableStats tableStats = idToTableStats.get(tableId);
-        if (tableStats == null) {
-            tableStats = new TableStats();
-            idToTableStats.put(tableId, tableStats);
-        }
-
-        if (tableStats.getRowCount() != rowCount) {
-            tableStats.setRowCount(rowCount);
+    public void updateNdv(Statistics other) {
+        for (Expression expr : expressionToColumnStats.keySet()) {
+            ColumnStatistic otherColStats = other.findColumnStatistics(expr);
+            if (otherColStats != null) {
+                ColumnStatistic thisColStats = expressionToColumnStats.get(expr);
+                if (thisColStats.ndv > otherColStats.ndv) {
+                    expressionToColumnStats.put(expr,
+                            new ColumnStatisticBuilder(thisColStats).setNdv(otherColStats.ndv).build());
+                }
+            }
         }
     }
 
-    // Used for unit test
-    public void putTableStats(long id, TableStats tableStats) {
-        this.idToTableStats.put(id, tableStats);
+    public String detail(String prefix) {
+        StringBuilder builder = new StringBuilder();
+        builder.append(prefix).append("rows=").append(rowCount).append("\n");
+        builder.append(prefix).append("tupleSize=").append(computeTupleSize()).append("\n");
+
+        for (Entry<Expression, ColumnStatistic> entry : expressionToColumnStats.entrySet()) {
+            builder.append(prefix).append(entry.getKey()).append(" -> ").append(entry.getValue()).append("\n");
+        }
+        return builder.toString();
     }
 }

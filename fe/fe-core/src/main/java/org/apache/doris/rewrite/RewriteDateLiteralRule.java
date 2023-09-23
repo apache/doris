@@ -24,8 +24,8 @@ import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.qe.ConnectContext;
 
 /**
  * this rule try to convert date expression, if date is invalid, it will be
@@ -64,9 +64,11 @@ public class RewriteDateLiteralRule implements ExprRewriteRule {
                     String dateStr = childExpr.getStringValue();
                     DateLiteral dateLiteral = new DateLiteral();
                     dateLiteral.fromDateStr(dateStr);
-                    dateLiteral.setType(ScalarType.getDefaultDateType(dateLiteral.getType()));
                     expr.setChild(1, dateLiteral);
                 } catch (AnalysisException e) {
+                    if (ConnectContext.get() != null) {
+                        ConnectContext.get().getState().reset();
+                    }
                     if (clauseType == ExprRewriter.ClauseType.OTHER_CLAUSE) {
                         return new NullLiteral();
                     } else {
