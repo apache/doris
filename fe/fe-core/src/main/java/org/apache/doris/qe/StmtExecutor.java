@@ -146,6 +146,7 @@ import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.service.arrowflight.FlightStatementExecutor;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.util.InternalQueryBuffer;
 import org.apache.doris.system.Backend;
@@ -1300,6 +1301,14 @@ public class StmtExecutor {
     private void handleCacheStmt(CacheAnalyzer cacheAnalyzer, MysqlChannel channel)
             throws Exception {
         InternalService.PFetchCacheResult cacheResult = cacheAnalyzer.getCacheData();
+        if (cacheResult == null) {
+            if (ConnectContext.get() != null
+                    && !ConnectContext.get().getSessionVariable().testQueryCacheHit.equals("none")) {
+                throw new UserException("The variable test_query_cache_hit is set to "
+                        + ConnectContext.get().getSessionVariable().testQueryCacheHit
+                        + ", but the query cache is not hit.");
+            }
+        }
         CacheMode mode = cacheAnalyzer.getCacheMode();
         Queriable queryStmt = (Queriable) parsedStmt;
         boolean isSendFields = false;
@@ -1443,7 +1452,7 @@ public class StmtExecutor {
                 profile.getSummaryProfile().freshFetchResultConsumeTime();
 
                 // for outfile query, there will be only one empty batch send back with eos flag
-                // call `copyRowBatch()` first, because batch.getBatch() may be null, it result set is empty
+                // call `copyRowBatch()` first, because batch.getBatch() may be null, if result set is empty
                 if (cacheAnalyzer != null && !isOutfileQuery) {
                     cacheAnalyzer.copyRowBatch(batch);
                 }
@@ -2589,7 +2598,8 @@ public class StmtExecutor {
                         planner = new NereidsPlanner(statementContext);
                         planner.plan(parsedStmt, context.getSessionVariable().toThrift());
                     } catch (Exception e) {
-                        LOG.warn("fall back to legacy planner, because: {}", e.getMessage(), e);
+                        LOG.warn("Arrow Flight SQL fall back to legacy planner, because: {}",
+                                e.getMessage(), e);
                         parsedStmt = null;
                         planner = null;
                         context.getState().setNereids(false);
@@ -2604,7 +2614,6 @@ public class StmtExecutor {
                 LOG.warn("Failed to run internal SQL: {}", originStmt, e);
                 throw new RuntimeException("Failed to execute internal SQL. " + Util.getRootCauseMessage(e), e);
             }
-            planner.getFragments();
             RowBatch batch;
             coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
             profile.addExecutionProfile(coord.getExecutionProfile());
@@ -2638,7 +2647,7 @@ public class StmtExecutor {
                 }
             } catch (Exception e) {
                 fetchResultSpan.recordException(e);
-                throw new RuntimeException("Failed to execute internal SQL. " + Util.getRootCauseMessage(e), e);
+                throw new RuntimeException("Failed to fetch internal SQL result. " + Util.getRootCauseMessage(e), e);
             } finally {
                 fetchResultSpan.end();
             }
@@ -2647,6 +2656,64 @@ public class StmtExecutor {
                     true);
             QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
         }
+    }
+
+    public void executeArrowFlightQuery(FlightStatementExecutor flightStatementExecutor) {
+        LOG.debug("ARROW FLIGHT QUERY: " + originStmt.toString());
+        try {
+            try {
+                if (ConnectContext.get() != null
+                        && ConnectContext.get().getSessionVariable().isEnableNereidsPlanner()) {
+                    try {
+                        parseByNereids();
+                        Preconditions.checkState(parsedStmt instanceof LogicalPlanAdapter,
+                                "Nereids only process LogicalPlanAdapter,"
+                                        + " but parsedStmt is " + parsedStmt.getClass().getName());
+                        context.getState().setNereids(true);
+                        context.getState().setIsQuery(true);
+                        planner = new NereidsPlanner(statementContext);
+                        planner.plan(parsedStmt, context.getSessionVariable().toThrift());
+                    } catch (Exception e) {
+                        LOG.warn("fall back to legacy planner, because: {}", e.getMessage(), e);
+                        parsedStmt = null;
+                        context.getState().setNereids(false);
+                        analyzer = new Analyzer(context.getEnv(), context);
+                        analyze(context.getSessionVariable().toThrift());
+                    }
+                } else {
+                    analyzer = new Analyzer(context.getEnv(), context);
+                    analyze(context.getSessionVariable().toThrift());
+                }
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to execute Arrow Flight SQL. " + Util.getRootCauseMessage(e), e);
+            }
+            coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
+            profile.addExecutionProfile(coord.getExecutionProfile());
+            try {
+                QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
+                        new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
+            } catch (UserException e) {
+                throw new RuntimeException("Failed to execute Arrow Flight SQL. " + Util.getRootCauseMessage(e), e);
+            }
+
+            Span queryScheduleSpan = context.getTracer()
+                    .spanBuilder("Arrow Flight SQL schedule").setParent(Context.current()).startSpan();
+            try (Scope scope = queryScheduleSpan.makeCurrent()) {
+                coord.exec();
+            } catch (Exception e) {
+                queryScheduleSpan.recordException(e);
+                LOG.warn("Failed to coord exec Arrow Flight SQL, because: {}", e.getMessage(), e);
+                throw new RuntimeException(e.getMessage() + Util.getRootCauseMessage(e), e);
+            } finally {
+                queryScheduleSpan.end();
+            }
+        } finally {
+            QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId()); // TODO for query profile
+        }
+        flightStatementExecutor.setFinstId(coord.getFinstId());
+        flightStatementExecutor.setResultFlightServerAddr(coord.getResultFlightServerAddr());
+        flightStatementExecutor.setResultInternalServiceAddr(coord.getResultInternalServiceAddr());
+        flightStatementExecutor.setResultOutputExprs(coord.getResultOutputExprs());
     }
 
     private List<ResultRow> convertResultBatchToResultRows(TResultBatch batch) {
@@ -2692,4 +2759,5 @@ public class StmtExecutor {
         return originStmt;
     }
 }
+
 

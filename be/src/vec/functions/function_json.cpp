@@ -949,7 +949,12 @@ public:
     size_t get_number_of_arguments() const override { return 3; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return make_nullable(std::make_shared<DataTypeInt32>());
+        return make_nullable(std::make_shared<DataTypeUInt8>());
+    }
+
+    DataTypes get_variadic_argument_types_impl() const override {
+        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>(),
+                std::make_shared<DataTypeString>()};
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }
@@ -1022,7 +1027,7 @@ public:
             return Status::RuntimeError("Illegal column should be ColumnString");
         }
 
-        auto col_to = ColumnVector<vectorized::Int32>::create();
+        auto col_to = ColumnVector<vectorized::UInt8>::create();
         auto& vec_to = col_to->get_data();
         size_t size = col_json.size();
         vec_to.resize(size);

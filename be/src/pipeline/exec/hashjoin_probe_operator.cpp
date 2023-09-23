@@ -185,7 +185,7 @@ HashJoinProbeOperatorX::HashJoinProbeOperatorX(ObjectPool* pool, const TPlanNode
 
 Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Block* output_block,
                                     SourceState& source_state) const {
-    auto& local_state = state->get_local_state(id())->cast<HashJoinProbeLocalState>();
+    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
     local_state.init_for_probe(state);
     SCOPED_TIMER(local_state._probe_timer);
     if (local_state._shared_state->short_circuit_for_probe) {
@@ -324,7 +324,7 @@ Status HashJoinProbeOperatorX::_do_evaluate(vectorized::Block& block,
 
 Status HashJoinProbeOperatorX::push(RuntimeState* state, vectorized::Block* input_block,
                                     SourceState source_state) const {
-    auto& local_state = state->get_local_state(id())->cast<HashJoinProbeLocalState>();
+    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
     local_state.prepare_for_next();
     local_state._probe_eos = source_state == SourceState::FINISHED;
     if (input_block->rows() > 0) {
@@ -454,7 +454,7 @@ Status HashJoinProbeOperatorX::open(RuntimeState* state) {
 }
 
 Dependency* HashJoinProbeOperatorX::wait_for_dependency(RuntimeState* state) {
-    auto& local_state = state->get_local_state(id())->cast<HashJoinProbeLocalState>();
+    CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
     return local_state._dependency->read_blocked_by();
 }
 

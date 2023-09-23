@@ -353,7 +353,8 @@ class Suite implements GroovyInterceptable {
     }
 
     String uploadToHdfs(String localFile) {
-        String dataDir = context.config.dataPath + "/" + group + "/"
+        // as group can be rewrite the origin data file not relate to group
+        String dataDir = context.config.dataPath + "/"
         localFile = dataDir + localFile
         String hdfsFs = context.config.otherConfigs.get("hdfsFs")
         String hdfsUser = context.config.otherConfigs.get("hdfsUser")
@@ -514,7 +515,25 @@ class Suite implements GroovyInterceptable {
     PreparedStatement prepareStatement(String sql) {
         logger.info("Execute sql: ${sql}".toString())
         return JdbcUtils.prepareStatement(context.getConnection(), sql)
-    } 
+    }
+
+    List<List<Object>> hive_docker(String sqlStr, boolean isOrder = false){
+        String cleanedSqlStr = sqlStr.replaceAll(/;+$/, '')
+        def (result, meta) = JdbcUtils.executeToList(context.getHiveDockerConnection(), cleanedSqlStr)
+        if (isOrder) {
+            result = DataUtils.sortByToString(result)
+        }
+        return result
+    }
+
+    List<List<Object>> hive_remote(String sqlStr, boolean isOrder = false){
+        String cleanedSqlStr = sqlStr.replaceAll(/;+$/, '')
+        def (result, meta) = JdbcUtils.executeToList(context.getHiveRemoteConnection(), cleanedSqlStr)
+        if (isOrder) {
+            result = DataUtils.sortByToString(result)
+        }
+        return result
+    }
 
     void quickRunTest(String tag, Object arg, boolean isOrder = false) {
         if (context.config.generateOutputFile || context.config.forceGenerateOutputFile) {

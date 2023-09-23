@@ -29,7 +29,7 @@ PhysicalResultSink
 ----------------------------------------filter((item.i_current_price > 50.00))
 ------------------------------------------PhysicalOlapScan[item]
 ------------------------------------PhysicalDistribute
---------------------------------------filter((cast(p_channel_tv as VARCHAR(*)) = 'N'))
+--------------------------------------filter((promotion.p_channel_tv = 'N'))
 ----------------------------------------PhysicalOlapScan[promotion]
 ----------------------------------PhysicalDistribute
 ------------------------------------PhysicalProject
@@ -53,7 +53,7 @@ PhysicalResultSink
 ----------------------------------------filter((item.i_current_price > 50.00))
 ------------------------------------------PhysicalOlapScan[item]
 ------------------------------------PhysicalDistribute
---------------------------------------filter((cast(p_channel_tv as VARCHAR(*)) = 'N'))
+--------------------------------------filter((promotion.p_channel_tv = 'N'))
 ----------------------------------------PhysicalOlapScan[promotion]
 ----------------------------------PhysicalDistribute
 ------------------------------------PhysicalProject
@@ -76,7 +76,7 @@ PhysicalResultSink
 ----------------------------------------------filter((date_dim.d_date >= 1998-08-28)(date_dim.d_date <= 1998-09-27))
 ------------------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------------------PhysicalDistribute
---------------------------------------------filter((cast(p_channel_tv as VARCHAR(*)) = 'N'))
+--------------------------------------------filter((promotion.p_channel_tv = 'N'))
 ----------------------------------------------PhysicalOlapScan[promotion]
 --------------------------------------PhysicalDistribute
 ----------------------------------------filter((item.i_current_price > 50.00))

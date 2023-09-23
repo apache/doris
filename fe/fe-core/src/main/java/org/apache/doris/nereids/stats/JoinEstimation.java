@@ -137,7 +137,7 @@ public class JoinEstimation {
             outputRowCount = outputRowCount * Math.pow(0.9, unTrustableCondition.size());
         } else {
             outputRowCount = Math.max(leftStats.getRowCount(), rightStats.getRowCount());
-            Optional<Double> ratio = unTrustEqualRatio.stream().max(Double::compareTo);
+            Optional<Double> ratio = unTrustEqualRatio.stream().min(Double::compareTo);
             if (ratio.isPresent()) {
                 outputRowCount = Math.max(1, outputRowCount * ratio.get());
             }

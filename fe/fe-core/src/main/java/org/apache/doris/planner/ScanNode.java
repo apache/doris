@@ -641,4 +641,8 @@ public abstract class ScanNode extends PlanNode {
         scanRangeLocation.addToLocations(location);
         return scanRangeLocation;
     }
+
+    public boolean isKeySearch() {
+        return false;
+    }
 }

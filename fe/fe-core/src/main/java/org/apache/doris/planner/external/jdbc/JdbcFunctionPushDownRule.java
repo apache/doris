@@ -45,6 +45,7 @@ public class JdbcFunctionPushDownRule {
 
     static {
         CLICKHOUSE_SUPPORTED_FUNCTIONS.add("from_unixtime");
+        CLICKHOUSE_SUPPORTED_FUNCTIONS.add("unix_timestamp");
     }
 
     private static boolean isMySQLFunctionUnsupported(String functionName) {
@@ -70,6 +71,7 @@ public class JdbcFunctionPushDownRule {
 
     static {
         REPLACE_CLICKHOUSE_FUNCTIONS.put("from_unixtime", "FROM_UNIXTIME");
+        REPLACE_CLICKHOUSE_FUNCTIONS.put("unix_timestamp", "toUnixTimestamp");
     }
 
     private static boolean isReplaceClickHouseFunctions(String functionName) {
@@ -105,14 +107,14 @@ public class JdbcFunctionPushDownRule {
 
             Preconditions.checkArgument(!func.isEmpty(), "function can not be empty");
 
-            func = replaceFunctionNameIfNecessary(func, replaceFunction, functionCallExpr, tableType);
-
-            if (!func.isEmpty() && checkFunction.test(func)) {
+            if (checkFunction.test(func)) {
                 String errMsg = "Unsupported function: " + func + " in expr: " + expr.toMySql()
                         + " in JDBC Table Type: " + tableType;
                 LOG.warn(errMsg);
                 errors.add(errMsg);
             }
+
+            replaceFunctionNameIfNecessary(func, replaceFunction, functionCallExpr, tableType);
         }
 
         List<Expr> children = expr.getChildren();

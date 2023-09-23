@@ -56,7 +56,7 @@ public:
 
     virtual Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
-    virtual Status close(RuntimeState* state) override;
+    Status close(RuntimeState* state, Status exec_status) override;
 
     Status try_spill_disk(bool eos = false);
 
@@ -346,14 +346,14 @@ public:
     virtual Status sink(RuntimeState* state, vectorized::Block* in_block,
                         SourceState source_state) override;
 
-    virtual bool can_write(RuntimeState* state) override { return true; }
-
     using DataSinkOperatorX<LocalStateType>::id;
 
 protected:
+    using LocalState = LocalStateType;
     template <typename DependencyType, typename Derived>
     friend class AggSinkLocalState;
     friend class StreamingAggSinkLocalState;
+    friend class DistinctStreamingAggSinkLocalState;
     std::vector<vectorized::AggFnEvaluator*> _aggregate_evaluators;
     bool _can_short_circuit = false;
 

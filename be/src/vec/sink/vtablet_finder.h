@@ -23,8 +23,7 @@
 #include "exec/tablet_info.h"
 #include "vec/core/block.h"
 
-namespace doris {
-namespace stream_load {
+namespace doris::vectorized {
 
 class OlapTabletFinder {
 public:
@@ -73,5 +72,4 @@ private:
     int64_t _num_immutable_partition_filtered_rows = 0;
 };
 
-} // namespace stream_load
-} // namespace doris
+} // namespace doris::vectorized
