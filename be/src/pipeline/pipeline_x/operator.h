@@ -530,7 +530,7 @@ public:
 
     [[nodiscard]] bool is_source() const override { return false; }
 
-    [[nodiscard]] virtual Status close(RuntimeState* state, Status exec_status) {
+    virtual Status close(RuntimeState* state, Status exec_status) {
         return state->get_sink_local_state(id())->close(state, exec_status);
     }
 

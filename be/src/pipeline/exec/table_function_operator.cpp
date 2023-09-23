@@ -94,7 +94,7 @@ void TableFunctionLocalState::_copy_output_slots(
 //  0: all fns are eos
 // -1: all fns are not eos
 // >0: some of fns are eos
-int TableFunctionLocalState::_find_last_fn_eos_idx() {
+int TableFunctionLocalState::_find_last_fn_eos_idx() const {
     for (int i = _parent->cast<TableFunctionOperatorX>()._fn_num - 1; i >= 0; --i) {
         if (!_fns[i]->eos()) {
             if (i == _parent->cast<TableFunctionOperatorX>()._fn_num - 1) {

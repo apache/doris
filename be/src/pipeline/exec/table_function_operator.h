@@ -70,7 +70,7 @@ private:
     //  0: all fns are eos
     // -1: all fns are not eos
     // >0: some of fns are eos
-    int _find_last_fn_eos_idx();
+    int _find_last_fn_eos_idx() const;
     bool _is_inner_and_empty();
 
     std::vector<vectorized::TableFunction*> _fns;
@@ -137,7 +137,7 @@ private:
                                               1. FE: create a new output tuple based on the real output slots;
     2. BE: refractor (V)TableFunctionNode output rows based no the new tuple;
     */
-    inline bool _slot_need_copy(SlotId slot_id) const {
+    [[nodiscard]] inline bool _slot_need_copy(SlotId slot_id) const {
         auto id = _output_slots[slot_id]->id();
         return (id < _output_slot_ids.size()) && (_output_slot_ids[id]);
     }
