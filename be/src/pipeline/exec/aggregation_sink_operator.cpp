@@ -928,7 +928,7 @@ Status AggSinkOperatorX<LocalStateType>::sink(doris::RuntimeState* state,
 }
 
 template <typename DependencyType, typename Derived>
-Status AggSinkLocalState<DependencyType, Derived>::close(RuntimeState* state) {
+Status AggSinkLocalState<DependencyType, Derived>::close(RuntimeState* state, Status exec_status) {
     SCOPED_TIMER(Base::profile()->total_time_counter());
     SCOPED_TIMER(Base::_close_timer);
     if (Base::_closed) {
@@ -943,7 +943,7 @@ Status AggSinkLocalState<DependencyType, Derived>::close(RuntimeState* state) {
 
     std::vector<size_t> tmp_hash_values;
     _hash_values.swap(tmp_hash_values);
-    return Base::close(state);
+    return Base::close(state, exec_status);
 }
 
 class StreamingAggSinkLocalState;

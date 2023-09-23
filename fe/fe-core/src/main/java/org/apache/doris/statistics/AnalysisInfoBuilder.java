@@ -23,7 +23,7 @@ import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
 
-import org.quartz.CronExpression;
+import org.apache.logging.log4j.core.util.CronExpression;
 
 import java.util.List;
 import java.util.Map;
