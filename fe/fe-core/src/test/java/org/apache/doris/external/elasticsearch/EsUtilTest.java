@@ -278,5 +278,12 @@ public class EsUtilTest extends EsTestCase {
 
     }
 
+    @Test
+    public void testDefaultMapping() throws IOException, URISyntaxException {
+        ObjectNode testAliases = EsUtil.getMappingProps("test", loadJsonFromFile("data/es/default_mappings.json"),
+                null);
+        Assertions.assertEquals("{\"@timestamp\":{\"type\":\"date\"},\"@version\":{\"type\":\"keyword\"},\"act\":{\"type\":\"text\",\"norms\":false,\"fields\":{\"keyword\":{\"type\":\"keyword\",\"ignore_above\":256}}},\"app\":{\"type\":\"text\",\"norms\":false,\"fields\":{\"keyword\":{\"type\":\"keyword\",\"ignore_above\":256}}},\"tags\":{\"type\":\"text\",\"norms\":false,\"fields\":{\"keyword\":{\"type\":\"keyword\",\"ignore_above\":256}}},\"type\":{\"type\":\"text\",\"norms\":false,\"fields\":{\"keyword\":{\"type\":\"keyword\",\"ignore_above\":256}}},\"uid\":{\"type\":\"text\",\"norms\":false,\"fields\":{\"keyword\":{\"type\":\"keyword\",\"ignore_above\":256}}}}",
+                testAliases.toString());
+    }
 
 }

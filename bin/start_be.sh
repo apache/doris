@@ -30,12 +30,14 @@ OPTS="$(getopt \
     -n "$0" \
     -o '' \
     -l 'daemon' \
+    -l 'console' \
     -- "$@")"
 
 eval set -- "${OPTS}"
 
 RUN_DAEMON=0
 RUN_IN_AWS=0
+RUN_CONSOLE=0
 while true; do
     case "$1" in
     --daemon)
@@ -44,6 +46,10 @@ while true; do
         ;;
     --aws)
         RUN_IN_AWS=1
+        shift
+        ;;
+    --console)
+        RUN_CONSOLE=1
         shift
         ;;
     --)
@@ -136,10 +142,12 @@ jdk_version() {
     local result
     local IFS=$'\n'
 
-    if [[ -z "${java_cmd}" ]]; then
+    if ! command -v "${java_cmd}" >/dev/null; then
+        echo "ERROR: invalid java_cmd ${java_cmd}" >>"${LOG_DIR}/be.out"
         result=no_java
         return 1
     else
+        echo "INFO: java_cmd ${java_cmd}" >>"${LOG_DIR}/be.out"
         local version
         # remove \r for Cygwin
         version="$("${java_cmd}" -Xms32M -Xmx32M -version 2>&1 | tr '\r' '\n' | grep version | awk '{print $3}')"
@@ -149,6 +157,7 @@ jdk_version() {
         else
             result="$(echo "${version}" | awk -F '.' '{print $1}')"
         fi
+        echo "INFO: jdk_version ${result}" >>"${LOG_DIR}/be.out"
     fi
     echo "${result}"
     return 0
@@ -336,7 +345,9 @@ export AWS_MAX_ATTEMPTS=2
 
 if [[ "${RUN_DAEMON}" -eq 1 ]]; then
     nohup ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" >>"${LOG_DIR}/be.out" 2>&1 </dev/null &
-else
+elif [[ "${RUN_CONSOLE}" -eq 1 ]]; then
     export DORIS_LOG_TO_STDERR=1
     ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" 2>&1 </dev/null
+else
+    ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" >>"${LOG_DIR}/be.out" 2>&1 </dev/null
 fi

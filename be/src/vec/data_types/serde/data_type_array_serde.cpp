@@ -64,16 +64,19 @@ void DataTypeArraySerDe::serialize_one_cell_to_json(const IColumn& column, int r
 Status DataTypeArraySerDe::deserialize_column_from_json_vector(IColumn& column,
                                                                std::vector<Slice>& slices,
                                                                int* num_deserialized,
-                                                               const FormatOptions& options) const {
+                                                               const FormatOptions& options,
+                                                               int nesting_level) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
     return Status::OK();
 }
 
 Status DataTypeArraySerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                                          const FormatOptions& options) const {
+                                                          const FormatOptions& options,
+                                                          int nesting_level) const {
     if (slice.empty()) {
         return Status::InvalidArgument("slice is empty!");
     }
+
     auto& array_column = assert_cast<ColumnArray&>(column);
     auto& offsets = array_column.get_offsets();
     IColumn& nested_column = array_column.get_data();
@@ -105,10 +108,17 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_json(IColumn& column, Slice
     slices.emplace_back(slice);
     size_t slice_size = slice.size;
     // pre add total slice can reduce lasted element check.
+    char quote_char = 0;
     for (int idx = 0; idx < slice_size; ++idx) {
         char c = slice[idx];
         if (c == '"' || c == '\'') {
-            has_quote = !has_quote;
+            if (!has_quote) {
+                quote_char = c;
+                has_quote = !has_quote;
+            } else if (has_quote && quote_char == c) {
+                quote_char = 0;
+                has_quote = !has_quote;
+            }
         } else if (!has_quote && (c == '[' || c == '{')) {
             ++nested_level;
         } else if (!has_quote && (c == ']' || c == '}')) {
@@ -130,8 +140,8 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_json(IColumn& column, Slice
     }
 
     int elem_deserialized = 0;
-    Status st = nested_serde->deserialize_column_from_json_vector(nested_column, slices,
-                                                                  &elem_deserialized, options);
+    Status st = nested_serde->deserialize_column_from_json_vector(
+            nested_column, slices, &elem_deserialized, options, nesting_level + 1);
     offsets.emplace_back(offsets.back() + elem_deserialized);
     return st;
 }

@@ -42,11 +42,6 @@ public class StringType extends CharacterType {
     }
 
     @Override
-    public boolean acceptsType(DataType other) {
-        return other instanceof StringType || other instanceof VarcharType;
-    }
-
-    @Override
     public String simpleString() {
         return "string";
     }

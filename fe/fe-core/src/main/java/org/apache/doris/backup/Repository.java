@@ -450,7 +450,7 @@ public class Repository implements Writable {
         // Preconditions.checkArgument(remoteFilePath.startsWith(location), remoteFilePath);
         // get md5usm of local file
         File file = new File(localFilePath);
-        String md5sum = null;
+        String md5sum;
         try (FileInputStream fis = new FileInputStream(file)) {
             md5sum = DigestUtils.md5Hex(fis);
         } catch (FileNotFoundException e) {

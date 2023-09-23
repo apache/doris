@@ -232,7 +232,7 @@
 1.2
 
 -- !sql_character_length_Varchar --
-\N
+4
 9
 9
 9
@@ -261,7 +261,7 @@
 9
 
 -- !sql_character_length_String --
-\N
+4
 7
 7
 7
@@ -696,7 +696,7 @@ true
 \N
 
 -- !sql_coalesce_Varchar --
-\N
+null
 varchar11
 varchar11
 varchar11
@@ -725,7 +725,7 @@ varchar13
 varchar13
 
 -- !sql_coalesce_String --
-\N
+null
 string1
 string1
 string1
@@ -754,7 +754,7 @@ string3
 string3
 
 -- !sql_concat_Varchar --
-\N
+null
 varchar11
 varchar11
 varchar11
@@ -783,7 +783,7 @@ varchar13
 varchar13
 
 -- !sql_concat_String --
-\N
+null
 string1
 string1
 string1
@@ -812,7 +812,7 @@ string3
 string3
 
 -- !sql_concat_ws_Varchar --
-
+null
 varchar11
 varchar11
 varchar11
@@ -841,7 +841,7 @@ varchar13
 varchar13
 
 -- !sql_concat_ws_String --
-
+null
 string1
 string1
 string1
@@ -986,7 +986,7 @@ char13, char23, char33, varchar13, varchar23, varchar33
 0
 
 -- !sql_convert_to_Varchar_Varchar --
-\N
+null
 varchar11
 varchar11
 varchar11

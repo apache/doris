@@ -36,14 +36,12 @@ import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -69,7 +67,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
     }
 
     protected Expression(List<Expression> children) {
-        super(Optional.empty(), children);
+        super(children);
         depth = children.stream()
                 .mapToInt(e -> e.depth)
                 .max().orElse(0) + 1;
@@ -207,10 +205,6 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
     @Override
     public Expression withChildren(List<Expression> children) {
         throw new RuntimeException();
-    }
-
-    public final Expression withChildren(Expression... children) {
-        return withChildren(ImmutableList.copyOf(children));
     }
 
     /**

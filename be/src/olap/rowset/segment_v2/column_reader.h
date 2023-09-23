@@ -82,16 +82,16 @@ struct ColumnReaderOptions {
 };
 
 struct ColumnIteratorOptions {
-    io::FileReader* file_reader = nullptr;
-    // reader statistics
-    OlapReaderStatistics* stats = nullptr;
     bool use_page_cache = false;
+    bool is_predicate_column = false;
     // for page cache allocation
     // page types are divided into DATA_PAGE & INDEX_PAGE
     // INDEX_PAGE including index_page, dict_page and short_key_page
     PageTypePB type;
+    io::FileReader* file_reader = nullptr; // Ref
+    // reader statistics
+    OlapReaderStatistics* stats = nullptr; // Ref
     io::IOContext io_ctx;
-    bool is_predicate_column = false;
 
     void sanity_check() const {
         CHECK_NOTNULL(file_reader);

@@ -64,7 +64,7 @@
 namespace doris {
 class TExpr;
 
-namespace stream_load {
+namespace vectorized {
 
 VOlapTableSinkV2::VOlapTableSinkV2(ObjectPool* pool, const RowDescriptor& row_desc,
                                    const std::vector<TExpr>& texprs, Status* status)
@@ -84,6 +84,7 @@ Status VOlapTableSinkV2::init(const TDataSink& t_sink) {
     _txn_id = table_sink.txn_id;
     _num_replicas = table_sink.num_replicas;
     _tuple_desc_id = table_sink.tuple_id;
+    _write_file_cache = table_sink.write_file_cache;
     _schema.reset(new OlapTableSchemaParam());
     RETURN_IF_ERROR(_schema->init(table_sink.schema));
     _location = _pool->add(new OlapTableLocationParam(table_sink.location));
@@ -282,7 +283,7 @@ Status VOlapTableSinkV2::send(RuntimeState* state, vectorized::Block* input_bloc
     std::shared_ptr<vectorized::Block> block;
     bool has_filtered_rows = false;
     RETURN_IF_ERROR(_block_convertor->validate_and_convert_block(
-            state, input_block, block, _output_vexpr_ctxs, input_rows, eos, has_filtered_rows));
+            state, input_block, block, _output_vexpr_ctxs, input_rows, has_filtered_rows));
 
     // clear and release the references of columns
     input_block->clear();
@@ -324,15 +325,17 @@ Status VOlapTableSinkV2::_write_memtable(std::shared_ptr<vectorized::Block> bloc
                                          int64_t tablet_id, const Rows& rows,
                                          const Streams& streams) {
     DeltaWriterV2* delta_writer = _delta_writer_for_tablet->get_or_create(tablet_id, [&]() {
-        WriteRequest req;
-        req.partition_id = rows.partition_id;
-        req.index_id = rows.index_id;
-        req.tablet_id = tablet_id;
-        req.txn_id = _txn_id;
-        req.load_id = _load_id;
-        req.tuple_desc = _output_tuple_desc;
-        req.is_high_priority = _is_high_priority;
-        req.table_schema_param = _schema.get();
+        WriteRequest req {
+                .tablet_id = tablet_id,
+                .txn_id = _txn_id,
+                .index_id = rows.index_id,
+                .partition_id = rows.partition_id,
+                .load_id = _load_id,
+                .tuple_desc = _output_tuple_desc,
+                .table_schema_param = _schema.get(),
+                .is_high_priority = _is_high_priority,
+                .write_file_cache = _write_file_cache,
+        };
         for (auto& index : _schema->indexes()) {
             if (index->index_id == rows.index_id) {
                 req.slots = &index->slots;
@@ -455,5 +458,5 @@ Status VOlapTableSinkV2::_close_load(const Streams& streams) {
     return Status::OK();
 }
 
-} // namespace stream_load
+} // namespace vectorized
 } // namespace doris

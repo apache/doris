@@ -92,7 +92,7 @@ public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
         }
 
         BackendServiceProxy proxy = BackendServiceProxy.getInstance();
-        TNetworkAddress address = be.getBrpcAdress();
+        TNetworkAddress address = be.getBrpcAddress();
         InternalService.PGlobRequest.Builder requestBuilder = InternalService.PGlobRequest.newBuilder();
         requestBuilder.setPattern(filePath);
         try {

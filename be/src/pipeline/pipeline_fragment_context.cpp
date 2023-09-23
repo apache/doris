@@ -715,7 +715,7 @@ void PipelineFragmentContext::close_if_prepare_failed() {
     }
     for (auto& task : _tasks) {
         DCHECK(!task->is_pending_finish());
-        WARN_IF_ERROR(task->close(), "close_if_prepare_failed failed: ");
+        WARN_IF_ERROR(task->close(Status::OK()), "close_if_prepare_failed failed: ");
         close_a_pipeline();
     }
 }
@@ -850,11 +850,18 @@ void PipelineFragmentContext::send_report(bool done) {
     }
 
     _report_status_cb(
-            {exec_status,
+            {false,
+             exec_status,
+             {},
              _runtime_state->enable_profile() ? _runtime_state->runtime_profile() : nullptr,
              _runtime_state->enable_profile() ? _runtime_state->load_channel_profile() : nullptr,
-             done || !exec_status.ok(), _query_ctx->coord_addr, _query_id, _fragment_id,
-             _fragment_instance_id, _backend_num, _runtime_state.get(),
+             done || !exec_status.ok(),
+             _query_ctx->coord_addr,
+             _query_id,
+             _fragment_id,
+             _fragment_instance_id,
+             _backend_num,
+             _runtime_state.get(),
              std::bind(&PipelineFragmentContext::update_status, this, std::placeholders::_1),
              std::bind(&PipelineFragmentContext::cancel, this, std::placeholders::_1,
                        std::placeholders::_2)});
