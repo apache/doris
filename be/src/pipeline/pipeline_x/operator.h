@@ -698,6 +698,9 @@ public:
         _writer.reset(new Writer(info.tsink, _output_vexpr_ctxs));
         _async_writer_dependency = AsyncWriterDependency::create_shared(_parent->id());
         _writer->set_dependency(_async_writer_dependency.get());
+
+        _wait_for_dependency_timer = ADD_TIMER(
+                _profile, "WaitForDependency[" + _async_writer_dependency->name() + "]Time");
         return Status::OK();
     }
 
@@ -717,6 +720,8 @@ public:
         if (_closed) {
             return Status::OK();
         }
+        COUNTER_SET(_wait_for_dependency_timer,
+                    _async_writer_dependency->write_watcher_elapse_time());
         if (_writer->need_normal_close()) {
             if (exec_status.ok() && !state->is_cancelled()) {
                 RETURN_IF_ERROR(_writer->commit_trans());
