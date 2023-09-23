@@ -51,6 +51,8 @@ sslCertificatePath = "${DORIS_HOME}/regression-test/ssl_default_certificate"
 image = ""
 dockerEndDeleteFiles = false
 dorisComposePath = "${DORIS_HOME}/docker/runtime/doris-compose/doris-compose.py"
+// do run docker test because pipeline not support build image now
+excludeDockerTest = true
 
 // will test <group>/<suite>.groovy
 // empty group will test all group
@@ -65,7 +67,7 @@ excludeGroups = ""
 // this suites will not be executed
 excludeSuites = "test_broker_load"
 // this directories will not be executed
-excludeDirectories = "segcompaction_p2,chaos"
+excludeDirectories = "segcompaction_p2"
 
 customConf1 = "test_custom_conf_value"
 

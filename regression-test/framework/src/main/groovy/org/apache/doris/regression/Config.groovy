@@ -63,6 +63,7 @@ class Config {
     public String dorisComposePath
     public String image
     public Boolean dockerEndDeleteFiles
+    public Boolean excludeDockerTest
 
     public String testGroups
     public String excludeGroups
@@ -310,6 +311,7 @@ class Config {
 
         config.image = configToString(obj.image)
         config.dockerEndDeleteFiles = configToBoolean(obj.dockerEndDeleteFiles)
+        config.excludeDockerTest = configToBoolean(obj.excludeDockerTest)
 
         def declareFileNames = config.getClass()
                 .getDeclaredFields()
@@ -429,6 +431,11 @@ class Config {
         if (config.dockerEndDeleteFiles == null) {
             config.dockerEndDeleteFiles = false
             log.info("Set dockerEndDeleteFiles to '${config.dockerEndDeleteFiles}' because not specify.".toString())
+        }
+
+        if (config.excludeDockerTest == null) {
+            config.excludeDockerTest = true
+            log.info("Set excludeDockerTest to '${config.excludeDockerTest}' because not specify.".toString())
         }
 
         if (config.dorisComposePath == null) {

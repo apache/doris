@@ -198,6 +198,10 @@ class Suite implements GroovyInterceptable {
     }
 
     public void docker(ClusterOptions options = new ClusterOptions(), Closure actionSupplier) throws Exception {
+        if (context.config.excludeDockerTest) {
+            return
+        }
+
         cluster = new SuiteCluster(name, context.config)
         try {
             cluster.destroy(true)
