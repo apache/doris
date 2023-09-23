@@ -258,11 +258,12 @@ public abstract class DataType {
             case "jsonb":
                 dataType = JsonType.INSTANCE;
                 break;
-                return JsonType.INSTANCE;
             case "ipv4":
-                return IPv4Type.INSTANCE;
+                dataType = IPv4Type.INSTANCE;
+                break;
             case "ipv6":
-                return IPv6Type.INSTANCE;
+                dataType = IPv6Type.INSTANCE;
+                break;
             default:
                 throw new AnalysisException("Nereids do not support type: " + type);
         }
