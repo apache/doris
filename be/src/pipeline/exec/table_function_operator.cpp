@@ -94,10 +94,10 @@ void TableFunctionLocalState::_copy_output_slots(
 //  0: all fns are eos
 // -1: all fns are not eos
 // >0: some of fns are eos
-int TableFunctionOperatorX::find_last_fn_eos_idx() {
-    for (int i = _fn_num - 1; i >= 0; --i) {
+int TableFunctionLocalState::_find_last_fn_eos_idx() {
+    for (int i = _parent->cast<TableFunctionOperatorX>()._fn_num - 1; i >= 0; --i) {
         if (!_fns[i]->eos()) {
-            if (i == _fn_num - 1) {
+            if (i == _parent->cast<TableFunctionOperatorX>()._fn_num - 1) {
                 return -1;
             } else {
                 return i + 1;
@@ -168,7 +168,7 @@ Status TableFunctionLocalState::get_expanded_block(RuntimeState* state,
 
         bool skip_child_row = false;
         while (columns[p._child_slots.size()]->size() < state->batch_size()) {
-            int idx = p.find_last_fn_eos_idx();
+            int idx = _find_last_fn_eos_idx();
             if (idx == 0 || skip_child_row) {
                 _copy_output_slots(columns);
                 // all table functions' results are exhausted, process next child row.
@@ -213,7 +213,7 @@ Status TableFunctionLocalState::get_expanded_block(RuntimeState* state,
     RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_conjuncts, output_block,
                                                            output_block->columns()));
 
-    if (_child_eos && _cur_child_offset == -1) {
+    if (_child_source_state == SourceState::FINISHED && _cur_child_offset == -1) {
         source_state = SourceState::FINISHED;
     }
     return Status::OK();

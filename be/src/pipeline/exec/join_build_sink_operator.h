@@ -36,7 +36,7 @@ public:
 protected:
     JoinBuildSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : PipelineXSinkLocalState<DependencyType>(parent, state) {}
-    virtual ~JoinBuildSinkLocalState() = default;
+    ~JoinBuildSinkLocalState() override = default;
     template <typename LocalStateType>
     friend class JoinBuildSinkOperatorX;
 
@@ -53,7 +53,7 @@ template <typename LocalStateType>
 class JoinBuildSinkOperatorX : public DataSinkOperatorX<LocalStateType> {
 public:
     JoinBuildSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    virtual ~JoinBuildSinkOperatorX() = default;
+    ~JoinBuildSinkOperatorX() override = default;
 
 protected:
     void _init_join_op();

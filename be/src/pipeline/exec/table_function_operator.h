@@ -66,12 +66,15 @@ private:
 
     void _copy_output_slots(std::vector<vectorized::MutableColumnPtr>& columns);
     bool _roll_table_functions(int last_eos_idx);
+    // return:
+    //  0: all fns are eos
+    // -1: all fns are not eos
+    // >0: some of fns are eos
+    int _find_last_fn_eos_idx();
     bool _is_inner_and_empty();
 
     std::vector<vectorized::TableFunction*> _fns;
     vectorized::VExprContextSPtrs _vfn_ctxs;
-    // indicate if child node reach the end
-    bool _child_eos = false;
     int64_t _cur_child_offset = 0;
     std::unique_ptr<vectorized::Block> _child_block;
     int _current_row_insert_times = 0;
@@ -88,13 +91,13 @@ public:
 
     bool need_more_input_data(RuntimeState* state) const override {
         auto& local_state = state->get_local_state(id())->cast<TableFunctionLocalState>();
-        return !local_state._child_block->rows() && !local_state._child_eos;
+        return !local_state._child_block->rows() &&
+               local_state._child_source_state != SourceState::FINISHED;
     }
 
     Status push(RuntimeState* state, vectorized::Block* input_block,
                 SourceState source_state) const override {
         CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
-        local_state._child_eos = source_state == SourceState::FINISHED;
         if (input_block->rows() == 0) {
             return Status::OK();
         }
@@ -113,12 +116,6 @@ public:
         local_state.reached_limit(output_block, source_state);
         return Status::OK();
     }
-
-    // return:
-    //  0: all fns are eos
-    // -1: all fns are not eos
-    // >0: some of fns are eos
-    int find_last_fn_eos_idx();
 
 private:
     friend class TableFunctionLocalState;
