@@ -88,6 +88,7 @@ struct HashMethodString : public columns_hashing_impl::HashMethodBase<
 
     const IColumn::Offset* offsets;
     const UInt8* chars;
+    std::vector<StringRef> keys;
 
     HashMethodString(const ColumnRawPtrs& key_columns, const Sizes& /*key_sizes*/,
                      const HashMethodContextPtr&) {
@@ -95,25 +96,22 @@ struct HashMethodString : public columns_hashing_impl::HashMethodBase<
         const ColumnString& column_string = assert_cast<const ColumnString&>(column);
         offsets = column_string.get_offsets().data();
         chars = column_string.get_chars().data();
+
+        keys.resize(column_string.size());
+        for (size_t row = 0; row < column_string.size(); row++) {
+            keys[row] = StringRef(chars + offsets[row - 1], offsets[row] - offsets[row - 1]);
+        }
     }
 
     auto get_key_holder(ssize_t row, [[maybe_unused]] Arena& pool) const {
-        StringRef key(chars + offsets[row - 1], offsets[row] - offsets[row - 1]);
-
         if constexpr (place_string_to_arena) {
-            return ArenaKeyHolder {key, pool};
+            return ArenaKeyHolder {keys[row], pool};
         } else {
-            return key;
+            return keys[row];
         }
     }
 
-    std::vector<StringRef> get_keys(size_t rows_number) const {
-        std::vector<StringRef> keys(rows_number);
-        for (size_t row = 0; row < rows_number; row++) {
-            keys[row] = StringRef(chars + offsets[row - 1], offsets[row] - offsets[row - 1]);
-        }
-        return keys;
-    }
+    const std::vector<StringRef>& get_keys(size_t rows_number) const { return keys; }
 
 protected:
     friend class columns_hashing_impl::HashMethodBase<Self, Value, Mapped, use_cache>;
@@ -207,22 +205,20 @@ struct HashMethodKeysFixed
 
     const Sizes& key_sizes;
     size_t keys_size;
+    std::vector<Key> keys;
 
     HashMethodKeysFixed(const ColumnRawPtrs& key_columns, const Sizes& key_sizes_,
                         const HashMethodContextPtr&)
-            : Base(key_columns), key_sizes(key_sizes_), keys_size(key_columns.size()) {}
-
-    ALWAYS_INLINE Key get_key_holder(size_t row, Arena&) const {
-        return pack_fixed<Key>(row, keys_size, Base::get_actual_columns(), key_sizes,
-                               Base::get_nullmap_columns());
+            : Base(key_columns), key_sizes(key_sizes_), keys_size(key_columns.size()) {
+        keys = pack_fixeds<Key>(key_columns[0]->size(), Base::get_actual_columns(), key_sizes,
+                                Base::get_nullmap_columns());
     }
+
+    ALWAYS_INLINE Key get_key_holder(size_t row, Arena&) const { return keys[row]; }
 
     Key pack_key_holder(Key key, Arena& pool) const { return key; }
 
-    std::vector<Key> get_keys(size_t rows_number) const {
-        return pack_fixeds<Key>(rows_number, Base::get_actual_columns(), key_sizes,
-                                Base::get_nullmap_columns());
-    }
+    const std::vector<Key>& get_keys(size_t rows_number) const { return keys; }
 };
 
 template <typename SingleColumnMethod, typename Mapped, bool use_cache>
