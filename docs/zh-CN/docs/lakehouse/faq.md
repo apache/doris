@@ -80,6 +80,10 @@ under the License.
             
         </configuration>
     ```
+7. 在使用Broker Load时，配置了Kerberos，如果报错`Cannot locate default realm.`。
+
+   将 `-Djava.security.krb5.conf=/your-path` 配置项添加到Broker Load启动脚本的 `start_broker.sh` 的 `JAVA_OPTS`里。
+
 
 ## JDBC Catalog
 

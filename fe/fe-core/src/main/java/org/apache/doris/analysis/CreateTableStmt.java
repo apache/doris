@@ -520,10 +520,6 @@ public class CreateTableStmt extends DdlStmt {
             columnDef.analyze(engineName.equals("olap"));
 
             if (columnDef.getType().isComplexType() && engineName.equals("olap")) {
-                if (columnDef.getAggregateType() == AggregateType.REPLACE
-                        && keysDesc.getKeysType() == KeysType.AGG_KEYS) {
-                    throw new AnalysisException("Aggregate table can't support replace array/map/struct value now");
-                }
                 if (columnDef.getAggregateType() != null
                         && columnDef.getAggregateType() != AggregateType.NONE
                         && columnDef.getAggregateType() != AggregateType.REPLACE) {

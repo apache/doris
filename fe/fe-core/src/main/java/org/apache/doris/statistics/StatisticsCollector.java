@@ -23,12 +23,15 @@ import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import org.apache.hudi.common.util.VisibleForTesting;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
 import java.util.Map;
 
 public abstract class StatisticsCollector extends MasterDaemon {
 
+    private static final Logger LOG = LogManager.getLogger(StatisticsCollector.class);
 
     protected final AnalysisTaskExecutor analysisTaskExecutor;
 
@@ -45,6 +48,7 @@ public abstract class StatisticsCollector extends MasterDaemon {
             return;
         }
         if (!StatisticsUtil.statsTblAvailable()) {
+            LOG.info("Stats table not available, skip");
             return;
         }
         if (Env.isCheckpointThread()) {
@@ -52,6 +56,7 @@ public abstract class StatisticsCollector extends MasterDaemon {
         }
 
         if (!analysisTaskExecutor.idle()) {
+            LOG.info("Analyze tasks those submitted in last time is not finished, skip");
             return;
         }
         collect();

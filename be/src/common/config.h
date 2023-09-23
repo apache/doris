@@ -323,6 +323,7 @@ DECLARE_mInt32(tablet_lookup_cache_clean_interval);
 DECLARE_mInt32(disk_stat_monitor_interval);
 DECLARE_mInt32(unused_rowset_monitor_interval);
 DECLARE_String(storage_root_path);
+DECLARE_mString(broken_storage_path);
 
 // Config is used to check incompatible old format hdr_ format
 // whether doris uses strict way. When config is true, process will log fatal
@@ -1169,6 +1170,9 @@ DECLARE_mInt32(tablet_schema_cache_recycle_interval);
 
 // Use `LOG(FATAL)` to replace `throw` when true
 DECLARE_mBool(exit_on_exception);
+
+// cgroup
+DECLARE_String(doris_cgroup_cpu_path);
 
 #ifdef BE_TEST
 // test s3

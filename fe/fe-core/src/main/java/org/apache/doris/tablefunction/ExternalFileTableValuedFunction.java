@@ -44,6 +44,7 @@ import org.apache.doris.planner.external.TVFScanNode;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PFetchTableSchemaRequest;
 import org.apache.doris.proto.Types.PScalarType;
+import org.apache.doris.proto.Types.PStructField;
 import org.apache.doris.proto.Types.PTypeDesc;
 import org.apache.doris.proto.Types.PTypeNode;
 import org.apache.doris.qe.ConnectContext;
@@ -476,7 +477,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             ArrayList<StructField> fields = new ArrayList<>();
             for (int i = 0; i < typeNodes.get(start).getStructFieldsCount(); ++i) {
                 Pair<Type, Integer> fieldType = getColumnType(typeNodes, start + parsedNodes);
-                fields.add(new StructField(typeNodes.get(start).getStructFields(i).getName(), fieldType.key()));
+                PStructField structField = typeNodes.get(start).getStructFields(i);
+                fields.add(new StructField(structField.getName(), fieldType.key(), structField.getComment(),
+                                            structField.getContainsNull()));
                 parsedNodes += fieldType.value();
             }
             type = new StructType(fields);

@@ -319,7 +319,7 @@ Status PipelineTask::finalize() {
     return _sink->finalize(_state);
 }
 
-Status PipelineTask::try_close() {
+Status PipelineTask::try_close(Status exec_status) {
     if (_try_close_flag) {
         return Status::OK();
     }
@@ -329,7 +329,7 @@ Status PipelineTask::try_close() {
     return status1.ok() ? status2 : status1;
 }
 
-Status PipelineTask::close() {
+Status PipelineTask::close(Status exec_status) {
     int64_t close_ns = 0;
     Defer defer {[&]() {
         if (_task_queue) {

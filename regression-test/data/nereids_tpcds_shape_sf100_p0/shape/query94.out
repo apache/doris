@@ -25,7 +25,7 @@ PhysicalResultSink
 --------------------------------PhysicalOlapScan[web_sales]
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
-----------------------------------filter((cast(ca_state as VARCHAR(*)) = 'OK'))
+----------------------------------filter((customer_address.ca_state = 'OK'))
 ------------------------------------PhysicalOlapScan[customer_address]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
@@ -33,6 +33,6 @@ PhysicalResultSink
 ----------------------------------PhysicalOlapScan[date_dim]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
-------------------------------filter((cast(web_company_name as VARCHAR(*)) = 'pri'))
+------------------------------filter((web_site.web_company_name = 'pri'))
 --------------------------------PhysicalOlapScan[web_site]
 
