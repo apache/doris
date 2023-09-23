@@ -462,6 +462,9 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
                 can_pushdown_rowset_reader = true;
             }
             if (aggregate_method == FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL) {
+                // if we filter the data on base rowset with replace_if_not_null column predicate,
+                // we may get null on this column of other rowset.
+                // That's wrong semantics, so we must also filter null data
                 if (predicate->type() != PredicateType::IS_NULL) {
                     can_pushdown_rowset_reader = true;
                 }

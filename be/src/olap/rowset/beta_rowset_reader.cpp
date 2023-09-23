@@ -272,7 +272,8 @@ Status BetaRowsetReader::next_block(vectorized::Block* block) {
 }
 
 bool BetaRowsetReader::_should_push_down_value_predicates() const {
-    // if table with rowset [0-x] or [0-1] [2-y] [...], value column predicates(replcae or replace_if_not_null)
+    // if table with rowset [0-x] or [0-1] [2-y] [...],
+    // some value column predicates (such as replace)
     // can be pushdown on rowset [0-x] or [2-y], [2-y] must be compaction and not overlapping
     return ((_rowset->start_version() == 0 || _rowset->start_version() == 2) &&
              !_rowset->_rowset_meta->is_segments_overlapping()) ||
