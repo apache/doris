@@ -94,7 +94,7 @@ public:
     // If use projection, we should clear `_origin_block`.
     void clear_origin_block();
 
-    bool reached_limit() const;
+    [[nodiscard]] bool reached_limit() const;
     void reached_limit(vectorized::Block* block, SourceState& source_state);
     RuntimeProfile* profile() { return _runtime_profile.get(); }
 
@@ -114,7 +114,7 @@ public:
     void add_num_rows_returned(int64_t delta) { _num_rows_returned += delta; }
     void set_num_rows_returned(int64_t value) { _num_rows_returned = value; }
 
-    virtual std::string debug_string(int indentation_level = 0) const;
+    [[nodiscard]] virtual std::string debug_string(int indentation_level = 0) const;
 
 protected:
     friend class OperatorXBase;
@@ -181,9 +181,9 @@ public:
     }
     [[nodiscard]] std::string get_name() const override { return _op_name; }
 
-    virtual Status prepare(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
-    virtual Status open(RuntimeState* state) override;
+    Status open(RuntimeState* state) override;
 
     Status finalize(RuntimeState* state) override { return Status::OK(); }
 
@@ -201,7 +201,7 @@ public:
         return false;
     }
 
-    bool is_pending_finish() const override {
+    [[nodiscard]] bool is_pending_finish() const override {
         LOG(FATAL) << "should not reach here!";
         return false;
     }
@@ -228,7 +228,7 @@ public:
         return _row_descriptor;
     }
 
-    std::string debug_string() const override { return ""; }
+    [[nodiscard]] std::string debug_string() const override { return ""; }
 
     virtual std::string debug_string(int indentation_level = 0) const;
 
@@ -305,7 +305,7 @@ public:
     OperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
             : OperatorXBase(pool, tnode, descs) {}
     OperatorX(ObjectPool* pool, int id) : OperatorXBase(pool, id) {};
-    virtual ~OperatorX() = default;
+    ~OperatorX() override = default;
 
     Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override;
     Status setup_local_states(RuntimeState* state, std::vector<LocalStateInfo>& info) override;
@@ -317,7 +317,7 @@ class PipelineXLocalState : public PipelineXLocalStateBase {
 public:
     PipelineXLocalState(RuntimeState* state, OperatorXBase* parent)
             : PipelineXLocalStateBase(state, parent) {}
-    virtual ~PipelineXLocalState() {}
+    ~PipelineXLocalState() override = default;
 
     Status init(RuntimeState* state, LocalStateInfo& info) override {
         _runtime_profile.reset(new RuntimeProfile(_parent->get_name() +
@@ -399,7 +399,7 @@ public:
     virtual Status close(RuntimeState* state, Status exec_status) = 0;
     virtual Status try_close(RuntimeState* state, Status exec_status) = 0;
 
-    virtual std::string debug_string(int indentation_level) const;
+    [[nodiscard]] virtual std::string debug_string(int indentation_level) const;
 
     template <class TARGET>
     TARGET& cast() {
@@ -421,7 +421,9 @@ public:
     RuntimeProfile* profile() { return _profile; }
     MemTracker* mem_tracker() { return _mem_tracker.get(); }
     QueryStatistics* query_statistics() { return _query_statistics.get(); }
-    RuntimeProfile* faker_runtime_profile() const { return _faker_runtime_profile.get(); }
+    [[nodiscard]] RuntimeProfile* faker_runtime_profile() const {
+        return _faker_runtime_profile.get();
+    }
 
     RuntimeProfile::Counter* rows_input_counter() { return _rows_input_counter; }
 
@@ -508,7 +510,7 @@ public:
         return false;
     }
 
-    bool is_pending_finish() const override {
+    [[nodiscard]] bool is_pending_finish() const override {
         LOG(FATAL) << "should not reach here!";
         return false;
     }
@@ -519,9 +521,10 @@ public:
 
     [[nodiscard]] std::string debug_string() const override { return ""; }
 
-    virtual std::string debug_string(int indentation_level) const;
+    [[nodiscard]] virtual std::string debug_string(int indentation_level) const;
 
-    virtual std::string debug_string(RuntimeState* state, int indentation_level) const;
+    [[nodiscard]] virtual std::string debug_string(RuntimeState* state,
+                                                   int indentation_level) const;
 
     [[nodiscard]] bool is_sink() const override { return true; }
 
@@ -531,7 +534,7 @@ public:
         return state->get_sink_local_state(id())->close(state, exec_status);
     }
 
-    virtual Status try_close(RuntimeState* state, Status exec_status) {
+    [[nodiscard]] virtual Status try_close(RuntimeState* state, Status exec_status) {
         return state->get_sink_local_state(id())->try_close(state, exec_status);
     }
 
@@ -695,6 +698,9 @@ public:
         _writer.reset(new Writer(info.tsink, _output_vexpr_ctxs));
         _async_writer_dependency = AsyncWriterDependency::create_shared(_parent->id());
         _writer->set_dependency(_async_writer_dependency.get());
+
+        _wait_for_dependency_timer = ADD_TIMER(
+                _profile, "WaitForDependency[" + _async_writer_dependency->name() + "]Time");
         return Status::OK();
     }
 
@@ -714,6 +720,8 @@ public:
         if (_closed) {
             return Status::OK();
         }
+        COUNTER_SET(_wait_for_dependency_timer,
+                    _async_writer_dependency->write_watcher_elapse_time());
         if (_writer->need_normal_close()) {
             if (exec_status.ok() && !state->is_cancelled()) {
                 RETURN_IF_ERROR(_writer->commit_trans());
