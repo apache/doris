@@ -120,7 +120,7 @@ public:
             : WriteDependency(id, "ChannelDependency"),
               _sender_id(sender_id),
               _local_recvr(local_recvr) {}
-    virtual ~ChannelDependency() = default;
+    ~ChannelDependency() override = default;
 
     void* shared_state() override { return nullptr; }
 
@@ -150,7 +150,7 @@ private:
     vectorized::VDataStreamRecvr* _local_recvr;
 };
 
-class ExchangeSinkLocalState : public PipelineXSinkLocalState<> {
+class ExchangeSinkLocalState final : public PipelineXSinkLocalState<> {
     ENABLE_FACTORY_CREATOR(ExchangeSinkLocalState);
 
 public:
@@ -161,7 +161,7 @@ public:
               _serializer(this) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
-    Status close(RuntimeState* state) override;
+    Status close(RuntimeState* state, Status exec_status) override;
 
     Status serialize_block(vectorized::Block* src, PBlock* dest, int num_receivers = 1);
     void register_channels(pipeline::ExchangeSinkBuffer<ExchangeSinkLocalState>* buffer);
@@ -248,11 +248,6 @@ public:
                           const TDataStreamSink& sink,
                           const std::vector<TPlanFragmentDestination>& destinations,
                           bool send_query_statistics_with_every_batch);
-    ExchangeSinkOperatorX(const RowDescriptor& row_desc, PlanNodeId dest_node_id,
-                          const std::vector<TPlanFragmentDestination>& destinations,
-                          bool send_query_statistics_with_every_batch);
-    ExchangeSinkOperatorX(const RowDescriptor& row_desc,
-                          bool send_query_statistics_with_every_batch);
     Status init(const TDataSink& tsink) override;
 
     RuntimeState* state() { return _state; }
@@ -266,7 +261,7 @@ public:
     Status serialize_block(ExchangeSinkLocalState& stete, vectorized::Block* src, PBlock* dest,
                            int num_receivers = 1);
 
-    Status try_close(RuntimeState* state) override;
+    Status try_close(RuntimeState* state, Status exec_status) override;
     WriteDependency* wait_for_dependency(RuntimeState* state) override;
     bool is_pending_finish(RuntimeState* state) const override;
 

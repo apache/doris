@@ -50,11 +50,12 @@ public:
 
 class AggSourceOperatorX;
 
-class AggLocalState : public PipelineXLocalState<AggDependency> {
+class AggLocalState final : public PipelineXLocalState<AggDependency> {
 public:
     using Base = PipelineXLocalState<AggDependency>;
     ENABLE_FACTORY_CREATOR(AggLocalState);
     AggLocalState(RuntimeState* state, OperatorXBase* parent);
+    ~AggLocalState() override = default;
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status close(RuntimeState* state) override;

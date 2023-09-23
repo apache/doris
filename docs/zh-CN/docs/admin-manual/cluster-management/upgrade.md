@@ -151,10 +151,16 @@ admin set frontend config("disable_tablet_scheduler" = "true");
 
    保存并退出
 
-3. 在 fe.conf 添加 ClusterID 配置
+3. 修改 fe.conf
+  - 在 fe.conf 添加 ClusterID 配置
 
    ```shell
    echo "cluster_id=123456" >> ${DORIS_NEW_HOME}/conf/fe.conf
+   ```
+
+   - 添加元数据故障恢复配置 （**2.0.2 + 版本无需进行此操作**）
+   ```shell
+   echo "metadata_failure_recovery=true" >> ${DORIS_NEW_HOME}/conf/fe.conf
    ```
 
 4. 拷贝线上环境 Master FE 的元数据目录 doris-meta 到测试环境
@@ -170,10 +176,15 @@ admin set frontend config("disable_tablet_scheduler" = "true");
    clusterId=123456
    ```
 
-6. 在测试环境中，运行启动 FE
+6. 在测试环境中，运行启动 FE （**请按照版本选择启动 FE 的方式**）
 
+- 2.0.2(包含2.0.2) + 版本
    ```shell
    sh ${DORIS_NEW_HOME}/bin/start_fe.sh --daemon --metadata_failure_recovery
+   ```
+- 2.0.1（包含2.0.1） 以前的版本
+  ```shell
+  sh ${DORIS_NEW_HOME}/bin/start_fe.sh --daemon 
    ```
 
 7. 通过 FE 日志 fe.log 观察是否启动成功
