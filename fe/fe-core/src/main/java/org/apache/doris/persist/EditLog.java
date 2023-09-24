@@ -86,6 +86,7 @@ import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 import org.apache.doris.scheduler.job.Job;
 import org.apache.doris.scheduler.job.JobTask;
 import org.apache.doris.statistics.AnalysisInfo;
+import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.TableStats;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
@@ -95,7 +96,6 @@ import org.apache.doris.transaction.TransactionStatus;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.File;
 import java.io.IOException;
 import java.util.List;
 
@@ -1071,11 +1071,19 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_CREATE_ANALYSIS_JOB: {
-                    env.getAnalysisManager().replayCreateAnalysisJob((AnalysisInfo) journal.getData());
+                    AnalysisInfo info = (AnalysisInfo) journal.getData();
+                    if (AnalysisManager.needAbandon(info)) {
+                        break;
+                    }
+                    env.getAnalysisManager().replayCreateAnalysisJob(info);
                     break;
                 }
                 case OperationType.OP_CREATE_ANALYSIS_TASK: {
-                    env.getAnalysisManager().replayCreateAnalysisTask((AnalysisInfo) journal.getData());
+                    AnalysisInfo info = (AnalysisInfo) journal.getData();
+                    if (AnalysisManager.needAbandon(info)) {
+                        break;
+                    }
+                    env.getAnalysisManager().replayCreateAnalysisTask(info);
                     break;
                 }
                 case OperationType.OP_DELETE_ANALYSIS_JOB: {
@@ -1155,12 +1163,6 @@ public class EditLog {
      */
     public synchronized void close() throws IOException {
         journal.close();
-    }
-
-    public synchronized void createEditLogFile(File name) throws IOException {
-        EditLogOutputStream editLogOutputStream = new EditLogFileOutputStream(name);
-        editLogOutputStream.create();
-        editLogOutputStream.close();
     }
 
     public void open() {

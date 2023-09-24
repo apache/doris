@@ -390,6 +390,9 @@ public class Config extends ConfigBase {
     @ConfField(description = {"FE MySQL server 的端口号", "The port of FE MySQL server"})
     public static int query_port = 9030;
 
+    @ConfField(description = {"FE Arrow-Flight-SQL server 的端口号", "The port of FE Arrow-Flight-SQ server"})
+    public static int arrow_flight_sql_port = -1;
+
     @ConfField(description = {"MySQL 服务的 IO 线程数", "The number of IO threads in MySQL service"})
     public static int mysql_service_io_threads_num = 4;
 
@@ -698,10 +701,6 @@ public class Config extends ConfigBase {
     @ConfField(description = {"单个 FE 的 MySQL Server 的最大连接数。",
             "Maximal number of connections of MySQL server per FE."})
     public static int qe_max_connection = 1024;
-
-    @ConfField(description = {"MySQL 连接调度线程池的最大线程数。",
-            "Maximal number of thread in MySQL connection-scheduler-pool."})
-    public static int max_connection_scheduler_threads_num = 4096;
 
     @ConfField(mutable = true, description = {"Colocate join 每个 instance 的内存 penalty 系数。"
             + "计算方式：`exec_mem_limit / min (query_colocate_join_memory_limit_penalty_factor, instance_num)`",
@@ -1580,6 +1579,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static boolean enable_query_queue = true;
 
+    @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
+    public static boolean enable_cpu_hard_limit = false;
+
     @ConfField(mutable = true)
     public static boolean disable_shared_scan = false;
 
@@ -2077,15 +2079,6 @@ public class Config extends ConfigBase {
     public static int hive_stats_partition_sample_size = 3000;
 
     @ConfField
-    public static boolean enable_full_auto_analyze = true;
-
-    @ConfField
-    public static String full_auto_analyze_start_time = "00:00:00";
-
-    @ConfField
-    public static String full_auto_analyze_end_time = "02:00:00";
-
-    @ConfField
     public static int statistics_sql_parallel_exec_instance_num = 1;
 
     @ConfField
@@ -2181,10 +2174,10 @@ public class Config extends ConfigBase {
             + "statistics through sampling"})
     public static long huge_table_lower_bound_size_in_bytes = 5L * 1024 * 1024 * 1024;
 
-    @ConfField(description = {"定义开启开启大表自动sample后，对大表的采样行数",
-            "This defines the number of sample rows for large tables when automatic sampling for"
+    @ConfField(description = {"定义开启开启大表自动sample后，对大表的采样比例",
+            "This defines the number of sample percent for large tables when automatic sampling for"
                     + "large tables is enabled"})
-    public static int huge_table_default_sample_rows = 20_0000;
+    public static int huge_table_default_sample_rows = 4194304;
 
     @ConfField(description = {"是否开启大表自动sample，开启后对于大小超过huge_table_lower_bound_size_in_bytes会自动通过采样收集"
             + "统计信息", "Whether to enable automatic sampling for large tables, which, when enabled, automatically"

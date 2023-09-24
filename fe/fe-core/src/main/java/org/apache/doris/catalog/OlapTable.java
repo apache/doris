@@ -1127,19 +1127,17 @@ public class OlapTable extends Table {
 
     @Override
     public boolean needReAnalyzeTable(TableStats tblStats) {
-        long rowCount = getRowCount();
-        // TODO: Do we need to analyze an empty table?
-        if (rowCount == 0) {
-            return false;
+        if (tblStats == null) {
+            return true;
         }
+        long rowCount = getRowCount();
         if (!tblStats.analyzeColumns().containsAll(getBaseSchema()
                 .stream()
                 .map(Column::getName)
                 .collect(Collectors.toSet()))) {
             return true;
         }
-        // long updateRows = tblStats.updatedRows.get();
-        long updateRows = Math.abs(tblStats.rowCount - rowCount);
+        long updateRows = tblStats.updatedRows.get();
         int tblHealth = StatisticsUtil.getTableHealth(rowCount, updateRows);
         return tblHealth < Config.table_stats_health_threshold;
     }
@@ -1568,12 +1566,16 @@ public class OlapTable extends Table {
         return oldPartition;
     }
 
-    public long getDataSize() {
+    public long getDataSize(boolean singleReplica) {
         long dataSize = 0;
         for (Partition partition : getAllPartitions()) {
-            dataSize += partition.getDataSize(false);
+            dataSize += partition.getDataSize(singleReplica);
         }
         return dataSize;
+    }
+
+    public long getDataSize() {
+        return getDataSize(false);
     }
 
     public long getRemoteDataSize() {

@@ -52,11 +52,11 @@ template <typename DependencyType, typename Derived>
 class AggSinkLocalState : public PipelineXSinkLocalState<DependencyType> {
 public:
     using Base = PipelineXSinkLocalState<DependencyType>;
-    virtual ~AggSinkLocalState() = default;
+    ~AggSinkLocalState() override = default;
 
-    virtual Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
-    virtual Status close(RuntimeState* state) override;
+    Status close(RuntimeState* state, Status exec_status) override;
 
     Status try_spill_disk(bool eos = false);
 
@@ -332,7 +332,7 @@ template <typename LocalStateType = BlockingAggSinkLocalState>
 class AggSinkOperatorX : public DataSinkOperatorX<LocalStateType> {
 public:
     AggSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    virtual ~AggSinkOperatorX() = default;
+    ~AggSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",
                                      DataSinkOperatorX<LocalStateType>::_name);
@@ -343,15 +343,17 @@ public:
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
-    virtual Status sink(RuntimeState* state, vectorized::Block* in_block,
-                        SourceState source_state) override;
+    Status sink(RuntimeState* state, vectorized::Block* in_block,
+                SourceState source_state) override;
 
     using DataSinkOperatorX<LocalStateType>::id;
 
 protected:
+    using LocalState = LocalStateType;
     template <typename DependencyType, typename Derived>
     friend class AggSinkLocalState;
     friend class StreamingAggSinkLocalState;
+    friend class DistinctStreamingAggSinkLocalState;
     std::vector<vectorized::AggFnEvaluator*> _aggregate_evaluators;
     bool _can_short_circuit = false;
 
