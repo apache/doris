@@ -29,7 +29,7 @@
 #define DBUG_EXECUTE_IF(debug_point, code)                     \
     if (UNLIKELY(config::enable_debug_points)) {               \
         if (DebugPoints::instance()->is_enable(debug_point)) { \
-            code                                               \
+            code;                                              \
         }                                                      \
     }
 

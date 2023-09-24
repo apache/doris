@@ -264,4 +264,8 @@ void HttpService::stop() {
     stopped = true;
 }
 
+int HttpService::get_real_port() const {
+    return _ev_http_server->get_real_port();
+}
+
 } // namespace doris

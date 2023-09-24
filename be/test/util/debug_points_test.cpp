@@ -26,20 +26,25 @@
 #include "gtest/gtest_pred_impl.h"
 #include "http/ev_http_server.h"
 #include "http/http_client.h"
+#include "runtime/exec_env.h"
+#include "service/http_service.h"
 
 namespace doris {
 
-#define DBUG_POINT_POST(uri)                                            \
-    {                                                                   \
-        std::string response;                                           \
-        HttpClient client;                                              \
-        ASSERT_TRUE(client.init(host + uri).ok());                      \
-        ASSERT_TRUE(client.execute_post_request("{}", &response).ok()); \
+#define DBUG_POINT_POST(uri)                                                                  \
+    {                                                                                         \
+        std::string response;                                                                 \
+        HttpClient client;                                                                    \
+        auto status = client.init(host + uri);                                                \
+        ASSERT_TRUE(status.ok()) << "uri=" << (host + uri) << ", err=" << status.to_string(); \
+        status = client.execute_post_request("{}", &response);                                \
+        ASSERT_TRUE(status.ok()) << status.to_string();                                       \
     }
 
 TEST(DebugPointsTest, BaseTest) {
-    auto server = std::make_unique<EvHttpServer>(0);
-    int real_port = server->get_real_port();
+    auto service = std::make_unique<HttpService>(doris::ExecEnv::GetInstance(), 0, 1);
+    service->start();
+    int real_port = service->get_real_port();
     ASSERT_NE(0, real_port);
     std::string host = "http://127.0.0.1:" + std::to_string(real_port);
 
