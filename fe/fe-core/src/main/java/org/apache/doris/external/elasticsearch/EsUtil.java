@@ -114,11 +114,12 @@ public class EsUtil {
             checkNonPropertiesFields(mappings, arrayFields);
             String firstType = mappings.fieldNames().next();
             //The first parameter may not be properties, so we need to first determine whether it is 7.x or above.
-            if (StreamSupport.stream(Spliterators.spliteratorUnknownSize(mappings.fieldNames(), Spliterator.ORDERED), false)
+            if (StreamSupport.stream(Spliterators
+                            .spliteratorUnknownSize(mappings.fieldNames(), Spliterator.ORDERED), false)
                     .anyMatch(s -> s.contains("properties"))) {
                 // Equal 7.x and after
                 return mappings;
-            }else{
+            } else {
                 ObjectNode firstData = (ObjectNode) mappings.get(firstType);
                 // check for ES 6.x and before
                 checkNonPropertiesFields(firstData, arrayFields);
