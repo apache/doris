@@ -1017,7 +1017,7 @@ suite("test_stream_load", "p0") {
             }
         }
 
-        def command = ["curl -X PUT --location-trusted -u ${user}:${password}  -H\"label:${label}\" -H\"txn_operation:commit\"  http://${address.hostString}:${address.port}/api/${db}/${tableName15}/_stream_load_2pc"].execute()
+        command = ["curl -X PUT --location-trusted -u ${user}:${password}  -H\"label:${label}\" -H\"txn_operation:commit\"  http://${address.hostString}:${address.port}/api/${db}/${tableName15}/_stream_load_2pc"].execute()
         log.info("${command}")
         qt_sql_2pc_commit "select * from ${tableName15} order by k1"
     } finally {
