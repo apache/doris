@@ -27,16 +27,6 @@ namespace doris::vectorized {
 class VOlapTableSink;
 class OlapTableBlockConvertor;
 
-struct FetchAutoIncIDExecutor {
-    FetchAutoIncIDExecutor();
-    static FetchAutoIncIDExecutor* GetInstance() {
-        static FetchAutoIncIDExecutor instance;
-        return &instance;
-    }
-
-    std::unique_ptr<ThreadPool> _pool;
-};
-
 struct AutoIncIDAllocator {
     int64_t next_id() {
         DCHECK(!ids.empty());
@@ -104,10 +94,21 @@ public:
         return &buffers;
     }
 
+    GlobalAutoIncBuffers() {
+        static_cast<void>(ThreadPoolBuilder("AsyncFetchAutoIncIDExecutor")
+                                  .set_min_threads(config::auto_inc_fetch_thread_num)
+                                  .set_max_threads(config::auto_inc_fetch_thread_num)
+                                  .set_max_queue_size(std::numeric_limits<int>::max())
+                                  .build(&_fetch_autoinc_id_executor));
+    }
     ~GlobalAutoIncBuffers() {
         for (auto [_, buffer] : _buffers) {
             delete buffer;
         }
+    }
+
+    std::unique_ptr<ThreadPoolToken> create_token() {
+        return _fetch_autoinc_id_executor->new_token(ThreadPool::ExecutionMode::CONCURRENT);
     }
 
     AutoIncIDBuffer* get_auto_inc_buffer(int64_t db_id, int64_t table_id, int64_t column_id) {
@@ -121,6 +122,7 @@ public:
     }
 
 private:
+    std::unique_ptr<ThreadPool> _fetch_autoinc_id_executor;
     std::map<std::tuple<int64_t, int64_t, int64_t>, AutoIncIDBuffer*> _buffers;
     std::mutex _mutex;
 };
