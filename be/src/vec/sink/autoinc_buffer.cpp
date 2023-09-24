@@ -27,20 +27,11 @@
 
 namespace doris::vectorized {
 
-FetchAutoIncIDExecutor::FetchAutoIncIDExecutor() {
-    ThreadPoolBuilder("AsyncFetchAutoIncIDExecutor")
-            .set_min_threads(config::auto_inc_fetch_thread_num)
-            .set_max_threads(config::auto_inc_fetch_thread_num)
-            .set_max_queue_size(std::numeric_limits<int>::max())
-            .build(&_pool);
-}
-
 AutoIncIDBuffer::AutoIncIDBuffer(int64_t db_id, int64_t table_id, int64_t column_id)
         : _db_id(db_id),
           _table_id(table_id),
           _column_id(column_id),
-          _rpc_token(FetchAutoIncIDExecutor::GetInstance()->_pool->new_token(
-                  ThreadPool::ExecutionMode::CONCURRENT)) {}
+          _rpc_token(GlobalAutoIncBuffers::GetInstance()->create_token()) {}
 
 void AutoIncIDBuffer::set_batch_size_at_least(size_t batch_size) {
     if (batch_size > _batch_size) {
