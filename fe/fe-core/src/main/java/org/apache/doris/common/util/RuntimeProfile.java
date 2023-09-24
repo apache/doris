@@ -20,7 +20,6 @@ package org.apache.doris.common.util;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.profile.SummaryProfile;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TCounter;
 import org.apache.doris.thrift.TRuntimeProfileNode;
 import org.apache.doris.thrift.TRuntimeProfileTree;
@@ -689,8 +688,8 @@ public class RuntimeProfile {
         computeTimeInProfile(this.counterTotalTime.getValue());
     }
 
-    public void setProfileLevel() {
-        this.enableSimplyProfile = ConnectContext.get().getSessionVariable().getEnableSimplyProfile();
+    public void setProfileLevel(boolean isSimpleProfile) {
+        this.enableSimplyProfile = isSimpleProfile;
     }
 
     private void computeTimeInProfile(long total) {
