@@ -65,6 +65,15 @@ suite('test_cast') {
     // overflow with min value
     qt_sql_decimalv3 """ select cast('0.2147483648e-3' as DECIMALV3(2, 1))"""
 
+    // decimalv3 with abnormal decimal case ,
+    qt_sql_decimalv3 """ select cast('1001-12-31 00:00:00' as DECIMALV3(27, 9))"""
+
+    qt_sql_decimalv3 """ select cast('1001-12-31 00:00:00' as DECIMALV3(9, 0))"""
+
+    qt_sql_decimalv3 """ select cast('1001-12-31 00:00:00' as DECIMALV3(2, 0))"""
+
+    qt_sql_decimalv3 """ select cast('1001-12-31 00:00:00' as DECIMALV3(1, 0))"""
+
     def tbl = "test_cast"
 
     sql """ DROP TABLE IF EXISTS ${tbl}"""

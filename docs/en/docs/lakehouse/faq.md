@@ -82,6 +82,10 @@ under the License.
         
         </configuration>
     ```
+   
+7. If an error is reported while configuring Kerberos for Broker Load: `Cannot locate default realm.`.
+
+   Add `-Djava.security.krb5.conf=/your-path` to the `JAVA_OPTS` of the broker startup script `start_broker.sh`.
 
 ## JDBC Catalog
 

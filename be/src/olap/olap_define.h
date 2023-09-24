@@ -26,29 +26,29 @@
 #include "common/status.h"
 
 namespace doris {
-// 以下是一些统一的define
-// 命令返回的Signature的长度
+// Here are some unified definitions
+// The length of the Signature returned by the command
 static const uint32_t OLAP_COMMAND_SIGNATURE_LEN = 4;
-// 最大全路径长度
+// Maximum path length
 static const uint32_t OLAP_MAX_PATH_LEN = 512;
-// 每个row block压缩之后的最大长度
+// Maximum length of each row block after compression
 static const uint32_t OLAP_DEFAULT_MAX_PACKED_ROW_BLOCK_SIZE = 1024 * 1024 * 20;
-// 每个row block压缩前的最大长度，也就是buf的最大长度
+// The maximum length of each row block before compression, which is the maximum length of the buf
 static const uint32_t OLAP_DEFAULT_MAX_UNPACKED_ROW_BLOCK_SIZE = 1024 * 1024 * 100;
-// 列存储文件的块大小,由于可能会被全部载入内存,所以需要严格控制大小, 这里定义为256MB
+// The block size of the column storage file needs to be strictly controlled as it may be fully loaded into memory. Here, it is defined as 256MB
 static const uint32_t OLAP_MAX_COLUMN_SEGMENT_FILE_SIZE = 268435456;
-// 列存储文件大小的伸缩性
+// Scalability of column storage file size
 static const double OLAP_COLUMN_FILE_SEGMENT_SIZE_SCALE = 0.9;
-// 在列存储文件中, 数据分块压缩, 每个块的默认压缩前的大小
+// In column storage files, data is compressed in blocks, with the default size of each block before compression
 static const uint32_t OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE = 10 * 1024;
-// 在列存储文件中, 对字符串使用字典编码的字典大小门限
-// 此为百分比, 字典大小/原数据大小小于该百分比时, 启用字典编码
+// The dictionary size threshold for using dictionary encoding for strings in column storage files
+// This is a percentage, and dictionary encoding is enabled when the dictionary size/original data size is less than this percentage
 static const uint32_t OLAP_DEFAULT_COLUMN_DICT_KEY_SIZE_THRESHOLD = 80; // 30%
-// LRU Cache Key的大小
+// Size of LRU Cache Key
 static const size_t OLAP_LRU_CACHE_MAX_KEY_LENGTH = OLAP_MAX_PATH_LEN * 2;
 
 static const uint64_t OLAP_FIX_HEADER_MAGIC_NUMBER = 0;
-// 执行be/ce时默认的候选集大小
+// Default candidate size when executing be/ce
 static constexpr uint32_t OLAP_COMPACTION_DEFAULT_CANDIDATE_SIZE = 10;
 
 // the max length supported for varchar type
@@ -85,7 +85,7 @@ enum OLAPDataVersion {
     DORIS_V1 = 1,
 };
 
-// storage_root_path下不同类型文件夹名称
+// Different types of folder names under storage_root_path
 static const std::string MINI_PREFIX = "mini_download";
 static const std::string CLUSTER_ID_PREFIX = "cluster_id";
 static const std::string DATA_PREFIX = "data";

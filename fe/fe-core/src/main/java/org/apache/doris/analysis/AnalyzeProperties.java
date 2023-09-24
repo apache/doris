@@ -24,7 +24,7 @@ import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import com.google.common.collect.ImmutableSet;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
-import org.quartz.CronExpression;
+import org.apache.logging.log4j.core.util.CronExpression;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -270,6 +270,10 @@ public class AnalyzeProperties {
 
     public boolean forceFull() {
         return properties.containsKey(PROPERTY_FORCE_FULL);
+    }
+
+    public boolean isSampleRows() {
+        return properties.containsKey(PROPERTY_SAMPLE_ROWS);
     }
 
     public String toSQL() {

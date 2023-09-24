@@ -30,8 +30,7 @@
 namespace doris {
 namespace pipeline {
 
-DataQueue::DataQueue(int child_count, AggDependency* agg_dependency,
-                     UnionDependency* union_dependency)
+DataQueue::DataQueue(int child_count, WriteDependency* dependency)
         : _queue_blocks_lock(child_count),
           _queue_blocks(child_count),
           _free_blocks_lock(child_count),
@@ -42,8 +41,7 @@ DataQueue::DataQueue(int child_count, AggDependency* agg_dependency,
           _cur_bytes_in_queue(child_count),
           _cur_blocks_nums_in_queue(child_count),
           _flag_queue_idx(0),
-          _agg_dependency(agg_dependency),
-          _union_dependency(union_dependency) {
+          _dependency(dependency) {
     for (int i = 0; i < child_count; ++i) {
         _queue_blocks_lock[i].reset(new std::mutex());
         _free_blocks_lock[i].reset(new std::mutex());
@@ -119,9 +117,11 @@ Status DataQueue::get_block_from_queue(std::unique_ptr<vectorized::Block>* outpu
             }
             _cur_bytes_in_queue[_flag_queue_idx] -= (*output_block)->allocated_bytes();
             _cur_blocks_nums_in_queue[_flag_queue_idx] -= 1;
-            if (_agg_dependency && _cur_blocks_nums_in_queue[_flag_queue_idx] == 0 &&
-                !_is_finished[0]) {
-                _agg_dependency->block_reading();
+            if (_dependency) {
+                if (!_is_finished[_flag_queue_idx]) {
+                    _dependency->block_reading();
+                }
+                _dependency->set_ready_for_write();
             }
         } else {
             if (_is_finished[_flag_queue_idx]) {
@@ -141,8 +141,9 @@ void DataQueue::push_block(std::unique_ptr<vectorized::Block> block, int child_i
         _cur_bytes_in_queue[child_idx] += block->allocated_bytes();
         _queue_blocks[child_idx].emplace_back(std::move(block));
         _cur_blocks_nums_in_queue[child_idx] += 1;
-        if (_agg_dependency) {
-            _agg_dependency->set_ready_for_read();
+        if (_dependency) {
+            _dependency->set_ready_for_read();
+            _dependency->block_writing();
         }
         //this only use to record the queue[0] for profile
         _max_bytes_in_queue = std::max(_max_bytes_in_queue, _cur_bytes_in_queue[0].load());
@@ -151,24 +152,20 @@ void DataQueue::push_block(std::unique_ptr<vectorized::Block> block, int child_i
 }
 
 void DataQueue::set_finish(int child_idx) {
+    std::lock_guard<std::mutex> l(*_queue_blocks_lock[child_idx]);
     _is_finished[child_idx] = true;
-    if (_agg_dependency) {
-        _agg_dependency->set_ready_for_read();
-    }
-    if (_union_dependency && is_all_finish()) {
-        _union_dependency->set_ready_for_read();
+    if (_dependency) {
+        _dependency->set_ready_for_read();
     }
 }
 
 void DataQueue::set_canceled(int child_idx) {
+    std::lock_guard<std::mutex> l(*_queue_blocks_lock[child_idx]);
     DCHECK(!_is_finished[child_idx]);
     _is_canceled[child_idx] = true;
     _is_finished[child_idx] = true;
-    if (_agg_dependency) {
-        _agg_dependency->set_ready_for_read();
-    }
-    if (_union_dependency && is_all_finish()) {
-        _union_dependency->set_ready_for_read();
+    if (_dependency) {
+        _dependency->set_ready_for_read();
     }
 }
 
