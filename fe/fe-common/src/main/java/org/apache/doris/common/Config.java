@@ -271,16 +271,6 @@ public class Config extends ConfigBase {
                     + "each element is a CIDR representation of the network address"})
     public static String priority_networks = "";
 
-    @ConfField(description = {"是否重置 BDBJE 的复制组，如果所有的可选节点都无法启动，"
-            + "可以将元数据拷贝到另一个节点，并将这个配置设置为 true，尝试重启 FE。更多信息请参阅官网的元数据故障恢复文档。",
-            "If true, FE will reset bdbje replication group(that is, to remove all electable nodes info) "
-                    + "and is supposed to start as Master. "
-                    + "If all the electable nodes can not start, we can copy the meta data "
-                    + "to another node and set this config to true to try to restart the FE. "
-                    + "For more information, please refer to the metadata failure recovery document "
-                    + "on the official website."})
-    public static String metadata_failure_recovery = "false";
-
     @ConfField(mutable = true, description = {"是否忽略元数据延迟，如果 FE 的元数据延迟超过这个阈值，"
             + "则非 Master FE 仍然提供读服务。这个配置可以用于当 Master FE 因为某些原因停止了较长时间，"
             + "但是仍然希望非 Master FE 可以提供读服务。",
@@ -440,6 +430,13 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = {"导入 Publish 阶段的最大超时时间，单位是秒。",
             "Maximal waiting time for all publish version tasks of one transaction to be finished, in seconds."})
     public static int publish_version_timeout_second = 30; // 30 seconds
+
+    @ConfField(mutable = true, masterOnly = true, description = {"导入 Publish 阶段的等待时间，单位是秒。超过此时间，"
+            + "则只需每个tablet包含一个成功副本，则导入成功。值为 -1 时，表示无限等待。",
+            "Waiting time for one transaction changing to \"at least one replica success\", in seconds."
+            + "If time exceeds this, and for each tablet it has at least one replica publish successful, "
+            + "then the load task will be successful." })
+    public static int publish_wait_time_second = 300;
 
     @ConfField(mutable = true, masterOnly = true, description = {"提交事务的最大超时时间，单位是秒。"
             + "该参数仅用于事务型 insert 操作中。",
@@ -2100,4 +2097,32 @@ public class Config extends ConfigBase {
 
     @ConfField
     public static boolean forbid_running_alter_job = false;
+
+    @ConfField
+    public static int table_stats_health_threshold = 80;
+
+    @ConfField(description = {
+            "暂时性配置项，开启后会自动将所有的olap表修改为可light schema change",
+            "temporary config filed, will make all olap tables enable light schema change"
+    })
+    public static boolean enable_convert_light_weight_schema_change = true;
+    @ConfField(mutable = true, masterOnly = false, description = {
+            "查询information_schema.metadata_name_ids表时,获取一个数据库中所有表用的时间",
+            "When querying the information_schema.metadata_name_ids table,"
+                    + " the time used to obtain all tables in one database"
+    })
+    public static long query_metadata_name_ids_timeout = 3;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "是否禁止LocalDeployManager删除节点",
+            "Whether to disable LocalDeployManager drop node"})
+    public static boolean disable_local_deploy_manager_drop_node = true;
+
+    @ConfField(mutable = true, description = {
+            "开启 file cache 后，一致性哈希算法中，每个节点的虚拟节点数。"
+                    + "该值越大，哈希算法的分布越均匀，但是会增加内存开销。",
+            "When file cache is enabled, the number of virtual nodes of each node in the consistent hash algorithm. "
+                    + "The larger the value, the more uniform the distribution of the hash algorithm, "
+                    + "but it will increase the memory overhead."})
+    public static int virtual_node_number = 2048;
 }

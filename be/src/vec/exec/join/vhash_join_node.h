@@ -271,6 +271,13 @@ private:
                 (_build_blocks->empty() && _join_op == TJoinOp::RIGHT_OUTER_JOIN) ||
                 (_build_blocks->empty() && _join_op == TJoinOp::RIGHT_SEMI_JOIN) ||
                 (_build_blocks->empty() && _join_op == TJoinOp::RIGHT_ANTI_JOIN);
+
+        //when build table rows is 0 and not have other_join_conjunct and not _is_mark_join and join type is one of LEFT_OUTER_JOIN/FULL_OUTER_JOIN/LEFT_ANTI_JOIN
+        //we could get the result is probe table + null-column(if need output)
+        _short_circuit_for_probe_and_additional_data =
+                (_build_blocks->empty() && !_have_other_join_conjunct && !_is_mark_join) &&
+                (_join_op == TJoinOp::LEFT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN ||
+                 _join_op == TJoinOp::LEFT_ANTI_JOIN);
     }
 
     // probe expr
@@ -291,6 +298,7 @@ private:
 
     DataTypes _right_table_data_types;
     DataTypes _left_table_data_types;
+    std::vector<std::string> _right_table_column_names;
 
     RuntimeProfile::Counter* _build_table_timer;
     RuntimeProfile::Counter* _build_expr_call_timer;
@@ -394,6 +402,10 @@ private:
 
     // add tuple is null flag column to Block for filter conjunct and output expr
     void _add_tuple_is_null_column(Block* block) override;
+
+    Status _filter_data_and_build_output(RuntimeState* state, vectorized::Block* output_block,
+                                         bool* eos, Block* temp_block,
+                                         bool check_rows_count = true);
 
     template <class HashTableContext>
     friend struct ProcessHashTableBuild;

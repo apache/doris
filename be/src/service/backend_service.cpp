@@ -29,6 +29,7 @@
 #include <gen_cpp/Types_types.h>
 #include <sys/types.h>
 #include <thrift/concurrency/ThreadFactory.h>
+#include <thrift/protocol/TDebugProtocol.h>
 #include <time.h>
 
 #include <map>
@@ -387,9 +388,15 @@ void BackendService::check_storage_format(TCheckStorageFormatResult& result) {
 
 void BackendService::ingest_binlog(TIngestBinlogResult& result,
                                    const TIngestBinlogRequest& request) {
+    LOG(INFO) << "ingest binlog. request: " << apache::thrift::ThriftDebugString(request);
+
     constexpr uint64_t kMaxTimeoutMs = 1000;
+
     TStatus tstatus;
-    Defer defer {[&result, &tstatus]() { result.__set_status(tstatus); }};
+    Defer defer {[&result, &tstatus]() {
+        result.__set_status(tstatus);
+        LOG(INFO) << "ingest binlog. result: " << apache::thrift::ThriftDebugString(result);
+    }};
 
     auto set_tstatus = [&tstatus](TStatusCode::type code, std::string error_msg) {
         tstatus.__set_status_code(code);
@@ -542,6 +549,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     }
     RowsetId new_rowset_id = StorageEngine::instance()->next_rowset_id();
     rowset_meta->set_rowset_id(new_rowset_id);
+    rowset_meta->set_tablet_uid(local_tablet->tablet_uid());
 
     // Step 5: get all segment files
     // Step 5.1: get all segment files size
@@ -561,6 +569,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
             RETURN_IF_ERROR(client->head());
             return client->get_content_length(&segment_file_size);
         };
+
         status = HttpClient::execute_with_retry(max_retry, 1, get_segment_file_size_cb);
         if (!status.ok()) {
             LOG(WARNING) << "failed to get segment file size from " << get_segment_file_size_url
@@ -568,6 +577,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
             status.to_thrift(&tstatus);
             return;
         }
+
         segment_file_sizes.push_back(segment_file_size);
         segment_file_urls.push_back(std::move(get_segment_file_size_url));
     }
@@ -689,7 +699,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     Status commit_txn_status = StorageEngine::instance()->txn_manager()->commit_txn(
             local_tablet->data_dir()->get_meta(), rowset_meta->partition_id(),
             rowset_meta->txn_id(), rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash(),
-            local_tablet->tablet_uid(), rowset_meta->load_id(), rowset, true);
+            local_tablet->tablet_uid(), rowset_meta->load_id(), rowset, false);
     if (!commit_txn_status && !commit_txn_status.is<ErrorCode::PUSH_TRANSACTION_ALREADY_EXIST>()) {
         auto err_msg = fmt::format(
                 "failed to commit txn for remote tablet. rowset_id: {}, remote_tablet_id={}, "

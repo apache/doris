@@ -41,8 +41,6 @@ import java.util.Optional;
  */
 public class PhysicalResultSink<CHILD_TYPE extends Plan> extends PhysicalSink<CHILD_TYPE> implements Sink {
 
-    private final List<NamedExpression> outputExprs;
-
     public PhysicalResultSink(List<NamedExpression> outputExprs, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, CHILD_TYPE child) {
         this(outputExprs, groupExpression, logicalProperties, PhysicalProperties.GATHER, null, child);
@@ -51,8 +49,8 @@ public class PhysicalResultSink<CHILD_TYPE extends Plan> extends PhysicalSink<CH
     public PhysicalResultSink(List<NamedExpression> outputExprs, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, @Nullable PhysicalProperties physicalProperties,
             Statistics statistics, CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_RESULT_SINK, groupExpression, logicalProperties, physicalProperties, statistics, child);
-        this.outputExprs = outputExprs;
+        super(PlanType.PHYSICAL_RESULT_SINK, outputExprs, groupExpression,
+                logicalProperties, physicalProperties, statistics, child);
     }
 
     public List<NamedExpression> getOutputExprs() {
@@ -123,5 +121,11 @@ public class PhysicalResultSink<CHILD_TYPE extends Plan> extends PhysicalSink<CH
     public String toString() {
         return Utils.toSqlString("PhysicalResultSink[" + id.asInt() + "]",
                 "outputExprs", outputExprs);
+    }
+
+    @Override
+    public PhysicalResultSink<CHILD_TYPE> resetLogicalProperties() {
+        return new PhysicalResultSink<>(outputExprs, groupExpression,
+                null, physicalProperties, statistics, child());
     }
 }

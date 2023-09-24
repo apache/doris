@@ -1638,9 +1638,10 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
     }
 
     if (tablet_state() == TABLET_RUNNING) {
-        if (has_version_cross || is_io_error_too_times()) {
+        if (has_version_cross || is_io_error_too_times() || !data_dir()->is_used()) {
             LOG(INFO) << "report " << full_name() << " as bad, version_cross=" << has_version_cross
-                      << ", ioe times=" << get_io_error_times();
+                      << ", ioe times=" << get_io_error_times() << ", data_dir used "
+                      << data_dir()->is_used();
             tablet_info->__set_used(false);
         }
 
@@ -1983,6 +1984,7 @@ Status Tablet::create_transient_rowset_writer(RowsetSharedPtr rowset_ptr,
     context.tablet_schema->set_partial_update_info(false, std::set<std::string>());
     context.newest_write_timestamp = UnixSeconds();
     context.tablet_id = table_id();
+    context.enable_segcompaction = false;
     // ATTN: context.tablet is a shared_ptr, can't simply set it's value to `this`. We should
     // get the shared_ptr from tablet_manager.
     context.tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id());
@@ -2538,7 +2540,7 @@ void Tablet::remove_unused_remote_files() {
                 if (UNLIKELY(end == std::string::npos)) {
                     return false;
                 }
-                return !!cooldowned_rowsets.count(path_str.substr(0, end)); 
+                return !!cooldowned_rowsets.count(path_str.substr(0, end));
             }
             if (StringPiece(path_str).ends_with(".idx")) {
                 // extract rowset id. filename format: {rowset_id}_{segment_num}_{index_id}.idx
@@ -3237,6 +3239,12 @@ Status Tablet::update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset) 
     std::vector<segment_v2::SegmentSharedPtr> segments;
     _load_rowset_segments(rowset, &segments);
 
+    // If this rowset does not have a segment, there is no need for an update.
+    if (segments.empty()) {
+        LOG(INFO) << "[Schema Change or Clone] skip to construct delete bitmap tablet: "
+                  << tablet_id() << " cur max_version: " << cur_version;
+        return Status::OK();
+    }
     RowsetIdUnorderedSet cur_rowset_ids = all_rs_id(cur_version - 1);
     DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
     RETURN_IF_ERROR(calc_delete_bitmap_between_segments(rowset, segments, delete_bitmap));
@@ -3323,7 +3331,6 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset,
     std::vector<segment_v2::SegmentSharedPtr> segments;
     _load_rowset_segments(rowset, &segments);
 
-    std::lock_guard<std::mutex> rwlock(_rowset_update_lock);
     {
         std::shared_lock meta_rlock(_meta_lock);
         // tablet is under alter process. The delete bitmap will be calculated after conversion.
@@ -3505,6 +3512,7 @@ RowsetIdUnorderedSet Tablet::all_rs_id(int64_t max_version) const {
 }
 
 bool Tablet::check_all_rowset_segment() {
+    std::shared_lock rdlock(_meta_lock);
     for (auto& version_rowset : _rs_version_map) {
         RowsetSharedPtr rowset = version_rowset.second;
         if (!rowset->check_rowset_segment()) {
@@ -3779,7 +3787,7 @@ Status Tablet::check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, in
             missing_rowsets_arr.PushBack(miss_value, missing_rowsets_arr.GetAllocator());
         }
 
-        root.AddMember("requied_rowsets", required_rowsets_arr, root.GetAllocator());
+        root.AddMember("required_rowsets", required_rowsets_arr, root.GetAllocator());
         root.AddMember("missing_rowsets", missing_rowsets_arr, root.GetAllocator());
         rapidjson::StringBuffer strbuf;
         rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(strbuf);

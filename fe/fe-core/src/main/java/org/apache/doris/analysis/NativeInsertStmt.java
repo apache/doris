@@ -138,6 +138,8 @@ public class NativeInsertStmt extends InsertStmt {
 
     private HashSet<String> partialUpdateCols = new HashSet<String>();
 
+    private boolean isFromDeleteOrUpdateStmt = false;
+
     public NativeInsertStmt(InsertTarget target, String label, List<String> cols, InsertSource source,
             List<String> hints) {
         super(new LabelName(null, label), null, null);
@@ -330,7 +332,9 @@ public class NativeInsertStmt extends InsertStmt {
             OlapTableSink sink = (OlapTableSink) dataSink;
             TUniqueId loadId = analyzer.getContext().queryId();
             int sendBatchParallelism = analyzer.getContext().getSessionVariable().getSendBatchParallelism();
-            sink.init(loadId, transactionId, db.getId(), timeoutSecond, sendBatchParallelism, false, false);
+            boolean isInsertStrict = analyzer.getContext().getSessionVariable().getEnableInsertStrict()
+                    && !isFromDeleteOrUpdateStmt;
+            sink.init(loadId, transactionId, db.getId(), timeoutSecond, sendBatchParallelism, false, isInsertStrict);
         }
     }
 
@@ -539,6 +543,10 @@ public class NativeInsertStmt extends InsertStmt {
         // check if size of select item equal with columns mentioned in statement
         if (mentionedColumns.size() != queryStmt.getResultExprs().size()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_VALUE_COUNT);
+        }
+
+        if (analyzer.getContext().getSessionVariable().isEnableUniqueKeyPartialUpdate()) {
+            trySetPartialUpdate();
         }
 
         // Check if all columns mentioned is enough
@@ -920,6 +928,56 @@ public class NativeInsertStmt extends InsertStmt {
             return RedirectStatus.NO_FORWARD;
         } else {
             return RedirectStatus.FORWARD_WITH_SYNC;
+        }
+    }
+
+    public void setIsFromDeleteOrUpdateStmt(boolean isFromDeleteOrUpdateStmt) {
+        this.isFromDeleteOrUpdateStmt = isFromDeleteOrUpdateStmt;
+    }
+
+    private void trySetPartialUpdate() throws UserException {
+        if (isFromDeleteOrUpdateStmt || isPartialUpdate || !(targetTable instanceof OlapTable)) {
+            return;
+        }
+        OlapTable olapTable = (OlapTable) targetTable;
+        if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
+            throw new UserException("Partial update is only allowed in unique table with merge-on-write enabled.");
+        }
+        for (Column col : olapTable.getFullSchema()) {
+            boolean exists = false;
+            for (Column insertCol : targetColumns) {
+                if (insertCol.getName() != null && insertCol.getName().equals(col.getName())) {
+                    if (!col.isVisible() && !Column.DELETE_SIGN.equals(col.getName())) {
+                        throw new UserException("Partial update should not include invisible column except"
+                                    + " delete sign column: " + col.getName());
+                    }
+                    exists = true;
+                    break;
+                }
+            }
+            if (col.isKey() && !exists) {
+                throw new UserException("Partial update should include all key columns, missing: " + col.getName());
+            }
+        }
+
+        isPartialUpdate = true;
+        partialUpdateCols.addAll(targetColumnNames);
+        if (isPartialUpdate && olapTable.hasSequenceCol() && olapTable.getSequenceMapCol() != null
+                && partialUpdateCols.contains(olapTable.getSequenceMapCol())) {
+            partialUpdateCols.add(Column.SEQUENCE_COL);
+        }
+        // we should re-generate olapTuple
+        DescriptorTable descTable = analyzer.getDescTbl();
+        olapTuple = descTable.createTupleDescriptor();
+        for (Column col : olapTable.getFullSchema()) {
+            if (!partialUpdateCols.contains(col.getName())) {
+                continue;
+            }
+            SlotDescriptor slotDesc = descTable.addSlotDescriptor(olapTuple);
+            slotDesc.setIsMaterialized(true);
+            slotDesc.setType(col.getType());
+            slotDesc.setColumn(col);
+            slotDesc.setIsNullable(col.isAllowNull());
         }
     }
 }

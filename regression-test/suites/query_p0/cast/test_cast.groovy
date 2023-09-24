@@ -32,6 +32,39 @@ suite('test_cast') {
         result([[869930357, 20200101123445l, ((float) 20200101123445l), ((double) 20200101123445l)]])
     }
 
+    test {
+        sql " select cast('9999e-1' as DECIMALV3(2, 1)) "
+        result([[9.9]])
+    }
+
+    test {
+        sql " select cast('100000' as DECIMALV3(2, 1)) "
+        result([[9.9]])
+    }
+
+    test {
+        sql " select cast('-9999e-1' as DECIMALV3(2, 1)) "
+        result([[-9.9]])
+    }
+
+    // leading-zeros
+    qt_sql_decimalv3 """select CAST('0.29401599228723063' AS DECIMALV3)"""
+
+    // not-leading-zeros
+    qt_sql_decimalv3 """select CAST('1.29401599228723063' AS DECIMALV3) """
+
+    // not-leading-zeros
+    qt_sql_decimalv3 """ select CAST('10.29401599228723063' AS DECIMALV3) """
+
+    // overflow with min value
+    qt_sql_decimalv3 """ select cast('-100000' as DECIMALV3(2, 1)) """
+
+    // overflow with max value
+    qt_sql_decimalv3 """ select cast('0.2147483648e3' as DECIMALV3(2, 1))"""
+
+    // overflow with min value
+    qt_sql_decimalv3 """ select cast('0.2147483648e-3' as DECIMALV3(2, 1))"""
+
     def tbl = "test_cast"
 
     sql """ DROP TABLE IF EXISTS ${tbl}"""

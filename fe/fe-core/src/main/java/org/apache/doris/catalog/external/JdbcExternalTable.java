@@ -18,14 +18,20 @@
 package org.apache.doris.catalog.external;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
+import org.apache.doris.statistics.AnalysisInfo;
+import org.apache.doris.statistics.BaseAnalysisTask;
+import org.apache.doris.statistics.JdbcAnalysisTask;
+import org.apache.doris.statistics.TableStatistic;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Elasticsearch external table.
@@ -92,5 +98,33 @@ public class JdbcExternalTable extends ExternalTable {
         jdbcTable.setResourceName(jdbcCatalog.getResource());
         jdbcTable.setCheckSum(jdbcCatalog.getCheckSum());
         return jdbcTable;
+    }
+
+    @Override
+    public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
+        makeSureInitialized();
+        return new JdbcAnalysisTask(info);
+    }
+
+    @Override
+    public long getRowCount() {
+        makeSureInitialized();
+        try {
+            Optional<TableStatistic> tableStatistics = Env.getCurrentEnv().getStatisticsCache().getTableStatistics(
+                    catalog.getId(), catalog.getDbOrAnalysisException(dbName).getId(), id);
+            if (tableStatistics.isPresent()) {
+                long rowCount = tableStatistics.get().rowCount;
+                LOG.debug("Estimated row count for db {} table {} is {}.", dbName, name, rowCount);
+                return rowCount;
+            }
+        } catch (Exception e) {
+            LOG.warn("Fail to get row count for table {}", name, e);
+        }
+        return 1;
+    }
+
+    @Override
+    public long estimatedRowCount() {
+        return getRowCount();
     }
 }

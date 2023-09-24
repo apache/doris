@@ -57,6 +57,9 @@ public:
                 return Status::OK();
             }
         }
+
+        RETURN_IF_ERROR(validate_block_schema((*block).get()));
+
         _current_used_bytes -= (*block)->allocated_bytes();
         return Status::OK();
     }

@@ -237,10 +237,14 @@ Status OrcReader::_create_file_reader() {
         _reader = orc::createReader(
                 std::unique_ptr<ORCFileInputStream>(_file_input_stream.release()), options);
     } catch (std::exception& e) {
-        return Status::InternalError("Init OrcReader failed. reason = {}", e.what());
+        // invoker maybe just skip Status.NotFound and continue
+        // so we need distinguish between it and other kinds of errors
+        std::string _err_msg = e.what();
+        if (_err_msg.find("No such file or directory") != std::string::npos) {
+            return Status::NotFound(_err_msg);
+        }
+        return Status::InternalError("Init OrcReader failed. reason = {}", _err_msg);
     }
-    _remaining_rows = _reader->getNumberOfRows();
-
     return Status::OK();
 }
 
@@ -253,7 +257,6 @@ Status OrcReader::init_reader(
         const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts) {
     _column_names = column_names;
     _colname_to_value_range = colname_to_value_range;
-    _text_converter.reset(new TextConverter('\\'));
     _lazy_read_ctx.conjuncts = conjuncts;
     _is_acid = is_acid;
     _tuple_descriptor = tuple_descriptor;
@@ -784,6 +787,9 @@ Status OrcReader::set_fill_columns(
         auto& selected_type = _row_reader->getSelectedType();
         int idx = 0;
         _init_select_types(selected_type, idx);
+
+        _remaining_rows = _row_reader->getNumberOfRows();
+
     } catch (std::exception& e) {
         return Status::InternalError("Failed to create orc row reader. reason = {}", e.what());
     }

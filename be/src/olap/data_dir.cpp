@@ -241,9 +241,8 @@ void DataDir::health_check() {
         if (!res) {
             LOG(WARNING) << "store read/write test file occur IO Error. path=" << _path
                          << ", err: " << res;
-            if (res.is_io_error()) {
-                _is_used = false;
-            }
+            StorageEngine::instance()->add_broken_path(_path);
+            _is_used = !res.is<IO_ERROR>();
         }
     }
     disks_state->set_value(_is_used ? 1 : 0);
@@ -914,7 +913,7 @@ Status DataDir::move_to_trash(const std::string& tablet_path) {
     }
 
     // 4. move tablet to trash
-    VLOG_NOTICE << "move file to trash. " << tablet_path << " -> " << trash_tablet_path;
+    LOG(INFO) << "move file to trash. " << tablet_path << " -> " << trash_tablet_path;
     if (rename(tablet_path.c_str(), trash_tablet_path.c_str()) < 0) {
         return Status::Error<OS_ERROR>("move file to trash failed. file={}, target={}, err={}",
                                        tablet_path, trash_tablet_path.native(), Errno::str());

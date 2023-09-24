@@ -68,7 +68,6 @@ import org.apache.doris.statistics.Histogram;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -96,7 +95,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.StringJoiner;
-import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -184,9 +182,6 @@ public class StatisticsUtil {
         connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
         connectContext.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
         connectContext.setCurrentUserIdentity(UserIdentity.ROOT);
-        UUID uuid = UUID.randomUUID();
-        TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-        connectContext.setQueryId(queryId);
         connectContext.setStartTime();
         connectContext.setCluster(SystemInfoService.DEFAULT_CLUSTER);
         return new AutoCloseConnectContext(connectContext);

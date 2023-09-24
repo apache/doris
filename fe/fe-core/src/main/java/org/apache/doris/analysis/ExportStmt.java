@@ -295,6 +295,7 @@ public class ExportStmt extends StatementBase {
             if (schema == null || (!schema.equalsIgnoreCase("bos")
                     && !schema.equalsIgnoreCase("afs")
                     && !schema.equalsIgnoreCase("hdfs")
+                    && !schema.equalsIgnoreCase("viewfs")
                     && !schema.equalsIgnoreCase("ofs")
                     && !schema.equalsIgnoreCase("obs")
                     && !schema.equalsIgnoreCase("oss")
@@ -303,16 +304,17 @@ public class ExportStmt extends StatementBase {
                     && !schema.equalsIgnoreCase("gfs")
                     && !schema.equalsIgnoreCase("jfs")
                     && !schema.equalsIgnoreCase("gs"))) {
-                throw new AnalysisException("Invalid broker path. please use valid 'hdfs://', 'afs://' , 'bos://',"
-                        + " 'ofs://', 'obs://', 'oss://', 's3a://', 'cosn://', 'gfs://', 'gs://' or 'jfs://' path.");
+                throw new AnalysisException("Invalid broker path. please use valid 'hdfs://', 'viewfs://', 'afs://',"
+                        + " 'bos://', 'ofs://', 'obs://', 'oss://', 's3a://', 'cosn://', 'gfs://', 'gs://'"
+                        + " or 'jfs://' path.");
             }
         } else if (type == StorageBackend.StorageType.S3) {
             if (schema == null || !schema.equalsIgnoreCase("s3")) {
                 throw new AnalysisException("Invalid export path. please use valid 's3://' path.");
             }
         } else if (type == StorageBackend.StorageType.HDFS) {
-            if (schema == null || !schema.equalsIgnoreCase("hdfs")) {
-                throw new AnalysisException("Invalid export path. please use valid 'HDFS://' path.");
+            if (schema == null || (!schema.equalsIgnoreCase("hdfs") && !schema.equalsIgnoreCase("viewfs"))) {
+                throw new AnalysisException("Invalid export path. please use valid 'HDFS://' or 'viewfs://' path.");
             }
         } else if (type == StorageBackend.StorageType.LOCAL) {
             if (schema != null && !schema.equalsIgnoreCase("file")) {

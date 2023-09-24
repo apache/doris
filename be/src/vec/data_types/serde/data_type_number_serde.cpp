@@ -101,33 +101,34 @@ void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const 
 }
 
 template <typename T>
-Status DataTypeNumberSerDe<T>::deserialize_one_cell_from_text(IColumn& column, Slice& slice,
-                                                              const FormatOptions& options) const {
+Status DataTypeNumberSerDe<T>::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
+                                                              const FormatOptions& options,
+                                                              int nesting_level) const {
     auto& column_data = reinterpret_cast<ColumnType&>(column);
     ReadBuffer rb(slice.data, slice.size);
     if constexpr (std::is_same<T, UInt128>::value) {
         // TODO: support for Uint128
-        return Status::InvalidArgument("uint128 is not support");
+        return Status::InvalidDataFormat("uint128 is not support");
     } else if constexpr (std::is_same_v<T, float> || std::is_same_v<T, double>) {
         T val = 0;
         if (!read_float_text_fast_impl(val, rb)) {
-            return Status::InvalidArgument("parse number fail, string: '{}'",
-                                           std::string(rb.position(), rb.count()).c_str());
+            return Status::InvalidDataFormat("parse number fail, string: '{}'",
+                                             std::string(rb.position(), rb.count()).c_str());
         }
         column_data.insert_value(val);
     } else if constexpr (std::is_same_v<T, uint8_t>) {
         // Note: here we should handle the bool type
         T val = 0;
         if (!try_read_bool_text(val, rb)) {
-            return Status::InvalidArgument("parse boolean fail, string: '{}'",
-                                           std::string(rb.position(), rb.count()).c_str());
+            return Status::InvalidDataFormat("parse boolean fail, string: '{}'",
+                                             std::string(rb.position(), rb.count()).c_str());
         }
         column_data.insert_value(val);
     } else if constexpr (std::is_integral<T>::value) {
         T val = 0;
         if (!read_int_text_impl(val, rb)) {
-            return Status::InvalidArgument("parse number fail, string: '{}'",
-                                           std::string(rb.position(), rb.count()).c_str());
+            return Status::InvalidDataFormat("parse number fail, string: '{}'",
+                                             std::string(rb.position(), rb.count()).c_str());
         }
         column_data.insert_value(val);
     } else {
@@ -137,14 +138,14 @@ Status DataTypeNumberSerDe<T>::deserialize_one_cell_from_text(IColumn& column, S
 }
 
 template <typename T>
-void DataTypeNumberSerDe<T>::serialize_column_to_text(const IColumn& column, int start_idx,
+void DataTypeNumberSerDe<T>::serialize_column_to_json(const IColumn& column, int start_idx,
                                                       int end_idx, BufferWritable& bw,
                                                       FormatOptions& options) const {
-    SERIALIZE_COLUMN_TO_TEXT()
+    SERIALIZE_COLUMN_TO_JSON()
 }
 
 template <typename T>
-void DataTypeNumberSerDe<T>::serialize_one_cell_to_text(const IColumn& column, int row_num,
+void DataTypeNumberSerDe<T>::serialize_one_cell_to_json(const IColumn& column, int row_num,
                                                         BufferWritable& bw,
                                                         FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
@@ -165,10 +166,12 @@ void DataTypeNumberSerDe<T>::serialize_one_cell_to_text(const IColumn& column, i
 }
 
 template <typename T>
-Status DataTypeNumberSerDe<T>::deserialize_column_from_text_vector(
-        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
-        const FormatOptions& options) const {
-    DESERIALIZE_COLUMN_FROM_TEXT_VECTOR()
+Status DataTypeNumberSerDe<T>::deserialize_column_from_json_vector(IColumn& column,
+                                                                   std::vector<Slice>& slices,
+                                                                   int* num_deserialized,
+                                                                   const FormatOptions& options,
+                                                                   int nesting_level) const {
+    DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
     return Status::OK();
 }
 

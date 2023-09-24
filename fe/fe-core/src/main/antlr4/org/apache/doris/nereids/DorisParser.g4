@@ -653,7 +653,6 @@ nonReserved
     | PARSED
     | PARTITION
     | PARTITIONED
-    | PARTITIONS
     | PERCENTILE_CONT
     | PERCENTLIT
     | PERMISSIVE

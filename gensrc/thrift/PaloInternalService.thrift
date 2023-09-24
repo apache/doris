@@ -230,7 +230,23 @@ struct TQueryOptions {
 
   77: optional bool truncate_char_or_varchar_columns = false
 
+  78: optional bool enable_hash_join_early_start_probe = false
+
+  79: optional bool enable_pipeline_x_engine = false;
+
+  80: optional bool enable_memtable_on_sink_node = false;
+
   81: optional bool enable_delete_sub_predicate_v2 = false;
+
+  // A tag used to distinguish fe start epoch.
+  82: optional i64 fe_process_uuid = 0;
+
+  83: optional i32 inverted_index_conjunction_opt_threshold = 1000;
+  // A seperate flag to indicate whether to enable profile, not
+  // use is_report_success any more
+  84: optional bool enable_profile = false;
+  85: optional bool enable_page_cache = false;
+  86: optional bool enable_delete_sub_predicate_v2 = false;
 }
 
 

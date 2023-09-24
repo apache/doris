@@ -18,6 +18,7 @@
 package org.apache.doris.service;
 
 import org.apache.doris.alter.SchemaChangeHandler;
+import org.apache.doris.analysis.AbstractBackupTableRefClause;
 import org.apache.doris.analysis.AddColumnsClause;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ColumnDef;
@@ -25,6 +26,7 @@ import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.Snapshot;
@@ -128,6 +130,7 @@ import org.apache.doris.thrift.TGetTabletReplicaInfosResult;
 import org.apache.doris.thrift.TInitExternalCtlMetaRequest;
 import org.apache.doris.thrift.TInitExternalCtlMetaResult;
 import org.apache.doris.thrift.TListPrivilegesResult;
+import org.apache.doris.thrift.TListTableMetadataNameIdsResult;
 import org.apache.doris.thrift.TListTableStatusResult;
 import org.apache.doris.thrift.TLoadTxn2PCRequest;
 import org.apache.doris.thrift.TLoadTxn2PCResult;
@@ -166,7 +169,9 @@ import org.apache.doris.thrift.TStreamLoadMultiTablePutResult;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TStreamLoadPutResult;
 import org.apache.doris.thrift.TTableIndexQueryStats;
+import org.apache.doris.thrift.TTableMetadataNameIds;
 import org.apache.doris.thrift.TTableQueryStats;
+import org.apache.doris.thrift.TTableRef;
 import org.apache.doris.thrift.TTableStatus;
 import org.apache.doris.thrift.TUpdateExportTaskStatusRequest;
 import org.apache.doris.thrift.TUpdateFollowerStatsCacheRequest;
@@ -192,13 +197,19 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.IntSupplier;
@@ -311,8 +322,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         LOG.debug("get db request: {}", params);
         TGetDbsResult result = new TGetDbsResult();
 
-        List<String> dbs = Lists.newArrayList();
-        List<String> catalogs = Lists.newArrayList();
+        List<String> dbNames = Lists.newArrayList();
+        List<String> catalogNames = Lists.newArrayList();
+        List<Long> dbIds = Lists.newArrayList();
+        List<Long> catalogIds = Lists.newArrayList();
+
         PatternMatcher matcher = null;
         if (params.isSetPattern()) {
             try {
@@ -332,40 +346,51 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     .getCatalogOrException(params.catalog, catalog -> new TException("Unknown catalog " + catalog)));
         }
         for (CatalogIf catalog : catalogIfs) {
-            List<String> dbNames;
+            Collection<DatabaseIf> dbs = new HashSet<DatabaseIf>();
             try {
-                dbNames = catalog.getDbNamesOrEmpty();
+                dbs = catalog.getAllDbs();
             } catch (Exception e) {
                 LOG.warn("failed to get database names for catalog {}", catalog.getName(), e);
                 // Some external catalog may fail to get databases due to wrong connection info.
-                // So continue here to get databases of other catalogs.
+            }
+            LOG.debug("get db size: {}, in catalog: {}", dbs.size(), catalog.getName());
+            if (dbs.isEmpty() && params.isSetGetNullCatalog() && params.get_null_catalog) {
+                catalogNames.add(catalog.getName());
+                dbNames.add("NULL");
+                catalogIds.add(catalog.getId());
+                dbIds.add(-1L);
                 continue;
             }
-            LOG.debug("get db names: {}, in catalog: {}", dbNames, catalog.getName());
-
+            if (dbs.isEmpty()) {
+                continue;
+            }
             UserIdentity currentUser = null;
             if (params.isSetCurrentUserIdent()) {
                 currentUser = UserIdentity.fromThrift(params.current_user_ident);
             } else {
                 currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
             }
-            for (String fullName : dbNames) {
+            for (DatabaseIf db : dbs) {
+                String fullName = db.getFullName();
                 if (!env.getAccessManager().checkDbPriv(currentUser, fullName, PrivPredicate.SHOW)) {
                     continue;
                 }
 
-                final String db = ClusterNamespace.getNameFromFullName(fullName);
-                if (matcher != null && !matcher.match(db)) {
+                if (matcher != null && !matcher.match(ClusterNamespace.getNameFromFullName(fullName))) {
                     continue;
                 }
 
-                catalogs.add(catalog.getName());
-                dbs.add(fullName);
+                catalogNames.add(catalog.getName());
+                dbNames.add(fullName);
+                catalogIds.add(catalog.getId());
+                dbIds.add(db.getId());
             }
         }
 
-        result.setDbs(dbs);
-        result.setCatalogs(catalogs);
+        result.setDbs(dbNames);
+        result.setCatalogs(catalogNames);
+        result.setCatalogIds(catalogIds);
+        result.setDbIds(dbIds);
         return result;
     }
 
@@ -662,6 +687,87 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     LOG.warn("failed to get tables for db {} in catalog {}", db.getFullName(), catalogName, e);
                 }
             }
+        }
+        return result;
+    }
+
+    public TListTableMetadataNameIdsResult listTableMetadataNameIds(TGetTablesParams params) throws TException {
+
+        LOG.debug("get list simple table request: {}", params);
+
+        TListTableMetadataNameIdsResult result = new TListTableMetadataNameIdsResult();
+        List<TTableMetadataNameIds> tablesResult = Lists.newArrayList();
+        result.setTables(tablesResult);
+
+        UserIdentity currentUser;
+        if (params.isSetCurrentUserIdent()) {
+            currentUser = UserIdentity.fromThrift(params.current_user_ident);
+        } else {
+            currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
+        }
+
+        String catalogName;
+        if (params.isSetCatalog()) {
+            catalogName = params.catalog;
+        } else {
+            catalogName = InternalCatalog.INTERNAL_CATALOG_NAME;
+        }
+
+        PatternMatcher matcher = null;
+        if (params.isSetPattern()) {
+            try {
+                matcher = PatternMatcher.createMysqlPattern(params.getPattern(),
+                    CaseSensibility.TABLE.getCaseSensibility());
+            } catch (PatternMatcherException e) {
+                throw new TException("Pattern is in bad format " + params.getPattern());
+            }
+        }
+        PatternMatcher finalMatcher = matcher;
+
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        Future<?> future = executor.submit(() -> {
+
+            CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
+            if (catalog != null) {
+                DatabaseIf db = catalog.getDbNullable(params.db);
+                if (db != null) {
+                    List<TableIf> tables = db.getTables();
+                    for (TableIf table : tables) {
+                        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUser, params.db,
+                                table.getName(), PrivPredicate.SHOW)) {
+                            continue;
+                        }
+                        table.readLock();
+                        try {
+                            if (finalMatcher != null && !finalMatcher.match(table.getName())) {
+                                continue;
+                            }
+                            TTableMetadataNameIds status = new TTableMetadataNameIds();
+                            status.setName(table.getName());
+                            status.setId(table.getId());
+
+                            tablesResult.add(status);
+                        } finally {
+                            table.readUnlock();
+                        }
+                    }
+                }
+            }
+        });
+        try {
+            if (catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+                future.get();
+            } else {
+                future.get(Config.query_metadata_name_ids_timeout, TimeUnit.SECONDS);
+            }
+        } catch (TimeoutException e) {
+            future.cancel(true);
+            LOG.info("From catalog:{},db:{} get tables timeout.", catalogName, params.db);
+        } catch (InterruptedException | ExecutionException e) {
+            future.cancel(true);
+        } finally {
+            executor.shutdown();
         }
         return result;
     }
@@ -997,6 +1103,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TLoadTxnBeginResult result = new TLoadTxnBeginResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
+
+        if (!Env.getCurrentEnv().isMaster()) {
+            status.setStatusCode(TStatusCode.NOT_MASTER);
+            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            LOG.error("failed to loadTxnBegin:{}, request:{}, backend:{}",
+                    NOT_MASTER_ERR_MSG, request, clientAddr);
+            return result;
+        }
+
         try {
             TLoadTxnBeginResult tmpRes = loadTxnBeginImpl(request, clientAddr);
             result.setTxnId(tmpRes.getTxnId()).setDbId(tmpRes.getDbId());
@@ -1782,7 +1897,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 throw new MetaNotFoundException("table not found");
             }
             olapTables = new ArrayList<>(tableNames.size());
-            Map<String, OlapTable> olapTableMap = tables.stream().map(OlapTable.class::cast)
+            Map<String, OlapTable> olapTableMap = tables.stream()
+                    .filter(OlapTable.class::isInstance)
+                    .map(OlapTable.class::cast)
                     .collect(Collectors.toMap(OlapTable::getName, olapTable -> olapTable));
             for (String tableName : tableNames) {
                 if (null == olapTableMap.get(tableName)) {
@@ -2568,6 +2685,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     // Restore Snapshot
+    @Override
     public TRestoreSnapshotResult restoreSnapshot(TRestoreSnapshotRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         LOG.trace("receive restore snapshot info request: {}", request);
@@ -2594,6 +2712,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);
             status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
             return result;
+        } finally {
+            ConnectContext.remove();
         }
 
         return result;
@@ -2641,11 +2761,22 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
 
-
         LabelName label = new LabelName(request.getDb(), request.getLabelName());
         String repoName = request.getRepoName();
         Map<String, String> properties = request.getProperties();
-        RestoreStmt restoreStmt = new RestoreStmt(label, repoName, null, properties, request.getMeta(),
+        AbstractBackupTableRefClause restoreTableRefClause = null;
+        if (request.isSetTableRefs()) {
+            List<TableRef> tableRefs = new ArrayList<>();
+            for (TTableRef tTableRef : request.getTableRefs()) {
+                tableRefs.add(new TableRef(new TableName(tTableRef.getTable()), tTableRef.getAliasName()));
+            }
+
+            if (tableRefs.size() > 0) {
+                boolean isExclude = false;
+                restoreTableRefClause = new AbstractBackupTableRefClause(isExclude, tableRefs);
+            }
+        }
+        RestoreStmt restoreStmt = new RestoreStmt(label, repoName, restoreTableRefClause, properties, request.getMeta(),
                 request.getJobInfo());
         restoreStmt.setIsBeingSynced();
         LOG.trace("restore snapshot info, restoreStmt: {}", restoreStmt);
@@ -2658,6 +2789,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             ctx.setCluster(cluster);
             ctx.setQualifiedUser(request.getUser());
             UserIdentity currentUserIdentity = new UserIdentity(request.getUser(), "%");
+            currentUserIdentity.setIsAnalyzed();
             ctx.setCurrentUserIdentity(currentUserIdentity);
 
             Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);

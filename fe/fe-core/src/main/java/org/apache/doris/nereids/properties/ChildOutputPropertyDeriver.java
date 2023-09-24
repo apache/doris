@@ -125,17 +125,27 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
 
     @Override
     public PhysicalProperties visitPhysicalEsScan(PhysicalEsScan esScan, PlanContext context) {
-        return PhysicalProperties.ANY;
+        return PhysicalProperties.STORAGE_ANY;
     }
 
     @Override
     public PhysicalProperties visitPhysicalFileScan(PhysicalFileScan fileScan, PlanContext context) {
-        return PhysicalProperties.ANY;
+        return PhysicalProperties.STORAGE_ANY;
     }
 
+    /**
+     * TODO return ANY after refactor coordinator
+     * return STORAGE_ANY not ANY, in order to generate distribute on jdbc scan.
+     * select * from (select * from external.T) as A union all (select * from external.T)
+     * if visitPhysicalJdbcScan returns ANY, the plan is
+     * union
+     *  |--- JDBCSCAN
+     *  +--- JDBCSCAN
+     *  this breaks coordinator assumption that one fragment has at most only one scan.
+     */
     @Override
     public PhysicalProperties visitPhysicalJdbcScan(PhysicalJdbcScan jdbcScan, PlanContext context) {
-        return PhysicalProperties.ANY;
+        return PhysicalProperties.STORAGE_ANY;
     }
 
     @Override

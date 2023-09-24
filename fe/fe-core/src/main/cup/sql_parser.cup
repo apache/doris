@@ -303,6 +303,7 @@ terminal String
     KW_COMMITTED,
     KW_COMPACT,
     KW_COMPLETE,
+    KW_COMPRESS_TYPE,
     KW_CONFIG,
     KW_CONNECTION,
     KW_CONNECTION_ID,
@@ -640,7 +641,8 @@ terminal String
     KW_PREPARE,
     KW_EXECUTE,
     KW_LINES,
-    KW_IGNORE;
+    KW_IGNORE,
+    KW_CONVERT_LSC;
 
 terminal COMMA, COLON, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, LBRACE, RBRACE, DIVIDE, MOD, ADD, SUBTRACT, PLACEHOLDER, ARROW;
 terminal BITAND, BITOR, BITXOR, BITNOT;
@@ -726,7 +728,7 @@ nonterminal ArrayList<LiteralExpr> literal_values, args_list;
 nonterminal ArrayList<Expr> func_arg_list;
 nonterminal ArrayList<Expr> expr_pipe_list;
 nonterminal String select_alias, opt_table_alias, lock_alias, opt_alias;
-nonterminal ArrayList<String> ident_list;
+nonterminal ArrayList<String> ident_list, opt_ident_list;
 nonterminal PartitionNames opt_partition_names, partition_names;
 nonterminal ArrayList<Long> opt_tablet_list, tablet_list;
 nonterminal TableSample opt_table_sample, table_sample;
@@ -890,8 +892,8 @@ nonterminal GroupByClause group_by_clause, grouping_elements;
 //
 nonterminal String keyword, ident, ident_or_text, variable_name,
         charset_name_or_default, old_or_new_charset_name_or_default, opt_collate,
-        collation_name_or_default, type_func_name_keyword, type_function_name, opt_file_format, time_unit,
-        literal_or_ident;
+        collation_name_or_default, type_func_name_keyword, type_function_name, opt_file_format, opt_file_compress_type,
+        time_unit, literal_or_ident;
 nonterminal PassVar text_or_password;
 
 // sync job
@@ -970,7 +972,6 @@ precedence left KW_OVER;
 precedence left KW_COLLATE;
 precedence left KW_PARTITION;
 precedence left KW_PARTITIONS;
-precedence left ARROW;
 precedence right KW_TEMPORARY;
 precedence right LBRACKET;
 precedence right LBRACE;
@@ -1806,7 +1807,7 @@ create_stmt ::=
         RESULT = new CreateFunctionStmt(type, ifNotExists, isAggregate, functionName, args, returnType, intermediateType, properties);
     :}
     | KW_CREATE opt_var_type:type KW_ALIAS KW_FUNCTION opt_if_not_exists:ifNotExists function_name:functionName LPAREN func_args_def:args RPAREN
-            KW_WITH KW_PARAMETER LPAREN ident_list:parameters RPAREN KW_AS expr:func
+            KW_WITH KW_PARAMETER LPAREN opt_ident_list:parameters RPAREN KW_AS expr:func
     {:
         RESULT = new CreateFunctionStmt(type, ifNotExists, functionName, args, parameters, func);
     :}
@@ -2406,6 +2407,7 @@ data_desc ::=
     opt_field_term:colSep
     opt_line_term:lineDelimiter
     opt_file_format:fileFormat
+    opt_file_compress_type:fileCompressType
     opt_col_list:colList
     opt_columns_from_path:columnsFromPath
     opt_col_mapping_list:colMappingList
@@ -2415,7 +2417,7 @@ data_desc ::=
     sequence_col_clause:sequenceColName
     opt_properties:properties
     {:
-         RESULT = new DataDescription(tableName, partitionNames, files, colList, colSep, lineDelimiter, fileFormat,
+        RESULT = new DataDescription(tableName, partitionNames, files, colList, colSep, lineDelimiter, fileFormat, fileCompressType,
         columnsFromPath, isNeg, colMappingList, preFilterExpr, whereExpr, mergeType, deleteExpr, sequenceColName, properties);
     :}
     | opt_merge_type:mergeType KW_DATA KW_FROM KW_TABLE ident:srcTableName
@@ -2520,6 +2522,13 @@ opt_file_format ::=
     {: RESULT = null; :}
     | KW_FORMAT KW_AS ident_or_text:format
     {: RESULT = format; :}
+    ;
+
+opt_file_compress_type ::=
+    /* Empty */
+    {: RESULT = null; :}
+    | KW_COMPRESS_TYPE KW_AS ident_or_text:compress_type
+    {: RESULT = compress_type; :}
     ;
 
 opt_columns_from_path ::=
@@ -4157,6 +4166,10 @@ show_param ::=
     | KW_BUILD KW_INDEX opt_db:db opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
     {:
         RESULT = new ShowBuildIndexStmt(db, parser.where, orderByClause, limitClause);
+    :}
+    | KW_CONVERT_LSC KW_FROM opt_db:db
+    {:
+        RESULT = new ShowConvertLSCStmt(db);
     :}
     ;
 
@@ -5896,6 +5909,16 @@ ident_list ::=
     :}
     ;
 
+opt_ident_list ::=
+    {:
+        RESULT = Lists.newArrayList();
+    :}
+    | ident_list:list
+    {:
+        RESULT = list;
+    :}
+    ;
+
 with_analysis_properties ::=
     KW_SYNC
     {:
@@ -6283,7 +6306,11 @@ type_def_nullable_list ::=
 
 
 func_args_def ::=
-  type_def_list:argTypes
+  /* empty */
+  {:
+    RESULT = new FunctionArgsDef(Lists.newArrayList(), false);
+  :}
+  | type_def_list:argTypes
   {:
     RESULT = new FunctionArgsDef(argTypes, false);
   :}
@@ -6553,13 +6580,6 @@ non_pred_expr ::=
   | expr_pipe_list:exprs
   {:
     RESULT = new FunctionCallExpr("concat", exprs);
-  :}
-  | expr:e ARROW expr:index
-  {: 
-    ArrayList<Expr> exprs = new ArrayList<>();
-    exprs.add(e);
-    exprs.add(index);
-    RESULT = new FunctionCallExpr("json_extract", new FunctionParams(exprs)); 
   :}
   | cast_expr:c
   {: RESULT = c; :}
@@ -7127,10 +7147,6 @@ admin_stmt ::=
     {:
         RESULT = new AdminCleanTrashStmt(null);
     :}
-    | KW_ADMIN KW_SET KW_TABLE table_name:name KW_PARTITION KW_VERSION opt_properties:properties
-    {:
-        RESULT = new AdminSetPartitionVersionStmt(name, properties);
-    :}
     | KW_ADMIN KW_DIAGNOSE KW_TABLET INTEGER_LITERAL:tabletId
     {:
         RESULT = new AdminDiagnoseTabletStmt(tabletId);
@@ -7146,10 +7162,6 @@ admin_stmt ::=
     | KW_ADMIN KW_COPY KW_TABLET INTEGER_LITERAL:tabletId opt_properties:properties
     {:
         RESULT = new AdminCopyTabletStmt(tabletId, properties);
-    :}
-    | KW_ADMIN KW_SET KW_TABLE table_name:name KW_STATUS opt_properties:properties
-    {:
-        RESULT = new AdminSetTableStatusStmt(name, properties);
     :}
     ;
 
@@ -7479,8 +7491,6 @@ keyword ::=
     | KW_OPEN:id
     {: RESULT = id; :}
     | KW_PARAMETER:id
-    {: RESULT = id; :}
-    | KW_PARTITIONS:id
     {: RESULT = id; :}
     | KW_PASSWORD:id
     {: RESULT = id; :}

@@ -21,11 +21,11 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
-import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -159,7 +159,10 @@ public class ColumnStatistic {
             LOG.debug("Failed to deserialize column stats", t);
             return ColumnStatistic.UNKNOWN;
         }
-        Preconditions.checkState(columnStatistic != null, "Column stats is null");
+        // Means last analyze failed or interrupted for some reason.
+        if (columnStatistic == null) {
+            return ColumnStatistic.UNKNOWN;
+        }
         columnStatistic.partitionIdToColStats.putAll(partitionIdToColStats);
         return columnStatistic;
     }
@@ -196,15 +199,25 @@ public class ColumnStatistic {
             }
             String min = resultRow.getColumnValue("min");
             String max = resultRow.getColumnValue("max");
-            if (min != null) {
-                columnStatisticBuilder.setMinValue(StatisticsUtil.convertToDouble(col.getType(), min));
-                columnStatisticBuilder.setMinExpr(StatisticsUtil.readableValue(col.getType(), min));
+            if (min != null && !min.equalsIgnoreCase("NULL")) {
+                try {
+                    columnStatisticBuilder.setMinValue(StatisticsUtil.convertToDouble(col.getType(), min));
+                    columnStatisticBuilder.setMinExpr(StatisticsUtil.readableValue(col.getType(), min));
+                } catch (AnalysisException e) {
+                    LOG.warn("Failed to deserialize column {} min value {}.", col, min, e);
+                    columnStatisticBuilder.setMinValue(Double.MIN_VALUE);
+                }
             } else {
                 columnStatisticBuilder.setMinValue(Double.MIN_VALUE);
             }
-            if (max != null) {
-                columnStatisticBuilder.setMaxValue(StatisticsUtil.convertToDouble(col.getType(), max));
-                columnStatisticBuilder.setMaxExpr(StatisticsUtil.readableValue(col.getType(), max));
+            if (max != null && !max.equalsIgnoreCase("NULL")) {
+                try {
+                    columnStatisticBuilder.setMaxValue(StatisticsUtil.convertToDouble(col.getType(), max));
+                    columnStatisticBuilder.setMaxExpr(StatisticsUtil.readableValue(col.getType(), max));
+                } catch (AnalysisException e) {
+                    LOG.warn("Failed to deserialize column {} max value {}.", col, max, e);
+                    columnStatisticBuilder.setMaxValue(Double.MAX_VALUE);
+                }
             } else {
                 columnStatisticBuilder.setMaxValue(Double.MAX_VALUE);
             }
@@ -215,7 +228,7 @@ public class ColumnStatistic {
             columnStatisticBuilder.setUpdatedTime(resultRow.getColumnValue("update_time"));
             return columnStatisticBuilder.build();
         } catch (Exception e) {
-            LOG.warn("Failed to deserialize column statistics, column not exists", e);
+            LOG.warn("Failed to deserialize column statistics.", e);
             return ColumnStatistic.UNKNOWN;
         }
     }

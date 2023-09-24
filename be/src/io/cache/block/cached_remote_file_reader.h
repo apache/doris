@@ -80,6 +80,9 @@ private:
         int64_t local_write_timer = 0;
     };
     void _update_state(const ReadStatistics& stats, FileCacheStatistics* state) const;
+
+    Status _read_from_cache(size_t offset, Slice result, size_t* bytes_read,
+                            const IOContext* io_ctx);
 };
 
 } // namespace io

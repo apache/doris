@@ -40,6 +40,7 @@ import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.HllType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
@@ -59,6 +60,8 @@ public class If extends ScalarFunction
         implements TernaryExpression, ExplicitlyCastableSignature {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(NullType.INSTANCE)
+                    .args(BooleanType.INSTANCE, NullType.INSTANCE, NullType.INSTANCE),
             FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
                     .args(BooleanType.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT),
             FunctionSignature.ret(DateV2Type.INSTANCE)

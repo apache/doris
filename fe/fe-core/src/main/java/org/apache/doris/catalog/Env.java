@@ -30,9 +30,7 @@ import org.apache.doris.analysis.AdminCheckTabletsStmt.CheckType;
 import org.apache.doris.analysis.AdminCleanTrashStmt;
 import org.apache.doris.analysis.AdminCompactTableStmt;
 import org.apache.doris.analysis.AdminSetConfigStmt;
-import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
 import org.apache.doris.analysis.AdminSetReplicaStatusStmt;
-import org.apache.doris.analysis.AdminSetTableStatusStmt;
 import org.apache.doris.analysis.AlterDatabasePropertyStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
@@ -87,7 +85,6 @@ import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MetaIdGenerator.IdGeneratorBuffer;
-import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Replica.ReplicaStatus;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.clone.ColocateTableCheckerAndBalancer;
@@ -192,9 +189,7 @@ import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.RefreshExternalTableInfo;
 import org.apache.doris.persist.ReplacePartitionOperationLog;
 import org.apache.doris.persist.ReplicaPersistInfo;
-import org.apache.doris.persist.SetPartitionVersionOperationLog;
 import org.apache.doris.persist.SetReplicaStatusOperationLog;
-import org.apache.doris.persist.SetTableStatusOperationLog;
 import org.apache.doris.persist.Storage;
 import org.apache.doris.persist.StorageInfo;
 import org.apache.doris.persist.TableInfo;
@@ -332,6 +327,8 @@ public class Env {
     private Daemon replayer;
     private Daemon timePrinter;
     private Daemon listener;
+
+    private ColumnIdFlushDaemon columnIdFlusher;
 
     private boolean isFirstTimeStartUp = false;
     private boolean isElectable;
@@ -674,6 +671,7 @@ public class Env {
         this.hiveTransactionMgr = new HiveTransactionMgr();
         this.binlogManager = new BinlogManager();
         this.binlogGcer = new BinlogGcer();
+        this.columnIdFlusher = new ColumnIdFlushDaemon();
     }
 
     public static void destroyCheckpoint() {
@@ -1129,7 +1127,8 @@ public class Env {
         }
 
         if (Config.cluster_id != -1 && clusterId != Config.cluster_id) {
-            throw new IOException("cluster id is not equal with config item cluster_id. will exit.");
+            throw new IOException("cluster id is not equal with config item cluster_id. will exit. "
+                    + "If you are in recovery mode, please also modify the cluster_id in 'doris-meta/image/VERSION'");
         }
 
         if (role.equals(FrontendNodeType.FOLLOWER)) {
@@ -1503,6 +1502,7 @@ public class Env {
 
         // binlog gcer
         binlogGcer.start();
+        columnIdFlusher.start();
     }
 
     // start threads that should running on all FE
@@ -1591,7 +1591,8 @@ public class Env {
      * frontend log is deleted because of checkpoint.
      */
     private void checkCurrentNodeExist() {
-        if (Config.metadata_failure_recovery.equals("true")) {
+        boolean metadataFailureRecovery = null != System.getProperty(FeConstants.METADATA_FAILURE_RECOVERY_KEY);
+        if (metadataFailureRecovery) {
             return;
         }
 
@@ -2510,6 +2511,7 @@ public class Env {
         long startTime = System.currentTimeMillis();
         boolean hasLog = false;
         while (true) {
+            long entityStartTime = System.currentTimeMillis();
             Pair<Long, JournalEntity> kv = cursor.next();
             if (kv == null) {
                 break;
@@ -2521,6 +2523,7 @@ public class Env {
             }
             hasLog = true;
             EditLog.loadJournal(this, logId, entity);
+            long loadJournalEndTime = System.currentTimeMillis();
             replayedJournalId.incrementAndGet();
             LOG.debug("journal {} replayed.", replayedJournalId);
             if (feType != FrontendNodeType.MASTER) {
@@ -2529,6 +2532,14 @@ public class Env {
             if (MetricRepo.isInit) {
                 // Metric repo may not init after this replay thread start
                 MetricRepo.COUNTER_EDIT_LOG_READ.increase(1L);
+            }
+
+            long entityCost = System.currentTimeMillis() - entityStartTime;
+            if (entityCost >= 1000) {
+                long loadJournalCost = loadJournalEndTime - entityStartTime;
+                LOG.warn("entityCost:{} loadJournalCost:{} logId:{} replayedJournalId:{} code:{} size:{}",
+                        entityCost, loadJournalCost, logId, replayedJournalId, entity.getOpCode(),
+                        entity.getDataSize());
             }
         }
         long cost = System.currentTimeMillis() - startTime;
@@ -5196,40 +5207,6 @@ public class Env {
         }
     }
 
-    public void setTableStatus(AdminSetTableStatusStmt stmt) throws MetaNotFoundException {
-        String dbName = stmt.getDbName();
-        String tableName = stmt.getTblName();
-        setTableStatusInternal(dbName, tableName, stmt.getTableState(), false);
-    }
-
-    public void replaySetTableStatus(SetTableStatusOperationLog log) throws MetaNotFoundException {
-        setTableStatusInternal(log.getDbName(), log.getTblName(), log.getState(), true);
-    }
-
-    public void setTableStatusInternal(String dbName, String tableName, OlapTableState state, boolean isReplay)
-            throws MetaNotFoundException {
-        Database db = getInternalCatalog().getDbOrMetaException(dbName);
-        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP);
-        olapTable.writeLockOrMetaException();
-        try {
-            OlapTableState oldState = olapTable.getState();
-            if (state != null && oldState != state) {
-                olapTable.setState(state);
-                if (!isReplay) {
-                    SetTableStatusOperationLog log = new SetTableStatusOperationLog(dbName, tableName, state);
-                    editLog.logSetTableStatus(log);
-                }
-                LOG.info("set table {} state from {} to {}. is replay: {}.",
-                            tableName, oldState, state, isReplay);
-            } else {
-                LOG.warn("ignore set same state {} for table {}. is replay: {}.",
-                            olapTable.getState(), tableName, isReplay);
-            }
-        } finally {
-            olapTable.writeUnlock();
-        }
-    }
-
     // Set specified replica's status. If replica does not exist, just ignore it.
     public void setReplicaStatus(AdminSetReplicaStatusStmt stmt) throws MetaNotFoundException {
         long tabletId = stmt.getTabletId();
@@ -5365,55 +5342,6 @@ public class Env {
         }
     }
 
-    public void setPartitionVersion(AdminSetPartitionVersionStmt stmt) throws DdlException {
-        String database = stmt.getDatabase();
-        String table = stmt.getTable();
-        long partitionId = stmt.getPartitionId();
-        long visibleVersion = stmt.getVisibleVersion();
-        int setSuccess = setPartitionVersionInternal(database, table, partitionId, visibleVersion, false);
-        if (setSuccess == -1) {
-            throw new DdlException("Failed to set partition visible version to " + visibleVersion + ". " + "Partition "
-                    + partitionId + " not exists. Database " + database + ", Table " + table + ".");
-        }
-    }
-
-    public void replaySetPartitionVersion(SetPartitionVersionOperationLog log) throws DdlException {
-        int setSuccess = setPartitionVersionInternal(log.getDatabase(), log.getTable(),
-                log.getPartitionId(), log.getVisibleVersion(), true);
-        if (setSuccess == -1) {
-            LOG.warn("Failed to set partition visible version to {}. "
-                    + "Database {}, Table {}, Partition {} not exists.", log.getDatabase(), log.getTable(),
-                    log.getVisibleVersion(), log.getPartitionId());
-        }
-    }
-
-    public int setPartitionVersionInternal(String database, String table, long partitionId,
-                                           long visibleVersion, boolean isReplay) throws DdlException {
-        int result = -1;
-        Database db = getInternalCatalog().getDbOrDdlException(database);
-        OlapTable olapTable = db.getOlapTableOrDdlException(table);
-        olapTable.writeLockOrDdlException();
-        try {
-            Partition partition = olapTable.getPartition(partitionId);
-            if (partition != null) {
-                Long oldVersion = partition.getVisibleVersion();
-                partition.updateVisibleVersion(visibleVersion);
-                partition.setNextVersion(visibleVersion + 1);
-                result = 0;
-                if (!isReplay) {
-                    SetPartitionVersionOperationLog log = new SetPartitionVersionOperationLog(
-                            database, table, partitionId, visibleVersion);
-                    getEditLog().logSetPartitionVersion(log);
-                }
-                LOG.info("set partition {} visible version from {} to {}. Database {}, Table {}, is replay:"
-                        + " {}.", partitionId, oldVersion, visibleVersion, database, table, isReplay);
-            }
-        } finally {
-            olapTable.writeUnlock();
-        }
-        return result;
-    }
-
     public static boolean isStoredTableNamesLowerCase() {
         return GlobalVariable.lowerCaseTableNames == 1;
     }
@@ -5504,5 +5432,9 @@ public class Env {
     public void cleanQueryStats(CleanQueryStatsInfo info) throws DdlException {
         queryStats.clear(info);
         editLog.logCleanQueryStats(info);
+    }
+
+    public ColumnIdFlushDaemon getColumnIdFlusher() {
+        return columnIdFlusher;
     }
 }

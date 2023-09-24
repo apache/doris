@@ -30,7 +30,7 @@ suite("test_partial_update_strict_mode", "p0") {
                 `last_access_time` datetime NULL 
             ) ENGINE = OLAP UNIQUE KEY(`id`) 
             COMMENT 'OLAP' DISTRIBUTED BY HASH(`id`) 
-            BUCKETS AUTO PROPERTIES ( 
+            BUCKETS 4 PROPERTIES ( 
                 "replication_allocation" = "tag.location.default: 1", 
                 "storage_format" = "V2", 
                 "enable_unique_key_merge_on_write" = "true", 
@@ -80,7 +80,7 @@ suite("test_partial_update_strict_mode", "p0") {
                 `last_access_time` datetime NULL 
             ) ENGINE = OLAP UNIQUE KEY(`id`) 
             COMMENT 'OLAP' DISTRIBUTED BY HASH(`id`) 
-            BUCKETS AUTO PROPERTIES ( 
+            BUCKETS 4 PROPERTIES ( 
                 "replication_allocation" = "tag.location.default: 1", 
                 "storage_format" = "V2", 
                 "enable_unique_key_merge_on_write" = "true", 
@@ -129,7 +129,7 @@ suite("test_partial_update_strict_mode", "p0") {
                 `last_access_time` datetime NULL 
             ) ENGINE = OLAP UNIQUE KEY(`id`) 
             COMMENT 'OLAP' DISTRIBUTED BY HASH(`id`) 
-            BUCKETS AUTO PROPERTIES ( 
+            BUCKETS 4 PROPERTIES ( 
                 "replication_allocation" = "tag.location.default: 1", 
                 "storage_format" = "V2", 
                 "enable_unique_key_merge_on_write" = "true", 
@@ -179,7 +179,7 @@ suite("test_partial_update_strict_mode", "p0") {
                 `last_access_time` datetime NULL 
             ) ENGINE = OLAP UNIQUE KEY(`id`) 
             COMMENT 'OLAP' DISTRIBUTED BY HASH(`id`) 
-            BUCKETS AUTO PROPERTIES ( 
+            BUCKETS 4 PROPERTIES ( 
                 "replication_allocation" = "tag.location.default: 1", 
                 "storage_format" = "V2", 
                 "enable_unique_key_merge_on_write" = "true", 
@@ -211,4 +211,5 @@ suite("test_partial_update_strict_mode", "p0") {
 
     sql "sync"
     qt_sql """select * from ${tableName4} order by id;"""
+    sql """ DROP TABLE IF EXISTS ${tableName4}; """
 }

@@ -257,48 +257,39 @@ Status RuntimeFilterMergeControllerEntity::init(UniqueId query_id, UniqueId frag
     _mem_tracker = std::make_shared<MemTracker>("RuntimeFilterMergeControllerEntity",
                                                 ExecEnv::GetInstance()->experimental_mem_tracker());
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-    for (auto& filterid_to_desc : runtime_filter_params.rid_to_runtime_filter) {
-        int filter_id = filterid_to_desc.first;
-        const auto& target_iter = runtime_filter_params.rid_to_target_param.find(filter_id);
-        if (target_iter == runtime_filter_params.rid_to_target_param.end() &&
-            !runtime_filter_params.__isset.rid_to_target_paramv2) {
-            return Status::InternalError("runtime filter params meet error");
-        } else if (target_iter == runtime_filter_params.rid_to_target_param.end()) {
-            const auto& targetv2_iter = runtime_filter_params.rid_to_target_paramv2.find(filter_id);
-            if (targetv2_iter == runtime_filter_params.rid_to_target_paramv2.end()) {
-                return Status::InternalError("runtime filter params meet error");
-            }
-            const auto& build_iter =
-                    runtime_filter_params.runtime_filter_builder_num.find(filter_id);
-            if (build_iter == runtime_filter_params.runtime_filter_builder_num.end()) {
-                return Status::InternalError("runtime filter params meet error");
-            }
-            _init_with_desc(&filterid_to_desc.second, &query_options, &targetv2_iter->second,
-                            build_iter->second);
-        } else {
-            const auto& build_iter =
-                    runtime_filter_params.runtime_filter_builder_num.find(filter_id);
-            if (build_iter == runtime_filter_params.runtime_filter_builder_num.end()) {
-                return Status::InternalError("runtime filter params meet error");
-            }
-            _init_with_desc(&filterid_to_desc.second, &query_options, &target_iter->second,
-                            build_iter->second);
-        }
-    }
     if (runtime_filter_params.__isset.rid_to_runtime_filter) {
         for (auto& filterid_to_desc : runtime_filter_params.rid_to_runtime_filter) {
             int filter_id = filterid_to_desc.first;
             const auto& target_iter = runtime_filter_params.rid_to_target_param.find(filter_id);
-            if (target_iter == runtime_filter_params.rid_to_target_param.end()) {
+            if (target_iter == runtime_filter_params.rid_to_target_param.end() &&
+                !runtime_filter_params.__isset.rid_to_target_paramv2) {
+                // This runtime filter has to target info
                 return Status::InternalError("runtime filter params meet error");
+            } else if (target_iter == runtime_filter_params.rid_to_target_param.end()) {
+                const auto& targetv2_iter =
+                        runtime_filter_params.rid_to_target_paramv2.find(filter_id);
+                if (targetv2_iter == runtime_filter_params.rid_to_target_paramv2.end()) {
+                    // This runtime filter has to target info
+                    return Status::InternalError("runtime filter params meet error");
+                }
+                const auto& build_iter =
+                        runtime_filter_params.runtime_filter_builder_num.find(filter_id);
+                if (build_iter == runtime_filter_params.runtime_filter_builder_num.end()) {
+                    // This runtime filter has to builder info
+                    return Status::InternalError("runtime filter params meet error");
+                }
+
+                RETURN_IF_ERROR(_init_with_desc(&filterid_to_desc.second, &query_options,
+                                                &targetv2_iter->second, build_iter->second));
+            } else {
+                const auto& build_iter =
+                        runtime_filter_params.runtime_filter_builder_num.find(filter_id);
+                if (build_iter == runtime_filter_params.runtime_filter_builder_num.end()) {
+                    return Status::InternalError("runtime filter params meet error");
+                }
+                RETURN_IF_ERROR(_init_with_desc(&filterid_to_desc.second, &query_options,
+                                                &target_iter->second, build_iter->second));
             }
-            const auto& build_iter =
-                    runtime_filter_params.runtime_filter_builder_num.find(filter_id);
-            if (build_iter == runtime_filter_params.runtime_filter_builder_num.end()) {
-                return Status::InternalError("runtime filter params meet error");
-            }
-            _init_with_desc(&filterid_to_desc.second, &query_options, &target_iter->second,
-                            build_iter->second);
         }
     }
     return Status::OK();

@@ -2014,7 +2014,12 @@ public class SchemaChangeHandler extends AlterHandler {
 
     private void enableLightSchemaChange(Database db, OlapTable olapTable) throws DdlException {
         final AlterLightSchChangeHelper alterLightSchChangeHelper = new AlterLightSchChangeHelper(db, olapTable);
-        alterLightSchChangeHelper.enableLightSchemaChange();
+        try {
+            alterLightSchChangeHelper.enableLightSchemaChange();
+        } catch (IllegalStateException e) {
+            throw new DdlException(String.format("failed to enable light schema change for table %s.%s",
+                    db.getFullName(), olapTable.getName()), e);
+        }
     }
 
     public void replayAlterLightSchChange(AlterLightSchemaChangeInfo info) throws MetaNotFoundException {
@@ -2024,7 +2029,7 @@ public class SchemaChangeHandler extends AlterHandler {
         final AlterLightSchChangeHelper alterLightSchChangeHelper = new AlterLightSchChangeHelper(db, olapTable);
         try {
             alterLightSchChangeHelper.updateTableMeta(info);
-        } catch (DdlException e) {
+        } catch (IllegalStateException e) {
             LOG.warn("failed to replay alter light schema change", e);
         } finally {
             olapTable.writeUnlock();
@@ -2893,8 +2898,8 @@ public class SchemaChangeHandler extends AlterHandler {
                     && indexChangeJob.getTableId() == tableId
                     && indexChangeJob.getPartitionName().equals(partitionName)
                     && indexChangeJob.hasSameAlterInvertedIndex(isDrop, alterIndexes)
-                    && indexChangeJob.getJobState() != IndexChangeJob.JobState.CANCELLED) {
-                // if JobState is CANCELLED, also allow user to create job again
+                    && !indexChangeJob.isDone()) {
+                // if JobState is done (CANCELLED or FINISHED), also allow user to create job again
                 return true;
             }
         }

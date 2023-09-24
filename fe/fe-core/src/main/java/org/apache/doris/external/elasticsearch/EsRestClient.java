@@ -206,6 +206,11 @@ public class EsRestClient {
         return EsShardPartitions.findShardPartitions(indexName, searchShards);
     }
 
+    public boolean health() {
+        String res = execute("");
+        return res != null;
+    }
+
     /**
      * init ssl networkClient use lazy way
      **/

@@ -365,7 +365,7 @@ Translated with www.DeepL.com/Translator (free version)
     
 * `query_timeout`
 
-    Used to set the query timeout. This variable applies to all query statements in the current connection. Particularly, timeout of INSERT statements is recommended to be managed by the insert_timeout below. The default is 5 minutes, in seconds.
+    Used to set the query timeout. This variable applies to all query statements in the current connection. Particularly, timeout of INSERT statements is recommended to be managed by the insert_timeout below. The default is 15 minutes, in seconds.
 
 * `insert_timeout`
 
@@ -682,6 +682,12 @@ Translated with www.DeepL.com/Translator (free version)
   Whether to add the final keyword when using the JDBC Catalog function to query ClickHouse,default is false.
   
   It is used for the ReplacingMergeTree table engine of ClickHouse to deduplicate queries.
+
+* `enable_unique_key_partial_update`
+
+  <version since="2.0.2">
+  Whether to enable partial columns update semantics for native insert into statement, default is false.
+  </version>
 
 ***
 

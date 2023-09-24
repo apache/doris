@@ -182,6 +182,7 @@ public class SelectStmt extends QueryStmt {
         this.id = other.id;
         selectList = other.selectList.clone();
         fromClause = other.fromClause.clone();
+        originSelectList = other.originSelectList != null ? other.originSelectList.clone() : null;
         whereClause = (other.whereClause != null) ? other.whereClause.clone() : null;
         originalWhereClause = (other.originalWhereClause != null) ? other.originalWhereClause.clone() : null;
         groupByClause = (other.groupByClause != null) ? other.groupByClause.clone() : null;
@@ -1811,10 +1812,12 @@ public class SelectStmt extends QueryStmt {
             whereClause.collect(Subquery.class, subqueryExprs);
 
         }
-        if (havingClause != null) {
-            havingClause = rewriter.rewrite(havingClause, analyzer);
+
+        if (havingClauseAfterAnalyzed != null) {
+            havingClauseAfterAnalyzed = rewriter.rewrite(havingClauseAfterAnalyzed, analyzer);
             havingClauseAfterAnalyzed.collect(Subquery.class, subqueryExprs);
         }
+
         for (Subquery subquery : subqueryExprs) {
             subquery.getStatement().rewriteExprs(rewriter);
         }

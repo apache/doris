@@ -1092,7 +1092,7 @@ Status SegmentIterator::_init_inverted_index_iterators() {
         if (_inverted_index_iterators.count(unique_id) < 1) {
             RETURN_IF_ERROR(_segment->new_inverted_index_iterator(
                     _opts.tablet_schema->column(cid), _opts.tablet_schema->get_inverted_index(cid),
-                    _opts.stats, &_inverted_index_iterators[unique_id]));
+                    _opts, &_inverted_index_iterators[unique_id]));
         }
     }
     return Status::OK();
@@ -1201,7 +1201,7 @@ Status SegmentIterator::_lookup_ordinal_from_pk_index(const RowCursor& key, bool
     Status status = index_iterator->seek_at_or_after(&index_key, &exact_match);
     if (UNLIKELY(!status.ok())) {
         *rowid = num_rows();
-        if (status.is<NOT_FOUND>()) {
+        if (status.is<ENTRY_NOT_FOUND>()) {
             return Status::OK();
         }
         return status;
@@ -1608,8 +1608,10 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
             _opts.stats->block_first_read_seek_num += 1;
             if (_opts.runtime_state && _opts.runtime_state->enable_profile()) {
                 SCOPED_RAW_TIMER(&_opts.stats->block_first_read_seek_ns);
+                RETURN_IF_ERROR(_seek_columns(_first_read_column_ids, _cur_rowid));
+            } else {
+                RETURN_IF_ERROR(_seek_columns(_first_read_column_ids, _cur_rowid));
             }
-            RETURN_IF_ERROR(_seek_columns(_first_read_column_ids, _cur_rowid));
         }
         size_t rows_to_read = range_to - range_from;
         RETURN_IF_ERROR(

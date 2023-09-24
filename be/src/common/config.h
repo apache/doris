@@ -319,6 +319,7 @@ DECLARE_mInt32(tablet_lookup_cache_clean_interval);
 DECLARE_mInt32(disk_stat_monitor_interval);
 DECLARE_mInt32(unused_rowset_monitor_interval);
 DECLARE_String(storage_root_path);
+DECLARE_mString(broken_storage_path);
 
 // Config is used to check incompatible old format hdr_ format
 // whether doris uses strict way. When config is true, process will log fatal
@@ -1002,6 +1003,8 @@ DECLARE_Int64(file_cache_min_file_segment_size);
 DECLARE_Int64(file_cache_max_file_segment_size);
 DECLARE_Bool(clear_file_cache);
 DECLARE_Bool(enable_file_cache_query_limit);
+// only for debug, will be removed after finding out the root cause
+DECLARE_mInt32(file_cache_wait_sec_after_fail); // zero for no waiting and retrying
 
 // inverted index searcher cache
 // cache entry stay time after lookup
@@ -1102,9 +1105,6 @@ DECLARE_mInt64(lookup_connection_cache_bytes_limit);
 // level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
 DECLARE_mInt64(LZ4_HC_compression_level);
 
-// enable window_funnel_function with different modes
-DECLARE_mBool(enable_window_funnel_function_v2);
-
 // whether to enable hdfs hedged read.
 // If set to true, it will be enabled even if user not enable it when creating catalog
 DECLARE_Bool(enable_hdfs_hedged_read);
@@ -1119,6 +1119,23 @@ DECLARE_mBool(enable_merge_on_write_correctness_check);
 
 // The secure path with user files, used in the `local` table function.
 DECLARE_mString(user_files_secure_path);
+
+// BitmapValue serialize version.
+DECLARE_Int16(bitmap_serialize_version);
+
+// This config can be set to limit thread number in group commit insert thread pool.
+DECLARE_mInt32(group_commit_insert_threads);
+
+// The configuration item is used to lower the priority of the scanner thread,
+// typically employed to ensure CPU scheduling for write operations.
+// Default is 0, which is default value of thread nice value, increase this value
+// to lower the priority of scan threads
+DECLARE_Int32(scan_thread_nice_value);
+// Used to modify the recycle interval of tablet schema cache
+DECLARE_mInt32(tablet_schema_cache_recycle_interval);
+
+// Use `LOG(FATAL)` to replace `throw` when true
+DECLARE_mBool(exit_on_exception);
 
 #ifdef BE_TEST
 // test s3

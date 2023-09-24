@@ -370,9 +370,7 @@ Status NewOlapScanner::_init_tablet_reader_params(
         }
     }
 
-    if (!config::disable_storage_page_cache) {
-        _tablet_reader_params.use_page_cache = true;
-    }
+    _tablet_reader_params.use_page_cache = _state->enable_page_cache();
 
     if (_tablet->enable_unique_key_merge_on_write() && !_state->skip_delete_bitmap()) {
         _tablet_reader_params.delete_bitmap = &_tablet->tablet_meta()->delete_bitmap();
@@ -436,6 +434,12 @@ Status NewOlapScanner::_init_return_columns() {
         _return_columns.push_back(index);
         if (slot->is_nullable() && !_tablet_schema->column(index).is_nullable()) {
             _tablet_columns_convert_to_null_set.emplace(index);
+        } else if (!slot->is_nullable() && _tablet_schema->column(index).is_nullable()) {
+            return Status::Error<ErrorCode::INVALID_SCHEMA>(
+                    "slot(id: {}, name: {})'s nullable does not match "
+                    "column(tablet id: {}, index: {}, name: {}) ",
+                    slot->id(), slot->col_name(), _tablet_schema->table_id(), index,
+                    _tablet_schema->column(index).name());
         }
     }
 

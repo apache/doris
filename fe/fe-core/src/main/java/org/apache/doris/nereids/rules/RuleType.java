@@ -92,7 +92,6 @@ public enum RuleType {
     CHECK_AGGREGATE_ANALYSIS(RuleTypeClass.CHECK),
     CHECK_ANALYSIS(RuleTypeClass.CHECK),
     CHECK_OBJECT_TYPE_ANALYSIS(RuleTypeClass.CHECK),
-    CHECK_BOUND(RuleTypeClass.CHECK),
     CHECK_DATA_TYPES(RuleTypeClass.CHECK),
 
     // rewrite rules
@@ -122,6 +121,7 @@ public enum RuleType {
     // subquery analyze
     FILTER_SUBQUERY_TO_APPLY(RuleTypeClass.REWRITE),
     PROJECT_SUBQUERY_TO_APPLY(RuleTypeClass.REWRITE),
+    ONE_ROW_RELATION_SUBQUERY_TO_APPLY(RuleTypeClass.REWRITE),
     // subquery rewrite rule
     ELIMINATE_LIMIT_UNDER_APPLY(RuleTypeClass.REWRITE),
     ELIMINATE_SORT_UNDER_APPLY(RuleTypeClass.REWRITE),

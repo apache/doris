@@ -231,6 +231,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("for", new Integer(SqlParserSymbols.KW_FOR));
         keywordMap.put("force", new Integer(SqlParserSymbols.KW_FORCE));
         keywordMap.put("format", new Integer(SqlParserSymbols.KW_FORMAT));
+        keywordMap.put("compress_type", new Integer(SqlParserSymbols.KW_COMPRESS_TYPE));
         keywordMap.put("free", new Integer(SqlParserSymbols.KW_FREE));
         keywordMap.put("from", new Integer(SqlParserSymbols.KW_FROM));
         keywordMap.put("frontend", new Integer(SqlParserSymbols.KW_FRONTEND));
@@ -493,6 +494,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("lines", new Integer(SqlParserSymbols.KW_LINES));
         keywordMap.put("ignore", new Integer(SqlParserSymbols.KW_IGNORE));
         keywordMap.put("expired", new Integer(SqlParserSymbols.KW_EXPIRED));
+        keywordMap.put("convert_light_schema_change_process", new Integer(SqlParserSymbols.KW_CONVERT_LSC));
    }
     
   // map from token id to token description

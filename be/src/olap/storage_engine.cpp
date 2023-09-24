@@ -135,6 +135,8 @@ StorageEngine::StorageEngine(const EngineOptions& options)
         // std::lock_guard<std::mutex> lock(_gc_mutex);
         return _unused_rowsets.size();
     });
+
+    _broken_paths = options.broken_paths;
 }
 
 StorageEngine::~StorageEngine() {
@@ -541,6 +543,7 @@ void StorageEngine::_exit_if_too_many_disks_are_failed() {
 }
 
 void StorageEngine::stop() {
+    LOG(INFO) << "begin stopping storage engine";
     // trigger the waiting threads
     notify_listeners();
 
@@ -560,7 +563,9 @@ void StorageEngine::stop() {
     THREAD_JOIN(_compaction_tasks_producer_thread);
     THREAD_JOIN(_update_replica_infos_thread);
     THREAD_JOIN(_unused_rowset_monitor_thread);
+    LOG(INFO) << "start join garbage sweeper thread";
     THREAD_JOIN(_garbage_sweeper_thread);
+    LOG(INFO) << "end join garbage sweeper thread";
     THREAD_JOIN(_disk_stat_monitor_thread);
     THREAD_JOIN(_fd_cache_clean_thread);
     THREAD_JOIN(_tablet_checkpoint_tasks_producer_thread);
@@ -580,6 +585,7 @@ void StorageEngine::stop() {
     THREADS_JOIN(_path_scan_threads);
 #undef THREADS_JOIN
     _stopped = true;
+    LOG(INFO) << "end stopping storage engine";
 }
 
 void StorageEngine::_clear() {
@@ -635,10 +641,13 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
     std::unique_lock<std::mutex> l(_trash_sweep_lock, std::defer_lock);
     if (!l.try_lock()) {
         LOG(INFO) << "trash and snapshot sweep is running.";
+        if (ignore_guard) {
+            _need_clean_trash.store(true, std::memory_order_relaxed);
+        }
         return res;
     }
 
-    LOG(INFO) << "start trash and snapshot sweep.";
+    LOG(INFO) << "start trash and snapshot sweep. is_clean=" << ignore_guard;
 
     const int32_t snapshot_expire = config::snapshot_expire_time_sec;
     const int32_t trash_expire = config::trash_file_expire_time_sec;
@@ -1308,6 +1317,39 @@ RowsetSharedPtr StorageEngine::get_quering_rowset(RowsetId rs_id) {
 void StorageEngine::evict_querying_rowset(RowsetId rs_id) {
     std::lock_guard<std::mutex> lock(_quering_rowsets_mutex);
     _querying_rowsets.erase(rs_id);
+}
+
+bool StorageEngine::add_broken_path(std::string path) {
+    std::lock_guard<std::mutex> lock(_broken_paths_mutex);
+    auto success = _broken_paths.emplace(path).second;
+    if (success) {
+        _persist_broken_paths();
+    }
+    return success;
+}
+
+bool StorageEngine::remove_broken_path(std::string path) {
+    std::lock_guard<std::mutex> lock(_broken_paths_mutex);
+    auto count = _broken_paths.erase(path);
+    if (count > 0) {
+        _persist_broken_paths();
+    }
+    return count > 0;
+}
+
+Status StorageEngine::_persist_broken_paths() {
+    std::string config_value;
+    for (const std::string& path : _broken_paths) {
+        config_value += path + ";";
+    }
+
+    if (config_value.length() > 0) {
+        auto st = config::set_config("broken_storage_path", config_value, true);
+        LOG(INFO) << "persist broken_storae_path " << config_value << st;
+        return st;
+    }
+
+    return Status::OK();
 }
 
 } // namespace doris

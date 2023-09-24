@@ -1012,20 +1012,10 @@ void PInternalServiceImpl::transmit_block(google::protobuf::RpcController* contr
     int64_t receive_time = GetCurrentTimeNanos();
     response->set_receive_time(receive_time);
 
-    if (!request->has_block() && config::brpc_light_work_pool_threads == -1) {
-        // under high concurrency, thread pool will have a lot of lock contention.
-        _transmit_block(controller, request, response, done, Status::OK());
-        return;
-    }
-
-    FifoThreadPool& pool = request->has_block() ? _heavy_work_pool : _light_work_pool;
-    bool ret = pool.try_offer([this, controller, request, response, done]() {
-        _transmit_block(controller, request, response, done, Status::OK());
-    });
-    if (!ret) {
-        offer_failed(response, done, pool);
-        return;
-    }
+    // under high concurrency, thread pool will have a lot of lock contention.
+    // May offer failed to the thread pool, so that we should avoid using thread
+    // pool here.
+    _transmit_block(controller, request, response, done, Status::OK());
 }
 
 void PInternalServiceImpl::transmit_block_by_http(google::protobuf::RpcController* controller,
@@ -1365,7 +1355,7 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
         Status commit_txn_status = StorageEngine::instance()->txn_manager()->commit_txn(
                 tablet->data_dir()->get_meta(), rowset_meta->partition_id(), rowset_meta->txn_id(),
                 rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash(), tablet->tablet_uid(),
-                rowset_meta->load_id(), rowset, true);
+                rowset_meta->load_id(), rowset, false);
         if (!commit_txn_status && !commit_txn_status.is<PUSH_TRANSACTION_ALREADY_EXIST>()) {
             LOG(WARNING) << "failed to add committed rowset for slave replica. rowset_id="
                          << rowset_meta->rowset_id() << ", tablet_id=" << rowset_meta->tablet_id()

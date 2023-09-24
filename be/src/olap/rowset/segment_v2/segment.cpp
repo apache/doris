@@ -344,12 +344,12 @@ Status Segment::new_bitmap_index_iterator(const TabletColumn& tablet_column,
 
 Status Segment::new_inverted_index_iterator(const TabletColumn& tablet_column,
                                             const TabletIndex* index_meta,
-                                            OlapReaderStatistics* stats,
+                                            const StorageReadOptions& read_options,
                                             std::unique_ptr<InvertedIndexIterator>* iter) {
     auto col_unique_id = tablet_column.unique_id();
     if (_column_readers.count(col_unique_id) > 0 && index_meta) {
         RETURN_IF_ERROR(_column_readers.at(col_unique_id)
-                                ->new_inverted_index_iterator(index_meta, stats, iter));
+                                ->new_inverted_index_iterator(index_meta, read_options, iter));
         return Status::OK();
     }
     return Status::OK();
@@ -373,8 +373,11 @@ Status Segment::lookup_row_key(const Slice& key, bool with_seq_col, RowLocation*
     bool exact_match = false;
     std::unique_ptr<segment_v2::IndexedColumnIterator> index_iterator;
     RETURN_IF_ERROR(_pk_index_reader->new_iterator(&index_iterator));
-    RETURN_IF_ERROR(index_iterator->seek_at_or_after(&key_without_seq, &exact_match));
-    if (!has_seq_col && !exact_match) {
+    auto st = index_iterator->seek_at_or_after(&key_without_seq, &exact_match);
+    if (!st.ok() && !st.is<ErrorCode::ENTRY_NOT_FOUND>()) {
+        return st;
+    }
+    if (st.is<ErrorCode::ENTRY_NOT_FOUND>() || (!has_seq_col && !exact_match)) {
         return Status::Error<ErrorCode::KEY_NOT_FOUND>("Can't find key in the segment");
     }
     row_location->row_id = index_iterator->get_current_ordinal();

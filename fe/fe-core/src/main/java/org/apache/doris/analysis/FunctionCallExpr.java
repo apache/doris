@@ -1580,7 +1580,8 @@ public class FunctionCallExpr extends Expr {
         }
 
         if (fnName.getFunction().equalsIgnoreCase("from_unixtime")
-                || fnName.getFunction().equalsIgnoreCase("date_format")) {
+                || fnName.getFunction().equalsIgnoreCase("date_format")
+                || fnName.getFunction().equalsIgnoreCase("unix_timestamp")) {
             // if has only one child, it has default time format: yyyy-MM-dd HH:mm:ss.SSSSSS
             if (children.size() > 1) {
                 final StringLiteral fmtLiteral = (StringLiteral) children.get(1);
@@ -1636,6 +1637,21 @@ public class FunctionCallExpr extends Expr {
                 fn.setReturnType(ret);
                 fn.getReturnType().getPrimitiveType().setTimeType();
             }
+        }
+
+        if (fn.getFunctionName().getFunction().equals("from_microsecond")) {
+            Type ret = ScalarType.createDatetimeV2Type(6);
+            fn.setReturnType(ret);
+        }
+
+        if (fn.getFunctionName().getFunction().equals("from_millisecond")) {
+            Type ret = ScalarType.createDatetimeV2Type(3);
+            fn.setReturnType(ret);
+        }
+
+        if (fn.getFunctionName().getFunction().equals("from_second")) {
+            Type ret = ScalarType.createDatetimeV2Type(0);
+            fn.setReturnType(ret);
         }
 
         if (fnName.getFunction().equalsIgnoreCase("map")) {

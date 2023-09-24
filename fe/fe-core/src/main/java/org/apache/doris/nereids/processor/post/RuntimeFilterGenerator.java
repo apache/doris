@@ -51,7 +51,9 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSchemaScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
@@ -124,33 +126,6 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         } else {
             pushDownRuntimeFilterCommon(join, context);
         }
-        //
-        // if (DENIED_JOIN_TYPES.contains(join.getJoinType()) || join.isMarkJoin()) {
-        //     // aliasTransMap is also used for judging whether the slot can be as rf target.
-        //     // for denied join type, the forbidden slots will be removed from the map.
-        //     // for example: a full outer join b on a.id = b.id, all slots will be removed out.
-        //     // for left outer join, only remove the right side slots and leave the left side.
-        //     // in later visit, the additional checking for the join type will be invoked for different cases:
-        //     // case 1: a left join b on a.id = b.id, checking whether rf on b.id can be pushed to a,
-        //     the answer is no,
-        //     //         since current join type is left outer join which is in denied list;
-        //     // case 2: (a left join b on a.id = b.id) inner join c on a.id2 = c.id2, checking whether rf on c.id2 can
-        //     //         be pushed to a, the answer is yes, since the current join is inner join which is permitted.
-        //     if (join.getJoinType() == JoinType.LEFT_OUTER_JOIN) {
-        //         Set<Slot> slots = join.right().getOutputSet();
-        //         slots.forEach(aliasTransferMap::remove);
-        //     } else {
-        //         Set<Slot> slots = join.getOutputSet();
-        //         slots.forEach(aliasTransferMap::remove);
-        //     }
-        // } else {
-        //     collectPushDownCTEInfos(join, context);
-        //     if (!getPushDownCTECandidates(ctx).isEmpty()) {
-        //         pushDownRuntimeFilterIntoCTE(ctx);
-        //     } else {
-        //         pushDownRuntimeFilterCommon(join, context);
-        //     }
-        // }
         return join;
     }
 
@@ -166,6 +141,26 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         CTEId id = producer.getCteId();
         context.getRuntimeFilterContext().getCteProduceMap().put(id, producer);
         return producer;
+    }
+
+    @Override
+    public PhysicalPlan visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, CascadesContext context) {
+        topN.child().accept(this, context);
+        PhysicalPlan child = (PhysicalPlan) topN.child();
+        for (Slot slot : child.getOutput()) {
+            context.getRuntimeFilterContext().getAliasTransferMap().remove(slot);
+        }
+        return topN;
+    }
+
+    @Override
+    public PhysicalPlan visitPhysicalWindow(PhysicalWindow<? extends Plan> window, CascadesContext context) {
+        window.child().accept(this, context);
+        Set<SlotReference> commonPartitionKeys = window.getCommonPartitionKeyFromWindowExpressions();
+        window.child().getOutput().stream().filter(slot -> !commonPartitionKeys.contains(slot)).forEach(
+                slot -> context.getRuntimeFilterContext().getAliasTransferMap().remove(slot)
+        );
+        return window;
     }
 
     @Override
@@ -326,6 +321,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         if (!checkPhysicalRelationType(scan)) {
             return;
         }
+
         if (scan instanceof PhysicalCTEConsumer) {
             Set<CTEId> processedCTE = context.getRuntimeFilterContext().getProcessedCTE();
             CTEId cteId = ((PhysicalCTEConsumer) scan).getCteId();
@@ -378,12 +374,18 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
 
                 NamedExpression targetExpr = (NamedExpression) project.getProjects().get(projIndex);
 
-                SlotReference origSlot = null;
+                Expression target = null;
                 if (targetExpr instanceof Alias) {
-                    origSlot = (SlotReference) targetExpr.child(0);
+                    target = targetExpr.child(0);
                 } else {
-                    origSlot = (SlotReference) targetExpr;
+                    target = targetExpr;
                 }
+
+                if (!(target instanceof SlotReference)) {
+                    continue;
+                }
+                SlotReference origSlot = null;
+                origSlot = (SlotReference) target;
                 Slot olapScanSlot = aliasTransferMap.get(origSlot).second;
                 if (!checkCanPushDownFromJoinType(join, ctx, olapScanSlot)) {
                     continue;

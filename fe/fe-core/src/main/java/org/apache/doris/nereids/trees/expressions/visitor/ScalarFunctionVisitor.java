@@ -60,7 +60,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAnd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNot;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNotAlias;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNotCount;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNotCountAlias;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapEmpty;
@@ -76,6 +78,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapMin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapNot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapOr;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapOrCount;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapRemove;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapSubsetInRange;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapSubsetLimit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapToArray;
@@ -163,7 +166,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Initcap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Instr;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtract;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonObject;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonQuote;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonUnQuote;
@@ -513,6 +518,14 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(bitmapAndNotCount, context);
     }
 
+    default R visitBitmapAndNotAlias(BitmapAndNotAlias bitmapAndNotAlias, C context) {
+        return visitScalarFunction(bitmapAndNotAlias, context);
+    }
+
+    default R visitBitmapAndNotCountAlias(BitmapAndNotCountAlias bitmapAndNotCountAlias, C context) {
+        return visitScalarFunction(bitmapAndNotCountAlias, context);
+    }
+
     default R visitBitmapContains(BitmapContains bitmapContains, C context) {
         return visitScalarFunction(bitmapContains, context);
     }
@@ -575,6 +588,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitBitmapOrCount(BitmapOrCount bitmapOrCount, C context) {
         return visitScalarFunction(bitmapOrCount, context);
+    }
+
+    default R visitBitmapRemove(BitmapRemove bitmapRemove, C context) {
+        return visitScalarFunction(bitmapRemove, context);
     }
 
     default R visitBitmapSubsetInRange(BitmapSubsetInRange bitmapSubsetInRange, C context) {
@@ -1055,6 +1072,14 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitJsonbType(JsonbType jsonbType, C context) {
         return visitScalarFunction(jsonbType, context);
+    }
+
+    default R visitJsonLength(JsonLength jsonLength, C context) {
+        return visitScalarFunction(jsonLength, context);
+    }
+
+    default R visitJsonContains(JsonContains jsonContains, C context) {
+        return visitScalarFunction(jsonContains, context);
     }
 
     default R visitLastDay(LastDay lastDay, C context) {
