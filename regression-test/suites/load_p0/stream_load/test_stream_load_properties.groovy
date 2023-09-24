@@ -462,7 +462,6 @@ suite("test_stream_load_properties", "p0") {
                 }
             }
 
-            //sql """curl -X PUT --location-trusted -u ${user}:${password}  -H "txn_id:${txnId}" -H "txn_operation:abort"  http://${address.hostString}:${address.port}/api/${db}/${tableName}/_stream_load_2pc"""
             def tableName1 =  "stream_load_" + tableName
             if (i <= 3) {
                 qt_sql_2pc "select * from ${tableName1} order by k00,k01"
