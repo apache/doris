@@ -25,11 +25,16 @@
 
 #include "gtest/gtest_pred_impl.h"
 #include "testutil/http_utils.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
 TEST(DebugPointsTest, BaseTest) {
     config::enable_debug_points = true;
+    auto bak_enable_all_http_auth = config::enable_all_http_auth;
+    Defer defer {[&]() { config::enable_all_http_auth = bak_enable_all_http_auth; }};
+
+    config::enable_all_http_auth = true;
     DebugPoints::instance()->clear();
 
     EXPECT_FALSE(DebugPoints::instance()->is_enable("dbug1"));
