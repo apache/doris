@@ -2075,6 +2075,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } catch (Throwable e) {
             LOG.warn("exec sql error catch unknown result.", e);
             throw new UserException("exec sql error catch unknown result." + e);
+        } finally {
+            QeProcessorImpl.INSTANCE.unregisterQuery(ctx.queryId());
         }
     }
 
