@@ -87,8 +87,8 @@ struct ProcessHashTableProbe {
     ForwardIterator<Mapped>& _probe_row_match(int& current_offset, int& probe_index,
                                               size_t& probe_size, bool& all_match_one);
 
-    template <typename HashTableType, typename Keys>
-    void _probe_hash(const Keys& keys, HashTableType& hash_table_ctx);
+    template <bool need_null_map_for_probe, typename HashTableType, typename Keys>
+    void _probe_hash(const Keys& keys, HashTableType& hash_table_ctx, ConstNullMapPtr null_map);
 
     // Process full outer join/ right join / right semi/anti join to output the join result
     // in hash table
