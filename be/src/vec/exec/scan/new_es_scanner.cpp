@@ -58,6 +58,24 @@ NewEsScanner::NewEsScanner(RuntimeState* state, NewEsScanNode* parent, int64_t l
           _docvalue_context(docvalue_context),
           _doc_value_mode(doc_value_mode) {}
 
+NewEsScanner::NewEsScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state,
+                           int64_t limit, TupleId tuple_id,
+                           const std::map<std::string, std::string>& properties,
+                           const std::map<std::string, std::string>& docvalue_context,
+                           bool doc_value_mode, RuntimeProfile* profile)
+        : VScanner(state, local_state, limit, profile),
+          _is_init(false),
+          _es_eof(false),
+          _properties(properties),
+          _line_eof(false),
+          _batch_eof(false),
+          _tuple_id(tuple_id),
+          _tuple_desc(nullptr),
+          _es_reader(nullptr),
+          _es_scroll_parser(nullptr),
+          _docvalue_context(docvalue_context),
+          _doc_value_mode(doc_value_mode) {}
+
 Status NewEsScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
     VLOG_CRITICAL << NEW_SCANNER_TYPE << "::prepare";
     RETURN_IF_ERROR(VScanner::prepare(_state, conjuncts));

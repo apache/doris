@@ -167,12 +167,13 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
         // so right maybe an expression and left is a slot
         Slot probeSlot = RuntimeFilterGenerator.checkTargetChild(probeExpr);
 
-        // aliasTransMap doesn't contain the key, means that the path from the olap scan to the join
+        // aliasTransMap doesn't contain the key, means that the path from the scan to the join
         // contains join with denied join type. for example: a left join b on a.id = b.id
-        if (!RuntimeFilterGenerator.checkPushDownPreconditions(builderNode, ctx, probeSlot)) {
+        if (!RuntimeFilterGenerator.checkPushDownPreconditionsForJoin(builderNode, ctx, probeSlot)) {
             return false;
         }
         PhysicalRelation scan = aliasTransferMap.get(probeSlot).first;
+        Preconditions.checkState(scan != null, "scan is null");
         if (scan instanceof PhysicalCTEConsumer) {
             // update the probeExpr
             int projIndex = -1;
@@ -192,20 +193,19 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
                 newProbeExpr = (NamedExpression) newProbeExpr.child(0);
             }
             Slot newProbeSlot = RuntimeFilterGenerator.checkTargetChild(newProbeExpr);
-            if (!RuntimeFilterGenerator.checkPushDownPreconditions(builderNode, ctx, newProbeSlot)) {
+            if (!RuntimeFilterGenerator.checkPushDownPreconditionsForJoin(builderNode, ctx, newProbeSlot)) {
                 return false;
             }
             scan = aliasTransferMap.get(newProbeSlot).first;
             probeExpr = newProbeExpr;
         }
-        if (!RuntimeFilterGenerator.isCoveredByPlanNode(this, scan)) {
+        if (!RuntimeFilterGenerator.checkPushDownPreconditionsForRelation(this, scan)) {
             return false;
         }
 
         AbstractPhysicalPlan child = (AbstractPhysicalPlan) child(0);
-        boolean pushedDown = child.pushDownRuntimeFilter(context, generator, builderNode,
+        return child.pushDownRuntimeFilter(context, generator, builderNode,
                 src, probeExpr, type, buildSideNdv, exprOrder);
-        return pushedDown;
     }
 
     @Override
