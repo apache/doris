@@ -20,7 +20,6 @@ package org.apache.doris.common.util;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.profile.SummaryProfile;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TCounter;
 import org.apache.doris.thrift.TRuntimeProfileNode;
 import org.apache.doris.thrift.TRuntimeProfileTree;
@@ -32,6 +31,7 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.Formatter;
 import java.util.LinkedList;
 import java.util.List;
@@ -248,6 +248,44 @@ public class RuntimeProfile {
             }
             childProfile.update(nodes, idx);
         }
+    }
+
+    public class Brief {
+        String name;
+        long rowsReturned = 0;
+        String totalTime = "";
+        List<Brief> children = new ArrayList<>();
+    }
+
+    public Brief toBrief() {
+        Brief brief = new Brief();
+        brief.name = this.name;
+        brief.rowsReturned = 0L;
+
+        counterLock.readLock().lock();
+        try {
+            Counter rowsReturnedCounter = counterMap.get("RowsReturned");
+            if (rowsReturnedCounter != null) {
+                brief.rowsReturned = rowsReturnedCounter.getValue();
+            }
+            Counter totalTimeCounter = counterMap.get("TotalTime");
+            if (totalTimeCounter != null) {
+                brief.totalTime = printCounter(totalTimeCounter.getValue(), totalTimeCounter.getType());
+            }
+        } finally {
+            counterLock.readLock().unlock();
+        }
+
+        childLock.readLock().lock();
+        try {
+            for (Pair<RuntimeProfile, Boolean> pair : childList) {
+                brief.children.add(pair.first.toBrief());
+            }
+        } finally {
+            childLock.readLock().unlock();
+        }
+
+        return brief;
     }
 
     // Print the profile:
@@ -650,8 +688,8 @@ public class RuntimeProfile {
         computeTimeInProfile(this.counterTotalTime.getValue());
     }
 
-    public void setProfileLevel() {
-        this.enableSimplyProfile = ConnectContext.get().getSessionVariable().getEnableSimplyProfile();
+    public void setProfileLevel(boolean isSimpleProfile) {
+        this.enableSimplyProfile = isSimpleProfile;
     }
 
     private void computeTimeInProfile(long total) {

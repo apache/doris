@@ -123,10 +123,10 @@ public:
 
     // Try to close this pipeline task. If there are still some resources need to be released after `try_close`,
     // this task will enter the `PENDING_FINISH` state.
-    virtual Status try_close();
+    virtual Status try_close(Status exec_status);
     // if the pipeline create a bunch of pipeline task
     // must be call after all pipeline task is finish to release resource
-    virtual Status close();
+    virtual Status close(Status exec_status);
 
     void put_in_runnable_queue() {
         _schedule_time++;
@@ -304,10 +304,13 @@ protected:
     RuntimeProfile::Counter* _wait_source_timer;
     MonotonicStopWatch _wait_bf_watcher;
     RuntimeProfile::Counter* _wait_bf_timer;
+    RuntimeProfile::Counter* _wait_bf_counts;
     MonotonicStopWatch _wait_sink_watcher;
     RuntimeProfile::Counter* _wait_sink_timer;
     MonotonicStopWatch _wait_worker_watcher;
     RuntimeProfile::Counter* _wait_worker_timer;
+    RuntimeProfile::Counter* _wait_dependency_counts;
+    RuntimeProfile::Counter* _pending_finish_counts;
     // TODO we should calculate the time between when really runnable and runnable
     RuntimeProfile::Counter* _yield_counts;
     RuntimeProfile::Counter* _core_change_times;

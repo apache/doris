@@ -44,7 +44,20 @@
 #include "util/time.h"
 #include "vec/sink/vdata_stream_sender.h"
 
-namespace doris::pipeline {
+namespace doris {
+namespace vectorized {
+
+void BroadcastPBlockHolder::unref() noexcept {
+    DCHECK_GT(_ref_count._value, 0);
+    auto old_value = _ref_count._value.fetch_sub(1);
+    if (_dep && old_value == 1) {
+        _dep->return_available_block();
+    }
+}
+
+} // namespace vectorized
+
+namespace pipeline {
 
 template <typename Parent>
 ExchangeSinkBuffer<Parent>::ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id,
@@ -118,6 +131,7 @@ void ExchangeSinkBuffer<Parent>::register_sink(TUniqueId fragment_instance_id) {
             std::queue<TransmitInfo<Parent>, std::list<TransmitInfo<Parent>>>();
     _instance_to_broadcast_package_queue[low_id] =
             std::queue<BroadcastTransmitInfo<Parent>, std::list<BroadcastTransmitInfo<Parent>>>();
+    _queue_capacity = QUEUE_CAPACITY_FACTOR * _instance_to_package_queue.size();
     PUniqueId finst_id;
     finst_id.set_hi(fragment_instance_id.hi);
     finst_id.set_lo(fragment_instance_id.lo);
@@ -143,6 +157,10 @@ Status ExchangeSinkBuffer<Parent>::add_block(TransmitInfo<Parent>&& request) {
             _instance_to_sending_by_pipeline[ins_id.lo] = false;
         }
         _instance_to_package_queue[ins_id.lo].emplace(std::move(request));
+        _total_queue_size++;
+        if (_queue_dependency && _total_queue_size > _queue_capacity) {
+            _queue_dependency->block_writing();
+        }
     }
     if (send_now) {
         RETURN_IF_ERROR(_send_rpc(ins_id.lo));
@@ -152,7 +170,8 @@ Status ExchangeSinkBuffer<Parent>::add_block(TransmitInfo<Parent>&& request) {
 }
 
 template <typename Parent>
-Status ExchangeSinkBuffer<Parent>::add_block(BroadcastTransmitInfo<Parent>&& request) {
+Status ExchangeSinkBuffer<Parent>::add_block(BroadcastTransmitInfo<Parent>&& request,
+                                             [[maybe_unused]] bool* sent) {
     if (_is_finishing) {
         return Status::OK();
     }
@@ -161,6 +180,9 @@ Status ExchangeSinkBuffer<Parent>::add_block(BroadcastTransmitInfo<Parent>&& req
         return Status::EndOfFile("receiver eof");
     }
     bool send_now = false;
+    if (sent) {
+        *sent = true;
+    }
     request.block_holder->ref();
     {
         std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[ins_id.lo]);
@@ -244,6 +266,10 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
             static_cast<void>(brpc_request->release_block());
         }
         q.pop();
+        _total_queue_size--;
+        if (_queue_dependency && _total_queue_size <= _queue_capacity) {
+            _queue_dependency->set_ready_for_write();
+        }
     } else if (!broadcast_q.empty()) {
         // If we have data to shuffle which is broadcasted
         auto& request = broadcast_q.front();
@@ -395,6 +421,6 @@ void ExchangeSinkBuffer<Parent>::update_profile(RuntimeProfile* profile) {
 
 template class ExchangeSinkBuffer<vectorized::VDataStreamSender>;
 template class ExchangeSinkBuffer<pipeline::ExchangeSinkLocalState>;
-//
-//template bool ExchangeSinkBuffer<vectorized::VDataStreamSender>::can_write() const;
-} // namespace doris::pipeline
+
+} // namespace pipeline
+} // namespace doris

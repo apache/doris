@@ -85,8 +85,8 @@ public:
     RowsetReaderSharedPtr clone() override;
 
 private:
-    Status _init_iterator_once();
-    Status _init_iterator();
+    [[nodiscard]] Status _init_iterator_once();
+    [[nodiscard]] Status _init_iterator();
     bool _should_push_down_value_predicates() const;
     bool _is_merge_iterator() const {
         return _read_context->need_ordered_result &&

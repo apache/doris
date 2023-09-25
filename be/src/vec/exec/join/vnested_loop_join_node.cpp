@@ -133,6 +133,9 @@ Status VNestedLoopJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status VNestedLoopJoinNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(VJoinNodeBase::prepare(state));
+    _build_get_next_timer = ADD_TIMER(_build_phase_profile, "BuildGetNextTime");
+    _build_timer = ADD_TIMER(_build_phase_profile, "BuildTime");
+    _build_rows_counter = ADD_COUNTER(_build_phase_profile, "BuildRows", TUnit::UNIT);
     // pre-compute the tuple index of build tuples in the output row
     int num_build_tuples = child(1)->row_desc().tuple_descriptors().size();
 
@@ -494,7 +497,7 @@ void VNestedLoopJoinNode::_finalize_current_phase(MutableBlock& mutable_block, s
             DCHECK_LE(_left_block_start_pos + _left_side_process_count, _left_block.rows());
             for (int j = _left_block_start_pos;
                  j < _left_block_start_pos + _left_side_process_count; ++j) {
-                mark_data.emplace_back(IsSemi != _cur_probe_row_visited_flags[j]);
+                mark_data.emplace_back(IsSemi == _cur_probe_row_visited_flags[j]);
             }
             for (size_t i = 0; i < _num_probe_side_columns; ++i) {
                 const ColumnWithTypeAndName src_column = _left_block.get_by_position(i);

@@ -45,6 +45,8 @@ public class RuntimeFilterTest extends SSBTestBase {
         super.runBeforeAll();
         connectContext.getSessionVariable().setRuntimeFilterMode("Global");
         connectContext.getSessionVariable().setRuntimeFilterType(8);
+        connectContext.getSessionVariable().setEnableRuntimeFilterPrune(false);
+        connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = false;
     }
 
     @Test
@@ -317,10 +319,28 @@ public class RuntimeFilterTest extends SSBTestBase {
                     filter.getSrcExpr().toSql(),
                     filter.getTargetExprs().stream().collect(Collectors.toSet())
             ));
-            // Set<String> targets = srcTargets.get(filter.getSrcExpr().toSql());
-            // Assertions.assertNotNull(targets);
-            // targets.containsAll(
-            //         filter.getTargetExprs().stream().map(expr -> expr.toSql()).collect(Collectors.toList()));
         }
     }
+
+    @Test
+    public void testRuntimeFilterBlockByWindow() {
+        String sql = "SELECT * FROM (select rank() over(partition by lo_partkey), lo_custkey from lineorder) t JOIN customer on lo_custkey = c_custkey";
+        List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
+        Assertions.assertEquals(0, filters.size());
+    }
+
+    @Test
+    public void testRuntimeFilterNotBlockByWindow() {
+        String sql = "SELECT * FROM (select rank() over(partition by lo_custkey), lo_custkey from lineorder) t JOIN customer on lo_custkey = c_custkey";
+        List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
+        Assertions.assertEquals(1, filters.size());
+    }
+
+    @Test
+    public void testRuntimeFilterBlockByTopN() {
+        String sql = "SELECT * FROM (select lo_custkey from lineorder order by lo_custkey limit 10) t JOIN customer on lo_custkey = c_custkey";
+        List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
+        Assertions.assertEquals(0, filters.size());
+    }
+
 }

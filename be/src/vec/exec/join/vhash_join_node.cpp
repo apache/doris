@@ -335,9 +335,12 @@ Status HashJoinNode::prepare(RuntimeState* state) {
 
     // Build phase
     auto record_profile = _should_build_hash_table ? _build_phase_profile : faker_runtime_profile();
-    _build_table_timer = ADD_CHILD_TIMER(_build_phase_profile, "BuildTableTime", "BuildTime");
+    _build_get_next_timer = ADD_TIMER(record_profile, "BuildGetNextTime");
+    _build_timer = ADD_TIMER(record_profile, "BuildTime");
+    _build_rows_counter = ADD_COUNTER(record_profile, "BuildRows", TUnit::UNIT);
+    _build_table_timer = ADD_CHILD_TIMER(record_profile, "BuildTableTime", "BuildTime");
     _build_side_merge_block_timer =
-            ADD_CHILD_TIMER(_build_phase_profile, "BuildSideMergeBlockTime", "BuildTime");
+            ADD_CHILD_TIMER(record_profile, "BuildSideMergeBlockTime", "BuildTime");
     _build_table_insert_timer = ADD_TIMER(record_profile, "BuildTableInsertTime");
     _build_expr_call_timer = ADD_TIMER(record_profile, "BuildExprCallTime");
     _build_table_expanse_timer = ADD_TIMER(record_profile, "BuildTableExpanseTime");
@@ -935,8 +938,7 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
     } else if (!_should_build_hash_table) {
         DCHECK(_shared_hashtable_controller != nullptr);
         DCHECK(_shared_hash_table_context != nullptr);
-        auto wait_timer =
-                ADD_CHILD_TIMER(_build_phase_profile, "WaitForSharedHashTableTime", "BuildTime");
+        auto wait_timer = ADD_TIMER(_build_phase_profile, "WaitForSharedHashTableTime");
         SCOPED_TIMER(wait_timer);
         RETURN_IF_ERROR(
                 _shared_hashtable_controller->wait_for_signal(state, _shared_hash_table_context));
