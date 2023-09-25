@@ -17,6 +17,9 @@
 
 package org.apache.doris.common.io;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
@@ -25,6 +28,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class DiskUtils {
+    private static final Logger LOG = LogManager.getLogger(DiskUtils.class);
+
     public static class Df {
         public String fileSystem = "";
         public long blocks;
@@ -69,7 +74,7 @@ public class DiskUtils {
             df.mountedOn = values[5];
             return df;
         } catch (IOException e) {
-            e.printStackTrace();
+            LOG.info("failed to obtain disk information", e);
             return null;
         }
     }

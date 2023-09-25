@@ -26,6 +26,8 @@ import org.apache.doris.qe.VariableMgr;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import org.apache.commons.io.output.FileWriterWithEncoding;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.BufferedReader;
@@ -41,7 +43,7 @@ import java.util.Map;
  * The doc is generated from Config.java and SessionVariable.java
  */
 public class DocGenerator {
-
+    private static final Logger LOG = LogManager.getLogger(DocGenerator.class);
     private static final String PLACEHOLDER = "<--DOC_PLACEHOLDER-->";
     private static final String[] TYPE = new String[] {"类型：", "Type: "};
     private static final String[] DEFAULT_VALYUE = new String[] {"默认值：", "Default: "};
@@ -51,6 +53,7 @@ public class DocGenerator {
             "Master only: "};
     private static final String[] VAR_READ_ONLY = new String[] {"只读变量：", "Read Only: "};
     private static final String[] VAR_GLOBAL_ONLY = new String[] {"仅全局变量：", "Global only: "};
+
 
     private String configDocTemplatePath;
     private String configDocTemplatePathCN;
@@ -288,7 +291,7 @@ public class DocGenerator {
             docGenerator.generate();
             System.out.println("Done!");
         } catch (Exception e) {
-            e.printStackTrace();
+            LOG.info("failed to generate doc", e);
             System.exit(-1);
         }
     }

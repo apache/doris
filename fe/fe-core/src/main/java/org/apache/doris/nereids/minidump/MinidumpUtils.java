@@ -42,6 +42,8 @@ import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Histogram;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -64,6 +66,8 @@ public class MinidumpUtils {
 
     public static String DUMP_PATH = null;
 
+    private static final Logger LOG = LogManager.getLogger(MinidumpUtils.class);
+
     /**
      * Saving of minidump file to fe log path
      */
@@ -73,7 +77,7 @@ public class MinidumpUtils {
         try (FileWriter file = new FileWriter(dumpPath + ".json")) {
             file.write(jsonMinidump);
         } catch (IOException e) {
-            e.printStackTrace();
+            LOG.info("failed to save minidump file", e);
         }
     }
 
@@ -156,7 +160,7 @@ public class MinidumpUtils {
             String inputString = sb.toString();
             return jsonMinidumpLoadFromString(inputString);
         } catch (IOException e) {
-            e.printStackTrace();
+            LOG.info("failed to open minidump file", e);
         }
         return null;
     }

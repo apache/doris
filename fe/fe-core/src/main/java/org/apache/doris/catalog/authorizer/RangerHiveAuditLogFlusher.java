@@ -17,10 +17,13 @@
 
 package org.apache.doris.catalog.authorizer;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.util.TimerTask;
 
 public class RangerHiveAuditLogFlusher extends TimerTask {
-
+    private static final Logger LOG = LogManager.getLogger(RangerHiveAuditLogFlusher.class);
     private RangerHiveAuditHandler auditHandler;
 
     public RangerHiveAuditLogFlusher(RangerHiveAuditHandler auditHandler) {
@@ -35,7 +38,7 @@ public class RangerHiveAuditLogFlusher extends TimerTask {
             try {
                 Thread.sleep(20000);
             } catch (InterruptedException e) {
-                e.printStackTrace();
+                LOG.info(e);
             }
         }
     }
