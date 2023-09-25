@@ -31,8 +31,8 @@ template <typename DependencyType, typename Derived>
 class JoinProbeLocalState : public PipelineXLocalState<DependencyType> {
 public:
     using Base = PipelineXLocalState<DependencyType>;
-    virtual Status init(RuntimeState* state, LocalStateInfo& info) override;
-    virtual Status close(RuntimeState* state) override;
+    Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status close(RuntimeState* state) override;
     virtual void add_tuple_is_null_column(vectorized::Block* block) = 0;
 
 protected:
@@ -42,7 +42,7 @@ protected:
             : Base(state, parent),
               _child_block(vectorized::Block::create_unique()),
               _child_source_state(SourceState::DEPEND_ON_SOURCE) {}
-    virtual ~JoinProbeLocalState() = default;
+    ~JoinProbeLocalState() override = default;
     void _construct_mutable_join_block();
     Status _build_output_block(vectorized::Block* origin_block, vectorized::Block* output_block,
                                bool keep_origin = true);
@@ -67,7 +67,7 @@ class JoinProbeOperatorX : public StatefulOperatorX<LocalStateType> {
 public:
     using Base = StatefulOperatorX<LocalStateType>;
     JoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    virtual Status init(const TPlanNode& tnode, RuntimeState* state) override;
+    Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
     Status open(doris::RuntimeState* state) override;
     [[nodiscard]] const RowDescriptor& row_desc() override { return *_output_row_desc; }

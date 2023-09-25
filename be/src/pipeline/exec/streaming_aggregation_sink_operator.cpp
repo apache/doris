@@ -353,7 +353,7 @@ Status StreamingAggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* sta
 
 Status StreamingAggSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
                                        SourceState source_state) {
-    auto& local_state = state->get_sink_local_state(id())->cast<StreamingAggSinkLocalState>();
+    CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     local_state._shared_state->input_num_rows += in_block->rows();
@@ -374,7 +374,7 @@ Status StreamingAggSinkOperatorX::sink(RuntimeState* state, vectorized::Block* i
     return Status::OK();
 }
 
-Status StreamingAggSinkLocalState::close(RuntimeState* state) {
+Status StreamingAggSinkLocalState::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return Status::OK();
     }
@@ -387,7 +387,7 @@ Status StreamingAggSinkLocalState::close(RuntimeState* state) {
         COUNTER_SET(_queue_byte_size_counter, _shared_state->data_queue->max_bytes_in_queue());
     }
     _preagg_block.clear();
-    return Base::close(state);
+    return Base::close(state, exec_status);
 }
 
 } // namespace doris::pipeline

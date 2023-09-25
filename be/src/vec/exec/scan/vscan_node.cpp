@@ -265,8 +265,7 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
     }
 
     if (scan_block == nullptr) {
-        LOG(FATAL) << "Scan block nullptr error _context_queue_id:" << _context_queue_id
-                   << " context debug string:" << _scanner_ctx->debug_string();
+        return Status::Error<777>("not pointer in scan pipline");
     }
     // get scanner's block memory
     block->swap(*scan_block);

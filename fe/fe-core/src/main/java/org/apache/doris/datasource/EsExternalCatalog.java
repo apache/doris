@@ -19,9 +19,13 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.external.EsExternalDatabase;
+import org.apache.doris.catalog.external.ExternalDatabase;
+import org.apache.doris.catalog.external.ExternalTable;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.external.elasticsearch.DorisEsException;
 import org.apache.doris.external.elasticsearch.EsRestClient;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import lombok.Getter;
@@ -41,6 +45,9 @@ public class EsExternalCatalog extends ExternalCatalog {
 
     private static final Logger LOG = LogManager.getLogger(EsExternalCatalog.class);
     private EsRestClient esRestClient;
+    private static final List<String> REQUIRED_PROPERTIES = ImmutableList.of(
+            EsResource.HOSTS
+    );
 
     /**
      * Default constructor for EsExternalCatalog.
@@ -143,5 +150,15 @@ public class EsExternalCatalog extends ExternalCatalog {
     @Override
     protected List<String> listDatabaseNames() {
         return Lists.newArrayList(DEFAULT_DB);
+    }
+
+    @Override
+    public void checkProperties() throws DdlException {
+        super.checkProperties();
+        for (String requiredProperty : REQUIRED_PROPERTIES) {
+            if (!catalogProperty.getProperties().containsKey(requiredProperty)) {
+                throw new DdlException("Required property '" + requiredProperty + "' is missing");
+            }
+        }
     }
 }

@@ -84,7 +84,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
---------------------------filter((t_c_secyear.sale_type = 'c')(t_c_secyear.dyear = 2000))
+--------------------------filter((t_c_secyear.dyear = 2000)(t_c_secyear.sale_type = 'c'))
 ----------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ------------------PhysicalDistribute
 --------------------PhysicalProject

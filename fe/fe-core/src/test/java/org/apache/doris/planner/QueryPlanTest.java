@@ -63,7 +63,7 @@ public class QueryPlanTest extends TestWithFeService {
     protected void runBeforeAll() throws Exception {
         // disable bucket shuffle join
         Deencapsulation.setField(connectContext.getSessionVariable(), "enableBucketShuffleJoin", false);
-
+        connectContext.getSessionVariable().setEnableRuntimeFilterPrune(false);
         // create database
         createDatabase("test");
         connectContext.getSessionVariable().setEnableNereidsPlanner(false);
