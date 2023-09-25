@@ -42,6 +42,7 @@
 #include "pipeline/exec/repeat_operator.h"
 #include "pipeline/exec/result_file_sink_operator.h"
 #include "pipeline/exec/result_sink_operator.h"
+#include "pipeline/exec/schema_scan_operator.h"
 #include "pipeline/exec/select_operator.h"
 #include "pipeline/exec/sort_sink_operator.h"
 #include "pipeline/exec/sort_source_operator.h"
@@ -408,6 +409,7 @@ DECLARE_OPERATOR_X(UnionSourceLocalState)
 DECLARE_OPERATOR_X(MultiCastDataStreamSourceLocalState)
 DECLARE_OPERATOR_X(PartitionSortSourceLocalState)
 DECLARE_OPERATOR_X(DataGenLocalState)
+DECLARE_OPERATOR_X(SchemaScanLocalState)
 
 #undef DECLARE_OPERATOR_X
 

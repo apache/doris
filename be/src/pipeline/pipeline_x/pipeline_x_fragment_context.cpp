@@ -66,6 +66,7 @@
 #include "pipeline/exec/result_file_sink_operator.h"
 #include "pipeline/exec/result_sink_operator.h"
 #include "pipeline/exec/scan_operator.h"
+#include "pipeline/exec/schema_scan_operator.h"
 #include "pipeline/exec/select_operator.h"
 #include "pipeline/exec/sort_sink_operator.h"
 #include "pipeline/exec/sort_source_operator.h"
@@ -755,6 +756,11 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
     }
     case TPlanNodeType::DATA_GEN_SCAN_NODE: {
         op.reset(new DataGenSourceOperatorX(pool, tnode, descs));
+        RETURN_IF_ERROR(cur_pipe->add_operator(op));
+        break;
+    }
+    case TPlanNodeType::SCHEMA_SCAN_NODE: {
+        op.reset(new SchemaScanOperatorX(pool, tnode, descs));
         RETURN_IF_ERROR(cur_pipe->add_operator(op));
         break;
     }
