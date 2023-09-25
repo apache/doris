@@ -724,13 +724,14 @@ Status execute_bitmap_op_count_null_to_zero(
     return Status::OK();
 }
 
+template <typename FunctionName>
 class FunctionBitmapAndNotCount : public IFunction {
 public:
     using LeftDataType = DataTypeBitMap;
     using RightDataType = DataTypeBitMap;
     using ResultDataType = typename BitmapAndNotCount<LeftDataType, RightDataType>::ResultDataType;
 
-    static constexpr auto name = "bitmap_and_not_count";
+    static constexpr auto name = FunctionName::name;
     static FunctionPtr create() { return std::make_shared<FunctionBitmapAndNotCount>(); }
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 2; }
@@ -1297,7 +1298,9 @@ void register_function_bitmap(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionBitmapToString>();
     factory.register_function<FunctionBitmapNot>();
     factory.register_function<FunctionBitmapAndNot>();
-    factory.register_function<FunctionBitmapAndNotCount>();
+    factory.register_alias(NameBitmapAndNot::name, "bitmap_andnot");
+    factory.register_function<FunctionBitmapAndNotCount<NameBitmapAndNotCount>>();
+    factory.register_alias(NameBitmapAndNotCount::name, "bitmap_andnot_count");
     factory.register_function<FunctionBitmapContains>();
     factory.register_function<FunctionBitmapRemove>();
     factory.register_function<FunctionBitmapHasAny>();

@@ -45,6 +45,8 @@ public class RuntimeFilterTest extends SSBTestBase {
         super.runBeforeAll();
         connectContext.getSessionVariable().setRuntimeFilterMode("Global");
         connectContext.getSessionVariable().setRuntimeFilterType(8);
+        connectContext.getSessionVariable().setEnableRuntimeFilterPrune(false);
+        connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = false;
     }
 
     @Test

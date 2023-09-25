@@ -150,9 +150,7 @@ Status ScannerScheduler::submit(ScannerContext* ctx) {
     if (ctx->done()) {
         return Status::EndOfFile("ScannerContext is done");
     }
-    if (ctx->queue_idx == -1) {
-        ctx->queue_idx = (_queue_idx++ % QUEUE_NUM);
-    }
+    ctx->queue_idx = (_queue_idx++ % QUEUE_NUM);
     if (!_pending_queues[ctx->queue_idx]->blocking_put(ctx)) {
         return Status::InternalError("failed to submit scanner context to scheduler");
     }
