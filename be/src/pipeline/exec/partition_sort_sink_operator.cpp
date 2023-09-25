@@ -183,7 +183,7 @@ void PartitionSortSinkOperatorX::_emplace_into_hash_table(
                 _pre_serialize_key_if_need(state, agg_method, key_columns, num_rows);
 
                 //PHHashMap
-                auto keys = state.get_keys(num_rows);
+                const auto& keys = state.get_keys();
                 if constexpr (HashTableTraits<HashTableType>::is_phmap) {
                     local_state._hash_values.resize(num_rows);
 

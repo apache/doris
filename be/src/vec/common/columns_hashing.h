@@ -48,11 +48,13 @@ struct HashMethodOneNumber : public columns_hashing_impl::HashMethodBase<
     using Base = columns_hashing_impl::HashMethodBase<Self, Value, Mapped, use_cache>;
 
     const char* vec;
+    size_t size;
 
     /// If the keys of a fixed length then key_sizes contains their lengths, empty otherwise.
     HashMethodOneNumber(const ColumnRawPtrs& key_columns, const Sizes& /*key_sizes*/,
                         const HashMethodContextPtr&) {
         vec = key_columns[0]->get_raw_data().data;
+        size = key_columns[0]->size();
     }
 
     HashMethodOneNumber(const IColumn* column) { vec = column->get_raw_data().data; }
@@ -73,9 +75,7 @@ struct HashMethodOneNumber : public columns_hashing_impl::HashMethodBase<
     FieldType get_key_holder(size_t row, Arena&) const { return ((FieldType*)(vec))[row]; }
     FieldType pack_key_holder(FieldType key, Arena&) const { return key; }
 
-    std::span<FieldType> get_keys(size_t rows_number) const {
-        return std::span<FieldType>((FieldType*)vec, rows_number);
-    }
+    std::span<FieldType> get_keys() const { return std::span<FieldType>((FieldType*)vec, size); }
 };
 
 /// For the case when there is one string key.
@@ -111,7 +111,7 @@ struct HashMethodString : public columns_hashing_impl::HashMethodBase<
         }
     }
 
-    const std::vector<StringRef>& get_keys(size_t rows_number) const { return keys; }
+    const std::vector<StringRef>& get_keys() const { return keys; }
 
 protected:
     friend class columns_hashing_impl::HashMethodBase<Self, Value, Mapped, use_cache>;
@@ -154,9 +154,7 @@ struct HashMethodSerialized
         return KeyHolderType {key, pool};
     }
 
-    std::span<StringRef> get_keys(size_t rows_number) const {
-        return std::span<StringRef>(keys, rows_number);
-    }
+    std::span<StringRef> get_keys() const { return std::span<StringRef>(keys, keys_size); }
 
 protected:
     friend class columns_hashing_impl::HashMethodBase<Self, Value, Mapped, false>;
@@ -218,7 +216,7 @@ struct HashMethodKeysFixed
 
     Key pack_key_holder(Key key, Arena& pool) const { return key; }
 
-    const std::vector<Key>& get_keys(size_t rows_number) const { return keys; }
+    const std::vector<Key>& get_keys() const { return keys; }
 };
 
 template <typename SingleColumnMethod, typename Mapped, bool use_cache>

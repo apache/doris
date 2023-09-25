@@ -342,7 +342,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
         }
     }
 
-    const auto& keys = key_getter.get_keys(probe_rows);
+    const auto& keys = key_getter.get_keys();
     int multi_matched_output_row_count = 0;
     _probe_hash<need_null_map_for_probe, HashTableType>(keys, hash_table_ctx, null_map);
 
