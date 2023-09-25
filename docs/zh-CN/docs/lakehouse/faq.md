@@ -208,6 +208,7 @@ under the License.
       <value>org.apache.hadoop.hive.metastore.SerDeStorageSchemaReader</value>
    </property> 
    ```
+
 10. 报错：java.security.InvalidAlgorithmParameterException: the trustAnchors parameter must be non-empty
 
     FE日志中完整报错信息如下：
