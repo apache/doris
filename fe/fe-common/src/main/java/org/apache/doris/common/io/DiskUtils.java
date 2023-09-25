@@ -17,8 +17,7 @@
 
 package org.apache.doris.common.io;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import lombok.extern.slf4j.Slf4j;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -27,8 +26,8 @@ import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
 
+@Slf4j
 public class DiskUtils {
-    private static final Logger LOG = LogManager.getLogger(DiskUtils.class);
 
     public static class Df {
         public String fileSystem = "";
@@ -74,7 +73,7 @@ public class DiskUtils {
             df.mountedOn = values[5];
             return df;
         } catch (IOException e) {
-            LOG.info("failed to obtain disk information", e);
+            log.info("failed to obtain disk information", e);
             return null;
         }
     }

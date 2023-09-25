@@ -25,9 +25,8 @@ import org.apache.doris.qe.VariableMgr;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.output.FileWriterWithEncoding;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.BufferedReader;
@@ -42,8 +41,8 @@ import java.util.Map;
  * This class is used to generate doc for FE config and session variable.
  * The doc is generated from Config.java and SessionVariable.java
  */
+@Slf4j
 public class DocGenerator {
-    private static final Logger LOG = LogManager.getLogger(DocGenerator.class);
     private static final String PLACEHOLDER = "<--DOC_PLACEHOLDER-->";
     private static final String[] TYPE = new String[] {"类型：", "Type: "};
     private static final String[] DEFAULT_VALYUE = new String[] {"默认值：", "Default: "};
@@ -291,7 +290,7 @@ public class DocGenerator {
             docGenerator.generate();
             System.out.println("Done!");
         } catch (Exception e) {
-            LOG.info("failed to generate doc", e);
+            log.info("failed to generate doc", e);
             System.exit(-1);
         }
     }
