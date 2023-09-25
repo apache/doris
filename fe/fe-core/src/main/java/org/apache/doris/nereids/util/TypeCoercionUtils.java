@@ -83,6 +83,7 @@ import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.NullType;
@@ -236,6 +237,8 @@ public class TypeCoercionUtils {
                 returnType = expected.defaultConcreteType();
             } else if (expected instanceof DateTimeType) {
                 returnType = DateTimeType.INSTANCE;
+            } else if (expected instanceof JsonType) {
+                returnType = JsonType.INSTANCE;
             }
         } else if (input.isDateType()) {
             if (expected instanceof DateTimeType) {
