@@ -78,7 +78,7 @@ public class FlightTokenManagerImpl implements FlightTokenManager {
 
         tokenCache.put(token, flightTokenDetails);
         LOG.trace("Created flight token for user: {}", username);
-        return FlightTokenDetails.of(token, username, expires);
+        return flightTokenDetails;
     }
 
     @Override
@@ -90,7 +90,7 @@ public class FlightTokenManagerImpl implements FlightTokenManager {
         }
 
         LOG.trace("Validated flight token for user: {}", value.getUsername());
-        return FlightTokenDetails.of(token, value.getUsername(), value.getExpiresAt());
+        return value;
     }
 
     @Override

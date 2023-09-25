@@ -64,10 +64,10 @@ public class FlightUserSession {
         return connectContext;
     }
 
-    public void setAuthResult(final UserIdentity userIdentity, final String remoteIpy) {
+    public void setAuthResult(final UserIdentity userIdentity, final String remoteIp) {
         connectContext.setQualifiedUser(userIdentity.getQualifiedUser());
         connectContext.setCurrentUserIdentity(userIdentity);
-        connectContext.setRemoteIP(remoteIpy);
+        connectContext.setRemoteIP(remoteIp);
     }
 
     public static ConnectContext buildConnectContext() {

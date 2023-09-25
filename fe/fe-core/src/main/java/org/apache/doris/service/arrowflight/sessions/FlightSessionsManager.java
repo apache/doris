@@ -35,7 +35,7 @@ public interface FlightSessionsManager extends AutoCloseable {
     FlightUserSession getUserSession(String peerIdentity);
 
     /**
-     * Creates a UserSession object and store it in the local cache, assuming that the peerIdentity was already validated.
+     * Creates a UserSession object and store it in the local cache, assuming that peerIdentity was already validated.
      *
      * @param peerIdentity identity after authorization
      */

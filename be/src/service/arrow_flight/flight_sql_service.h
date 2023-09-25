@@ -44,8 +44,8 @@ private:
     std::shared_ptr<Impl> _impl;
     bool _inited = false;
 
-    std::shared_ptr<HeaderAuthServerMiddlewareFactory> _header_middleware;
-    std::shared_ptr<BearerAuthServerMiddlewareFactory> _bearer_middleware;
+    std::shared_ptr<NoOpHeaderAuthServerMiddlewareFactory> _header_middleware;
+    std::shared_ptr<NoOpBearerAuthServerMiddlewareFactory> _bearer_middleware;
 
     explicit FlightSqlServer(std::shared_ptr<Impl> impl);
 };

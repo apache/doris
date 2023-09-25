@@ -97,8 +97,4 @@ public final class FlightTokenDetails {
     public boolean getCreatedSession() {
         return createdSession;
     }
-
-    public static FlightTokenDetails of(String token, String username, long expiresAt) {
-        return new FlightTokenDetails(token, username, expiresAt);
-    }
 }

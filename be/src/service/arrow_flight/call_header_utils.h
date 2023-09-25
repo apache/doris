@@ -19,6 +19,7 @@
 
 #include "arrow/flight/types.h"
 #include "arrow/util/base64.h"
+#include <sstream>
 
 namespace doris {
 namespace flight {
