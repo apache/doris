@@ -17,7 +17,11 @@
 
 package org.apache.doris.mysql.privilege;
 
-import org.apache.doris.common.*;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.PatternMatcherException;
 import org.apache.doris.common.io.Text;
 
 import com.google.common.collect.Lists;
@@ -65,7 +69,7 @@ public abstract class PrivTable {
     }
 
     public PrivEntry addEntry(PrivEntry entry, boolean errOnExist, boolean errOnNonExist, boolean isMerge)
-        throws DdlException {
+            throws DdlException {
         PrivEntry newEntry = entry;
         if (isMerge) {
             try {
