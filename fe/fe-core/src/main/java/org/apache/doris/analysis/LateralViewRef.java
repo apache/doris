@@ -78,8 +78,9 @@ public class LateralViewRef extends TableRef {
         desc = analyzer.registerTableRef(this);
         explodeSlotRef = new SlotRef(new TableName(null, null, viewName), columnName);
         explodeSlotRef.analyze(analyzer);
-        explodeSlotRef.getDesc().setIsNullable(relatedTableRef.getDesc().getSlots().stream()
-                .anyMatch(slotDescriptor -> slotDescriptor.getIsNullable()));
+        explodeSlotRef.getDesc().setIsNullable(
+                explodeSlotRef.getDesc().getIsNullable() || relatedTableRef.getDesc().getSlots()
+                        .stream().anyMatch(slotDescriptor -> slotDescriptor.getIsNullable()));
         isAnalyzed = true;  // true now that we have assigned desc
     }
 
