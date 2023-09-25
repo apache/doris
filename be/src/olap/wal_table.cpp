@@ -251,7 +251,7 @@ Status WalTable::send_request(int64_t wal_id, const std::string& wal, const std:
         }
     } else {
         LOG(INFO) << "success to replay wal =" << wal << ",status:" << status << ",msg:" << msg;
-        _exec_env->wal_mgr()->delete_wal(wal_id);
+        RETURN_IF_ERROR(_exec_env->wal_mgr()->delete_wal(wal_id));
         std::lock_guard<std::mutex> lock(_replay_wal_lock);
         _replay_wal_map.erase(wal);
     }

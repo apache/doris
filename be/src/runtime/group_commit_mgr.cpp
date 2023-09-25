@@ -312,23 +312,25 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
                      << ", executor status=" << status.to_string()
                      << ", request commit status=" << st.to_string();
         if (!prepare_failed) {
-            _exec_env->wal_mgr()->add_wal_path(_db_id, table_id, txn_id, label);
+            RETURN_IF_ERROR(_exec_env->wal_mgr()->add_wal_path(_db_id, table_id, txn_id, label));
             std::string wal_path;
-            _exec_env->wal_mgr()->get_wal_path(txn_id, wal_path);
-            _exec_env->wal_mgr()->add_recover_wal(std::to_string(db_id), std::to_string(table_id),
-                                                  std::vector<std::string> {wal_path});
+            RETURN_IF_ERROR(_exec_env->wal_mgr()->get_wal_path(txn_id, wal_path));
+            RETURN_IF_ERROR(_exec_env->wal_mgr()->add_recover_wal(
+                    std::to_string(db_id), std::to_string(table_id),
+                    std::vector<std::string> {wal_path}));
         }
         return st;
     }
     // TODO handle execute and commit error
     if (!prepare_failed && !result_status.ok()) {
-        _exec_env->wal_mgr()->add_wal_path(_db_id, table_id, txn_id, label);
+        RETURN_IF_ERROR(_exec_env->wal_mgr()->add_wal_path(_db_id, table_id, txn_id, label));
         std::string wal_path;
-        _exec_env->wal_mgr()->get_wal_path(txn_id, wal_path);
-        _exec_env->wal_mgr()->add_recover_wal(std::to_string(db_id), std::to_string(table_id),
-                                              std::vector<std::string> {wal_path});
+        RETURN_IF_ERROR(_exec_env->wal_mgr()->get_wal_path(txn_id, wal_path));
+        RETURN_IF_ERROR(_exec_env->wal_mgr()->add_recover_wal(std::to_string(db_id),
+                                                              std::to_string(table_id),
+                                                              std::vector<std::string> {wal_path}));
     } else {
-        _exec_env->wal_mgr()->delete_wal(txn_id);
+        RETURN_IF_ERROR(_exec_env->wal_mgr()->delete_wal(txn_id));
     }
     std::stringstream ss;
     ss << "finish group commit, db_id=" << db_id << ", table_id=" << table_id << ", label=" << label

@@ -36,7 +36,10 @@ Status WalWriter::init() {
 }
 
 Status WalWriter::finalize() {
-    RETURN_IF_ERROR(_file_writer->close());
+    auto st = _file_writer->close();
+    if (!st.ok()) {
+        LOG(WARNING) << "fail to close file " << _file_name;
+    }
     return Status::OK();
 }
 
