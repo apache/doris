@@ -19,6 +19,7 @@
 
 #include <string>
 
+#include "pipeline/exec/distinct_streaming_aggregation_sink_operator.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/exec/streaming_aggregation_sink_operator.h"
 #include "runtime/primitive_type.h"
@@ -907,7 +908,7 @@ template <typename LocalStateType>
 Status AggSinkOperatorX<LocalStateType>::sink(doris::RuntimeState* state,
                                               vectorized::Block* in_block,
                                               SourceState source_state) {
-    auto& local_state = state->get_sink_local_state(id())->template cast<LocalStateType>();
+    CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     local_state._shared_state->input_num_rows += in_block->rows();
@@ -927,7 +928,7 @@ Status AggSinkOperatorX<LocalStateType>::sink(doris::RuntimeState* state,
 }
 
 template <typename DependencyType, typename Derived>
-Status AggSinkLocalState<DependencyType, Derived>::close(RuntimeState* state) {
+Status AggSinkLocalState<DependencyType, Derived>::close(RuntimeState* state, Status exec_status) {
     SCOPED_TIMER(Base::profile()->total_time_counter());
     SCOPED_TIMER(Base::_close_timer);
     if (Base::_closed) {
@@ -942,14 +943,16 @@ Status AggSinkLocalState<DependencyType, Derived>::close(RuntimeState* state) {
 
     std::vector<size_t> tmp_hash_values;
     _hash_values.swap(tmp_hash_values);
-    return Base::close(state);
+    return Base::close(state, exec_status);
 }
 
 class StreamingAggSinkLocalState;
+class DistinctStreamingAggSinkLocalState;
 
 template class AggSinkOperatorX<BlockingAggSinkLocalState>;
 template class AggSinkOperatorX<StreamingAggSinkLocalState>;
+template class AggSinkOperatorX<DistinctStreamingAggSinkLocalState>;
 template class AggSinkLocalState<AggDependency, BlockingAggSinkLocalState>;
 template class AggSinkLocalState<AggDependency, StreamingAggSinkLocalState>;
-
+template class AggSinkLocalState<AggDependency, DistinctStreamingAggSinkLocalState>;
 } // namespace doris::pipeline

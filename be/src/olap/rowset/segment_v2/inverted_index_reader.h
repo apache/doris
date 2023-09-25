@@ -97,11 +97,15 @@ public:
         return _index_meta.properties();
     }
 
-    static std::vector<std::wstring> get_analyse_result(const std::string& field_name,
-                                                        const std::string& value,
-                                                        InvertedIndexQueryType query_type,
-                                                        InvertedIndexCtx* inverted_index_ctx,
-                                                        bool drop_duplicates = true);
+    static std::vector<std::string> get_analyse_result(lucene::util::Reader* reader,
+                                                       lucene::analysis::Analyzer* analyzer,
+                                                       const std::string& field_name,
+                                                       InvertedIndexQueryType query_type,
+                                                       bool drop_duplicates = true);
+    static std::unique_ptr<lucene::util::Reader> create_reader(InvertedIndexCtx* inverted_index_ctx,
+                                                               const std::string& value);
+    static std::unique_ptr<lucene::analysis::Analyzer> create_analyzer(
+            InvertedIndexCtx* inverted_index_ctx);
 
 protected:
     bool _is_range_query(InvertedIndexQueryType query_type);
@@ -144,7 +148,7 @@ private:
 
     Status match_all_index_search(OlapReaderStatistics* stats, RuntimeState* runtime_state,
                                   const std::wstring& field_ws,
-                                  const std::vector<std::wstring>& analyse_result,
+                                  const std::vector<std::string>& analyse_result,
                                   const IndexSearcherPtr& index_searcher,
                                   const std::shared_ptr<roaring::Roaring>& term_match_bitmap);
 

@@ -19,26 +19,35 @@
 
 #include <string>
 
+#include "common/logging.h"
 #include "pipeline/exec/aggregation_sink_operator.h"
 #include "pipeline/exec/aggregation_source_operator.h"
 #include "pipeline/exec/analytic_sink_operator.h"
 #include "pipeline/exec/analytic_source_operator.h"
 #include "pipeline/exec/assert_num_rows_operator.h"
+#include "pipeline/exec/datagen_operator.h"
+#include "pipeline/exec/distinct_streaming_aggregation_sink_operator.h"
 #include "pipeline/exec/empty_set_operator.h"
+#include "pipeline/exec/es_scan_operator.h"
 #include "pipeline/exec/exchange_sink_operator.h"
 #include "pipeline/exec/exchange_source_operator.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
+#include "pipeline/exec/multi_cast_data_stream_source.h"
 #include "pipeline/exec/nested_loop_join_build_operator.h"
 #include "pipeline/exec/nested_loop_join_probe_operator.h"
 #include "pipeline/exec/olap_scan_operator.h"
+#include "pipeline/exec/partition_sort_sink_operator.h"
+#include "pipeline/exec/partition_sort_source_operator.h"
 #include "pipeline/exec/repeat_operator.h"
+#include "pipeline/exec/result_file_sink_operator.h"
 #include "pipeline/exec/result_sink_operator.h"
 #include "pipeline/exec/select_operator.h"
 #include "pipeline/exec/sort_sink_operator.h"
 #include "pipeline/exec/sort_source_operator.h"
 #include "pipeline/exec/streaming_aggregation_sink_operator.h"
 #include "pipeline/exec/streaming_aggregation_source_operator.h"
+#include "pipeline/exec/table_function_operator.h"
 #include "pipeline/exec/union_sink_operator.h"
 #include "pipeline/exec/union_source_operator.h"
 #include "util/debug_util.h"
@@ -252,11 +261,40 @@ Status DataSinkOperatorX<LocalStateType>::setup_local_state(RuntimeState* state,
 }
 
 template <typename LocalStateType>
-void DataSinkOperatorX<LocalStateType>::get_dependency(DependencySPtr& dependency) {
+Status DataSinkOperatorX<LocalStateType>::setup_local_states(
+        RuntimeState* state, std::vector<LocalSinkStateInfo>& infos) {
+    DCHECK(infos.size() == 1);
+    for (auto& info : infos) {
+        RETURN_IF_ERROR(setup_local_state(state, info));
+    }
+    return Status::OK();
+}
+
+template <>
+Status DataSinkOperatorX<MultiCastDataStreamSinkLocalState>::setup_local_states(
+        RuntimeState* state, std::vector<LocalSinkStateInfo>& infos) {
+    auto multi_cast_data_streamer =
+            static_cast<MultiCastDataStreamSinkOperatorX*>(this)->multi_cast_data_streamer();
+    for (auto& info : infos) {
+        auto local_state = MultiCastDataStreamSinkLocalState::create_shared(this, state);
+        state->emplace_sink_local_state(id(), local_state);
+        RETURN_IF_ERROR(local_state->init(state, info));
+        local_state->_shared_state->_multi_cast_data_streamer = multi_cast_data_streamer;
+    }
+
+    return Status::OK();
+}
+
+template <typename LocalStateType>
+void DataSinkOperatorX<LocalStateType>::get_dependency(vector<DependencySPtr>& dependency) {
+    using DependencyType = typename LocalStateType::Dependency;
     if constexpr (!std::is_same_v<typename LocalStateType::Dependency, FakeDependency>) {
-        dependency.reset(new typename LocalStateType::Dependency(dest_id()));
+        auto& dests = dests_id();
+        for (auto& dest_id : dests) {
+            dependency.push_back(std::make_shared<DependencyType>(dest_id));
+        }
     } else {
-        dependency.reset((typename LocalStateType::Dependency*)nullptr);
+        dependency.push_back(nullptr);
     }
 }
 
@@ -265,6 +303,35 @@ Status OperatorX<LocalStateType>::setup_local_state(RuntimeState* state, LocalSt
     auto local_state = LocalStateType::create_shared(state, this);
     state->emplace_local_state(id(), local_state);
     return local_state->init(state, info);
+}
+
+template <typename LocalStateType>
+Status OperatorX<LocalStateType>::setup_local_states(RuntimeState* state,
+                                                     std::vector<LocalStateInfo>& infos) {
+    DCHECK(infos.size() == 1) << infos.size();
+    for (auto& info : infos) {
+        RETURN_IF_ERROR(setup_local_state(state, info));
+    }
+    return Status::OK();
+}
+
+template <>
+Status OperatorX<UnionSourceLocalState>::setup_local_states(RuntimeState* state,
+                                                            std::vector<LocalStateInfo>& infos) {
+    int child_count = static_cast<pipeline::UnionSourceOperatorX*>(this)->get_child_count();
+    std::shared_ptr<DataQueue> data_queue;
+    for (auto& info : infos) {
+        auto local_state = UnionSourceLocalState::create_shared(state, this);
+        state->emplace_local_state(id(), local_state);
+        RETURN_IF_ERROR(local_state->init(state, info));
+        if (child_count != 0) {
+            if (!data_queue) {
+                data_queue = local_state->data_queue();
+            }
+            local_state->_shared_state->data_queue = data_queue;
+        }
+    }
+    return Status::OK();
 }
 
 template <typename LocalStateType>
@@ -310,28 +377,37 @@ Status StatefulOperatorX<LocalStateType>::get_block(RuntimeState* state, vectori
 #define DECLARE_OPERATOR_X(LOCAL_STATE) template class DataSinkOperatorX<LOCAL_STATE>;
 DECLARE_OPERATOR_X(HashJoinBuildSinkLocalState)
 DECLARE_OPERATOR_X(ResultSinkLocalState)
+DECLARE_OPERATOR_X(ResultFileSinkLocalState)
 DECLARE_OPERATOR_X(AnalyticSinkLocalState)
 DECLARE_OPERATOR_X(SortSinkLocalState)
 DECLARE_OPERATOR_X(BlockingAggSinkLocalState)
 DECLARE_OPERATOR_X(StreamingAggSinkLocalState)
+DECLARE_OPERATOR_X(DistinctStreamingAggSinkLocalState)
 DECLARE_OPERATOR_X(ExchangeSinkLocalState)
 DECLARE_OPERATOR_X(NestedLoopJoinBuildSinkLocalState)
 DECLARE_OPERATOR_X(UnionSinkLocalState)
+DECLARE_OPERATOR_X(MultiCastDataStreamSinkLocalState)
+DECLARE_OPERATOR_X(PartitionSortSinkLocalState)
 
 #undef DECLARE_OPERATOR_X
 
 #define DECLARE_OPERATOR_X(LOCAL_STATE) template class OperatorX<LOCAL_STATE>;
 DECLARE_OPERATOR_X(HashJoinProbeLocalState)
 DECLARE_OPERATOR_X(OlapScanLocalState)
+DECLARE_OPERATOR_X(EsScanLocalState)
 DECLARE_OPERATOR_X(AnalyticLocalState)
 DECLARE_OPERATOR_X(SortLocalState)
 DECLARE_OPERATOR_X(AggLocalState)
+DECLARE_OPERATOR_X(TableFunctionLocalState)
 DECLARE_OPERATOR_X(ExchangeLocalState)
 DECLARE_OPERATOR_X(RepeatLocalState)
 DECLARE_OPERATOR_X(NestedLoopJoinProbeLocalState)
 DECLARE_OPERATOR_X(AssertNumRowsLocalState)
 DECLARE_OPERATOR_X(EmptySetLocalState)
 DECLARE_OPERATOR_X(UnionSourceLocalState)
+DECLARE_OPERATOR_X(MultiCastDataStreamSourceLocalState)
+DECLARE_OPERATOR_X(PartitionSortSourceLocalState)
+DECLARE_OPERATOR_X(DataGenLocalState)
 
 #undef DECLARE_OPERATOR_X
 
@@ -341,6 +417,7 @@ template class StreamingOperatorX<SelectLocalState>;
 template class StatefulOperatorX<HashJoinProbeLocalState>;
 template class StatefulOperatorX<RepeatLocalState>;
 template class StatefulOperatorX<NestedLoopJoinProbeLocalState>;
+template class StatefulOperatorX<TableFunctionLocalState>;
 
 template class PipelineXSinkLocalState<HashJoinDependency>;
 template class PipelineXSinkLocalState<SortDependency>;
@@ -349,6 +426,7 @@ template class PipelineXSinkLocalState<AnalyticDependency>;
 template class PipelineXSinkLocalState<AggDependency>;
 template class PipelineXSinkLocalState<FakeDependency>;
 template class PipelineXSinkLocalState<UnionDependency>;
+template class PipelineXSinkLocalState<PartitionSortDependency>;
 
 template class PipelineXLocalState<HashJoinDependency>;
 template class PipelineXLocalState<SortDependency>;
@@ -357,5 +435,8 @@ template class PipelineXLocalState<AnalyticDependency>;
 template class PipelineXLocalState<AggDependency>;
 template class PipelineXLocalState<FakeDependency>;
 template class PipelineXLocalState<UnionDependency>;
+template class PipelineXLocalState<MultiCastDependency>;
+template class PipelineXSinkLocalState<MultiCastDependency>;
+template class PipelineXLocalState<PartitionSortDependency>;
 
 } // namespace doris::pipeline

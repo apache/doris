@@ -96,7 +96,7 @@ private:
                                       const FilterPredicates& filter_predicates,
                                       const std::vector<FunctionFilter>& function_filters);
 
-    Status _init_return_columns();
+    [[nodiscard]] Status _init_return_columns();
 
     bool _aggregation;
 

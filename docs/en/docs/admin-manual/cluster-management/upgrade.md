@@ -144,17 +144,25 @@ admin set frontend config("disable_tablet_scheduler" = "true");
     http_port = 18030
     rpc_port = 19020
     query_port = 19030
+    arrow_flight_sql_port = 19040
     edit_log_port = 19010
     ...
     ```
 
    save and exit
 
-3. Add ClusterID configuration in fe.conf
+3. Modify fe.conf
+
+   - Add ClusterID configuration in fe.conf
 
     ```shell
     echo "cluster_id=123456" >> ${DORIS_NEW_HOME}/conf/fe.conf
     ```
+
+   - Add metadata failover configuration in fe.conf (**>=2.0.2 + version does not require this operation**)
+   ```shell
+   echo "metadata_failure_recovery=true" >> ${DORIS_NEW_HOME}/conf/fe.conf
+   ```
 
 4. Copy the metadata directory doris-meta of the online environment Master FE to the test environment
 
@@ -171,9 +179,15 @@ admin set frontend config("disable_tablet_scheduler" = "true");
 
 6. In the test environment, run the startup FE
 
-    ```shell
-    sh ${DORIS_NEW_HOME}/bin/start_fe.sh --daemon --metadata_failure_recovery
-    ```
+- If the version is greater than or equal to 2.0.2, run the following command
+
+  ```shell
+  sh ${DORIS_NEW_HOME}/bin/start_fe.sh --daemon --metadata_failure_recovery
+  ```
+- If the version is less than 2.0.2, run the following command
+   ```shell
+   sh ${DORIS_NEW_HOME}/bin/start_fe.sh --daemon
+   ```
 
 7. Observe whether the startup is successful through the FE log fe.log
 

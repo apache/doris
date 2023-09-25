@@ -22,8 +22,7 @@
 #include "common/status.h"
 #include "util/threadpool.h"
 
-namespace doris {
-namespace stream_load {
+namespace doris::vectorized {
 
 class VOlapTableSink;
 class OlapTableBlockConvertor;
@@ -126,5 +125,4 @@ private:
     std::mutex _mutex;
 };
 
-} // namespace stream_load
-} // namespace doris
+} // namespace doris::vectorized
