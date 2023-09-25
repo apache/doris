@@ -596,7 +596,7 @@ CREATE TABLE DORIS_SINK(
   'sink.properties.columns' = 'id, name, __DORIS_DELETE_SIGN__'  -- Display the import column of the specified streamload
 );
 
-INSERT INTO KAFKA_SOURCE
+INSERT INTO DORIS_SINK
 SELECT json_value(data,'$.id') as id,
 json_value(data,'$.name') as name, 
 if(op_type='delete',1,0) as __DORIS_DELETE_SIGN__ 
