@@ -1677,6 +1677,13 @@ public class FunctionSet<T> {
         return builtinFunctions;
     }
 
+    public List<Function> getAllFunctions() {
+        List<Function> functions = Lists.newArrayList();
+        vectorizedFunctions.forEach((k, v) -> functions.addAll(v));
+        tableFunctions.forEach((k, v) -> functions.addAll(v));
+        return functions;
+    }
+
     public static final String EXPLODE_SPLIT = "explode_split";
     public static final String EXPLODE_BITMAP = "explode_bitmap";
     public static final String EXPLODE_JSON_ARRAY_INT = "explode_json_array_int";
