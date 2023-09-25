@@ -289,6 +289,14 @@ public:
         data[self_row] = assert_cast<const Self&>(rhs).data[row];
     }
 
+    void replace_batch_column_data(const IColumn& rhs, size_t num_rows, size_t row,
+                                   size_t self_row = 0) override {
+        DCHECK(size() > self_row + num_rows);
+        for (size_t start_idx = 0; start_idx < num_rows; ++start_idx) {
+            data[self_row + start_idx] = assert_cast<const Self&>(rhs).data[row + start_idx];
+        }
+    }
+
     void replace_column_data_default(size_t self_row = 0) override {
         DCHECK(size() > self_row);
         data[self_row] = T();

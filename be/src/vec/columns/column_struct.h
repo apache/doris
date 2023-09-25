@@ -34,6 +34,7 @@
 #include "common/status.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_impl.h"
+#include "vec/common/assert_cast.h"
 #include "vec/common/cow.h"
 #include "vec/common/sip_hash.h"
 #include "vec/common/string_ref.h"
@@ -130,11 +131,31 @@ public:
     void append_data_by_selector(MutableColumnPtr& res, const Selector& selector) const override {
         return append_data_by_selector_impl<ColumnStruct>(res, selector);
     }
-    void replace_column_data(const IColumn&, size_t row, size_t self_row = 0) override {
-        LOG(FATAL) << "replace_column_data not implemented";
+    void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
+        DCHECK(size() > self_row);
+        const auto& r = assert_cast<const ColumnStruct&>(rhs);
+
+        for (size_t idx = 0; idx < columns.size(); ++idx) {
+            columns[idx]->replace_column_data(r.get_column(idx), row, self_row);
+        }
     }
+
+    void replace_batch_column_data(const IColumn& rhs, size_t num_rows, size_t row,
+                                   size_t self_row = 0) override {
+        DCHECK(size() > self_row + num_rows);
+        const auto& r = assert_cast<const ColumnStruct&>(rhs);
+        for (auto start_idx = 0; start_idx < num_rows; ++start_idx) {
+            for (size_t idx = 0; idx < columns.size(); ++idx) {
+                columns[idx]->replace_column_data(r.get_column(idx), row, self_row);
+            }
+        }
+    }
+
     void replace_column_data_default(size_t self_row = 0) override {
-        LOG(FATAL) << "replace_column_data_default not implemented";
+        DCHECK(size() > self_row);
+        for (size_t idx = 0; idx < columns.size(); ++idx) {
+            columns[idx]->replace_column_data_default(self_row);
+        }
     }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;

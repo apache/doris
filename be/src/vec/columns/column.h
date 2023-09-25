@@ -693,6 +693,9 @@ public:
     // only used in agg value replace
     // ColumnString should replace according to 0,1,2... ,size,0,1,2...
     virtual void replace_column_data(const IColumn&, size_t row, size_t self_row = 0) = 0;
+    // replace column data in batch to avoid virtual call in nested type like array/map
+    virtual void replace_batch_column_data(const IColumn& rhs, size_t num_rows, size_t row,
+                                           size_t self_row = 0) = 0;
 
     // only used in ColumnNullable replace_column_data
     virtual void replace_column_data_default(size_t self_row = 0) = 0;

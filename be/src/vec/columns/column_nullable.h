@@ -357,6 +357,25 @@ public:
         }
     }
 
+    void replace_batch_column_data(const IColumn& rhs, size_t num_rows, size_t row,
+                                   size_t self_row = 0) override {
+        DCHECK(size() > self_row + num_rows);
+        const ColumnNullable& nullable_rhs = assert_cast<const ColumnNullable&>(rhs);
+
+        for (auto start_idx = 0; start_idx < num_rows; ++start_idx) {
+            size_t cur_row = row + start_idx;
+            size_t cur_self_row = self_row + start_idx;
+            null_map->replace_column_data(*nullable_rhs.null_map, cur_row, cur_self_row);
+
+            if (!nullable_rhs.is_null_at(cur_row)) {
+                nested_column->replace_column_data(*nullable_rhs.nested_column, cur_row,
+                                                   cur_self_row);
+            } else {
+                nested_column->replace_column_data_default(cur_self_row);
+            }
+        }
+    }
+
     void replace_column_data_default(size_t self_row = 0) override {
         LOG(FATAL) << "should not call the method in column nullable";
     }

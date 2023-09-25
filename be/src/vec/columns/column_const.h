@@ -264,6 +264,14 @@ public:
         data->replace_column_data(rhs, row, self_row);
     }
 
+    void replace_batch_column_data(const IColumn& rhs, size_t num_rows, size_t row,
+                                   size_t self_row = 0) override {
+        DCHECK(size() > self_row + num_rows);
+        for (auto start_idx = 0; start_idx < num_rows; ++start_idx) {
+            replace_column_data(rhs, row + start_idx, self_row + start_idx);
+        }
+    }
+
     void replace_column_data_default(size_t self_row = 0) override {
         DCHECK(size() > self_row);
         LOG(FATAL) << "should not call the method in column const";
