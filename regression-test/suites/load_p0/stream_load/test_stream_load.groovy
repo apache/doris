@@ -16,6 +16,21 @@
 // under the License.
 import java.util.Date
 import java.text.SimpleDateFormat
+import org.apache.http.HttpResponse
+import org.apache.http.client.methods.HttpPut
+import org.apache.http.impl.client.CloseableHttpClient
+import org.apache.http.impl.client.HttpClients
+import org.apache.http.entity.ContentType
+import org.apache.http.entity.StringEntity
+import org.apache.http.client.config.RequestConfig
+import org.apache.http.client.RedirectStrategy
+import org.apache.http.protocol.HttpContext
+import org.apache.http.HttpRequest
+import org.apache.http.impl.client.LaxRedirectStrategy
+import org.apache.http.client.methods.RequestBuilder
+import org.apache.http.entity.StringEntity
+import org.apache.http.client.methods.CloseableHttpResponse
+import org.apache.http.util.EntityUtils
 
 suite("test_stream_load", "p0") {
     sql "show tables"
@@ -949,6 +964,49 @@ suite("test_stream_load", "p0") {
     String user = context.config.feHttpUser
     String password = context.config.feHttpPassword
     String db = context.config.getDbNameByFile(context.file)
+
+    def do_streamload_2pc = { label, txn_operation ->
+        HttpClients.createDefault().withCloseable { client ->
+            RequestBuilder requestBuilder = RequestBuilder.put("http://${address.hostString}:${address.port}/api/${db}/${tableName15}/_stream_load_2pc")
+            String encoding = Base64.getEncoder()
+                .encodeToString((user + ":" + (password == null ? "" : password)).getBytes("UTF-8"))
+            requestBuilder.setHeader("Authorization", "Basic ${encoding}")
+            requestBuilder.setHeader("Expect", "100-Continue")
+            requestBuilder.setHeader("label", "${label}")
+            requestBuilder.setHeader("txn_operation", "${txn_operation}")
+
+            String backendStreamLoadUri = null
+            client.execute(requestBuilder.build()).withCloseable { resp ->
+                resp.withCloseable {
+                    String body = EntityUtils.toString(resp.getEntity())
+                    def respCode = resp.getStatusLine().getStatusCode()
+                    // should redirect to backend
+                    if (respCode != 307) {
+                        throw new IllegalStateException("Expect frontend stream load response code is 307, " +
+                                "but meet ${respCode}\nbody: ${body}")
+                    }
+                    backendStreamLoadUri = resp.getFirstHeader("location").getValue()
+                }
+            }
+
+            requestBuilder.setUri(backendStreamLoadUri)
+            try{
+                client.execute(requestBuilder.build()).withCloseable { resp ->
+                    resp.withCloseable {
+                        String body = EntityUtils.toString(resp.getEntity())
+                        def respCode = resp.getStatusLine().getStatusCode()
+                        if (respCode != 200) {
+                            throw new IllegalStateException("Expect backend stream load response code is 200, " +
+                                    "but meet ${respCode}\nbody: ${body}")
+                        }
+                    }
+                }
+            } catch (Throwable t) {
+                log.info("StreamLoad Exception: ", t)
+            }
+        }
+    }
+
     try {
         sql """ DROP TABLE IF EXISTS ${tableName15} """
         sql """
@@ -958,7 +1016,7 @@ suite("test_stream_load", "p0") {
                 `v1` tinyint(4) NULL,
                 `v2` tinyint(4) NULL,
                 `v3` tinyint(4) NULL,
-                `v4` DATETIME NULL DEFAULT CURRENT_TIMESTAMP
+                `v4` DATETIME NULL
             ) ENGINE=OLAP
             DISTRIBUTED BY HASH(`k1`) BUCKETS 3
             PROPERTIES ("replication_allocation" = "tag.location.default: 1");
@@ -990,8 +1048,8 @@ suite("test_stream_load", "p0") {
 
         qt_sql_2pc "select * from ${tableName15} order by k1"
 
-        def command = ["curl -X PUT --location-trusted -u ${user}:${password}  -H\"label:${label}\" -H\"txn_operation:abort\"  http://${address.hostString}:${address.port}/api/${db}/${tableName15}/_stream_load_2pc"].execute()
-        log.info("${command}")
+        do_streamload_2pc.call(label, "abort")
+
         qt_sql_2pc_abort "select * from ${tableName15} order by k1"
 
         streamLoad {
@@ -1017,11 +1075,11 @@ suite("test_stream_load", "p0") {
             }
         }
 
-        command = ["curl -X PUT --location-trusted -u ${user}:${password}  -H\"label:${label}\" -H\"txn_operation:commit\"  http://${address.hostString}:${address.port}/api/${db}/${tableName15}/_stream_load_2pc"].execute()
-        log.info("${command}")
+        do_streamload_2pc.call(label, "commit")
+        sleep(60)
         qt_sql_2pc_commit "select * from ${tableName15} order by k1"
     } finally {
-        sql """ DROP TABLE IF EXISTS ${tableName15} """
+        sql """ DROP TABLE IF EXISTS ${tableName15} FORCE"""
     }
 }
 
