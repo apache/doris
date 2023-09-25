@@ -46,6 +46,14 @@ Status DataTypeHLLSerDe::serialize_column_to_json(const IColumn& column, int sta
 Status DataTypeHLLSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
                                                     BufferWritable& bw, FormatOptions& options,
                                                     int nesting_level) const {
+    if (!options._output_object_data) {
+        if (nesting_level >= 2) {
+            bw.write("null", 4);
+        } else {
+            bw.write("\\N", 2);
+        }
+        return Status::OK();
+    }
     auto col_row = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = col_row.first;
     row_num = col_row.second;

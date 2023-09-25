@@ -136,6 +136,11 @@ public:
 
         char escape_char = 0;
 
+        /**
+         * only used for export data
+         */
+        bool _output_object_data = true;
+
         [[nodiscard]] char get_collection_delimiter(int nesting_level) const {
             CHECK(0 <= nesting_level && nesting_level <= 153);
 
