@@ -3726,8 +3726,8 @@ Status Tablet::calc_delete_bitmap_between_segments(
         seq_col_length = _tablet_meta->tablet_schema()->column(seq_col_idx).length();
     }
     size_t rowid_length = 0;
-    if (!_schema->cluster_key_idxes().empty()) {
-        rowid_length = sizeof(uint32_t);
+    if (!_tablet_meta->tablet_schema()->cluster_key_idxes().empty()) {
+        rowid_length = sizeof(uint32_t) + 1;
     }
 
     MergeIndexDeleteBitmapCalculator calculator;

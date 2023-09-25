@@ -29,6 +29,7 @@
 #include "olap/base_tablet.h"
 #include "olap/binlog_config.h"
 #include "olap/data_dir.h"
+#include "olap/key_coder.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
@@ -109,6 +110,7 @@ private:
     std::string _last_key;
     size_t _seq_col_length;
     size_t _rowid_length;
+    const KeyCoder* _rowid_coder = nullptr;
 };
 
 } // namespace doris

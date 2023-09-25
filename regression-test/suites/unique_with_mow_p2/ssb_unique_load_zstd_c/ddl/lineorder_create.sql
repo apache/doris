@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS `lineorder` (
   `lo_shipmode` varchar(11) NOT NULL COMMENT ""
 )
 UNIQUE KEY (`lo_orderdate`,`lo_orderkey`,`lo_linenumber`)
-CLUSTER BY (`lo_orderdate`, `lo_suppkey`, `lo_shipmode`)
+CLUSTER BY (`lo_orderdate`, `lo_orderkey`, `lo_shipmode`)
 PARTITION BY RANGE(`lo_orderdate`)
 (PARTITION p1992 VALUES [("-2147483648"), ("19930101")),
 PARTITION p1993 VALUES [("19930101"), ("19940101")),

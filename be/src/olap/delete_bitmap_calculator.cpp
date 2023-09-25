@@ -151,6 +151,10 @@ Status MergeIndexDeleteBitmapCalculator::init(RowsetId rowset_id,
         _contexts.emplace_back(std::move(index), index_type, segment->id(), pk_idx->num_rows());
         _heap->push(&_contexts.back());
     }
+    if (_rowid_length > 0) {
+        _rowid_coder = get_key_coder(
+                get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT>()->type());
+    }
     return Status::OK();
 }
 
@@ -164,6 +168,14 @@ Status MergeIndexDeleteBitmapCalculator::calculate_one(RowLocation& loc) {
         if (!_last_key.empty() && _comparator.is_key_same(cur_key, _last_key)) {
             loc.segment_id = cur_ctx->segment_id();
             loc.row_id = cur_ctx->row_id();
+            if (_rowid_length > 0) {
+                Slice key_without_seq = Slice(cur_key.get_data(),
+                                              cur_key.get_size() - _seq_col_length - _rowid_length);
+                Slice rowid_slice =
+                        Slice(cur_key.get_data() + key_without_seq.get_size() + _seq_col_length + 1,
+                              _rowid_length - 1);
+                _rowid_coder->decode_ascending(&rowid_slice, _rowid_length, (uint8_t*)&loc.row_id);
+            }
             auto st = cur_ctx->advance();
             if (st.ok()) {
                 _heap->push(cur_ctx);
@@ -181,8 +193,9 @@ Status MergeIndexDeleteBitmapCalculator::calculate_one(RowLocation& loc) {
         RETURN_IF_ERROR(nxt_ctx->get_current_key(nxt_key));
         Status st = _comparator.is_key_same(cur_key, nxt_key)
                             ? cur_ctx->advance()
-                            : cur_ctx->seek_at_or_after(Slice(
-                                      nxt_key.get_data(), nxt_key.get_size() - _seq_col_length));
+                            : cur_ctx->seek_at_or_after(
+                                      Slice(nxt_key.get_data(),
+                                            nxt_key.get_size() - _seq_col_length - _rowid_length));
         if (st.is<ErrorCode::END_OF_FILE>()) {
             continue;
         }

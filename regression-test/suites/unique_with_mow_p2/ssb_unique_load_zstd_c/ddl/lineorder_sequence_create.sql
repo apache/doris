@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS `lineorder` (
   `lo_shipmode` varchar(11) NOT NULL COMMENT ""
 )
 UNIQUE KEY (`lo_orderdate`,`lo_orderkey`,`lo_linenumber`)
-CLUSTER BY (`lo_orderdate`, `lo_suppkey`, `lo_shipmode`)
+CLUSTER BY (`lo_supplycost`, `lo_orderdate`, `lo_orderkey`)
 PARTITION BY RANGE(`lo_orderdate`)
 (PARTITION p1992 VALUES [("-2147483648"), ("19930101")),
 PARTITION p1993 VALUES [("19930101"), ("19940101")),
@@ -29,6 +29,7 @@ PARTITION p1997 VALUES [("19970101"), ("19980101")),
 PARTITION p1998 VALUES [("19980101"), ("19990101")))
 DISTRIBUTED BY HASH(`lo_orderkey`) BUCKETS 48
 PROPERTIES (
+"function_column.sequence_type" = 'int',
 "compression"="zstd",
 "replication_num" = "1",
 "disable_auto_compaction" = "true",
