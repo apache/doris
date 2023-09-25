@@ -31,7 +31,6 @@ import org.apache.doris.nereids.properties.ChildrenPropertiesRegulator;
 import org.apache.doris.nereids.properties.EnforceMissingPropertiesHelper;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.RequestPropertyDeriver;
-import org.apache.doris.nereids.stats.StatsCalculator;
 
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
@@ -240,19 +239,6 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
             // TODO: If it's error, add some warning log at least.
             // if we come here, mean that we have some error in stats calculator and should fix it.
             return false;
-        }
-
-        StatsCalculator statsCalculator = StatsCalculator.estimate(groupExpression,
-                context.getCascadesContext().getConnectContext().getSessionVariable().getForbidUnknownColStats(),
-                context.getCascadesContext().getConnectContext().getTotalColumnStatisticMap(),
-                context.getCascadesContext().getConnectContext().getSessionVariable().isPlayNereidsDump(),
-                context.getCascadesContext());
-        if (!context.getCascadesContext().getConnectContext().getSessionVariable().isPlayNereidsDump()
-                && context.getCascadesContext().getConnectContext().getSessionVariable().isEnableMinidump()) {
-            context.getCascadesContext().getConnectContext().getTotalColumnStatisticMap()
-                    .putAll(statsCalculator.getTotalColumnStatisticMap());
-            context.getCascadesContext().getConnectContext().getTotalHistogramMap()
-                    .putAll(statsCalculator.getTotalHistogramMap());
         }
 
         // recompute cost after adjusting property
