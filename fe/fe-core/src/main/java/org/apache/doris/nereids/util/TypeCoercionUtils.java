@@ -44,7 +44,10 @@ import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonInsert;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonObject;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonReplace;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonSet;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
@@ -437,6 +440,11 @@ public class TypeCoercionUtils {
         // this moved from translate phase to here, because we need to add the type info before cast all args to string
         if (boundFunction instanceof JsonArray || boundFunction instanceof JsonObject) {
             boundFunction = TypeCoercionUtils.fillJsonTypeArgument(boundFunction, boundFunction instanceof JsonObject);
+        }
+        if (boundFunction instanceof JsonInsert
+                || boundFunction instanceof JsonReplace
+                || boundFunction instanceof JsonSet) {
+            boundFunction = TypeCoercionUtils.fillJsonValueModifyTypeArgument(boundFunction);
         }
 
         // type coercion
@@ -1199,6 +1207,38 @@ public class TypeCoercionUtils {
         } catch (Throwable t) {
             throw new AnalysisException(t.getMessage());
         }
+    }
+
+    /**
+     * add json type info as the last argument of the function.
+     * used for json_insert, json_replace, json_set.
+     *
+     * @param function function need to add json type info
+     * @return function already processed
+     */
+    public static BoundFunction fillJsonValueModifyTypeArgument(BoundFunction function) {
+        List<Expression> arguments = function.getArguments();
+        List<Expression> newArguments = Lists.newArrayList();
+        StringBuilder jsonTypeStr = new StringBuilder();
+        for (int i = 0; i < arguments.size(); i++) {
+            Expression argument = arguments.get(i);
+            Type type = argument.getDataType().toCatalogDataType();
+            int jsonType = FunctionCallExpr.computeJsonDataType(type);
+            jsonTypeStr.append(jsonType);
+
+            if (i > 0 && (i & 1) == 0 && type.isNull()) {
+                newArguments.add(new StringLiteral("NULL"));
+            } else {
+                newArguments.add(argument);
+            }
+        }
+        if (arguments.isEmpty()) {
+            newArguments.add(new StringLiteral(""));
+        } else {
+            // add json type string to the last
+            newArguments.add(new StringLiteral(jsonTypeStr.toString()));
+        }
+        return (BoundFunction) function.withChildren(newArguments);
     }
 
     private static Expression processDecimalV3BinaryArithmetic(BinaryArithmetic binaryArithmetic,
