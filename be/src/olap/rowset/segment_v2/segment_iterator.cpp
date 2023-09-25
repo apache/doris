@@ -378,7 +378,6 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
     for (auto cid : _seek_schema->column_ids()) {
         if (_column_iterators[cid] == nullptr) {
             RETURN_IF_ERROR(_segment->new_column_iterator(_opts.tablet_schema->column(cid),
-<<<<<<< HEAD
                                                           &_column_iterators[cid]));
             ColumnIteratorOptions iter_opts {
                     .use_page_cache = _opts.use_page_cache,
@@ -386,14 +385,6 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
                     .stats = _opts.stats,
                     .io_ctx = _opts.io_ctx,
             };
-=======
-                                                          &_column_iterators[cid], &_opts));
-            ColumnIteratorOptions iter_opts;
-            iter_opts.stats = _opts.stats;
-            iter_opts.use_page_cache = _opts.use_page_cache;
-            iter_opts.file_reader = _file_reader.get();
-            iter_opts.io_ctx = _opts.io_ctx;
->>>>>>> 688543597f ([Refactor](reader) refactor reader to decouple from segment iterator)
             RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
         }
     }
@@ -1073,7 +1064,7 @@ Status SegmentIterator::_init_return_column_iterators() {
 
         if (_column_iterators[cid] == nullptr) {
             RETURN_IF_ERROR(_segment->new_column_iterator(_opts.tablet_schema->column(cid),
-                                                          &_column_iterators[cid],  &_opts));
+                                                          &_column_iterators[cid], &_opts));
             ColumnIteratorOptions iter_opts {
                     .use_page_cache = _opts.use_page_cache,
                     // If the col is predicate column, then should read the last page to check

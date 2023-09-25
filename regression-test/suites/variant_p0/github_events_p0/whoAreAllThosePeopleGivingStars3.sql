@@ -1,4 +1,3 @@
--- ERROR: unmatched column
 SELECT
     cast(v:repo.name as string),
     count() AS stars
@@ -10,5 +9,5 @@ WHERE (cast(v:type as string) = 'WatchEvent') AND (cast(v:repo.name as string) I
     WHERE (cast(v:type as string) = 'WatchEvent') AND (cast(v:actor.login as string) = 'cliffordfajardo')
 ))
 GROUP BY cast(v:repo.name as string)
-ORDER BY stars DESC
+ORDER BY stars DESC, cast(v:repo.name as string)
 LIMIT 50

@@ -59,6 +59,7 @@ class DataTypeJsonbSerDe : public DataTypeStringSerDe {
                                 rapidjson::Document::AllocatorType& allocator,
                                 int row_num) const override;
     void read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const override;
+
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,

@@ -25,4 +25,4 @@ FROM
 WHERE r <= 10
 ORDER BY
     year ASC,
-    cnt DESC
+    cnt DESC, repo

@@ -1,4 +1,3 @@
--- ERROR: crash not support replicate
 SELECT
     cast(v:repo.name as string),
     count()

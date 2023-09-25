@@ -151,7 +151,8 @@ private:
             node.data.column->clear();
             return Status::OK();
         });
-        _root_reader->column->clear();
+        container->clear();
+        static_cast<vectorized::ColumnObject*>(_root_reader->column.get())->clear_subcolumns_data();
         return Status::OK();
     }
 };

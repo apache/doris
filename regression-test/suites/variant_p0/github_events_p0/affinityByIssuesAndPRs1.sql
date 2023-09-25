@@ -1,4 +1,3 @@
--- ERROR: unmatched column
 SELECT
     cast(v:repo.name as string),
     count() AS prs,
@@ -11,5 +10,5 @@ WHERE (cast(v:type as string) = 'PullRequestEvent') AND (cast(v:payload.action a
     WHERE (cast(v:type as string) = 'PullRequestEvent') AND (cast(v:payload.action as string)= 'opened') AND (cast(v:repo.name as string) IN ('rspec/rspec-core', 'golden-warning/giraffedraft-server', 'apache/spark'))
 )) AND (lower(cast(v:repo.name as string)) NOT LIKE '%clickhouse%')
 GROUP BY cast(v:repo.name as string)
-ORDER BY authors DESC, prs DESC, length(cast(v:repo.name as string)) DESC
+ORDER BY authors DESC, prs DESC, cast(v:repo.name as string) DESC
 LIMIT 50

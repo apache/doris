@@ -1,4 +1,3 @@
--- ERROR:  unmatched column
 SELECT
     cast(v:repo.name as string),
     count()
@@ -10,5 +9,5 @@ WHERE (cast(v:type as string) = 'WatchEvent') AND (cast(v:actor.login as string)
     WHERE (cast(v:type as string) = 'PullRequestEvent') AND (cast(v:payload.action as string) = 'opened')
 ))
 GROUP BY cast(v:repo.name as string)
-ORDER BY count() DESC
+ORDER BY count() DESC, cast(v:repo.name as string)
 LIMIT 50

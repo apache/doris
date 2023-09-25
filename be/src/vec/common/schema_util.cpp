@@ -157,13 +157,8 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
     // each line in original string column.
     ctx->set_string_as_jsonb_string(true);
     tmp_block.insert({nullptr, type, arg.name});
-    auto fn_ctx = FunctionContext::create_context(nullptr, {}, {});
     RETURN_IF_ERROR(
-<<<<<<< HEAD
             function->execute(ctx.get(), tmp_block, argnum, result_column, arg.column->size()));
-=======
-            function->execute(fn_ctx.get(), tmp_block, argnum, result_column, arg.column->size()));
->>>>>>> c18f746f3b (add github events test)
     *result = std::move(tmp_block.get_by_position(result_column).column);
     // Variant column is a really special case, src type is nullable but dst variant type is none nullable,
     // but we still need to wrap nullmap into variant root column to prevent from nullable info lost.
@@ -210,10 +205,7 @@ void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::str
         column.set_default_value("[]");
         return;
     }
-<<<<<<< HEAD
     // size is not fixed when type is string or json
-=======
->>>>>>> c18f746f3b (add github events test)
     if (WhichDataType(*data_type).is_string() || WhichDataType(*data_type).is_json()) {
         return;
     }

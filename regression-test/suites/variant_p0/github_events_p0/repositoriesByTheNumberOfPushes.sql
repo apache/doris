@@ -1,4 +1,3 @@
---ERROR: crash column.h:496] not support
 SELECT
     cast(v:repo.name as string),
     count() AS pushes,
@@ -14,5 +13,5 @@ WHERE (cast(v:type as string) = 'PushEvent') AND (cast(v:repo.name as string) IN
     LIMIT 10000
 ))
 GROUP BY cast(v:repo.name as string)
-ORDER BY count() DESC
+ORDER BY count() DESC, cast(v:repo.name as string)
 LIMIT 50

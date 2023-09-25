@@ -335,6 +335,8 @@ public:
 
     void clear() override;
 
+    void clear_subcolumns_data();
+
     /// Part of interface
     const char* get_family_name() const override { return "Variant"; }
 
@@ -444,9 +446,7 @@ public:
         LOG(FATAL) << "should not call the method in column object";
     }
 
-    void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override {
-        LOG(FATAL) << "not support";
-    }
+    void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override;
 
     template <typename Func>
     MutableColumnPtr apply_for_subcolumns(Func&& func) const;
