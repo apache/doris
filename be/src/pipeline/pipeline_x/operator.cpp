@@ -33,6 +33,7 @@
 #include "pipeline/exec/exchange_source_operator.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
+#include "pipeline/exec/meta_scan_operator.h"
 #include "pipeline/exec/multi_cast_data_stream_source.h"
 #include "pipeline/exec/nested_loop_join_build_operator.h"
 #include "pipeline/exec/nested_loop_join_probe_operator.h"
@@ -410,6 +411,7 @@ DECLARE_OPERATOR_X(MultiCastDataStreamSourceLocalState)
 DECLARE_OPERATOR_X(PartitionSortSourceLocalState)
 DECLARE_OPERATOR_X(DataGenLocalState)
 DECLARE_OPERATOR_X(SchemaScanLocalState)
+DECLARE_OPERATOR_X(MetaScanLocalState)
 
 #undef DECLARE_OPERATOR_X
 
