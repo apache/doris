@@ -30,6 +30,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
+import org.apache.doris.nereids.rules.rewrite.mv.AbstractSelectMaterializedIndexRule.SlotContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -69,6 +70,7 @@ import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.planner.PlanNode;
 
+import com.amazonaws.services.simpledb.model.SelectResult;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -673,22 +675,10 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
         }
 
         OlapTable table = scan.getTable();
-        switch (scan.getTable().getKeysType()) {
-            case AGG_KEYS:
-            case UNIQUE_KEYS:
-            case DUP_KEYS:
-                break;
-            default:
-                throw new RuntimeException("Not supported keys type: " + scan.getTable().getKeysType());
-        }
 
         Map<Boolean, List<MaterializedIndex>> indexesGroupByIsBaseOrNot = table.getVisibleIndex()
                 .stream()
                 .collect(Collectors.groupingBy(index -> index.getId() == table.getBaseIndexId()));
-
-        if (!table.isDupKeysOrMergeOnWrite() && scan.getPreAggStatus().isOff()) {
-            return new SelectResult(scan.getPreAggStatus(), scan.getTable().getBaseIndexId(), new ExprRewriteMap());
-        }
 
         Set<MaterializedIndex> candidatesWithoutRewriting = indexesGroupByIsBaseOrNot
                 .getOrDefault(false, ImmutableList.of()).stream()
@@ -721,6 +711,8 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 .collect(Collectors.toList());
 
         long selectIndexId = selectBestIndex(haveAllRequiredColumns, scan, predicates);
+        // Pre-aggregation is set to `on` by default for duplicate-keys table.
+        // In other cases, keep preagg unchanged.
         if (!table.isDupKeysOrMergeOnWrite() && (new CheckContext(scan, selectIndexId)).isBaseIndex()) {
             return new SelectResult(checkPreAggStatus(scan, scan.getTable().getBaseIndexId(), predicates,
                     aggregateFunctions, groupingExprs), scan.getTable().getBaseIndexId(), new ExprRewriteMap());
@@ -728,7 +720,6 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
 
         Optional<AggRewriteResult> rewriteResultOpt = candidatesWithRewriting.stream()
                 .filter(aggRewriteResult -> aggRewriteResult.index.getId() == selectIndexId).findAny();
-        // Pre-aggregation is set to `on` by default for duplicate-keys table.
         return new SelectResult(PreAggStatus.on(), selectIndexId,
                 rewriteResultOpt.map(r -> r.exprRewriteMap).orElse(new ExprRewriteMap()));
     }

@@ -359,14 +359,4 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
             definedNameToColumn.put(normalizeName(column.getDefineName()), column);
         }
     }
-
-    // rollup or base column not have define expr
-    public boolean haveDefineExpr() {
-        for (Column column : schema) {
-            if (column.getDefineExpr() != null) {
-                return false;
-            }
-        }
-        return false;
-    }
 }
