@@ -2195,5 +2195,5 @@ public class Config extends ConfigBase {
         "Set the specific domain name that allows cross-domain access. "
             + "By default, any domain name is allowed cross-domain access"
     })
-    public static String http_access_control_allowed_origin_domain = "*";
+    public static String access_control_allowed_origin_domain = "*";
 }
