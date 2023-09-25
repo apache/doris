@@ -116,7 +116,7 @@ Suppose that you have the following import data (raw data):
 And you can import data with the following sql:
 
 ```sql
-insert into example_db.example_tbl_agg values
+insert into example_db.example_tbl values
 (10000,"2017-10-01","Beijing",20,0,"2017-10-01 06:00:00",20,10,10),
 (10000,"2017-10-01","Beijing",20,0,"2017-10-01 07:00:00",15,2,2),
 (10001,"2017-10-01","Beijing",30,1,"2017-10-01 17:05:45",2,22,22),
