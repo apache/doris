@@ -83,7 +83,7 @@ struct HashTableBuild {
         }
 
         _build_side_hash_values.resize(_rows);
-        auto keys = key_getter.get_keys(_rows);
+        const auto& keys = key_getter.get_keys();
         for (size_t k = 0; k < _rows; ++k) {
             _build_side_hash_values[k] = hash_table_ctx.hash_table.hash(keys[k]);
         }

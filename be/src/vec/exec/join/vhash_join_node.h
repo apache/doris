@@ -226,7 +226,7 @@ struct ProcessHashTableBuild {
         _build_side_hash_values.resize(_rows);
         auto& arena = *(_join_context->_arena);
         auto old_build_arena_memory = arena.size();
-        auto keys = key_getter.get_keys(_rows);
+        const auto& keys = key_getter.get_keys();
         {
             SCOPED_TIMER(_build_side_compute_hash_timer);
             for (size_t k = 0; k < _rows; ++k) {

@@ -544,7 +544,7 @@ void AggSinkLocalState<DependencyType, Derived>::_emplace_into_hash_table(
                 };
 
                 if constexpr (HashTableTraits<HashTableType>::is_phmap) {
-                    auto keys = state.get_keys(num_rows);
+                    const auto& keys = state.get_keys();
                     if (_hash_values.size() < num_rows) {
                         _hash_values.resize(num_rows);
                     }
@@ -602,7 +602,7 @@ void AggSinkLocalState<DependencyType, Derived>::_find_in_hash_table(
                 AggState state(key_columns, Base::_shared_state->probe_key_sz, nullptr);
 
                 _pre_serialize_key_if_need(state, agg_method, key_columns, num_rows);
-                auto keys = state.get_keys(num_rows);
+                const auto& keys = state.get_keys();
                 if constexpr (HashTableTraits<HashTableType>::is_phmap) {
                     _hash_values.resize(num_rows);
 
