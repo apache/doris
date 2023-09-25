@@ -124,7 +124,7 @@ Status NewJdbcScanner::prepare(RuntimeState* state, const VExprContextSPtrs& con
         get_parent()->_scanner_profile->add_info_string("QuerySql", _jdbc_param.query_string);
     } else { //pipelineX
         _local_state->scanner_profile()->add_info_string("JdbcDriverClass",
-                                                        _jdbc_param.driver_class);
+                                                         _jdbc_param.driver_class);
         _local_state->scanner_profile()->add_info_string("JdbcDriverUrl", _jdbc_param.driver_path);
         _local_state->scanner_profile()->add_info_string("JdbcUrl", _jdbc_param.jdbc_url);
         _local_state->scanner_profile()->add_info_string("QuerySql", _jdbc_param.query_string);
