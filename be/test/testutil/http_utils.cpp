@@ -15,37 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
-
-#include <memory>
-
-#include "common/object_pool.h"
-#include "common/status.h"
+#include "testutil/http_utils.h"
 
 namespace doris {
 
-class ExecEnv;
-class EvHttpServer;
-class WebPageHandler;
+std::string global_test_http_host = "Not init http server.";
 
-// HTTP service for Doris BE
-class HttpService {
-public:
-    HttpService(ExecEnv* env, int port, int num_threads);
-    ~HttpService();
-
-    Status start();
-    void stop();
-
-    // get real port
-    int get_real_port() const;
-
-private:
-    ExecEnv* _env;
-    ObjectPool _pool;
-
-    std::unique_ptr<EvHttpServer> _ev_http_server;
-    std::unique_ptr<WebPageHandler> _web_page_handler;
-};
-
-} // namespace doris
+}

@@ -17,35 +17,43 @@
 
 #pragma once
 
-#include <memory>
-
-#include "common/object_pool.h"
 #include "common/status.h"
+#include "http/http_handler_with_auth.h"
+#include "http/http_request.h"
 
 namespace doris {
 
-class ExecEnv;
-class EvHttpServer;
-class WebPageHandler;
-
-// HTTP service for Doris BE
-class HttpService {
+class BaseDebugPointAction : public HttpHandlerWithAuth {
 public:
-    HttpService(ExecEnv* env, int port, int num_threads);
-    ~HttpService();
-
-    Status start();
-    void stop();
-
-    // get real port
-    int get_real_port() const;
+    using HttpHandlerWithAuth::HttpHandlerWithAuth;
+    void handle(HttpRequest* req) override;
 
 private:
-    ExecEnv* _env;
-    ObjectPool _pool;
+    virtual Status _handle(HttpRequest* req) = 0;
+};
 
-    std::unique_ptr<EvHttpServer> _ev_http_server;
-    std::unique_ptr<WebPageHandler> _web_page_handler;
+class AddDebugPointAction : public BaseDebugPointAction {
+public:
+    using BaseDebugPointAction::BaseDebugPointAction;
+
+private:
+    Status _handle(HttpRequest* req) override;
+};
+
+class RemoveDebugPointAction : public BaseDebugPointAction {
+public:
+    using BaseDebugPointAction::BaseDebugPointAction;
+
+private:
+    Status _handle(HttpRequest* req) override;
+};
+
+class ClearDebugPointsAction : public BaseDebugPointAction {
+public:
+    using BaseDebugPointAction::BaseDebugPointAction;
+
+private:
+    Status _handle(HttpRequest* req) override;
 };
 
 } // namespace doris
