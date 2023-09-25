@@ -221,7 +221,7 @@ under the License.
     Caused by: java.security.InvalidAlgorithmParameterException: the trustAnchors parameter must be non-empty
     ```
 
-    尝试更新FE节点CA证书，使用 update-ca-trust（CentOS/RockyLinux），然后重启FE进程即可。
+    尝试更新FE节点CA证书，使用 `update-ca-trust（CentOS/RockyLinux）`，然后重启FE进程即可。
 
 ## HDFS
 
