@@ -532,4 +532,7 @@ suite("nereids_scalar_fn_J") {
     qt_select """SELECT id, j, JSON_EXTRACT(j, '\$.k2', '\$.x.y') FROM ${testTable} ORDER BY id"""
     qt_select """SELECT id, j, JSON_EXTRACT(j, '\$.k2', null) FROM ${testTable} ORDER BY id"""
     qt_select """SELECT id, j, JSON_EXTRACT(j, '\$.a1[0].k1', '\$.a1[0].k2', '\$.a1[2]') FROM ${testTable} ORDER BY id"""
+
+    qt_json_extract_string """select jsonb_extract('{"k1":"v31","k2":300}','\$.k1');"""
+
 }
