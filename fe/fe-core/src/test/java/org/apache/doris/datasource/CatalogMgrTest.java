@@ -773,6 +773,7 @@ public class CatalogMgrTest extends TestWithFeService {
         String alterComment = "ALTER CATALOG hive_c SET PROPERTIES"
                 + " (\"comment\" = \"alter comment\");";
         mgr.alterCatalogProps((AlterCatalogPropertyStmt) parseAndAnalyzeStmt(alterComment));
-        Assertions.assertEquals(env.getCatalogMgr().getCatalog("hive_c").getComment(), "alter comment");
+        // we do not set `comment` auto by `comment in properties`
+        Assertions.assertEquals("create", env.getCatalogMgr().getCatalog("hive_c").getComment());
     }
 }

@@ -55,10 +55,6 @@ public class CatalogFactory {
         } else if (stmt instanceof AlterCatalogPropertyStmt) {
             log.setCatalogId(catalogId);
             log.setNewProps(((AlterCatalogPropertyStmt) stmt).getNewProperties());
-            String newComment = ((AlterCatalogPropertyStmt) stmt).getComment();
-            if (!Strings.isNullOrEmpty(newComment)) {
-                log.setComment(newComment);
-            }
         } else if (stmt instanceof AlterCatalogNameStmt) {
             log.setCatalogId(catalogId);
             log.setNewCatalogName(((AlterCatalogNameStmt) stmt).getNewCatalogName());
