@@ -284,7 +284,8 @@ void VDataStreamRecvr::SenderQueue::cancel(Status& cancel_status) {
         if (_dependency) {
             _dependency->set_always_done();
         }
-        VLOG_QUERY << "cancelled stream: _fragment_instance_id=" << _recvr->fragment_instance_id()
+        VLOG_QUERY << "cancelled stream: _fragment_instance_id="
+                   << print_id(_recvr->fragment_instance_id())
                    << " node_id=" << _recvr->dest_node_id();
     }
     // Wake up all threads waiting to produce/consume batches.  They will all
@@ -458,6 +459,9 @@ void VDataStreamRecvr::remove_sender(int sender_id, int be_number, Status& exec_
 }
 
 void VDataStreamRecvr::cancel_stream(Status& exec_status) {
+    VLOG_QUERY << "cancel_stream: fragment_instance_id=" << print_id(_fragment_instance_id)
+               << exec_status;
+
     for (int i = 0; i < _sender_queues.size(); ++i) {
         _sender_queues[i]->cancel(exec_status);
     }
