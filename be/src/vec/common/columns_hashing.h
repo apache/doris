@@ -154,7 +154,7 @@ struct HashMethodSerialized
         return KeyHolderType {key, pool};
     }
 
-    std::span<StringRef> get_keys() const { return std::span<StringRef>(keys, keys_size); }
+    std::span<StringRef> get_keys() const { return std::span<StringRef>(keys, key_columns[0]->size()); }
 
 protected:
     friend class columns_hashing_impl::HashMethodBase<Self, Value, Mapped, false>;
