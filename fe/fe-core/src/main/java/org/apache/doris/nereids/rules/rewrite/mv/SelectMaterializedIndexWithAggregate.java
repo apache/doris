@@ -70,7 +70,6 @@ import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.planner.PlanNode;
 
-import com.amazonaws.services.simpledb.model.SelectResult;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
