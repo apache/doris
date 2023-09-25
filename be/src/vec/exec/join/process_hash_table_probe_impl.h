@@ -223,13 +223,13 @@ KeyGetter ProcessHashTableProbe<JoinOpType>::_init_probe_side(size_t probe_rows,
     _visited_map.clear();
     _same_to_prev.clear();
     if (with_other_join_conjuncts) {
-        _probe_indexs.reserve(probe_rows * PROBE_SIDE_EXPLODE_RATE);
+        _probe_indexs.reserve(_batch_size * PROBE_SIDE_EXPLODE_RATE);
         // use in right join to change visited state after exec the vother join conjunct
-        _visited_map.reserve(probe_rows * PROBE_SIDE_EXPLODE_RATE);
-        _same_to_prev.reserve(probe_rows * PROBE_SIDE_EXPLODE_RATE);
+        _visited_map.reserve(_batch_size * PROBE_SIDE_EXPLODE_RATE);
+        _same_to_prev.reserve(_batch_size * PROBE_SIDE_EXPLODE_RATE);
     }
-    _build_block_rows.reserve(probe_rows * PROBE_SIDE_EXPLODE_RATE);
-    _build_block_offsets.reserve(probe_rows * PROBE_SIDE_EXPLODE_RATE);
+    _build_block_rows.resize(probe_rows * PROBE_SIDE_EXPLODE_RATE);
+    _build_block_offsets.resize(probe_rows * PROBE_SIDE_EXPLODE_RATE);
 
     KeyGetter key_getter(*_join_context->_probe_columns, _join_context->_probe_key_sz, nullptr);
 
@@ -298,8 +298,13 @@ ForwardIterator<Mapped>& ProcessHashTableProbe<JoinOpType>::_probe_row_match(int
 template <int JoinOpType>
 void ProcessHashTableProbe<JoinOpType>::_emplace_element(int8_t block_offset, int32_t block_row,
                                                          int& current_offset) {
-    _build_block_offsets.emplace_back(block_offset);
-    _build_block_rows.emplace_back(block_row);
+    if (current_offset < _build_block_offsets.size()) {
+        _build_block_offsets[current_offset] = block_offset;
+        _build_block_rows[current_offset] = block_row;
+    } else {
+        _build_block_offsets.emplace_back(block_offset);
+        _build_block_rows.emplace_back(block_row);
+    }
     current_offset++;
 }
 
