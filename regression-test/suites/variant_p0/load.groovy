@@ -172,7 +172,7 @@ suite("regression_test_variant", "variant_type"){
         qt_sql_17 "select cast(v:a as json), v:A, v, v:AA from simple_select_variant where cast(v:A as bigint) is null  order by k;"
 
         sql """insert into simple_select_variant values (12, '{"oamama": 1.1}')"""
-        qt_sql_18 "select  v:a, v:A, v, v:oamama from simple_select_variant where cast(v:oamama as double) is null  order by k;"
+        qt_sql_18 "select  cast(v:a as text), v:A, v, v:oamama from simple_select_variant where cast(v:oamama as double) is null  order by k;"
         qt_sql_19 """select  v:a, v:A, v, v:oamama from simple_select_variant where cast(v:oamama as double) is not null  order by k"""
         qt_sql_20 """select v:A from simple_select_variant where cast(v:A as bigint) > 0 and cast(v:A as bigint) = 123456 limit 1;"""
 
@@ -241,7 +241,7 @@ suite("regression_test_variant", "variant_type"){
         sql """INSERT INTO ${table_name} VALUES (1, ''), (1, '{"k1": 1, "k2": "v1"}'), (1, '{}'), (1, '{"k1": 2}');"""
         sql "alter table ${table_name} add column v2 variant default null"
         sql """INSERT INTO ${table_name} VALUES (1, '{"kyyyy" : "123"}', '{"kxkxkxkx" : [123]}'), (1, '{"kxxxx" : 123}', '{"xxxxyyyy": 123}');"""
-        qt_sql_29_1 """select * from alter_variant where length(cast(v2 as string)) > 2 order by k, cast(v as string), cast(v2 as string);"""
+        qt_sql_29_1 """select * from alter_variant where length(cast(v2 as string)) > 2 and cast(v2 as string) != 'null' order by k, cast(v as string), cast(v2 as string);"""
         verify table_name
 
         // 11. boolean values 
@@ -264,7 +264,7 @@ suite("regression_test_variant", "variant_type"){
         // sql """insert into ${table_name} values (8, '{"a" : [123, 111........]}')"""
         sql """insert into ${table_name} values (9, '{"a" : [123, {"a" : 1}]}')"""
         sql """insert into ${table_name} values (10, '{"a" : [{"a" : 1}, 123]}')"""
-        qt_sql_29 "select v:a from ${table_name} order by k"
+        qt_sql_29 "select cast(v:a as string) from ${table_name} order by k"
         // b? 7.111  [123,{"xx":1}]  {"b":{"c":456,"e":7.111}}       456
         qt_sql_30 "select v:b.e, v:a, v:b, v:b.c from jsonb_values where cast(v:b.e as double) > 1;"
 

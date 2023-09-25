@@ -167,7 +167,7 @@ Status ExtractReader::extract_to(vectorized::MutableColumnPtr& dst, size_t nrows
 }
 
 Status ExtractReader::next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) {
-    _root_reader->column->clear();
+    static_cast<vectorized::ColumnObject*>(_root_reader->column.get())->clear_subcolumns_data();
     RETURN_IF_ERROR(_root_reader->iterator->next_batch(n, _root_reader->column));
     RETURN_IF_ERROR(extract_to(dst, *n));
     return Status::OK();
@@ -175,7 +175,7 @@ Status ExtractReader::next_batch(size_t* n, vectorized::MutableColumnPtr& dst, b
 
 Status ExtractReader::read_by_rowids(const rowid_t* rowids, const size_t count,
                                      vectorized::MutableColumnPtr& dst) {
-    _root_reader->column->clear();
+    static_cast<vectorized::ColumnObject*>(_root_reader->column.get())->clear_subcolumns_data();
     RETURN_IF_ERROR(_root_reader->iterator->read_by_rowids(rowids, count, _root_reader->column));
     RETURN_IF_ERROR(extract_to(dst, count));
     return Status::OK();
