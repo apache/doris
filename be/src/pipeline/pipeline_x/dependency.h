@@ -530,6 +530,7 @@ struct HashJoinSharedState : public JoinSharedState {
     size_t build_exprs_size = 0;
     std::shared_ptr<std::vector<vectorized::Block>> build_blocks =
             std::make_shared<std::vector<vectorized::Block>>();
+    bool probe_ignore_null = false;
 };
 
 class HashJoinDependency final : public WriteDependency {

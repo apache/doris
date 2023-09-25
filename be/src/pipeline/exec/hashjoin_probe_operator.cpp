@@ -34,7 +34,7 @@ Status HashJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& info) 
     SCOPED_TIMER(profile()->total_time_counter());
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<HashJoinProbeOperatorX>();
-    _probe_ignore_null = p._probe_ignore_null;
+    _shared_state->probe_ignore_null = p._probe_ignore_null;
     _probe_expr_ctxs.resize(p._probe_expr_ctxs.size());
     for (size_t i = 0; i < _probe_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._probe_expr_ctxs[i]->clone(state, _probe_expr_ctxs[i]));
@@ -42,11 +42,6 @@ Status HashJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& info) 
     _other_join_conjuncts.resize(p._other_join_conjuncts.size());
     for (size_t i = 0; i < _other_join_conjuncts.size(); i++) {
         RETURN_IF_ERROR(p._other_join_conjuncts[i]->clone(state, _other_join_conjuncts[i]));
-    }
-    // Since the comparison of null values is meaningless, null aware left anti join should not output null
-    // when the build side is not empty.
-    if (!_shared_state->build_blocks->empty() && p._join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
-        _probe_ignore_null = true;
     }
     _construct_mutable_join_block();
     _probe_column_disguise_null.reserve(_probe_expr_ctxs.size());
@@ -241,7 +236,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
                     *local_state._shared_state->hash_table_variants,
                     *local_state._process_hashtable_ctx_variants,
                     vectorized::make_bool_variant(local_state._need_null_map_for_probe),
-                    vectorized::make_bool_variant(local_state._probe_ignore_null));
+                    vectorized::make_bool_variant(local_state._shared_state->probe_ignore_null));
         });
     } else if (local_state._probe_eos) {
         if (_is_right_semi_anti || (_is_outer_join && _join_op != TJoinOp::LEFT_OUTER_JOIN)) {
