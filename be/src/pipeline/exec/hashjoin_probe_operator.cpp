@@ -34,7 +34,7 @@ Status HashJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& info) 
     SCOPED_TIMER(profile()->total_time_counter());
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<HashJoinProbeOperatorX>();
-    _probe_ignore_null = p._probe_ignore_null;
+    _shared_state->probe_ignore_null = p._probe_ignore_null;
     _probe_expr_ctxs.resize(p._probe_expr_ctxs.size());
     for (size_t i = 0; i < _probe_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._probe_expr_ctxs[i]->clone(state, _probe_expr_ctxs[i]));
@@ -42,11 +42,6 @@ Status HashJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& info) 
     _other_join_conjuncts.resize(p._other_join_conjuncts.size());
     for (size_t i = 0; i < _other_join_conjuncts.size(); i++) {
         RETURN_IF_ERROR(p._other_join_conjuncts[i]->clone(state, _other_join_conjuncts[i]));
-    }
-    // Since the comparison of null values is meaningless, null aware left anti join should not output null
-    // when the build side is not empty.
-    if (!_shared_state->build_blocks->empty() && p._join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
-        _probe_ignore_null = true;
     }
     _construct_mutable_join_block();
     _probe_column_disguise_null.reserve(_probe_expr_ctxs.size());
@@ -189,6 +184,42 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
     local_state.init_for_probe(state);
     SCOPED_TIMER(local_state._probe_timer);
     if (local_state._shared_state->short_circuit_for_probe) {
+        /// If `_short_circuit_for_probe` is true, this indicates no rows
+        /// match the join condition, and this is 'mark join', so we need to create a column as mark
+        /// with all rows set to 0.
+        if (_is_mark_join) {
+            auto block_rows = local_state._probe_block.rows();
+            if (block_rows == 0) {
+                if (local_state._probe_eos) {
+                    source_state = SourceState::FINISHED;
+                }
+                return Status::OK();
+            }
+
+            vectorized::Block temp_block;
+            //get probe side output column
+            for (int i = 0; i < _left_output_slot_flags.size(); ++i) {
+                if (_left_output_slot_flags[i]) {
+                    temp_block.insert(local_state._probe_block.get_by_position(i));
+                }
+            }
+            auto mark_column = vectorized::ColumnUInt8::create(block_rows, 0);
+            temp_block.insert(
+                    {std::move(mark_column), std::make_shared<vectorized::DataTypeUInt8>(), ""});
+
+            {
+                SCOPED_TIMER(local_state._join_filter_timer);
+                RETURN_IF_ERROR(vectorized::VExprContext::filter_block(
+                        local_state._conjuncts, &temp_block, temp_block.columns()));
+            }
+
+            RETURN_IF_ERROR(local_state._build_output_block(&temp_block, output_block, false));
+            temp_block.clear();
+            local_state._probe_block.clear_column_data(
+                    _child_x->row_desc().num_materialized_slots());
+            local_state.reached_limit(output_block, source_state);
+            return Status::OK();
+        }
         // If we use a short-circuit strategy, should return empty block directly.
         source_state = SourceState::FINISHED;
         return Status::OK();
@@ -241,7 +272,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
                     *local_state._shared_state->hash_table_variants,
                     *local_state._process_hashtable_ctx_variants,
                     vectorized::make_bool_variant(local_state._need_null_map_for_probe),
-                    vectorized::make_bool_variant(local_state._probe_ignore_null));
+                    vectorized::make_bool_variant(local_state._shared_state->probe_ignore_null));
         });
     } else if (local_state._probe_eos) {
         if (_is_right_semi_anti || (_is_outer_join && _join_op != TJoinOp::LEFT_OUTER_JOIN)) {
@@ -299,7 +330,8 @@ bool HashJoinProbeOperatorX::need_more_input_data(RuntimeState* state) const {
     auto& local_state = state->get_local_state(id())->cast<HashJoinProbeLocalState>();
     return (local_state._probe_block.rows() == 0 ||
             local_state._probe_index == local_state._probe_block.rows()) &&
-           !local_state._probe_eos && !local_state._shared_state->short_circuit_for_probe;
+           !local_state._probe_eos &&
+           (!local_state._shared_state->short_circuit_for_probe || _is_mark_join);
 }
 
 Status HashJoinProbeOperatorX::_do_evaluate(vectorized::Block& block,

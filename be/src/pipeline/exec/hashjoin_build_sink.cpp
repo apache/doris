@@ -410,7 +410,6 @@ Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
         _build_expr_ctxs.push_back(ctx);
 
         const auto vexpr = _build_expr_ctxs.back()->root();
-        const auto& data_type = vexpr->data_type();
 
         bool null_aware = eq_join_conjunct.__isset.opcode &&
                           eq_join_conjunct.opcode == TExprOpcode::EQ_FOR_NULL;
@@ -421,7 +420,10 @@ Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
         _store_null_in_hash_table.emplace_back(
                 null_aware ||
                 (_build_expr_ctxs.back()->root()->is_nullable() && build_stores_null));
+    }
 
+    for (const auto& expr : _build_expr_ctxs) {
+        const auto& data_type = expr->root()->data_type();
         if (!data_type->have_maximum_size_of_value()) {
             break;
         }
@@ -589,6 +591,12 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
 
     local_state.init_short_circuit_for_probe();
     if (source_state == SourceState::FINISHED) {
+        // Since the comparison of null values is meaningless, null aware left anti join should not output null
+        // when the build side is not empty.
+        if (!local_state._shared_state->build_blocks->empty() &&
+            _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
+            local_state._shared_state->probe_ignore_null = true;
+        }
         local_state._dependency->set_ready_for_read();
     }
 
