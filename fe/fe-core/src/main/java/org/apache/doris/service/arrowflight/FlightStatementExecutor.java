@@ -64,9 +64,9 @@ public final class FlightStatementExecutor {
     private TNetworkAddress resultInternalServiceAddr;
     private ArrayList<Expr> resultOutputExprs;
 
-    public FlightStatementExecutor(final String query) {
+    public FlightStatementExecutor(final String query, ConnectContext connectContext) {
         this.query = query;
-        acConnectContext = buildConnectContext();
+        this.acConnectContext = new AutoCloseConnectContext(connectContext);
     }
 
     public void setQueryId(TUniqueId queryId) {
@@ -124,21 +124,6 @@ public final class FlightStatementExecutor {
     @Override
     public int hashCode() {
         return Objects.hash(this);
-    }
-
-    public static AutoCloseConnectContext buildConnectContext() {
-        ConnectContext connectContext = new ConnectContext();
-        SessionVariable sessionVariable = connectContext.getSessionVariable();
-        sessionVariable.internalSession = true;
-        sessionVariable.setEnablePipelineEngine(false); // TODO
-        sessionVariable.setEnablePipelineXEngine(false); // TODO
-        connectContext.setEnv(Env.getCurrentEnv());
-        connectContext.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser()); // TODO
-        connectContext.setCurrentUserIdentity(UserIdentity.ROOT); // TODO
-        connectContext.setStartTime();
-        connectContext.setCluster(SystemInfoService.DEFAULT_CLUSTER);
-        connectContext.setResultSinkType(TResultSinkType.ARROW_FLIGHT_PROTOCAL);
-        return new AutoCloseConnectContext(connectContext);
     }
 
     public void executeQuery() {

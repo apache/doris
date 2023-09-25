@@ -15,31 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 // This file is copied from
-// https://github.com/dremio/dremio-oss/blob/master/services/arrow-flight/src/main/java/com/dremio/service/flight/ServerCookieMiddleware.java
+// https://github.com/dremio/dremio-oss/blob/master/services/arrow-flight/src/main/java/com/dremio/service/flight/DremioFlightSessionsManager.java
 // and modified by Doris
 
-package org.apache.doris.service.arrowflight.auth2;
-
-import org.apache.doris.analysis.UserIdentity;
-
-import org.immutables.value.Value;
+package org.apache.doris.service.arrowflight.sessions;
 
 /**
- * Result of Authentication.
+ * Manages UserSession creation and UserSession cache.
  */
-@Value.Immutable
-public interface DorisAuthResult {
-    String getUserName();
+public interface FlightSessionsManager extends AutoCloseable {
 
-    UserIdentity getUserIdentity();
+    /**
+     * Resolves an existing UserSession for the given token.
+     * <p>
+     *
+     * @param peerIdentity identity after authorization
+     * @return The UserSession or null if no sessionId is given.
+     */
+    FlightUserSession getUserSession(String peerIdentity);
 
-    String getRemoteIp();
-
-    static DorisAuthResult of(String userName, UserIdentity userIdentity, String remoteIp) {
-        return ImmutableDorisAuthResult.builder()
-                .userName(userName)
-                .userIdentity(userIdentity)
-                .remoteIp(remoteIp)
-                .build();
-    }
+    /**
+     * Creates a UserSession object and store it in the local cache, assuming that the peerIdentity was already validated.
+     *
+     * @param peerIdentity identity after authorization
+     */
+    FlightUserSession createUserSession(String peerIdentity);
 }

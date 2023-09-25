@@ -14,31 +14,34 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
 
-package org.apache.doris.service.arrowflight.tokens;
+package org.apache.doris.service.arrowflight.sessions;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.service.arrowflight.auth2.DorisAuthResult;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TResultSinkType;
 
-public class SessionState {
+/**
+ * Object holding UserSesssion
+ */
+public class FlightUserSession {
     private final String username;
     private final long issuedAt;
     private final long expiresAt;
     private final ConnectContext connectContext;
 
-    public SessionState() {
+    public FlightUserSession()  {
         this.username = "";
         this.issuedAt = 0;
         this.expiresAt = 0;
-        this.connectContext = buildConnectContext();
+        this.connectContext = new ConnectContext();
     }
 
-    public SessionState(String username, long issuedAt, long expiresAt) {
+    public FlightUserSession(String username, long issuedAt, long expiresAt)  {
         this.username = username;
         this.issuedAt = issuedAt;
         this.expiresAt = expiresAt;
@@ -61,10 +64,10 @@ public class SessionState {
         return connectContext;
     }
 
-    public void setAuthResult(final DorisAuthResult authResult) {
-        connectContext.setQualifiedUser(authResult.getUserIdentity().getQualifiedUser());
-        connectContext.setCurrentUserIdentity(authResult.getUserIdentity());
-        connectContext.setRemoteIP(authResult.getRemoteIp());
+    public void setAuthResult(final UserIdentity userIdentity, final String remoteIpy) {
+        connectContext.setQualifiedUser(userIdentity.getQualifiedUser());
+        connectContext.setCurrentUserIdentity(userIdentity);
+        connectContext.setRemoteIP(remoteIpy);
     }
 
     public static ConnectContext buildConnectContext() {

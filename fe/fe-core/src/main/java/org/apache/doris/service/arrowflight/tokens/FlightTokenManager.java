@@ -14,15 +14,17 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// https://github.com/dremio/dremio-oss/blob/master/services/arrow-flight/src/main/java/com/dremio/service/tokens/TokenManager.java
+// and modified by Doris
 
 package org.apache.doris.service.arrowflight.tokens;
 
-import org.apache.doris.service.arrowflight.auth2.DorisAuthResult;
+import org.apache.doris.service.arrowflight.auth2.FlightAuthResult;
 
 /**
  * Token manager.
  */
-public interface TokenManager {
+public interface FlightTokenManager extends AutoCloseable {
 
     /**
      * Generate a securely random token.
@@ -35,10 +37,10 @@ public interface TokenManager {
      * Create a token for the session, and return details about the token.
      *
      * @param username user name
-     * @param dorisAuthResult auth result
+     * @param flightAuthResult auth result
      * @return token details
      */
-    TokenDetails createToken(String username, DorisAuthResult dorisAuthResult);
+    FlightTokenDetails createToken(String username, FlightAuthResult flightAuthResult);
 
     /**
      * Validate the token, and return details about the token.
@@ -47,7 +49,7 @@ public interface TokenManager {
      * @return token details
      * @throws IllegalArgumentException if the token is invalid or expired
      */
-    TokenDetails validateToken(String token) throws IllegalArgumentException;
+    FlightTokenDetails validateToken(String token) throws IllegalArgumentException;
 
     /**
      * Invalidate the token.

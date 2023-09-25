@@ -14,10 +14,12 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// https://github.com/dremio/dremio-oss/blob/master/services/arrow-flight/src/main/java/com/dremio/service/tokens/TokenManagerImpl.java
+// and modified by Doris
 
 package org.apache.doris.service.arrowflight.tokens;
 
-import org.apache.doris.service.arrowflight.auth2.DorisAuthResult;
+import org.apache.doris.service.arrowflight.auth2.FlightAuthResult;
 
 import com.google.common.base.Preconditions;
 import com.google.common.cache.CacheBuilder;
@@ -33,24 +35,24 @@ import java.util.concurrent.TimeUnit;
 /**
  * Token manager implementation.
  */
-public class TokenManagerImpl implements TokenManager {
-    private static final Logger LOG = LogManager.getLogger(TokenManagerImpl.class);
+public class FlightTokenManagerImpl implements FlightTokenManager {
+    private static final Logger LOG = LogManager.getLogger(FlightTokenManagerImpl.class);
 
     private final SecureRandom generator = new SecureRandom();
     private final int cacheExpiration;
 
-    private LoadingCache<String, SessionState> tokenCache;
+    private LoadingCache<String, FlightTokenDetails> tokenCache;
 
-    public TokenManagerImpl(final int cacheSize, final int cacheExpiration) {
+    public FlightTokenManagerImpl(final int cacheSize, final int cacheExpiration) {
         this.cacheExpiration = cacheExpiration;
 
         this.tokenCache = CacheBuilder.newBuilder()
                 .maximumSize(cacheSize)
                 .expireAfterWrite(cacheExpiration, TimeUnit.MINUTES)
-                .build(new CacheLoader<String, SessionState>() {
+                .build(new CacheLoader<String, FlightTokenDetails>() {
                     @Override
-                    public SessionState load(String key) {
-                        return new SessionState();
+                    public FlightTokenDetails load(String key) {
+                        return new FlightTokenDetails();
                     }
                 });
     }
@@ -66,40 +68,40 @@ public class TokenManagerImpl implements TokenManager {
     }
 
     @Override
-    public TokenDetails createToken(final String username, final DorisAuthResult dorisAuthResult) {
+    public FlightTokenDetails createToken(final String username, final FlightAuthResult flightAuthResult) {
         final String token = newToken();
         final long now = System.currentTimeMillis();
         final long expires = now + TimeUnit.MILLISECONDS.convert(cacheExpiration, TimeUnit.MINUTES);
 
-        final SessionState state = new SessionState(username, now, expires);
-        state.setAuthResult(dorisAuthResult);
+        final FlightTokenDetails flightTokenDetails = new FlightTokenDetails(token, username, now, expires,
+                flightAuthResult.getUserIdentity(), flightAuthResult.getRemoteIp());
 
-        tokenCache.put(token, state);
-        LOG.trace("Created token for user: {}", username);
-        return TokenDetails.of(token, username, expires);
+        tokenCache.put(token, flightTokenDetails);
+        LOG.trace("Created flight token for user: {}", username);
+        return FlightTokenDetails.of(token, username, expires);
     }
 
     @Override
-    public TokenDetails validateToken(final String token) throws IllegalArgumentException {
-        final SessionState value = getSessionState(token);
+    public FlightTokenDetails validateToken(final String token) throws IllegalArgumentException {
+        final FlightTokenDetails value = getTokenDetails(token);
         if (System.currentTimeMillis() >= value.getExpiresAt()) {
             tokenCache.invalidate(token); // removes from the store as well
             throw new IllegalArgumentException("token expired");
         }
 
-        LOG.trace("Validated token for user: {}", value.getUsername());
-        return TokenDetails.of(token, value.getUsername(), value.getExpiresAt());
+        LOG.trace("Validated flight token for user: {}", value.getUsername());
+        return FlightTokenDetails.of(token, value.getUsername(), value.getExpiresAt());
     }
 
     @Override
     public void invalidateToken(final String token) {
-        LOG.trace("Invalidate token");
+        LOG.trace("Invalidate flight token, {}", token);
         tokenCache.invalidate(token); // removes from the store as well
     }
 
-    private SessionState getSessionState(final String token) {
+    private FlightTokenDetails getTokenDetails(final String token) {
         Preconditions.checkNotNull(token, "invalid token");
-        final SessionState value;
+        final FlightTokenDetails value;
         try {
             value = tokenCache.getUnchecked(token);
         } catch (CacheLoader.InvalidCacheLoadException ignored) {
@@ -107,5 +109,10 @@ public class TokenManagerImpl implements TokenManager {
         }
 
         return value;
+    }
+
+    @Override
+    public void close() throws Exception {
+        tokenCache.invalidateAll();
     }
 }

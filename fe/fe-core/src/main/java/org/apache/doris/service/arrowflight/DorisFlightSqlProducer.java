@@ -22,7 +22,8 @@ package org.apache.doris.service.arrowflight;
 
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.service.arrowflight.tokens.TokenManager;
+import org.apache.doris.service.arrowflight.sessions.FlightSessionsManager;
+import org.apache.doris.service.arrowflight.sessions.FlightUserSession;
 
 import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
@@ -73,11 +74,11 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     private final Location location;
     private final BufferAllocator rootAllocator = new RootAllocator();
     private final SqlInfoBuilder sqlInfoBuilder;
-    private final TokenManager tokenManager;
+    private final FlightSessionsManager flightSessionsManager;
 
-    public DorisFlightSqlProducer(final Location location, TokenManager tokenManager) {
+    public DorisFlightSqlProducer(final Location location, FlightSessionsManager flightSessionsManager) {
         this.location = location;
-        this.tokenManager = tokenManager;
+        this.flightSessionsManager = flightSessionsManager;
         sqlInfoBuilder = new SqlInfoBuilder();
         sqlInfoBuilder.withFlightSqlServerName("DorisFE")
                 .withFlightSqlServerVersion("1.0")
@@ -107,9 +108,10 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     public FlightInfo getFlightInfoStatement(final CommandStatementQuery request, final CallContext context,
             final FlightDescriptor descriptor) {
         try {
-            tokenManager.validateToken(context.peerIdentity());
+            FlightUserSession flightUserSession = flightSessionsManager.getUserSession(context.peerIdentity());
             final String query = request.getQuery();
-            final FlightStatementExecutor flightStatementExecutor = new FlightStatementExecutor(query);
+            final FlightStatementExecutor flightStatementExecutor = new FlightStatementExecutor(query,
+                    flightUserSession.getConnectContext());
 
             flightStatementExecutor.executeQuery();
 

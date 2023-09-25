@@ -14,29 +14,30 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
 
-package org.apache.doris.service.arrowflight.tokens;
+package org.apache.doris.service.arrowflight.auth2;
 
-import com.google.common.base.Preconditions;
+import org.apache.doris.analysis.UserIdentity;
+
+import org.immutables.value.Value;
 
 /**
- * Details of a token.
+ * Result of Authentication.
  */
-public final class TokenDetails {
+@Value.Immutable
+public interface FlightAuthResult {
+    String getUserName();
 
-    public final String token;
-    public final String username;
-    public final long expiresAt;
+    UserIdentity getUserIdentity();
 
-    private TokenDetails(String token, String username, long expiresAt) {
-        Preconditions.checkNotNull(token);
-        Preconditions.checkNotNull(username);
-        this.token = token;
-        this.username = username;
-        this.expiresAt = expiresAt;
-    }
+    String getRemoteIp();
 
-    public static TokenDetails of(String token, String username, long expiresAt) {
-        return new TokenDetails(token, username, expiresAt);
+    static FlightAuthResult of(String userName, UserIdentity userIdentity, String remoteIp) {
+        return ImmutableDorisAuthResult.builder()
+                .userName(userName)
+                .userIdentity(userIdentity)
+                .remoteIp(remoteIp)
+                .build();
     }
 }

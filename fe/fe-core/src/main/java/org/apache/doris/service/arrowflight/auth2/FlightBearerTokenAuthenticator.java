@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 // This file is copied from
-// https://github.com/dremio/dremio-oss/blob/master/services/arrow-flight/src/main/java/com/dremio/service/flight/ServerCookieMiddleware.java
+// https://github.com/dremio/dremio-oss/blob/master/services/arrow-flight/src/main/java/com/dremio/service/flight/auth2/DremioBearerTokenAuthenticator.java
 // and modified by Doris
 
 package org.apache.doris.service.arrowflight.auth2;
 
-import org.apache.doris.service.arrowflight.tokens.TokenManager;
+import org.apache.doris.service.arrowflight.tokens.FlightTokenManager;
 
 import org.apache.arrow.flight.CallHeaders;
 import org.apache.arrow.flight.CallStatus;
@@ -32,9 +32,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 /**
- * Dremio's custom implementation of CallHeaderAuthenticator for bearer token authentication.
- * This class implements CallHeaderAuthenticator rather than BearerTokenAuthenticator. Dremio
- * creates UserSession objects when the bearer token is created and requires access to the CallHeaders
+ * Doris's custom implementation of CallHeaderAuthenticator for bearer token authentication.
+ * This class implements CallHeaderAuthenticator rather than BearerTokenAuthenticator. Doris
+ * creates FlightTokenDetails objects when the bearer token is created and requires access to the CallHeaders
  * in getAuthResultWithBearerToken.
  */
 
@@ -42,17 +42,18 @@ public class FlightBearerTokenAuthenticator implements CallHeaderAuthenticator {
     private static final Logger LOG = LogManager.getLogger(FlightBearerTokenAuthenticator.class);
 
     private final CallHeaderAuthenticator initialAuthenticator;
-    private final TokenManager tokenManager;
+    private final FlightTokenManager flightTokenManager;
 
-    public FlightBearerTokenAuthenticator(TokenManager tokenManager) {
-        this.tokenManager = tokenManager;
-        this.initialAuthenticator = new BasicCallHeaderAuthenticator(new FlightCredentialValidator(this.tokenManager));
+    public FlightBearerTokenAuthenticator(FlightTokenManager flightTokenManager) {
+        this.flightTokenManager = flightTokenManager;
+        this.initialAuthenticator = new BasicCallHeaderAuthenticator(
+                new FlightCredentialValidator(this.flightTokenManager));
     }
 
     /**
      * If no bearer token is provided, the method initiates initial password and username
      * authentication. Once authenticated, client properties are retrieved from incoming CallHeaders.
-     * Then it generates a token and creates a UserSession with the retrieved client properties.
+     * Then it generates a token and creates a FlightTokenDetails with the retrieved client properties.
      * associated with it.
      * <p>
      * If a bearer token is provided, the method validates the provided token.
@@ -81,7 +82,7 @@ public class FlightBearerTokenAuthenticator implements CallHeaderAuthenticator {
      */
     AuthResult validateBearer(String token) {
         try {
-            tokenManager.validateToken(token);
+            flightTokenManager.validateToken(token);
             return createAuthResultWithBearerToken(token);
         } catch (IllegalArgumentException e) {
             LOG.error("Bearer token validation failed.", e);
@@ -93,7 +94,7 @@ public class FlightBearerTokenAuthenticator implements CallHeaderAuthenticator {
     /**
      * Helper method to create an AuthResult.
      *
-     * @param token the token to create a UserSession for.
+     * @param token the token to create a FlightTokenDetails for.
      * @return a new AuthResult with functionality to add given bearer token to the outgoing header.
      */
     private AuthResult createAuthResultWithBearerToken(String token) {
