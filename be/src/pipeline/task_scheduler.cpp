@@ -231,8 +231,10 @@ void TaskScheduler::_do_work(size_t index) {
         auto check_state = task->get_state();
         if (check_state == PipelineTaskState::PENDING_FINISH) {
             DCHECK(!task->is_pending_finish()) << "must not pending close " << task->debug_string();
+            Status exec_status = fragment_ctx->get_query_context()->exec_status();
             _try_close_task(task,
-                            canceled ? PipelineTaskState::CANCELED : PipelineTaskState::FINISHED);
+                            canceled ? PipelineTaskState::CANCELED : PipelineTaskState::FINISHED,
+                            exec_status);
             continue;
         }
         DCHECK(check_state != PipelineTaskState::FINISHED &&
@@ -246,7 +248,8 @@ void TaskScheduler::_do_work(size_t index) {
             // If pipeline is canceled caused by memory limit, we should send report to FE in order
             // to cancel all pipeline tasks in this query
             // fragment_ctx->send_report(true);
-            _try_close_task(task, PipelineTaskState::CANCELED);
+            Status cancel_status = fragment_ctx->get_query_context()->exec_status();
+            _try_close_task(task, PipelineTaskState::CANCELED, cancel_status);
             continue;
         }
 

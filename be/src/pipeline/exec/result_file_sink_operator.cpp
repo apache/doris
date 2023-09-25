@@ -234,8 +234,8 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
                                     status = channel->send_local_block(&cur_block);
                                 } else {
                                     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-                                    status =
-                                            channel->send_block(_block_holder.get(), nullptr, true);
+                                    status = channel->send_broadcast_block(_block_holder.get(),
+                                                                           nullptr, true);
                                 }
                                 HANDLE_CHANNEL_STATUS(state, channel, status);
                             }
@@ -256,7 +256,7 @@ template <typename ChannelPtrType>
 void ResultFileSinkLocalState::_handle_eof_channel(RuntimeState* state, ChannelPtrType channel,
                                                    Status st) {
     channel->set_receiver_eof(st);
-    channel->close(state);
+    channel->close(state, st);
 }
 
 Status ResultFileSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,

@@ -521,7 +521,7 @@ Status ExchangeSinkOperatorX::try_close(RuntimeState* state, Status exec_status)
     CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
     local_state._serializer.reset_block();
     Status final_st = Status::OK();
-    auto exec_status = state->query_status();
+    Status final_status = exec_status;
     for (int i = 0; i < local_state.channels.size(); ++i) {
         Status st = local_state.channels[i]->close(state, exec_status);
         if (!st.ok() && final_st.ok()) {
