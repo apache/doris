@@ -19,8 +19,6 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.external.EsExternalDatabase;
-import org.apache.doris.catalog.external.ExternalDatabase;
-import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.external.elasticsearch.DorisEsException;
 import org.apache.doris.external.elasticsearch.EsRestClient;
