@@ -1,0 +1,45 @@
+cluster:
+  name: elasticsearch6
+  routing:
+    allocation:
+      disk:
+        threshold_enabled: true
+        watermark:
+          flood_stage: 200mb
+          low: 500mb
+          high: 300mb
+
+node:
+  name: 2bf5838228d8
+  master: true
+  data: true
+  ingest: true
+
+path:
+  data: /var/lib/elasticsearch/data
+  logs: /var/lib/elasticsearch/logs
+
+network:
+  host: 0.0.0.0
+
+
+http:
+  compression: true
+  cors:
+    enabled: false
+
+
+bootstrap:
+  memory_lock: false
+
+discovery:
+  zen:
+    minimum_master_nodes: 1
+
+
+action:
+  destructive_requires_name: false
+
+xpack:
+  security:
+    enabled: false
