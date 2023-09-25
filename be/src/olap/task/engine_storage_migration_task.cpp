@@ -105,7 +105,8 @@ Status EngineStorageMigrationTask::_check_running_txns() {
     StorageEngine::instance()->txn_manager()->get_tablet_related_txns(
             _tablet->tablet_id(), _tablet->tablet_uid(), &partition_id, &transaction_ids);
     if (transaction_ids.size() > 0) {
-        return Status::InternalError("tablet {} has unfinished txns", _tablet->tablet_id());
+        return Status::Error<ErrorCode::INTERNAL_ERROR, false>("tablet {} has unfinished txns",
+                                                               _tablet->tablet_id());
     }
     return Status::OK();
 }
