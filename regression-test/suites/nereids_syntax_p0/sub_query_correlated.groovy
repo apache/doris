@@ -240,6 +240,39 @@ suite ("sub_query_correlated") {
         select * from sub_query_correlated_subquery1 where exists (select sub_query_correlated_subquery3.k3 from sub_query_correlated_subquery3) order by k1, k2
     """
 
+    qt_exist_unCorrelated_limit1 """
+        select * from sub_query_correlated_subquery1 where exists (select sub_query_correlated_subquery3.k3 from sub_query_correlated_subquery3 where sub_query_correlated_subquery3.v2 = 2 limit 1) order by k1, k2
+    """
+
+    qt_exist_corr_limit1 """
+        select * from sub_query_correlated_subquery1 where exists (select sub_query_correlated_subquery3.k3 from sub_query_correlated_subquery3 where sub_query_correlated_subquery1.k2 = sub_query_correlated_subquery3.v2 limit 1) order by k1, k2
+    """
+
+    qt_exist_unCorrelated_limit0 """
+        select * from sub_query_correlated_subquery1 where exists (select sub_query_correlated_subquery3.k3 from sub_query_correlated_subquery3 where sub_query_correlated_subquery3.v2 = 2 limit 0) order by k1, k2
+    """
+
+    qt_exist_corr_limit0 """
+        select * from sub_query_correlated_subquery1 where exists (select sub_query_correlated_subquery3.k3 from sub_query_correlated_subquery3 where sub_query_correlated_subquery1.k2 = sub_query_correlated_subquery3.v2 limit 0) order by k1, k2
+    """
+
+    qt_exist_unCorrelated_limit1_offset1 """
+        select * from sub_query_correlated_subquery1 where exists (select sub_query_correlated_subquery3.k3 from sub_query_correlated_subquery3 where sub_query_correlated_subquery3.v2 = 2 limit 1 offset 1) order by k1, k2
+    """
+
+    test {
+        sql("select * from sub_query_correlated_subquery1 where exists (select sub_query_correlated_subquery3.k3 from sub_query_correlated_subquery3 where sub_query_correlated_subquery1.k2 = sub_query_correlated_subquery3.v2 limit 1 offset 1) order by k1, k2")
+        exception "Unsupported correlated subquery with a LIMIT clause with offset > 0"
+    }
+
+    qt_exist_unCorrelated_limit0_offset1 """
+        select * from sub_query_correlated_subquery1 where exists (select sub_query_correlated_subquery3.k3 from sub_query_correlated_subquery3 where sub_query_correlated_subquery3.v2 = 2 limit 0 offset 1) order by k1, k2
+    """
+
+    qt_exist_corr_limit0_offset1 """
+        select * from sub_query_correlated_subquery1 where exists (select sub_query_correlated_subquery3.k3 from sub_query_correlated_subquery3 where sub_query_correlated_subquery1.k2 = sub_query_correlated_subquery3.v2 limit 0 offset 1) order by k1, k2
+    """
+
     //----------complex subqueries----------
     qt_scalar_subquery1 """
         select * from sub_query_correlated_subquery1
