@@ -249,7 +249,7 @@ under the License.
         <protoc.artifact>com.google.protobuf:protoc:${protoc.artifact.version}</protoc.artifact>
         <grpc.java.artifact>io.grpc:protoc-gen-grpc-java:${grpc-java.version}</grpc.java.artifact>
         <protoparser.version>3.1.5</protoparser.version>
-        <snappy-java.version>1.1.10.1</snappy-java.version>
+        <snappy-java.version>1.1.10.4</snappy-java.version>
         <automaton.version>1.11-8</automaton.version>
         <generex.version>1.0.1</generex.version>
         <fabric8.kubernetes.version>6.7.2</fabric8.kubernetes.version>
