@@ -53,6 +53,10 @@ Status EngineAlterTabletTask::execute() {
         res = e.to_status();
     }
     if (!res.ok()) {
+        if (res.is<ErrorCode::MEM_LIMIT_EXCEEDED>()) {
+            res.append(fmt::format(", memory_limitation_per_thread_for_schema_change_bytes is {}",
+                                   _mem_tracker->limit()));
+        }
         DorisMetrics::instance()->create_rollup_requests_failed->increment(1);
         return res;
     }
