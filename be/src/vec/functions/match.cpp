@@ -17,6 +17,7 @@
 
 #include "vec/functions/match.h"
 
+#include "olap/itoken_extractor.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 
@@ -133,16 +134,34 @@ inline std::vector<std::string> FunctionMatchBase::analyse_data_token(
     return data_tokens;
 }
 
+bool extract_tokens_from_string(ITokenExtractor* tokenizer, const char* data, size_t size,
+                                std::vector<StringRef>& query_tokens) {
+    size_t pos = 0;
+    size_t token_start = 0;
+    size_t token_length = 0;
+    StringRef token_str;
+    while (tokenizer->next_in_string(data, size, &pos, &token_start, &token_length)) {
+        for (auto token : query_tokens) {
+            token_str.init(data + token_start, token_length);
+            if (token_str.equals_ignore_case(token)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 Status FunctionMatchAny::execute_match(const std::string& column_name,
                                        const std::string& match_query_str, size_t input_rows_count,
                                        const ColumnString* string_col,
                                        InvertedIndexCtx* inverted_index_ctx,
                                        const ColumnArray::Offsets64* array_offsets,
-                                       ColumnUInt8::Container& result) const {
-    doris::InvertedIndexParserType parser_type = doris::InvertedIndexParserType::PARSER_UNKNOWN;
-    if (inverted_index_ctx) {
-        parser_type = inverted_index_ctx->parser_type;
+                                       ColumnUInt8::Container& result) {
+    if (inverted_index_ctx == nullptr) {
+        return Status::InternalError(
+                "inverted index ctx is nullptr when FunctionMatchAny::execute_match");
     }
+    doris::InvertedIndexParserType parser_type = inverted_index_ctx->parser_type;
     VLOG_DEBUG << "begin to run FunctionMatchAny::execute_match, parser_type: "
                << inverted_index_parser_type_to_string(parser_type);
     auto reader = doris::segment_v2::InvertedIndexReader::create_reader(inverted_index_ctx,
@@ -159,22 +178,35 @@ Status FunctionMatchAny::execute_match(const std::string& column_name,
         return Status::OK();
     }
 
-    auto current_src_array_offset = 0;
-    for (int i = 0; i < input_rows_count; i++) {
-        std::vector<std::string> data_tokens =
-                analyse_data_token(column_name, inverted_index_ctx, string_col, i, array_offsets,
-                                   current_src_array_offset);
-
-        // TODO: more efficient impl
-        for (auto& token : query_tokens) {
-            auto it = std::find(data_tokens.begin(), data_tokens.end(), token);
-            if (it != data_tokens.end()) {
+    if (array_offsets == nullptr && !inverted_index_ctx->char_filter_map.empty() &&
+        (parser_type == doris::InvertedIndexParserType::PARSER_UNKNOWN ||
+         parser_type == doris::InvertedIndexParserType::PARSER_ENGLISH)) {
+        auto tokenizer = AlphaNumTokenExtractor();
+        std::vector<StringRef> query_tokens_string;
+        query_tokens_string.insert(query_tokens_string.end(), query_tokens.begin(),
+                                   query_tokens.end());
+        for (int i = 0; i < input_rows_count; i++) {
+            auto data_i = string_col->get_data_at(i);
+            if (extract_tokens_from_string(&tokenizer, data_i.data, data_i.size,
+                                           query_tokens_string)) {
                 result[i] = true;
-                break;
+            }
+        }
+    } else {
+        auto current_src_array_offset = 0;
+
+        for (int i = 0; i < input_rows_count; i++) {
+            std::vector<std::string> data_tokens =
+                    analyse_data_token(column_name, inverted_index_ctx, string_col, i,
+                                       array_offsets, current_src_array_offset);
+            for (auto& token : query_tokens) {
+                if (std::find(data_tokens.begin(), data_tokens.end(), token) != data_tokens.end()) {
+                    result[i] = true;
+                    break;
+                }
             }
         }
     }
-
     return Status::OK();
 }
 
@@ -183,11 +215,12 @@ Status FunctionMatchAll::execute_match(const std::string& column_name,
                                        const ColumnString* string_col,
                                        InvertedIndexCtx* inverted_index_ctx,
                                        const ColumnArray::Offsets64* array_offsets,
-                                       ColumnUInt8::Container& result) const {
-    doris::InvertedIndexParserType parser_type = doris::InvertedIndexParserType::PARSER_UNKNOWN;
-    if (inverted_index_ctx) {
-        parser_type = inverted_index_ctx->parser_type;
+                                       ColumnUInt8::Container& result) {
+    if (inverted_index_ctx == nullptr) {
+        return Status::InternalError(
+                "inverted index ctx is nullptr when FunctionMatchAll::execute_match");
     }
+    doris::InvertedIndexParserType parser_type = inverted_index_ctx->parser_type;
     VLOG_DEBUG << "begin to run FunctionMatchAll::execute_match, parser_type: "
                << inverted_index_parser_type_to_string(parser_type);
     auto reader = doris::segment_v2::InvertedIndexReader::create_reader(inverted_index_ctx,
@@ -234,11 +267,12 @@ Status FunctionMatchPhrase::execute_match(const std::string& column_name,
                                           size_t input_rows_count, const ColumnString* string_col,
                                           InvertedIndexCtx* inverted_index_ctx,
                                           const ColumnArray::Offsets64* array_offsets,
-                                          ColumnUInt8::Container& result) const {
-    doris::InvertedIndexParserType parser_type = doris::InvertedIndexParserType::PARSER_UNKNOWN;
-    if (inverted_index_ctx) {
-        parser_type = inverted_index_ctx->parser_type;
+                                          ColumnUInt8::Container& result) {
+    if (inverted_index_ctx == nullptr) {
+        return Status::InternalError(
+                "inverted index ctx is nullptr when FunctionMatchPhrase::execute_match");
     }
+    doris::InvertedIndexParserType parser_type = inverted_index_ctx->parser_type;
     VLOG_DEBUG << "begin to run FunctionMatchPhrase::execute_match, parser_type: "
                << inverted_index_parser_type_to_string(parser_type);
     auto reader = doris::segment_v2::InvertedIndexReader::create_reader(inverted_index_ctx,
