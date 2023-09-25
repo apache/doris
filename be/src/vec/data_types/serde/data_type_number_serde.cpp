@@ -266,17 +266,9 @@ Status DataTypeNumberSerDe<T>::write_column_to_orc(const IColumn& column, const 
             }
             std::string value_str = fmt::format("{}", col_data[row_id]);
             size_t len = value_str.size();
-            while (bufferRef.size - BUFFER_RESERVED_SIZE < offset + len) {
-                char* new_ptr = (char*)malloc(bufferRef.size + BUFFER_UNIT_SIZE);
-                if (!new_ptr) {
-                    return Status::InternalError(
-                            "malloc memory error when write largeint column data to orc file.");
-                }
-                memcpy(new_ptr, bufferRef.data, bufferRef.size);
-                free(const_cast<char*>(bufferRef.data));
-                bufferRef.data = new_ptr;
-                bufferRef.size = bufferRef.size + BUFFER_UNIT_SIZE;
-            }
+
+            REALLOC_MEMORY_FOR_ORC_WRITER()
+
             strcpy(const_cast<char*>(bufferRef.data) + offset, value_str.c_str());
             offset += len;
             cur_batch->length[row_id] = len;
