@@ -17,6 +17,8 @@
 
 #include "schema_scan_operator.h"
 
+#include <gen_cpp/FrontendService_types.h>
+
 #include <memory>
 
 #include "pipeline/exec/operator.h"
