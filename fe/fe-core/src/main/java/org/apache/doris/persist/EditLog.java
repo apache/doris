@@ -577,6 +577,7 @@ public class EditLog {
                 case OperationType.OP_TRUNCATE_TABLE: {
                     TruncateTableInfo info = (TruncateTableInfo) journal.getData();
                     env.replayTruncateTable(info);
+                    env.getBinlogManager().addTruncateTable(info, logId);
                     break;
                 }
                 case OperationType.OP_COLOCATE_ADD_TABLE: {
@@ -1542,7 +1543,9 @@ public class EditLog {
     }
 
     public void logTruncateTable(TruncateTableInfo info) {
-        logEdit(OperationType.OP_TRUNCATE_TABLE, info);
+        long logId = logEdit(OperationType.OP_TRUNCATE_TABLE, info);
+        LOG.info("log truncate table, logId:{}, infos: {}", logId, info);
+        Env.getCurrentEnv().getBinlogManager().addTruncateTable(info, logId);
     }
 
     public void logColocateAddTable(ColocatePersistInfo info) {
