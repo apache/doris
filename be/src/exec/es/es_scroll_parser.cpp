@@ -222,8 +222,7 @@ Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool 
             if (ok) {
                 // The local time zone can change by session variable `time_zone`
                 // We should use the user specified time zone, not the actual system local time zone.
-                success = dt_val.from_unixtime(std::chrono::system_clock::to_time_t(tp),
-                                               time_zone);
+                success = dt_val.from_unixtime(std::chrono::system_clock::to_time_t(tp), time_zone);
             }
         } else if (str_length == 19) {
             // YYYY-MM-DDTHH:MM:SS
@@ -273,8 +272,8 @@ Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool 
 }
 
 template <typename T, typename RT>
-Status get_date_int(const rapidjson::Value& col, PrimitiveType type, bool pure_doc_value,
-                    RT* slot, const std::string& time_zone) {
+Status get_date_int(const rapidjson::Value& col, PrimitiveType type, bool pure_doc_value, RT* slot,
+                    const std::string& time_zone) {
     // this would happend just only when `enable_docvalue_scan = false`, and field has timestamp format date from _source
     if (col.IsNumber()) {
         // ES process date/datetime field would use millisecond timestamp for index or docvalue
@@ -666,8 +665,9 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
                             col, type, pure_doc_value, col_ptr, time_zone)));
             break;
         case TYPE_DATETIMEV2: {
-            RETURN_IF_ERROR((fill_date_int<vectorized::DateV2Value<vectorized::DateTimeV2ValueType>,
-                                           uint64_t>(col, type, pure_doc_value, col_ptr, time_zone)));
+            RETURN_IF_ERROR(
+                    (fill_date_int<vectorized::DateV2Value<vectorized::DateTimeV2ValueType>,
+                                   uint64_t>(col, type, pure_doc_value, col_ptr, time_zone)));
             break;
         }
         case TYPE_ARRAY: {
@@ -775,7 +775,8 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
                     uint32_t data;
                     RETURN_IF_ERROR(
                             (get_date_int<vectorized::DateV2Value<vectorized::DateV2ValueType>,
-                                          uint32_t>(sub_col, sub_type, pure_doc_value, &data, time_zone)));
+                                          uint32_t>(sub_col, sub_type, pure_doc_value, &data,
+                                                    time_zone)));
                     array.push_back(data);
                     break;
                 }
@@ -783,7 +784,8 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
                     uint64_t data;
                     RETURN_IF_ERROR(
                             (get_date_int<vectorized::DateV2Value<vectorized::DateTimeV2ValueType>,
-                                          uint64_t>(sub_col, sub_type, pure_doc_value, &data, time_zone)));
+                                          uint64_t>(sub_col, sub_type, pure_doc_value, &data,
+                                                    time_zone)));
                     array.push_back(data);
                     break;
                 }
