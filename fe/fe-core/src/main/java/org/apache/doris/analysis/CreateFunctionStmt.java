@@ -281,7 +281,7 @@ public class CreateFunctionStmt extends DdlStmt {
         }
 
         try (InputStream inputStream = Util.getInputStreamFromUrl(userFile, null, HTTP_TIMEOUT_MS, HTTP_TIMEOUT_MS)) {
-            MessageDigest digest = MessageDigest.getInstance("MD5");
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
             byte[] buf = new byte[4096];
             int bytesRead = 0;
             do {
