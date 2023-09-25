@@ -192,7 +192,8 @@ Status Channel<Parent>::send_remote_block(PBlock* block, bool eos, Status exec_s
 
     _brpc_request.set_eos(eos);
     if (!exec_status.ok()) {
-        exec_status.to_protobuf(_brpc_request.mutable_exec_status());  // should release???
+        // should release exec_status of brpc_request?
+        exec_status.to_protobuf(_brpc_request.mutable_exec_status());
     }
     if (block != nullptr) {
         _brpc_request.set_allocated_block(block);

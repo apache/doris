@@ -226,7 +226,8 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
             brpc_request->set_allocated_block(request.block.get());
         }
         if (!request.exec_status.ok()) {
-            request.exec_status.to_protobuf(brpc_request->mutable_exec_status()); // should release???
+            // should release exec_status of brpc_request?
+            request.exec_status.to_protobuf(brpc_request->mutable_exec_status());
         }
         auto* closure = request.channel->get_closure(id, request.eos, nullptr);
 
