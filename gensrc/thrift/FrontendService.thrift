@@ -1030,6 +1030,7 @@ enum TBinlogType {
   BARRIER = 10,
   MODIFY_PARTITIONS = 11,
   REPLACE_PARTITIONS = 12,
+  TRUNCATE_TABLE = 13,
 }
 
 struct TBinlog {

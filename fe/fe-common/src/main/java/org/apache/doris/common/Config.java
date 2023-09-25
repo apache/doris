@@ -1293,6 +1293,10 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean enable_bdbje_debug_mode = false;
 
+    @ConfField(mutable = false, masterOnly = true, description = {"是否开启debug point模式，测试使用",
+            "is enable debug points, use in test."})
+    public static boolean enable_debug_points = false;
+
     /**
      * This config is used to try skip broker when access bos or other cloud storage via broker
      */
