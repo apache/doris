@@ -321,7 +321,7 @@ public class BrokerLoadJob extends BulkLoadJob {
         if (!enableProfile) {
             return;
         }
-        jobProfile.update(createTimestamp, getSummaryInfo(true), true);
+        jobProfile.update(createTimestamp, getSummaryInfo(true), true, null);
     }
 
     private Map<String, String> getSummaryInfo(boolean isFinished) {

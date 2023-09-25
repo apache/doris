@@ -624,7 +624,7 @@ public class SessionVariable implements Serializable, Writable {
     public int parallelPipelineTaskNum = 0;
 
     @VariableMgr.VarAttr(name = ENABLE_SIMPLY_PROFILE, fuzzy = true)
-    public boolean enableSimplyProfile = true;
+    public boolean enableSimplyProfile = false;
 
     @VariableMgr.VarAttr(name = MAX_INSTANCE_NUM)
     public int maxInstanceNum = 64;

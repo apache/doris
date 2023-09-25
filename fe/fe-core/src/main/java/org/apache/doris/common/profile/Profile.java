@@ -19,6 +19,7 @@ package org.apache.doris.common.profile;
 
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
+import org.apache.doris.planner.Planner;
 
 import com.google.common.collect.Lists;
 
@@ -61,7 +62,8 @@ public class Profile {
         executionProfile.addToProfileAsChild(rootProfile);
     }
 
-    public synchronized void update(long startTime, Map<String, String> summaryInfo, boolean isFinished) {
+    public synchronized void update(long startTime, Map<String, String> summaryInfo, boolean isFinished,
+            Planner planner) {
         if (this.isFinished) {
             return;
         }
@@ -71,6 +73,7 @@ public class Profile {
         }
         rootProfile.computeTimeInProfile();
         rootProfile.setProfileLevel();
+        rootProfile.setPlaner(planner);
         ProfileManager.getInstance().pushProfile(rootProfile);
         this.isFinished = isFinished;
     }

@@ -30,6 +30,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
+#include "util/runtime_profile.h"
 #include "util/telemetry/telemetry.h"
 #include "util/threadpool.h"
 #include "vec/columns/column.h"
@@ -111,15 +112,15 @@ Status VJoinNodeBase::prepare(RuntimeState* state) {
     runtime_profile()->add_info_string("JoinType", to_string(_join_op));
     _build_phase_profile = runtime_profile()->create_child("BuildPhase", true, true);
     _build_get_next_timer = ADD_TIMER(_build_phase_profile, "BuildGetNextTime");
-    _build_timer = ADD_TIMER(_build_phase_profile, "BuildTime");
-    _build_rows_counter = ADD_COUNTER(_build_phase_profile, "BuildRows", TUnit::UNIT);
+    _build_timer = ADD_TIMER_WITH_LEVEL(_build_phase_profile, "BuildTime", 1);
+    _build_rows_counter = ADD_COUNTER_WITH_LEVEL(_build_phase_profile, "BuildRows", TUnit::UNIT, 1);
 
     _probe_phase_profile = runtime_profile()->create_child("ProbePhase", true, true);
-    _probe_timer = ADD_TIMER(_probe_phase_profile, "ProbeTime");
+    _probe_timer = ADD_TIMER_WITH_LEVEL(_probe_phase_profile, "ProbeTime", 1);
     _join_filter_timer = ADD_CHILD_TIMER(_probe_phase_profile, "JoinFilterTimer", "ProbeTime");
     _build_output_block_timer =
             ADD_CHILD_TIMER(_probe_phase_profile, "BuildOutputBlock", "ProbeTime");
-    _probe_rows_counter = ADD_COUNTER(_probe_phase_profile, "ProbeRows", TUnit::UNIT);
+    _probe_rows_counter = ADD_COUNTER_WITH_LEVEL(_probe_phase_profile, "ProbeRows", TUnit::UNIT, 1);
 
     _push_down_timer = ADD_TIMER(runtime_profile(), "PublishRuntimeFilterTime");
     _push_compute_timer = ADD_TIMER(runtime_profile(), "PushDownComputeTime");
