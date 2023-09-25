@@ -743,6 +743,7 @@ struct TLoadTxn2PCRequest {
     8: optional i64 auth_code
     9: optional string token
     10: optional i64 thrift_rpc_timeout_ms
+    11: optional string label
 }
 
 struct TLoadTxn2PCResult {
