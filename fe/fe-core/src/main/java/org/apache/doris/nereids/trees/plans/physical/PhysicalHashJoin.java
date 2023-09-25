@@ -256,19 +256,18 @@ public class PhysicalHashJoin<
             pushedDown |= rightNode.pushDownRuntimeFilter(context, generator, builderNode,
                     srcExpr, prob, type, buildSideNdv, exprOrder);
         }
+
         // currently, we can ensure children in the two side are corresponding to the equal_to's.
         // so right maybe an expression and left is a slot
         Slot probeSlot = RuntimeFilterGenerator.checkTargetChild(probeExpr);
 
         // aliasTransMap doesn't contain the key, means that the path from the olap scan to the join
         // contains join with denied join type. for example: a left join b on a.id = b.id
-        if (!RuntimeFilterGenerator.checkPushDownPreconditions(builderNode, ctx, probeSlot)) {
+        if (!RuntimeFilterGenerator.checkPushDownPreconditionsForJoin(builderNode, ctx, probeSlot)) {
             return false;
         }
-        Slot olapScanSlot = aliasTransferMap.get(probeSlot).second;
         PhysicalRelation scan = aliasTransferMap.get(probeSlot).first;
-        Preconditions.checkState(olapScanSlot != null && scan != null);
-        if (!RuntimeFilterGenerator.isCoveredByPlanNode(this, scan)) {
+        if (!RuntimeFilterGenerator.checkPushDownPreconditionsForRelation(this, scan)) {
             return false;
         }
 

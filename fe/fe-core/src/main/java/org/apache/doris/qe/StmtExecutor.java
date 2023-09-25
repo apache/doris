@@ -885,7 +885,9 @@ public class StmtExecutor {
         if (!context.getSessionVariable().enableProfile()) {
             return;
         }
-        profile.update(context.startTime, getSummaryInfo(isFinished), isFinished, this.planner);
+
+        profile.update(context.startTime, getSummaryInfo(isFinished), isFinished,
+                context.getSessionVariable().enableSimplyProfile, this.planner);
     }
 
     // Analyze one statement to structure in memory.

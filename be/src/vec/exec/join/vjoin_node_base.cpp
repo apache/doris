@@ -111,6 +111,7 @@ Status VJoinNodeBase::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
     runtime_profile()->add_info_string("JoinType", to_string(_join_op));
     _build_phase_profile = runtime_profile()->create_child("BuildPhase", true, true);
+
     _build_get_next_timer = ADD_TIMER(_build_phase_profile, "BuildGetNextTime");
     _build_timer = ADD_TIMER_WITH_LEVEL(_build_phase_profile, "BuildTime", 1);
     _build_rows_counter = ADD_COUNTER_WITH_LEVEL(_build_phase_profile, "BuildRows", TUnit::UNIT, 1);

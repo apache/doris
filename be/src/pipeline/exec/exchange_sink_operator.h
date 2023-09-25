@@ -120,7 +120,7 @@ public:
             : WriteDependency(id, "ChannelDependency"),
               _sender_id(sender_id),
               _local_recvr(local_recvr) {}
-    virtual ~ChannelDependency() = default;
+    ~ChannelDependency() override = default;
 
     void* shared_state() override { return nullptr; }
 
@@ -150,7 +150,7 @@ private:
     vectorized::VDataStreamRecvr* _local_recvr;
 };
 
-class ExchangeSinkLocalState : public PipelineXSinkLocalState<> {
+class ExchangeSinkLocalState final : public PipelineXSinkLocalState<> {
     ENABLE_FACTORY_CREATOR(ExchangeSinkLocalState);
 
 public:

@@ -254,7 +254,6 @@ protected:
     int64_t _cur_bytes_in_queue = 0;
     // The max limit bytes of blocks in blocks queue
     const int64_t _max_bytes_in_queue;
-    std::atomic<int64_t> _bytes_allocated = 0;
 
     doris::vectorized::ScannerScheduler* _scanner_scheduler;
     // List "scanners" saves all "unfinished" scanners.

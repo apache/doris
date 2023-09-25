@@ -25,12 +25,15 @@
 #include "pipeline/exec/analytic_sink_operator.h"
 #include "pipeline/exec/analytic_source_operator.h"
 #include "pipeline/exec/assert_num_rows_operator.h"
+#include "pipeline/exec/datagen_operator.h"
 #include "pipeline/exec/distinct_streaming_aggregation_sink_operator.h"
 #include "pipeline/exec/empty_set_operator.h"
+#include "pipeline/exec/es_scan_operator.h"
 #include "pipeline/exec/exchange_sink_operator.h"
 #include "pipeline/exec/exchange_source_operator.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
+#include "pipeline/exec/meta_scan_operator.h"
 #include "pipeline/exec/multi_cast_data_stream_source.h"
 #include "pipeline/exec/nested_loop_join_build_operator.h"
 #include "pipeline/exec/nested_loop_join_probe_operator.h"
@@ -40,11 +43,13 @@
 #include "pipeline/exec/repeat_operator.h"
 #include "pipeline/exec/result_file_sink_operator.h"
 #include "pipeline/exec/result_sink_operator.h"
+#include "pipeline/exec/schema_scan_operator.h"
 #include "pipeline/exec/select_operator.h"
 #include "pipeline/exec/sort_sink_operator.h"
 #include "pipeline/exec/sort_source_operator.h"
 #include "pipeline/exec/streaming_aggregation_sink_operator.h"
 #include "pipeline/exec/streaming_aggregation_source_operator.h"
+#include "pipeline/exec/table_function_operator.h"
 #include "pipeline/exec/union_sink_operator.h"
 #include "pipeline/exec/union_source_operator.h"
 #include "util/debug_util.h"
@@ -305,9 +310,6 @@ Status OperatorX<LocalStateType>::setup_local_state(RuntimeState* state, LocalSt
 template <typename LocalStateType>
 Status OperatorX<LocalStateType>::setup_local_states(RuntimeState* state,
                                                      std::vector<LocalStateInfo>& infos) {
-    if (infos.size() > 1) {
-        LOG_WARNING("herr");
-    }
     DCHECK(infos.size() == 1) << infos.size();
     for (auto& info : infos) {
         RETURN_IF_ERROR(setup_local_state(state, info));
@@ -318,15 +320,18 @@ Status OperatorX<LocalStateType>::setup_local_states(RuntimeState* state,
 template <>
 Status OperatorX<UnionSourceLocalState>::setup_local_states(RuntimeState* state,
                                                             std::vector<LocalStateInfo>& infos) {
+    int child_count = static_cast<pipeline::UnionSourceOperatorX*>(this)->get_child_count();
     std::shared_ptr<DataQueue> data_queue;
     for (auto& info : infos) {
         auto local_state = UnionSourceLocalState::create_shared(state, this);
         state->emplace_local_state(id(), local_state);
         RETURN_IF_ERROR(local_state->init(state, info));
-        if (!data_queue) {
-            data_queue = local_state->data_queue();
+        if (child_count != 0) {
+            if (!data_queue) {
+                data_queue = local_state->data_queue();
+            }
+            local_state->_shared_state->data_queue = data_queue;
         }
-        local_state->_shared_state->data_queue = data_queue;
     }
     return Status::OK();
 }
@@ -391,9 +396,11 @@ DECLARE_OPERATOR_X(PartitionSortSinkLocalState)
 #define DECLARE_OPERATOR_X(LOCAL_STATE) template class OperatorX<LOCAL_STATE>;
 DECLARE_OPERATOR_X(HashJoinProbeLocalState)
 DECLARE_OPERATOR_X(OlapScanLocalState)
+DECLARE_OPERATOR_X(EsScanLocalState)
 DECLARE_OPERATOR_X(AnalyticLocalState)
 DECLARE_OPERATOR_X(SortLocalState)
 DECLARE_OPERATOR_X(AggLocalState)
+DECLARE_OPERATOR_X(TableFunctionLocalState)
 DECLARE_OPERATOR_X(ExchangeLocalState)
 DECLARE_OPERATOR_X(RepeatLocalState)
 DECLARE_OPERATOR_X(NestedLoopJoinProbeLocalState)
@@ -402,6 +409,9 @@ DECLARE_OPERATOR_X(EmptySetLocalState)
 DECLARE_OPERATOR_X(UnionSourceLocalState)
 DECLARE_OPERATOR_X(MultiCastDataStreamSourceLocalState)
 DECLARE_OPERATOR_X(PartitionSortSourceLocalState)
+DECLARE_OPERATOR_X(DataGenLocalState)
+DECLARE_OPERATOR_X(SchemaScanLocalState)
+DECLARE_OPERATOR_X(MetaScanLocalState)
 
 #undef DECLARE_OPERATOR_X
 
@@ -411,6 +421,7 @@ template class StreamingOperatorX<SelectLocalState>;
 template class StatefulOperatorX<HashJoinProbeLocalState>;
 template class StatefulOperatorX<RepeatLocalState>;
 template class StatefulOperatorX<NestedLoopJoinProbeLocalState>;
+template class StatefulOperatorX<TableFunctionLocalState>;
 
 template class PipelineXSinkLocalState<HashJoinDependency>;
 template class PipelineXSinkLocalState<SortDependency>;

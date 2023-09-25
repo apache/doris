@@ -63,7 +63,7 @@ public class Profile {
     }
 
     public synchronized void update(long startTime, Map<String, String> summaryInfo, boolean isFinished,
-            Planner planner) {
+            boolean isSimpleProfile, Planner planner) {
         if (this.isFinished) {
             return;
         }
@@ -72,8 +72,8 @@ public class Profile {
             executionProfile.update(startTime, isFinished);
         }
         rootProfile.computeTimeInProfile();
-        rootProfile.setProfileLevel();
         rootProfile.setPlaner(planner);
+        rootProfile.setProfileLevel(isSimpleProfile);
         ProfileManager.getInstance().pushProfile(rootProfile);
         this.isFinished = isFinished;
     }
