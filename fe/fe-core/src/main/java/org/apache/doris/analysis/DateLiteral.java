@@ -34,6 +34,7 @@ import org.apache.doris.thrift.TExprNodeType;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -58,8 +59,10 @@ import java.time.temporal.TemporalAccessor;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TimeZone;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 public class DateLiteral extends LiteralExpr {
     private static final Logger LOG = LogManager.getLogger(DateLiteral.class);
@@ -93,6 +96,7 @@ public class DateLiteral extends LiteralExpr {
     private static Map<String, Integer> MONTH_NAME_DICT = Maps.newHashMap();
     private static Map<String, Integer> MONTH_ABBR_NAME_DICT = Maps.newHashMap();
     private static Map<String, Integer> WEEK_DAY_NAME_DICT = Maps.newHashMap();
+    private static Set<Character> TIME_PART_SET = Sets.newHashSet();
     private static final int[] DAYS_IN_MONTH = new int[] {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
     private static final int ALLOW_SPACE_MASK = 4 | 64;
     private static final int MAX_DATE_PARTS = 8;
@@ -127,6 +131,7 @@ public class DateLiteral extends LiteralExpr {
                             .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, false)
                             .toFormatter().withResolverStyle(ResolverStyle.STRICT),
                     DATETIMEKEY_FORMATTER, DATEKEY_FORMATTER);
+            TIME_PART_SET = "HhIiklrSsTp".chars().mapToObj(c -> (char) c).collect(Collectors.toSet());
         } catch (AnalysisException e) {
             LOG.error("invalid date format", e);
             System.exit(-1);
@@ -174,9 +179,6 @@ public class DateLiteral extends LiteralExpr {
         MONTH_ABBR_NAME_DICT.put("sat", 5);
         MONTH_ABBR_NAME_DICT.put("sun", 6);
     }
-
-    //Regex used to determine if the TIME field exists int date_format
-    private static final Pattern HAS_TIME_PART = Pattern.compile("^.*[HhIiklrSsTp]+.*$");
     private static final Pattern HAS_OFFSET_PART = Pattern.compile("[\\+\\-]\\d{2}:\\d{2}");
 
     //Date Literal persist type in meta
@@ -896,7 +898,7 @@ public class DateLiteral extends LiteralExpr {
     }
 
     public static boolean hasTimePart(String format) {
-        return HAS_TIME_PART.matcher(format).matches();
+        return format.chars().anyMatch(c -> TIME_PART_SET.contains((char) c));
     }
 
     //Return the date stored in the dateliteral as pattern format.
