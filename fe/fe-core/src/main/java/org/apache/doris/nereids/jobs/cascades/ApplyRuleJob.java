@@ -86,11 +86,18 @@ public class ApplyRuleJob extends Job {
                     if (!rule.getRuleType().equals(RuleType.LOGICAL_JOIN_COMMUTE)) {
                         pushJob(new DeriveStatsJob(newGroupExpression, context));
                     } else {
+                        // The Join Commute rule preserves the operator's expression and children,
+                        // thereby not altering the statistics. Hence, there is no need to derive statistics for it.
                         groupExpression.setStatDerived(true);
                     }
                 } else {
                     pushJob(new CostAndEnforcerJob(newGroupExpression, context));
                     if (newGroupExpression.children().stream().anyMatch(g -> g.getLogicalExpressions().isEmpty())) {
+                        // If a rule creates a new group when generating a physical plan,
+                        // then we need to derive statistics for it, e.g., logicalTopToPhysicalTopN rule:
+                        // logicalTopN ==> GlobalPhysicalTopN
+                        //                   -> localPhysicalTopN
+                        // These implementation rules integrate rules for plan shape transformation.
                         pushJob(new DeriveStatsJob(newGroupExpression, context));
                     } else {
                         groupExpression.setStatDerived(true);
