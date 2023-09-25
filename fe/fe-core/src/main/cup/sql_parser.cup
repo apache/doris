@@ -6306,10 +6306,7 @@ type_def_nullable_list ::=
 
 
 func_args_def ::=
-  /* empty */
-  {:
-    RESULT = new FunctionArgsDef(Lists.newArrayList(), false);
-  :}
+  {: RESULT = new FunctionArgsDef(Lists.newArrayList(), false); :}
   | type_def_list:argTypes
   {:
     RESULT = new FunctionArgsDef(argTypes, false);
