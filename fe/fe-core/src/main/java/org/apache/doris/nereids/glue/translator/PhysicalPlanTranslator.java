@@ -479,7 +479,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     break;
                 case HIVE:
                     scanNode = new HiveScanNode(fileScan.translatePlanNodeId(), tupleDescriptor, false);
-                    ((HiveScanNode) scanNode).setSelectedPartitions(fileScan.getSelectedPartitions());
+                    HiveScanNode hiveScanNode = (HiveScanNode) scanNode;
+                    hiveScanNode.setSelectedPartitions(fileScan.getSelectedPartitions());
+                    if (fileScan.getTableSample().isPresent()) {
+                        hiveScanNode.setTableSample(new TableSample(fileScan.getTableSample().get().isPercent,
+                                fileScan.getTableSample().get().sampleValue, fileScan.getTableSample().get().seek));
+                    }
                     break;
                 default:
                     throw new RuntimeException("do not support DLA type " + ((HMSExternalTable) table).getDlaType());
