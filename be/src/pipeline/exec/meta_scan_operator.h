@@ -52,12 +52,12 @@ private:
     Status _init_scanners(std::list<vectorized::VScannerSPtr>* scanners) override;
 
     std::vector<TScanRangeParams> _scan_ranges;
-
 };
 
 class MetaScanOperatorX final : public ScanOperatorX<MetaScanLocalState> {
 public:
     MetaScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+
 private:
     friend class MetaScanLocalState;
 
