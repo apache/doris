@@ -165,7 +165,7 @@ public class NereidsTracer {
         try (FileWriter file = new FileWriter(TRACE_PATH + "/" + queryId + ".json")) {
             file.write(totalTraces.toString(4));
         } catch (IOException e) {
-            LOG.info("failed to output ot tracer", e);
+            LOG.info("failed to output of tracer", e);
         }
     }
 
