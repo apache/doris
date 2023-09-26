@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
@@ -40,6 +41,8 @@ import org.apache.doris.nereids.util.PlanConstructor;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
+
+import java.util.Optional;
 
 public class PushdownFilterThroughAggregationTest implements MemoPatternMatchSupported {
     private final LogicalOlapScan scan = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student,
@@ -141,6 +144,61 @@ public class PushdownFilterThroughAggregationTest implements MemoPatternMatchSup
                                                         && ImmutableList.copyOf(filter.getConjuncts()).get(1) instanceof LessThanEqual)
                                         )
                                 ).when(filter -> ImmutableList.copyOf(filter.getConjuncts()).get(0) instanceof EqualTo)
+                        )
+                );
+    }
+
+    @Test
+    public void pushDownPredicateGroupWithRepeatTest() {
+        Slot id = scan.getOutput().get(0);
+        Slot gender = scan.getOutput().get(1);
+        Slot name = scan.getOutput().get(2);
+        LogicalRepeat repeatPlan = new LogicalRepeat<>(
+                ImmutableList.of(ImmutableList.of(id, gender), ImmutableList.of(id)),
+                ImmutableList.of(id, gender, name), scan);
+        NamedExpression nameMax = new Alias(new Max(name), "nameMax");
+
+        final Expression filterPredicateId = new GreaterThan(id, Literal.of(1));
+        LogicalPlan plan = new LogicalPlanBuilder(repeatPlan)
+                .aggGroupUsingIndexAndSourceRepeat(ImmutableList.of(0, 1), ImmutableList.of(
+                        id, gender, nameMax), Optional.of(repeatPlan))
+                .filter(filterPredicateId)
+                .project(ImmutableList.of(0))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new PushdownFilterThroughAggregation())
+                .printlnTree()
+                .matches(
+                        logicalProject(
+                                logicalAggregate(
+                                        logicalFilter(
+                                                logicalRepeat()
+                                        ).when(filter -> filter.getConjuncts().equals(ImmutableSet.of(filterPredicateId)))
+                                )
+                        )
+                );
+
+        repeatPlan = new LogicalRepeat<>(
+                ImmutableList.of(ImmutableList.of(id, gender), ImmutableList.of(gender)),
+                ImmutableList.of(id, gender, name), scan);
+        plan = new LogicalPlanBuilder(repeatPlan)
+                .aggGroupUsingIndexAndSourceRepeat(ImmutableList.of(0, 1), ImmutableList.of(
+                        id, gender, nameMax), Optional.of(repeatPlan))
+                .filter(filterPredicateId)
+                .project(ImmutableList.of(0))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new PushdownFilterThroughAggregation())
+                .printlnTree()
+                .matches(
+                        logicalProject(
+                                logicalFilter(
+                                    logicalAggregate(
+                                            logicalRepeat()
+                                    )
+                                ).when(filter -> filter.getConjuncts().equals(ImmutableSet.of(filterPredicateId)))
                         )
                 );
     }
