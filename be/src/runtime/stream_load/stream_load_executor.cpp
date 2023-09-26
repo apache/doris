@@ -248,7 +248,7 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
     int64_t duration_ns = 0;
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
     if (master_addr.hostname.empty() || master_addr.port == 0) {
-        status = Status::ServiceUnavailable("Have not get FE Master heartbeat yet");
+        status = Status::Error<SERVICE_UNAVAILABLE>("Have not get FE Master heartbeat yet");
     } else {
         SCOPED_RAW_TIMER(&duration_ns);
 #ifndef BE_TEST
@@ -321,9 +321,12 @@ Status StreamLoadExecutor::operate_txn_2pc(StreamLoadContext* ctx) {
     TLoadTxn2PCRequest request;
     set_request_auth(&request, ctx->auth);
     request.__set_db(ctx->db);
-    request.__set_txnId(ctx->txn_id);
     request.__set_operation(ctx->txn_operation);
     request.__set_thrift_rpc_timeout_ms(config::txn_commit_rpc_timeout_ms);
+    request.__set_label(ctx->label);
+    if (ctx->txn_id != ctx->default_txn_id) {
+        request.__set_txnId(ctx->txn_id);
+    }
 
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
     TLoadTxn2PCResult result;

@@ -148,6 +148,7 @@ extern ResultType date_time_add(const Arg& t, Int64 delta, bool& is_null) {
     }
 
 ADD_TIME_FUNCTION_IMPL(AddMicrosecondsImpl, microseconds_add, MICROSECOND);
+ADD_TIME_FUNCTION_IMPL(AddMillisecondsImpl, milliseconds_add, MILLISECOND);
 ADD_TIME_FUNCTION_IMPL(AddSecondsImpl, seconds_add, SECOND);
 ADD_TIME_FUNCTION_IMPL(AddMinutesImpl, minutes_add, MINUTE);
 ADD_TIME_FUNCTION_IMPL(AddHoursImpl, hours_add, HOUR);
@@ -208,6 +209,11 @@ struct SubtractIntervalImpl {
 template <typename DateType>
 struct SubtractMicrosecondsImpl : SubtractIntervalImpl<AddMicrosecondsImpl<DateType>, DateType> {
     static constexpr auto name = "microseconds_sub";
+};
+
+template <typename DateType>
+struct SubtractMillisecondsImpl : SubtractIntervalImpl<AddMillisecondsImpl<DateType>, DateType> {
+    static constexpr auto name = "milliseconds_sub";
 };
 
 template <typename DateType>
@@ -334,6 +340,8 @@ TIME_DIFF_FUNCTION_IMPL(DaysDiffImpl, days_diff, DAY);
 TIME_DIFF_FUNCTION_IMPL(HoursDiffImpl, hours_diff, HOUR);
 TIME_DIFF_FUNCTION_IMPL(MintueSDiffImpl, minutes_diff, MINUTE);
 TIME_DIFF_FUNCTION_IMPL(SecondsDiffImpl, seconds_diff, SECOND);
+TIME_DIFF_FUNCTION_IMPL(MilliSecondsDiffImpl, milliseconds_diff, MILLISECOND);
+TIME_DIFF_FUNCTION_IMPL(MicroSecondsDiffImpl, microseconds_diff, MICROSECOND);
 
 #define TIME_FUNCTION_TWO_ARGS_IMPL(CLASS, NAME, FUNCTION, RETURN_TYPE)                           \
     template <typename DateType>                                                                  \
@@ -1101,6 +1109,55 @@ struct SecToTimeImpl {
         }
 
         block.replace_by_position(result, std::move(res_col));
+        return Status::OK();
+    }
+};
+struct MicroSec {
+    static constexpr auto name = "from_microsecond";
+    static constexpr Int64 ratio = 1000000;
+};
+struct MilliSec {
+    static constexpr auto name = "from_millisecond";
+    static constexpr Int64 ratio = 1000;
+};
+struct Sec {
+    static constexpr auto name = "from_second";
+    static constexpr Int64 ratio = 1;
+};
+template <typename Impl>
+struct TimestampToDateTime : IFunction {
+    using ReturnType = DataTypeDateTimeV2;
+    static constexpr auto name = Impl::name;
+    static constexpr Int64 ratio_to_micro = (1000 * 1000) / Impl::ratio;
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
+        return make_nullable(std::make_shared<ReturnType>());
+    }
+
+    static FunctionPtr create() { return std::make_shared<TimestampToDateTime<Impl>>(); }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        const auto& arg_col = block.get_by_position(arguments[0]).column;
+        const auto& column_data = assert_cast<const ColumnInt64&>(*arg_col);
+        auto res_col = ColumnUInt64::create();
+        auto null_vector = ColumnVector<UInt8>::create();
+        res_col->get_data().resize_fill(input_rows_count, 0);
+        null_vector->get_data().resize_fill(input_rows_count, false);
+        NullMap& null_map = null_vector->get_data();
+        auto& res_data = res_col->get_data();
+        const cctz::time_zone& time_zone = context->state()->timezone_obj();
+        for (int i = 0; i < input_rows_count; ++i) {
+            Int64 value = column_data.get_element(i);
+            auto& dt = reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(res_data[i]);
+            null_map[i] = !dt.from_unixtime(value / Impl::ratio, time_zone);
+            dt.set_microsecond((value % Impl::ratio) * ratio_to_micro);
+        }
+        block.get_by_position(result).column =
+                ColumnNullable::create(std::move(res_col), std::move(null_vector));
         return Status::OK();
     }
 };

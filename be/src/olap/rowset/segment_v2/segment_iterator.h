@@ -187,7 +187,7 @@ private:
             ColumnPredicate* pred, roaring::Roaring* output_result);
     [[nodiscard]] Status _apply_inverted_index_except_leafnode_of_andnode(
             ColumnPredicate* pred, roaring::Roaring* output_result);
-    bool _column_has_fulltext_index(int32_t unique_id);
+    bool _column_has_fulltext_index(int32_t cid);
     bool _downgrade_without_index(Status res, bool need_remaining = false);
     inline bool _inverted_index_not_support_pred_type(const PredicateType& type);
     bool _can_filter_by_preds_except_leafnode_of_andnode();
@@ -331,12 +331,10 @@ private:
 
     std::shared_ptr<Segment> _segment;
     SchemaSPtr _schema;
-    // _column_iterators_map.size() == _schema.num_columns()
-    // map<unique_id, ColumnIterator*> _column_iterators_map/_bitmap_index_iterators;
-    // can use _schema get unique_id by cid
-    std::map<int32_t, std::unique_ptr<ColumnIterator>> _column_iterators;
-    std::map<int32_t, std::unique_ptr<BitmapIndexIterator>> _bitmap_index_iterators;
-    std::map<int32_t, std::unique_ptr<InvertedIndexIterator>> _inverted_index_iterators;
+    // vector idx -> column iterarator
+    std::vector<std::unique_ptr<ColumnIterator>> _column_iterators;
+    std::vector<std::unique_ptr<BitmapIndexIterator>> _bitmap_index_iterators;
+    std::vector<std::unique_ptr<InvertedIndexIterator>> _inverted_index_iterators;
     // after init(), `_row_bitmap` contains all rowid to scan
     roaring::Roaring _row_bitmap;
     // "column_name+operator+value-> <in_compound_query, rowid_result>

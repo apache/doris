@@ -49,6 +49,10 @@ struct AggregateFunctionBitmapAggData {
     void reset() { value.clear(); }
 
     void merge(const AggregateFunctionBitmapAggData& other) { value |= other.value; }
+
+    void write(BufferWritable& buf) const { DataTypeBitMap::serialize_as_stream(value, buf); }
+
+    void read(BufferReadable& buf) { DataTypeBitMap::deserialize_as_stream(value, buf); }
 };
 
 template <bool arg_nullable, typename T>
@@ -114,12 +118,26 @@ public:
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
-        __builtin_unreachable();
+        this->data(place).write(buf);
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena*) const override {
-        __builtin_unreachable();
+        this->data(place).read(buf);
+    }
+
+    void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
+                                           const size_t num_rows, Arena* arena) const override {
+        auto& col = assert_cast<ColumnBitmap&>(*dst);
+        char place[sizeof(Data)];
+        col.resize(num_rows);
+        auto* data = col.get_data().data();
+        for (size_t i = 0; i != num_rows; ++i) {
+            this->create(place);
+            DEFER({ this->destroy(place); });
+            this->add(place, columns, i, arena);
+            data[i] = std::move(this->data(place).value);
+        }
     }
 
     void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena* arena,
@@ -172,7 +190,7 @@ public:
         auto& col = assert_cast<const ColumnBitmap&>(*assert_cast<const IColumn*>(column));
         auto* data = col.get_data().data();
         for (size_t i = 0; i != num_rows; ++i) {
-            this->data(places[i]).value |= data[i];
+            this->data(places[i] + offset).value |= data[i];
         }
     }
 
@@ -183,7 +201,7 @@ public:
         auto* data = col.get_data().data();
         for (size_t i = 0; i != num_rows; ++i) {
             if (places[i]) {
-                this->data(places[i]).value |= data[i];
+                this->data(places[i] + offset).value |= data[i];
             }
         }
     }

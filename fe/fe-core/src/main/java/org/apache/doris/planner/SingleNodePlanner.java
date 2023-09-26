@@ -1055,7 +1055,7 @@ public class SingleNodePlanner {
                 // reset assigned conjuncts of analyzer in every compare
                 analyzer.setAssignedConjuncts(root.getAssignedConjuncts());
                 PlanNode candidate = createJoinNode(analyzer, root, rootPlanNodeOfCandidate, tblRefOfCandidate);
-                // (ML): 这里还需要吗？应该不会返回null吧
+                // it may not return null, but protect.
                 if (candidate == null) {
                     continue;
                 }
@@ -1647,7 +1647,13 @@ public class SingleNodePlanner {
                     return unionNode;
                 }
                 unionNode.setTblRefIds(Lists.newArrayList(inlineViewRef.getId()));
-                unionNode.addConstExprList(selectStmt.getBaseTblResultExprs());
+                if (selectStmt.getValueList() != null) {
+                    for (List<Expr> row : selectStmt.getValueList().getRows()) {
+                        unionNode.addConstExprList(row);
+                    }
+                } else {
+                    unionNode.addConstExprList(selectStmt.getBaseTblResultExprs());
+                }
                 unionNode.init(analyzer);
                 //set outputSmap to substitute literal in outputExpr
                 unionNode.setWithoutTupleIsNullOutputSmap(inlineViewRef.getSmap());
@@ -2018,9 +2024,10 @@ public class SingleNodePlanner {
                         break;
                     case HIVE:
                         scanNode = new HiveScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
+                        ((HiveScanNode) scanNode).setTableSample(tblRef.getTableSample());
                         break;
                     default:
-                        throw new UserException("Not supported table type" + table.getType());
+                        throw new UserException("Not supported table type: " + ((HMSExternalTable) table).getDlaType());
                 }
                 break;
             case ICEBERG_EXTERNAL_TABLE:
@@ -2044,10 +2051,11 @@ public class SingleNodePlanner {
                 scanNode = new TestExternalTableScanNode(ctx.getNextNodeId(), tblRef.getDesc());
                 break;
             default:
-                throw new UserException("Not supported table type" + tblRef.getTable().getType());
+                throw new UserException("Not supported table type: " + tblRef.getTable().getType());
         }
         if (scanNode instanceof OlapScanNode || scanNode instanceof EsScanNode
-                || scanNode instanceof FileQueryScanNode) {
+                || scanNode instanceof OdbcScanNode || scanNode instanceof JdbcScanNode
+                || scanNode instanceof FileQueryScanNode || scanNode instanceof MysqlScanNode) {
             if (analyzer.enableInferPredicate()) {
                 PredicatePushDown.visitScanNode(scanNode, tblRef.getJoinOp(), analyzer);
             }
@@ -2762,7 +2770,7 @@ public class SingleNodePlanner {
                 while (sourceExpr instanceof SlotRef) {
                     SlotRef slotRef = (SlotRef) sourceExpr;
                     SlotDescriptor slotDesc = slotRef.getDesc();
-                    if (slotDesc.getSourceExprs().isEmpty()) {
+                    if (slotDesc.getSourceExprs().size() != 1) {
                         break;
                     }
                     sourceExpr = slotDesc.getSourceExprs().get(0);

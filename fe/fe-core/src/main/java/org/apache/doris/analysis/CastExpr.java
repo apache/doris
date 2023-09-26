@@ -204,20 +204,11 @@ public class CastExpr extends Expr {
 
     @Override
     public String toSqlImpl() {
-        boolean isVerbose = ConnectContext.get() != null
-                && ConnectContext.get().getExecutor() != null
-                && ConnectContext.get().getExecutor().getParsedStmt() != null
-                && ConnectContext.get().getExecutor().getParsedStmt().getExplainOptions() != null
-                && ConnectContext.get().getExecutor().getParsedStmt().getExplainOptions().isVerbose();
-        if (isImplicit && !isVerbose) {
+        if (needToMysql) {
             return getChild(0).toSql();
         }
         if (isAnalyzed) {
-            if (type.isStringType()) {
-                return "CAST(" + getChild(0).toSql() + " AS " + "CHARACTER" + ")";
-            } else {
-                return "CAST(" + getChild(0).toSql() + " AS " + type.toString() + ")";
-            }
+            return "CAST(" + getChild(0).toSql() + " AS " + type.toString() + ")";
         } else {
             return "CAST(" + getChild(0).toSql() + " AS " + targetTypeDef.toSql() + ")";
         }
@@ -234,11 +225,7 @@ public class CastExpr extends Expr {
             return getChild(0).toDigest();
         }
         if (isAnalyzed) {
-            if (type.isStringType()) {
-                return "CAST(" + getChild(0).toDigest() + " AS " + "CHARACTER" + ")";
-            } else {
-                return "CAST(" + getChild(0).toDigest() + " AS " + type.toString() + ")";
-            }
+            return "CAST(" + getChild(0).toDigest() + " AS " + type.toString() + ")";
         } else {
             return "CAST(" + getChild(0).toDigest() + " AS " + targetTypeDef.toString() + ")";
         }
@@ -275,7 +262,7 @@ public class CastExpr extends Expr {
         if (type.isArrayType()) {
             fn = ScalarFunction.createBuiltin(getFnName(Type.ARRAY),
                     type, Function.NullableMode.ALWAYS_NULLABLE,
-                    Lists.newArrayList(Type.VARCHAR), false,
+                    Lists.newArrayList(getActualArgTypes(collectChildReturnTypes())[0]), false,
                     "doris::CastFunctions::cast_to_array_val", null, null, true);
         } else if (type.isMapType()) {
             fn = ScalarFunction.createBuiltin(getFnName(Type.MAP),
@@ -426,6 +413,9 @@ public class CastExpr extends Expr {
                 targetExpr.setType(type);
             }
         } catch (AnalysisException ae) {
+            if (ConnectContext.get() != null) {
+                ConnectContext.get().getState().reset();
+            }
             targetExpr = this;
         } catch (NumberFormatException nfe) {
             targetExpr = new NullLiteral();

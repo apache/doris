@@ -62,6 +62,7 @@
 #include "pipeline/exec/nested_loop_join_build_operator.h"
 #include "pipeline/exec/nested_loop_join_probe_operator.h"
 #include "pipeline/exec/olap_table_sink_operator.h"
+#include "pipeline/exec/olap_table_sink_v2_operator.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/exec/partition_sort_sink_operator.h"
 #include "pipeline/exec/partition_sort_source_operator.h"
@@ -116,18 +117,18 @@ PipelineFragmentContext::PipelineFragmentContext(
         const TUniqueId& query_id, const TUniqueId& instance_id, const int fragment_id,
         int backend_num, std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
         const std::function<void(RuntimeState*, Status*)>& call_back,
-        const report_status_callback& report_status_cb)
+        const report_status_callback& report_status_cb, bool group_commit)
         : _query_id(query_id),
           _fragment_instance_id(instance_id),
           _fragment_id(fragment_id),
           _backend_num(backend_num),
           _exec_env(exec_env),
-          _cancel_reason(PPlanFragmentCancelReason::INTERNAL_ERROR),
           _query_ctx(std::move(query_ctx)),
           _call_back(call_back),
           _report_thread_active(false),
           _report_status_cb(report_status_cb),
-          _is_report_on_cancel(true) {
+          _is_report_on_cancel(true),
+          _group_commit(group_commit) {
     if (_query_ctx->get_task_group()) {
         _task_group_entity = _query_ctx->get_task_group()->task_entity();
     }
@@ -136,48 +137,31 @@ PipelineFragmentContext::PipelineFragmentContext(
 }
 
 PipelineFragmentContext::~PipelineFragmentContext() {
+    auto st = _query_ctx->exec_status();
     if (_runtime_state != nullptr) {
         // The memory released by the query end is recorded in the query mem tracker, main memory in _runtime_state.
         SCOPED_ATTACH_TASK(_runtime_state.get());
-        _call_back(_runtime_state.get(), &_exec_status);
+        _call_back(_runtime_state.get(), &st);
         _runtime_state.reset();
     } else {
-        _call_back(_runtime_state.get(), &_exec_status);
+        _call_back(_runtime_state.get(), &st);
     }
     DCHECK(!_report_thread_active);
 }
 
 void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
                                      const std::string& msg) {
-    if (!_runtime_state->is_cancelled()) {
-        std::lock_guard<std::mutex> l(_status_lock);
-        if (_runtime_state->is_cancelled()) {
-            return;
-        }
-        if (reason != PPlanFragmentCancelReason::LIMIT_REACH) {
-            _exec_status = Status::Cancelled(msg);
-        }
-        _runtime_state->set_is_cancelled(true, msg);
+    if (_query_ctx->cancel(true, msg, Status::Cancelled(msg))) {
+        LOG(WARNING) << "PipelineFragmentContext "
+                     << PrintInstanceStandardInfo(_query_id, _fragment_id, _fragment_instance_id)
+                     << " is canceled, cancel message: " << msg;
 
-        LOG(WARNING) << "PipelineFragmentContext Canceled. reason=" << msg;
-
-        // Print detail informations below when you debugging here.
-        //
-        // for (auto& task : _tasks) {
-        //     LOG(WARNING) << task->debug_string();
-        // }
-
-        _runtime_state->set_process_status(_exec_status);
         // Get pipe from new load stream manager and send cancel to it or the fragment may hang to wait read from pipe
         // For stream load the fragment's query_id == load id, it is set in FE.
         auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(_query_id);
         if (stream_load_ctx != nullptr) {
             stream_load_ctx->pipe->cancel(msg);
         }
-        _cancel_reason = reason;
-        _cancel_msg = msg;
-        // To notify wait_for_start()
-        _query_ctx->set_ready_to_execute(true);
 
         // must close stream_mgr to avoid dead lock in Exchange Node
         _exec_env->vstream_mgr()->cancel(_fragment_instance_id);
@@ -214,8 +198,8 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     }
 
     LOG_INFO("PipelineFragmentContext::prepare")
-            .tag("query_id", _query_id)
-            .tag("instance_id", local_params.fragment_instance_id)
+            .tag("query_id", print_id(_query_id))
+            .tag("instance_id", print_id(local_params.fragment_instance_id))
             .tag("backend_num", local_params.backend_num)
             .tag("pthread_id", (uintptr_t)pthread_self());
 
@@ -228,7 +212,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     _runtime_state->set_tracer(std::move(tracer));
 
     // TODO should be combine with plan_fragment_executor.prepare funciton
-    SCOPED_ATTACH_TASK(get_runtime_state());
+    SCOPED_ATTACH_TASK(_runtime_state.get());
     _runtime_state->runtime_filter_mgr()->init();
     _runtime_state->set_be_number(local_params.backend_num);
 
@@ -340,11 +324,9 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
         // TODO pipeline 1 need to add new interface for exec node and operator
         sink->init(request.fragment.output_sink);
 
-        Operators operators;
-        RETURN_IF_ERROR(pipeline->build_operators(operators));
-        auto task =
-                std::make_unique<PipelineTask>(pipeline, _total_tasks++, _runtime_state.get(),
-                                               operators, sink, this, pipeline->pipeline_profile());
+        RETURN_IF_ERROR(pipeline->build_operators());
+        auto task = std::make_unique<PipelineTask>(pipeline, _total_tasks++, _runtime_state.get(),
+                                                   sink, this, pipeline->pipeline_profile());
         sink->set_child(task->get_root());
         _tasks.emplace_back(std::move(task));
         _runtime_profile->add_child(pipeline->pipeline_profile(), true, nullptr);
@@ -440,6 +422,7 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
     case TPlanNodeType::ODBC_SCAN_NODE:
     case TPlanNodeType::FILE_SCAN_NODE:
     case TPlanNodeType::META_SCAN_NODE:
+    case TPlanNodeType::GROUP_COMMIT_SCAN_NODE:
     case TPlanNodeType::ES_HTTP_SCAN_NODE:
     case TPlanNodeType::ES_SCAN_NODE: {
         OperatorBuilderPtr operator_t = std::make_shared<ScanOperatorBuilder>(node->id(), node);
@@ -732,7 +715,7 @@ void PipelineFragmentContext::close_if_prepare_failed() {
     }
     for (auto& task : _tasks) {
         DCHECK(!task->is_pending_finish());
-        WARN_IF_ERROR(task->close(), "close_if_prepare_failed failed: ");
+        WARN_IF_ERROR(task->close(Status::OK()), "close_if_prepare_failed failed: ");
         close_a_pipeline();
     }
 }
@@ -744,7 +727,7 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
     switch (thrift_sink.type) {
     case TDataSinkType::DATA_STREAM_SINK: {
         sink_ = std::make_shared<ExchangeSinkOperatorBuilder>(thrift_sink.stream_sink.dest_node_id,
-                                                              _sink.get(), this);
+                                                              _sink.get());
         break;
     }
     case TDataSinkType::RESULT_SINK: {
@@ -752,9 +735,15 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
                                                             _sink.get());
         break;
     }
+    case TDataSinkType::GROUP_COMMIT_OLAP_TABLE_SINK:
     case TDataSinkType::OLAP_TABLE_SINK: {
-        sink_ = std::make_shared<OlapTableSinkOperatorBuilder>(next_operator_builder_id(),
-                                                               _sink.get());
+        if (state->query_options().enable_memtable_on_sink_node) {
+            sink_ = std::make_shared<OlapTableSinkV2OperatorBuilder>(next_operator_builder_id(),
+                                                                     _sink.get());
+        } else {
+            sink_ = std::make_shared<OlapTableSinkOperatorBuilder>(next_operator_builder_id(),
+                                                                   _sink.get());
+        }
         break;
     }
     case TDataSinkType::MYSQL_TABLE_SINK:
@@ -794,7 +783,7 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
             _multi_cast_stream_sink_senders[i].reset(new vectorized::VDataStreamSender(
                     _runtime_state.get(), _runtime_state->obj_pool(), sender_id, row_desc,
                     thrift_sink.multi_cast_stream_sink.sinks[i],
-                    thrift_sink.multi_cast_stream_sink.destinations[i], 16 * 1024, false));
+                    thrift_sink.multi_cast_stream_sink.destinations[i], false));
 
             // 2. create and set the source operator of multi_cast_data_stream_source for new pipeline
             OperatorBuilderPtr source_op =
@@ -805,7 +794,7 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
 
             // 3. create and set sink operator of data stream sender for new pipeline
             OperatorBuilderPtr sink_op_builder = std::make_shared<ExchangeSinkOperatorBuilder>(
-                    next_operator_builder_id(), _multi_cast_stream_sink_senders[i].get(), this, i);
+                    next_operator_builder_id(), _multi_cast_stream_sink_senders[i].get(), i);
             new_pipeline->set_sink(sink_op_builder);
 
             // 4. init and prepare the data_stream_sender of diff exchange
@@ -843,7 +832,7 @@ void PipelineFragmentContext::send_report(bool done) {
     Status exec_status = Status::OK();
     {
         std::lock_guard<std::mutex> l(_status_lock);
-        exec_status = _exec_status;
+        exec_status = _query_ctx->exec_status();
     }
 
     // If plan is done successfully, but _is_report_success is false,
@@ -861,10 +850,18 @@ void PipelineFragmentContext::send_report(bool done) {
     }
 
     _report_status_cb(
-            {exec_status, _is_report_success ? _runtime_state->runtime_profile() : nullptr,
-             _is_report_success ? _runtime_state->load_channel_profile() : nullptr,
-             done || !exec_status.ok(), _query_ctx->coord_addr, _query_id, _fragment_id,
-             _fragment_instance_id, _backend_num, _runtime_state.get(),
+            {false,
+             exec_status,
+             {},
+             _runtime_state->enable_profile() ? _runtime_state->runtime_profile() : nullptr,
+             _runtime_state->enable_profile() ? _runtime_state->load_channel_profile() : nullptr,
+             done || !exec_status.ok(),
+             _query_ctx->coord_addr,
+             _query_id,
+             _fragment_id,
+             _fragment_instance_id,
+             _backend_num,
+             _runtime_state.get(),
              std::bind(&PipelineFragmentContext::update_status, this, std::placeholders::_1),
              std::bind(&PipelineFragmentContext::cancel, this, std::placeholders::_1,
                        std::placeholders::_2)});

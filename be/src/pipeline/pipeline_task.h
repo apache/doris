@@ -100,6 +100,7 @@ inline const char* get_state_name(PipelineTaskState idx) {
     case PipelineTaskState::BLOCKED_FOR_RF:
         return "BLOCKED_FOR_RF";
     }
+    LOG(FATAL) << "__builtin_unreachable";
     __builtin_unreachable();
 }
 
@@ -109,32 +110,33 @@ class PriorityTaskQueue;
 // The class do the pipeline task. Minest schdule union by task scheduler
 class PipelineTask {
 public:
-    PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state, Operators& operators,
-                 OperatorPtr& sink, PipelineFragmentContext* fragment_context,
-                 RuntimeProfile* parent_profile);
+    PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state, OperatorPtr& sink,
+                 PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile);
 
-    Status prepare(RuntimeState* state);
+    PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state,
+                 PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile);
+    virtual ~PipelineTask() = default;
 
-    Status execute(bool* eos);
+    virtual Status prepare(RuntimeState* state);
+
+    virtual Status execute(bool* eos);
 
     // Try to close this pipeline task. If there are still some resources need to be released after `try_close`,
     // this task will enter the `PENDING_FINISH` state.
-    Status try_close();
+    virtual Status try_close(Status exec_status);
     // if the pipeline create a bunch of pipeline task
     // must be call after all pipeline task is finish to release resource
-    Status close();
+    virtual Status close(Status exec_status);
 
     void put_in_runnable_queue() {
         _schedule_time++;
         _wait_worker_watcher.start();
     }
     void pop_out_runnable_queue() { _wait_worker_watcher.stop(); }
-    void start_schedule_watcher() { _wait_schedule_watcher.start(); }
-    void stop_schedule_watcher() { _wait_schedule_watcher.stop(); }
     PipelineTaskState get_state() { return _cur_state; }
     void set_state(PipelineTaskState state);
 
-    bool is_pending_finish() {
+    virtual bool is_pending_finish() {
         bool source_ret = _source->is_pending_finish();
         if (source_ret) {
             return true;
@@ -151,15 +153,15 @@ public:
         return false;
     }
 
-    bool source_can_read() { return _source->can_read(); }
+    virtual bool source_can_read() { return _source->can_read() || _pipeline->_always_can_read; }
 
-    bool runtime_filters_are_ready_or_timeout() {
+    virtual bool runtime_filters_are_ready_or_timeout() {
         return _source->runtime_filters_are_ready_or_timeout();
     }
 
-    bool sink_can_write() { return _sink->can_write(); }
+    virtual bool sink_can_write() { return _sink->can_write() || _pipeline->_always_can_write; }
 
-    Status finalize();
+    virtual Status finalize();
 
     PipelineFragmentContext* fragment_context() { return _fragment_context; }
 
@@ -184,7 +186,7 @@ public:
 
     OperatorPtr get_root() { return _root; }
 
-    std::string debug_string();
+    virtual std::string debug_string();
 
     taskgroup::TaskGroupPipelineTaskEntity* get_task_group_entity() const;
 
@@ -234,7 +236,7 @@ public:
         }
     }
 
-    void set_close_pipeline_time() {
+    virtual void set_close_pipeline_time() {
         if (!_is_close_pipeline) {
             _close_pipeline_time = _pipeline_task_watcher.elapsed_time();
             _is_close_pipeline = true;
@@ -242,24 +244,22 @@ public:
         }
     }
 
-private:
+    TUniqueId instance_id() const { return _state->fragment_instance_id(); }
+
+protected:
     void _finish_p_dependency() {
         for (const auto& p : _pipeline->_parents) {
-            p.lock()->finish_one_dependency(_previous_schedule_id);
+            p.second.lock()->finish_one_dependency(p.first, _previous_schedule_id);
         }
     }
 
-    Status _open();
-    void _init_profile();
-    void _fresh_profile_counter();
+    virtual Status _open();
+    virtual void _init_profile();
+    virtual void _fresh_profile_counter();
 
     uint32_t _index;
     PipelinePtr _pipeline;
     bool _dependency_finish = false;
-    Operators _operators; // left is _source, right is _root
-    OperatorPtr _source;
-    OperatorPtr _root;
-    OperatorPtr _sink;
 
     bool _prepared;
     bool _opened;
@@ -304,13 +304,14 @@ private:
     RuntimeProfile::Counter* _wait_source_timer;
     MonotonicStopWatch _wait_bf_watcher;
     RuntimeProfile::Counter* _wait_bf_timer;
+    RuntimeProfile::Counter* _wait_bf_counts;
     MonotonicStopWatch _wait_sink_watcher;
     RuntimeProfile::Counter* _wait_sink_timer;
     MonotonicStopWatch _wait_worker_watcher;
     RuntimeProfile::Counter* _wait_worker_timer;
+    RuntimeProfile::Counter* _wait_dependency_counts;
+    RuntimeProfile::Counter* _pending_finish_counts;
     // TODO we should calculate the time between when really runnable and runnable
-    MonotonicStopWatch _wait_schedule_watcher;
-    RuntimeProfile::Counter* _wait_schedule_timer;
     RuntimeProfile::Counter* _yield_counts;
     RuntimeProfile::Counter* _core_change_times;
 
@@ -344,5 +345,11 @@ private:
     int64_t _close_pipeline_time = 0;
 
     RuntimeProfile::Counter* _pip_task_total_timer;
+
+private:
+    Operators _operators; // left is _source, right is _root
+    OperatorPtr _source;
+    OperatorPtr _root;
+    OperatorPtr _sink;
 };
 } // namespace doris::pipeline

@@ -48,7 +48,7 @@ class RuntimeState;
 
 namespace io {
 class FileSystem;
-class IOContext;
+struct IOContext;
 } // namespace io
 struct TypeDescriptor;
 
@@ -213,6 +213,10 @@ private:
     void _init_system_properties();
     void _init_file_description();
 
+    //if from_json = false , deserialize from hive_text
+    template <bool from_json>
+    Status deserialize_nullable_string(IColumn& column, Slice& slice);
+
     // used for parse table schema of csv file.
     // Currently, this feature is for table valued function.
     Status _prepare_parse(size_t* read_line, bool* is_parse_name);
@@ -220,6 +224,12 @@ private:
     Status _parse_col_names(std::vector<std::string>* col_names);
     // TODO(ftw): parse type
     Status _parse_col_types(size_t col_nums, std::vector<TypeDescriptor>* col_types);
+
+    // check the utf8 encoding of a line.
+    // return error status to stop processing.
+    // If return Status::OK but "success" is false, which means this is load request
+    // and the line is skipped as unqualified row, and the process should continue.
+    Status _validate_line(const Slice& line, bool* success);
 
     RuntimeState* _state;
     RuntimeProfile* _profile;
@@ -246,7 +256,6 @@ private:
     io::FileReaderSPtr _file_reader;
     std::unique_ptr<LineReader> _line_reader;
     bool _line_reader_eof;
-    std::unique_ptr<TextConverter> _text_converter;
     std::unique_ptr<Decompressor> _decompressor;
 
     TFileFormatType::type _file_format_type;
@@ -265,10 +274,8 @@ private:
     char _enclose = 0;
     char _escape = 0;
 
-    // struct, array and map delimiter
-    std::string _collection_delimiter;
-    // map key and value delimiter
-    std::string _map_kv_delimiter;
+    vectorized::DataTypeSerDeSPtrs _serdes;
+    vectorized::DataTypeSerDe::FormatOptions _options;
 
     int _value_separator_length;
     int _line_delimiter_length;
@@ -282,6 +289,8 @@ private:
     // save source text which have been splitted.
     std::vector<Slice> _split_values;
     std::unique_ptr<LineFieldSplitterIf> _fields_splitter;
+    TTextSerdeType::type _text_serde_type;
+    std::vector<int> _use_nullable_string_opt;
 };
 } // namespace vectorized
 } // namespace doris

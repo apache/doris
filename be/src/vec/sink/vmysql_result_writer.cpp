@@ -187,7 +187,7 @@ bool VMysqlResultWriter<is_binary_format>::can_sink() {
 }
 
 template <bool is_binary_format>
-Status VMysqlResultWriter<is_binary_format>::close() {
+Status VMysqlResultWriter<is_binary_format>::close(Status) {
     COUNTER_SET(_sent_rows_counter, _written_rows);
     COUNTER_UPDATE(_bytes_sent_counter, _bytes_sent);
     return Status::OK();

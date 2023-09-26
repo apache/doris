@@ -46,6 +46,7 @@ public:
                    std::string_view table_name, const std::string& sql_str);
     virtual ~TableConnector() = default;
 
+    virtual Status init_to_write(RuntimeProfile*) = 0;
     // exec query for table
     virtual Status query() = 0;
 
@@ -53,6 +54,8 @@ public:
     virtual Status begin_trans() = 0;  // should be call after connect and before query
     virtual Status abort_trans() = 0;  // should be call after transaction abort
     virtual Status finish_trans() = 0; // should be call after transaction commit
+
+    virtual Status close(Status) = 0;
 
     virtual Status exec_stmt_write(vectorized::Block* block,
                                    const vectorized::VExprContextSPtrs& _output_vexpr_ctxs,
@@ -74,8 +77,6 @@ public:
     Status convert_column_data(const vectorized::ColumnPtr& column_ptr,
                                const vectorized::DataTypePtr& type_ptr, const TypeDescriptor& type,
                                int row, TOdbcTableType::type table_type);
-
-    virtual Status close() { return Status::OK(); }
 
     // Default max buffer size use in insert to: 50MB, normally a batch is smaller than the size
     static constexpr uint32_t INSERT_BUFFER_SIZE = 1024l * 1024 * 50;

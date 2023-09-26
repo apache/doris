@@ -24,6 +24,8 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.UnaryPlan;
 
+import com.google.common.collect.ImmutableList;
+
 import java.util.List;
 import java.util.Optional;
 
@@ -34,12 +36,17 @@ public abstract class LogicalUnary<CHILD_TYPE extends Plan>
         extends AbstractLogicalPlan
         implements UnaryPlan<CHILD_TYPE> {
 
-    public LogicalUnary(PlanType type, CHILD_TYPE child) {
-        super(type, child);
+    protected LogicalUnary(PlanType type, CHILD_TYPE child) {
+        super(type, ImmutableList.of(child));
     }
 
-    public LogicalUnary(PlanType type, Optional<GroupExpression> groupExpression,
+    protected LogicalUnary(PlanType type, Optional<GroupExpression> groupExpression,
                             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
+        super(type, groupExpression, logicalProperties, child);
+    }
+
+    protected LogicalUnary(PlanType type, Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> child) {
         super(type, groupExpression, logicalProperties, child);
     }
 

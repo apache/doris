@@ -137,7 +137,7 @@ public:
 
     TPushAggOp::type get_push_down_agg_type() { return _push_down_agg_type; }
 
-    int64_t get_push_down_count() { return _push_down_count; }
+    int64_t get_push_down_count() const { return _push_down_count; }
 
     // Get next block.
     // If eos is true, no more data will be read and block should be empty.
@@ -174,6 +174,8 @@ public:
         // but the data source can not fully evaluate it.
         PARTIAL_ACCEPTABLE
     };
+
+    RuntimeProfile* scanner_profile() { return _scanner_profile.get(); }
 
 protected:
     // Different data sources register different profiles by implementing this method
@@ -225,6 +227,8 @@ protected:
     }
 
     virtual bool _should_push_down_common_expr() { return false; }
+
+    virtual bool _storage_no_merge() { return false; }
 
     virtual PushDownType _should_push_down_bloom_filter() { return PushDownType::UNACCEPTABLE; }
 

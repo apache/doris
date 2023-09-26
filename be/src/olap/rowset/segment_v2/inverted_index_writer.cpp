@@ -37,6 +37,7 @@
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/common.h"
+#include "olap/rowset/segment_v2/inverted_index/char_filter/char_filter_factory.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
@@ -152,12 +153,21 @@ public:
         }
 
         _char_string_reader = std::make_unique<lucene::util::SStringReader<char>>();
+        CharFilterMap char_filter_map =
+                get_parser_char_filter_map_from_properties(_index_meta->properties());
+        if (!char_filter_map.empty()) {
+            _char_string_reader.reset(CharFilterFactory::create(
+                    char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE],
+                    _char_string_reader.release(),
+                    char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN],
+                    char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT]));
+        }
+
         _doc = std::make_unique<lucene::document::Document>();
         _dir.reset(DorisCompoundDirectory::getDirectory(_fs, index_path.c_str(), true));
 
-        if (_parser_type == InvertedIndexParserType::PARSER_STANDARD) {
-            _analyzer = std::make_unique<lucene::analysis::standard::StandardAnalyzer>();
-        } else if (_parser_type == InvertedIndexParserType::PARSER_UNICODE) {
+        if (_parser_type == InvertedIndexParserType::PARSER_STANDARD ||
+            _parser_type == InvertedIndexParserType::PARSER_UNICODE) {
             _analyzer = std::make_unique<lucene::analysis::standard95::StandardAnalyzer>();
         } else if (_parser_type == InvertedIndexParserType::PARSER_ENGLISH) {
             _analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<char>>();
@@ -203,6 +213,17 @@ public:
         return Status::OK();
     }
 
+    Status add_document() {
+        try {
+            _index_writer->addDocument(_doc.get());
+        } catch (const CLuceneError& e) {
+            _dir->deleteDirectory();
+            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                    "CLuceneError add_document: {}", e.what());
+        }
+        return Status::OK();
+    }
+
     Status add_nulls(uint32_t count) override {
         _null_bitmap.addRange(_rid, _rid + count);
         _rid += count;
@@ -215,7 +236,7 @@ public:
 
             for (int i = 0; i < count; ++i) {
                 new_fulltext_field(empty_value.c_str(), 0);
-                _index_writer->addDocument(_doc.get());
+                RETURN_IF_ERROR(add_document());
             }
         }
         return Status::OK();
@@ -223,12 +244,10 @@ public:
 
     void new_fulltext_field(const char* field_value_data, size_t field_value_size) {
         if (_parser_type == InvertedIndexParserType::PARSER_ENGLISH ||
-            _parser_type == InvertedIndexParserType::PARSER_CHINESE) {
+            _parser_type == InvertedIndexParserType::PARSER_CHINESE ||
+            _parser_type == InvertedIndexParserType::PARSER_UNICODE ||
+            _parser_type == InvertedIndexParserType::PARSER_STANDARD) {
             new_char_token_stream(field_value_data, field_value_size, _field);
-        } else if (_parser_type == InvertedIndexParserType::PARSER_UNICODE) {
-            new_char_token_stream(field_value_data, field_value_size, _field);
-        } else if (_parser_type == InvertedIndexParserType::PARSER_STANDARD) {
-            new_field_value(field_value_data, field_value_size, _field);
         } else {
             new_field_char_value(field_value_data, field_value_size, _field);
         }
@@ -261,7 +280,7 @@ public:
             auto* v = (Slice*)values;
             for (int i = 0; i < count; ++i) {
                 new_fulltext_field(v->get_data(), v->get_size());
-                _index_writer->addDocument(_doc.get());
+                RETURN_IF_ERROR(add_document());
                 ++v;
                 _rid++;
             }
@@ -271,6 +290,60 @@ public:
         return Status::OK();
     }
 
+    Status add_array_values(size_t field_size, const void* value_ptr, const uint8_t* null_map,
+                            const uint8_t* offsets_ptr, size_t count) override {
+        if (count == 0) {
+            // no values to add inverted index
+            return Status::OK();
+        }
+        auto offsets = reinterpret_cast<const uint64_t*>(offsets_ptr);
+        if constexpr (field_is_slice_type(field_type)) {
+            if (_field == nullptr || _index_writer == nullptr) {
+                LOG(ERROR) << "field or index writer is null in inverted index writer.";
+                return Status::InternalError(
+                        "field or index writer is null in inverted index writer");
+            }
+            for (int i = 0; i < count; ++i) {
+                // offsets[i+1] is now row element count
+                std::vector<std::string> strings;
+                // [0, 3, 6]
+                // [10,20,30] [20,30,40], [30,40,50]
+                auto start_off = offsets[i];
+                auto end_off = offsets[i + 1];
+                for (auto j = start_off; j < end_off; ++j) {
+                    if (null_map[j] == 1) {
+                        continue;
+                    }
+                    auto* v = (Slice*)((const uint8_t*)value_ptr + j * field_size);
+                    strings.emplace_back(std::string(v->get_data(), v->get_size()));
+                }
+
+                auto value = join(strings, " ");
+                new_fulltext_field(value.c_str(), value.length());
+                _rid++;
+                _index_writer->addDocument(_doc.get());
+            }
+        } else if constexpr (field_is_numeric_type(field_type)) {
+            for (int i = 0; i < count; ++i) {
+                auto start_off = offsets[i];
+                auto end_off = offsets[i + 1];
+                for (size_t j = start_off; j < end_off; ++j) {
+                    if (null_map[j] == 1) {
+                        continue;
+                    }
+                    const CppType* p = &reinterpret_cast<const CppType*>(value_ptr)[j];
+                    std::string new_value;
+                    size_t value_length = sizeof(CppType);
+
+                    _value_key_coder->full_encode_ascending(p, &new_value);
+                    _bkd_writer->add((const uint8_t*)new_value.c_str(), value_length, _rid);
+                }
+                _row_ids_seen_for_bkd++;
+                _rid++;
+            }
+        }
+        return Status::OK();
+    }
     Status add_array_values(size_t field_size, const CollectionValue* values,
                             size_t count) override {
         if constexpr (field_is_slice_type(field_type)) {
@@ -294,7 +367,7 @@ public:
                 auto value = join(strings, " ");
                 new_fulltext_field(value.c_str(), value.length());
                 _rid++;
-                _index_writer->addDocument(_doc.get());
+                RETURN_IF_ERROR(add_document());
                 values++;
             }
         } else if constexpr (field_is_numeric_type(field_type)) {
@@ -399,6 +472,9 @@ public:
                 if (data_out != nullptr && meta_out != nullptr && index_out != nullptr) {
                     _bkd_writer->meta_finish(meta_out, _bkd_writer->finish(data_out, index_out),
                                              int(field_type));
+                } else {
+                    LOG(WARNING) << "Inverted index writer create output error occurred: nullptr";
+                    _CLTHROWA(CL_ERR_IO, "Create output error with nullptr");
                 }
                 FINALIZE_OUTPUT(meta_out)
                 FINALIZE_OUTPUT(data_out)
@@ -435,7 +511,7 @@ private:
     lucene::document::Field* _field {};
     std::unique_ptr<lucene::index::IndexWriter> _index_writer {};
     std::unique_ptr<lucene::analysis::Analyzer> _analyzer {};
-    std::unique_ptr<lucene::util::SStringReader<char>> _char_string_reader {};
+    std::unique_ptr<lucene::util::Reader> _char_string_reader {};
     std::shared_ptr<lucene::util::bkd::bkd_writer> _bkd_writer;
     std::string _segment_file_name;
     std::string _directory;

@@ -56,14 +56,12 @@ public class ScalarApplyToJoin extends OneRewriteRuleFactory {
         LogicalAssertNumRows assertNumRows = new LogicalAssertNumRows<>(
                 new AssertNumRowsElement(
                         1, apply.getSubqueryExpr().toString(),
-                        apply.isNeedAddSubOutputToProjects()
+                        apply.isInProject()
                             ? AssertNumRowsElement.Assertion.EQ : AssertNumRowsElement.Assertion.LE),
                 (LogicalPlan) apply.right());
         return new LogicalJoin<>(JoinType.CROSS_JOIN,
                 ExpressionUtils.EMPTY_CONDITION,
-                apply.getSubCorrespondingConjunct().isPresent()
-                    ? ExpressionUtils.extractConjunction((Expression) apply.getSubCorrespondingConjunct().get())
-                    : ExpressionUtils.EMPTY_CONDITION,
+                ExpressionUtils.EMPTY_CONDITION,
                 JoinHint.NONE,
                 apply.getMarkJoinSlotReference(),
                 (LogicalPlan) apply.left(), assertNumRows);
@@ -83,14 +81,10 @@ public class ScalarApplyToJoin extends OneRewriteRuleFactory {
             throw new AnalysisException("correlationFilter can't be null in correlatedToJoin");
         }
 
-        return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN,
+        return new LogicalJoin<>(
+                apply.isNeedAddSubOutputToProjects() ? JoinType.LEFT_OUTER_JOIN : JoinType.LEFT_SEMI_JOIN,
                 ExpressionUtils.EMPTY_CONDITION,
-                ExpressionUtils.extractConjunction(
-                    apply.getSubCorrespondingConjunct().isPresent()
-                        ? ExpressionUtils.and(
-                            (Expression) apply.getSubCorrespondingConjunct().get(),
-                            correlationFilter.get())
-                        : correlationFilter.get()),
+                ExpressionUtils.extractConjunction(correlationFilter.get()),
                 JoinHint.NONE,
                 apply.getMarkJoinSlotReference(),
                 apply.children());

@@ -2161,6 +2161,46 @@ true	abc	def	2022-10-11	1.234	1	2	99	2022-10-22T10:59:59	34.123
 -- !filter3 --
 1	false	12.123456	10.16.10.14/32	10.16.10.14	ff:ff:ff:ff:ff:aa	1010101010	01010	1	{"id":1}
 
+-- !partition_1_0 --
+1	GZ
+13	BJ
+2	SZ
+21	SZ
+28	HK
+43	SH
+
+-- !partition_1_1 --
+1	GZ
+2	SZ
+
+-- !partition_1_2 --
+13	BJ
+
+-- !partition_1_3 --
+21	SZ
+28	HK
+
+-- !partition_1_4 --
+43	SH
+
+-- !partition_2_0 --
+1	A	2020-09-02T08:00
+2	A	2020-10-02T08:00
+3	A	2020-11-02T08:00
+4	A	2020-12-02T08:00
+
+-- !partition_2_1 --
+1	A	2020-09-02T08:00
+
+-- !partition_2_2 --
+2	A	2020-10-02T08:00
+
+-- !partition_2_3 --
+3	A	2020-11-02T08:00
+
+-- !partition_2_4 --
+4	A	2020-12-02T08:00
+
 -- !test_insert1 --
 doris1	18
 

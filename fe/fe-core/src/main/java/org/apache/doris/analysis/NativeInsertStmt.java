@@ -47,12 +47,25 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.ExportSink;
+import org.apache.doris.planner.GroupCommitOlapTableSink;
 import org.apache.doris.planner.OlapTableSink;
+import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.planner.external.jdbc.JdbcTableSink;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.tablefunction.GroupCommitTableValuedFunction;
+import org.apache.doris.task.StreamLoadTask;
+import org.apache.doris.thrift.TExecPlanFragmentParams;
+import org.apache.doris.thrift.TFileCompressType;
+import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TMergeType;
+import org.apache.doris.thrift.TPlan;
+import org.apache.doris.thrift.TPlanFragment;
 import org.apache.doris.thrift.TQueryOptions;
+import org.apache.doris.thrift.TScanRangeParams;
+import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
@@ -64,11 +77,15 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.protobuf.ByteString;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.thrift.TException;
+import org.apache.thrift.TSerializer;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -138,6 +155,19 @@ public class NativeInsertStmt extends InsertStmt {
 
     private HashSet<String> partialUpdateCols = new HashSet<String>();
 
+    // Used for group commit insert
+    private boolean isGroupCommit = false;
+    private int baseSchemaVersion = -1;
+    private TUniqueId loadId = null;
+    private ByteString planBytes = null;
+    private ByteString tableBytes = null;
+    private ByteString rangeBytes = null;
+    private long tableId = -1;
+    // true if be generates an insert from group commit tvf stmt and executes to load data
+    public boolean isInnerGroupCommit = false;
+
+    private boolean isFromDeleteOrUpdateStmt = false;
+
     public NativeInsertStmt(InsertTarget target, String label, List<String> cols, InsertSource source,
             List<String> hints) {
         super(new LabelName(null, label), null, null);
@@ -149,6 +179,12 @@ public class NativeInsertStmt extends InsertStmt {
         this.targetColumnNames = cols;
         this.isValuesOrConstantSelect = (queryStmt instanceof SelectStmt
                 && ((SelectStmt) queryStmt).getTableRefs().isEmpty());
+    }
+
+    public NativeInsertStmt(long tableId, String label, List<String> cols, InsertSource source,
+            List<String> hints) {
+        this(new InsertTarget(new TableName(null, null, null), null), label, cols, source, hints);
+        this.tableId = tableId;
     }
 
     // Ctor for CreateTableAsSelectStmt and InsertOverwriteTableStmt
@@ -201,6 +237,19 @@ public class NativeInsertStmt extends InsertStmt {
 
     public void getTables(Analyzer analyzer, Map<Long, TableIf> tableMap, Set<String> parentViewNameSet)
             throws AnalysisException {
+        if (tableId != -1) {
+            TableIf table = Env.getCurrentInternalCatalog().getTableByTableId(tableId);
+            Preconditions.checkState(table instanceof OlapTable);
+            OlapTable olapTable = (OlapTable) table;
+            tblName.setDb(olapTable.getDatabase().getFullName());
+            tblName.setTbl(olapTable.getName());
+            if (olapTable.getDeleteSignColumn() != null) {
+                List<Column> columns = olapTable.getBaseSchema(false);
+                columns.add(olapTable.getDeleteSignColumn());
+                targetColumnNames = columns.stream().map(c -> c.getName()).collect(Collectors.toList());
+            }
+        }
+
         // get dbs of statement
         queryStmt.getTables(analyzer, false, tableMap, parentViewNameSet);
         tblName.analyze(analyzer);
@@ -295,8 +344,14 @@ public class NativeInsertStmt extends InsertStmt {
 
         // set target table and
         analyzeTargetTable(analyzer);
+        db = analyzer.getEnv().getCatalogMgr().getCatalog(tblName.getCtl()).getDbOrAnalysisException(tblName.getDb());
 
-        analyzeSubquery(analyzer);
+        analyzeGroupCommit();
+        if (isGroupCommit()) {
+            return;
+        }
+
+        analyzeSubquery(analyzer, false);
 
         analyzePlanHints();
 
@@ -307,7 +362,6 @@ public class NativeInsertStmt extends InsertStmt {
         // create data sink
         createDataSink();
 
-        db = analyzer.getEnv().getCatalogMgr().getCatalog(tblName.getCtl()).getDbOrAnalysisException(tblName.getDb());
         // create label and begin transaction
         long timeoutSecond = ConnectContext.get().getExecTimeout();
         if (label == null || Strings.isNullOrEmpty(label.getLabelName())) {
@@ -330,7 +384,10 @@ public class NativeInsertStmt extends InsertStmt {
             OlapTableSink sink = (OlapTableSink) dataSink;
             TUniqueId loadId = analyzer.getContext().queryId();
             int sendBatchParallelism = analyzer.getContext().getSessionVariable().getSendBatchParallelism();
-            sink.init(loadId, transactionId, db.getId(), timeoutSecond, sendBatchParallelism, false, false);
+            boolean isInsertStrict = analyzer.getContext().getSessionVariable().getEnableInsertStrict()
+                    && !isFromDeleteOrUpdateStmt;
+            sink.init(loadId, transactionId, db.getId(), timeoutSecond,
+                    sendBatchParallelism, false, isInsertStrict);
         }
     }
 
@@ -431,7 +488,7 @@ public class NativeInsertStmt extends InsertStmt {
         }
     }
 
-    private void analyzeSubquery(Analyzer analyzer) throws UserException {
+    private void analyzeSubquery(Analyzer analyzer, boolean skipCheck) throws UserException {
         // Analyze columns mentioned in the statement.
         Set<String> mentionedColumns = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         List<String> realTargetColumnNames;
@@ -542,6 +599,10 @@ public class NativeInsertStmt extends InsertStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_VALUE_COUNT);
         }
 
+        if (analyzer.getContext().getSessionVariable().isEnableUniqueKeyPartialUpdate()) {
+            trySetPartialUpdate();
+        }
+
         // Check if all columns mentioned is enough
         checkColumnCoverage(mentionedColumns, targetTable.getBaseSchema());
 
@@ -573,7 +634,7 @@ public class NativeInsertStmt extends InsertStmt {
                 // INSERT INTO VALUES(...)
                 List<ArrayList<Expr>> rows = selectStmt.getValueList().getRows();
                 for (int rowIdx = 0; rowIdx < rows.size(); ++rowIdx) {
-                    analyzeRow(analyzer, targetColumns, rows, rowIdx, origColIdxsForExtendCols, slotToIndex);
+                    analyzeRow(analyzer, targetColumns, rows, rowIdx, origColIdxsForExtendCols, slotToIndex, skipCheck);
                 }
 
                 // clear these 2 structures, rebuild them using VALUES exprs
@@ -591,7 +652,7 @@ public class NativeInsertStmt extends InsertStmt {
                 // `selectStmt.getResultExprs().clear();` will clear the `rows` too, causing
                 // error.
                 rows.add(Lists.newArrayList(selectStmt.getResultExprs()));
-                analyzeRow(analyzer, targetColumns, rows, 0, origColIdxsForExtendCols, slotToIndex);
+                analyzeRow(analyzer, targetColumns, rows, 0, origColIdxsForExtendCols, slotToIndex, skipCheck);
                 // rows may be changed in analyzeRow(), so rebuild the result exprs
                 selectStmt.getResultExprs().clear();
                 for (Expr expr : rows.get(0)) {
@@ -670,13 +731,16 @@ public class NativeInsertStmt extends InsertStmt {
     }
 
     private void analyzeRow(Analyzer analyzer, List<Column> targetColumns, List<ArrayList<Expr>> rows,
-            int rowIdx, List<Pair<Integer, Column>> origColIdxsForExtendCols, Map<String, Expr> slotToIndex)
-            throws AnalysisException {
+            int rowIdx, List<Pair<Integer, Column>> origColIdxsForExtendCols, Map<String, Expr> slotToIndex,
+            boolean skipCheck) throws AnalysisException {
         // 1. check number of fields if equal with first row
         // targetColumns contains some shadow columns, which is added by system,
         // so we should minus this
         if (rows.get(rowIdx).size() != targetColumns.size() - origColIdxsForExtendCols.size()) {
             throw new AnalysisException("Column count doesn't match value count at row " + (rowIdx + 1));
+        }
+        if (skipCheck) {
+            return;
         }
 
         ArrayList<Expr> row = rows.get(rowIdx);
@@ -769,14 +833,17 @@ public class NativeInsertStmt extends InsertStmt {
             selectList.set(i, expr);
             exprByName.put(col.getName(), expr);
         }
+
         List<Pair<String, Expr>> resultExprByName = Lists.newArrayList();
+        Map<String, Expr> slotToIndex = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         // reorder resultExprs in table column order
         for (Column col : targetTable.getFullSchema()) {
             if (isPartialUpdate && !partialUpdateCols.contains(col.getName())) {
                 continue;
             }
+            Expr targetExpr;
             if (exprByName.containsKey(col.getName())) {
-                resultExprByName.add(Pair.of(col.getName(), exprByName.get(col.getName())));
+                targetExpr = exprByName.get(col.getName());
             } else if (targetTable.getType().equals(TableIf.TableType.JDBC_EXTERNAL_TABLE)) {
                 // For JdbcTable,we do not need to generate plans for columns that are not specified at write time
                 continue;
@@ -792,19 +859,32 @@ public class NativeInsertStmt extends InsertStmt {
                                         .filter(p -> p.key().equals(((OlapTable) targetTable).getSequenceMapCol()))
                                         .map(Pair::value).findFirst().orElse(null)));
                     }
+                    continue;
+                } else if (col.getDefineExpr() != null) {
+                    // substitute define expr slot with select statement result expr
+                    ExprSubstitutionMap smap = new ExprSubstitutionMap();
+                    List<SlotRef> columns = col.getRefColumns();
+                    for (SlotRef slot : columns) {
+                        smap.getLhs().add(slot);
+                        smap.getRhs().add(slotToIndex.get(slot.getColumnName()));
+                    }
+                    targetExpr = Expr
+                            .substituteList(Lists.newArrayList(col.getDefineExpr().clone()), smap, analyzer, false)
+                            .get(0);
                 } else if (col.getDefaultValue() == null) {
-                    resultExprByName.add(Pair.of(col.getName(), NullLiteral.create(col.getType())));
+                    targetExpr = NullLiteral.create(col.getType());
                 } else {
                     if (col.getDefaultValueExprDef() != null) {
-                        resultExprByName.add(Pair.of(col.getName(), col.getDefaultValueExpr()));
+                        targetExpr = col.getDefaultValueExpr();
                     } else {
                         StringLiteral defaultValueExpr;
                         defaultValueExpr = new StringLiteral(col.getDefaultValue());
-                        resultExprByName.add(Pair.of(col.getName(),
-                                defaultValueExpr.checkTypeCompatibility(col.getType())));
+                        targetExpr = defaultValueExpr.checkTypeCompatibility(col.getType());
                     }
                 }
             }
+            resultExprByName.add(Pair.of(col.getName(), targetExpr));
+            slotToIndex.put(col.getName(), targetExpr);
         }
         resultExprs.addAll(resultExprByName.stream().map(Pair::value).collect(Collectors.toList()));
     }
@@ -814,9 +894,12 @@ public class NativeInsertStmt extends InsertStmt {
             return dataSink;
         }
         if (targetTable instanceof OlapTable) {
-            dataSink = new OlapTableSink((OlapTable) targetTable, olapTuple, targetPartitionIds,
-                    analyzer.getContext().getSessionVariable().isEnableSingleReplicaInsert());
-            OlapTableSink sink = (OlapTableSink) dataSink;
+            checkInnerGroupCommit();
+            OlapTableSink sink = isInnerGroupCommit ? new GroupCommitOlapTableSink((OlapTable) targetTable, olapTuple,
+                    targetPartitionIds, analyzer.getContext().getSessionVariable().isEnableSingleReplicaInsert())
+                    : new OlapTableSink((OlapTable) targetTable, olapTuple, targetPartitionIds,
+                            analyzer.getContext().getSessionVariable().isEnableSingleReplicaInsert());
+            dataSink = sink;
             sink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateCols);
             dataPartition = dataSink.getOutputPartition();
         } else if (targetTable instanceof BrokerTable) {
@@ -845,6 +928,16 @@ public class NativeInsertStmt extends InsertStmt {
             dataPartition = DataPartition.UNPARTITIONED;
         }
         return dataSink;
+    }
+
+    private void checkInnerGroupCommit() {
+        List<TableRef> tableRefs = new ArrayList<>();
+        queryStmt.collectTableRefs(tableRefs);
+        if (tableRefs.size() == 1 && tableRefs.get(0) instanceof TableValuedFunctionRef
+                && ((TableValuedFunctionRef) tableRefs.get(
+                0)).getTableFunction() instanceof GroupCommitTableValuedFunction) {
+            isInnerGroupCommit = true;
+        }
     }
 
     public void complete() throws UserException {
@@ -926,6 +1019,134 @@ public class NativeInsertStmt extends InsertStmt {
             return RedirectStatus.NO_FORWARD;
         } else {
             return RedirectStatus.FORWARD_WITH_SYNC;
+        }
+    }
+
+    private void analyzeGroupCommit() {
+        if (ConnectContext.get().getSessionVariable().enableInsertGroupCommit && targetTable instanceof OlapTable
+                && !ConnectContext.get().isTxnModel()
+                && getQueryStmt() instanceof SelectStmt
+                && ((SelectStmt) getQueryStmt()).getTableRefs().isEmpty() && targetPartitionNames == null) {
+            isGroupCommit = true;
+        }
+    }
+
+    public boolean isGroupCommit() {
+        return isGroupCommit;
+    }
+
+    public void planForGroupCommit(TUniqueId queryId) throws UserException, TException {
+        OlapTable olapTable = (OlapTable) getTargetTable();
+        if (planBytes != null && olapTable.getBaseSchemaVersion() == baseSchemaVersion) {
+            return;
+        }
+        if (!targetColumns.isEmpty()) {
+            Analyzer analyzerTmp = analyzer;
+            reset();
+            this.analyzer = analyzerTmp;
+        }
+        analyzeSubquery(analyzer, true);
+        TStreamLoadPutRequest streamLoadPutRequest = new TStreamLoadPutRequest();
+        if (targetColumnNames != null) {
+            streamLoadPutRequest.setColumns(String.join(",", targetColumnNames));
+        }
+        streamLoadPutRequest.setDb(db.getFullName()).setMaxFilterRatio(1)
+                .setTbl(getTbl())
+                .setFileType(TFileType.FILE_STREAM).setFormatType(TFileFormatType.FORMAT_CSV_PLAIN)
+                .setMergeType(TMergeType.APPEND).setThriftRpcTimeoutMs(5000).setLoadId(queryId);
+        StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(streamLoadPutRequest);
+        StreamLoadPlanner planner = new StreamLoadPlanner((Database) getDbObj(), olapTable, streamLoadTask);
+        // Will using load id as query id in fragment
+        TExecPlanFragmentParams tRequest = planner.plan(streamLoadTask.getId());
+        DescriptorTable descTable = planner.getDescTable();
+        TPlanFragment fragment = tRequest.getFragment();
+        TPlan plan = fragment.getPlan();
+        for (Map.Entry<Integer, List<TScanRangeParams>> entry : tRequest.params.per_node_scan_ranges.entrySet()) {
+            for (TScanRangeParams scanRangeParams : entry.getValue()) {
+                scanRangeParams.scan_range.ext_scan_range.file_scan_range.params.setFormatType(
+                        TFileFormatType.FORMAT_PROTO);
+                scanRangeParams.scan_range.ext_scan_range.file_scan_range.params.setCompressType(
+                        TFileCompressType.PLAIN);
+            }
+        }
+        List<TScanRangeParams> scanRangeParams = tRequest.params.per_node_scan_ranges.values().stream()
+                .flatMap(Collection::stream).collect(Collectors.toList());
+        Preconditions.checkState(scanRangeParams.size() == 1);
+        // save plan message to be reused for prepare stmt
+        loadId = queryId;
+        planBytes = ByteString.copyFrom(new TSerializer().serialize(plan));
+        tableBytes = ByteString.copyFrom(new TSerializer().serialize(descTable.toThrift()));
+        rangeBytes = ByteString.copyFrom(new TSerializer().serialize(scanRangeParams.get(0)));
+        baseSchemaVersion = olapTable.getBaseSchemaVersion();
+    }
+
+    public TUniqueId getLoadId() {
+        return loadId;
+    }
+
+    public ByteString getPlanBytes() {
+        return planBytes;
+    }
+
+    public ByteString getTableBytes() {
+        return tableBytes;
+    }
+
+    public int getBaseSchemaVersion() {
+        return baseSchemaVersion;
+    }
+
+    public ByteString getRangeBytes() {
+        return rangeBytes;
+    }
+
+    public void setIsFromDeleteOrUpdateStmt(boolean isFromDeleteOrUpdateStmt) {
+        this.isFromDeleteOrUpdateStmt = isFromDeleteOrUpdateStmt;
+    }
+
+    private void trySetPartialUpdate() throws UserException {
+        if (isFromDeleteOrUpdateStmt || isPartialUpdate || !(targetTable instanceof OlapTable)) {
+            return;
+        }
+        OlapTable olapTable = (OlapTable) targetTable;
+        if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
+            throw new UserException("Partial update is only allowed in unique table with merge-on-write enabled.");
+        }
+        for (Column col : olapTable.getFullSchema()) {
+            boolean exists = false;
+            for (Column insertCol : targetColumns) {
+                if (insertCol.getName() != null && insertCol.getName().equals(col.getName())) {
+                    if (!col.isVisible() && !Column.DELETE_SIGN.equals(col.getName())) {
+                        throw new UserException("Partial update should not include invisible column except"
+                                    + " delete sign column: " + col.getName());
+                    }
+                    exists = true;
+                    break;
+                }
+            }
+            if (col.isKey() && !exists) {
+                throw new UserException("Partial update should include all key columns, missing: " + col.getName());
+            }
+        }
+
+        isPartialUpdate = true;
+        partialUpdateCols.addAll(targetColumnNames);
+        if (isPartialUpdate && olapTable.hasSequenceCol() && olapTable.getSequenceMapCol() != null
+                && partialUpdateCols.contains(olapTable.getSequenceMapCol())) {
+            partialUpdateCols.add(Column.SEQUENCE_COL);
+        }
+        // we should re-generate olapTuple
+        DescriptorTable descTable = analyzer.getDescTbl();
+        olapTuple = descTable.createTupleDescriptor();
+        for (Column col : olapTable.getFullSchema()) {
+            if (!partialUpdateCols.contains(col.getName())) {
+                continue;
+            }
+            SlotDescriptor slotDesc = descTable.addSlotDescriptor(olapTuple);
+            slotDesc.setIsMaterialized(true);
+            slotDesc.setType(col.getType());
+            slotDesc.setColumn(col);
+            slotDesc.setIsNullable(col.isAllowNull());
         }
     }
 }

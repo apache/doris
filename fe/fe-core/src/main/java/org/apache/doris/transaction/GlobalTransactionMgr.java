@@ -134,23 +134,32 @@ public class GlobalTransactionMgr implements Writable {
             TxnCoordinator coordinator, LoadJobSourceType sourceType, long listenerId, long timeoutSecond)
             throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException, DuplicatedRequestException,
             QuotaExceedException, MetaNotFoundException {
+        try {
+            if (Config.disable_load_job) {
+                throw new AnalysisException("disable_load_job is set to true, all load jobs are prevented");
+            }
 
-        if (Config.disable_load_job) {
-            throw new AnalysisException("disable_load_job is set to true, all load jobs are prevented");
-        }
+            switch (sourceType) {
+                case BACKEND_STREAMING:
+                    checkValidTimeoutSecond(timeoutSecond, Config.max_stream_load_timeout_second,
+                            Config.min_load_timeout_second);
+                    break;
+                default:
+                    checkValidTimeoutSecond(timeoutSecond, Config.max_load_timeout_second,
+                            Config.min_load_timeout_second);
+            }
 
-        switch (sourceType) {
-            case BACKEND_STREAMING:
-                checkValidTimeoutSecond(timeoutSecond, Config.max_stream_load_timeout_second,
-                        Config.min_load_timeout_second);
-                break;
-            default:
-                checkValidTimeoutSecond(timeoutSecond, Config.max_load_timeout_second, Config.min_load_timeout_second);
-        }
-
-        DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
-        return dbTransactionMgr.beginTransaction(tableIdList, label, requestId,
+            DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
+            return dbTransactionMgr.beginTransaction(tableIdList, label, requestId,
                 coordinator, sourceType, listenerId, timeoutSecond);
+        } catch (DuplicatedRequestException e) {
+            throw e;
+        } catch (Exception e) {
+            if (MetricRepo.isInit) {
+                MetricRepo.COUNTER_TXN_REJECT.increase(1L);
+            }
+            throw e;
+        }
     }
 
     private void checkValidTimeoutSecond(long timeoutSecond, int maxLoadTimeoutSecond,
@@ -176,7 +185,7 @@ public class GlobalTransactionMgr implements Writable {
     public Long getTransactionId(long dbId, String label) {
         try {
             DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
-            return dbTransactionMgr.getTransactionId(label);
+            return dbTransactionMgr.getTransactionIdByLabel(label);
         } catch (AnalysisException e) {
             LOG.warn("Get transaction id by label " + label + " failed", e);
             return null;
@@ -393,13 +402,13 @@ public class GlobalTransactionMgr implements Writable {
     /**
      * if the table is deleted between commit and publish version, then should ignore the partition
      *
+     * @param dbId
      * @param transactionId
-     * @param errorReplicaIds
      * @return
      */
-    public void finishTransaction(long dbId, long transactionId, Set<Long> errorReplicaIds) throws UserException {
+    public void finishTransaction(long dbId, long transactionId) throws UserException {
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
-        dbTransactionMgr.finishTransaction(transactionId, errorReplicaIds);
+        dbTransactionMgr.finishTransaction(transactionId);
     }
 
     /**

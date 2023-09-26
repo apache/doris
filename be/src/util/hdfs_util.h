@@ -43,5 +43,10 @@ private:
 // path like hdfs://ip:port/path can't be used by libhdfs3.
 Path convert_path(const Path& path, const std::string& namenode);
 
+std::string get_fs_name(const std::string& path);
+
+// return true if path_or_fs contains "hdfs://"
+bool is_hdfs(const std::string& path_or_fs);
+
 } // namespace io
 } // namespace doris

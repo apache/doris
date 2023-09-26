@@ -30,7 +30,6 @@
 #include <utility>
 
 #include "common/config.h"
-#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_writer.h"
 #include "olap/data_dir.h"
 #include "olap/file_header.h"
@@ -264,10 +263,6 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     if (tablet_schema.__isset.enable_single_replica_compaction) {
         schema->set_enable_single_replica_compaction(
                 tablet_schema.enable_single_replica_compaction);
-    }
-
-    if (tablet_schema.__isset.is_dynamic_schema) {
-        schema->set_is_dynamic_schema(tablet_schema.is_dynamic_schema);
     }
 
     if (tablet_schema.__isset.delete_sign_idx) {
@@ -831,30 +826,6 @@ RowsetMetaSharedPtr TabletMeta::acquire_stale_rs_meta_by_version(const Version& 
         }
     }
     return nullptr;
-}
-
-const std::vector<RowsetMetaSharedPtr> TabletMeta::delete_predicates() const {
-    std::vector<RowsetMetaSharedPtr> res;
-    for (auto& del_pred : _rs_metas) {
-        if (del_pred->has_delete_predicate()) {
-            res.push_back(del_pred);
-        }
-    }
-    return res;
-}
-
-bool TabletMeta::version_for_delete_predicate(const Version& version) {
-    if (version.first != version.second) {
-        return false;
-    }
-
-    for (auto& del_pred : _rs_metas) {
-        if (del_pred->version().first == version.first && del_pred->has_delete_predicate()) {
-            return true;
-        }
-    }
-
-    return false;
 }
 
 std::string TabletMeta::full_name() const {

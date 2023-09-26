@@ -17,6 +17,7 @@
 
 #include "vjdbc_table_writer.h"
 
+#include <gen_cpp/DataSinks_types.h>
 #include <stdint.h>
 
 #include <sstream>
@@ -29,9 +30,29 @@
 namespace doris {
 namespace vectorized {
 
-VJdbcTableWriter::VJdbcTableWriter(const JdbcConnectorParam& param,
+JdbcConnectorParam VJdbcTableWriter::create_connect_param(const doris::TDataSink& t_sink) {
+    const TJdbcTableSink& t_jdbc_sink = t_sink.jdbc_table_sink;
+
+    JdbcConnectorParam jdbc_param;
+
+    jdbc_param.jdbc_url = t_jdbc_sink.jdbc_table.jdbc_url;
+    jdbc_param.user = t_jdbc_sink.jdbc_table.jdbc_user;
+    jdbc_param.passwd = t_jdbc_sink.jdbc_table.jdbc_password;
+    jdbc_param.driver_class = t_jdbc_sink.jdbc_table.jdbc_driver_class;
+    jdbc_param.driver_path = t_jdbc_sink.jdbc_table.jdbc_driver_url;
+    jdbc_param.driver_checksum = t_jdbc_sink.jdbc_table.jdbc_driver_checksum;
+    jdbc_param.resource_name = t_jdbc_sink.jdbc_table.jdbc_resource_name;
+    jdbc_param.table_type = t_jdbc_sink.table_type;
+    jdbc_param.query_string = t_jdbc_sink.insert_sql;
+    jdbc_param.table_name = t_jdbc_sink.jdbc_table.jdbc_table_name;
+    jdbc_param.use_transaction = t_jdbc_sink.use_transaction;
+
+    return jdbc_param;
+}
+
+VJdbcTableWriter::VJdbcTableWriter(const TDataSink& t_sink,
                                    const VExprContextSPtrs& output_expr_ctxs)
-        : AsyncResultWriter(output_expr_ctxs), JdbcConnector(param) {}
+        : AsyncResultWriter(output_expr_ctxs), JdbcConnector(create_connect_param(t_sink)) {}
 
 Status VJdbcTableWriter::append_block(vectorized::Block& block) {
     Block output_block;

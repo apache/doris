@@ -927,7 +927,34 @@ public class Analyzer {
             // ===================================================
             // Someone may concern that if t2 is not alias of t, this fix will cause incorrect resolve. In fact,
             // this does not happen, since we push t2.a in (1.2) down to this inline view, t2 must be alias of t.
-            if (d == null && isInlineView && newTblName.getTbl().equals(explicitViewAlias)) {
+            // create table tmp_can_drop_t1 (
+            //     cust_id varchar(96),
+            //     user_id varchar(96)
+            // )
+            // create table tmp_can_drop_t2 (
+            //     cust_id varchar(96),
+            //     usr_id varchar(96)
+            // )
+            // select
+            // a.cust_id,
+            // a.usr_id
+            // from (
+            // select
+            //     a.cust_id,
+            //     a.usr_id, --------->(report error, because there is no user_id column in tmp_can_drop_t1)
+            //     a.user_id
+            // from tmp_can_drop_t1 a
+            // full join (
+            //     select
+            //     cust_id,
+            //     usr_id
+            //     from
+            //     tmp_can_drop_t2
+            // ) b
+            // on b.cust_id = a.cust_id
+            // ) a;
+            if (d == null && isInlineView && newTblName.getTbl().equals(explicitViewAlias)
+                    && !tupleByAlias.containsKey(newTblName.getTbl())) {
                 d = resolveColumnRef(colName);
             }
         }

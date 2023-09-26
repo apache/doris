@@ -416,7 +416,7 @@ Status ColumnMap::filter_by_selector(const uint16_t* sel, size_t sel_size, IColu
         max_offset = std::max(max_offset, offset_at(sel[i]));
     }
     if (max_offset > std::numeric_limits<uint16_t>::max()) {
-        return Status::IOError("map elements too large than uint16_t::max");
+        return Status::Corruption("map elements too large than uint16_t::max");
     }
 
     to_offsets.reserve(to_offsets.size() + sel_size);
@@ -464,6 +464,16 @@ ColumnPtr ColumnMap::replicate(const Offsets& offsets) const {
                                  assert_cast<const ColumnArray&>(*v_arr).get_data_ptr(),
                                  assert_cast<const ColumnArray&>(*k_arr).get_offsets_ptr());
     return res;
+}
+
+void ColumnMap::replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const {
+    auto& res = reinterpret_cast<ColumnMap&>(column);
+
+    // Make a temp column array for reusing its replicate function
+    ColumnArray::create(keys_column->assume_mutable(), offsets_column->assume_mutable())
+            ->replicate(indexs, target_size, res.keys_column->assume_mutable_ref());
+    ColumnArray::create(values_column->assume_mutable(), offsets_column->assume_mutable())
+            ->replicate(indexs, target_size, res.values_column->assume_mutable_ref());
 }
 
 void ColumnMap::reserve(size_t n) {

@@ -663,7 +663,7 @@ public class Auth implements Writable {
 
 
     // return true if user ident exist
-    private boolean doesUserExist(UserIdentity userIdent) {
+    public boolean doesUserExist(UserIdentity userIdent) {
         return userManager.userIdentityExist(userIdent, false);
     }
 
@@ -711,7 +711,7 @@ public class Auth implements Writable {
                 revokeInternal(info.getUserIdent(), info.getRole(), info.getWorkloadGroupPattern(), info.getPrivs(),
                         true /* err on non exist */, true /* is replay */);
             } else {
-                revokeInternal(info.getUserIdent(), info.getRoles(), false);
+                revokeInternal(info.getUserIdent(), info.getRoles(), true /* is replay */);
             }
         } catch (DdlException e) {
             LOG.error("should not happened", e);

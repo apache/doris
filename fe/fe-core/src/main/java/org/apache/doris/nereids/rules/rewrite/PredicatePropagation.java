@@ -41,16 +41,10 @@ import java.util.stream.Collectors;
 public class PredicatePropagation {
 
     /**
-     * equal predicate with literal in one side would be chosen to be source predicates and used to infer all predicates
-     */
-    private Set<Expression> sourcePredicates = Sets.newHashSet();
-
-    /**
      * infer additional predicates.
      */
     public Set<Expression> infer(Set<Expression> predicates) {
         Set<Expression> inferred = Sets.newHashSet();
-        predicates.addAll(sourcePredicates);
         for (Expression predicate : predicates) {
             if (canEquivalentInfer(predicate)) {
                 List<Expression> newInferred = predicates.stream()
@@ -61,17 +55,16 @@ public class PredicatePropagation {
             }
         }
         inferred.removeAll(predicates);
-        sourcePredicates.addAll(inferred);
         return inferred;
     }
 
     /**
-     * Use the left or right child of `leftSlotEqualToRightSlot` to replace the left or right child of `expression`
+     * Use the left or right child of `equalExpr` to replace the left or right child of `expression`
      * Now only support infer `ComparisonPredicate`.
      * TODO: We should determine whether `expression` satisfies the condition for replacement
      *       eg: Satisfy `expression` is non-deterministic
      */
-    private Expression doInfer(Expression leftSlotEqualToRightSlot, Expression expression) {
+    private Expression doInfer(Expression equalExpr, Expression expression) {
         return expression.accept(new DefaultExpressionRewriter<Void>() {
 
             @Override
@@ -83,38 +76,43 @@ public class PredicatePropagation {
             public Expression visitComparisonPredicate(ComparisonPredicate cp, Void context) {
                 // we need to get expression covered by cast, because we want to infer different datatype
                 if (ExpressionUtils.isExpressionSlotCoveredByCast(cp.left()) && (cp.right().isConstant())) {
-                    sourcePredicates.add(cp);
-                    return replaceSlot(cp, ExpressionUtils.getDatatypeCoveredByCast(cp.left()));
+                    return replaceSlot(cp, ExpressionUtils.getDatatypeCoveredByCast(cp.left()), equalExpr);
                 } else if (ExpressionUtils.isExpressionSlotCoveredByCast(cp.right()) && cp.left().isConstant()) {
-                    sourcePredicates.add(cp);
-                    return replaceSlot(cp, ExpressionUtils.getDatatypeCoveredByCast(cp.right()));
+                    return replaceSlot(cp, ExpressionUtils.getDatatypeCoveredByCast(cp.right()), equalExpr);
                 }
                 return super.visit(cp, context);
             }
 
             private boolean isDataTypeValid(DataType originDataType, Expression expr) {
-                if ((leftSlotEqualToRightSlot.child(0).getDataType() instanceof IntegralType)
-                        && (leftSlotEqualToRightSlot.child(1).getDataType() instanceof IntegralType)
+                if ((expr.child(0).getDataType() instanceof IntegralType)
+                        && (expr.child(1).getDataType() instanceof IntegralType)
                                 && (originDataType instanceof IntegralType)) {
                     // infer filter can not be lower than original datatype, or dataset would be wrong
                     if (!((IntegralType) originDataType).widerThan(
-                            (IntegralType) leftSlotEqualToRightSlot.child(0).getDataType())
+                            (IntegralType) expr.child(0).getDataType())
                                     && !((IntegralType) originDataType).widerThan(
-                                            (IntegralType) leftSlotEqualToRightSlot.child(1).getDataType())) {
+                                            (IntegralType) expr.child(1).getDataType())) {
                         return true;
                     }
+                } else if (expr.child(0).getDataType().equals(expr.child(1).getDataType())) {
+                    return true;
                 }
                 return false;
             }
 
-            private Expression replaceSlot(Expression expr, DataType originDataType) {
-                return expr.rewriteUp(e -> {
-                    if (isDataTypeValid(originDataType, leftSlotEqualToRightSlot)) {
-                        if (ExpressionUtils.isTwoExpressionEqualWithCast(e, leftSlotEqualToRightSlot.child(0))) {
-                            return leftSlotEqualToRightSlot.child(1);
-                        } else if (ExpressionUtils.isTwoExpressionEqualWithCast(e, leftSlotEqualToRightSlot.child(1))) {
-                            return leftSlotEqualToRightSlot.child(0);
-                        }
+            private Expression replaceSlot(Expression sourcePredicate, DataType originDataType, Expression equal) {
+                if (!isDataTypeValid(originDataType, equal)) {
+                    return sourcePredicate;
+                }
+                return sourcePredicate.rewriteUp(e -> {
+                    // we can not replace Cast expression to slot because when rewrite up, we have replace child of cast
+                    if (e instanceof Cast) {
+                        return e;
+                    }
+                    if (ExpressionUtils.isTwoExpressionEqualWithCast(e, equal.child(0))) {
+                        return equal.child(1);
+                    } else if (ExpressionUtils.isTwoExpressionEqualWithCast(e, equal.child(1))) {
+                        return equal.child(0);
                     }
                     return e;
                 });
@@ -129,7 +127,7 @@ public class PredicatePropagation {
     private boolean canEquivalentInfer(Expression predicate) {
         return predicate instanceof EqualTo
                 && predicate.children().stream().allMatch(e ->
-                    (e instanceof SlotReference) || (e instanceof Cast && e.child(0).isSlot()))
+                    (e instanceof SlotReference) || (e instanceof Cast && e.child(0) instanceof SlotReference))
                 && predicate.child(0).getDataType().equals(predicate.child(1).getDataType());
     }
 

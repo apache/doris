@@ -17,6 +17,7 @@
 
 #include "olap/data_dir.h"
 
+#include <fmt/core.h>
 #include <fmt/format.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_file.pb.h>
@@ -25,6 +26,7 @@
 #include <atomic>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
+#include <cstddef>
 #include <filesystem>
 #include <memory>
 #include <new>
@@ -38,11 +40,11 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "gutil/strings/substitute.h"
-#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
+#include "olap/delete_handler.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/olap_meta.h"
@@ -72,6 +74,7 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_total_capacity, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_avail_capacity, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_local_used_capacity, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_remote_used_capacity, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_trash_used_capacity, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_state, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_compaction_score, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_compaction_num, MetricUnit::NOUNIT);
@@ -85,6 +88,7 @@ DataDir::DataDir(const std::string& path, int64_t capacity_bytes,
           _fs(io::LocalFileSystem::create(path)),
           _available_bytes(0),
           _disk_capacity_bytes(0),
+          _trash_used_bytes(0),
           _storage_medium(storage_medium),
           _is_used(false),
           _tablet_manager(tablet_manager),
@@ -100,6 +104,7 @@ DataDir::DataDir(const std::string& path, int64_t capacity_bytes,
     INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_avail_capacity);
     INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_local_used_capacity);
     INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_remote_used_capacity);
+    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_trash_used_capacity);
     INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_state);
     INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_compaction_score);
     INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_compaction_num);
@@ -119,6 +124,7 @@ Status DataDir::init() {
                                        "check file exist failed");
     }
 
+    update_trash_capacity();
     RETURN_NOT_OK_STATUS_WITH_WARN(update_capacity(), "update_capacity failed");
     RETURN_NOT_OK_STATUS_WITH_WARN(_init_cluster_id(), "_init_cluster_id failed");
     RETURN_NOT_OK_STATUS_WITH_WARN(_init_capacity_and_create_shards(),
@@ -236,9 +242,8 @@ void DataDir::health_check() {
         if (!res) {
             LOG(WARNING) << "store read/write test file occur IO Error. path=" << _path
                          << ", err: " << res;
-            if (res.is_io_error()) {
-                _is_used = false;
-            }
+            StorageEngine::instance()->add_broken_path(_path);
+            _is_used = !res.is<IO_ERROR>();
         }
     }
     disks_state->set_value(_is_used ? 1 : 0);
@@ -261,14 +266,14 @@ Status DataDir::get_shard(uint64_t* shard) {
 }
 
 void DataDir::register_tablet(Tablet* tablet) {
-    TabletInfo tablet_info(tablet->tablet_id(), tablet->schema_hash(), tablet->tablet_uid());
+    TabletInfo tablet_info(tablet->tablet_id(), tablet->tablet_uid());
 
     std::lock_guard<std::mutex> l(_mutex);
     _tablet_set.emplace(std::move(tablet_info));
 }
 
 void DataDir::deregister_tablet(Tablet* tablet) {
-    TabletInfo tablet_info(tablet->tablet_id(), tablet->schema_hash(), tablet->tablet_uid());
+    TabletInfo tablet_info(tablet->tablet_id(), tablet->tablet_uid());
 
     std::lock_guard<std::mutex> l(_mutex);
     _tablet_set.erase(tablet_info);
@@ -368,7 +373,7 @@ Status DataDir::load() {
 
     std::vector<RowsetMetaSharedPtr> dir_rowset_metas;
     LOG(INFO) << "begin loading rowset from meta";
-    auto load_rowset_func = [&dir_rowset_metas, &local_fs = fs()](
+    auto load_rowset_func = [&dir_rowset_metas, &local_fs = fs(), this](
                                     TabletUid tablet_uid, RowsetId rowset_id,
                                     const std::string& meta_str) -> bool {
         RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
@@ -380,6 +385,34 @@ Status DataDir::load() {
         }
         if (rowset_meta->is_local()) {
             rowset_meta->set_fs(local_fs);
+        }
+        if (rowset_meta->has_delete_predicate()) {
+            // copy the delete sub pred v1 to check then
+            auto orig_delete_sub_pred = rowset_meta->delete_predicate().sub_predicates();
+            auto* delete_pred = rowset_meta->mutable_delete_pred_pb();
+
+            if ((!delete_pred->sub_predicates().empty() &&
+                 delete_pred->sub_predicates_v2().empty()) ||
+                (!delete_pred->in_predicates().empty() &&
+                 delete_pred->in_predicates()[0].has_column_unique_id())) {
+                // convert pred and write only when delete sub pred v2 is not set or there is in list pred to be set column uid
+                DeleteHandler::convert_to_sub_pred_v2(delete_pred, rowset_meta->tablet_schema());
+                LOG(INFO) << fmt::format(
+                        "convert rowset with old delete pred: rowset_id={}, tablet_id={}",
+                        rowset_id.to_string(), tablet_uid.to_string());
+                CHECK_EQ(orig_delete_sub_pred.size(), delete_pred->sub_predicates().size())
+                        << "inconsistent sub predicate v1 after conversion";
+                for (size_t i = 0; i < orig_delete_sub_pred.size(); ++i) {
+                    CHECK_STREQ(orig_delete_sub_pred.Get(i).c_str(),
+                                delete_pred->sub_predicates().Get(i).c_str())
+                            << "inconsistent sub predicate v1 after conversion";
+                }
+                std::string result;
+                rowset_meta->serialize(&result);
+                std::string key =
+                        ROWSET_PREFIX + tablet_uid.to_string() + "_" + rowset_id.to_string();
+                _meta->put(META_COLUMN_FAMILY_INDEX, key, result);
+            }
         }
         dir_rowset_metas.push_back(rowset_meta);
         return true;
@@ -458,7 +491,7 @@ Status DataDir::load() {
         PendingPublishInfoPB pending_publish_info_pb;
         bool parsed = pending_publish_info_pb.ParseFromString(info);
         if (!parsed) {
-            LOG(WARNING) << "parse pending publish info failed, tablt_id: " << tablet_id
+            LOG(WARNING) << "parse pending publish info failed, tablet_id: " << tablet_id
                          << " publish_version: " << publish_version;
         }
         StorageEngine::instance()->add_async_publish_task(
@@ -502,8 +535,8 @@ Status DataDir::load() {
             }
             Status commit_txn_status = _txn_manager->commit_txn(
                     _meta, rowset_meta->partition_id(), rowset_meta->txn_id(),
-                    rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash(),
-                    rowset_meta->tablet_uid(), rowset_meta->load_id(), rowset, true);
+                    rowset_meta->tablet_id(), rowset_meta->tablet_uid(), rowset_meta->load_id(),
+                    rowset, true);
             if (!commit_txn_status && !commit_txn_status.is<PUSH_TRANSACTION_ALREADY_EXIST>()) {
                 LOG(WARNING) << "failed to add committed rowset: " << rowset_meta->rowset_id()
                              << " to tablet: " << rowset_meta->tablet_id()
@@ -810,6 +843,13 @@ Status DataDir::update_capacity() {
     return Status::OK();
 }
 
+void DataDir::update_trash_capacity() {
+    auto trash_path = fmt::format("{}/{}", _path, TRASH_PREFIX);
+    _trash_used_bytes = StorageEngine::instance()->get_file_or_directory_size(trash_path);
+    disks_trash_used_capacity->set_value(_trash_used_bytes);
+    LOG(INFO) << "path: " << _path << " trash capacity: " << _trash_used_bytes;
+}
+
 void DataDir::update_local_data_size(int64_t size) {
     disks_local_used_capacity->set_value(size);
 }
@@ -818,7 +858,15 @@ void DataDir::update_remote_data_size(int64_t size) {
     disks_remote_used_capacity->set_value(size);
 }
 
-size_t DataDir::tablet_size() const {
+size_t DataDir::disk_capacity() const {
+    return _disk_capacity_bytes;
+}
+
+size_t DataDir::disk_available() const {
+    return _available_bytes;
+}
+
+size_t DataDir::tablet_num() const {
     std::lock_guard<std::mutex> l(_mutex);
     return _tablet_set.size();
 }

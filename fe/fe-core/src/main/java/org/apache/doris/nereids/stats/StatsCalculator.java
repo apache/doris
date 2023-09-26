@@ -18,17 +18,14 @@
 package org.apache.doris.nereids.stats;
 
 import org.apache.doris.analysis.IntLiteral;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionType;
-import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -126,9 +123,9 @@ import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.StatisticRange;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatisticsBuilder;
-import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
@@ -192,10 +189,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return totalColumnStatisticMap;
     }
 
-    public void setTotalColumnStatisticMap(Map<String, ColumnStatistic> totalColumnStatisticMap) {
-        this.totalColumnStatisticMap = totalColumnStatisticMap;
-    }
-
     /**
      * estimate stats
      */
@@ -226,23 +219,25 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     private void estimate() {
         Plan plan = groupExpression.getPlan();
-        Statistics stats = plan.accept(this, null);
-        Statistics originStats = groupExpression.getOwnerGroup().getStatistics();
-        /*
-        in an ideal cost model, every group expression in a group are equivalent, but in fact the cost are different.
-        we record the lowest expression cost as group cost to avoid missing this group.
-        */
-        if (originStats == null || originStats.getRowCount() > stats.getRowCount()) {
-            groupExpression.getOwnerGroup().setStatistics(stats);
+        Statistics newStats = plan.accept(this, null);
+        // We ensure that the rowCount remains unchanged in order to make the cost of each plan comparable.
+        if (groupExpression.getOwnerGroup().getStatistics() == null) {
+            groupExpression.getOwnerGroup().setStatistics(newStats);
+            groupExpression.setEstOutputRowCount(newStats.getRowCount());
         } else {
-            if (originStats.getRowCount() > stats.getRowCount()) {
-                stats.updateNdv(originStats);
-                groupExpression.getOwnerGroup().setStatistics(stats);
-            } else {
-                originStats.updateNdv(stats);
-            }
+            // the reason why we update col stats here.
+            // consider join between 3 tables: A/B/C with join condition: A.id=B.id=C.id and a filter: C.id=1
+            // in the final join result, the ndv of A.id/B.id/C.id should be 1
+            // suppose we have 2 candidate plans
+            // plan1: (A join B on A.id=B.id) join C on B.id=C.id
+            // plan2:(B join C)join A
+            // suppose plan1 is estimated before plan2
+            //
+            // after estimate the outer join of plan1 (join C), we update B.id.ndv=1, but A.id.ndv is not updated
+            // then we estimate plan2. the stats of plan2 is denoted by stats2. obviously, stats2.A.id.ndv is 1
+            // now we update OwnerGroup().getStatistics().A.id.ndv to 1
+            groupExpression.getOwnerGroup().getStatistics().updateNdv(newStats);
         }
-        groupExpression.setEstOutputRowCount(stats.getRowCount());
         groupExpression.setStatDerived(true);
     }
 
@@ -385,6 +380,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return computeGenerate(generate);
     }
 
+    @Override
     public Statistics visitLogicalWindow(LogicalWindow<? extends Plan> window, Void context) {
         return computeWindow(window);
     }
@@ -629,49 +625,29 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         double rowCount = catalogRelation.getTable().estimatedRowCount();
         for (SlotReference slotReference : slotSet) {
             String colName = slotReference.getName();
-            boolean shouldIgnoreThisCol = shouldIgnoreCol(table, slotReference.getColumn().get());
+            boolean shouldIgnoreThisCol = StatisticConstants.shouldIgnoreCol(table, slotReference.getColumn().get());
 
             if (colName == null) {
                 throw new RuntimeException(String.format("Invalid slot: %s", slotReference.getExprId()));
             }
             ColumnStatistic cache = Config.enable_stats && FeConstants.enableInternalSchemaDb
                     ? shouldIgnoreThisCol
-                        ? ColumnStatistic.UNKNOWN : getColumnStatistic(table, colName) : ColumnStatistic.UNKNOWN;
+                    ? ColumnStatistic.UNKNOWN : getColumnStatistic(table, colName) : ColumnStatistic.UNKNOWN;
             if (cache.avgSizeByte <= 0) {
                 cache = new ColumnStatisticBuilder(cache)
                         .setAvgSizeByte(slotReference.getColumn().get().getType().getSlotSize())
                         .build();
             }
-            if (cache.isUnKnown) {
-                if (forbidUnknownColStats && !shouldIgnoreThisCol) {
-                    if (StatisticsUtil.statsTblAvailable()) {
-                        throw new AnalysisException(String.format("Found unknown stats for column:%s.%s.\n"
-                                + "It may caused by:\n"
-                                + "\n"
-                                + "1. This column never got analyzed\n"
-                                + "2. This table is empty\n"
-                                + "3. Stats load failed caused by unstable of backends,"
-                                + "and FE cached the unknown stats by default in this scenario\n"
-                                + "4. There is a bug, please report it to Doris community\n"
-                                + "\n"
-                                + "If an unknown stats for this column is tolerable,"
-                                + "you could set session variable `forbid_unknown_col_stats` to false to make planner"
-                                + " ignore this error and keep planning.", table.getName(), colName));
-                    } else {
-                        throw new AnalysisException("BE is not available!");
-                    }
+            if (!cache.isUnKnown) {
+                rowCount = Math.max(rowCount, cache.count);
+                cache = setOlapPartitionInfo(table, cache);
+                Histogram histogram = getColumnHistogram(table, colName);
+                if (histogram != null) {
+                    ColumnStatisticBuilder columnStatisticBuilder =
+                            new ColumnStatisticBuilder(cache).setHistogram(histogram);
+                    columnStatisticMap.put(slotReference, columnStatisticBuilder.build());
+                    cache = columnStatisticBuilder.build();
                 }
-                columnStatisticMap.put(slotReference, cache);
-                continue;
-            }
-            rowCount = Math.max(rowCount, cache.count);
-            cache = setOlapPartitionInfo(table, cache);
-            Histogram histogram = getColumnHistogram(table, colName);
-            if (histogram != null) {
-                ColumnStatisticBuilder columnStatisticBuilder =
-                        new ColumnStatisticBuilder(cache).setHistogram(histogram);
-                columnStatisticMap.put(slotReference, columnStatisticBuilder.build());
-                cache = columnStatisticBuilder.build();
             }
             columnStatisticMap.put(slotReference, cache);
         }
@@ -780,8 +756,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             builder.setDataSize(rowCount * outputExpression.getDataType().width());
             slotToColumnStats.put(outputExpression.toSlot(), columnStat);
         }
-        return new Statistics(rowCount, slotToColumnStats, childStats.getWidth(),
-                childStats.getPenalty() + childStats.getRowCount());
+        return new Statistics(rowCount, slotToColumnStats);
         // TODO: Update ColumnStats properly, add new mapping from output slot to ColumnStats
     }
 
@@ -800,8 +775,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                             .setDataSize(stats.dataSize < 0 ? stats.dataSize : stats.dataSize * groupingSetNum);
                     return Pair.of(kv.getKey(), columnStatisticBuilder.build());
                 }).collect(Collectors.toMap(Pair::key, Pair::value));
-        return new Statistics(rowCount < 0 ? rowCount : rowCount * groupingSetNum, columnStatisticMap,
-                childStats.getWidth(), childStats.getPenalty());
+        return new Statistics(rowCount < 0 ? rowCount : rowCount * groupingSetNum, columnStatisticMap);
     }
 
     private Statistics computeProject(Project project) {
@@ -811,7 +785,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             ColumnStatistic columnStatistic = ExpressionEstimation.estimate(projection, childStats);
             return new SimpleEntry<>(projection.toSlot(), columnStatistic);
         }).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (item1, item2) -> item1));
-        return new Statistics(childStats.getRowCount(), columnsStats, childStats.getWidth(), childStats.getPenalty());
+        return new Statistics(childStats.getRowCount(), columnsStats);
     }
 
     private Statistics computeOneRowRelation(List<NamedExpression> projects) {
@@ -841,36 +815,30 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return new Statistics(rowCount, columnStatsMap);
     }
 
-    private Statistics computeUnion(SetOperation setOperation) {
+    private Statistics computeUnion(Union union) {
         // TODO: refactor this for one row relation
-        List<Slot> head = null;
-        Statistics headStats = null;
-        List<List<Slot>> childOutputs =
-                groupExpression.children()
-                        .stream().map(ge -> ge.getLogicalProperties().getOutput()).collect(Collectors.toList());
+        List<SlotReference> head;
+        Statistics headStats;
+        List<List<SlotReference>> childOutputs = Lists.newArrayList(union.getRegularChildrenOutputs());
         List<Statistics> childStats =
                 groupExpression.children().stream().map(Group::getStatistics).collect(Collectors.toList());
-        if (setOperation instanceof Union) {
-            childOutputs.addAll(((Union) setOperation).getConstantExprsList().stream()
-                    .map(l -> l.stream().map(NamedExpression::toSlot).collect(Collectors.toList()))
+
+        if (!union.getConstantExprsList().isEmpty()) {
+            childOutputs.addAll(union.getConstantExprsList().stream()
+                    .map(l -> l.stream().map(NamedExpression::toSlot)
+                            .map(SlotReference.class::cast)
+                            .collect(Collectors.toList()))
                     .collect(Collectors.toList()));
-            childStats.addAll(((Union) setOperation).getConstantExprsList().stream()
+            childStats.addAll(union.getConstantExprsList().stream()
                     .map(this::computeOneRowRelation)
                     .collect(Collectors.toList()));
-            if (!((Union) setOperation).getConstantExprsList().isEmpty()) {
-                head = ((Union) setOperation).getConstantExprsList().get(0).stream()
-                        .map(NamedExpression::toSlot)
-                        .collect(Collectors.toList());
-                headStats = computeOneRowRelation(((Union) setOperation).getConstantExprsList().get(0));
-            }
-        }
-        if (head == null) {
-            head = groupExpression.child(0).getLogicalProperties().getOutput();
-            headStats = groupExpression.childStatistics(0);
         }
 
+        head = childOutputs.get(0);
+        headStats = childStats.get(0);
+
         StatisticsBuilder statisticsBuilder = new StatisticsBuilder();
-        List<NamedExpression> unionOutput = setOperation.getOutputs();
+        List<NamedExpression> unionOutput = union.getOutputs();
         for (int i = 0; i < head.size(); i++) {
             double leftRowCount = headStats.getRowCount();
             Slot headSlot = head.get(i);
@@ -890,25 +858,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return statisticsBuilder.build();
     }
 
-    private Slot getLeftSlot(int fistSetOperation, int outputSlotIdx, SetOperation setOperation) {
-        return fistSetOperation == 0
-                ? setOperation.getFirstOutput().get(outputSlotIdx)
-                : setOperation.getOutputs().get(outputSlotIdx).toSlot();
-    }
-
-    private ColumnStatistic getLeftStats(int fistSetOperation,
-            Slot leftSlot,
-            Map<Expression, ColumnStatistic> leftStatsSlotIdToColumnStats,
-            Map<Expression, ColumnStatistic> newColumnStatsMap) {
-        return fistSetOperation == 0
-                ? leftStatsSlotIdToColumnStats.get(leftSlot.getExprId())
-                : newColumnStatsMap.get(leftSlot.getExprId());
-    }
-
     private Statistics computeExcept(SetOperation setOperation) {
         Statistics leftStats = groupExpression.childStatistics(0);
         List<NamedExpression> operatorOutput = setOperation.getOutputs();
-        List<Slot> childSlots = groupExpression.child(0).getLogicalProperties().getOutput();
+        List<SlotReference> childSlots = setOperation.getRegularChildOutput(0);
         StatisticsBuilder statisticsBuilder = new StatisticsBuilder();
         for (int i = 0; i < operatorOutput.size(); i++) {
             ColumnStatistic columnStatistic = leftStats.findColumnStatistics(childSlots.get(i));
@@ -937,7 +890,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         }
         rowCount = Math.min(rowCount, minProd);
         List<NamedExpression> outputs = setOperation.getOutputs();
-        List<Slot> leftChildOutputs = setOperation.getChildOutput(0);
+        List<SlotReference> leftChildOutputs = setOperation.getRegularChildOutput(0);
         for (int i = 0; i < outputs.size(); i++) {
             leftChildStats.addColumnStats(outputs.get(i),
                     leftChildStats.findColumnStatistics(leftChildOutputs.get(i)));
@@ -973,7 +926,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         Map<Expression, ColumnStatistic> columnStatisticMap = windowOperator.getWindowExpressions().stream()
                 .map(expr -> {
                     Preconditions.checkArgument(expr instanceof Alias
-                            && expr.child(0) instanceof WindowExpression,
+                                    && expr.child(0) instanceof WindowExpression,
                             "need WindowExpression, but we meet " + expr);
                     WindowExpression windExpr = (WindowExpression) expr.child(0);
                     ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder();
@@ -1136,18 +1089,5 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     public Statistics visitPhysicalCTEAnchor(
             PhysicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor, Void context) {
         return groupExpression.childStatistics(1);
-    }
-
-    private boolean shouldIgnoreCol(TableIf tableIf, Column c) {
-        if (tableIf instanceof SchemaTable) {
-            return true;
-        }
-        if (tableIf instanceof OlapTable) {
-            OlapTable olapTable = (OlapTable) tableIf;
-            if (StatisticConstants.STATISTICS_DB_BLACK_LIST.contains(olapTable.getQualifiedDbName())) {
-                return true;
-            }
-        }
-        return !c.isVisible();
     }
 }

@@ -39,7 +39,7 @@ class time_zone;
 } // namespace cctz
 namespace doris {
 namespace io {
-class IOContext;
+struct IOContext;
 } // namespace io
 namespace vectorized {
 class ColumnString;
@@ -132,7 +132,6 @@ public:
                          const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
                          io::IOContext* io_ctx, std::unique_ptr<ParquetColumnReader>& reader,
                          size_t max_buf_size);
-    void add_offset_index(tparquet::OffsetIndex* offset_index) { _offset_index = offset_index; }
     void set_nested_column() { _nested_column = true; }
     virtual const std::vector<level_t>& get_rep_level() const = 0;
     virtual const std::vector<level_t>& get_def_level() const = 0;
@@ -149,7 +148,6 @@ protected:
     const std::vector<RowRange>& _row_ranges;
     cctz::time_zone* _ctz;
     io::IOContext* _io_ctx;
-    tparquet::OffsetIndex* _offset_index;
     int64_t _current_row_index = 0;
     int _row_range_index = 0;
     int64_t _decode_null_map_time = 0;
@@ -191,7 +189,7 @@ private:
                         ColumnSelectVector& select_vector, bool is_dict_filter);
     Status _read_nested_column(ColumnPtr& doris_column, DataTypePtr& type,
                                ColumnSelectVector& select_vector, size_t batch_size,
-                               size_t* read_rows, bool* eof, bool is_dict_filter);
+                               size_t* read_rows, bool* eof, bool is_dict_filter, bool align_rows);
     Status _try_load_dict_page(bool* loaded, bool* has_dict);
 };
 

@@ -1,4 +1,3 @@
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -35,14 +34,26 @@ class Block;
 
 class VJdbcTableWriter final : public AsyncResultWriter, public JdbcConnector {
 public:
-    VJdbcTableWriter(const JdbcConnectorParam& param, const VExprContextSPtrs& output_exprs);
+    static JdbcConnectorParam create_connect_param(const TDataSink&);
+
+    VJdbcTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
 
     // connect to jdbc server
-    Status open(RuntimeState* state) override { return JdbcConnector::open(state, false); }
+    Status open(RuntimeState* state, RuntimeProfile* profile) override {
+        RETURN_IF_ERROR(JdbcConnector::open(state, false));
+        return init_to_write(profile);
+    }
 
     Status append_block(vectorized::Block& block) override;
 
-    Status close() override { return JdbcConnector::close(); }
+    Status close(Status s) override { return JdbcConnector::close(s); }
+
+    bool in_transaction() override { return TableConnector::_is_in_transaction; }
+
+    Status commit_trans() override { return JdbcConnector::finish_trans(); }
+
+private:
+    JdbcConnectorParam _param;
 };
 } // namespace vectorized
 } // namespace doris

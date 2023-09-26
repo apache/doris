@@ -46,7 +46,7 @@ class SlotDescriptor;
 class TupleDescriptor;
 
 namespace io {
-class IOContext;
+struct IOContext;
 } // namespace io
 namespace vectorized {
 class Block;
@@ -141,9 +141,9 @@ public:
         PositionDeleteContext(const PositionDeleteContext& filter) = default;
     };
 
-    RowGroupReader(io::FileReaderSPtr file_reader,
-                   const std::vector<ParquetReadColumn>& read_columns, const int32_t row_group_id,
-                   const tparquet::RowGroup& row_group, cctz::time_zone* ctz, io::IOContext* io_ctx,
+    RowGroupReader(io::FileReaderSPtr file_reader, const std::vector<std::string>& read_columns,
+                   const int32_t row_group_id, const tparquet::RowGroup& row_group,
+                   cctz::time_zone* ctz, io::IOContext* io_ctx,
                    const PositionDeleteContext& position_delete_ctx,
                    const LazyReadContext& lazy_read_ctx, RuntimeState* state);
 
@@ -191,7 +191,7 @@ private:
 
     io::FileReaderSPtr _file_reader;
     std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>> _column_readers;
-    const std::vector<ParquetReadColumn>& _read_columns;
+    const std::vector<std::string>& _read_columns;
     const int32_t _row_group_id;
     const tparquet::RowGroup& _row_group_meta;
     int64_t _remaining_rows;

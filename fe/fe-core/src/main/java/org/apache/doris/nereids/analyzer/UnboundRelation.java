@@ -21,6 +21,7 @@ import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
+import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -46,30 +47,40 @@ public class UnboundRelation extends LogicalRelation implements Unbound {
 
     private final List<String> nameParts;
     private final List<String> partNames;
+    private final List<Long> tabletIds;
     private final boolean isTempPart;
     private final List<String> hints;
+    private final Optional<TableSample> tableSample;
 
     public UnboundRelation(RelationId id, List<String> nameParts) {
-        this(id, nameParts, Optional.empty(), Optional.empty(), ImmutableList.of(), false, ImmutableList.of());
+        this(id, nameParts, Optional.empty(), Optional.empty(), ImmutableList.of(), false, ImmutableList.of(),
+                ImmutableList.of(), Optional.empty());
     }
 
     public UnboundRelation(RelationId id, List<String> nameParts, List<String> partNames, boolean isTempPart) {
-        this(id, nameParts, Optional.empty(), Optional.empty(), partNames, isTempPart, ImmutableList.of());
+        this(id, nameParts, Optional.empty(), Optional.empty(), partNames, isTempPart, ImmutableList.of(),
+                ImmutableList.of(), Optional.empty());
     }
 
     public UnboundRelation(RelationId id, List<String> nameParts, List<String> partNames, boolean isTempPart,
-            List<String> hints) {
-        this(id, nameParts, Optional.empty(), Optional.empty(), partNames, isTempPart, hints);
+            List<Long> tabletIds, List<String> hints, Optional<TableSample> tableSample) {
+        this(id, nameParts, Optional.empty(), Optional.empty(),
+                partNames, isTempPart, tabletIds, hints, tableSample);
     }
 
+    /**
+     * constructor of UnboundRelation
+     */
     public UnboundRelation(RelationId id, List<String> nameParts, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<String> partNames, boolean isTempPart,
-            List<String> hints) {
+            List<Long> tabletIds, List<String> hints, Optional<TableSample> tableSample) {
         super(id, PlanType.LOGICAL_UNBOUND_RELATION, groupExpression, logicalProperties);
         this.nameParts = ImmutableList.copyOf(Objects.requireNonNull(nameParts, "nameParts should not null"));
         this.partNames = ImmutableList.copyOf(Objects.requireNonNull(partNames, "partNames should not null"));
+        this.tabletIds = ImmutableList.copyOf(Objects.requireNonNull(tabletIds, "tabletIds should not null"));
         this.isTempPart = isTempPart;
         this.hints = ImmutableList.copyOf(Objects.requireNonNull(hints, "hints should not be null."));
+        this.tableSample = tableSample;
     }
 
     public List<String> getNameParts() {
@@ -90,14 +101,14 @@ public class UnboundRelation extends LogicalRelation implements Unbound {
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new UnboundRelation(relationId, nameParts,
                 groupExpression, Optional.of(getLogicalProperties()),
-                partNames, isTempPart, hints);
+                partNames, isTempPart, tabletIds, hints, tableSample);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new UnboundRelation(relationId, nameParts, groupExpression, logicalProperties, partNames,
-                isTempPart, hints);
+                isTempPart, tabletIds, hints, tableSample);
     }
 
     @Override
@@ -136,7 +147,15 @@ public class UnboundRelation extends LogicalRelation implements Unbound {
         return isTempPart;
     }
 
+    public List<Long> getTabletIds() {
+        return tabletIds;
+    }
+
     public List<String> getHints() {
         return hints;
+    }
+
+    public Optional<TableSample> getTableSample() {
+        return tableSample;
     }
 }

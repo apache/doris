@@ -52,13 +52,12 @@
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 
-namespace doris {
-namespace stream_load {
+namespace doris::vectorized {
 
 Status OlapTableBlockConvertor::validate_and_convert_block(
         RuntimeState* state, vectorized::Block* input_block,
         std::shared_ptr<vectorized::Block>& block, vectorized::VExprContextSPtrs output_vexpr_ctxs,
-        size_t rows, bool eos, bool& has_filtered_rows) {
+        size_t rows, bool& has_filtered_rows) {
     DCHECK(input_block->rows() > 0);
 
     block = vectorized::Block::create_shared(input_block->get_columns_with_type_and_name());
@@ -70,7 +69,7 @@ Status OlapTableBlockConvertor::validate_and_convert_block(
 
     // fill the valus for auto-increment columns
     if (_auto_inc_col_idx.has_value()) {
-        RETURN_IF_ERROR(_fill_auto_inc_cols(block.get(), rows, eos));
+        RETURN_IF_ERROR(_fill_auto_inc_cols(block.get(), rows));
     }
 
     int64_t filtered_rows = 0;
@@ -293,12 +292,11 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
         break;
     }
     case TYPE_DECIMAL32: {
-#define CHECK_VALIDATION_FOR_DECIMALV3(ColumnDecimalType, DecimalType)                             \
-    auto column_decimal = const_cast<vectorized::ColumnDecimal<vectorized::ColumnDecimalType>*>(   \
-            assert_cast<const vectorized::ColumnDecimal<vectorized::ColumnDecimalType>*>(          \
-                    real_column_ptr.get()));                                                       \
-    const auto& max_decimal = _get_decimalv3_min_or_max<vectorized::DecimalType, false>(type);     \
-    const auto& min_decimal = _get_decimalv3_min_or_max<vectorized::DecimalType, true>(type);      \
+#define CHECK_VALIDATION_FOR_DECIMALV3(DecimalType)                                                \
+    auto column_decimal = const_cast<vectorized::ColumnDecimal<DecimalType>*>(                     \
+            assert_cast<const vectorized::ColumnDecimal<DecimalType>*>(real_column_ptr.get()));    \
+    const auto& max_decimal = _get_decimalv3_min_or_max<DecimalType, false>(type);                 \
+    const auto& min_decimal = _get_decimalv3_min_or_max<DecimalType, true>(type);                  \
     for (size_t j = 0; j < column->size(); ++j) {                                                  \
         auto row = rows ? (*rows)[j] : j;                                                          \
         if (row == last_invalid_row) {                                                             \
@@ -320,17 +318,18 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
             }                                                                                      \
         }                                                                                          \
     }
-        CHECK_VALIDATION_FOR_DECIMALV3(Decimal32, Decimal32);
+        CHECK_VALIDATION_FOR_DECIMALV3(vectorized::Decimal32);
         break;
     }
     case TYPE_DECIMAL64: {
-        CHECK_VALIDATION_FOR_DECIMALV3(Decimal64, Decimal64);
+        CHECK_VALIDATION_FOR_DECIMALV3(vectorized::Decimal64);
         break;
     }
     case TYPE_DECIMAL128I: {
-        CHECK_VALIDATION_FOR_DECIMALV3(Decimal128I, Decimal128);
+        CHECK_VALIDATION_FOR_DECIMALV3(vectorized::Decimal128I);
         break;
     }
+#undef CHECK_VALIDATION_FOR_DECIMALV3
     case TYPE_ARRAY: {
         const auto column_array =
                 assert_cast<const vectorized::ColumnArray*>(real_column_ptr.get());
@@ -450,8 +449,7 @@ void OlapTableBlockConvertor::_convert_to_dest_desc_block(doris::vectorized::Blo
     }
 }
 
-Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, size_t rows,
-                                                    bool eos) {
+Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, size_t rows) {
     size_t idx = _auto_inc_col_idx.value();
     SlotDescriptor* slot = _output_tuple_desc->slots()[idx];
     DCHECK(slot->type().type == PrimitiveType::TYPE_BIGINT);
@@ -462,7 +460,6 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, si
     vectorized::ColumnInt64::Container& dst_values = dst_column->get_data();
 
     vectorized::ColumnPtr src_column_ptr = block->get_by_position(idx).column;
-    DCHECK(vectorized::is_column_const(*src_column_ptr) || src_column_ptr->is_nullable());
     if (const vectorized::ColumnConst* const_column =
                 check_and_get_column<vectorized::ColumnConst>(src_column_ptr)) {
         // for insert stmt like "insert into tbl1 select null,col1,col2,... from tbl2" or
@@ -487,11 +484,10 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, si
             int64_t value = const_column->get_int(0);
             dst_values.resize_fill(rows, value);
         }
-    } else {
-        const auto& src_nullable_column =
-                assert_cast<const vectorized::ColumnNullable&>(*src_column_ptr);
-        auto src_nested_column_ptr = src_nullable_column.get_nested_column_ptr();
-        const auto& null_map_data = src_nullable_column.get_null_map_data();
+    } else if (const vectorized::ColumnNullable* src_nullable_column =
+                       check_and_get_column<vectorized::ColumnNullable>(src_column_ptr)) {
+        auto src_nested_column_ptr = src_nullable_column->get_nested_column_ptr();
+        const auto& null_map_data = src_nullable_column->get_null_map_data();
         dst_values.reserve(rows);
         for (size_t i = 0; i < rows; i++) {
             null_value_count += null_map_data[i];
@@ -506,6 +502,8 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, si
             dst_values.emplace_back((null_map_data[i] != 0) ? _auto_inc_id_allocator.next_id()
                                                             : src_nested_column_ptr->get_int(i));
         }
+    } else {
+        return Status::OK();
     }
     block->get_by_position(idx).column = std::move(dst_column);
     block->get_by_position(idx).type =
@@ -513,5 +511,4 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, si
     return Status::OK();
 }
 
-} // namespace stream_load
-} // namespace doris
+} // namespace doris::vectorized

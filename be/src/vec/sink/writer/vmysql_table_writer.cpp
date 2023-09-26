@@ -31,6 +31,7 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/types.h"
 #include "util/binary_cast.hpp"
+#include "util/runtime_profile.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
@@ -73,14 +74,15 @@ VMysqlTableWriter::VMysqlTableWriter(const TDataSink& t_sink,
     _conn_info.charset = t_mysql_sink.charset;
 }
 
-VMysqlTableWriter::~VMysqlTableWriter() {
+Status VMysqlTableWriter::close(Status) {
     if (_mysql_conn) {
         mysql_close(_mysql_conn);
     }
+
+    return Status::OK();
 }
 
-Status VMysqlTableWriter::open(RuntimeState* state) {
-    AsyncResultWriter::open(state);
+Status VMysqlTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     _mysql_conn = mysql_init(nullptr);
     if (_mysql_conn == nullptr) {
         return Status::InternalError("Call mysql_init failed.");
@@ -113,12 +115,12 @@ Status VMysqlTableWriter::append_block(vectorized::Block& block) {
     RETURN_IF_ERROR(_projection_block(block, &output_block));
     auto num_rows = output_block.rows();
     for (int i = 0; i < num_rows; ++i) {
-        RETURN_IF_ERROR(insert_row(output_block, i));
+        RETURN_IF_ERROR(_insert_row(output_block, i));
     }
     return Status::OK();
 }
 
-Status VMysqlTableWriter::insert_row(vectorized::Block& block, size_t row) {
+Status VMysqlTableWriter::_insert_row(vectorized::Block& block, size_t row) {
     _insert_stmt_buffer.clear();
     fmt::format_to(_insert_stmt_buffer, "INSERT INTO {} VALUES (", _conn_info.table_name);
     int num_columns = _vec_output_expr_ctxs.size();

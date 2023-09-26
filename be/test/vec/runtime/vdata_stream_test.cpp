@@ -188,11 +188,9 @@ TEST_F(VDataStreamTest, BasicTest) {
         dest.__set_server(addr);
         dests.push_back(dest);
     }
-    int per_channel_buffer_size = 1024 * 1024;
     bool send_query_statistics_with_every_batch = false;
     VDataStreamSender sender(&runtime_stat, &_object_pool, sender_id, row_desc, tsink.stream_sink,
-                             dests, per_channel_buffer_size,
-                             send_query_statistics_with_every_batch);
+                             dests, send_query_statistics_with_every_batch);
     sender.set_query_statistics(std::make_shared<QueryStatistics>());
     sender.init(tsink);
     sender.prepare(&runtime_stat);

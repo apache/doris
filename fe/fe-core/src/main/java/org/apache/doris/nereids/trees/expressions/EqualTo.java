@@ -45,11 +45,6 @@ public class EqualTo extends ComparisonPredicate implements PropagateNullable {
     }
 
     @Override
-    public String toString() {
-        return "(" + left() + " = " + right() + ")";
-    }
-
-    @Override
     public EqualTo withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new EqualTo(children);

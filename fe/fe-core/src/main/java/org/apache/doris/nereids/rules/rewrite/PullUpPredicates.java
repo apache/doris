@@ -73,32 +73,8 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
             Set<Expression> predicates = Sets.newHashSet();
             ImmutableSet<Expression> leftPredicates = join.left().accept(this, context);
             ImmutableSet<Expression> rightPredicates = join.right().accept(this, context);
-            switch (join.getJoinType()) {
-                case INNER_JOIN:
-                case CROSS_JOIN:
-                    predicates.addAll(leftPredicates);
-                    predicates.addAll(rightPredicates);
-                    join.getOnClauseCondition().map(on -> predicates.addAll(ExpressionUtils.extractConjunction(on)));
-                    break;
-                case LEFT_SEMI_JOIN:
-                    predicates.addAll(leftPredicates);
-                    join.getOnClauseCondition().map(on -> predicates.addAll(ExpressionUtils.extractConjunction(on)));
-                    break;
-                case RIGHT_SEMI_JOIN:
-                    predicates.addAll(rightPredicates);
-                    join.getOnClauseCondition().map(on -> predicates.addAll(ExpressionUtils.extractConjunction(on)));
-                    break;
-                case LEFT_OUTER_JOIN:
-                case LEFT_ANTI_JOIN:
-                case NULL_AWARE_LEFT_ANTI_JOIN:
-                    predicates.addAll(leftPredicates);
-                    break;
-                case RIGHT_OUTER_JOIN:
-                case RIGHT_ANTI_JOIN:
-                    predicates.addAll(rightPredicates);
-                    break;
-                default:
-            }
+            predicates.addAll(leftPredicates);
+            predicates.addAll(rightPredicates);
             return getAvailableExpressions(predicates, join);
         });
     }

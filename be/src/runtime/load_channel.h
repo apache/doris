@@ -120,6 +120,7 @@ protected:
 private:
     UniqueId _load_id;
 
+    SpinLock _profile_serialize_lock;
     std::unique_ptr<RuntimeProfile> _profile;
     RuntimeProfile* _self_profile;
     RuntimeProfile::Counter* _add_batch_number_counter = nullptr;

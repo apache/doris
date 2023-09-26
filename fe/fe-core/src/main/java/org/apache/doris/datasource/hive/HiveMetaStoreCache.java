@@ -38,6 +38,7 @@ import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
+import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.external.hive.util.HiveUtil;
 import org.apache.doris.fs.FileSystemCache;
 import org.apache.doris.fs.FileSystemFactory;
@@ -310,7 +311,7 @@ public class HiveMetaStoreCache {
             values.add(new PartitionValue(partitionValue, HIVE_DEFAULT_PARTITION.equals(partitionValue)));
         }
         try {
-            PartitionKey key = PartitionKey.createListPartitionKeyWithTypes(values, types);
+            PartitionKey key = PartitionKey.createListPartitionKeyWithTypes(values, types, true);
             return new ListPartitionItem(Lists.newArrayList(key));
         } catch (AnalysisException e) {
             throw new CacheException("failed to convert hive partition %s to list partition in catalog %s",
@@ -405,14 +406,19 @@ public class HiveMetaStoreCache {
         ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
         try {
             Thread.currentThread().setContextClassLoader(ClassLoader.getSystemClassLoader());
-            String finalLocation = S3Util.convertToS3IfNecessary(key.location, catalog.getProperties());
+            String finalLocation = S3Util.convertToS3IfNecessary(key.location,
+                    catalog.getCatalogProperty().getProperties());
             // disable the fs cache in FileSystem, or it will always from new FileSystem
             // and save it in cache when calling FileInputFormat.setInputPaths().
             try {
                 Path path = new Path(finalLocation);
                 URI uri = path.toUri();
                 if (uri.getScheme() != null) {
-                    updateJobConf("fs." + uri.getScheme() + ".impl.disable.cache", "true");
+                    String scheme = uri.getScheme();
+                    updateJobConf("fs." + scheme + ".impl.disable.cache", "true");
+                    if (!scheme.equals("hdfs") && !scheme.equals("viewfs")) {
+                        updateJobConf("fs." + scheme + ".impl", PropertyConverter.getHadoopFSImplByScheme(scheme));
+                    }
                 }
             } catch (Exception e) {
                 LOG.warn("unknown scheme in path: " + finalLocation, e);
@@ -1000,6 +1006,7 @@ public class HiveMetaStoreCache {
         // File Cache for self splitter.
         private final List<HiveFileStatus> files = Lists.newArrayList();
         // File split cache for old splitter. This is a temp variable.
+        @Deprecated
         private final List<FileSplit> splits = Lists.newArrayList();
         private boolean isSplittable;
         // The values of partitions.
@@ -1021,6 +1028,7 @@ public class HiveMetaStoreCache {
             }
         }
 
+        @Deprecated
         public void addSplit(FileSplit split) {
             if (isFileVisible(split.getPath())) {
                 splits.add(split);
@@ -1063,6 +1071,9 @@ public class HiveMetaStoreCache {
         long length;
         long blockSize;
         long modificationTime;
+        boolean splittable;
+        List<String> partitionValues;
+        AcidInfo acidInfo;
     }
 
     @Data

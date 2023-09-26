@@ -89,61 +89,53 @@ void ConfigAction::handle_update_config(HttpRequest* req) {
 
     Status s;
     std::string msg;
-    // We only support set one config at a time, and along with a optional param "persist".
-    // So the number of query params should at most be 2.
-    if (req->params()->size() > 2 || req->params()->size() < 1) {
+    rapidjson::Document root;
+    root.SetObject();
+    rapidjson::Document results;
+    results.SetArray();
+    if (req->params()->size() < 1) {
         s = Status::InvalidArgument("");
         msg = "Now only support to set a single config once, via 'config_name=new_value', and with "
               "an optional parameter 'persist'.";
     } else {
-        if (req->params()->size() == 1) {
-            const std::string& config = req->params()->begin()->first;
-            const std::string& new_value = req->params()->begin()->second;
-            s = config::set_config(config, new_value, false);
+        bool need_persist = false;
+        if (req->params()->find(PERSIST_PARAM)->second.compare("true") == 0) {
+            need_persist = true;
+        }
+        for (const auto& [key, value] : *req->params()) {
+            if (key == PERSIST_PARAM) {
+                continue;
+            }
+            s = config::set_config(key, value, need_persist);
             if (s.ok()) {
-                LOG(INFO) << "set_config " << config << "=" << new_value << " success";
+                LOG(INFO) << "set_config " << key << "=" << value
+                          << " success. persist: " << need_persist;
             } else {
-                LOG(WARNING) << "set_config " << config << "=" << new_value << " failed";
-                msg = strings::Substitute("set $0=$1 failed, reason: $2", config, new_value,
+                LOG(WARNING) << "set_config " << key << "=" << value << " failed";
+                msg = strings::Substitute("set $0=$1 failed, reason: $2.", key, value,
                                           s.to_string());
             }
-        } else if (req->params()->size() == 2) {
-            if (req->params()->find(PERSIST_PARAM) == req->params()->end()) {
-                s = Status::InvalidArgument("");
-                msg = "Now only support to set a single config once, via 'config_name=new_value', "
-                      "and with an optional parameter 'persist'.";
-            } else {
-                bool need_persist = false;
-                if (req->params()->find(PERSIST_PARAM)->second.compare("true") == 0) {
-                    need_persist = true;
-                }
-                for (auto const& iter : *(req->params())) {
-                    if (iter.first.compare(PERSIST_PARAM) == 0) {
-                        continue;
-                    }
-                    s = config::set_config(iter.first, iter.second, need_persist);
-                    if (s.ok()) {
-                        LOG(INFO) << "set_config " << iter.first << "=" << iter.second
-                                  << " success. persist: " << need_persist;
-                    } else {
-                        LOG(WARNING)
-                                << "set_config " << iter.first << "=" << iter.second << " failed";
-                        msg = strings::Substitute("set $0=$1 failed, reason: $2", iter.first,
-                                                  iter.second, s.to_string());
-                    }
-                }
-            }
+            std::string status(s.ok() ? "OK" : "BAD");
+            rapidjson::Value result;
+            result.SetObject();
+            rapidjson::Value(key.c_str(), key.size(), results.GetAllocator());
+            result.AddMember("config_name",
+                             rapidjson::Value(key.c_str(), key.size(), results.GetAllocator()),
+                             results.GetAllocator());
+            result.AddMember(
+                    "status",
+                    rapidjson::Value(status.c_str(), status.size(), results.GetAllocator()),
+                    results.GetAllocator());
+            result.AddMember("msg",
+                             rapidjson::Value(msg.c_str(), msg.size(), results.GetAllocator()),
+                             results.GetAllocator());
+            results.PushBack(result, results.GetAllocator());
         }
     }
 
-    std::string status(s.ok() ? "OK" : "BAD");
-    rapidjson::Document root;
-    root.SetObject();
-    root.AddMember("status", rapidjson::Value(status.c_str(), status.size()), root.GetAllocator());
-    root.AddMember("msg", rapidjson::Value(msg.c_str(), msg.size()), root.GetAllocator());
     rapidjson::StringBuffer strbuf;
     rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(strbuf);
-    root.Accept(writer);
+    results.Accept(writer);
 
     req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.c_str());
     HttpChannel::send_reply(req, HttpStatus::OK, strbuf.GetString());

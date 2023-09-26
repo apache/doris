@@ -1293,13 +1293,10 @@ public class StmtRewriter {
     public static boolean rewriteByPolicy(StatementBase statementBase, Analyzer analyzer) throws UserException {
         Env currentEnv = Env.getCurrentEnv();
         UserIdentity currentUserIdentity = ConnectContext.get().getCurrentUserIdentity();
-        String user = analyzer.getQualifiedUser();
         if (currentUserIdentity.isRootUser() || currentUserIdentity.isAdminUser()) {
             return false;
         }
-        if (!currentEnv.getPolicyMgr().existPolicy(user)) {
-            return false;
-        }
+
         if (!(statementBase instanceof SelectStmt)) {
             return false;
         }
@@ -1324,7 +1321,7 @@ public class StmtRewriter {
                     .getDbOrAnalysisException(dbName);
             long dbId = db.getId();
             long tableId = table.getId();
-            RowPolicy matchPolicy = currentEnv.getPolicyMgr().getMatchTablePolicy(dbId, tableId, user);
+            RowPolicy matchPolicy = currentEnv.getPolicyMgr().getMatchTablePolicy(dbId, tableId, currentUserIdentity);
             if (matchPolicy == null) {
                 continue;
             }

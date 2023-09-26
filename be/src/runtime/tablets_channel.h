@@ -90,6 +90,8 @@ public:
     ~TabletsChannel();
 
     Status open(const PTabletWriterOpenRequest& request);
+    // open + open writers
+    Status incremental_open(const PTabletWriterOpenRequest& params);
 
     // no-op when this channel has been closed or cancelled
     Status add_batch(const PTabletWriterAddBlockRequest& request,
@@ -113,8 +115,6 @@ public:
 
     void refresh_profile();
 
-    void register_memtable_memory_limiter();
-
 private:
     template <typename Request>
     Status _get_current_seq(int64_t& cur_seq, const Request& request);
@@ -130,10 +130,9 @@ private:
 
     void _add_broken_tablet(int64_t tablet_id);
     void _add_error_tablet(google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors,
-                           int64_t tablet_id, Status error);
+                           int64_t tablet_id, Status error) const;
     bool _is_broken_tablet(int64_t tablet_id);
     void _init_profile(RuntimeProfile* profile);
-    void _memtable_writers_foreach(std::function<void(std::shared_ptr<MemTableWriter>)> fn);
 
     // id of this load channel
     TabletsChannelKey _key;

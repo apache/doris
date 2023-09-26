@@ -80,6 +80,10 @@ under the License.
             
         </configuration>
     ```
+7. 在使用Broker Load时，配置了Kerberos，如果报错`Cannot locate default realm.`。
+
+   将 `-Djava.security.krb5.conf=/your-path` 配置项添加到Broker Load启动脚本的 `start_broker.sh` 的 `JAVA_OPTS`里。
+
 
 ## JDBC Catalog
 
@@ -191,6 +195,19 @@ under the License.
 8. 查询hive外表，遇到该报错：`java.lang.ClassNotFoundException: Class com.hadoop.compression.lzo.LzoCodec not found`
 
    去hadoop环境搜索`hadoop-lzo-*.jar`放在`"${DORIS_HOME}/fe/lib/"`目录下并重启fe。
+
+   从 2.0.2 版本起，可以将这个文件放置在BE的 `custom_lib/` 目录下（如不存在，手动创建即可），以防止升级集群时因为 lib 目录被替换而导致文件丢失。
+
+9. 创建hive表指定serde为 `org.apache.hadoop.hive.contrib.serde2.MultiDelimitserDe`，访问表时报错：`storage schema reading not supported`
+
+   在hive-site.xml文件中增加以下配置，并重启hms服务：
+
+   ```
+   <property>
+      <name>metastore.storage.schema.reader.impl</name>
+      <value>org.apache.hadoop.hive.metastore.SerDeStorageSchemaReader</value>
+   </property> 
+   ```
 
 ## HDFS
 

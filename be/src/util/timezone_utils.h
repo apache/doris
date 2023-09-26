@@ -32,12 +32,19 @@ namespace doris {
 class TimezoneUtils {
 public:
     static void load_timezone_names();
+    // we support to parse lower_case timezone name iff execution environment has timezone file
+    static void load_timezones_to_cache();
+    // when use this, timezone will be saved in cache.
     static bool find_cctz_time_zone(const std::string& timezone, cctz::time_zone& ctz);
 
-public:
     static const std::string default_time_zone;
 
 private:
+    // for ut only
+    static void clear_timezone_caches();
+
+    static bool find_cctz_time_zone_impl(const std::string& timezone, cctz::time_zone& ctz);
+
     static bool inited_;
     static std::unordered_map<std::string, std::string> timezone_names_map_;
 

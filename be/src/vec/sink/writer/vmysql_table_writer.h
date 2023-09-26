@@ -47,15 +47,16 @@ class Block;
 class VMysqlTableWriter final : public AsyncResultWriter {
 public:
     VMysqlTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
-    ~VMysqlTableWriter() override;
 
     // connect to mysql server
-    Status open(RuntimeState* state) override;
+    Status open(RuntimeState* state, RuntimeProfile* profile) override;
 
     Status append_block(vectorized::Block& block) override;
 
+    Status close(Status) override;
+
 private:
-    Status insert_row(vectorized::Block& block, size_t row);
+    Status _insert_row(vectorized::Block& block, size_t row);
     MysqlConnInfo _conn_info;
     fmt::memory_buffer _insert_stmt_buffer;
     MYSQL* _mysql_conn;

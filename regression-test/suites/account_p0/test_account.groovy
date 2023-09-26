@@ -18,5 +18,11 @@ suite("test_account") {
     // todo: test account management, such as role, user, grant, revoke ...
     sql "show roles"
 
-    qt_show_grants1 "show grants for 'non_existent_user_1'"
+    try {
+        sql "show grants for 'non_existent_user_1'"
+        fail()
+    } catch (Exception e) {
+        log.info(e.getMessage())
+        assertTrue(e.getMessage().contains('not exist'))
+    }
 }

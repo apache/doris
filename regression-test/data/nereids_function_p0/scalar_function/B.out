@@ -202,6 +202,64 @@
 0
 0
 
+-- !sql_bitmap_andnot_Bitmap_Bitmap --
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+
+-- !sql_bitmap_andnot_Bitmap_Bitmap_notnull --
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+
+-- !sql_bitmap_andnot_count_Bitmap_Bitmap --
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+
+-- !sql_bitmap_andnot_count_Bitmap_Bitmap_notnull --
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+
 -- !sql_bitmap_contains_Bitmap_BigInt --
 \N
 true
@@ -319,7 +377,7 @@ true
 \N
 
 -- !sql_bitmap_has_all_Bitmap_Bitmap --
-\N
+true
 true
 true
 true
@@ -348,7 +406,7 @@ true
 true
 
 -- !sql_bitmap_has_any_Bitmap_Bitmap --
-\N
+false
 true
 true
 true
@@ -696,7 +754,7 @@ true
 \N
 
 -- !sql_bitmap_to_string_Bitmap --
-\N
+
 1
 2
 3

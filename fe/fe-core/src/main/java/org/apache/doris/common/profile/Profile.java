@@ -61,7 +61,8 @@ public class Profile {
         executionProfile.addToProfileAsChild(rootProfile);
     }
 
-    public synchronized void update(long startTime, Map<String, String> summaryInfo, boolean isFinished) {
+    public synchronized void update(long startTime, Map<String, String> summaryInfo, boolean isFinished,
+            boolean isSimpleProfile) {
         if (this.isFinished) {
             return;
         }
@@ -70,6 +71,7 @@ public class Profile {
             executionProfile.update(startTime, isFinished);
         }
         rootProfile.computeTimeInProfile();
+        rootProfile.setProfileLevel(isSimpleProfile);
         ProfileManager.getInstance().pushProfile(rootProfile);
         this.isFinished = isFinished;
     }

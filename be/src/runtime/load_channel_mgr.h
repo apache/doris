@@ -63,6 +63,8 @@ public:
     // cancel all tablet stream for 'load_id' load
     Status cancel(const PTabletWriterCancelRequest& request);
 
+    void stop();
+
 private:
     Status _get_load_channel(std::shared_ptr<LoadChannel>& channel, bool& is_eof,
                              const UniqueId& load_id, const PTabletWriterAddBlockRequest& request);
@@ -70,12 +72,6 @@ private:
     void _finish_load_channel(UniqueId load_id);
 
     Status _start_bg_worker();
-
-    void _register_channel_all_writers(std::shared_ptr<doris::LoadChannel> channel) {
-        for (auto& [_, tablet_channel] : channel->get_tablets_channels()) {
-            tablet_channel->register_memtable_memory_limiter();
-        }
-    }
 
 protected:
     // lock protect the load channel map

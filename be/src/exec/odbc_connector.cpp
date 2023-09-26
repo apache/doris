@@ -22,7 +22,6 @@
 #include <sqlext.h>
 #include <wchar.h>
 
-#include <algorithm>
 #include <ostream>
 
 #include "runtime/define_primitive_type.h"
@@ -59,7 +58,7 @@ ODBCConnector::ODBCConnector(const ODBCConnectorParam& param)
           _dbc(nullptr),
           _stmt(nullptr) {}
 
-ODBCConnector::~ODBCConnector() {
+Status ODBCConnector::close(Status) {
     // do not commit transaction, roll back
     if (_is_in_transaction) {
         abort_trans();
@@ -77,6 +76,8 @@ ODBCConnector::~ODBCConnector() {
     if (_env != nullptr) {
         SQLFreeHandle(SQL_HANDLE_ENV, _env);
     }
+
+    return Status::OK();
 }
 
 Status ODBCConnector::append(vectorized::Block* block,
@@ -266,6 +267,8 @@ Status ODBCConnector::abort_trans() {
 
     ODBC_DISPOSE(_dbc, SQL_HANDLE_DBC, SQLEndTran(SQL_HANDLE_DBC, _dbc, SQL_ROLLBACK),
                  "Abort transcation");
+
+    _is_in_transaction = false;
 
     return Status::OK();
 }

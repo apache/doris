@@ -20,6 +20,8 @@
 #include <utility>
 #include <vector>
 
+#include "common/exception.h"
+#include "common/status.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "vec/columns/column.h"
@@ -161,6 +163,13 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
                 VectorizedUtils::build_mutable_mem_reuse_block(output_block, _empty_block);
         MutableColumns& merged_columns = m_block.mutable_columns();
 
+        if (num_columns != merged_columns.size()) {
+            throw Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    "num_columns!=merged_columns.size(), num_columns={}, merged_columns.size()={}",
+                    num_columns, merged_columns.size());
+        }
+
         /// Take rows from queue in right order and push to 'merged'.
         size_t merged_rows = 0;
         while (!_priority_queue.empty()) {
@@ -170,8 +179,9 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
             if (_offset > 0) {
                 _offset--;
             } else {
-                for (size_t i = 0; i < num_columns; ++i)
+                for (size_t i = 0; i < num_columns; ++i) {
                     merged_columns[i]->insert_from(*current->all_columns[i], current->pos);
+                }
                 ++merged_rows;
             }
 

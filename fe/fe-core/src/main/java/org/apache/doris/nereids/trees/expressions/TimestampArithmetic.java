@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateLikeV2Args;
 import org.apache.doris.nereids.trees.expressions.literal.Interval.TimeUnit;
@@ -116,6 +117,18 @@ public class TimestampArithmetic extends Expression implements BinaryExpression,
 
     public TimeUnit getTimeUnit() {
         return timeUnit;
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        children().forEach(c -> {
+            if (c.getDataType().isObjectType()) {
+                throw new AnalysisException("timestamp arithmetic could not contains object type: " + this.toSql());
+            }
+            if (c.getDataType().isComplexType()) {
+                throw new AnalysisException("timestamp arithmetic could not contains complex type: " + this.toSql());
+            }
+        });
     }
 
     @Override

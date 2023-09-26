@@ -29,13 +29,17 @@
 #include "gtest/gtest_pred_impl.h"
 #include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/exec_env.h"
 #include "runtime/types.h"
 #include "testutil/any_type.h"
 #include "testutil/function_utils.h"
 #include "udf/udf.h"
+#include "util/bitmap_value.h"
 #include "util/jsonb_utils.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_complex.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -291,17 +295,6 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     ColumnPtr column = block.get_columns()[result];
     EXPECT_TRUE(column != nullptr);
 
-    ColumnPtr nested_col = nullptr;
-    ColumnPtr null_map_col = ColumnUInt8::create(row_size, 0);
-    if (doris::vectorized::is_column_nullable(*column)) {
-        const auto& null_column = check_and_get_column<ColumnNullable>(column);
-        nested_col = null_column->get_nested_column_ptr();
-        null_map_col = null_column->get_null_map_column_ptr();
-    } else {
-        nested_col = column;
-    }
-    const auto& null_map = check_and_get_column<ColumnUInt8>(null_map_col)->get_data();
-
     for (int i = 0; i < row_size; ++i) {
         auto check_column_data = [&]() {
             if constexpr (std::is_same_v<ReturnType, DataTypeJsonb>) {
@@ -315,16 +308,6 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
                     EXPECT_EQ(expect_data, JsonbToJson::jsonb_to_json_string(s.data, s.size))
                             << " at row " << i;
                 }
-            } else if constexpr (std::is_same_v<ReturnType, DataTypeBitMap>) {
-                const auto* expect_data =
-                        any_cast<typename ReturnType::FieldType*>(data_set[i].second);
-                if (null_map[i]) {
-                    EXPECT_TRUE(expect_data->empty()) << " at row " << i;
-                } else {
-                    auto& bitmap_value =
-                            check_and_get_column<ColumnBitmap>(nested_col)->get_data()[i];
-                    EXPECT_EQ(*expect_data, bitmap_value) << " at row " << i;
-                }
             } else {
                 Field field;
                 column->get(i, field);
@@ -335,6 +318,17 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
                 if constexpr (std::is_same_v<ReturnType, DataTypeDecimal<Decimal128>>) {
                     const auto& column_data = field.get<DecimalField<Decimal128>>().get_value();
                     EXPECT_EQ(expect_data.value, column_data.value) << " at row " << i;
+                } else if constexpr (std::is_same_v<ReturnType, DataTypeBitMap>) {
+                    const ColumnBitmap* bitmap_col = nullptr;
+                    if constexpr (nullable) {
+                        auto nullable_column = assert_cast<const ColumnNullable*>(column.get());
+                        bitmap_col = assert_cast<const ColumnBitmap*>(
+                                nullable_column->get_nested_column_ptr().get());
+                    } else {
+                        bitmap_col = assert_cast<const ColumnBitmap*>(column.get());
+                    }
+                    EXPECT_EQ(expect_data.to_string(), bitmap_col->get_element(i).to_string())
+                            << " at row " << i;
                 } else if constexpr (std::is_same_v<ReturnType, DataTypeFloat32> ||
                                      std::is_same_v<ReturnType, DataTypeFloat64> ||
                                      std::is_same_v<ReturnType, DataTypeTime>) {

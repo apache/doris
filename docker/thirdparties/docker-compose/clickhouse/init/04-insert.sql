@@ -35,3 +35,10 @@ INSERT INTO doris_test.arr values
 ('1',[true],['2022-01-01'],['2022-01-01'],[1.1],[1.1],[1],[1],[1],[1],[1],[1],[1],[1],[1],[1],[1],[1],[2.2],[1],['116.253.40.133'],['2a02:aa08:e000:3100::2'],['61f0c404-5cb3-11e7-907b-a6006ad3dba0'],[1],['string'],['string'],['2022-01-01 00:00:00'],['2022-01-01 00:00:00']);
 
 INSERT INTO doris_test.json VALUES ('1','{"a": 1, "b": { "c": 2, "d": [1, 2, 3] }}');
+
+INSERT INTO doris_test.final_test Values (1, 'first');
+INSERT INTO doris_test.final_test Values (1, 'second');
+
+INSERT INTO doris_test.ts values (1,1694438743);
+
+

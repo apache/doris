@@ -62,7 +62,6 @@ public class TableProperty implements Writable {
     private String storagePolicy = "";
     private Boolean isBeingSynced = null;
     private BinlogConfig binlogConfig;
-    private boolean isDynamicSchema = false;
 
     /*
      * the default storage format of this table.
@@ -128,6 +127,8 @@ public class TableProperty implements Writable {
                 buildTimeSeriesCompactionGoalSizeMbytes();
                 buildTimeSeriesCompactionFileCountThreshold();
                 buildTimeSeriesCompactionTimeThresholdSeconds();
+                buildSkipWriteIndexOnLoad();
+                buildEnableSingleReplicaCompaction();
                 break;
             default:
                 break;
@@ -346,12 +347,6 @@ public class TableProperty implements Writable {
         this.binlogConfig = newBinlogConfig;
     }
 
-    public TableProperty buildDynamicSchema() {
-        isDynamicSchema = Boolean.parseBoolean(
-                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA, "false"));
-        return this;
-    }
-
     public TableProperty buildDataSortInfo() {
         HashMap<String, String> dataSortInfoProperties = new HashMap<>();
         for (Map.Entry<String, String> entry : properties.entrySet()) {
@@ -430,10 +425,6 @@ public class TableProperty implements Writable {
         return properties.getOrDefault(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE, "");
     }
 
-    public boolean isDynamicSchema() {
-        return isDynamicSchema;
-    }
-
     public TStorageFormat getStorageFormat() {
         // Force convert all V1 table to V2 table
         if (TStorageFormat.V1 == storageFormat) {
@@ -478,7 +469,8 @@ public class TableProperty implements Writable {
             // Must copy the properties because "analyzeReplicaAllocation" will remove the property
             // from the properties.
             Map<String, String> copiedProperties = Maps.newHashMap(properties);
-            this.replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(copiedProperties, "default");
+            this.replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocationWithoutCheck(
+                    copiedProperties, "default");
         } catch (AnalysisException e) {
             // should not happen
             LOG.error("should not happen when build replica allocation", e);
@@ -495,7 +487,6 @@ public class TableProperty implements Writable {
         TableProperty tableProperty = GsonUtils.GSON.fromJson(Text.readString(in), TableProperty.class)
                 .executeBuildDynamicProperty()
                 .buildInMemory()
-                .buildDynamicSchema()
                 .buildStorageFormat()
                 .buildDataSortInfo()
                 .buildCompressionType()

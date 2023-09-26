@@ -47,7 +47,6 @@
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vmap_literal.h"
 #include "vec/exprs/vmatch_predicate.h"
-#include "vec/exprs/vschema_change_expr.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/exprs/vstruct_literal.h"
 #include "vec/exprs/vtuple_is_null_predicate.h"
@@ -56,6 +55,93 @@
 namespace doris {
 class RowDescriptor;
 class RuntimeState;
+TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, int precision,
+                                 int scale) {
+    TExprNode node;
+
+    switch (type) {
+    case TYPE_BOOLEAN: {
+        create_texpr_literal_node<TYPE_BOOLEAN>(data, &node);
+        break;
+    }
+    case TYPE_TINYINT: {
+        create_texpr_literal_node<TYPE_TINYINT>(data, &node);
+        break;
+    }
+    case TYPE_SMALLINT: {
+        create_texpr_literal_node<TYPE_SMALLINT>(data, &node);
+        break;
+    }
+    case TYPE_INT: {
+        create_texpr_literal_node<TYPE_INT>(data, &node);
+        break;
+    }
+    case TYPE_BIGINT: {
+        create_texpr_literal_node<TYPE_BIGINT>(data, &node);
+        break;
+    }
+    case TYPE_LARGEINT: {
+        create_texpr_literal_node<TYPE_LARGEINT>(data, &node);
+        break;
+    }
+    case TYPE_FLOAT: {
+        create_texpr_literal_node<TYPE_FLOAT>(data, &node);
+        break;
+    }
+    case TYPE_DOUBLE: {
+        create_texpr_literal_node<TYPE_DOUBLE>(data, &node);
+        break;
+    }
+    case TYPE_DATEV2: {
+        create_texpr_literal_node<TYPE_DATEV2>(data, &node);
+        break;
+    }
+    case TYPE_DATETIMEV2: {
+        create_texpr_literal_node<TYPE_DATETIMEV2>(data, &node);
+        break;
+    }
+    case TYPE_DATE: {
+        create_texpr_literal_node<TYPE_DATE>(data, &node);
+        break;
+    }
+    case TYPE_DATETIME: {
+        create_texpr_literal_node<TYPE_DATETIME>(data, &node);
+        break;
+    }
+    case TYPE_DECIMALV2: {
+        create_texpr_literal_node<TYPE_DECIMALV2>(data, &node, precision, scale);
+        break;
+    }
+    case TYPE_DECIMAL32: {
+        create_texpr_literal_node<TYPE_DECIMAL32>(data, &node, precision, scale);
+        break;
+    }
+    case TYPE_DECIMAL64: {
+        create_texpr_literal_node<TYPE_DECIMAL64>(data, &node, precision, scale);
+        break;
+    }
+    case TYPE_DECIMAL128I: {
+        create_texpr_literal_node<TYPE_DECIMAL128I>(data, &node, precision, scale);
+        break;
+    }
+    case TYPE_CHAR: {
+        create_texpr_literal_node<TYPE_CHAR>(data, &node);
+        break;
+    }
+    case TYPE_VARCHAR: {
+        create_texpr_literal_node<TYPE_VARCHAR>(data, &node);
+        break;
+    }
+    case TYPE_STRING: {
+        create_texpr_literal_node<TYPE_STRING>(data, &node);
+        break;
+    }
+    default:
+        DCHECK(false);
+        throw std::invalid_argument("Invalid type!");
+    }
+    return node;
+}
 } // namespace doris
 
 namespace doris::vectorized {
@@ -114,6 +200,9 @@ Status VExpr::open(RuntimeState* state, VExprContext* context,
                    FunctionContext::FunctionStateScope scope) {
     for (int i = 0; i < _children.size(); ++i) {
         RETURN_IF_ERROR(_children[i]->open(state, context, scope));
+    }
+    if (scope == FunctionContext::FRAGMENT_LOCAL) {
+        RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
     }
     return Status::OK();
 }
@@ -203,10 +292,6 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
         }
         case TExprNodeType::TUPLE_IS_NULL_PRED: {
             expr = VTupleIsNullPredicate::create_shared(expr_node);
-            break;
-        }
-        case TExprNodeType::SCHEMA_CHANGE_EXPR: {
-            expr = VSchemaChangeExpr::create_shared(expr_node);
             break;
         }
         default:
@@ -384,6 +469,7 @@ Status VExpr::get_const_col(VExprContext* context,
     }
 
     if (_constant_col != nullptr) {
+        DCHECK(column_wrapper != nullptr);
         *column_wrapper = _constant_col;
         return Status::OK();
     }
@@ -397,7 +483,10 @@ Status VExpr::get_const_col(VExprContext* context,
     DCHECK(result != -1);
     const auto& column = block.get_by_position(result).column;
     _constant_col = std::make_shared<ColumnPtrWrapper>(column);
-    *column_wrapper = _constant_col;
+    if (column_wrapper != nullptr) {
+        *column_wrapper = _constant_col;
+    }
+
     return Status::OK();
 }
 

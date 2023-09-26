@@ -205,7 +205,7 @@ Status FileHeader<MessageType, ExtraType>::deserialize() {
     real_file_length = file_reader->size();
 
     if (file_length() != static_cast<uint64_t>(real_file_length)) {
-        return Status::Error<ErrorCode::FILE_DATA_ERROR>(
+        return Status::InternalError(
                 "file length is not match. file={}, file_length={}, real_file_length={}",
                 file_reader->path().native(), file_length(), real_file_length);
     }
@@ -219,10 +219,9 @@ Status FileHeader<MessageType, ExtraType>::deserialize() {
         // Cannot bind packed field '_FixedFileHeaderV2::protobuf_checksum' to 'unsigned int&'
         // so we need to using unary operator+ to evaluate one value to pass
         // to status to successfully compile.
-        return Status::Error<ErrorCode::CHECKSUM_ERROR>(
-                "checksum is not match. file={}, expect={}, actual={}",
-                file_reader->path().native(), +_fixed_file_header.protobuf_checksum,
-                real_protobuf_checksum);
+        return Status::InternalError("checksum is not match. file={}, expect={}, actual={}",
+                                     file_reader->path().native(),
+                                     +_fixed_file_header.protobuf_checksum, real_protobuf_checksum);
     }
 
     try {

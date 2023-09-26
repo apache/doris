@@ -134,6 +134,8 @@ public:
 
     bool can_read() const { return _can_read; }
 
+    [[nodiscard]] virtual bool can_terminate_early() { return false; }
+
     // Sink Data to ExecNode to do some stock work, both need impl with method: get_result
     // `eos` means source is exhausted, exec node should do some finalize work
     // Eg: Aggregation, Sort
@@ -316,11 +318,6 @@ protected:
     static Status create_node(RuntimeState* state, ObjectPool* pool, const TPlanNode& tnode,
                               const DescriptorTbl& descs, ExecNode** node);
 
-    static Status create_tree_helper(RuntimeState* state, ObjectPool* pool,
-                                     const std::vector<TPlanNode>& tnodes,
-                                     const DescriptorTbl& descs, ExecNode* parent, int* node_idx,
-                                     ExecNode** root);
-
     virtual bool is_scan_node() const { return false; }
 
     void init_runtime_profile(const std::string& name);
@@ -331,6 +328,11 @@ protected:
     std::atomic<bool> _can_read = false;
 
 private:
+    static Status create_tree_helper(RuntimeState* state, ObjectPool* pool,
+                                     const std::vector<TPlanNode>& tnodes,
+                                     const DescriptorTbl& descs, ExecNode* parent, int* node_idx,
+                                     ExecNode** root);
+
     friend class pipeline::OperatorBase;
     bool _is_closed;
     bool _is_resource_released = false;

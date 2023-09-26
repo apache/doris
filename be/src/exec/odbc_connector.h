@@ -65,7 +65,6 @@ struct DataBinding {
 class ODBCConnector : public TableConnector {
 public:
     explicit ODBCConnector(const ODBCConnectorParam& param);
-    ~ODBCConnector() override;
 
     Status open(RuntimeState* state, bool read = false);
     // query for ODBC table
@@ -92,11 +91,13 @@ public:
                   TOdbcTableType::type table_type = TOdbcTableType::MYSQL) override;
 
     const DataBinding& get_column_data(int i) const { return *_columns_data.at(i).get(); }
-    Status init_to_write(RuntimeProfile* profile);
+    Status init_to_write(RuntimeProfile* profile) override;
 
     // Now we only treat HLL, CHAR, VARCHAR as big column
     uint32_t big_column_size_buffer = config::big_column_size_buffer;
     uint32_t small_column_size_buffer = config::small_column_size_buffer;
+
+    Status close(Status) override;
 
 private:
     static Status error_status(const std::string& prefix, const std::string& error_msg);

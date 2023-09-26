@@ -23,7 +23,6 @@ import org.apache.doris.nereids.trees.expressions.typecoercion.ExpectsInputTypes
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 
 import com.google.common.base.Preconditions;
@@ -37,8 +36,8 @@ import java.util.Objects;
  */
 public class WhenClause extends Expression implements BinaryExpression, ExpectsInputTypes {
 
-    public static final List<AbstractDataType> EXPECTS_INPUT_TYPES
-            = ImmutableList.of(BooleanType.INSTANCE, AnyDataType.INSTANCE);
+    public static final List<DataType> EXPECTS_INPUT_TYPES
+            = ImmutableList.of(BooleanType.INSTANCE, AnyDataType.INSTANCE_WITHOUT_INDEX);
 
     public WhenClause(Expression operand, Expression result) {
         super(ImmutableList.of(operand, result));
@@ -86,7 +85,7 @@ public class WhenClause extends Expression implements BinaryExpression, ExpectsI
     }
 
     @Override
-    public List<AbstractDataType> expectedInputTypes() {
+    public List<DataType> expectedInputTypes() {
         return EXPECTS_INPUT_TYPES;
     }
 
@@ -112,6 +111,6 @@ public class WhenClause extends Expression implements BinaryExpression, ExpectsI
 
     @Override
     public String toString() {
-        return toSql();
+        return " WHEN " + left().toString() + " THEN " + right().toString();
     }
 }

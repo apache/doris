@@ -48,6 +48,7 @@ import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.BeginTransactionException;
@@ -208,7 +209,7 @@ public class BrokerLoadJob extends BulkLoadJob {
                 // Generate loading task and init the plan of task
                 LoadLoadingTask task = new LoadLoadingTask(db, table, brokerDesc,
                         brokerFileGroups, getDeadlineMs(), getExecMemLimit(),
-                        isStrictMode(), transactionId, this, getTimeZone(), getTimeout(),
+                        isStrictMode(), isPartialUpdate(), transactionId, this, getTimeZone(), getTimeout(),
                         getLoadParallelism(), getSendBatchParallelism(),
                         getMaxFilterRatio() <= 0, enableProfile ? jobProfile : null, isSingleTabletLoadPerSink(),
                         useNewLoadScanNode(), getPriority());
@@ -321,7 +322,8 @@ public class BrokerLoadJob extends BulkLoadJob {
         if (!enableProfile) {
             return;
         }
-        jobProfile.update(createTimestamp, getSummaryInfo(true), true);
+        jobProfile.update(createTimestamp, getSummaryInfo(true), true,
+                Boolean.valueOf(sessionVariables.getOrDefault(SessionVariable.ENABLE_SIMPLY_PROFILE, "true")));
     }
 
     private Map<String, String> getSummaryInfo(boolean isFinished) {

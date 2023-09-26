@@ -23,6 +23,8 @@ import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HdfsResource;
+import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
@@ -111,6 +113,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                 case IcebergExternalCatalog.ICEBERG_REST:
                 case IcebergExternalCatalog.ICEBERG_DLF:
                 case IcebergExternalCatalog.ICEBERG_GLUE:
+                case IcebergExternalCatalog.ICEBERG_HADOOP:
                     source = new IcebergApiSource((IcebergExternalTable) table, desc, columnNameToRange);
                     break;
                 default:
@@ -167,6 +170,10 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     @Override
     public List<Split> getSplits() throws UserException {
+        return HiveMetaStoreClientHelper.ugiDoAs(source.getCatalog().getConfiguration(), this::doGetSplits);
+    }
+
+    private List<Split> doGetSplits() throws UserException {
 
         TableScan scan = icebergTable.newScan();
 
@@ -194,7 +201,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         // Min split size is DEFAULT_SPLIT_SIZE(128MB).
         long splitSize = Math.max(ConnectContext.get().getSessionVariable().getFileSplitSize(), DEFAULT_SPLIT_SIZE);
         HashSet<String> partitionPathSet = new HashSet<>();
-        String dataPath = icebergTable.location() + icebergTable.properties()
+        String dataPath = normalizeLocation(icebergTable.location()) + icebergTable.properties()
                 .getOrDefault(TableProperties.WRITE_DATA_LOCATION, DEFAULT_DATA_PATH);
         boolean isPartitionedTable = icebergTable.spec().isPartitioned();
 
@@ -202,7 +209,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         try (CloseableIterable<CombinedScanTask> combinedScanTasks =
                 TableScanUtil.planTasks(fileScanTasks, splitSize, 1, 0)) {
             combinedScanTasks.forEach(taskGrp -> taskGrp.files().forEach(splitTask -> {
-                String dataFilePath = splitTask.file().path().toString();
+                String dataFilePath = normalizeLocation(splitTask.file().path().toString());
 
                 // Counts the number of partitions read
                 if (isPartitionedTable) {
@@ -311,8 +318,21 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     @Override
     public TFileType getLocationType(String location) throws UserException {
-        return getTFileType(location).orElseThrow(() ->
-                new DdlException("Unknown file location " + location + " for iceberg table " + icebergTable.name()));
+        final String fLocation = normalizeLocation(location);
+        return getTFileType(fLocation).orElseThrow(() ->
+                new DdlException("Unknown file location " + fLocation + " for iceberg table " + icebergTable.name()));
+    }
+
+    private String normalizeLocation(String location) {
+        Map<String, String> props = source.getCatalog().getProperties();
+        String icebergCatalogType = props.get(IcebergExternalCatalog.ICEBERG_CATALOG_TYPE);
+        if ("hadoop".equalsIgnoreCase(icebergCatalogType)) {
+            if (!location.startsWith(HdfsResource.HDFS_PREFIX)) {
+                String fsName = props.get(HdfsResource.HADOOP_FS_NAME);
+                location = fsName + location;
+            }
+        }
+        return location;
     }
 
     @Override
@@ -347,7 +367,7 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     @Override
     public Map<String, String> getLocationProperties() throws UserException {
-        return source.getCatalog().getProperties();
+        return source.getCatalog().getCatalogProperty().getHadoopProperties();
     }
 
     @Override

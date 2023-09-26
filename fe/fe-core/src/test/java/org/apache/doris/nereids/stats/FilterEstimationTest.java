@@ -133,12 +133,12 @@ class FilterEstimationTest {
         Map<Expression, ColumnStatistic> slotToColumnStat = new HashMap<>();
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
                 .setNdv(500)
-                .setIsUnknown(true);
+                .setIsUnknown(false);
         slotToColumnStat.put(a, builder.build());
         Statistics stat = new Statistics(1000, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics expected = filterEstimation.estimate(notIn, stat);
-        Assertions.assertTrue(Precision.equals(666.666, expected.getRowCount(), 0.01));
+        Assertions.assertTrue(Precision.equals(1000, expected.getRowCount(), 0.01));
     }
 
     /**
@@ -564,9 +564,7 @@ class FilterEstimationTest {
     /**
      *  test filter estimation, c > 300, where 300 is out of c's range (0,200)
      *  after filter
-     *     c.selectivity=a.selectivity=b.selectivity = 0
      *     c.ndv=a.ndv=b.ndv=0
-     *     a.ndv = b.ndv = 0
      */
 
     @Test
@@ -581,20 +579,23 @@ class FilterEstimationTest {
                 .setNdv(1000)
                 .setAvgSizeByte(4)
                 .setNumNulls(0)
-                .setMinValue(10000)
-                .setMaxValue(1000);
+                .setMinValue(1000)
+                .setMaxValue(10000)
+                .setCount(1000);
         ColumnStatisticBuilder builderB = new ColumnStatisticBuilder()
                 .setNdv(100)
                 .setAvgSizeByte(4)
                 .setNumNulls(0)
                 .setMinValue(0)
-                .setMaxValue(500);
+                .setMaxValue(500)
+                .setCount(1000);
         ColumnStatisticBuilder builderC = new ColumnStatisticBuilder()
                 .setNdv(100)
                 .setAvgSizeByte(4)
                 .setNumNulls(0)
                 .setMinValue(0)
-                .setMaxValue(200);
+                .setMaxValue(200)
+                .setCount(1000);
         slotToColumnStat.put(a, builderA.build());
         slotToColumnStat.put(b, builderB.build());
         slotToColumnStat.put(c, builderC.build());
@@ -607,8 +608,8 @@ class FilterEstimationTest {
         Assertions.assertEquals(0, statsB.ndv);
         ColumnStatistic statsC = estimated.findColumnStatistics(c);
         Assertions.assertEquals(0, statsC.ndv);
-        Assertions.assertTrue(Double.isNaN(statsC.minValue));
-        Assertions.assertTrue(Double.isNaN(statsC.maxValue));
+        Assertions.assertTrue(Double.isInfinite(statsC.minValue));
+        Assertions.assertTrue(Double.isInfinite(statsC.maxValue));
     }
 
     /**

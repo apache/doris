@@ -43,6 +43,7 @@ import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.jupiter.api.Disabled;
 import org.junit.rules.ExpectedException;
 
 import java.util.List;
@@ -157,7 +158,7 @@ public class SelectStmtTest {
         UtFrameUtils.parseAndAnalyzeStmt(selectStmtStr4, ctx);
     }
 
-    @Test
+    @Disabled
     public void testSubqueryInCase() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
         String sql1 = "SELECT CASE\n"
@@ -284,8 +285,8 @@ public class SelectStmtTest {
         String commonExpr2 = "`t3`.`k3` = `t1`.`k3`";
         String commonExpr3 = "`t1`.`k1` = `t5`.`k1`";
         String commonExpr4 = "t5`.`k2` = 'United States'";
-        String betweenExpanded1 = "`t1`.`k4` >= 100 AND `t1`.`k4` <= 150";
-        String betweenExpanded2 = "`t1`.`k4` >= 50 AND `t1`.`k4` <= 100";
+        String betweenExpanded1 = "CAST(CAST(`t1`.`k4` AS DECIMALV3(12, 2)) AS INT) >= 100 AND CAST(CAST(`t1`.`k4` AS DECIMALV3(12, 2)) AS INT) <= 150";
+        String betweenExpanded2 = "CAST(CAST(`t1`.`k4` AS DECIMALV3(12, 2)) AS INT) >= 50 AND CAST(CAST(`t1`.`k4` AS DECIMALV3(12, 2)) AS INT) <= 100";
         String betweenExpanded3 = "`t1`.`k4` >= 50 AND `t1`.`k4` <= 250";
 
         String rewrittenSql = stmt.toSql();

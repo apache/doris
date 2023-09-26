@@ -53,7 +53,7 @@ public:
 
     const char* what() const noexcept override { return to_string().c_str(); }
 
-    Status to_status() const { return Status::Error(code(), to_string()); }
+    Status to_status() const { return Status::Error<false>(code(), to_string()); }
 
 private:
     int _code;
@@ -97,7 +97,7 @@ inline const std::string& Exception::to_string() const {
                         "PreCatch error code:{}, {}, __FILE__:{}, __LINE__:{}, __FUNCTION__:{}", \
                         e.code(), e.to_string(), __FILE__, __LINE__, __PRETTY_FUNCTION__));      \
             } else {                                                                             \
-                return Status::Error(e.code(), e.to_string());                                   \
+                return Status::Error<false>(e.code(), e.to_string());                            \
             }                                                                                    \
         }                                                                                        \
     } while (0)
@@ -119,7 +119,7 @@ inline const std::string& Exception::to_string() const {
                         "PreCatch error code:{}, {}, __FILE__:{}, __LINE__:{}, __FUNCTION__:{}", \
                         e.code(), e.to_string(), __FILE__, __LINE__, __PRETTY_FUNCTION__));      \
             } else {                                                                             \
-                return Status::Error(e.code(), e.to_string());                                   \
+                return Status::Error<false>(e.code(), e.to_string());                            \
             }                                                                                    \
         }                                                                                        \
     } while (0)

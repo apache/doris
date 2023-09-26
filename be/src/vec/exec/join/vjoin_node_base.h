@@ -74,6 +74,8 @@ public:
 
     virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
 
+    [[nodiscard]] bool can_terminate_early() override { return _short_circuit_for_probe; }
+
 protected:
     // Construct the intermediate blocks to store the results from join operation.
     void _construct_mutable_join_block();
@@ -95,7 +97,10 @@ protected:
     // Materialize build relation. For HashJoin, it will build a hash table while a list of build blocks for NLJoin.
     virtual Status _materialize_build_side(RuntimeState* state) = 0;
 
-    virtual void _init_short_circuit_for_probe() { _short_circuit_for_probe = false; }
+    virtual void _init_short_circuit_for_probe() {
+        _short_circuit_for_probe = false;
+        _short_circuit_for_probe_and_additional_data = false;
+    }
 
     TJoinOp::type _join_op;
     JoinOpVariants _join_op_variants;
@@ -122,6 +127,8 @@ protected:
     // 2. build side rows is empty, Join op is: inner join/right outer join/left semi/right semi/right anti
     bool _short_circuit_for_probe = false;
 
+    // for some join, when build side rows is empty, we could return directly by add some additional null data in probe table.
+    bool _short_circuit_for_probe_and_additional_data = false;
     std::unique_ptr<RowDescriptor> _output_row_desc;
     std::unique_ptr<RowDescriptor> _intermediate_row_desc;
     // output expr

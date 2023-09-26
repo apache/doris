@@ -120,7 +120,7 @@ public class JoinEstimation {
                 .putColumnStatistics(rightStats.columnStatistics())
                 .build();
 
-        double outputRowCount = 1;
+        double outputRowCount;
         if (!trustableConditions.isEmpty()) {
             List<Double> joinConditionSels = trustableConditions.stream()
                     .map(expression -> estimateJoinConditionSel(crossJoinStats, expression))
@@ -129,21 +129,20 @@ public class JoinEstimation {
 
             double sel = 1.0;
             double denominator = 1.0;
-            for (int i = 0; i < joinConditionSels.size(); i++) {
-                sel *= Math.pow(joinConditionSels.get(i), 1 / denominator);
+            for (Double joinConditionSel : joinConditionSels) {
+                sel *= Math.pow(joinConditionSel, 1 / denominator);
                 denominator *= 2;
             }
             outputRowCount = Math.max(1, crossJoinStats.getRowCount() * sel);
             outputRowCount = outputRowCount * Math.pow(0.9, unTrustableCondition.size());
-            innerJoinStats = crossJoinStats.updateRowCountOnly(outputRowCount);
         } else {
             outputRowCount = Math.max(leftStats.getRowCount(), rightStats.getRowCount());
-            Optional<Double> ratio = unTrustEqualRatio.stream().max(Double::compareTo);
+            Optional<Double> ratio = unTrustEqualRatio.stream().min(Double::compareTo);
             if (ratio.isPresent()) {
                 outputRowCount = Math.max(1, outputRowCount * ratio.get());
             }
-            innerJoinStats = crossJoinStats.updateRowCountOnly(outputRowCount);
         }
+        innerJoinStats = crossJoinStats.updateRowCountOnly(outputRowCount);
         return innerJoinStats;
     }
 
@@ -181,9 +180,6 @@ public class JoinEstimation {
                 innerJoinStats = new StatisticsBuilder(innerJoinStats).setRowCount(1).build();
             }
         }
-
-        innerJoinStats.setWidth(leftStats.getWidth() + rightStats.getWidth());
-        innerJoinStats.setPenalty(0);
         return innerJoinStats;
     }
 

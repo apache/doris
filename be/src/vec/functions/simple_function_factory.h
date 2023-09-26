@@ -32,6 +32,7 @@ namespace doris::vectorized {
 
 class SimpleFunctionFactory;
 
+void register_function_size(SimpleFunctionFactory& factory);
 void register_function_comparison(SimpleFunctionFactory& factory);
 void register_function_comparison_eq_for_null(SimpleFunctionFactory& factory);
 void register_function_hll_cardinality(SimpleFunctionFactory& factory);
@@ -76,6 +77,7 @@ void register_function_like(SimpleFunctionFactory& factory);
 void register_function_regexp(SimpleFunctionFactory& factory);
 void register_function_random(SimpleFunctionFactory& factory);
 void register_function_uuid(SimpleFunctionFactory& factory);
+void register_function_uuid_numeric(SimpleFunctionFactory& factory);
 void register_function_coalesce(SimpleFunctionFactory& factory);
 void register_function_grouping(SimpleFunctionFactory& factory);
 void register_function_datetime_floor_ceil(SimpleFunctionFactory& factory);
@@ -207,6 +209,7 @@ public:
         static std::once_flag oc;
         static SimpleFunctionFactory instance;
         std::call_once(oc, []() {
+            register_function_size(instance);
             register_function_bitmap(instance);
             register_function_quantile_state(instance);
             register_function_bitmap_variadic(instance);
@@ -251,6 +254,7 @@ public:
             register_function_regexp(instance);
             register_function_random(instance);
             register_function_uuid(instance);
+            register_function_uuid_numeric(instance);
             register_function_coalesce(instance);
             register_function_grouping(instance);
             register_function_datetime_floor_ceil(instance);

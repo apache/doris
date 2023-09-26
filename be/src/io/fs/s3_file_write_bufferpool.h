@@ -28,6 +28,7 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "io/fs/s3_common.h"
+#include "runtime/exec_env.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -50,8 +51,8 @@ struct S3FileBuffer : public std::enable_shared_from_this<S3FileBuffer> {
 
     void reserve_buffer(Slice s) { _buf = s; }
 
-    // apend data into the memory buffer inside or into the file cache
-    // if the buffer has no memory buffer
+    // append data into the memory buffer inside
+    // or into the file cache if the buffer has no memory buffer
     void append_data(const Slice& data);
     // upload to S3 and file cache in async threadpool
     void submit();
@@ -126,8 +127,7 @@ public:
               doris::ThreadPool* thread_pool);
 
     static S3FileBufferPool* GetInstance() {
-        static S3FileBufferPool _pool;
-        return &_pool;
+        return ExecEnv::GetInstance()->get_s3_file_buffer_pool();
     }
 
     void reclaim(Slice buf) {

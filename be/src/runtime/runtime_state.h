@@ -40,10 +40,16 @@
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "gutil/integral_types.h"
+#include "util/debug_util.h"
 #include "util/runtime_profile.h"
 #include "util/telemetry/telemetry.h"
 
 namespace doris {
+
+namespace pipeline {
+class PipelineXLocalStateBase;
+class PipelineXSinkLocalStateBase;
+} // namespace pipeline
 
 class DescriptorTbl;
 class ObjectPool;
@@ -70,6 +76,10 @@ public:
                  int32 fragment_id, const TQueryOptions& query_options,
                  const TQueryGlobals& query_globals, ExecEnv* exec_env);
 
+    // Used by pipelineX. This runtime state is only used for setup.
+    RuntimeState(const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
+                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
+
     // RuntimeState for executing expr in fe-support.
     RuntimeState(const TQueryGlobals& query_globals);
 
@@ -84,6 +94,7 @@ public:
                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
 
     // for ut and non-query.
+    void set_exec_env(ExecEnv* exec_env) { _exec_env = exec_env; }
     void init_mem_trackers(const TUniqueId& id = TUniqueId(), const std::string& name = "unknown");
 
     const TQueryOptions& query_options() const { return _query_options; }
@@ -158,13 +169,15 @@ public:
     // _unreported_error_idx to _errors_log.size()
     void get_unreported_errors(std::vector<std::string>* new_errors);
 
-    bool is_cancelled() const { return _is_cancelled.load(); }
+    [[nodiscard]] bool is_cancelled() const;
     int codegen_level() const { return _query_options.codegen_level; }
     void set_is_cancelled(bool v, std::string msg) {
         _is_cancelled.store(v);
         // Create a error status, so that we could print error stack, and
         // we could know which path call cancel.
-        LOG(INFO) << "task is cancelled, st = " << Status::Error<ErrorCode::CANCELLED>(msg);
+        LOG(WARNING) << "Task is cancelled, instance: "
+                     << PrintInstanceStandardInfo(_query_id, _fragment_id, _fragment_instance_id)
+                     << " st = " << Status::Error<ErrorCode::CANCELLED>(msg);
     }
 
     void set_backend_id(int64_t backend_id) { _backend_id = backend_id; }
@@ -215,6 +228,12 @@ public:
     void set_db_name(const std::string& db_name) { _db_name = db_name; }
 
     const std::string& db_name() { return _db_name; }
+
+    void set_wal_id(int64_t wal_id) { _wal_id = wal_id; }
+
+    int64_t wal_id() { return _wal_id; }
+
+    const std::string& import_label() { return _import_label; }
 
     const std::string& load_dir() const { return _load_dir; }
 
@@ -269,8 +288,8 @@ public:
         _num_rows_load_unselected.fetch_add(num_rows);
     }
 
-    void update_num_rows_filtered_in_strict_mode_partial_update(int64_t num_rows) {
-        _num_rows_filtered_in_strict_mode_partial_update += num_rows;
+    void set_num_rows_filtered_in_strict_mode_partial_update(int64_t num_rows) {
+        _num_rows_filtered_in_strict_mode_partial_update = num_rows;
     }
 
     void set_per_fragment_instance_idx(int idx) { _per_fragment_instance_idx = idx; }
@@ -340,6 +359,11 @@ public:
         return _query_options.__isset.skip_delete_bitmap && _query_options.skip_delete_bitmap;
     }
 
+    bool enable_page_cache() const {
+        return !config::disable_storage_page_cache &&
+               (_query_options.__isset.enable_page_cache && _query_options.enable_page_cache);
+    }
+
     int partitioned_hash_join_rows_threshold() const {
         if (!_query_options.__isset.partitioned_hash_join_rows_threshold) {
             return 0;
@@ -382,7 +406,9 @@ public:
 
     void set_tracer(OpentelemetryTracer&& tracer) { _tracer = std::move(tracer); }
 
-    bool enable_profile() const { return _query_options.is_report_success; }
+    bool enable_profile() const {
+        return _query_options.__isset.enable_profile && _query_options.enable_profile;
+    }
 
     bool enable_scan_node_run_serial() const {
         return _query_options.__isset.enable_scan_node_run_serial &&
@@ -425,9 +451,20 @@ public:
                        : 0;
     }
 
-    bool enable_insert_strict() const {
-        return _query_options.__isset.enable_insert_strict && _query_options.enable_insert_strict;
+    inline bool enable_delete_sub_pred_v2() const {
+        return _query_options.__isset.enable_delete_sub_predicate_v2 &&
+               _query_options.enable_delete_sub_predicate_v2;
     }
+
+    void emplace_local_state(int id,
+                             std::shared_ptr<doris::pipeline::PipelineXLocalStateBase> state);
+
+    std::shared_ptr<doris::pipeline::PipelineXLocalStateBase> get_local_state(int id);
+
+    void emplace_sink_local_state(
+            int id, std::shared_ptr<doris::pipeline::PipelineXSinkLocalStateBase> state);
+
+    std::shared_ptr<doris::pipeline::PipelineXSinkLocalStateBase> get_sink_local_state(int id);
 
 private:
     Status create_error_log_file();
@@ -516,6 +553,7 @@ private:
     std::string _db_name;
     std::string _load_dir;
     int64_t _load_job_id;
+    int64_t _wal_id = -1;
 
     // mini load
     int64_t _normal_row_number;
@@ -525,7 +563,14 @@ private:
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
     std::vector<TErrorTabletInfo> _error_tablet_infos;
 
-    QueryContext* _query_ctx;
+    std::map<int, std::shared_ptr<doris::pipeline::PipelineXLocalStateBase>> _op_id_to_local_state;
+    std::map<int, std::shared_ptr<doris::pipeline::PipelineXSinkLocalStateBase>>
+            _op_id_to_sink_local_state;
+
+    std::mutex _local_state_lock;
+    std::mutex _local_sink_state_lock;
+
+    QueryContext* _query_ctx = nullptr;
 
     // true if max_filter_ratio is 0
     bool _load_zero_tolerance = false;

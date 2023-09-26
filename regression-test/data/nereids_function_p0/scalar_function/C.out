@@ -639,32 +639,32 @@ true
 
 -- !sql_coalesce_DecimalV2 --
 \N
-0.100000000
-0.200000000
-0.300000000
-0.400000000
-0.500000000
-0.600000000
-0.700000000
-0.800000000
-0.900000000
-1.000000000
-1.100000000
-1.200000000
+0.100
+0.200
+0.300
+0.400
+0.500
+0.600
+0.700
+0.800
+0.900
+1.000
+1.100
+1.200
 
 -- !sql_coalesce_DecimalV2_notnull --
-0.100000000
-0.200000000
-0.300000000
-0.400000000
-0.500000000
-0.600000000
-0.700000000
-0.800000000
-0.900000000
-1.000000000
-1.100000000
-1.200000000
+0.100
+0.200
+0.300
+0.400
+0.500
+0.600
+0.700
+0.800
+0.900
+1.000
+1.100
+1.200
 
 -- !sql_coalesce_Bitmap --
 \N
@@ -810,6 +810,93 @@ string3
 string3
 string3
 string3
+
+-- !sql_concat_ws_Varchar --
+null
+varchar11
+varchar11
+varchar11
+varchar11
+varchar12
+varchar12
+varchar12
+varchar12
+varchar13
+varchar13
+varchar13
+varchar13
+
+-- !sql_concat_ws_Varchar_notnull --
+varchar11
+varchar11
+varchar11
+varchar11
+varchar12
+varchar12
+varchar12
+varchar12
+varchar13
+varchar13
+varchar13
+varchar13
+
+-- !sql_concat_ws_String --
+null
+string1
+string1
+string1
+string1
+string2
+string2
+string2
+string2
+string3
+string3
+string3
+string3
+
+-- !sql_concat_ws_String_notnull --
+string1
+string1
+string1
+string1
+string2
+string2
+string2
+string2
+string3
+string3
+string3
+string3
+
+-- !sql_concat_ws_ArrayVarchar --
+
+char11, char21, char31, varchar11, varchar21, varchar31
+char11, char21, char31, varchar11, varchar21, varchar31
+char11, char21, char31, varchar11, varchar21, varchar31
+char11, char21, char31, varchar11, varchar21, varchar31
+char12, char22, char32, varchar12, varchar22, varchar32
+char12, char22, char32, varchar12, varchar22, varchar32
+char12, char22, char32, varchar12, varchar22, varchar32
+char12, char22, char32, varchar12, varchar22, varchar32
+char13, char23, char33, varchar13, varchar23, varchar33
+char13, char23, char33, varchar13, varchar23, varchar33
+char13, char23, char33, varchar13, varchar23, varchar33
+char13, char23, char33, varchar13, varchar23, varchar33
+
+-- !sql_concat_ws_ArrayVarchar_notnull --
+char11, char21, char31, varchar11, varchar21, varchar31
+char11, char21, char31, varchar11, varchar21, varchar31
+char11, char21, char31, varchar11, varchar21, varchar31
+char11, char21, char31, varchar11, varchar21, varchar31
+char12, char22, char32, varchar12, varchar22, varchar32
+char12, char22, char32, varchar12, varchar22, varchar32
+char12, char22, char32, varchar12, varchar22, varchar32
+char12, char22, char32, varchar12, varchar22, varchar32
+char13, char23, char33, varchar13, varchar23, varchar33
+char13, char23, char33, varchar13, varchar23, varchar33
+char13, char23, char33, varchar13, varchar23, varchar33
+char13, char23, char33, varchar13, varchar23, varchar33
 
 -- !sql_conv_BigInt_TinyInt_TinyInt --
 \N
@@ -1013,4 +1100,10 @@ varchar13
 0.5403023058681398
 0.4535961214255773
 0.3623577544766736
+
+-- !char --
+Doris	Doris
+
+-- !convert --
+1	1
 

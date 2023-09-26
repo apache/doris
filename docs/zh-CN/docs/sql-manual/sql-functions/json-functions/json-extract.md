@@ -38,9 +38,9 @@ BOOLEAN json_extract_isnull(JSON j, VARCHAR json_path)
 BOOLEAN json_extract_bool(JSON j, VARCHAR json_path)
 INT json_extract_int(JSON j, VARCHAR json_path)
 BIGINT json_extract_bigint(JSON j, VARCHAR json_path)
+LARGEINT json_extract_largeint(JSON j, VARCHAR json_path)
 DOUBLE json_extract_double(JSON j, VARCHAR json_path)
 STRING json_extract_string(JSON j, VARCHAR json_path)
-VARCHAR json_str->json_path
 ```
 
 
@@ -52,6 +52,7 @@ json_extract是一系列函数，从JSON类型的数据中提取json_path指定�
 - json_extract_bool返回BOOLEAN类型
 - json_extract_int返回INT类型
 - json_extract_bigint返回BIGINT类型
+- json_extract_largeint返回LARGEINT类型
 - json_extract_double返回DOUBLE类型
 - json_extract_STRING返回STRING类型
 
@@ -102,23 +103,7 @@ mysql> SELECT json_extract('{"id": 123, "name": "doris"}', '$.aaa', '$.name');
 | [null,"doris"]                                                  |
 +-----------------------------------------------------------------+
 1 row in set (0.01 sec)
-
-mysql> SELECT '{"id": 123, "name": "doris"}'->'$.name';
-+--------------------------------------------------------+
-| json_extract('{"id": 123, "name": "doris"}', '$.name') |
-+--------------------------------------------------------+
-| "doris"                                                |
-+--------------------------------------------------------+
-1 row in set (0.01 sec)
-
-mysql> SELECT '{"k1": "v1", "k2": { "k21": 6.6, "k22": [1, 2, 3] } }'->'$.k2.k22[2]';
-+--------------------------------------------------------------------------------------+
-| json_extract('{"k1": "v1", "k2": { "k21": 6.6, "k22": [1, 2, 3] } }', '$.k2.k22[2]') |
-+--------------------------------------------------------------------------------------+
-| 3                                                                                    |
-+--------------------------------------------------------------------------------------+
-1 row in set (0.00 sec)
 ```
 
 ### keywords
-JSONB, JSON, json_extract, json_extract_isnull, json_extract_bool, json_extract_int, json_extract_bigint, json_extract_double, json_extract_string
+JSONB, JSON, json_extract, json_extract_isnull, json_extract_bool, json_extract_int, json_extract_bigint, json_extract_largeint, json_extract_double, json_extract_string

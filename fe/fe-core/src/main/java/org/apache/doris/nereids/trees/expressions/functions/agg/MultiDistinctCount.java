@@ -38,7 +38,7 @@ public class MultiDistinctCount extends AggregateFunction
         implements AlwaysNotNullable, ExplicitlyCastableSignature, MultiDistinction {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(BigIntType.INSTANCE).varArgs(AnyDataType.INSTANCE)
+            FunctionSignature.ret(BigIntType.INSTANCE).varArgs(AnyDataType.INSTANCE_WITHOUT_INDEX)
     );
 
     // MultiDistinctCount is created in AggregateStrategies phase

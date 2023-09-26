@@ -69,7 +69,7 @@ Related parameters for accessing HDFS in HA mode:
 
 File format parameters:
 
-- `format`: (required) Currently support `csv/csv_with_names/csv_with_names_and_types/json/parquet/orc`
+- `format`: (required) Currently support `csv/csv_with_names/csv_with_names_and_types/json/parquet/orc/avro`
 - `column_separator`: (optional) default `,`.
 - `line_delimiter`: (optional) default `\n`.
 - `compress_type`: (optional) Currently support `UNKNOWN/PLAIN/GZ/LZO/BZ2/LZ4FRAME/DEFLATE`. Default value is `UNKNOWN`, it will automatically infer the type based on the suffix of `uri`.
