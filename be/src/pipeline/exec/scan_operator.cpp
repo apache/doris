@@ -21,6 +21,9 @@
 
 #include <memory>
 
+#include "pipeline/exec/es_scan_operator.h"
+#include "pipeline/exec/jdbc_scan_operator.h"
+#include "pipeline/exec/meta_scan_operator.h"
 #include "pipeline/exec/olap_scan_operator.h"
 #include "pipeline/exec/operator.h"
 #include "vec/exec/runtime_filter_consumer.h"
@@ -1432,5 +1435,11 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
 
 template class ScanOperatorX<OlapScanLocalState>;
 template class ScanLocalState<OlapScanLocalState>;
+template class ScanOperatorX<JDBCScanLocalState>;
+template class ScanLocalState<JDBCScanLocalState>;
+template class ScanOperatorX<EsScanLocalState>;
+template class ScanLocalState<EsScanLocalState>;
+template class ScanLocalState<MetaScanLocalState>;
+template class ScanOperatorX<MetaScanLocalState>;
 
 } // namespace doris::pipeline

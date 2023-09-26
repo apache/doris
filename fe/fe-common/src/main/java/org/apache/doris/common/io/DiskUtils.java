@@ -17,6 +17,8 @@
 
 package org.apache.doris.common.io;
 
+import lombok.extern.slf4j.Slf4j;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
@@ -24,7 +26,9 @@ import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
 
+@Slf4j
 public class DiskUtils {
+
     public static class Df {
         public String fileSystem = "";
         public long blocks;
@@ -69,7 +73,7 @@ public class DiskUtils {
             df.mountedOn = values[5];
             return df;
         } catch (IOException e) {
-            e.printStackTrace();
+            log.info("failed to obtain disk information", e);
             return null;
         }
     }

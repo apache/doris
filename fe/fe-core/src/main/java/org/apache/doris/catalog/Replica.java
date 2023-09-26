@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.thrift.TUniqueId;
@@ -114,27 +115,33 @@ public class Replica implements Writable {
     private long cooldownTerm = -1;
 
     /*
-     * If set to true, with means this replica need to be repaired. explicitly.
      * This can happen when this replica is created by a balance clone task, and
      * when task finished, the version of this replica is behind the partition's visible version.
      * So this replica need a further repair.
      * If we do not do this, this replica will be treated as version stale, and will be removed,
      * so that the balance task is failed, which is unexpected.
      *
-     * furtherRepairSetTime set alone with needFurtherRepair.
+     * furtherRepairSetTime and leftFurtherRepairCount are set alone with needFurtherRepair.
      * This is an insurance, in case that further repair task always fail. If 20 min passed
      * since we set needFurtherRepair to true, the 'needFurtherRepair' will be set to false.
      */
-    private boolean needFurtherRepair = false;
     private long furtherRepairSetTime = -1;
-    private static final long FURTHER_REPAIR_TIMEOUT_MS = 20 * 60 * 1000L; // 20min
+    private int leftFurtherRepairCount = 0;
 
+    // During full clone, the replica's state is CLONE, it will not load the data.
+    // After full clone finished, even if the replica's version = partition's visible version,
+    //
+    // notice: furtherRepairWatermarkTxnTd is used to clone a replica, protected it from be removed.
+    //
+    private long furtherRepairWatermarkTxnTd = -1;
 
     /* Decommission a backend B, steps are as follow:
      * 1. wait peer backends catchup with B;
      * 2. B change state to DECOMMISSION, set preWatermarkTxnId. B can load data now.
      * 3. wait txn before preWatermarkTxnId finished, set postWatermarkTxnId. B can't load data now.
      * 4. wait txn before postWatermarkTxnId finished, delete B.
+     *
+     * notice: preWatermarkTxnId and postWatermarkTxnId are used to delete this replica.
      *
      */
     private long preWatermarkTxnId = -1;
@@ -263,15 +270,35 @@ public class Replica implements Writable {
     }
 
     public boolean needFurtherRepair() {
-        if (needFurtherRepair && System.currentTimeMillis() - this.furtherRepairSetTime < FURTHER_REPAIR_TIMEOUT_MS) {
-            return true;
-        }
-        return false;
+        return leftFurtherRepairCount > 0
+                && System.currentTimeMillis() < furtherRepairSetTime
+                        + Config.tablet_further_repair_timeout_second * 1000;
     }
 
     public void setNeedFurtherRepair(boolean needFurtherRepair) {
-        this.needFurtherRepair = needFurtherRepair;
-        this.furtherRepairSetTime = System.currentTimeMillis();
+        if (needFurtherRepair) {
+            furtherRepairSetTime = System.currentTimeMillis();
+            leftFurtherRepairCount = Config.tablet_further_repair_max_times;
+        } else {
+            leftFurtherRepairCount = 0;
+            furtherRepairSetTime = -1;
+        }
+    }
+
+    public void incrFurtherRepairCount() {
+        leftFurtherRepairCount--;
+    }
+
+    public int getLeftFurtherRepairCount() {
+        return leftFurtherRepairCount;
+    }
+
+    public long getFurtherRepairWatermarkTxnTd() {
+        return furtherRepairWatermarkTxnTd;
+    }
+
+    public void setFurtherRepairWatermarkTxnTd(long furtherRepairWatermarkTxnTd) {
+        this.furtherRepairWatermarkTxnTd = furtherRepairWatermarkTxnTd;
     }
 
     // for compatibility
@@ -300,6 +327,7 @@ public class Replica implements Writable {
 
     public synchronized void adminUpdateVersionInfo(Long version, Long lastFailedVersion, Long lastSuccessVersion,
             long updateTime) {
+        long oldLastFailedVersion = this.lastFailedVersion;
         if (version != null) {
             this.version = version;
         }
@@ -323,6 +351,13 @@ public class Replica implements Writable {
         }
         if (this.lastSuccessVersion < this.version) {
             this.lastSuccessVersion = this.version;
+        }
+        if (oldLastFailedVersion < 0 && this.lastFailedVersion > 0) {
+            LOG.info("change replica last failed version from '< 0' to '> 0', replica {}, old last failed version {}",
+                    this, oldLastFailedVersion);
+        } else if (oldLastFailedVersion > 0 && this.lastFailedVersion < 0) {
+            LOG.info("change replica last failed version from '> 0' to '< 0', replica {}, old last failed version {}",
+                    this, oldLastFailedVersion);
         }
     }
 
@@ -373,6 +408,8 @@ public class Replica implements Writable {
             }
             return;
         }
+
+        long oldLastFailedVersion = this.lastFailedVersion;
 
         this.version = newVersion;
         this.dataSize = newDataSize;
@@ -426,6 +463,14 @@ public class Replica implements Writable {
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("after update {}", this.toString());
+        }
+
+        if (oldLastFailedVersion < 0 && this.lastFailedVersion > 0) {
+            LOG.info("change replica last failed version from '< 0' to '> 0', replica {}, old last failed version {}",
+                    this, oldLastFailedVersion);
+        } else if (oldLastFailedVersion > 0 && this.lastFailedVersion < 0) {
+            LOG.info("change replica last failed version from '> 0' to '< 0', replica {}, old last failed version {}",
+                    this, oldLastFailedVersion);
         }
     }
 
