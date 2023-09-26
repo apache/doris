@@ -51,6 +51,12 @@ public class CheckCast extends AbstractExpressionRewriteRule {
     }
 
     private boolean check(DataType originalType, DataType targetType) {
+        if (originalType.isNullType()) {
+            return true;
+        }
+        if (originalType.equals(targetType)) {
+            return true;
+        }
         if (originalType instanceof ArrayType && targetType instanceof ArrayType) {
             return check(((ArrayType) originalType).getItemType(), ((ArrayType) targetType).getItemType());
         } else if (originalType instanceof MapType && targetType instanceof MapType) {
@@ -63,7 +69,10 @@ public class CheckCast extends AbstractExpressionRewriteRule {
                 return false;
             }
             for (int i = 0; i < targetFields.size(); i++) {
-                if (!targetFields.get(i).equals(originalFields.get(i))) {
+                if (originalFields.get(i).isNullable() != targetFields.get(i).isNullable()) {
+                    return false;
+                }
+                if (!check(originalFields.get(i).getDataType(), targetFields.get(i).getDataType())) {
                     return false;
                 }
             }
