@@ -138,7 +138,8 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
         _tuple_desc->add_slot(slot_desc);
         string data_type;
         EnumToString(TPrimitiveType, to_thrift(slot_desc->col_type()), data_type);
-        slots_map.emplace(std::make_pair(to_lower(slot_desc->col_name()), std::move(data_type)), slot_desc);
+        slots_map.emplace(std::make_pair(to_lower(slot_desc->col_name()), std::move(data_type)),
+                          slot_desc);
     }
 
     for (auto& p_index : pschema.indexes()) {
@@ -148,7 +149,8 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
         for (auto& pcolumn_desc : p_index.columns_desc()) {
             if (!_is_partial_update ||
                 _partial_update_input_columns.count(pcolumn_desc.name()) > 0) {
-                auto it = slots_map.find(std::make_pair(to_lower(pcolumn_desc.name()), pcolumn_desc.type()));
+                auto it = slots_map.find(
+                        std::make_pair(to_lower(pcolumn_desc.name()), pcolumn_desc.type()));
                 if (it == std::end(slots_map)) {
                     return Status::InternalError("unknown index column, column={}, type={}",
                                                  pcolumn_desc.name(), pcolumn_desc.type());
