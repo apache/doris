@@ -75,6 +75,12 @@ public class ConnectContext {
 
     private static final String SSL_PROTOCOL = "TLS";
 
+    public enum ConnectType {
+        MYSQL,
+        ARROW_FLIGHT
+    }
+
+    protected volatile ConnectType connectType;
     // set this id before analyze
     protected volatile long stmtId;
     protected volatile long forwardedStmtId;
@@ -90,6 +96,8 @@ public class ConnectContext {
     protected volatile int connectionId;
     // Timestamp when the connection is make
     protected volatile long loginTime;
+    // arrow flight token
+    protected volatile String peerIdentity;
     // mysql net
     protected volatile MysqlChannel mysqlChannel;
     // state
@@ -268,11 +276,30 @@ public class ConnectContext {
         return notEvalNondeterministicFunction;
     }
 
+    public ConnectType getConnectType() {
+        return connectType;
+    }
+
     public ConnectContext() {
         this(null);
     }
 
+    public ConnectContext(String peerIdentity) {
+        this.connectType = ConnectType.ARROW_FLIGHT;
+        this.peerIdentity = peerIdentity;
+        state = new QueryState();
+        returnRows = 0;
+        isKilled = false;
+        sessionVariable = VariableMgr.newSessionVariable();
+        command = MysqlCommand.COM_SLEEP;
+        if (Config.use_fuzzy_session_variable) {
+            sessionVariable.initFuzzyModeVariables();
+        }
+        setResultSinkType(TResultSinkType.ARROW_FLIGHT_PROTOCAL);
+    }
+
     public ConnectContext(StreamConnection connection) {
+        connectType = ConnectType.MYSQL;
         state = new QueryState();
         returnRows = 0;
         serverCapability = MysqlCapability.DEFAULT_CAPABILITY;
@@ -507,6 +534,10 @@ public class ConnectContext {
         this.loginTime = System.currentTimeMillis();
     }
 
+    public String getPeerIdentity() {
+        return peerIdentity;
+    }
+
     public MysqlChannel getMysqlChannel() {
         return mysqlChannel;
     }
@@ -662,15 +693,28 @@ public class ConnectContext {
         this.resultSinkType = resultSinkType;
     }
 
+    public String getRemoteHostPortString() {
+        if (connectType.equals(ConnectType.MYSQL)) {
+            return getMysqlChannel().getRemoteHostPortString();
+        } else if (connectType.equals(ConnectType.ARROW_FLIGHT)) {
+            // TODO Get flight client IP:Port
+            return peerIdentity;
+        }
+        return "";
+    }
+
     // kill operation with no protect.
     public void kill(boolean killConnection) {
-        LOG.warn("kill query from {}, kill connection: {}", getMysqlChannel().getRemoteHostPortString(),
-                killConnection);
+        LOG.warn("kill query from {}, kill connection: {}", getRemoteHostPortString(), killConnection);
 
         if (killConnection) {
             isKilled = true;
-            // Close channel to break connection with client
-            getMysqlChannel().close();
+            if (connectType.equals(ConnectType.MYSQL)) {
+                // Close channel to break connection with client
+                getMysqlChannel().close();
+            } else if (connectType.equals(ConnectType.ARROW_FLIGHT)) {
+                connectScheduler.unregisterConnection(this);
+            }
         }
         // Now, cancel running query.
         cancelQuery();
@@ -695,7 +739,7 @@ public class ConnectContext {
             if (delta > sessionVariable.getWaitTimeoutS() * 1000L) {
                 // Need kill this connection.
                 LOG.warn("kill wait timeout connection, remote: {}, wait timeout: {}",
-                        getMysqlChannel().getRemoteHostPortString(), sessionVariable.getWaitTimeoutS());
+                        getRemoteHostPortString(), sessionVariable.getWaitTimeoutS());
 
                 killFlag = true;
                 killConnection = true;
@@ -706,11 +750,11 @@ public class ConnectContext {
             if (executor != null && executor.isInsertStmt()) {
                 timeoutTag = "insert";
             }
-            //to ms
+            // to ms
             long timeout = getExecTimeout() * 1000L;
             if (delta > timeout) {
                 LOG.warn("kill {} timeout, remote: {}, query timeout: {}",
-                        timeoutTag, getMysqlChannel().getRemoteHostPortString(), timeout);
+                        timeoutTag, getRemoteHostPortString(), timeout);
                 killFlag = true;
             }
         }
@@ -794,6 +838,7 @@ public class ConnectContext {
             row.add(getMysqlChannel().getRemoteHostPortString());
             row.add(TimeUtils.longToTimeString(loginTime));
             row.add(defaultCatalog);
+            row.add(getRemoteHostPortString());
             row.add(ClusterNamespace.getNameFromFullName(currentDb));
             row.add(command.toString());
             row.add("" + (nowMs - startTime) / 1000);

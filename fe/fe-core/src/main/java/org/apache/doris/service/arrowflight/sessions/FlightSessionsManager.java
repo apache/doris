@@ -15,29 +15,58 @@
 // specific language governing permissions and limitations
 // under the License.
 // This file is copied from
-// https://github.com/dremio/dremio-oss/blob/master/services/arrow-flight/src/main/java/com/dremio/service/flight/DremioFlightSessionsManager.java
-// and modified by Doris
 
 package org.apache.doris.service.arrowflight.sessions;
 
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.service.ExecuteEnv;
+
+import org.apache.arrow.flight.CallStatus;
+
 /**
- * Manages UserSession creation and UserSession cache.
+ * Manages Flight User Session ConnectContext.
  */
-public interface FlightSessionsManager extends AutoCloseable {
+public interface FlightSessionsManager {
 
     /**
-     * Resolves an existing UserSession for the given token.
+     * Resolves an existing ConnectContext for the given peerIdentity.
      * <p>
      *
      * @param peerIdentity identity after authorization
-     * @return The UserSession or null if no sessionId is given.
+     * @return The ConnectContext or null if no sessionId is given.
      */
-    FlightUserSession getUserSession(String peerIdentity);
+    ConnectContext getConnectContext(String peerIdentity);
 
     /**
-     * Creates a UserSession object and store it in the local cache, assuming that peerIdentity was already validated.
+     * Creates a ConnectContext object and store it in the local cache, assuming that peerIdentity was already
+     * validated.
      *
      * @param peerIdentity identity after authorization
      */
-    FlightUserSession createUserSession(String peerIdentity);
+    ConnectContext createConnectContext(String peerIdentity);
+
+    public static ConnectContext buildConnectContext(String peerIdentity) {
+        ConnectContext connectContext = new ConnectContext(peerIdentity);
+        connectContext.setEnv(Env.getCurrentEnv());
+        connectContext.setConnectScheduler(ExecuteEnv.getInstance().getScheduler());
+        if (!ExecuteEnv.getInstance().getScheduler().registerConnection(connectContext)) {
+            connectContext.getState().setError(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS,
+                    "Reach limit of connections");
+            throw CallStatus.UNAUTHENTICATED.withDescription("Reach limit of connections").toRuntimeException();
+        }
+
+        connectContext.setStartTime();
+        connectContext.getSessionVariable().setEnablePipelineEngine(false); // TODO
+        connectContext.getSessionVariable().setEnablePipelineXEngine(false); // TODO
+        connectContext.setQualifiedUser(UserIdentity.UNKNOWN.getQualifiedUser());
+        connectContext.setCurrentUserIdentity(UserIdentity.UNKNOWN);
+        connectContext.setUserQueryTimeout(
+                connectContext.getEnv().getAuth().getQueryTimeout(connectContext.getQualifiedUser()));
+        connectContext.setUserInsertTimeout(
+                connectContext.getEnv().getAuth().getInsertTimeout(connectContext.getQualifiedUser()));
+        return connectContext;
+    }
 }

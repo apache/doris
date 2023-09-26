@@ -25,7 +25,6 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types;
-import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.rpc.BackendServiceProxy;
@@ -50,8 +49,8 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-public final class FlightStatementExecutor {
-    private AutoCloseConnectContext acConnectContext;
+public final class FlightStatementExecutor extends AutoCloseable {
+    private ConnectContext connectContext;
     private final String query;
     private TUniqueId queryId;
     private TUniqueId finstId;
@@ -61,7 +60,8 @@ public final class FlightStatementExecutor {
 
     public FlightStatementExecutor(final String query, ConnectContext connectContext) {
         this.query = query;
-        this.acConnectContext = new AutoCloseConnectContext(connectContext);
+        this.connectContext = connectContext;
+        connectContext.setThreadLocalInfo();
     }
 
     public void setQueryId(TUniqueId queryId) {
@@ -126,9 +126,9 @@ public final class FlightStatementExecutor {
             UUID uuid = UUID.randomUUID();
             TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
             setQueryId(queryId);
-            acConnectContext.connectContext.setQueryId(queryId);
-            StmtExecutor stmtExecutor = new StmtExecutor(acConnectContext.connectContext, getQuery());
-            acConnectContext.connectContext.setExecutor(stmtExecutor);
+            connectContext.setQueryId(queryId);
+            StmtExecutor stmtExecutor = new StmtExecutor(connectContext, getQuery());
+            connectContext.setExecutor(stmtExecutor);
             stmtExecutor.executeArrowFlightQuery(this);
         } catch (Exception e) {
             throw new RuntimeException("Failed to coord exec", e);
@@ -200,5 +200,10 @@ public final class FlightStatementExecutor {
                     "arrow flight schema fetch timeout, finstId: %s，backend: %s",
                     DebugUtil.printId(tid), address), e);
         }
+    }
+
+    @Override
+    public void close() throws Exception {
+        ConnectContext.remove();
     }
 }

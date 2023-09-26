@@ -14,83 +14,60 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// https://github.com/dremio/dremio-oss/blob/master/services/arrow-flight/src/main/java/com/dremio/service/flight/TokenCacheFlightSessionManager.java
-// and modified by Doris
 
 package org.apache.doris.service.arrowflight.sessions;
 
+import org.apache.doris.mysql.MysqlCommand;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.arrowflight.tokens.FlightTokenDetails;
 import org.apache.doris.service.arrowflight.tokens.FlightTokenManager;
 
-import com.google.common.cache.Cache;
-import com.google.common.cache.CacheBuilder;
-import com.google.common.cache.CacheLoader;
 import org.apache.arrow.flight.CallStatus;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.concurrent.TimeUnit;
-
 public class FlightSessionsWithTokenManager implements FlightSessionsManager {
     private static final Logger LOG = LogManager.getLogger(FlightSessionsWithTokenManager.class);
 
-    private final Cache<String, FlightUserSession> userSessions;
-
-    private final int cacheExpiration;
-
     private final FlightTokenManager flightTokenManager;
 
-    public FlightSessionsWithTokenManager(FlightTokenManager flightTokenManager, final int cacheSize,
-            final int cacheExpiration) {
+    public FlightSessionsWithTokenManager(FlightTokenManager flightTokenManager) {
         this.flightTokenManager = flightTokenManager;
-        this.cacheExpiration = cacheExpiration;
-        this.userSessions = CacheBuilder.newBuilder()
-                .maximumSize(cacheSize)
-                .expireAfterAccess(cacheExpiration, TimeUnit.MINUTES)
-                .build(new CacheLoader<String, FlightUserSession>() {
-                    @Override
-                    public FlightUserSession load(String key) {
-                        return new FlightUserSession();
-                    }
-                });
     }
 
     @Override
-    public FlightUserSession getUserSession(String peerIdentity) {
-        FlightUserSession userSession = userSessions.getIfPresent(peerIdentity);
-        if (null == userSession) {
-            userSession = createUserSession(peerIdentity);
-            if (null == userSession) {
+    public ConnectContext getConnectContext(String peerIdentity) {
+        ConnectContext connectContext = ExecuteEnv.getInstance().getScheduler().getContext(peerIdentity);
+        if (null == connectContext) {
+            connectContext = createConnectContext(peerIdentity);
+            if (null == connectContext) {
                 flightTokenManager.invalidateToken(peerIdentity);
-                String err = "UserSession expire after access " + cacheExpiration + " minutes ago, reauthorize.";
+                String err = "UserSession expire after access, need reauthorize.";
                 LOG.error(err);
                 throw CallStatus.UNAUTHENTICATED.withDescription(err).toRuntimeException();
             }
-            return userSession;
+            return connectContext;
         }
-        return userSession;
+        return connectContext;
     }
 
     @Override
-    public FlightUserSession createUserSession(String peerIdentity) {
+    public ConnectContext createConnectContext(String peerIdentity) {
         try {
             final FlightTokenDetails flightTokenDetails = flightTokenManager.validateToken(peerIdentity);
             if (flightTokenDetails.getCreatedSession()) {
                 return null;
             }
-            final FlightUserSession flightUserSession = new FlightUserSession(flightTokenDetails.getUsername(),
-                    flightTokenDetails.getIssuedAt(), flightTokenDetails.getExpiresAt());
-            flightUserSession.setAuthResult(flightTokenDetails.getUserIdentity(), flightTokenDetails.getRemoteIp());
-            userSessions.put(peerIdentity, flightUserSession);
-            return flightUserSession;
+
+            ConnectContext connectContext = FlightSessionsManager.buildConnectContext(peerIdentity);
+            connectContext.setQualifiedUser(flightTokenDetails.getUserIdentity().getQualifiedUser());
+            connectContext.setCurrentUserIdentity(flightTokenDetails.getUserIdentity());
+            connectContext.setRemoteIP(flightTokenDetails.getRemoteIp());
+            return connectContext;
         } catch (IllegalArgumentException e) {
             LOG.error("Bearer token validation failed.", e);
             throw CallStatus.UNAUTHENTICATED.toRuntimeException();
         }
-    }
-
-    @Override
-    public void close() throws Exception {
-        userSessions.invalidateAll();
     }
 }

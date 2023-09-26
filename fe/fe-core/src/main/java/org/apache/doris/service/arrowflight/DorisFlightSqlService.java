@@ -48,9 +48,7 @@ public class DorisFlightSqlService {
         Location location = Location.forGrpcInsecure("0.0.0.0", port);
         this.flightTokenManager = new FlightTokenManagerImpl(Config.arrow_flight_token_cache_size,
                 Config.arrow_flight_token_alive_time);
-        this.flightSessionsManager = new FlightSessionsWithTokenManager(flightTokenManager,
-                Config.arrow_flight_session_cache_size,
-                Config.arrow_flight_session_alive_time);
+        this.flightSessionsManager = new FlightSessionsWithTokenManager(flightTokenManager);
 
         DorisFlightSqlProducer producer = new DorisFlightSqlProducer(location, flightSessionsManager);
         flightServer = FlightServer.builder(allocator, location, producer)

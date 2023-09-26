@@ -2222,14 +2222,4 @@ public class Config extends ConfigBase {
             + "the default value is 4320, which is 3 days"})
     public static int arrow_flight_token_alive_time = 4320;
 
-    @ConfField(description = {"Arrow Flight Server中所有用户session的缓存上限，超过后LRU淘汰，默认值为1000",
-            "The cache limit of all user sessions in Arrow Flight Server. which will be eliminated by"
-                    + "LRU rules after exceeding the limit, the default value is 1000."})
-    public static int arrow_flight_session_cache_size = 1000;
-
-    @ConfField(description = {"Arrow Flight Server中用户session的存活时间，自上次访问后过期时间，单位分钟，默认值为120",
-            "The alive time of the user token in Arrow Flight Server, expire after access, unit minutes,"
-            + "the default value is 120"})
-    public static int arrow_flight_session_alive_time = 120;
-
 }
