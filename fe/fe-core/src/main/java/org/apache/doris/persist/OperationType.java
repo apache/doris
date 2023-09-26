@@ -157,7 +157,6 @@ public class OperationType {
     public static final short OP_MODIFY_FRONTEND = 92;
 
     //colocate table
-    public static final short OP_COLOCATE_MOD_REPLICA_ALLOC = 93;
     public static final short OP_COLOCATE_ADD_TABLE = 94;
     public static final short OP_COLOCATE_REMOVE_TABLE = 95;
     public static final short OP_COLOCATE_BACKENDS_PER_BUCKETSEQ = 96;
@@ -190,6 +189,7 @@ public class OperationType {
 
     // modify database/table/tablet/replica meta
     public static final short OP_SET_REPLICA_VERSION = 141;
+    public static final short OP_COLOCATE_MOD_REPLICA_ALLOC = 142;
 
     // routine load 200
     public static final short OP_CREATE_ROUTINE_LOAD_JOB = 200;
