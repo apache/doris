@@ -217,19 +217,19 @@ KeyGetter ProcessHashTableProbe<JoinOpType>::_init_probe_side(size_t probe_rows,
     _right_col_len = _join_context->_right_table_data_types->size();
     _row_count_from_last_probe = 0;
 
-    _probe_indexs.clear();
     _build_block_rows.clear();
     _build_block_offsets.clear();
-    _visited_map.clear();
-    _same_to_prev.clear();
+    _probe_indexs.clear();
     if (with_other_join_conjuncts) {
-        _probe_indexs.reserve(probe_rows * PROBE_SIDE_EXPLODE_RATE);
         // use in right join to change visited state after exec the vother join conjunct
-        _visited_map.reserve(probe_rows * PROBE_SIDE_EXPLODE_RATE);
-        _same_to_prev.reserve(probe_rows * PROBE_SIDE_EXPLODE_RATE);
+        _visited_map.clear();
+        _same_to_prev.clear();
+        _visited_map.reserve(_batch_size * PROBE_SIDE_EXPLODE_RATE);
+        _same_to_prev.reserve(_batch_size * PROBE_SIDE_EXPLODE_RATE);
     }
-    _build_block_rows.reserve(probe_rows * PROBE_SIDE_EXPLODE_RATE);
-    _build_block_offsets.reserve(probe_rows * PROBE_SIDE_EXPLODE_RATE);
+    _probe_indexs.reserve(_batch_size * PROBE_SIDE_EXPLODE_RATE);
+    _build_block_rows.reserve(_batch_size * PROBE_SIDE_EXPLODE_RATE);
+    _build_block_offsets.reserve(_batch_size * PROBE_SIDE_EXPLODE_RATE);
 
     KeyGetter key_getter(*_join_context->_probe_columns, _join_context->_probe_key_sz, nullptr);
 
@@ -333,7 +333,14 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
     auto& probe_row_match_iter = _probe_row_match<Mapped, with_other_conjuncts>(
             current_offset, probe_index, probe_size, all_match_one);
 
+    // If not(which means it excceed batch size), probe_index is not increased and
+    // remaining matched rows for the current probe row will be
+    // handled in the next call of this function
+    int multi_matched_output_row_count = 0;
+
+    // Is the last sub block of splitted block
     bool is_the_last_sub_block = false;
+
     if (with_other_conjuncts && probe_size != 0) {
         is_the_last_sub_block = !probe_row_match_iter.ok();
         _same_to_prev.emplace_back(false);
@@ -343,7 +350,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
     }
 
     const auto& keys = key_getter.get_keys();
-    int multi_matched_output_row_count = 0;
+
     _probe_hash<need_null_map_for_probe, HashTableType>(keys, hash_table_ctx, null_map);
 
     {
@@ -433,9 +440,6 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                             // handled in the next call of this function
                             ++probe_index;
                         } else if constexpr (with_other_conjuncts) {
-                            // If not(which means it excceed batch size), probe_index is not increased and
-                            // remaining matched rows for the current probe row will be
-                            // handled in the next call of this function
                             multi_matched_output_row_count =
                                     current_offset - multi_match_last_offset;
                         }
@@ -506,19 +510,23 @@ Status ProcessHashTableProbe<JoinOpType>::do_other_join_conjuncts(
     SCOPED_TIMER(_join_context->_process_other_join_conjunct_timer);
     int orig_columns = output_block->columns();
     IColumn::Filter other_conjunct_filter(row_count, 1);
-    bool can_be_filter_all = false;
-    RETURN_IF_ERROR(VExprContext::execute_conjuncts(*_join_context->_other_join_conjuncts, nullptr,
-                                                    output_block, &other_conjunct_filter,
-                                                    &can_be_filter_all));
-
-    auto result_column_id = output_block->columns();
-    auto filter_column = ColumnVector<UInt8>::create();
-    if (can_be_filter_all) {
-        memset(other_conjunct_filter.data(), 0, row_count);
+    {
+        bool can_be_filter_all = false;
+        RETURN_IF_ERROR(VExprContext::execute_conjuncts(
+                *_join_context->_other_join_conjuncts, nullptr, output_block,
+                &other_conjunct_filter, &can_be_filter_all));
     }
+
+    auto filter_column = ColumnUInt8::create();
     filter_column->get_data() = std::move(other_conjunct_filter);
+    auto result_column_id = output_block->columns();
     output_block->insert({std::move(filter_column), std::make_shared<DataTypeUInt8>(), ""});
-    auto column = output_block->get_by_position(result_column_id).column;
+    const uint8_t* __restrict filter_column_ptr =
+            assert_cast<const ColumnUInt8*>(
+                    output_block->get_by_position(result_column_id).column.get())
+                    ->get_data()
+                    .data();
+
     if constexpr (JoinOpType == TJoinOp::LEFT_OUTER_JOIN ||
                   JoinOpType == TJoinOp::FULL_OUTER_JOIN) {
         auto new_filter_column = ColumnVector<UInt8>::create(row_count);
@@ -529,7 +537,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_other_join_conjuncts(
 
         // It contains non-first sub block of splited equal-conjuncts-matched tuples from last probe row
         if (_row_count_from_last_probe > 0) {
-            _process_splited_equal_matched_tuples(0, _row_count_from_last_probe, column,
+            _process_splited_equal_matched_tuples(0, _row_count_from_last_probe, filter_column_ptr,
                                                   null_map_data, filter_map, output_block);
             // This is the last sub block of splitted block, and no equal-conjuncts-matched tuple
             // is output in all sub blocks, need to output a tuple for this probe row
@@ -543,7 +551,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_other_join_conjuncts(
         // in this run if there are any.
         for (int i = _row_count_from_last_probe; i < end_idx; ++i) {
             auto join_hit = _visited_map[i] != nullptr;
-            auto other_hit = column->get_bool(i);
+            auto other_hit = filter_column_ptr[i];
 
             if (!other_hit) {
                 for (size_t j = 0; j < _right_col_len; ++j) {
@@ -569,10 +577,10 @@ Status ProcessHashTableProbe<JoinOpType>::do_other_join_conjuncts(
             if (join_hit) {
                 *_visited_map[i] |= other_hit;
                 filter_map[i] = other_hit || !_same_to_prev[i] ||
-                                (!column->get_bool(i - 1) && filter_map[i - 1]);
+                                (!filter_column_ptr[i] && filter_map[i - 1]);
                 // Here to keep only hit join conjunct and other join conjunt is true need to be output.
                 // if not, only some key must keep one row will output will null right table column
-                if (_same_to_prev[i] && filter_map[i] && !column->get_bool(i - 1)) {
+                if (_same_to_prev[i] && filter_map[i] && !filter_column_ptr[i - 1]) {
                     filter_map[i - 1] = false;
                 }
             } else {
@@ -584,7 +592,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_other_join_conjuncts(
         if (multi_matched_output_row_count > 0) {
             *_join_context->_is_any_probe_match_row_output = false;
             _process_splited_equal_matched_tuples(row_count - multi_matched_output_row_count,
-                                                  multi_matched_output_row_count, column,
+                                                  multi_matched_output_row_count, filter_column_ptr,
                                                   null_map_data, filter_map, output_block);
         }
 
@@ -610,16 +618,16 @@ Status ProcessHashTableProbe<JoinOpType>::do_other_join_conjuncts(
                 }
                 start_row_idx += _row_count_from_last_probe;
                 if (_row_count_from_last_probe < row_count) {
-                    filter_map.emplace_back(column->get_bool(_row_count_from_last_probe));
+                    filter_map.emplace_back(filter_column_ptr[_row_count_from_last_probe]);
                 }
             } else {
-                filter_map.emplace_back(column->get_bool(0));
+                filter_map.emplace_back(filter_column_ptr[0]);
             }
         } else {
-            filter_map.emplace_back(column->get_bool(0));
+            filter_map.emplace_back(filter_column_ptr[0]);
         }
         for (size_t i = start_row_idx; i < row_count; ++i) {
-            if (column->get_bool(i) || (_same_to_prev[i] && filter_map[i - 1])) {
+            if (filter_column_ptr[i] || (_same_to_prev[i] && filter_map[i - 1])) {
                 // Only last same element is true, output last one
                 filter_map.push_back(true);
                 filter_map[i - 1] = !_same_to_prev[i] && filter_map[i - 1];
@@ -686,16 +694,16 @@ Status ProcessHashTableProbe<JoinOpType>::do_other_join_conjuncts(
             start_row_idx += _row_count_from_last_probe;
             if (_row_count_from_last_probe < row_count) {
                 filter_map[_row_count_from_last_probe] =
-                        column->get_bool(_row_count_from_last_probe) &&
+                        filter_column_ptr[_row_count_from_last_probe] &&
                         _visited_map[_row_count_from_last_probe];
             }
         } else {
             // Both equal conjuncts and other conjuncts are true
-            filter_map[0] = column->get_bool(0) && _visited_map[0];
+            filter_map[0] = filter_column_ptr[0] && _visited_map[0];
         }
 
         for (size_t i = start_row_idx; i < row_count; ++i) {
-            if ((_visited_map[i] && column->get_bool(i)) ||
+            if ((_visited_map[i] && filter_column_ptr[i]) ||
                 (_same_to_prev[i] && filter_map[i - 1])) {
                 // When either of two conditions is meet:
                 // 1. Both equal conjuncts and other conjuncts are true or same_to_prev
@@ -774,15 +782,15 @@ Status ProcessHashTableProbe<JoinOpType>::do_other_join_conjuncts(
         output_block->get_by_position(result_column_id).column = std::move(new_filter_column);
     } else if constexpr (JoinOpType == TJoinOp::RIGHT_SEMI_JOIN ||
                          JoinOpType == TJoinOp::RIGHT_ANTI_JOIN) {
-        for (int i = 0; i < column->size(); ++i) {
+        for (int i = 0; i < row_count; ++i) {
             DCHECK(_visited_map[i]);
-            *_visited_map[i] |= column->get_bool(i);
+            *_visited_map[i] |= filter_column_ptr[i];
         }
     } else if constexpr (JoinOpType == TJoinOp::RIGHT_OUTER_JOIN) {
         auto filter_size = 0;
         for (int i = 0; i < row_count; ++i) {
             DCHECK(_visited_map[i]);
-            auto result = column->get_bool(i);
+            auto result = filter_column_ptr[i];
             *_visited_map[i] |= result;
             filter_size += result;
         }
@@ -813,12 +821,12 @@ Status ProcessHashTableProbe<JoinOpType>::do_other_join_conjuncts(
 // if not, just pick a tuple and output.
 template <int JoinOpType>
 void ProcessHashTableProbe<JoinOpType>::_process_splited_equal_matched_tuples(
-        int start_row_idx, int row_count, const ColumnPtr& other_hit_column,
+        int start_row_idx, int row_count, const UInt8* __restrict other_hit_column,
         UInt8* __restrict null_map_data, UInt8* __restrict filter_map, Block* output_block) {
     int end_row_idx = start_row_idx + row_count;
     for (int i = start_row_idx; i < end_row_idx; ++i) {
         auto join_hit = _visited_map[i] != nullptr;
-        auto other_hit = other_hit_column->get_bool(i);
+        auto other_hit = other_hit_column[i];
 
         if (!other_hit) {
             for (size_t j = 0; j < _right_col_len; ++j) {

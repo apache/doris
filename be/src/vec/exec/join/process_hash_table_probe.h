@@ -71,7 +71,7 @@ struct ProcessHashTableProbe {
                                    int multi_matched_output_row_count, bool is_the_last_sub_block);
 
     void _process_splited_equal_matched_tuples(int start_row_idx, int row_count,
-                                               const ColumnPtr& other_hit_column,
+                                               const UInt8* __restrict other_hit_column,
                                                UInt8* __restrict null_map_data,
                                                UInt8* __restrict filter_map, Block* output_block);
 
