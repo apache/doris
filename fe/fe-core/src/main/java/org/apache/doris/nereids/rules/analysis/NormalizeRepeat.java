@@ -70,7 +70,7 @@ import javax.annotation.Nullable;
  *                                          (b + 1)#5,
  *                                          GROUPING_ID#7,
  *                                          GROUPING_PREFIX_(a + 1)#6] )
- *      +--LogicalProject[60] ( distinct=false, projects=[(a#0 + 1) AS `(a + 1)`#4, (b#1 + 1) AS `(b + 1)`#5], excepts=[]
+ *      +--LogicalProject[60] ( projects=[(a#0 + 1) AS `(a + 1)`#4, (b#1 + 1) AS `(b + 1)`#5], excepts=[]
  *          +--LogicalOlapScan ( t1 )
  */
 public class NormalizeRepeat extends OneAnalysisRuleFactory {
