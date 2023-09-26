@@ -77,6 +77,10 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
             profile()->add_info_string("ShareHashTableEnabled", "false");
         }
     }
+    if (!_should_build_hash_table) {
+        _shared_hash_table_dependency->block_writing();
+        p._shared_hashtable_controller->append_dependency(p.id(), _shared_hash_table_dependency);
+    }
 
     _memory_usage_counter = ADD_LABEL_COUNTER(profile(), "MemoryUsage");
 
