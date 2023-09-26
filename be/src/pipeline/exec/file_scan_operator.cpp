@@ -31,6 +31,10 @@
 namespace doris::pipeline {
 
 Status FileScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* scanners) {
+    if (Base::_eos_dependency->read_blocked_by() == nullptr) {
+        return Status::OK();
+    }
+
     auto& p = _parent->cast<FileScanOperatorX>();
     size_t shard_num =
             std::min<size_t>(config::doris_scanner_thread_pool_thread_num, _scan_ranges.size());

@@ -41,6 +41,7 @@ class FileScanOperatorX;
 class FileScanLocalState final : public ScanLocalState<FileScanLocalState> {
 public:
     using Parent = FileScanOperatorX;
+    using Base = ScanLocalState<FileScanLocalState>;
     ENABLE_FACTORY_CREATOR(FileScanLocalState);
     FileScanLocalState(RuntimeState* state, OperatorXBase* parent)
             : ScanLocalState<FileScanLocalState>(state, parent) {}
