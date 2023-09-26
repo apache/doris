@@ -22,8 +22,8 @@ import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.nereids.trees.plans.PartitionTopnPhase;
 import org.apache.doris.nereids.trees.plans.WindowFuncType;
 import org.apache.doris.statistics.StatisticalType;
-import org.apache.doris.thrift.PTopNPhase;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TPartTopNPhase;
 import org.apache.doris.thrift.TPartitionSortNode;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
@@ -146,15 +146,15 @@ public class PartitionSortNode extends PlanNode {
             topNAlgorithm = TopNAlgorithm.DENSE_RANK;
         }
 
-        PTopNPhase pTopNPhase;
+        TPartTopNPhase pTopNPhase;
         if (phase == PartitionTopnPhase.ONE_PHASE_GLOBAL_PTOPN) {
-            pTopNPhase = PTopNPhase.ONE_PAHSE_GLOBAL;
+            pTopNPhase = TPartTopNPhase.ONE_PAHSE_GLOBAL;
         } else if (phase == PartitionTopnPhase.TWO_PHASE_LOCAL_PTOPN) {
-            pTopNPhase = PTopNPhase.TWO_PAHSE_LOCAL;
+            pTopNPhase = TPartTopNPhase.TWO_PAHSE_LOCAL;
         } else if (phase == PartitionTopnPhase.TWO_PHASE_GLOBAL_PTOPN) {
-            pTopNPhase = PTopNPhase.TWO_PAHSE_GLOBAL;
+            pTopNPhase = TPartTopNPhase.TWO_PAHSE_GLOBAL;
         } else {
-            pTopNPhase = PTopNPhase.UNKNOWN;
+            pTopNPhase = TPartTopNPhase.UNKNOWN;
         }
 
         TPartitionSortNode partitionSortNode = new TPartitionSortNode();

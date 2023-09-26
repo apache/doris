@@ -850,7 +850,7 @@ enum TopNAlgorithm {
    ROW_NUMBER
  }
 
-enum PTopNPhase {
+enum TPartTopNPhase {
   UNKNOWN,
   ONE_PAHSE_GLOBAL,
   TWO_PAHSE_LOCAL,
@@ -863,7 +863,7 @@ enum PTopNPhase {
    3: optional bool has_global_limit
    4: optional TopNAlgorithm top_n_algorithm
    5: optional i64 partition_inner_limit
-   6: optional PTopNPhase ptopn_phase
+   6: optional TPartTopNPhase ptopn_phase
  }
 enum TAnalyticWindowType {
   // Specifies the window as a logical offset
