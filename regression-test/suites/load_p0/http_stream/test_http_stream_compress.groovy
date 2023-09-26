@@ -62,7 +62,7 @@ suite("test_http_stream_compress", "p0") {
             }
         }
 
-        qt_sql1 "select k1, k2, k3, k4, k5, k6, k7, k8, k9, k10, k11, k12, k13 from ${tableName1}"
+        qt_sql1 "select k1, k2, k3, k4, k5, k6, k7, k8, k9, k10, k11, k12, k13 from ${tableName1} order by k1"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName1}"
     }
@@ -102,7 +102,7 @@ suite("test_http_stream_compress", "p0") {
             }
         }
         sql "sync"
-        qt_sql2 "select k1, k2, bitmap_union_count(v1), HLL_UNION_AGG(v2) from ${tableName2} group by k1, k2"
+        qt_sql2 "select k1, k2, bitmap_union_count(v1), HLL_UNION_AGG(v2) from ${tableName2} group by k1, k2  order by k1"
     } finally {
         try_sq2 "DROP TABLE IF EXISTS ${tableName2}"
     }
