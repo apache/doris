@@ -211,6 +211,7 @@ import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
+import org.apache.doris.transaction.TransactionStatus;
 import org.apache.doris.transaction.TxnCommitAttachment;
 
 import com.google.common.base.Preconditions;
@@ -1173,8 +1174,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (Strings.isNullOrEmpty(cluster)) {
             cluster = SystemInfoService.DEFAULT_CLUSTER;
         }
-
-        if (Strings.isNullOrEmpty(request.getToken())) {
+        if (request.isSetAuthCode()) {
+            // TODO(cmy): find a way to check
+        } else if (Strings.isNullOrEmpty(request.getToken())) {
             checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTbl(),
                     request.getUserIp(), PrivPredicate.LOAD);
         }
@@ -1476,13 +1478,21 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         DatabaseTransactionMgr dbTransactionMgr = Env.getCurrentGlobalTransactionMgr()
                 .getDatabaseTransactionMgr(database.getId());
+        String txnOperation = request.getOperation().trim();
+        if (!request.isSetTxnId()) {
+            List<TransactionStatus> statusList = new ArrayList<>();
+            statusList.add(TransactionStatus.PRECOMMITTED);
+            if (txnOperation.equalsIgnoreCase("abort")) {
+                statusList.add(TransactionStatus.PREPARE);
+            }
+            request.setTxnId(dbTransactionMgr.getTransactionIdByLabel(request.getLabel(), statusList));
+        }
         TransactionState transactionState = dbTransactionMgr.getTransactionState(request.getTxnId());
         LOG.debug("txn {} has multi table {}", request.getTxnId(), transactionState.getTableIdList());
         if (transactionState == null) {
             throw new UserException("transaction [" + request.getTxnId() + "] not found");
         }
         List<Long> tableIdList = transactionState.getTableIdList();
-        String txnOperation = request.getOperation().trim();
         List<Table> tableList = new ArrayList<>();
         // if table was dropped, stream load must can abort.
         if (txnOperation.equalsIgnoreCase("abort")) {
@@ -2031,7 +2041,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             cluster = SystemInfoService.DEFAULT_CLUSTER;
         }
         ConnectContext ctx = new ConnectContext();
-        if (Strings.isNullOrEmpty(request.getToken())) {
+        if (request.isSetAuthCode()) {
+            // TODO(cmy): find a way to check
+        } else if (Strings.isNullOrEmpty(request.getToken())) {
             checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTbl(),
                     request.getUserIp(), PrivPredicate.LOAD);
         }

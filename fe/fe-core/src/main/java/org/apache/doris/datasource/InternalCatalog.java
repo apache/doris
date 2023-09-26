@@ -3038,8 +3038,10 @@ public class InternalCatalog implements CatalogIf<Database> {
             truncateTableInternal(olapTable, newPartitions, truncateEntireTable);
 
             // write edit log
-            TruncateTableInfo info = new TruncateTableInfo(db.getId(), olapTable.getId(), newPartitions,
-                    truncateEntireTable);
+            TruncateTableInfo info =
+                    new TruncateTableInfo(db.getId(), db.getFullName(), olapTable.getId(), olapTable.getName(),
+                            newPartitions,
+                            truncateEntireTable, truncateTableStmt.toSqlWithoutTable());
             Env.getCurrentEnv().getEditLog().logTruncateTable(info);
         } finally {
             olapTable.writeUnlock();

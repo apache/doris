@@ -220,6 +220,7 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
   2. 对事务触发commit操作
   注意1) 请求发往fe或be均可
   注意2) commit 的时候可以省略 url 中的 `{table}`
+  使用事务id
   ```shell
   curl -X PUT --location-trusted -u user:passwd  -H "txn_id:18036" -H "txn_operation:commit"  http://fe_host:http_port/api/{db}/{table}/_stream_load_2pc
   {
@@ -227,9 +228,18 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
       "msg": "transaction [18036] commit successfully."
   }
   ```
+  使用label
+  ```shell
+  curl -X PUT --location-trusted -u user:passwd  -H "label:55c8ffc9-1c40-4d51-b75e-f2265b3602ef" -H "txn_operation:commit"  http://fe_host:http_port/api/{db}/{table}/_stream_load_2pc
+  {
+      "status": "Success",
+      "msg": "label [55c8ffc9-1c40-4d51-b75e-f2265b3602ef] commit successfully."
+  }
+  ```
   3. 对事务触发abort操作
   注意1) 请求发往fe或be均可
   注意2) abort 的时候可以省略 url 中的 `{table}`
+  使用事务id
   ```shell
   curl -X PUT --location-trusted -u user:passwd  -H "txn_id:18037" -H "txn_operation:abort"  http://fe_host:http_port/api/{db}/{table}/_stream_load_2pc
   {
@@ -237,7 +247,14 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
       "msg": "transaction [18037] abort successfully."
   }
   ```
-
+  使用label
+  ```shell
+  curl -X PUT --location-trusted -u user:passwd  -H "label:55c8ffc9-1c40-4d51-b75e-f2265b3602ef" -H "txn_operation:abort"  http://fe_host:http_port/api/{db}/{table}/_stream_load_2pc
+  {
+      "status": "Success",
+      "msg": "label [55c8ffc9-1c40-4d51-b75e-f2265b3602ef] abort successfully."
+  }
+  ```
 - enable_profile
 
   <version since="1.2.7">当 `enable_profile` 为 true 时，Stream Load profile 将会被打印到 be.INFO 日志中。</version>
