@@ -361,6 +361,8 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
         }
 
         _runtime_states[i]->set_desc_tbl(_query_ctx->desc_tbl);
+        _runtime_states[i]->set_per_fragment_instance_idx(local_params.sender_id);
+
         std::map<PipelineId, PipelineXTask*> pipeline_id_to_task;
         for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
             auto task = std::make_unique<PipelineXTask>(_pipelines[pip_idx], _total_tasks++,
