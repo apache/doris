@@ -50,7 +50,7 @@ public class JsonLength extends ScalarFunction
      * constructor with 1 arguments.
      */
     public JsonLength(Expression arg0) {
-        super("json_length", arg0, Literal.of(""));
+        super("json_length", arg0, Literal.of("$"));
     }
 
     /**
