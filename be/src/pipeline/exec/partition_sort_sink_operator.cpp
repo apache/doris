@@ -29,6 +29,7 @@ OperatorPtr PartitionSortSinkOperatorBuilder::build_operator() {
 
 Status PartitionSortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(PipelineXSinkLocalState<PartitionSortDependency>::init(state, info));
+    SCOPED_TIMER(profile()->total_time_counter());
     auto& p = _parent->cast<PartitionSortSinkOperatorX>();
     RETURN_IF_ERROR(p._vsort_exec_exprs.clone(state, _vsort_exec_exprs));
     _partition_expr_ctxs.resize(p._partition_expr_ctxs.size());
