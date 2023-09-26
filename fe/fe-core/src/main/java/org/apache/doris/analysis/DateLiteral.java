@@ -179,10 +179,11 @@ public class DateLiteral extends LiteralExpr {
         MONTH_ABBR_NAME_DICT.put("sat", 5);
         MONTH_ABBR_NAME_DICT.put("sun", 6);
     }
+
     private static final Pattern HAS_OFFSET_PART = Pattern.compile("[\\+\\-]\\d{2}:\\d{2}");
 
-    //Date Literal persist type in meta
-    private enum  DateLiteralType {
+    // Date Literal persist type in meta
+    private enum DateLiteralType {
         DATETIME(0),
         DATE(1),
 
@@ -431,7 +432,7 @@ public class DateLiteral extends LiteralExpr {
                 if (s.contains(" ")) {
                     builder.appendLiteral(" ");
                 }
-                String[] timePart = s.contains(" ") ? s.split(" ")[1].split(":") : new String[]{};
+                String[] timePart = s.contains(" ") ? s.split(" ")[1].split(":") : new String[] {};
                 if (timePart.length > 0 && (type.equals(Type.DATE) || type.equals(Type.DATEV2))) {
                     throw new AnalysisException("Invalid date value: " + s);
                 }
@@ -558,7 +559,7 @@ public class DateLiteral extends LiteralExpr {
             buffer.order(ByteOrder.LITTLE_ENDIAN);
             buffer.putInt(value);
         } else if (type == PrimitiveType.DATETIMEV2) {
-            long value =  (year << 46) | (month << 42) | (day << 37) | (hour << 32)
+            long value = (year << 46) | (month << 42) | (day << 37) | (hour << 32)
                     | (minute << 26) | (second << 20) | (microsecond % (1 << 20));
             buffer = ByteBuffer.allocate(8);
             buffer.order(ByteOrder.LITTLE_ENDIAN);
@@ -782,7 +783,7 @@ public class DateLiteral extends LiteralExpr {
 
     private long makePackedDatetimeV2() {
         return (year << 46) | (month << 42) | (day << 37) | (hour << 32)
-            | (minute << 26) | (second << 20) | (microsecond % (1 << 20));
+                | (minute << 26) | (second << 20) | (microsecond % (1 << 20));
     }
 
     private long makePackedDateV2() {
@@ -792,7 +793,7 @@ public class DateLiteral extends LiteralExpr {
     @Override
     public void write(DataOutput out) throws IOException {
         super.write(out);
-        //set flag bit in meta, 0 is DATETIME and 1 is DATE
+        // set flag bit in meta, 0 is DATETIME and 1 is DATE
         if (this.type.equals(Type.DATETIME)) {
             out.writeShort(DateLiteralType.DATETIME.value());
             out.writeLong(makePackedDatetime());
@@ -901,8 +902,8 @@ public class DateLiteral extends LiteralExpr {
         return format.chars().anyMatch(c -> TIME_PART_SET.contains((char) c));
     }
 
-    //Return the date stored in the dateliteral as pattern format.
-    //eg : "%Y-%m-%d" or "%Y-%m-%d %H:%i:%s"
+    // Return the date stored in the dateliteral as pattern format.
+    // eg : "%Y-%m-%d" or "%Y-%m-%d %H:%i:%s"
     public String dateFormat(String pattern) throws AnalysisException {
         TemporalAccessor accessor;
         if (type.equals(Type.DATE) || type.equals(Type.DATEV2)) {
