@@ -31,6 +31,7 @@
 #include "vec/columns/column_const.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
+#include "vec/data_types/serde/data_type_nullable_serde.h"
 
 namespace doris {
 
@@ -47,10 +48,14 @@ Status DataTypeHLLSerDe::serialize_one_cell_to_json(const IColumn& column, int r
                                                     BufferWritable& bw, FormatOptions& options,
                                                     int nesting_level) const {
     if (!options._output_object_data) {
+        /**
+         * For null values in ordinary types, we use \N to represent them;
+         * for null values in nested types, we use null to represent them, just like the json format.
+         */
         if (nesting_level >= 2) {
-            bw.write("null", 4);
+            bw.write(DataTypeNullableSerDe::NULL_IN_CSV_FOR_NESTED_TYPE.c_str(), 4);
         } else {
-            bw.write("\\N", 2);
+            bw.write(DataTypeNullableSerDe::NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str(), 2);
         }
         return Status::OK();
     }

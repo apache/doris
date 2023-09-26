@@ -131,6 +131,4 @@ std::string VCSVTransformer::_gen_csv_header_types() {
     types += _line_delimiter;
     return types;
 }
-
-const std::string VCSVTransformer::NULL_IN_CSV = "\\N";
 } // namespace doris::vectorized

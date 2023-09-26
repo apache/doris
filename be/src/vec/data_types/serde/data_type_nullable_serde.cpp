@@ -33,6 +33,7 @@
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/data_types/serde/data_type_serde.h"
+#include "vec/runtime/vcsv_transformer.h"
 
 namespace doris {
 
@@ -55,10 +56,14 @@ Status DataTypeNullableSerDe::serialize_one_cell_to_json(const IColumn& column, 
 
     const auto& col_null = assert_cast<const ColumnNullable&>(*ptr);
     if (col_null.is_null_at(row_num)) {
+        /**
+         * For null values in ordinary types, we use \N to represent them;
+         * for null values in nested types, we use null to represent them, just like the json format.
+         */
         if (nesting_level >= 2) {
-            bw.write("null", 4);
+            bw.write(NULL_IN_CSV_FOR_NESTED_TYPE.c_str(), 4);
         } else {
-            bw.write("\\N", 2);
+            bw.write(NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str(), 2);
         }
     } else {
         nested_serde->serialize_one_cell_to_json(col_null.get_nested_column(), row_num, bw, options,
@@ -86,7 +91,7 @@ void DataTypeNullableSerDe::serialize_one_cell_to_hive_text(const IColumn& colum
 
     const auto& col_null = assert_cast<const ColumnNullable&>(*ptr);
     if (col_null.is_null_at(row_num)) {
-        bw.write("\\N", 2);
+        bw.write(NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str(), 2);
     } else {
         nested_serde->serialize_one_cell_to_hive_text(col_null.get_nested_column(), row_num, bw,
                                                       options, nesting_level);
@@ -332,6 +337,9 @@ Status DataTypeNullableSerDe::write_column_to_orc(const IColumn& column, const N
                                                         orc_col_batch, start, end, buffer_list));
     return Status::OK();
 }
+
+const std::string DataTypeNullableSerDe::NULL_IN_CSV_FOR_ORDINARY_TYPE = "\\N";
+const std::string DataTypeNullableSerDe::NULL_IN_CSV_FOR_NESTED_TYPE = "null";
 
 } // namespace vectorized
 } // namespace doris
