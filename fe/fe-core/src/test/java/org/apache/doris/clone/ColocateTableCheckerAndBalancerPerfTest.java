@@ -86,8 +86,7 @@ public class ColocateTableCheckerAndBalancerPerfTest {
 
     @AfterClass
     public static void tearDown() {
-        File file = new File(runningDir);
-        file.delete();
+        UtFrameUtils.cleanDorisFeDir(runningDir);
     }
 
     @Test

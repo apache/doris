@@ -335,9 +335,10 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
      *      Otherwise, mark the group as stable
      */
     protected void runAfterCatalogReady() {
-        relocateAndBalanceGroup(false);
+        Set<GroupId> groupIds = Sets.newHashSet(Env.getCurrentEnv().getColocateTableIndex().getAllGroupIds());
+        Set<GroupId> changeGroups = relocateAndBalanceGroup(groupIds, false);
         if (!Config.disable_colocate_balance_between_groups) {
-            relocateAndBalanceGroup(true);
+            relocateAndBalanceGroup(changeGroups, true);
         }
         matchGroup();
     }
@@ -380,9 +381,10 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
      * +-+  +-+  +-+  +-+
      *  A    B    C    D
      */
-    private void relocateAndBalanceGroup(boolean balanceBetweenGroups) {
+    private Set<GroupId> relocateAndBalanceGroup(Set<GroupId> groupIds, boolean balanceBetweenGroups) {
+        Set<GroupId> changeGroups = Sets.newHashSet();
         if (Config.disable_colocate_balance) {
-            return;
+            return changeGroups;
         }
 
         Env env = Env.getCurrentEnv();
@@ -392,7 +394,6 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
         GlobalColocateStatistic globalColocateStatistic = buildGlobalColocateStatistic();
 
         // get all groups
-        Set<GroupId> groupIds = colocateIndex.getAllGroupIds();
         for (GroupId groupId : groupIds) {
             Map<Tag, LoadStatisticForTag> statisticMap = env.getTabletScheduler().getStatisticMap();
             if (statisticMap == null) {
@@ -438,6 +439,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                 groupId, replicaAlloc);
                         continue;
                     }
+                    changeGroups.add(groupId);
                     Map<Tag, List<List<Long>>> balancedBackendsPerBucketSeqMap = Maps.newHashMap();
                     balancedBackendsPerBucketSeqMap.put(tag, balancedBackendsPerBucketSeq);
                     ColocatePersistInfo info = ColocatePersistInfo
@@ -448,6 +450,8 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                 }
             }
         }
+
+        return changeGroups;
     }
 
     /*
@@ -730,10 +734,9 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
             Preconditions.checkState(backendsPerBucketSeq.size() == hostsPerBucketSeq.size());
             times++;
             if (times > 10 * backendsPerBucketSeq.size()) {
-                // error happens, change nothing
                 LOG.warn("iterate too many times for relocate group: {}, times: {}, bucket num: {}",
                         groupId, times, backendsPerBucketSeq.size());
-                return false;
+                break;
             }
 
             long srcBeId = -1;
