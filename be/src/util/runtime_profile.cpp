@@ -648,7 +648,7 @@ void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes) {
         counter.name = iter->first;
         counter.value = iter->second->value();
         counter.type = iter->second->type();
-        counter.level = iter->second->level();
+        counter.__set_level(iter->second->level());
         node.counters.push_back(counter);
     }
 

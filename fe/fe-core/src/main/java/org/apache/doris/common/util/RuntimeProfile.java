@@ -75,7 +75,7 @@ public class RuntimeProfile {
 
     private Boolean isDone = false;
     private Boolean isCancel = false;
-    private boolean enableSimplyProfile = false;
+    private int profileLevel = 3;
     private Planner planner = null;
     private int nodeid = -1;
 
@@ -508,7 +508,7 @@ public class RuntimeProfile {
     }
 
     public String getSimpleString() {
-        if (!this.enableSimplyProfile) {
+        if (this.profileLevel == 3) {
             return toString();
         }
         if (this.planner == null) {
@@ -668,8 +668,8 @@ public class RuntimeProfile {
         computeTimeInProfile(this.counterTotalTime.getValue());
     }
 
-    public void setProfileLevel(boolean isSimpleProfile) {
-        this.enableSimplyProfile = isSimpleProfile;
+    public void setProfileLevel(int profileLevel) {
+        this.profileLevel = profileLevel;
     }
 
     public void setPlaner(Planner planner) {

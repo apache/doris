@@ -55,10 +55,10 @@ class TRuntimeProfileTree;
 #define ADD_LABEL_COUNTER(profile, name) (profile)->add_counter(name, TUnit::NONE)
 #define ADD_COUNTER(profile, name, type) (profile)->add_counter(name, type)
 #define ADD_COUNTER_WITH_LEVEL(profile, name, type, level) \
-    (profile)->add_counter_with_levle(name, type, level)
+    (profile)->add_counter_with_level(name, type, level)
 #define ADD_TIMER(profile, name) (profile)->add_counter(name, TUnit::TIME_NS)
 #define ADD_TIMER_WITH_LEVEL(profile, name, level) \
-    (profile)->add_counter_with_levle(name, TUnit::TIME_NS, level)
+    (profile)->add_counter_with_level(name, TUnit::TIME_NS, level)
 #define ADD_CHILD_COUNTER(profile, name, type, parent) (profile)->add_counter(name, type, parent)
 #define ADD_CHILD_TIMER(profile, name, parent) (profile)->add_counter(name, TUnit::TIME_NS, parent)
 #define SCOPED_TIMER(c) ScopedTimer<MonotonicStopWatch> MACRO_CONCAT(SCOPED_TIMER, __COUNTER__)(c)
@@ -91,7 +91,7 @@ class RuntimeProfile {
 public:
     class Counter {
     public:
-        Counter(TUnit::type type, int64_t value = 0, int64_t level = 2)
+        Counter(TUnit::type type, int64_t value = 0, int64_t level = 3)
                 : _value(value), _type(type), _level(level) {}
         virtual ~Counter() = default;
 
@@ -290,7 +290,7 @@ public:
         return add_counter(name, type, "");
     }
 
-    Counter* add_counter_with_levle(const std::string& name, TUnit::type type, int64_t level) {
+    Counter* add_counter_with_level(const std::string& name, TUnit::type type, int64_t level) {
         return add_counter(name, type, "", level);
     }
 

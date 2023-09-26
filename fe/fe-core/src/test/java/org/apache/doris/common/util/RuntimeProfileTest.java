@@ -136,13 +136,13 @@ public class RuntimeProfileTest {
         tnodeB.counters = Lists.newArrayList();
         tnodeASon.counters = Lists.newArrayList();
 
-        tnodeRoot.counters.add(new TCounter("TotalTime", TUnit.TIME_NS, 3000000000L, 2));
-        tnodeA.counters.add(new TCounter("TotalTime", TUnit.TIME_NS, 1000000000L, 2));
-        tnodeB.counters.add(new TCounter("TotalTime", TUnit.TIME_NS, 1000000000L, 2));
-        tnodeASon.counters.add(new TCounter("TotalTime", TUnit.TIME_NS, 10000000, 2));
-        tnodeASon.counters.add(new TCounter("counterA1", TUnit.UNIT, 1, 2));
-        tnodeASon.counters.add(new TCounter("counterA2", TUnit.BYTES, 1234567L, 2));
-        tnodeASon.counters.add(new TCounter("counterA1Son", TUnit.UNIT, 3, 2));
+        tnodeRoot.counters.add(new TCounter("TotalTime", TUnit.TIME_NS, 3000000000L));
+        tnodeA.counters.add(new TCounter("TotalTime", TUnit.TIME_NS, 1000000000L));
+        tnodeB.counters.add(new TCounter("TotalTime", TUnit.TIME_NS, 1000000000L));
+        tnodeASon.counters.add(new TCounter("TotalTime", TUnit.TIME_NS, 10000000));
+        tnodeASon.counters.add(new TCounter("counterA1", TUnit.UNIT, 1));
+        tnodeASon.counters.add(new TCounter("counterA2", TUnit.BYTES, 1234567L));
+        tnodeASon.counters.add(new TCounter("counterA1Son", TUnit.UNIT, 3));
         tnodeASon.child_counters_map = Maps.newHashMap();
 
         Set<String> set1 = Sets.newHashSet();
