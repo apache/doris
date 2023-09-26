@@ -45,7 +45,8 @@
     M(Decimal32)             \
     M(Decimal64)             \
     M(Decimal128)            \
-    M(Decimal128I)
+    M(Decimal128I)           \
+    M(Decimal256)
 
 /** If the serialized type is not the default type(string),
  * aggregation function need to override these functions:

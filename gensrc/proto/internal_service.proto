@@ -475,6 +475,7 @@ enum PColumnType {
     COLUMN_TYPE_DECIMAL32 = 17;
     COLUMN_TYPE_DECIMAL64 = 18;
     COLUMN_TYPE_DECIMAL128I = 19;
+    COLUMN_TYPE_DECIMAL256 = 20;
 }
 
 message PMinMaxFilter {
