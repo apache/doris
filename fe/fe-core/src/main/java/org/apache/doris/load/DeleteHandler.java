@@ -18,6 +18,14 @@
 package org.apache.doris.load;
 
 import org.apache.doris.analysis.DeleteStmt;
+import org.apache.doris.analysis.IPv4Literal;
+import org.apache.doris.analysis.IPv6Literal;
+import org.apache.doris.analysis.InPredicate;
+import org.apache.doris.analysis.IsNullPredicate;
+import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.Predicate;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;

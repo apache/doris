@@ -722,6 +722,16 @@ struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIME> {
     using UnsignedCppType = uint64_t;
 };
 template <>
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV4> {
+    using CppType = uint32_t;
+    using UnsignedCppType = uint32_t;
+};
+template <>
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV6> {
+    using CppType = uint128_t;
+    using UnsignedCppType = uint128_t;
+};
+template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_CHAR> {
     using CppType = Slice;
 };
@@ -778,6 +788,8 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
     static inline CppType get_cpp_type_value(const void* address) {
         if constexpr (field_type == FieldType::OLAP_FIELD_TYPE_LARGEINT) {
             return get_int128_from_unalign(address);
+        } else if constexpr (field_type == FieldType::OLAP_FIELD_TYPE_IPV6) {
+            return get_uint128_from_unalign(address);
         }
         return *reinterpret_cast<const CppType*>(address);
     }
@@ -961,6 +973,103 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_LARGEINT>
     }
     static void set_to_min(void* buf) {
         *reinterpret_cast<PackedInt128*>(buf) = (int128_t)(1) << 127;
+    }
+};
+
+template <>
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV4>
+        : public BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_IPV4> {
+    static Status from_string(void* buf, const std::string& scan_key, const int precision,
+                              const int scale) {
+        StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
+        uint32_t value = StringParser::string_to_unsigned_int<uint32_t>(scan_key.c_str(), scan_key.size(), &result);
+
+        if (result == StringParser::PARSE_FAILURE) {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                    "FieldTypeTraits<OLAP_FIELD_TYPE_IPV4>::from_string meet PARSE_FAILURE");
+        }
+        *reinterpret_cast<uint32_t*>(buf) = value;
+        return Status::OK();
+    }
+
+    static std::string to_string(const void* src) {
+        uint32_t value = *reinterpret_cast<const uint32_t*>(src);
+        std::stringstream ss;
+        ss << ((value >> 24) & 0xFF) << '.'
+           << ((value >> 16) & 0xFF) << '.'
+           << ((value >> 8) & 0xFF) << '.'
+           << (value & 0xFF);
+        return ss.str();
+    }
+};
+
+
+template <>
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV6>
+        : public BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_IPV6> {
+    static Status from_string(void* buf, const std::string& scan_key, const int precision,
+                              const int scale) {
+        std::istringstream iss(scan_key);
+        std::string token = 0;
+        uint128_t result = 0;
+        int count = 0;
+
+        while (std::getline(iss, token, ':')) {
+            if (token.empty()) {
+                count += 8 - count;
+                break;
+            }
+
+            if (count > 8) {
+                return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                        "FieldTypeTraits<OLAP_FIELD_TYPE_IPV6>::from_string meet PARSE_FAILURE");
+            }
+
+            uint16_t value = 0;
+            std::istringstream ss(token);
+            if (!(ss >> std::hex >> value)) {
+                return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                        "FieldTypeTraits<OLAP_FIELD_TYPE_IPV6>::from_string meet PARSE_FAILURE");
+            }
+
+            result = (result << 16) | value;
+            count++;
+        }
+
+        if (count < 8) {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                    "FieldTypeTraits<OLAP_FIELD_TYPE_IPV6>::from_string meet PARSE_FAILURE");
+        }
+
+        *reinterpret_cast<uint128_t*>(buf) = result;
+        return Status::OK();
+    }
+
+    static std::string to_string(const void* src) {
+        std::stringstream result;
+        uint128_t ipv6 = *reinterpret_cast<const uint128_t*>(src);
+
+        for (int i = 0; i < 8; i++) {
+            uint16_t part = static_cast<uint16_t>((ipv6 >> (112 - i * 16)) & 0xFFFF);
+            result << std::to_string(part);
+            if (i != 7) {
+                result << ":";
+            }
+        }
+
+        return result.str();
+    }
+
+    static void set_to_max(void* buf) {
+        *reinterpret_cast<PackedInt128*>(buf) =
+                static_cast<int128_t>(999999999999999999ll) * 100000000000000000ll * 1000ll +
+                static_cast<int128_t>(99999999999999999ll) * 1000ll + 999ll;
+    }
+
+    static void set_to_min(void* buf) {
+        *reinterpret_cast<PackedInt128*>(buf) =
+                -(static_cast<int128_t>(999999999999999999ll) * 100000000000000000ll * 1000ll +
+                  static_cast<int128_t>(99999999999999999ll) * 1000ll + 999ll);
     }
 };
 

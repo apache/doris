@@ -259,6 +259,12 @@ public abstract class DataType {
             case "jsonb":
                 dataType = JsonType.INSTANCE;
                 break;
+            case "ipv4":
+                dataType = IPv4Type.INSTANCE;
+                break;
+            case "ipv6":
+                dataType = IPv6Type.INSTANCE;
+                break;
             default:
                 throw new AnalysisException("Nereids do not support type: " + type);
         }
@@ -358,6 +364,10 @@ public abstract class DataType {
             List<DataType> types = catalogType.getSubTypes().stream().map(DataType::fromCatalogType)
                     .collect(Collectors.toList());
             return new AggStateType(catalogType.getFunctionName(), types, catalogType.getSubTypeNullables());
+        } else if (type.isIPv4()) {
+            return IPv4Type.INSTANCE;
+        } else if (type.isIPv6()) {
+            return IPv6Type.INSTANCE;
         } else {
             return UnsupportedType.INSTANCE;
         }
