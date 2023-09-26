@@ -435,7 +435,7 @@ Status TabletMeta::_save_meta(DataDir* data_dir) {
     // check if tablet uid is valid
     if (_tablet_uid.hi == 0 && _tablet_uid.lo == 0) {
         LOG(FATAL) << "tablet_uid is invalid"
-                   << " tablet=" << full_name() << " _tablet_uid=" << _tablet_uid.to_string();
+                   << " tablet=" << tablet_id() << " _tablet_uid=" << _tablet_uid.to_string();
     }
     string meta_binary;
 
@@ -462,7 +462,7 @@ Status TabletMeta::serialize(string* meta_binary) {
     to_meta_pb(&tablet_meta_pb);
     bool serialize_success = tablet_meta_pb.SerializeToString(meta_binary);
     if (!serialize_success) {
-        LOG(FATAL) << "failed to serialize meta " << full_name();
+        LOG(FATAL) << "failed to serialize meta " << tablet_id();
     }
     return Status::OK();
 }
@@ -698,19 +698,6 @@ Version TabletMeta::max_version() const {
     return max_version;
 }
 
-// Find the rowset with specified version and return its schema
-// Currently, this API is used by delete condition
-const TabletSchemaSPtr TabletMeta::tablet_schema(Version version) const {
-    auto it = _rs_metas.begin();
-    while (it != _rs_metas.end()) {
-        if ((*it)->version() == version) {
-            return (*it)->tablet_schema();
-        }
-        ++it;
-    }
-    return nullptr;
-}
-
 Status TabletMeta::add_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
     // check RowsetMeta is valid
     for (auto& rs : _rs_metas) {
@@ -718,7 +705,7 @@ Status TabletMeta::add_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
             if (rs->rowset_id() != rs_meta->rowset_id()) {
                 return Status::Error<PUSH_VERSION_ALREADY_EXIST>(
                         "version already exist. rowset_id={}, version={}, tablet={}",
-                        rs->rowset_id().to_string(), rs->version().to_string(), full_name());
+                        rs->rowset_id().to_string(), rs->version().to_string(), tablet_id());
             } else {
                 // rowsetid,version is equal, it is a duplicate req, skip it
                 return Status::OK();
@@ -837,12 +824,6 @@ RowsetMetaSharedPtr TabletMeta::acquire_stale_rs_meta_by_version(const Version& 
         }
     }
     return nullptr;
-}
-
-std::string TabletMeta::full_name() const {
-    std::stringstream ss;
-    ss << _tablet_id << "." << _schema_hash << "." << _tablet_uid.to_string();
-    return ss.str();
 }
 
 Status TabletMeta::set_partition_id(int64_t partition_id) {

@@ -24,88 +24,30 @@
 #include <string>
 #include <vector>
 
-#include "common/logging.h"
-#include "google/protobuf/util/message_differencer.h"
 #include "io/fs/file_system.h"
-#include "io/fs/local_file_system.h"
-#include "json2pb/json_to_pb.h"
-#include "json2pb/pb_to_json.h"
-#include "olap/olap_common.h"
-#include "olap/storage_policy.h"
-#include "olap/tablet_schema.h"
-#include "olap/tablet_schema_cache.h"
+#include "olap/rowset/rowset_fwd.h"
+#include "olap/tablet_fwd.h"
 
 namespace doris {
 
-class RowsetMeta;
-using RowsetMetaSharedPtr = std::shared_ptr<RowsetMeta>;
-
 class RowsetMeta {
 public:
-    virtual ~RowsetMeta() = default;
+    ~RowsetMeta();
 
-    virtual bool init(const std::string& pb_rowset_meta) {
-        bool ret = _deserialize_from_pb(pb_rowset_meta);
-        if (!ret) {
-            return false;
-        }
-        _init();
-        return true;
-    }
+    bool init(const std::string& pb_rowset_meta);
 
-    virtual bool init_from_pb(const RowsetMetaPB& rowset_meta_pb) {
-        if (rowset_meta_pb.has_tablet_schema()) {
-            _schema = TabletSchemaCache::instance()->insert(
-                    rowset_meta_pb.tablet_schema().SerializeAsString());
-        }
-        // Release ownership of TabletSchemaPB from `rowset_meta_pb` and then set it back to `rowset_meta_pb`,
-        // this won't break const semantics of `rowset_meta_pb`, because `rowset_meta_pb` is not changed
-        // before and after call this method.
-        auto& mut_rowset_meta_pb = const_cast<RowsetMetaPB&>(rowset_meta_pb);
-        auto schema = mut_rowset_meta_pb.release_tablet_schema();
-        _rowset_meta_pb = mut_rowset_meta_pb;
-        mut_rowset_meta_pb.set_allocated_tablet_schema(schema);
-        _init();
-        return true;
-    }
+    bool init_from_pb(const RowsetMetaPB& rowset_meta_pb);
 
-    virtual bool init_from_json(const std::string& json_rowset_meta) {
-        bool ret = json2pb::JsonToProtoMessage(json_rowset_meta, &_rowset_meta_pb);
-        if (!ret) {
-            return false;
-        }
-        _init();
-        return true;
-    }
+    bool init_from_json(const std::string& json_rowset_meta);
 
-    virtual bool serialize(std::string* value) { return _serialize_to_pb(value); }
+    bool serialize(std::string* value) { return _serialize_to_pb(value); }
 
-    virtual bool json_rowset_meta(std::string* json_rowset_meta) {
-        json2pb::Pb2JsonOptions json_options;
-        json_options.pretty_json = true;
-        bool ret = json2pb::ProtoMessageToJson(_rowset_meta_pb, json_rowset_meta, json_options);
-        return ret;
-    }
+    bool json_rowset_meta(std::string* json_rowset_meta);
 
     // This method may return nullptr.
-    const io::FileSystemSPtr& fs() {
-        if (!_fs) {
-            if (is_local()) {
-                _fs = io::global_local_filesystem();
-            } else {
-                _fs = get_filesystem(resource_id());
-                LOG_IF(WARNING, !_fs) << "Cannot get file system: " << resource_id();
-            }
-        }
-        return _fs;
-    }
+    const io::FileSystemSPtr& fs();
 
-    void set_fs(io::FileSystemSPtr fs) {
-        if (fs && fs->type() != io::FileSystemType::LOCAL) {
-            _rowset_meta_pb.set_resource_id(fs->id());
-        }
-        _fs = std::move(fs);
-    }
+    void set_fs(io::FileSystemSPtr fs);
 
     const std::string& resource_id() const { return _rowset_meta_pb.resource_id(); }
 
@@ -250,20 +192,9 @@ public:
 
     void set_num_segments(int64_t num_segments) { _rowset_meta_pb.set_num_segments(num_segments); }
 
-    void to_rowset_pb(RowsetMetaPB* rs_meta_pb) const {
-        *rs_meta_pb = _rowset_meta_pb;
-        if (_schema) {
-            _schema->to_schema_pb(rs_meta_pb->mutable_tablet_schema());
-        }
-    }
+    void to_rowset_pb(RowsetMetaPB* rs_meta_pb) const;
 
-    RowsetMetaPB get_rowset_pb() {
-        RowsetMetaPB rowset_meta_pb = _rowset_meta_pb;
-        if (_schema) {
-            _schema->to_schema_pb(rowset_meta_pb.mutable_tablet_schema());
-        }
-        return rowset_meta_pb;
-    }
+    RowsetMetaPB get_rowset_pb();
 
     inline DeletePredicatePB* mutable_delete_pred_pb() {
         return _rowset_meta_pb.mutable_delete_predicate();
@@ -328,20 +259,20 @@ public:
 
     auto& get_segments_key_bounds() { return _rowset_meta_pb.segments_key_bounds(); }
 
-    virtual bool get_first_segment_key_bound(KeyBoundsPB* key_bounds) {
+    bool get_first_segment_key_bound(KeyBoundsPB* key_bounds) {
         // for compatibility, old version has not segment key bounds
         if (_rowset_meta_pb.segments_key_bounds_size() == 0) {
             return false;
         }
-        *key_bounds = _rowset_meta_pb.segments_key_bounds(0);
+        *key_bounds = *_rowset_meta_pb.segments_key_bounds().begin();
         return true;
     }
-    virtual bool get_last_segment_key_bound(KeyBoundsPB* key_bounds) {
+
+    bool get_last_segment_key_bound(KeyBoundsPB* key_bounds) {
         if (_rowset_meta_pb.segments_key_bounds_size() == 0) {
             return false;
         }
-        *key_bounds =
-                _rowset_meta_pb.segments_key_bounds(_rowset_meta_pb.segments_key_bounds_size() - 1);
+        *key_bounds = *_rowset_meta_pb.segments_key_bounds().rbegin();
         return true;
     }
 
@@ -363,60 +294,24 @@ public:
 
     int64_t newest_write_timestamp() const { return _rowset_meta_pb.newest_write_timestamp(); }
 
-    void set_tablet_schema(const TabletSchemaSPtr& tablet_schema) {
-        _schema = TabletSchemaCache::instance()->insert(tablet_schema->to_key());
-    }
+    void set_tablet_schema(const TabletSchemaSPtr& tablet_schema);
 
-    TabletSchemaSPtr tablet_schema() { return _schema; }
+    const TabletSchemaSPtr& tablet_schema() { return _schema; }
 
 private:
-    bool _deserialize_from_pb(const std::string& value) {
-        RowsetMetaPB rowset_meta_pb;
-        if (!rowset_meta_pb.ParseFromString(value)) {
-            return false;
-        }
-        if (rowset_meta_pb.has_tablet_schema()) {
-            _schema = TabletSchemaCache::instance()->insert(
-                    rowset_meta_pb.tablet_schema().SerializeAsString());
-            rowset_meta_pb.clear_tablet_schema();
-        }
-        _rowset_meta_pb = rowset_meta_pb;
-        return true;
-    }
+    bool _deserialize_from_pb(const std::string& value);
 
-    bool _serialize_to_pb(std::string* value) {
-        if (value == nullptr) {
-            return false;
-        }
-        RowsetMetaPB rowset_meta_pb = _rowset_meta_pb;
-        if (_schema) {
-            _schema->to_schema_pb(rowset_meta_pb.mutable_tablet_schema());
-        }
-        return rowset_meta_pb.SerializeToString(value);
-    }
+    bool _serialize_to_pb(std::string* value);
 
-    void _init() {
-        if (_rowset_meta_pb.rowset_id() > 0) {
-            _rowset_id.init(_rowset_meta_pb.rowset_id());
-        } else {
-            _rowset_id.init(_rowset_meta_pb.rowset_id_v2());
-        }
-    }
+    void _init();
 
-    friend bool operator==(const RowsetMeta& a, const RowsetMeta& b) {
-        if (a._rowset_id != b._rowset_id) return false;
-        if (a._is_removed_from_rowset_meta != b._is_removed_from_rowset_meta) return false;
-        if (!google::protobuf::util::MessageDifferencer::Equals(a._rowset_meta_pb,
-                                                                b._rowset_meta_pb))
-            return false;
-        return true;
-    }
+    friend bool operator==(const RowsetMeta& a, const RowsetMeta& b);
 
     friend bool operator!=(const RowsetMeta& a, const RowsetMeta& b) { return !(a == b); }
 
 private:
     RowsetMetaPB _rowset_meta_pb;
-    TabletSchemaSPtr _schema = nullptr;
+    TabletSchemaSPtr _schema;
     RowsetId _rowset_id;
     io::FileSystemSPtr _fs;
     bool _is_removed_from_rowset_meta = false;
