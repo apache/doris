@@ -120,8 +120,8 @@ bool MergeIndexDeleteBitmapCalculatorContext::Comparator::operator()(
 
 bool MergeIndexDeleteBitmapCalculatorContext::Comparator::is_key_same(Slice const& lhs,
                                                                       Slice const& rhs) const {
-    DCHECK(lhs.get_size() > _sequence_length);
-    DCHECK(rhs.get_size() > _sequence_length);
+    DCHECK(lhs.get_size() >= _sequence_length);
+    DCHECK(rhs.get_size() >= _sequence_length);
     auto lhs_without_seq = Slice(lhs.get_data(), lhs.get_size() - _sequence_length);
     auto rhs_without_seq = Slice(rhs.get_data(), rhs.get_size() - _sequence_length);
     return lhs_without_seq.compare(rhs_without_seq) == 0;
