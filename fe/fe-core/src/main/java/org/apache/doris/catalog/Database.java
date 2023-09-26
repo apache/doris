@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -612,9 +611,9 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         }
     }
 
-    public void analyze(Analyzer analyzer) {
+    public void analyze() {
         for (Table table : nameToTable.values()) {
-            table.analyze(analyzer);
+            table.analyze(getFullName());
         }
     }
 
@@ -852,7 +851,8 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         return null;
     }
 
-    public Map<Long, Table> getIdToTable() {
+    @Override
+    public Map<Long, TableIf> getIdToTable() {
         return new HashMap<>(idToTable);
     }
 

@@ -22,6 +22,7 @@
 #include "common/status.h"
 #include "pipeline/exec/multi_cast_data_streamer.h"
 #include "pipeline/exec/operator.h"
+#include "runtime/query_statistics.h"
 #include "vec/core/block.h"
 
 namespace doris::pipeline {
@@ -72,6 +73,12 @@ Status MultiCastDataStreamerSourceOperator::prepare(doris::RuntimeState* state) 
 }
 
 Status MultiCastDataStreamerSourceOperator::open(doris::RuntimeState* state) {
+    if (_t_data_stream_sink.__isset.output_exprs) {
+        RETURN_IF_ERROR(vectorized::VExpr::open(_output_expr_contexts, state));
+    }
+    if (_t_data_stream_sink.__isset.conjuncts) {
+        RETURN_IF_ERROR(vectorized::VExpr::open(_conjuncts, state));
+    }
     return _acquire_runtime_filter();
 }
 
@@ -118,4 +125,46 @@ RuntimeProfile* MultiCastDataStreamerSourceOperator::get_runtime_profile() const
     return _multi_cast_data_streamer->profile();
 }
 
+Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
+    RETURN_IF_ERROR(Base::init(state, info));
+    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(_open_timer);
+    auto& p = _parent->cast<Parent>();
+    if (p._t_data_stream_sink.__isset.output_exprs) {
+        _output_expr_contexts.resize(p._output_expr_contexts.size());
+        for (size_t i = 0; i < p._output_expr_contexts.size(); i++) {
+            RETURN_IF_ERROR(p._output_expr_contexts[i]->clone(state, _output_expr_contexts[i]));
+        }
+    }
+    return Status::OK();
+}
+
+Status MultiCastDataStreamerSourceOperatorX::get_block(RuntimeState* state,
+                                                       vectorized::Block* block,
+                                                       SourceState& source_state) {
+    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    bool eos = false;
+    vectorized::Block tmp_block;
+    vectorized::Block* output_block = block;
+    if (!local_state._output_expr_contexts.empty()) {
+        output_block = &tmp_block;
+    }
+    local_state._shared_state->_multi_cast_data_streamer->pull(_consumer_id, output_block, &eos);
+
+    if (!local_state._conjuncts.empty()) {
+        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, output_block,
+                                                               output_block->columns()));
+    }
+
+    if (!local_state._output_expr_contexts.empty() && output_block->rows() > 0) {
+        RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
+                local_state._output_expr_contexts, *output_block, block));
+        materialize_block_inplace(*block);
+    }
+    if (eos) {
+        source_state = SourceState::FINISHED;
+    }
+    return Status::OK();
+}
 } // namespace doris::pipeline

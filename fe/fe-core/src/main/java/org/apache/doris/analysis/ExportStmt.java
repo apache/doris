@@ -24,13 +24,13 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.common.util.URI;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -41,7 +41,7 @@ import org.apache.doris.qe.VariableMgr;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
-import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import lombok.Getter;
@@ -50,6 +50,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 // EXPORT statement, export data to dirs by broker.
 //
@@ -65,7 +66,6 @@ public class ExportStmt extends StatementBase {
 
     private static final String DEFAULT_COLUMN_SEPARATOR = "\t";
     private static final String DEFAULT_LINE_DELIMITER = "\n";
-    private static final String DEFAULT_COLUMNS = "";
     private static final String DEFAULT_PARALLELISM = "1";
 
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
@@ -121,7 +121,6 @@ public class ExportStmt extends StatementBase {
         this.brokerDesc = brokerDesc;
         this.columnSeparator = DEFAULT_COLUMN_SEPARATOR;
         this.lineDelimiter = DEFAULT_LINE_DELIMITER;
-        this.columns = DEFAULT_COLUMNS;
 
         Optional<SessionVariable> optionalSessionVariable = Optional.ofNullable(
                 ConnectContext.get().getSessionVariable());
@@ -152,6 +151,8 @@ public class ExportStmt extends StatementBase {
                 throw new AnalysisException("Do not support exporting temporary partitions");
             }
             partitionStringNames = optionalPartitionNames.get().getPartitionNames();
+        } else {
+            partitionStringNames = ImmutableList.of();
         }
 
         // check auth
@@ -175,7 +176,7 @@ public class ExportStmt extends StatementBase {
         }
 
         // check path is valid
-        path = checkPath(path, brokerDesc.getStorageType());
+        StorageBackend.checkPath(path, brokerDesc.getStorageType());
         if (brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER) {
             BrokerMgr brokerMgr = analyzer.getEnv().getBrokerMgr();
             if (!brokerMgr.containsBroker(brokerDesc.getName())) {
@@ -191,7 +192,7 @@ public class ExportStmt extends StatementBase {
 
         // create job and analyze job
         setJob();
-        exportJob.analyze();
+        exportJob.generateOutfileStatement();
     }
 
     private void setJob() throws UserException {
@@ -223,7 +224,7 @@ public class ExportStmt extends StatementBase {
         exportJob.setMaxFileSize(this.maxFileSize);
         exportJob.setDeleteExistingFiles(this.deleteExistingFiles);
 
-        if (!Strings.isNullOrEmpty(this.columns)) {
+        if (columns != null) {
             Splitter split = Splitter.on(',').trimResults().omitEmptyStrings();
             exportJob.setExportColumns(split.splitToList(this.columns.toLowerCase()));
         }
@@ -237,13 +238,12 @@ public class ExportStmt extends StatementBase {
         exportJob.setSessionVariables(this.sessionVariables);
         exportJob.setTimeoutSecond(this.sessionVariables.getQueryTimeoutS());
 
-        exportJob.setSql(this.toSql());
         exportJob.setOrigStmt(this.getOrigStmt());
     }
 
     // check partitions specified by user are belonged to the table.
     private void checkPartitions(Env env) throws AnalysisException {
-        if (partitionStringNames == null) {
+        if (partitionStringNames.isEmpty()) {
             return;
         }
 
@@ -288,43 +288,6 @@ public class ExportStmt extends StatementBase {
         }
     }
 
-    public static String checkPath(String path, StorageBackend.StorageType type) throws AnalysisException {
-        if (Strings.isNullOrEmpty(path)) {
-            throw new AnalysisException("No destination path specified.");
-        }
-
-        URI uri = URI.create(path);
-        String schema = uri.getScheme();
-        if (schema == null) {
-            throw new AnalysisException(
-                    "Invalid export path, there is no schema of URI found. please check your path.");
-        }
-        if (type == StorageBackend.StorageType.BROKER) {
-            if (!schema.equalsIgnoreCase("bos")
-                    && !schema.equalsIgnoreCase("afs")
-                    && !schema.equalsIgnoreCase("hdfs")
-                    && !schema.equalsIgnoreCase("ofs")
-                    && !schema.equalsIgnoreCase("obs")
-                    && !schema.equalsIgnoreCase("oss")
-                    && !schema.equalsIgnoreCase("s3a")
-                    && !schema.equalsIgnoreCase("cosn")
-                    && !schema.equalsIgnoreCase("gfs")
-                    && !schema.equalsIgnoreCase("jfs")
-                    && !schema.equalsIgnoreCase("gs")) {
-                throw new AnalysisException("Invalid broker path. please use valid 'hdfs://', 'afs://' , 'bos://',"
-                        + " 'ofs://', 'obs://', 'oss://', 's3a://', 'cosn://', 'gfs://', 'gs://' or 'jfs://' path.");
-            }
-        } else if (type == StorageBackend.StorageType.S3 && !schema.equalsIgnoreCase("s3")) {
-            throw new AnalysisException("Invalid export path. please use valid 's3://' path.");
-        } else if (type == StorageBackend.StorageType.HDFS && !schema.equalsIgnoreCase("hdfs")) {
-            throw new AnalysisException("Invalid export path. please use valid 'HDFS://' path.");
-        } else if (type == StorageBackend.StorageType.LOCAL && !schema.equalsIgnoreCase("file")) {
-            throw new AnalysisException(
-                        "Invalid export path. please use valid '" + OutFileClause.LOCAL_FILE_PREFIX + "' path.");
-        }
-        return path;
-    }
-
     private void checkProperties(Map<String, String> properties) throws UserException {
         for (String key : properties.keySet()) {
             if (!PROPERTIES_SET.contains(key.toLowerCase())) {
@@ -343,7 +306,14 @@ public class ExportStmt extends StatementBase {
                 properties, ExportStmt.DEFAULT_COLUMN_SEPARATOR));
         this.lineDelimiter = Separator.convertSeparator(PropertyAnalyzer.analyzeLineDelimiter(
                 properties, ExportStmt.DEFAULT_LINE_DELIMITER));
-        this.columns = properties.getOrDefault(LoadStmt.KEY_IN_PARAM_COLUMNS, DEFAULT_COLUMNS);
+        // null means not specified
+        // "" means user specified zero columns
+        this.columns = properties.getOrDefault(LoadStmt.KEY_IN_PARAM_COLUMNS, null);
+
+        // check columns are exits
+        if (columns != null) {
+            checkColumns();
+        }
 
         // format
         this.format = properties.getOrDefault(LoadStmt.KEY_IN_PARAM_FORMAT_TYPE, "csv").toLowerCase();
@@ -367,6 +337,24 @@ public class ExportStmt extends StatementBase {
         } else {
             // generate a random label
             this.label = "export_" + UUID.randomUUID();
+        }
+    }
+
+    private void checkColumns() throws DdlException {
+        if (this.columns.isEmpty()) {
+            throw new DdlException("columns can not be empty");
+        }
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(this.tblName.getDb());
+        Table table = db.getTableOrDdlException(this.tblName.getTbl());
+        List<String> tableColumns = table.getBaseSchema().stream().map(column -> column.getName())
+                .collect(Collectors.toList());
+        Splitter split = Splitter.on(',').trimResults().omitEmptyStrings();
+
+        List<String> columnsSpecified = split.splitToList(this.columns.toLowerCase());
+        for (String columnName : columnsSpecified) {
+            if (!tableColumns.contains(columnName)) {
+                throw new DdlException("unknown column [" + columnName + "] in table [" + this.tblName.getTbl() + "]");
+            }
         }
     }
 

@@ -94,8 +94,8 @@ suite("test_external_catalog_hive", "p2,external,hive,external_remote,external_r
         qt_not_single_slot_filter_conjuncts_parquet """ select * from multi_catalog.lineitem_string_date_orc where l_commitdate < l_receiptdate and l_receiptdate = '1995-01-01'  order by l_orderkey, l_partkey, l_suppkey, l_linenumber limit 10; """
 
         // test null expr with dict filter issue
-        qt_null_expr_dict_filter_orc """ select count(*), count(distinct user_no) from multi_catalog.dict_fitler_test_orc WHERE partitions in ('2023-08-21') and actual_intf_type  =  'type1' and (REUSE_FLAG<> 'y' or REUSE_FLAG is null); """
-        qt_null_expr_dict_filter_parquet """ select count(*), count(distinct user_no) from multi_catalog.dict_fitler_test_parquet WHERE partitions in ('2023-08-21') and actual_intf_type  =  'type1' and (REUSE_FLAG<> 'y' or REUSE_FLAG is null); """
+        qt_null_expr_dict_filter_orc """ select count(*), count(distinct user_no) from multi_catalog.dict_fitler_test_orc WHERE `partitions` in ('2023-08-21') and actual_intf_type  =  'type1' and (REUSE_FLAG<> 'y' or REUSE_FLAG is null); """
+        qt_null_expr_dict_filter_parquet """ select count(*), count(distinct user_no) from multi_catalog.dict_fitler_test_parquet WHERE `partitions` in ('2023-08-21') and actual_intf_type  =  'type1' and (REUSE_FLAG<> 'y' or REUSE_FLAG is null); """
 
         // test par fields in file
         qt_par_fields_in_file_orc1 """ select * from multi_catalog.par_fields_in_file_orc where year = 2023 and month = 8 order by id; """
@@ -128,5 +128,20 @@ suite("test_external_catalog_hive", "p2,external,hive,external_remote,external_r
         logger.info("recoding select: " + res3.toString())
 
         sql """alter catalog hms rename ${catalog_name};"""
+
+        // test wrong access controller
+        test {
+            def tmp_name = "${catalog_name}" + "_wrong"
+            sql "drop catalog if exists ${tmp_name}"
+            sql """
+                create catalog if not exists ${tmp_name} properties (
+                    'type'='hms',
+                    'hive.metastore.uris' = 'thrift://${extHiveHmsHost}:${extHiveHmsPort}',
+                    'access_controller.properties.ranger.service.name' = 'hive_wrong',
+                    'access_controller.class' = 'org.apache.doris.catalog.authorizer.RangerHiveAccessControllerFactory'
+                );
+            """
+            exception "Failed to init access controller: bound must be positive"
+        }
     }
 }

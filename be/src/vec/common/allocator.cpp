@@ -107,9 +107,11 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::sys_memory_check(size_t 
             }
             // else, enough memory is available, the query continues execute.
         } else if (doris::enable_thread_catch_bad_alloc) {
-            LOG(INFO) << fmt::format("throw exception, {}.", err_msg);
+            LOG(INFO) << fmt::format("sys memory check failed, throw exception, {}.", err_msg);
             doris::MemTrackerLimiter::print_log_process_usage();
             throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
+        } else {
+            LOG(INFO) << fmt::format("sys memory check failed, no throw exception, {}.", err_msg);
         }
     }
 }
@@ -137,9 +139,12 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::memory_tracker_check(siz
                                          print_id(doris::thread_context()->task_id()), err_msg);
                 throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
             }
-        } else {
-            LOG(INFO) << fmt::format("throw exception, {}.", err_msg);
+        } else if (doris::enable_thread_catch_bad_alloc) {
+            LOG(INFO) << fmt::format("memory tracker check failed, throw exception, {}.", err_msg);
             throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
+        } else {
+            LOG(INFO) << fmt::format("memory tracker check failed, no throw exception, {}.",
+                                     err_msg);
         }
     }
 }
@@ -177,8 +182,6 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::throw_bad_alloc(
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap>
 void* Allocator<clear_memory_, mmap_populate, use_mmap>::alloc(size_t size, size_t alignment) {
-    doris::thread_context()->large_memory_check = false;
-    DEFER({ doris::thread_context()->large_memory_check = true; });
     return alloc_impl(size, alignment);
 }
 
@@ -186,8 +189,6 @@ template <bool clear_memory_, bool mmap_populate, bool use_mmap>
 void* Allocator<clear_memory_, mmap_populate, use_mmap>::realloc(void* buf, size_t old_size,
                                                                  size_t new_size,
                                                                  size_t alignment) {
-    doris::thread_context()->large_memory_check = false;
-    DEFER({ doris::thread_context()->large_memory_check = true; });
     return realloc_impl(buf, old_size, new_size, alignment);
 }
 

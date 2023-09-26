@@ -56,8 +56,11 @@ public:
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override {
         RETURN_IF_ERROR(alloc_resource(state));
-        RETURN_IF_ERROR(VExpr::open(_vfn_ctxs, state));
         return _children[0]->open(state);
+    }
+    Status alloc_resource(RuntimeState* state) override {
+        RETURN_IF_ERROR(ExecNode::alloc_resource(state));
+        return VExpr::open(_vfn_ctxs, state);
     }
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
     bool need_more_input_data() const { return !_child_block.rows() && !_child_eos; }
@@ -69,14 +72,14 @@ public:
         ExecNode::release_resource(state);
     }
 
-    Status push(RuntimeState*, Block* input_block, bool eos) override {
+    Status push(RuntimeState* state, Block* input_block, bool eos) override {
         _child_eos = eos;
         if (input_block->rows() == 0) {
             return Status::OK();
         }
 
         for (TableFunction* fn : _fns) {
-            RETURN_IF_ERROR(fn->process_init(input_block));
+            RETURN_IF_ERROR(fn->process_init(input_block, state));
         }
         RETURN_IF_ERROR(_process_next_child_row());
         return Status::OK();

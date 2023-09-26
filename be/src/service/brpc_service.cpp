@@ -51,7 +51,9 @@ BRpcService::BRpcService(ExecEnv* exec_env) : _exec_env(exec_env), _server(new b
                     : std::max((int64_t)1073741824, (MemInfo::mem_limit() / 1024) * 20);
 }
 
-BRpcService::~BRpcService() = default;
+BRpcService::~BRpcService() {
+    join();
+}
 
 Status BRpcService::start(int port, int num_threads) {
     // Add service
@@ -84,8 +86,16 @@ Status BRpcService::start(int port, int num_threads) {
 }
 
 void BRpcService::join() {
-    _server->Stop(1000);
-    _server->Join();
+    int stop_succeed = _server->Stop(1000);
+
+    if (stop_succeed == 0) {
+        _server->Join();
+    } else {
+        LOG(WARNING) << "Failed to stop brpc service, "
+                     << "not calling brpc server join since it will never retrun."
+                     << "maybe something bad will happen, let us know if you meet something error.";
+    }
+
     _server->ClearServices();
 }
 

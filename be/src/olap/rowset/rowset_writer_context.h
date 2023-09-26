@@ -45,7 +45,6 @@ struct RowsetWriterContext {
               rowset_type(BETA_ROWSET),
               rowset_state(PREPARED),
               version(Version(0, 0)),
-              sender_id(0),
               txn_id(0),
               tablet_uid(0, 0),
               segments_overlap(OVERLAP_UNKNOWN) {
@@ -68,8 +67,6 @@ struct RowsetWriterContext {
     // properties for non-pending rowset
     Version version;
 
-    int sender_id;
-
     // properties for pending rowset
     int64_t txn_id;
     PUniqueId load_id;
@@ -87,7 +84,7 @@ struct RowsetWriterContext {
     // (because it hard to refactor, and RowsetConvertor will be deprecated in future)
     DataDir* data_dir = nullptr;
 
-    int64_t newest_write_timestamp;
+    int64_t newest_write_timestamp = -1;
     bool enable_unique_key_merge_on_write = false;
     std::set<int32_t> skip_inverted_index;
     DataWriteType write_type = DataWriteType::TYPE_DEFAULT;
@@ -99,6 +96,15 @@ struct RowsetWriterContext {
     std::shared_ptr<MowContext> mow_context;
     std::shared_ptr<FileWriterCreator> file_writer_creator;
     std::shared_ptr<SegmentCollector> segment_collector;
+
+    /// begin file cache opts
+    bool write_file_cache = false;
+    bool is_hot_data = false;
+    int64_t file_cache_ttl_sec = 0;
+    /// end file cache opts
+
+    // segcompaction for this RowsetWriter, disable it for some transient writers
+    bool enable_segcompaction = true;
 };
 
 } // namespace doris

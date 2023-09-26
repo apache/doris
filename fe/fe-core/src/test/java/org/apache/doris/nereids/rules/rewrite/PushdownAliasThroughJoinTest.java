@@ -18,6 +18,10 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -29,6 +33,8 @@ import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 class PushdownAliasThroughJoinTest implements MemoPatternMatchSupported {
     private static final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
@@ -98,5 +104,22 @@ class PushdownAliasThroughJoinTest implements MemoPatternMatchSupported {
                     ).when(project -> project.getProjects().get(0).toSql().equals("2id")
                             && project.getProjects().get(1).toSql().equals("2name"))
                 );
+    }
+
+    @Test
+    void testNoPushdownMarkJoin() {
+        List<NamedExpression> projects =
+                ImmutableList.of(new MarkJoinSlotReference(new ExprId(101), "markSlot1", false),
+                        new Alias(new MarkJoinSlotReference(new ExprId(102), "markSlot2", false),
+                                "markSlot2"));
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0)).projectExprs(projects).build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new PushdownAliasThroughJoin())
+                .matches(logicalProject(logicalJoin(logicalOlapScan(), logicalOlapScan()))
+                        .when(project -> project.getProjects().get(0).toSql().equals("markSlot1")
+                                && project.getProjects().get(1).toSql()
+                                        .equals("markSlot2 AS `markSlot2`")));
     }
 }

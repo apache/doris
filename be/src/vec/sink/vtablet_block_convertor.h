@@ -35,8 +35,7 @@
 #include "vec/exprs/vexpr_fwd.h"
 #include "vec/sink/autoinc_buffer.h"
 
-namespace doris {
-namespace stream_load {
+namespace doris::vectorized {
 
 class OlapTableBlockConvertor {
 public:
@@ -46,7 +45,7 @@ public:
     Status validate_and_convert_block(RuntimeState* state, vectorized::Block* input_block,
                                       std::shared_ptr<vectorized::Block>& block,
                                       vectorized::VExprContextSPtrs output_vexpr_ctxs, size_t rows,
-                                      bool eos, bool& has_filtered_rows);
+                                      bool& has_filtered_rows);
 
     const Bitmap& filter_bitmap() { return _filter_bitmap; }
 
@@ -61,6 +60,9 @@ public:
 private:
     template <bool is_min>
     DecimalV2Value _get_decimalv2_min_or_max(const TypeDescriptor& type);
+
+    template <typename DecimalType, bool IsMin>
+    DecimalType _get_decimalv3_min_or_max(const TypeDescriptor& type);
 
     Status _validate_column(RuntimeState* state, const TypeDescriptor& type, bool is_nullable,
                             vectorized::ColumnPtr column, size_t slot_index, bool* stop_processing,
@@ -78,7 +80,7 @@ private:
     // so here need to do the convert operation
     void _convert_to_dest_desc_block(vectorized::Block* block);
 
-    Status _fill_auto_inc_cols(vectorized::Block* block, size_t rows, bool eos);
+    Status _fill_auto_inc_cols(vectorized::Block* block, size_t rows);
 
     TupleDescriptor* _output_tuple_desc = nullptr;
 
@@ -103,5 +105,4 @@ private:
     AutoIncIDAllocator _auto_inc_id_allocator;
 };
 
-} // namespace stream_load
-} // namespace doris
+} // namespace doris::vectorized

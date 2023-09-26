@@ -231,9 +231,9 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
      * @param that other tree node
      * @return true if all the tree is equals
      */
-    default boolean deepEquals(TreeNode that) {
-        Deque<TreeNode> thisDeque = new ArrayDeque<>();
-        Deque<TreeNode> thatDeque = new ArrayDeque<>();
+    default boolean deepEquals(TreeNode<?> that) {
+        Deque<TreeNode<?>> thisDeque = new ArrayDeque<>();
+        Deque<TreeNode<?>> thatDeque = new ArrayDeque<>();
 
         thisDeque.push(this);
         thatDeque.push(that);
@@ -244,8 +244,13 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
                 return false;
             }
 
-            TreeNode currentNodeThis = thisDeque.pop();
-            TreeNode currentNodeThat = thatDeque.pop();
+            TreeNode<?> currentNodeThis = thisDeque.pop();
+            TreeNode<?> currentNodeThat = thatDeque.pop();
+
+            // since TreeNode is immutable, use == to short circuit
+            if (currentNodeThis == currentNodeThat) {
+                continue;
+            }
 
             // If current nodes are not equal or the number of child nodes differ, return false.
             if (!currentNodeThis.equals(currentNodeThat)

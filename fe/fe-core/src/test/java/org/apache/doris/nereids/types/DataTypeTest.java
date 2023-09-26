@@ -23,6 +23,7 @@ import org.apache.doris.nereids.types.coercion.FractionalType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.types.coercion.NumericType;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -31,10 +32,10 @@ import java.util.Random;
 public class DataTypeTest {
     @Test
     public void testDataTypeEquals() {
-        DecimalV2Type decimalV2Type1 = new DecimalV2Type(27, 9);
-        DecimalV2Type decimalV2Type2 = new DecimalV2Type(27, 9);
-        DecimalV2Type decimalV2Type3 = new DecimalV2Type(26, 9);
-        DecimalV2Type decimalV2Type4 = new DecimalV2Type(27, 8);
+        DecimalV2Type decimalV2Type1 = DecimalV2Type.createDecimalV2Type(27, 9);
+        DecimalV2Type decimalV2Type2 = DecimalV2Type.createDecimalV2Type(27, 9);
+        DecimalV2Type decimalV2Type3 = DecimalV2Type.createDecimalV2Type(26, 9);
+        DecimalV2Type decimalV2Type4 = DecimalV2Type.createDecimalV2Type(27, 8);
         Assertions.assertEquals(decimalV2Type1, decimalV2Type2);
         Assertions.assertEquals(decimalV2Type1.hashCode(), decimalV2Type2.hashCode());
         Assertions.assertNotEquals(decimalV2Type1, decimalV2Type3);
@@ -67,7 +68,6 @@ public class DataTypeTest {
     @Test
     void testConvertFromString() {
         // boolean
-        Assertions.assertEquals(BooleanType.INSTANCE, DataType.convertFromString("bool"));
         Assertions.assertEquals(BooleanType.INSTANCE, DataType.convertFromString("boolean"));
         // tinyint
         Assertions.assertEquals(TinyIntType.INSTANCE, DataType.convertFromString("tinyint"));
@@ -95,13 +95,11 @@ public class DataTypeTest {
         Assertions.assertEquals(StringType.INSTANCE, DataType.convertFromString("string"));
         // char
         Assertions.assertEquals(CharType.createCharType(10), DataType.convertFromString("char(10)"));
-        Assertions.assertEquals(CharType.createCharType(10), DataType.convertFromString("character(10)"));
-
+        Assertions.assertEquals(CharType.SYSTEM_DEFAULT, DataType.convertFromString("character"));
         // varchar
         Assertions.assertEquals(VarcharType.createVarcharType(10), DataType.convertFromString("varchar(10)"));
-        // null
-        Assertions.assertEquals(NullType.INSTANCE, DataType.convertFromString("null"));
-        Assertions.assertEquals(NullType.INSTANCE, DataType.convertFromString("null_type"));
+        Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT, DataType.convertFromString("varchar(*)"));
+        Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT, DataType.convertFromString("varchar"));
         // date
         Assertions.assertEquals(DateType.INSTANCE, DataType.convertFromString("date"));
         // datev2
@@ -124,6 +122,11 @@ public class DataTypeTest {
         Assertions.assertEquals(JsonType.INSTANCE, DataType.convertFromString("json"));
         // array
         Assertions.assertEquals(ArrayType.of(IntegerType.INSTANCE), DataType.convertFromString("array<int>"));
+        // map
+        Assertions.assertEquals(MapType.of(IntegerType.INSTANCE, IntegerType.INSTANCE), DataType.convertFromString("map<int, int>"));
+        // struct
+        Assertions.assertEquals(new StructType(ImmutableList.of(new StructField("a", IntegerType.INSTANCE, true, ""))), DataType.convertFromString("struct<a: int>"));
+
     }
 
     @Test
@@ -140,7 +143,7 @@ public class DataTypeTest {
         Assertions.assertTrue(dateType.acceptsType(DoubleType.INSTANCE));
         int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
         int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
-        Assertions.assertTrue(dateType.acceptsType(new DecimalV2Type(precision, scale)));
+        Assertions.assertTrue(dateType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
         Assertions.assertTrue(dateType.acceptsType(new CharType(new Random().nextInt())));
         Assertions.assertTrue(dateType.acceptsType(new VarcharType(new Random().nextInt())));
         Assertions.assertTrue(dateType.acceptsType(StringType.INSTANCE));
@@ -162,7 +165,7 @@ public class DataTypeTest {
         Assertions.assertFalse(dateType.acceptsType(DoubleType.INSTANCE));
         int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
         int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
-        Assertions.assertFalse(dateType.acceptsType(new DecimalV2Type(precision, scale)));
+        Assertions.assertFalse(dateType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
         Assertions.assertFalse(dateType.acceptsType(new CharType(new Random().nextInt())));
         Assertions.assertFalse(dateType.acceptsType(new VarcharType(new Random().nextInt())));
         Assertions.assertFalse(dateType.acceptsType(StringType.INSTANCE));
@@ -184,7 +187,7 @@ public class DataTypeTest {
         Assertions.assertFalse(dateType.acceptsType(DoubleType.INSTANCE));
         int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
         int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
-        Assertions.assertFalse(dateType.acceptsType(new DecimalV2Type(precision, scale)));
+        Assertions.assertFalse(dateType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
         Assertions.assertFalse(dateType.acceptsType(new CharType(new Random().nextInt())));
         Assertions.assertFalse(dateType.acceptsType(new VarcharType(new Random().nextInt())));
         Assertions.assertFalse(dateType.acceptsType(StringType.INSTANCE));
@@ -206,7 +209,7 @@ public class DataTypeTest {
         Assertions.assertTrue(dataType.acceptsType(DoubleType.INSTANCE));
         int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
         int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
-        Assertions.assertTrue(dataType.acceptsType(new DecimalV2Type(precision, scale)));
+        Assertions.assertTrue(dataType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
         Assertions.assertFalse(dataType.acceptsType(new CharType(new Random().nextInt())));
         Assertions.assertFalse(dataType.acceptsType(new VarcharType(new Random().nextInt())));
         Assertions.assertFalse(dataType.acceptsType(StringType.INSTANCE));
@@ -228,7 +231,7 @@ public class DataTypeTest {
         Assertions.assertFalse(dataType.acceptsType(DoubleType.INSTANCE));
         int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
         int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
-        Assertions.assertFalse(dataType.acceptsType(new DecimalV2Type(precision, scale)));
+        Assertions.assertFalse(dataType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
         Assertions.assertFalse(dataType.acceptsType(new CharType(new Random().nextInt())));
         Assertions.assertFalse(dataType.acceptsType(new VarcharType(new Random().nextInt())));
         Assertions.assertFalse(dataType.acceptsType(StringType.INSTANCE));
@@ -250,7 +253,7 @@ public class DataTypeTest {
         Assertions.assertFalse(dataType.acceptsType(DoubleType.INSTANCE));
         int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
         int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
-        Assertions.assertFalse(dataType.acceptsType(new DecimalV2Type(precision, scale)));
+        Assertions.assertFalse(dataType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
         Assertions.assertFalse(dataType.acceptsType(new CharType(new Random().nextInt())));
         Assertions.assertFalse(dataType.acceptsType(new VarcharType(new Random().nextInt())));
         Assertions.assertFalse(dataType.acceptsType(StringType.INSTANCE));
@@ -272,7 +275,7 @@ public class DataTypeTest {
         Assertions.assertFalse(dataType.acceptsType(DoubleType.INSTANCE));
         int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
         int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
-        Assertions.assertFalse(dataType.acceptsType(new DecimalV2Type(precision, scale)));
+        Assertions.assertFalse(dataType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
         Assertions.assertFalse(dataType.acceptsType(new CharType(new Random().nextInt())));
         Assertions.assertFalse(dataType.acceptsType(new VarcharType(new Random().nextInt())));
         Assertions.assertFalse(dataType.acceptsType(StringType.INSTANCE));
@@ -294,7 +297,7 @@ public class DataTypeTest {
         Assertions.assertFalse(dataType.acceptsType(DoubleType.INSTANCE));
         int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
         int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
-        Assertions.assertFalse(dataType.acceptsType(new DecimalV2Type(precision, scale)));
+        Assertions.assertFalse(dataType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
         Assertions.assertFalse(dataType.acceptsType(new CharType(new Random().nextInt())));
         Assertions.assertFalse(dataType.acceptsType(new VarcharType(new Random().nextInt())));
         Assertions.assertFalse(dataType.acceptsType(StringType.INSTANCE));
@@ -316,7 +319,7 @@ public class DataTypeTest {
         Assertions.assertFalse(dataType.acceptsType(DoubleType.INSTANCE));
         int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
         int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
-        Assertions.assertFalse(dataType.acceptsType(new DecimalV2Type(precision, scale)));
+        Assertions.assertFalse(dataType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
         Assertions.assertFalse(dataType.acceptsType(new CharType(new Random().nextInt())));
         Assertions.assertFalse(dataType.acceptsType(new VarcharType(new Random().nextInt())));
         Assertions.assertFalse(dataType.acceptsType(StringType.INSTANCE));
@@ -338,7 +341,7 @@ public class DataTypeTest {
         Assertions.assertFalse(dataType.acceptsType(DoubleType.INSTANCE));
         int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
         int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
-        Assertions.assertFalse(dataType.acceptsType(new DecimalV2Type(precision, scale)));
+        Assertions.assertFalse(dataType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
         Assertions.assertFalse(dataType.acceptsType(new CharType(new Random().nextInt())));
         Assertions.assertFalse(dataType.acceptsType(new VarcharType(new Random().nextInt())));
         Assertions.assertFalse(dataType.acceptsType(StringType.INSTANCE));
@@ -360,7 +363,7 @@ public class DataTypeTest {
         Assertions.assertTrue(dataType.acceptsType(DoubleType.INSTANCE));
         int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
         int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
-        Assertions.assertTrue(dataType.acceptsType(new DecimalV2Type(precision, scale)));
+        Assertions.assertTrue(dataType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
         Assertions.assertFalse(dataType.acceptsType(new CharType(new Random().nextInt())));
         Assertions.assertFalse(dataType.acceptsType(new VarcharType(new Random().nextInt())));
         Assertions.assertFalse(dataType.acceptsType(StringType.INSTANCE));
@@ -382,7 +385,7 @@ public class DataTypeTest {
         Assertions.assertFalse(dataType.acceptsType(DoubleType.INSTANCE));
         int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
         int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
-        Assertions.assertFalse(dataType.acceptsType(new DecimalV2Type(precision, scale)));
+        Assertions.assertFalse(dataType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
         Assertions.assertFalse(dataType.acceptsType(new CharType(new Random().nextInt())));
         Assertions.assertFalse(dataType.acceptsType(new VarcharType(new Random().nextInt())));
         Assertions.assertFalse(dataType.acceptsType(StringType.INSTANCE));
@@ -404,7 +407,7 @@ public class DataTypeTest {
         Assertions.assertTrue(dataType.acceptsType(DoubleType.INSTANCE));
         int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
         int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
-        Assertions.assertFalse(dataType.acceptsType(new DecimalV2Type(precision, scale)));
+        Assertions.assertFalse(dataType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
         Assertions.assertFalse(dataType.acceptsType(new CharType(new Random().nextInt())));
         Assertions.assertFalse(dataType.acceptsType(new VarcharType(new Random().nextInt())));
         Assertions.assertFalse(dataType.acceptsType(StringType.INSTANCE));
@@ -426,7 +429,7 @@ public class DataTypeTest {
         Assertions.assertFalse(dataType.acceptsType(DoubleType.INSTANCE));
         int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
         int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
-        Assertions.assertTrue(dataType.acceptsType(new DecimalV2Type(precision, scale)));
+        Assertions.assertTrue(dataType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
         Assertions.assertFalse(dataType.acceptsType(new CharType(new Random().nextInt())));
         Assertions.assertFalse(dataType.acceptsType(new VarcharType(new Random().nextInt())));
         Assertions.assertFalse(dataType.acceptsType(StringType.INSTANCE));
@@ -448,10 +451,10 @@ public class DataTypeTest {
         Assertions.assertFalse(dataType.acceptsType(DoubleType.INSTANCE));
         int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
         int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
-        Assertions.assertFalse(dataType.acceptsType(new DecimalV2Type(precision, scale)));
+        Assertions.assertFalse(dataType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
         Assertions.assertTrue(dataType.acceptsType(new CharType(new Random().nextInt())));
-        Assertions.assertFalse(dataType.acceptsType(new VarcharType(new Random().nextInt())));
-        Assertions.assertFalse(dataType.acceptsType(StringType.INSTANCE));
+        Assertions.assertTrue(dataType.acceptsType(new VarcharType(new Random().nextInt())));
+        Assertions.assertTrue(dataType.acceptsType(StringType.INSTANCE));
         Assertions.assertFalse(dataType.acceptsType(DateType.INSTANCE));
         Assertions.assertFalse(dataType.acceptsType(DateTimeType.INSTANCE));
     }
@@ -470,8 +473,8 @@ public class DataTypeTest {
         Assertions.assertFalse(dataType.acceptsType(DoubleType.INSTANCE));
         int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
         int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
-        Assertions.assertFalse(dataType.acceptsType(new DecimalV2Type(precision, scale)));
-        Assertions.assertFalse(dataType.acceptsType(new CharType(new Random().nextInt())));
+        Assertions.assertFalse(dataType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
+        Assertions.assertTrue(dataType.acceptsType(new CharType(new Random().nextInt())));
         Assertions.assertTrue(dataType.acceptsType(new VarcharType(new Random().nextInt())));
         Assertions.assertTrue(dataType.acceptsType(StringType.INSTANCE));
         Assertions.assertFalse(dataType.acceptsType(DateType.INSTANCE));
@@ -492,8 +495,8 @@ public class DataTypeTest {
         Assertions.assertFalse(dataType.acceptsType(DoubleType.INSTANCE));
         int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
         int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
-        Assertions.assertFalse(dataType.acceptsType(new DecimalV2Type(precision, scale)));
-        Assertions.assertFalse(dataType.acceptsType(new CharType(new Random().nextInt())));
+        Assertions.assertFalse(dataType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
+        Assertions.assertTrue(dataType.acceptsType(new CharType(new Random().nextInt())));
         Assertions.assertTrue(dataType.acceptsType(new VarcharType(new Random().nextInt())));
         Assertions.assertTrue(dataType.acceptsType(StringType.INSTANCE));
         Assertions.assertFalse(dataType.acceptsType(DateType.INSTANCE));
@@ -514,7 +517,7 @@ public class DataTypeTest {
         Assertions.assertFalse(dataType.acceptsType(DoubleType.INSTANCE));
         int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
         int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
-        Assertions.assertFalse(dataType.acceptsType(new DecimalV2Type(precision, scale)));
+        Assertions.assertFalse(dataType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
         Assertions.assertFalse(dataType.acceptsType(new CharType(new Random().nextInt())));
         Assertions.assertFalse(dataType.acceptsType(new VarcharType(new Random().nextInt())));
         Assertions.assertFalse(dataType.acceptsType(StringType.INSTANCE));
@@ -536,7 +539,7 @@ public class DataTypeTest {
         Assertions.assertFalse(dataType.acceptsType(DoubleType.INSTANCE));
         int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
         int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
-        Assertions.assertFalse(dataType.acceptsType(new DecimalV2Type(precision, scale)));
+        Assertions.assertFalse(dataType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
         Assertions.assertFalse(dataType.acceptsType(new CharType(new Random().nextInt())));
         Assertions.assertFalse(dataType.acceptsType(new VarcharType(new Random().nextInt())));
         Assertions.assertFalse(dataType.acceptsType(StringType.INSTANCE));

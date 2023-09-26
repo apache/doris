@@ -26,7 +26,6 @@ import org.apache.doris.common.util.Util;
 
 import com.alibaba.druid.pool.DruidDataSource;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import lombok.Data;
 import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
@@ -44,6 +43,8 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 @Getter
@@ -64,9 +65,12 @@ public abstract class JdbcClient {
     protected Map<String, Boolean> includeDatabaseMap;
     protected Map<String, Boolean> excludeDatabaseMap;
     // only used when isLowerCaseTableNames = true.
-    protected Map<String, String> lowerTableToRealTable = Maps.newHashMap();
+    protected final ConcurrentHashMap<String, String> lowerDBToRealDB = new ConcurrentHashMap<>();
     // only used when isLowerCaseTableNames = true.
-    protected Map<String, String> lowerDBToRealDB = Maps.newHashMap();
+    protected final ConcurrentHashMap<String, String> lowerTableToRealTable = new ConcurrentHashMap<>();
+
+    private final AtomicBoolean dbNamesLoaded = new AtomicBoolean(false);
+    private final AtomicBoolean tableNamesLoaded = new AtomicBoolean(false);
 
     public static JdbcClient createJdbcClient(JdbcClientConfig jdbcClientConfig) {
         String dbType = parseDbType(jdbcClientConfig.getJdbcUrl());
@@ -162,8 +166,9 @@ public abstract class JdbcClient {
         try {
             conn = dataSource.getConnection();
         } catch (Exception e) {
-            throw new JdbcClientException("Can not connect to jdbc due to error: %s, catalog name: %s", e.getMessage(),
-                this.catalog, e);
+            String errorMessage = String.format("Can not connect to jdbc due to error: %s, Catalog name: %s", e,
+                    this.getCatalog());
+            throw new JdbcClientException(errorMessage, e);
         }
         return conn;
     }
@@ -236,11 +241,7 @@ public abstract class JdbcClient {
         List<String> tablesName = Lists.newArrayList();
         String[] tableTypes = getTableTypes();
         if (isLowerCaseTableNames) {
-            currentDbName = lowerDBToRealDB.get(dbName);
-            if (currentDbName == null) {
-                getDatabaseNameList();
-                currentDbName = lowerDBToRealDB.get(dbName);
-            }
+            currentDbName = getRealDatabaseName(dbName);
         }
         String finalDbName = currentDbName;
         processTable(finalDbName, null, tableTypes, (rs) -> {
@@ -265,16 +266,8 @@ public abstract class JdbcClient {
         String currentTableName = tableName;
         final boolean[] isExist = {false};
         if (isLowerCaseTableNames) {
-            currentDbName = lowerDBToRealDB.get(dbName);
-            currentTableName = lowerTableToRealTable.get(tableName);
-            if (currentDbName == null) {
-                getDatabaseNameList();
-                currentDbName  = lowerDBToRealDB.get(dbName);
-            }
-            if (currentTableName == null) {
-                getTablesNameList(dbName);
-                currentTableName = lowerTableToRealTable.get(tableName);
-            }
+            currentDbName = getRealDatabaseName(dbName);
+            currentTableName = getRealTableName(dbName, tableName);
         }
         String[] tableTypes = getTableTypes();
         String finalTableName = currentTableName;
@@ -304,16 +297,8 @@ public abstract class JdbcClient {
         String currentDbName = dbName;
         String currentTableName = tableName;
         if (isLowerCaseTableNames) {
-            currentDbName = lowerDBToRealDB.get(dbName);
-            currentTableName = lowerTableToRealTable.get(tableName);
-            if (currentDbName == null) {
-                getDatabaseNameList();
-                currentDbName  = lowerDBToRealDB.get(dbName);
-            }
-            if (currentTableName == null) {
-                getTablesNameList(dbName);
-                currentTableName = lowerTableToRealTable.get(tableName);
-            }
+            currentDbName = getRealDatabaseName(dbName);
+            currentTableName = getRealTableName(dbName, tableName);
         }
         String finalDbName = currentDbName;
         String finalTableName = currentTableName;
@@ -364,6 +349,42 @@ public abstract class JdbcClient {
                     true, -1));
         }
         return dorisTableSchema;
+    }
+
+    public String getRealDatabaseName(String dbname) {
+        if (!isLowerCaseTableNames) {
+            return dbname;
+        }
+
+        if (lowerDBToRealDB.isEmpty() || !lowerDBToRealDB.containsKey(dbname)) {
+            loadDatabaseNamesIfNeeded();
+        }
+
+        return lowerDBToRealDB.get(dbname);
+    }
+
+    public String getRealTableName(String dbName, String tableName) {
+        if (!isLowerCaseTableNames) {
+            return tableName;
+        }
+
+        if (lowerTableToRealTable.isEmpty() || !lowerTableToRealTable.containsKey(tableName)) {
+            loadTableNamesIfNeeded(dbName);
+        }
+
+        return lowerTableToRealTable.get(tableName);
+    }
+
+    private void loadDatabaseNamesIfNeeded() {
+        if (dbNamesLoaded.compareAndSet(false, true)) {
+            getDatabaseNameList();
+        }
+    }
+
+    private void loadTableNamesIfNeeded(String dbName) {
+        if (tableNamesLoaded.compareAndSet(false, true)) {
+            getTablesNameList(dbName);
+        }
     }
 
     // protected methods,for subclass to override

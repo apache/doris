@@ -64,6 +64,7 @@ enum CompressionTypePB : int;
 namespace pipeline {
 class ExchangeSinkOperator;
 class ExchangeSinkOperatorX;
+class ChannelDependency;
 } // namespace pipeline
 
 namespace vectorized {
@@ -117,7 +118,6 @@ public:
     Status send(RuntimeState* state, Block* block, bool eos = false) override;
     Status try_close(RuntimeState* state, Status exec_status) override;
     Status close(RuntimeState* state, Status exec_status) override;
-    RuntimeProfile* profile() override { return _profile; }
 
     RuntimeState* state() { return _state; }
 
@@ -192,7 +192,6 @@ protected:
     std::vector<Channel<VDataStreamSender>*> _channels;
     std::vector<std::shared_ptr<Channel<VDataStreamSender>>> _channel_shared_ptrs;
 
-    RuntimeProfile* _profile; // Allocated from _pool
     RuntimeProfile::Counter* _serialize_batch_timer;
     RuntimeProfile::Counter* _compress_timer;
     RuntimeProfile::Counter* _brpc_send_timer;
@@ -276,7 +275,8 @@ public:
     // if batch is nullptr, send the eof packet
     virtual Status send_block(PBlock* block, bool eos = false);
 
-    virtual Status send_block(BroadcastPBlockHolder* block, bool eos = false) {
+    virtual Status send_block(BroadcastPBlockHolder* block, [[maybe_unused]] bool* sent,
+                              bool eos = false) {
         return Status::InternalError("Send BroadcastPBlockHolder is not allowed!");
     }
 
@@ -306,6 +306,11 @@ public:
     }
 
     bool is_local() const { return _is_local; }
+
+    VDataStreamRecvr* local_recvr() {
+        DCHECK(_is_local && _local_recvr != nullptr);
+        return _local_recvr.get();
+    }
 
     virtual void ch_roll_pb_block();
 
@@ -489,7 +494,8 @@ public:
         return Status::OK();
     }
 
-    Status send_block(BroadcastPBlockHolder* block, bool eos = false) override {
+    Status send_block(BroadcastPBlockHolder* block, [[maybe_unused]] bool* sent,
+                      bool eos = false) override {
         COUNTER_UPDATE(Channel<Parent>::_parent->blocks_sent_counter(), 1);
         if (eos) {
             if (_eos_send) {
@@ -499,7 +505,7 @@ public:
             }
         }
         if (eos || block->get_block()->column_metas_size()) {
-            RETURN_IF_ERROR(_buffer->add_block({this, block, eos}));
+            RETURN_IF_ERROR(_buffer->add_block({this, block, eos}, sent));
         }
         return Status::OK();
     }
@@ -544,6 +550,10 @@ public:
         }
         _closure->init(id, eos, data);
         return _closure.get();
+    }
+
+    void set_dependency(std::shared_ptr<pipeline::ChannelDependency> dependency) {
+        Channel<Parent>::_local_recvr->set_dependency(dependency);
     }
 
 private:

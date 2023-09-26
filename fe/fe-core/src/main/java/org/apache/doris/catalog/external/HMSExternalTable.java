@@ -57,6 +57,7 @@ import org.apache.iceberg.Table;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.time.LocalDate;
@@ -153,7 +154,7 @@ public class HMSExternalTable extends ExternalTable {
                 }
             }
             objectCreated = true;
-            estimatedRowCount = getRowCountFromExternalSource();
+            estimatedRowCount = getRowCountFromExternalSource(true);
         }
     }
 
@@ -277,7 +278,7 @@ public class HMSExternalTable extends ExternalTable {
     @Override
     public long getRowCount() {
         makeSureInitialized();
-        long rowCount = getRowCountFromExternalSource();
+        long rowCount = getRowCountFromExternalSource(false);
         if (rowCount == -1) {
             LOG.debug("Will estimate row count from file list.");
             rowCount = StatisticsUtil.getRowCountFromFileList(this);
@@ -285,11 +286,11 @@ public class HMSExternalTable extends ExternalTable {
         return rowCount;
     }
 
-    private long getRowCountFromExternalSource() {
+    private long getRowCountFromExternalSource(boolean isInit) {
         long rowCount;
         switch (dlaType) {
             case HIVE:
-                rowCount = StatisticsUtil.getHiveRowCount(this);
+                rowCount = StatisticsUtil.getHiveRowCount(this, isInit);
                 break;
             case ICEBERG:
                 rowCount = StatisticsUtil.getIcebergRowCount(this);
@@ -627,6 +628,12 @@ public class HMSExternalTable extends ExternalTable {
         } else {
             builder.setMaxValue(Double.MAX_VALUE);
         }
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        super.gsonPostProcess();
+        estimatedRowCount = -1;
     }
 }
 

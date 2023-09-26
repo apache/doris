@@ -98,6 +98,16 @@ std::string TabletReader::KeysParam::to_string() const {
     return ss.str();
 }
 
+void TabletReader::ReadSource::fill_delete_predicates() {
+    DCHECK_EQ(delete_predicates.size(), 0);
+    for (auto&& split : rs_splits) {
+        auto& rs_meta = split.rs_reader->rowset()->rowset_meta();
+        if (rs_meta->has_delete_predicate()) {
+            delete_predicates.push_back(rs_meta);
+        }
+    }
+}
+
 TabletReader::~TabletReader() {
     VLOG_NOTICE << "merged rows:" << _merged_rows;
     _delete_handler.finalize();
@@ -501,7 +511,8 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
 
     // Function filter push down to storage engine
     auto is_like_predicate = [](ColumnPredicate* _pred) {
-        if (dynamic_cast<LikeColumnPredicate*>(_pred)) {
+        if (dynamic_cast<LikeColumnPredicate<TYPE_CHAR>*>(_pred) != nullptr ||
+            dynamic_cast<LikeColumnPredicate<TYPE_STRING>*>(_pred) != nullptr) {
             return true;
         }
 
@@ -594,10 +605,10 @@ ColumnPredicate* TabletReader::_parse_to_predicate(const FunctionFilter& functio
     if (index < 0) {
         return nullptr;
     }
-
-    // currently only support like predicate
-    return new LikeColumnPredicate(function_filter._opposite, index, function_filter._fn_ctx,
-                                   function_filter._string_param);
+    const TabletColumn& column = _tablet_schema->column(index);
+    return create_column_predicate(index, std::make_shared<FunctionFilter>(function_filter),
+                                   column.type(), _reader_context.runtime_state->be_exec_version(),
+                                   &column);
 }
 
 Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
@@ -615,9 +626,17 @@ Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
                       ((read_params.reader_type == ReaderType::READER_CUMULATIVE_COMPACTION &&
                         config::enable_delete_when_cumu_compaction)) ||
                       read_params.reader_type == ReaderType::READER_CHECKSUM);
-
+    if (_filter_delete) {
+        // note(tsy): for compaction, keep delete sub pred v1 temporarily
+        return _delete_handler.init(_tablet_schema, read_params.delete_predicates,
+                                    read_params.version.second, false);
+    }
+    auto* runtime_state = read_params.runtime_state;
+    // note(tsy): for query, use session var to enable delete sub pred v2, for schema change, use v2 directly
+    bool enable_sub_pred_v2 =
+            runtime_state == nullptr ? true : runtime_state->enable_delete_sub_pred_v2();
     return _delete_handler.init(_tablet_schema, read_params.delete_predicates,
-                                read_params.version.second);
+                                read_params.version.second, enable_sub_pred_v2);
 }
 
 Status TabletReader::init_reader_params_and_create_block(
@@ -629,11 +648,14 @@ Status TabletReader::init_reader_params_and_create_block(
     reader_params->version =
             Version(input_rowsets.front()->start_version(), input_rowsets.back()->end_version());
 
+    ReadSource read_source;
     for (auto& rowset : input_rowsets) {
         RowsetReaderSharedPtr rs_reader;
         RETURN_IF_ERROR(rowset->create_reader(&rs_reader));
-        reader_params->rs_splits.push_back(RowSetSplits(std::move(rs_reader)));
+        read_source.rs_splits.push_back(RowSetSplits(std::move(rs_reader)));
     }
+    read_source.fill_delete_predicates();
+    reader_params->set_read_source(std::move(read_source));
 
     std::vector<RowsetMetaSharedPtr> rowset_metas(input_rowsets.size());
     std::transform(input_rowsets.begin(), input_rowsets.end(), rowset_metas.begin(),
@@ -643,14 +665,9 @@ Status TabletReader::init_reader_params_and_create_block(
     TabletSchemaSPtr merge_tablet_schema = std::make_shared<TabletSchema>();
     merge_tablet_schema->copy_from(*read_tablet_schema);
 
-    auto& delete_preds = tablet->delete_predicates();
-    std::copy(delete_preds.cbegin(), delete_preds.cend(),
-              std::inserter(reader_params->delete_predicates,
-                            reader_params->delete_predicates.begin()));
-
     // Merge the columns in delete predicate that not in latest schema in to current tablet schema
-    for (auto& del_pred_pb : reader_params->delete_predicates) {
-        merge_tablet_schema->merge_dropped_columns(tablet->tablet_schema(del_pred_pb->version()));
+    for (auto& del_pred : reader_params->delete_predicates) {
+        merge_tablet_schema->merge_dropped_columns(*del_pred->tablet_schema());
     }
     reader_params->tablet_schema = merge_tablet_schema;
     if (tablet->enable_unique_key_merge_on_write()) {

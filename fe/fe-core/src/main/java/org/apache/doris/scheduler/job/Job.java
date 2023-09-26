@@ -18,6 +18,7 @@
 package org.apache.doris.scheduler.job;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
@@ -86,6 +87,8 @@ public class Job implements Writable {
      */
     @SerializedName("executor")
     private JobExecutor executor;
+    @SerializedName("baseName")
+    private String baseName;
 
     @SerializedName("user")
     private String user;
@@ -123,11 +126,22 @@ public class Job implements Writable {
     @SerializedName("nextExecuteTimeMs")
     private Long nextExecuteTimeMs = 0L;
 
+    @SerializedName("createTimeMs")
+    private Long createTimeMs = System.currentTimeMillis();
+
     @SerializedName("comment")
     private String comment;
 
     @SerializedName("errMsg")
     private String errMsg;
+
+    /**
+     * if we want to start the job immediately, we can set this flag to true.
+     * The default value is false.
+     * when we set this flag to true, the start time will be set to current time.
+     * we don't need to serialize this field.
+     */
+    private boolean immediatelyStart = false;
 
     public boolean isRunning() {
         return jobStatus == JobStatus.RUNNING;
@@ -187,21 +201,31 @@ public class Job implements Writable {
         this.jobStatus = JobStatus.STOPPED;
     }
 
-    public boolean checkJobParam() {
+    public void checkJobParam() throws DdlException {
         if (startTimeMs != 0L && startTimeMs < System.currentTimeMillis()) {
-            return false;
+            throw new DdlException("startTimeMs must be greater than current time");
+        }
+        if (immediatelyStart && startTimeMs != 0L) {
+            throw new DdlException("immediately start and startTimeMs can't be set at the same time");
+        }
+        if (immediatelyStart) {
+            startTimeMs = System.currentTimeMillis();
         }
         if (endTimeMs != 0L && endTimeMs < System.currentTimeMillis()) {
-            return false;
+            throw new DdlException("endTimeMs must be greater than current time");
         }
-
+        if (null != intervalUnit && null != originInterval) {
+            this.intervalMs = intervalUnit.getParameterValue(originInterval);
+        }
         if (isCycleJob && (intervalMs == null || intervalMs <= 0L)) {
-            return false;
+            throw new DdlException("cycle job must set intervalMs");
         }
         if (null == jobCategory) {
-            return false;
+            throw new DdlException("jobCategory must be set");
         }
-        return null != executor;
+        if (null == executor) {
+            throw new DdlException("Job executor must be set");
+        }
     }
 
 
@@ -219,6 +243,9 @@ public class Job implements Writable {
         List<String> row = Lists.newArrayList();
         row.add(String.valueOf(jobId));
         row.add(dbName);
+        if (jobCategory.equals(JobCategory.MTMV)) {
+            row.add(baseName);
+        }
         row.add(jobName);
         row.add(user);
         row.add(timezone);
@@ -239,6 +266,7 @@ public class Job implements Writable {
         row.add(jobStatus.name());
         row.add(latestCompleteExecuteTimeMs <= 0L ? "null" : TimeUtils.longToTimeString(latestCompleteExecuteTimeMs));
         row.add(errMsg == null ? "null" : errMsg);
+        row.add(createTimeMs <= 0L ? "null" : TimeUtils.longToTimeString(createTimeMs));
         row.add(comment == null ? "null" : comment);
         return row;
     }

@@ -135,7 +135,7 @@ Dockerfile 脚本编写需要注意以下几点：
 
    可参考复制 [init_fe.sh](https://github.com/apache/doris/tree/master/docker/runtime/fe/resource/init_fe.sh) 的内容
 
-   编写后命名为 `init_fe.sh` 并保存至 `./docker-build/fe/resouce` 目录下
+   编写后命名为 `init_fe.sh` 并保存至 `./docker-build/fe/resource` 目录下
 
 5. 执行构建
 
@@ -199,7 +199,7 @@ mkdir -p ./docker-build/be/resource
 
    可参考复制 [init_be.sh](https://github.com/apache/doris/tree/master/docker/runtime/be/resource/init_be.sh) 的内容
 
-   编写后命名为 `init_be.sh` 并保存至 `./docker-build/be/resouce` 目录下
+   编写后命名为 `init_be.sh` 并保存至 `./docker-build/be/resource` 目录下
 
 5. 执行构建
 
@@ -269,7 +269,7 @@ mkdir -p ./docker-build/broker/resource
 
    可参考复制 [init_broker.sh](https://github.com/apache/doris/tree/master/docker/runtime/broker/resource/init_broker.sh) 的内容
 
-   编写后命名为 `init_broker.sh` 并保存至 `./docker-build/broker/resouce` 目录下
+   编写后命名为 `init_broker.sh` 并保存至 `./docker-build/broker/resource` 目录下
 
 5. 执行构建
 

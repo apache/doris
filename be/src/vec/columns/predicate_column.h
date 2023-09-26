@@ -43,11 +43,10 @@ class PredicateColumnType final : public COWHelper<IColumn, PredicateColumnType<
 private:
     PredicateColumnType() {}
     PredicateColumnType(const size_t n) : data(n) {}
+    PredicateColumnType(const PredicateColumnType& src) : data(src.data.begin(), src.data.end()) {}
     friend class COWHelper<IColumn, PredicateColumnType<Type>>;
     using T = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
     using ColumnType = typename PrimitiveTypeTraits<Type>::ColumnType;
-
-    PredicateColumnType(const PredicateColumnType& src) : data(src.data.begin(), src.data.end()) {}
 
     uint64_t get_date_at(uint16_t idx) {
         const T val = data[idx];
@@ -154,8 +153,16 @@ public:
 
     size_t size() const override { return data.size(); }
 
-    [[noreturn]] StringRef get_data_at(size_t n) const override {
-        LOG(FATAL) << "get_data_at not supported in PredicateColumnType";
+    StringRef get_data_at(size_t n) const override {
+        if constexpr (std::is_same_v<T, StringRef>) {
+            auto res = reinterpret_cast<const StringRef&>(data[n]);
+            if constexpr (Type == TYPE_CHAR) {
+                res.size = strnlen(res.data, res.size);
+            }
+            return res;
+        } else {
+            LOG(FATAL) << "should not call get_data_at in predicate column except for string type";
+        }
     }
 
     void insert_from(const IColumn& src, size_t n) override {

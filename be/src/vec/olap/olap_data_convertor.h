@@ -429,18 +429,30 @@ private:
         std::vector<const void*> _results;
     };
 
-    class OlapColumnDataConvertorArray
-            : public OlapColumnDataConvertorPaddedPODArray<CollectionValue> {
+    class OlapColumnDataConvertorArray : public OlapColumnDataConvertorBase {
     public:
         OlapColumnDataConvertorArray(OlapColumnDataConvertorBaseUPtr item_convertor)
-                : _item_convertor(std::move(item_convertor)) {}
+                : _item_convertor(std::move(item_convertor)) {
+            _base_offset = 0;
+            _results.resize(4); // size + offset + item_data + item_nullmap
+        }
 
+        const void* get_data() const override { return _results.data(); };
+        const void* get_data_at(size_t offset) const override {
+            LOG(FATAL) << "now not support get_data_at for OlapColumnDataConvertorArray";
+        };
         Status convert_to_olap() override;
 
     private:
-        Status convert_to_olap(const UInt8* null_map, const ColumnArray* column_array,
+        //        Status convert_to_olap(const UInt8* null_map, const ColumnArray* column_array,
+        //                               const DataTypeArray* data_type_array);
+        Status convert_to_olap(const ColumnArray* column_array,
                                const DataTypeArray* data_type_array);
         OlapColumnDataConvertorBaseUPtr _item_convertor;
+        UInt64 _base_offset;
+        PaddedPODArray<UInt64> _offsets; // array offsets in disk layout
+        // size + offsets_data + item_data + item_nullmap
+        std::vector<const void*> _results;
     };
 
     class OlapColumnDataConvertorMap : public OlapColumnDataConvertorBase {

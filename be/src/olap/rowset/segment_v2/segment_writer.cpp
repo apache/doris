@@ -419,11 +419,12 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         RowsetSharedPtr rowset;
         auto st = _tablet->lookup_row_key(key, have_input_seq_column, specified_rowsets, &loc,
                                           _mow_context->max_version, segment_caches, &rowset);
-        if (st.is<NOT_FOUND>()) {
+        if (st.is<KEY_NOT_FOUND>()) {
             if (_tablet_schema->is_strict_mode()) {
                 ++num_rows_filtered;
                 // delete the invalid newly inserted row
-                _mow_context->delete_bitmap->add({_opts.rowset_ctx->rowset_id, _segment_id, 0},
+                _mow_context->delete_bitmap->add({_opts.rowset_ctx->rowset_id, _segment_id,
+                                                  DeleteBitmap::TEMP_VERSION_COMMON},
                                                  segment_pos);
             }
 
@@ -436,7 +437,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
             use_default_or_null_flag.emplace_back(true);
             continue;
         }
-        if (!st.ok() && !st.is<ALREADY_EXIST>()) {
+        if (!st.ok() && !st.is<KEY_ALREADY_EXISTS>()) {
             LOG(WARNING) << "failed to lookup row key, error: " << st;
             return st;
         }
@@ -447,6 +448,13 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         if (delete_sign_column_data != nullptr && delete_sign_column_data[block_pos] != 0) {
             has_default_or_nullable = true;
             use_default_or_null_flag.emplace_back(true);
+            if (!_tablet_schema->has_sequence_col() && !have_input_seq_column) {
+                // we can directly use delete bitmap to mark the rows with delete sign as deleted
+                // if sequence column doesn't exist to eliminate reading delete sign columns in later reads
+                _mow_context->delete_bitmap->add({_opts.rowset_ctx->rowset_id, _segment_id,
+                                                  DeleteBitmap::TEMP_VERSION_FOR_DELETE_SIGN},
+                                                 segment_pos);
+            }
         } else {
             // partial update should not contain invisible columns
             use_default_or_null_flag.emplace_back(false);
@@ -454,13 +462,15 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
             _tablet->prepare_to_read(loc, segment_pos, &_rssid_to_rid);
         }
 
-        if (st.is<ALREADY_EXIST>()) {
+        if (st.is<KEY_ALREADY_EXISTS>()) {
             // although we need to mark delete current row, we still need to read missing columns
             // for this row, we need to ensure that each column is aligned
-            _mow_context->delete_bitmap->add({_opts.rowset_ctx->rowset_id, _segment_id, 0},
-                                             segment_pos);
+            _mow_context->delete_bitmap->add(
+                    {_opts.rowset_ctx->rowset_id, _segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
+                    segment_pos);
         } else {
-            _mow_context->delete_bitmap->add({loc.rowset_id, loc.segment_id, 0}, loc.row_id);
+            _mow_context->delete_bitmap->add(
+                    {loc.rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON}, loc.row_id);
         }
     }
     CHECK(use_default_or_null_flag.size() == num_rows);
@@ -575,7 +585,17 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
     // build default value columns
     auto default_value_block = old_value_block.clone_empty();
     auto mutable_default_value_columns = default_value_block.mutate_columns();
-    if (has_default_or_nullable) {
+
+    const vectorized::Int8* delete_sign_column_data = nullptr;
+    if (const vectorized::ColumnWithTypeAndName* delete_sign_column =
+                old_value_block.try_get_by_name(DELETE_SIGN);
+        delete_sign_column != nullptr && _tablet_schema->has_sequence_col()) {
+        auto& delete_sign_col =
+                reinterpret_cast<const vectorized::ColumnInt8&>(*(delete_sign_column->column));
+        delete_sign_column_data = delete_sign_col.get_data().data();
+    }
+
+    if (has_default_or_nullable || delete_sign_column_data != nullptr) {
         for (auto i = 0; i < cids_missing.size(); ++i) {
             const auto& column = _tablet_schema->column(cids_missing[i]);
             if (column.has_default_value()) {
@@ -590,7 +610,15 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
 
     // fill all missing value from mutable_old_columns, need to consider default value and null value
     for (auto idx = 0; idx < use_default_or_null_flag.size(); idx++) {
-        if (use_default_or_null_flag[idx]) {
+        // `use_default_or_null_flag[idx] == true` doesn't mean that we should read values from the old row
+        // for the missing columns. For example, if a table has sequence column, the rows with DELETE_SIGN column
+        // marked will not be marked in delete bitmap(see https://github.com/apache/doris/pull/24011), so it will
+        // be found in Tablet::lookup_row_key() and `use_default_or_null_flag[idx]` will be false. But we should not
+        // read values from old rows for missing values in this occasion. So we should read the DELETE_SIGN column
+        // to check if a row REALLY exists in the table.
+        if (use_default_or_null_flag[idx] ||
+            (delete_sign_column_data != nullptr &&
+             delete_sign_column_data[read_index[idx + segment_start_pos]] != 0)) {
             for (auto i = 0; i < cids_missing.size(); ++i) {
                 // if the column has default value, fiil it with default value
                 // otherwise, if the column is nullable, fill it with null value
@@ -636,6 +664,29 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
         (_opts.write_type == DataWriteType::TYPE_DIRECT ||
          _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE)) {
         _serialize_block_to_row_column(*const_cast<vectorized::Block*>(block));
+    }
+
+    if (_opts.write_type == DataWriteType::TYPE_DIRECT && _opts.enable_unique_key_merge_on_write &&
+        !_tablet_schema->has_sequence_col() && _tablet_schema->delete_sign_idx() != -1) {
+        const vectorized::ColumnWithTypeAndName& delete_sign_column =
+                block->get_by_position(_tablet_schema->delete_sign_idx());
+        auto& delete_sign_col =
+                reinterpret_cast<const vectorized::ColumnInt8&>(*(delete_sign_column.column));
+        if (delete_sign_col.size() >= row_pos + num_rows) {
+            const vectorized::Int8* delete_sign_column_data = delete_sign_col.get_data().data();
+            uint32_t segment_start_pos =
+                    _column_writers[_tablet_schema->delete_sign_idx()]->get_next_rowid();
+            for (size_t block_pos = row_pos, seg_pos = segment_start_pos;
+                 seg_pos < segment_start_pos + num_rows; block_pos++, seg_pos++) {
+                // we can directly use delete bitmap to mark the rows with delete sign as deleted
+                // if sequence column doesn't exist to eliminate reading delete sign columns in later reads
+                if (delete_sign_column_data[block_pos]) {
+                    _mow_context->delete_bitmap->add({_opts.rowset_ctx->rowset_id, _segment_id,
+                                                      DeleteBitmap::TEMP_VERSION_FOR_DELETE_SIGN},
+                                                     seg_pos);
+                }
+            }
+        }
     }
 
     _olap_data_convertor->set_source_content(block, row_pos, num_rows);
@@ -904,11 +955,9 @@ Status SegmentWriter::finalize_footer(uint64_t* segment_file_size) {
     // finish
     RETURN_IF_ERROR(_file_writer->finalize());
     *segment_file_size = _file_writer->bytes_appended();
-    return Status::OK();
-}
-
-Status SegmentWriter::finalize_footer() {
-    RETURN_IF_ERROR(_write_footer());
+    if (*segment_file_size == 0) {
+        return Status::Corruption("Bad segment, file size = 0");
+    }
     return Status::OK();
 }
 
@@ -917,17 +966,15 @@ Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size
     timer.start();
     // check disk capacity
     if (_data_dir != nullptr && _data_dir->reach_capacity_limit((int64_t)estimate_segment_size())) {
-        return Status::InternalError("disk {} exceed capacity limit.", _data_dir->path_hash());
+        return Status::Error<DISK_REACH_CAPACITY_LIMIT>("disk {} exceed capacity limit.",
+                                                        _data_dir->path_hash());
     }
     // write data
     RETURN_IF_ERROR(finalize_columns_data());
     // write index
     RETURN_IF_ERROR(finalize_columns_index(index_size));
     // write footer
-    RETURN_IF_ERROR(finalize_footer());
-    // finish
-    RETURN_IF_ERROR(_file_writer->finalize());
-    *segment_file_size = _file_writer->bytes_appended();
+    RETURN_IF_ERROR(finalize_footer(segment_file_size));
 
     if (timer.elapsed_time() > 5000000000l) {
         LOG(INFO) << "segment flush consumes a lot time_ns " << timer.elapsed_time()

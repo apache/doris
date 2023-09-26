@@ -96,6 +96,10 @@ DECLARE_Int32(be_port);
 // port for brpc
 DECLARE_Int32(brpc_port);
 
+// port for arrow flight sql
+// Default -1, do not start arrow flight sql server.
+DECLARE_Int32(arrow_flight_sql_port);
+
 // the number of bthreads for brpc, the default value is set to -1,
 // which means the number of bthreads is #cpu-cores
 DECLARE_Int32(brpc_num_threads);
@@ -164,14 +168,14 @@ DECLARE_mString(process_full_gc_size);
 // used memory and the exec_mem_limit will be canceled.
 // If false, cancel query when the memory used exceeds exec_mem_limit, same as before.
 DECLARE_mBool(enable_query_memory_overcommit);
-
+//waibibabu
 // gc will release cache, cancel task, and task will wait for gc to release memory,
 // default gc strategy is conservative, if you want to exclude the interference of gc, let it be true
 DECLARE_mBool(disable_memory_gc);
 
-// malloc or new large memory larger than large_memory_check_bytes and Doris Allocator is not used,
+// malloc or new large memory larger than large_memory_check_bytes, default 2G,
 // will print a warning containing the stacktrace, but not prevent memory alloc.
-// large memory alloc looking forward to using Allocator.
+// If is -1, disable large memory check.
 DECLARE_mInt64(large_memory_check_bytes);
 
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
@@ -319,6 +323,7 @@ DECLARE_mInt32(tablet_lookup_cache_clean_interval);
 DECLARE_mInt32(disk_stat_monitor_interval);
 DECLARE_mInt32(unused_rowset_monitor_interval);
 DECLARE_String(storage_root_path);
+DECLARE_mString(broken_storage_path);
 
 // Config is used to check incompatible old format hdr_ format
 // whether doris uses strict way. When config is true, process will log fatal
@@ -332,6 +337,9 @@ DECLARE_mInt32(default_num_rows_per_column_file_block);
 DECLARE_mInt32(pending_data_expire_time_sec);
 // inc_rowset snapshot rs sweep time interval
 DECLARE_mInt32(tablet_rowset_stale_sweep_time_sec);
+// tablet stale rowset sweep by threshold size
+DECLARE_Bool(tablet_rowset_stale_sweep_by_size);
+DECLARE_mInt32(tablet_rowset_stale_sweep_threshold_size);
 // garbage sweep policy
 DECLARE_Int32(max_garbage_sweep_interval);
 DECLARE_Int32(min_garbage_sweep_interval);
@@ -344,6 +352,7 @@ DECLARE_mInt32(trash_file_expire_time_sec);
 // minimum file descriptor number
 // modify them upon necessity
 DECLARE_Int32(min_file_descriptor_number);
+DECLARE_mBool(disable_segment_cache);
 DECLARE_Int64(index_stream_cache_capacity);
 DECLARE_String(row_cache_mem_limit);
 
@@ -356,6 +365,7 @@ DECLARE_Int32(storage_page_cache_shard_size);
 // all storage page cache will be divided into data_page_cache and index_page_cache
 DECLARE_Int32(index_page_cache_percentage);
 // whether to disable page cache feature in storage
+// TODO delete it. Divided into Data page, Index page, pk index page
 DECLARE_Bool(disable_storage_page_cache);
 // whether to disable row cache feature in storage
 DECLARE_Bool(disable_storage_row_cache);
@@ -534,6 +544,8 @@ DECLARE_mInt32(stream_load_record_batch_size);
 DECLARE_Int32(stream_load_record_expire_time_secs);
 // time interval to clean expired stream load records
 DECLARE_mInt64(clean_stream_load_record_interval_secs);
+// The buffer size to store stream table function schema info
+DECLARE_Int64(stream_tvf_buffer_size);
 
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
 // You may need to lower the speed when the sink receiver bes are too busy.
@@ -778,7 +790,11 @@ DECLARE_mInt32(mem_tracker_consume_min_size_bytes);
 // In most cases, it does not need to be modified.
 DECLARE_mDouble(tablet_version_graph_orphan_vertex_ratio);
 
-// number of brpc stream per OlapTableSinkV2
+// share brpc streams when memtable_on_sink_node = true
+DECLARE_Bool(share_load_streams);
+// share delta writers when memtable_on_sink_node = true
+DECLARE_Bool(share_delta_writers);
+// number of brpc stream per OlapTableSinkV2 (per load if share_load_streams = true)
 DECLARE_Int32(num_streams_per_sink);
 // timeout for open stream sink rpc in ms
 DECLARE_Int64(open_stream_sink_timeout_ms);
@@ -892,6 +908,9 @@ DECLARE_mInt32(jsonb_type_length_soft_limit_bytes);
 // is greater than object_pool_buffer_size, release the object in the unused_object_pool.
 DECLARE_Int32(object_pool_buffer_size);
 
+// Threshold fo reading a small file into memory
+DECLARE_mInt32(in_memory_file_size);
+
 // ParquetReaderWrap prefetch buffer size
 DECLARE_Int32(parquet_reader_max_buffer_size);
 // Max size of parquet page header in bytes
@@ -919,16 +938,11 @@ DECLARE_mInt32(remove_unused_remote_files_interval_sec); // 6h
 DECLARE_mInt32(confirm_unused_remote_files_interval_sec);
 DECLARE_Int32(cold_data_compaction_thread_num);
 DECLARE_mInt32(cold_data_compaction_interval_sec);
-DECLARE_mInt64(generate_cache_cleaner_task_interval_sec); // 12 h
 DECLARE_Int32(concurrency_per_dir);
-DECLARE_mInt64(cooldown_lag_time_sec);     // 3h
-DECLARE_mInt64(max_sub_cache_file_size);   // 100MB
-DECLARE_mInt64(file_cache_alive_time_sec); // 1 week
 // file_cache_type is used to set the type of file cache for remote files.
 // "": no cache, "sub_file_cache": split sub files from remote file.
 // "whole_file_cache": the whole file.
 DECLARE_mString(file_cache_type);
-DECLARE_mInt64(file_cache_max_size_per_disk); // zero for no limit
 
 DECLARE_Int32(s3_transfer_executor_pool_size);
 
@@ -988,6 +1002,8 @@ DECLARE_Bool(enable_java_support);
 // Set config randomly to check more issues in github workflow
 DECLARE_Bool(enable_fuzzy_mode);
 
+DECLARE_Bool(enable_debug_points);
+
 DECLARE_Int32(pipeline_executor_size);
 DECLARE_Bool(enable_workload_group_for_scan);
 
@@ -1004,6 +1020,8 @@ DECLARE_Int64(file_cache_min_file_segment_size);
 DECLARE_Int64(file_cache_max_file_segment_size);
 DECLARE_Bool(clear_file_cache);
 DECLARE_Bool(enable_file_cache_query_limit);
+// only for debug, will be removed after finding out the root cause
+DECLARE_mInt32(file_cache_wait_sec_after_fail); // zero for no waiting and retrying
 
 // inverted index searcher cache
 // cache entry stay time after lookup
@@ -1061,6 +1079,9 @@ DECLARE_Bool(enable_shrink_memory);
 DECLARE_mInt32(schema_cache_capacity);
 DECLARE_mInt32(schema_cache_sweep_time_sec);
 
+// max number of segment cache
+DECLARE_mInt32(segment_cache_capacity);
+
 // enable binlog
 DECLARE_Bool(enable_feature_binlog);
 
@@ -1107,9 +1128,6 @@ DECLARE_mInt64(lookup_connection_cache_bytes_limit);
 // level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
 DECLARE_mInt64(LZ4_HC_compression_level);
 
-// enable window_funnel_function with different modes
-DECLARE_mBool(enable_window_funnel_function_v2);
-
 // whether to enable hdfs hedged read.
 // If set to true, it will be enabled even if user not enable it when creating catalog
 DECLARE_Bool(enable_hdfs_hedged_read);
@@ -1128,6 +1146,41 @@ DECLARE_mString(user_files_secure_path);
 // This threshold determines how many partitions will be allocated for window function get topn.
 // and if this threshold is exceeded, the remaining data will be pass through to other node directly.
 DECLARE_Int32(partition_topn_partition_threshold);
+
+// If fe's frontend info has not been updated for more than fe_expire_duration_seconds, it will be regarded
+// as an abnormal fe, this will cause be to cancel this fe's related query.
+DECLARE_Int32(fe_expire_duration_seconds);
+
+// If use stop_be.sh --grace, then BE has to wait all running queries to stop to avoiding running query failure
+// , but if the waiting time exceed the limit, then be will exit directly.
+// During this period, FE will not send any queries to BE and waiting for all running queries to stop.
+DECLARE_Int32(grace_shutdown_wait_seconds);
+
+// BitmapValue serialize version.
+DECLARE_Int16(bitmap_serialize_version);
+
+// group commit insert config
+DECLARE_String(group_commit_replay_wal_dir);
+DECLARE_Int32(group_commit_replay_wal_retry_num);
+DECLARE_Int32(group_commit_replay_wal_retry_interval_seconds);
+DECLARE_Int32(group_commit_sync_wal_batch);
+
+// This config can be set to limit thread number in group commit insert thread pool.
+DECLARE_mInt32(group_commit_insert_threads);
+
+// The configuration item is used to lower the priority of the scanner thread,
+// typically employed to ensure CPU scheduling for write operations.
+// Default is 0, which is default value of thread nice value, increase this value
+// to lower the priority of scan threads
+DECLARE_Int32(scan_thread_nice_value);
+// Used to modify the recycle interval of tablet schema cache
+DECLARE_mInt32(tablet_schema_cache_recycle_interval);
+
+// Use `LOG(FATAL)` to replace `throw` when true
+DECLARE_mBool(exit_on_exception);
+
+// cgroup
+DECLARE_String(doris_cgroup_cpu_path);
 
 #ifdef BE_TEST
 // test s3

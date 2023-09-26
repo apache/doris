@@ -46,9 +46,11 @@ public:
 
     Status append_block(vectorized::Block& block) override;
 
-    Status close() override { return JdbcConnector::close(); }
+    Status close(Status s) override { return JdbcConnector::close(s); }
 
     bool in_transaction() override { return TableConnector::_is_in_transaction; }
+
+    Status commit_trans() override { return JdbcConnector::finish_trans(); }
 
 private:
     JdbcConnectorParam _param;

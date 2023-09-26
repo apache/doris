@@ -348,6 +348,7 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
+
     void testParseExprDepthWidth() {
         String sql = "SELECT 1+2 = 3 from t";
         NereidsParser nereidsParser = new NereidsParser();
@@ -356,5 +357,12 @@ public class NereidsParserTest extends ParserTestBase {
         // alias (1 + 2 = 3)
         Assertions.assertEquals(4, logicalPlan.getExpressions().get(0).getDepth());
         Assertions.assertEquals(3, logicalPlan.getExpressions().get(0).getWidth());
+    }
+
+    @Test
+    public void testParseCollate() {
+        String sql = "SELECT * FROM t1 WHERE col COLLATE utf8 = 'test'";
+        NereidsParser nereidsParser = new NereidsParser();
+        nereidsParser.parseSingle(sql);
     }
 }

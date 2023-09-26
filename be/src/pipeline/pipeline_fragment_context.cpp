@@ -117,7 +117,7 @@ PipelineFragmentContext::PipelineFragmentContext(
         const TUniqueId& query_id, const TUniqueId& instance_id, const int fragment_id,
         int backend_num, std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
         const std::function<void(RuntimeState*, Status*)>& call_back,
-        const report_status_callback& report_status_cb)
+        const report_status_callback& report_status_cb, bool group_commit)
         : _query_id(query_id),
           _fragment_instance_id(instance_id),
           _fragment_id(fragment_id),
@@ -127,7 +127,8 @@ PipelineFragmentContext::PipelineFragmentContext(
           _call_back(call_back),
           _report_thread_active(false),
           _report_status_cb(report_status_cb),
-          _is_report_on_cancel(true) {
+          _is_report_on_cancel(true),
+          _group_commit(group_commit) {
     if (_query_ctx->get_task_group()) {
         _task_group_entity = _query_ctx->get_task_group()->task_entity();
     }
@@ -151,7 +152,10 @@ PipelineFragmentContext::~PipelineFragmentContext() {
 void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
                                      const std::string& msg) {
     if (_query_ctx->cancel(true, msg, Status::Cancelled(msg))) {
-        LOG(WARNING) << "PipelineFragmentContext Canceled. reason=" << msg;
+        LOG(WARNING) << "PipelineFragmentContext "
+                     << PrintInstanceStandardInfo(_query_id, _fragment_id, _fragment_instance_id)
+                     << " is canceled, cancel message: " << msg;
+
         // Get pipe from new load stream manager and send cancel to it or the fragment may hang to wait read from pipe
         // For stream load the fragment's query_id == load id, it is set in FE.
         auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(_query_id);
@@ -194,8 +198,8 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     }
 
     LOG_INFO("PipelineFragmentContext::prepare")
-            .tag("query_id", _query_id)
-            .tag("instance_id", local_params.fragment_instance_id)
+            .tag("query_id", print_id(_query_id))
+            .tag("instance_id", print_id(local_params.fragment_instance_id))
             .tag("backend_num", local_params.backend_num)
             .tag("pthread_id", (uintptr_t)pthread_self());
 
@@ -208,7 +212,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     _runtime_state->set_tracer(std::move(tracer));
 
     // TODO should be combine with plan_fragment_executor.prepare funciton
-    SCOPED_ATTACH_TASK(get_runtime_state());
+    SCOPED_ATTACH_TASK(_runtime_state.get());
     _runtime_state->runtime_filter_mgr()->init();
     _runtime_state->set_be_number(local_params.backend_num);
 
@@ -320,11 +324,9 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
         // TODO pipeline 1 need to add new interface for exec node and operator
         sink->init(request.fragment.output_sink);
 
-        Operators operators;
-        RETURN_IF_ERROR(pipeline->build_operators(operators));
-        auto task =
-                std::make_unique<PipelineTask>(pipeline, _total_tasks++, _runtime_state.get(),
-                                               operators, sink, this, pipeline->pipeline_profile());
+        RETURN_IF_ERROR(pipeline->build_operators());
+        auto task = std::make_unique<PipelineTask>(pipeline, _total_tasks++, _runtime_state.get(),
+                                                   sink, this, pipeline->pipeline_profile());
         sink->set_child(task->get_root());
         _tasks.emplace_back(std::move(task));
         _runtime_profile->add_child(pipeline->pipeline_profile(), true, nullptr);
@@ -420,6 +422,7 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
     case TPlanNodeType::ODBC_SCAN_NODE:
     case TPlanNodeType::FILE_SCAN_NODE:
     case TPlanNodeType::META_SCAN_NODE:
+    case TPlanNodeType::GROUP_COMMIT_SCAN_NODE:
     case TPlanNodeType::ES_HTTP_SCAN_NODE:
     case TPlanNodeType::ES_SCAN_NODE: {
         OperatorBuilderPtr operator_t = std::make_shared<ScanOperatorBuilder>(node->id(), node);
@@ -712,7 +715,7 @@ void PipelineFragmentContext::close_if_prepare_failed() {
     }
     for (auto& task : _tasks) {
         DCHECK(!task->is_pending_finish());
-        WARN_IF_ERROR(task->close(), "close_if_prepare_failed failed: ");
+        WARN_IF_ERROR(task->close(Status::OK()), "close_if_prepare_failed failed: ");
         close_a_pipeline();
     }
 }
@@ -732,6 +735,7 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
                                                             _sink.get());
         break;
     }
+    case TDataSinkType::GROUP_COMMIT_OLAP_TABLE_SINK:
     case TDataSinkType::OLAP_TABLE_SINK: {
         if (state->query_options().enable_memtable_on_sink_node) {
             sink_ = std::make_shared<OlapTableSinkV2OperatorBuilder>(next_operator_builder_id(),
@@ -846,10 +850,18 @@ void PipelineFragmentContext::send_report(bool done) {
     }
 
     _report_status_cb(
-            {exec_status, _is_report_success ? _runtime_state->runtime_profile() : nullptr,
-             _is_report_success ? _runtime_state->load_channel_profile() : nullptr,
-             done || !exec_status.ok(), _query_ctx->coord_addr, _query_id, _fragment_id,
-             _fragment_instance_id, _backend_num, _runtime_state.get(),
+            {false,
+             exec_status,
+             {},
+             _runtime_state->enable_profile() ? _runtime_state->runtime_profile() : nullptr,
+             _runtime_state->enable_profile() ? _runtime_state->load_channel_profile() : nullptr,
+             done || !exec_status.ok(),
+             _query_ctx->coord_addr,
+             _query_id,
+             _fragment_id,
+             _fragment_instance_id,
+             _backend_num,
+             _runtime_state.get(),
              std::bind(&PipelineFragmentContext::update_status, this, std::placeholders::_1),
              std::bind(&PipelineFragmentContext::cancel, this, std::placeholders::_1,
                        std::placeholders::_2)});

@@ -70,6 +70,7 @@ struct ResultFileOptions {
     std::string orc_schema;
 
     bool delete_existing_files = false;
+    std::string file_suffix;
 
     ResultFileOptions(const TResultFileSinkOptions& t_opt) {
         file_path = t_opt.file_path;
@@ -80,6 +81,7 @@ struct ResultFileOptions {
                 t_opt.__isset.max_file_size_bytes ? t_opt.max_file_size_bytes : max_file_size_bytes;
         delete_existing_files =
                 t_opt.__isset.delete_existing_files ? t_opt.delete_existing_files : false;
+        file_suffix = t_opt.file_suffix;
 
         is_local_file = true;
         if (t_opt.__isset.broker_addresses) {
@@ -126,16 +128,15 @@ public:
     VResultSink(const RowDescriptor& row_desc, const std::vector<TExpr>& select_exprs,
                 const TResultSink& sink, int buffer_size);
 
-    virtual ~VResultSink();
+    ~VResultSink() override;
 
-    virtual Status prepare(RuntimeState* state) override;
-    virtual Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
+    Status open(RuntimeState* state) override;
 
-    virtual Status send(RuntimeState* state, Block* block, bool eos = false) override;
+    Status send(RuntimeState* state, Block* block, bool eos = false) override;
     // Flush all buffered data and close all existing channels to destination
     // hosts. Further send() calls are illegal after calling close().
-    virtual Status close(RuntimeState* state, Status exec_status) override;
-    virtual RuntimeProfile* profile() override { return _profile; }
+    Status close(RuntimeState* state, Status exec_status) override;
 
     void set_query_statistics(std::shared_ptr<QueryStatistics> statistics) override;
 
@@ -152,8 +153,7 @@ private:
 
     std::shared_ptr<BufferControlBlock> _sender;
     std::shared_ptr<ResultWriter> _writer;
-    RuntimeProfile* _profile; // Allocated from _pool
-    int _buf_size;            // Allocated from _pool
+    int _buf_size; // Allocated from _pool
 
     // for fetch data by rowids
     TFetchOption _fetch_option;

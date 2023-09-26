@@ -49,6 +49,8 @@ public class FeConstants {
 
     // set to true to skip some step when running FE unit test
     public static boolean runningUnitTest = false;
+    // use to set some mocked values for FE unit test
+    public static Object unitTestConstant = null;
 
     // set to false to disable internal schema db
     public static boolean enableInternalSchemaDb = true;
@@ -67,13 +69,13 @@ public class FeConstants {
     public static String null_string = "\\N";
 
     public static long tablet_checker_interval_ms = 20 * 1000L;
-    public static long tablet_schedule_interval_ms = 100L;
+    public static long tablet_schedule_interval_ms = 1000L;
 
     public static String csv = "csv";
     public static String csv_with_names = "csv_with_names";
     public static String csv_with_names_and_types = "csv_with_names_and_types";
 
-    public static String text = "text";
+    public static String text = "hive_text";
 
     public static String FS_PREFIX_S3 = "s3";
     public static String FS_PREFIX_S3A = "s3a";
@@ -88,7 +90,10 @@ public class FeConstants {
     public static String FS_PREFIX_GFS = "gfs";
     public static String FS_PREFIX_JFS = "jfs";
     public static String FS_PREFIX_HDFS = "hdfs";
+    public static String FS_PREFIX_VIEWFS = "viewfs";
     public static String FS_PREFIX_FILE = "file";
     public static final String INTERNAL_DB_NAME = "__internal_schema";
     public static String TEMP_MATERIZLIZE_DVIEW_PREFIX = "internal_tmp_materialized_view_";
+
+    public static String METADATA_FAILURE_RECOVERY_KEY = "metadata_failure_recovery";
 }

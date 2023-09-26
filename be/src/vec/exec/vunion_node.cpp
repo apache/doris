@@ -61,8 +61,8 @@ Status VUnionNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
     DCHECK(tnode.__isset.union_node);
     // Create const_expr_ctx_lists_ from thrift exprs.
-    auto& const_texpr_lists = tnode.union_node.const_expr_lists;
-    for (auto& texprs : const_texpr_lists) {
+    const auto& const_texpr_lists = tnode.union_node.const_expr_lists;
+    for (const auto& texprs : const_texpr_lists) {
         VExprContextSPtrs ctxs;
         RETURN_IF_ERROR(VExpr::create_expr_trees(texprs, ctxs));
         _const_expr_lists.push_back(ctxs);
@@ -106,6 +106,12 @@ Status VUnionNode::open(RuntimeState* state) {
 
 Status VUnionNode::alloc_resource(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
+
+    std::unique_lock<std::mutex> l(_resource_lock);
+    if (_resource_allocated) {
+        return Status::OK();
+    }
+
     // open const expr lists.
     for (const auto& exprs : _const_expr_lists) {
         RETURN_IF_ERROR(VExpr::open(exprs, state));
@@ -114,7 +120,9 @@ Status VUnionNode::alloc_resource(RuntimeState* state) {
     for (const auto& exprs : _child_expr_lists) {
         RETURN_IF_ERROR(VExpr::open(exprs, state));
     }
-    return ExecNode::alloc_resource(state);
+    RETURN_IF_ERROR(ExecNode::alloc_resource(state));
+    _resource_allocated = true;
+    return Status::OK();
 }
 
 Status VUnionNode::get_next_pass_through(RuntimeState* state, Block* block) {
