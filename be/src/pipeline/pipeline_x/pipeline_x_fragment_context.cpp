@@ -827,7 +827,7 @@ Status PipelineXFragmentContext::send_report(bool done) {
         runtime_states[i] = _runtime_states[i].get();
     }
 
-    _report_status_cb(
+    return _report_status_cb(
             {true, exec_status, runtime_states, nullptr, nullptr, done || !exec_status.ok(),
              _query_ctx->coord_addr, _query_id, _fragment_id, TUniqueId(), _backend_num,
              _runtime_state.get(),

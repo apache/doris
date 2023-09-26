@@ -379,9 +379,9 @@ void PipelineFragmentContext::_init_next_report_time() {
 }
 
 void PipelineFragmentContext::refresh_next_report_time() {
-    auto disable = _disable_period_report.load(std::memory_order_acq_rel);
+    auto disable = _disable_period_report.load(std::memory_order_acquire);
     DCHECK(disable == true);
-    _previous_report_time = MonotonicNanos();
+    _previous_report_time.store(MonotonicNanos(), std::memory_order_release);
     _disable_period_report.compare_exchange_strong(disable, false);
 }
 
@@ -389,7 +389,7 @@ void PipelineFragmentContext::trigger_report_if_necessary() {
     if (!_is_report_success) {
         return;
     }
-    auto disable = _disable_period_report.load(std::memory_order_acq_rel);
+    auto disable = _disable_period_report.load(std::memory_order_acquire);
     if (disable) {
         return;
     }
@@ -399,7 +399,7 @@ void PipelineFragmentContext::trigger_report_if_necessary() {
                 << "config::status_report_interval is equal to or less than zero, do not trigger "
                    "report.";
     }
-    uint64_t next_report_time = _previous_report_time.load(std::memory_order_acq_rel) +
+    uint64_t next_report_time = _previous_report_time.load(std::memory_order_acquire) +
                                 (uint64_t)(interval_s)*NANOS_PER_SEC;
     if (MonotonicNanos() > next_report_time) {
         if (!_disable_period_report.compare_exchange_strong(disable, true,
