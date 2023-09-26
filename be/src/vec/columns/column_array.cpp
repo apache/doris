@@ -277,25 +277,64 @@ void ColumnArray::update_hashes_with_value(std::vector<SipHash>& hashes,
 }
 
 // for every array row calculate xxHash
-void ColumnArray::update_xxHash_with_value(size_t n, uint64_t& hash) const {
-    size_t elem_size = size_at(n);
-    size_t offset = offset_at(n);
-    hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&elem_size), sizeof(elem_size),
-                                      hash);
-    for (auto i = 0; i < elem_size; ++i) {
-        get_data().update_xxHash_with_value(offset + i, hash);
+void ColumnArray::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                           const uint8_t* __restrict null_data) const {
+    auto& offsets_column = get_offsets();
+    if (null_data) {
+        for (size_t i = start; i < end; ++i) {
+            if (null_data[i] == 0) {
+                size_t elem_size = offsets_column[i] - offsets_column[i - 1];
+                if (elem_size == 0) {
+                    hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&elem_size),
+                                                      sizeof(elem_size), hash);
+                } else {
+                    get_data().update_crc_with_value(offsets_column[i - 1], offsets_column[i], hash,
+                                                     nullptr);
+                }
+            }
+        }
+    } else {
+        for (size_t i = start; i < end; ++i) {
+            size_t elem_size = offsets_column[i] - offsets_column[i - 1];
+            if (elem_size == 0) {
+                hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&elem_size),
+                                                  sizeof(elem_size), hash);
+            } else {
+                get_data().update_crc_with_value(offsets_column[i - 1], offsets_column[i], hash,
+                                                 nullptr);
+            }
+        }
     }
 }
 
 // for every array row calculate crcHash
-void ColumnArray::update_crc_with_value(size_t n, uint64_t& crc) const {
-    size_t elem_size = size_at(n);
-    size_t offset = offset_at(n);
-
-    crc = HashUtil::zlib_crc_hash(reinterpret_cast<const char*>(&elem_size), sizeof(elem_size),
-                                  crc);
-    for (auto i = 0; i < elem_size; ++i) {
-        get_data().update_crc_with_value(offset + i, crc);
+void ColumnArray::update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+                                        const uint8_t* __restrict null_data) const {
+    auto& offsets_column = get_offsets();
+    if (null_data) {
+        for (size_t i = start; i < end; ++i) {
+            if (null_data[i] == 0) {
+                size_t elem_size = offsets_column[i] - offsets_column[i - 1];
+                if (elem_size == 0) {
+                    hash = HashUtil::zlib_crc_hash(reinterpret_cast<const char*>(&elem_size),
+                                                   sizeof(elem_size), hash);
+                } else {
+                    get_data().update_crc_with_value(offsets_column[i - 1], offsets_column[i], hash,
+                                                     nullptr);
+                }
+            }
+        }
+    } else {
+        for (size_t i = start; i < end; ++i) {
+            size_t elem_size = offsets_column[i] - offsets_column[i - 1];
+            if (elem_size == 0) {
+                hash = HashUtil::zlib_crc_hash(reinterpret_cast<const char*>(&elem_size),
+                                               sizeof(elem_size), hash);
+            } else {
+                get_data().update_crc_with_value(offsets_column[i - 1], offsets_column[i], hash,
+                                                 nullptr);
+            }
+        }
     }
 }
 
@@ -305,12 +344,12 @@ void ColumnArray::update_hashes_with_value(uint64_t* __restrict hashes,
     if (null_data) {
         for (size_t i = 0; i < s; ++i) {
             if (null_data[i] == 0) {
-                update_xxHash_with_value(i, hashes[i]);
+                update_xxHash_with_value(i, i + 1, hashes[i], nullptr);
             }
         }
     } else {
         for (size_t i = 0; i < s; ++i) {
-            update_xxHash_with_value(i, hashes[i]);
+            update_xxHash_with_value(i, i + 1, hashes[i], nullptr);
         }
     }
 }
@@ -324,12 +363,12 @@ void ColumnArray::update_crcs_with_value(std::vector<uint64_t>& hash, PrimitiveT
         for (size_t i = 0; i < s; ++i) {
             // every row
             if (null_data[i] == 0) {
-                update_crc_with_value(i, hash[i]);
+                update_crc_with_value(i, i + 1, hash[i], nullptr);
             }
         }
     } else {
         for (size_t i = 0; i < s; ++i) {
-            update_crc_with_value(i, hash[i]);
+            update_crc_with_value(i, i + 1, hash[i], nullptr);
         }
     }
 }
@@ -342,6 +381,7 @@ void ColumnArray::insert(const Field& x) {
 }
 
 void ColumnArray::insert_from(const IColumn& src_, size_t n) {
+    DCHECK(n < src_.size());
     const ColumnArray& src = assert_cast<const ColumnArray&>(src_);
     size_t size = src.size_at(n);
     size_t offset = src.offset_at(n);
@@ -779,7 +819,7 @@ Status ColumnArray::filter_by_selector(const uint16_t* sel, size_t sel_size, ICo
         max_offset = std::max(max_offset, offset_at(sel[i]));
     }
     if (max_offset > std::numeric_limits<uint16_t>::max()) {
-        return Status::IOError("array elements too large than uint16_t::max");
+        return Status::Corruption("array elements too large than uint16_t::max");
     }
 
     to_offsets.reserve(to_offsets.size() + sel_size);
@@ -825,32 +865,29 @@ ColumnPtr ColumnArray::replicate(const IColumn::Offsets& replicate_offsets) cons
     return replicate_generic(replicate_offsets);
 }
 
-void ColumnArray::replicate(const uint32_t* counts, size_t target_size, IColumn& column,
-                            size_t begin, int count_sz) const {
-    size_t col_size = count_sz < 0 ? size() : count_sz;
-    if (col_size == 0) {
+void ColumnArray::replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const {
+    if (target_size == 0) {
         return;
     }
+    auto total_size = get_offsets().size();
     // |---------------------|-------------------------|-------------------------|
     // [0, begin)             [begin, begin + count_sz)  [begin + count_sz, size())
     //  do not need to copy    copy counts[n] times       do not need to copy
-    IColumn::Offsets replicate_offsets(get_offsets().size(), 0);
-    size_t cur_offset = 0;
-    size_t end = begin + col_size;
+    IColumn::Offsets replicate_offsets(total_size, 0);
     // copy original data at offset n counts[n] times
-    for (size_t i = begin; i < end; ++i) {
-        cur_offset += counts[i];
-        replicate_offsets[i] = cur_offset;
-    }
-    // ignored
-    for (size_t i = end; i < size(); ++i) {
-        replicate_offsets[i] = replicate_offsets[i - 1];
+    auto begin = 0, end = 0;
+    while (begin < target_size) {
+        while (end < target_size && indexs[begin] == indexs[end]) {
+            end++;
+        }
+        long index = indexs[begin];
+        replicate_offsets[index] = end - begin;
+        begin = end;
     }
 
-    if (cur_offset != target_size) {
-        LOG(WARNING) << "ColumnArray replicate input target_size:" << target_size
-                     << " not equal SUM(counts):" << cur_offset;
-        return;
+    // ignored
+    for (size_t i = 1; i < total_size; ++i) {
+        replicate_offsets[i] += replicate_offsets[i - 1];
     }
 
     auto rep_res = replicate(replicate_offsets);

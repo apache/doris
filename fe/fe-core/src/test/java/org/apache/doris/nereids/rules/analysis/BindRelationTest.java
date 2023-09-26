@@ -27,11 +27,11 @@ import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.pattern.GeneratedPlanPatterns;
 import org.apache.doris.nereids.rules.RulePromise;
 import org.apache.doris.nereids.rules.analysis.BindRelation.CustomTableResolver;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanRewriter;
-import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
@@ -59,7 +59,7 @@ class BindRelationTest extends TestWithFeService implements GeneratedPlanPattern
     @Test
     void bindInCurrentDb() {
         connectContext.setDatabase(DEFAULT_CLUSTER_PREFIX + DB1);
-        Plan plan = PlanRewriter.bottomUpRewrite(new UnboundRelation(RelationUtil.newRelationId(), ImmutableList.of("t")),
+        Plan plan = PlanRewriter.bottomUpRewrite(new UnboundRelation(StatementScopeIdGenerator.newRelationId(), ImmutableList.of("t")),
                 connectContext, new BindRelation());
 
         Assertions.assertTrue(plan instanceof LogicalOlapScan);
@@ -71,7 +71,7 @@ class BindRelationTest extends TestWithFeService implements GeneratedPlanPattern
     @Test
     void bindByDbQualifier() {
         connectContext.setDatabase(DEFAULT_CLUSTER_PREFIX + DB2);
-        Plan plan = PlanRewriter.bottomUpRewrite(new UnboundRelation(RelationUtil.newRelationId(), ImmutableList.of("db1", "t")),
+        Plan plan = PlanRewriter.bottomUpRewrite(new UnboundRelation(StatementScopeIdGenerator.newRelationId(), ImmutableList.of("db1", "t")),
                 connectContext, new BindRelation());
 
         Assertions.assertTrue(plan instanceof LogicalOlapScan);
@@ -93,7 +93,7 @@ class BindRelationTest extends TestWithFeService implements GeneratedPlanPattern
         OlapTable externalOlapTable = new OlapTable(1, tableName, externalTableColumns, KeysType.DUP_KEYS,
                 new PartitionInfo(), new RandomDistributionInfo(10)) {
             @Override
-            public List<Column> getBaseSchema() {
+            public List<Column> getBaseSchema(boolean full) {
                 return externalTableColumns;
             }
 
@@ -115,7 +115,7 @@ class BindRelationTest extends TestWithFeService implements GeneratedPlanPattern
                 .parse("select * from " + tableName + " as et join db1.t on et.id = t.a")
                 .customAnalyzer(Optional.of(customTableResolver)) // analyze internal relation
                 .rewrite()
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         logicalJoin(
                             logicalOlapScan().when(r -> r.getTable() == externalOlapTable),

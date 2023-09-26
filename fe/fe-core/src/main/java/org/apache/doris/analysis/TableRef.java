@@ -21,7 +21,9 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HudiUtils;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -247,13 +249,6 @@ public class TableRef implements ParseNode, Writable {
             output.append("[").append(Joiner.on(", ").join(joinHints)).append("] ");
         }
         output.append(tableRefToSql()).append(" ");
-        if (partitionNames != null) {
-            StringJoiner sj = new StringJoiner(",", "", " ");
-            for (String partName : partitionNames.getPartitionNames()) {
-                sj.add(partName);
-            }
-            output.append(sj.toString());
-        }
         if (usingColNames != null) {
             output.append("USING (").append(Joiner.on(", ").join(usingColNames)).append(")");
         } else if (onClause != null) {
@@ -320,6 +315,10 @@ public class TableRef implements ParseNode, Writable {
 
     public List<Long> getSampleTabletIds() {
         return sampleTabletIds;
+    }
+
+    public ArrayList<String> getCommonHints() {
+        return commonHints;
     }
 
     public TableSample getTableSample() {
@@ -471,9 +470,16 @@ public class TableRef implements ParseNode, Writable {
     }
 
     protected void analyzeSample() throws AnalysisException {
-        if ((sampleTabletIds != null || tableSample != null) && desc.getTable().getType() != TableIf.TableType.OLAP) {
+        if ((sampleTabletIds != null || tableSample != null)
+                && desc.getTable().getType() != TableIf.TableType.OLAP
+                && desc.getTable().getType() != TableIf.TableType.HMS_EXTERNAL_TABLE) {
             throw new AnalysisException("Sample table " + desc.getTable().getName()
-                + " type " + desc.getTable().getType() + " is not OLAP");
+                + " type " + desc.getTable().getType() + " is not supported");
+        }
+        if (tableSample != null && TableIf.TableType.HMS_EXTERNAL_TABLE.equals(desc.getTable().getType())) {
+            if (!tableSample.isPercent()) {
+                throw new AnalysisException("HMS table doesn't support sample rows, use percent instead.");
+            }
         }
     }
 
@@ -532,19 +538,41 @@ public class TableRef implements ParseNode, Writable {
             return;
         }
         TableIf.TableType tableType = this.getTable().getType();
-        if (tableType != TableIf.TableType.HMS_EXTERNAL_TABLE) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_NONSUPPORT_TIME_TRAVEL_TABLE);
-        }
-        HMSExternalTable extTable = (HMSExternalTable) this.getTable();
-        if (extTable.getDlaType() != HMSExternalTable.DLAType.ICEBERG) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_NONSUPPORT_TIME_TRAVEL_TABLE);
-        }
-        if (tableSnapshot.getType() == TableSnapshot.VersionType.TIME) {
-            String asOfTime = tableSnapshot.getTime();
-            Matcher matcher = TimeUtils.DATETIME_FORMAT_REG.matcher(asOfTime);
-            if (!matcher.matches()) {
-                throw new AnalysisException("Invalid datetime string: " + asOfTime);
+        if (tableType == TableIf.TableType.HMS_EXTERNAL_TABLE) {
+            HMSExternalTable extTable = (HMSExternalTable) this.getTable();
+            switch (extTable.getDlaType()) {
+                case ICEBERG:
+                    if (tableSnapshot.getType() == TableSnapshot.VersionType.TIME) {
+                        String asOfTime = tableSnapshot.getTime();
+                        Matcher matcher = TimeUtils.DATETIME_FORMAT_REG.matcher(asOfTime);
+                        if (!matcher.matches()) {
+                            throw new AnalysisException("Invalid datetime string: " + asOfTime);
+                        }
+                    }
+                    break;
+                case HUDI:
+                    if (tableSnapshot.getType() == TableSnapshot.VersionType.VERSION) {
+                        throw new AnalysisException("Hudi table only supports timestamp as snapshot ID");
+                    }
+                    try {
+                        tableSnapshot.setTime(HudiUtils.formatQueryInstant(tableSnapshot.getTime()));
+                    } catch (Exception e) {
+                        throw new AnalysisException("Failed to parse hudi timestamp: " + e.getMessage(), e);
+                    }
+                    break;
+                default:
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_NONSUPPORT_TIME_TRAVEL_TABLE);
             }
+        } else if (tableType == TableIf.TableType.ICEBERG_EXTERNAL_TABLE) {
+            if (tableSnapshot.getType() == TableSnapshot.VersionType.TIME) {
+                String asOfTime = tableSnapshot.getTime();
+                Matcher matcher = TimeUtils.DATETIME_FORMAT_REG.matcher(asOfTime);
+                if (!matcher.matches()) {
+                    throw new AnalysisException("Invalid datetime string: " + asOfTime);
+                }
+            }
+        } else {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_NONSUPPORT_TIME_TRAVEL_TABLE);
         }
     }
 
@@ -651,6 +679,9 @@ public class TableRef implements ParseNode, Writable {
             analyzer.setVisibleSemiJoinedTuple(semiJoinedTupleId);
             onClause.analyze(analyzer);
             analyzer.setVisibleSemiJoinedTuple(null);
+            if (!onClause.getType().isBoolean()) {
+                onClause = onClause.castTo(Type.BOOLEAN);
+            }
             onClause.checkReturnsBool("ON clause", true);
             if (onClause.contains(Expr.isAggregatePredicate())) {
                 throw new AnalysisException(
@@ -753,6 +784,13 @@ public class TableRef implements ParseNode, Writable {
             for (LateralViewRef viewRef : lateralViewRefs) {
                 tblName += " " + viewRef.toSql();
             }
+        }
+        if (partitionNames != null) {
+            StringJoiner sj = new StringJoiner(",", "", " ");
+            for (String partName : partitionNames.getPartitionNames()) {
+                sj.add(partName);
+            }
+            return tblName + " PARTITION(" + sj.toString() + ")";
         }
         return tblName;
     }

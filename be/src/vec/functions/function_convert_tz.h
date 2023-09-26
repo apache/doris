@@ -28,6 +28,8 @@
 #include <utility>
 
 #include "common/status.h"
+#include "runtime/exec_env.h"
+#include "runtime/runtime_state.h"
 #include "udf/udf.h"
 #include "util/binary_cast.hpp"
 #include "util/timezone_utils.h"
@@ -50,6 +52,7 @@
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_time_v2.h"
 #include "vec/functions/function.h"
+#include "vec/io/io_helper.h"
 
 namespace doris {
 namespace vectorized {
@@ -63,10 +66,6 @@ class DateV2Value;
 } // namespace doris
 
 namespace doris::vectorized {
-
-struct ConvertTzCtx {
-    std::map<std::string, cctz::time_zone> time_zone_cache;
-};
 
 template <typename DateValueType, typename ArgType>
 struct ConvertTZImpl {
@@ -89,10 +88,6 @@ struct ConvertTZImpl {
                         const ColumnString* from_tz_column, const ColumnString* to_tz_column,
                         ReturnColumnType* result_column, NullMap& result_null_map,
                         size_t input_rows_count) {
-        auto convert_ctx = reinterpret_cast<ConvertTzCtx*>(
-                context->get_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL));
-        std::map<std::string, cctz::time_zone> time_zone_cache_;
-        auto& time_zone_cache = convert_ctx ? convert_ctx->time_zone_cache : time_zone_cache_;
         for (size_t i = 0; i < input_rows_count; i++) {
             if (result_null_map[i]) {
                 result_column->insert_default();
@@ -100,8 +95,7 @@ struct ConvertTZImpl {
             }
             auto from_tz = from_tz_column->get_data_at(i).to_string();
             auto to_tz = to_tz_column->get_data_at(i).to_string();
-            execute_inner_loop(date_column, time_zone_cache, from_tz, to_tz, result_column,
-                               result_null_map, i);
+            execute_inner_loop(date_column, from_tz, to_tz, result_column, result_null_map, i);
         }
     }
 
@@ -109,11 +103,6 @@ struct ConvertTZImpl {
                                  const ColumnString* from_tz_column,
                                  const ColumnString* to_tz_column, ReturnColumnType* result_column,
                                  NullMap& result_null_map, size_t input_rows_count) {
-        auto convert_ctx = reinterpret_cast<ConvertTzCtx*>(
-                context->get_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL));
-        std::map<std::string, cctz::time_zone> time_zone_cache_;
-        auto& time_zone_cache = convert_ctx ? convert_ctx->time_zone_cache : time_zone_cache_;
-
         auto from_tz = from_tz_column->get_data_at(0).to_string();
         auto to_tz = to_tz_column->get_data_at(0).to_string();
         for (size_t i = 0; i < input_rows_count; i++) {
@@ -121,44 +110,38 @@ struct ConvertTZImpl {
                 result_column->insert_default();
                 continue;
             }
-            execute_inner_loop(date_column, time_zone_cache, from_tz, to_tz, result_column,
-                               result_null_map, i);
+            execute_inner_loop(date_column, from_tz, to_tz, result_column, result_null_map, i);
         }
     }
 
-    static void execute_inner_loop(const ColumnType* date_column,
-                                   std::map<std::string, cctz::time_zone>& time_zone_cache,
-                                   const std::string& from_tz, const std::string& to_tz,
-                                   ReturnColumnType* result_column, NullMap& result_null_map,
-                                   const size_t index_now) {
+    static void execute_inner_loop(const ColumnType* date_column, const std::string& from_tz_name,
+                                   const std::string& to_tz_name, ReturnColumnType* result_column,
+                                   NullMap& result_null_map, const size_t index_now) {
         DateValueType ts_value =
                 binary_cast<NativeType, DateValueType>(date_column->get_element(index_now));
         int64_t timestamp;
+        cctz::time_zone from_tz {}, to_tz {};
 
-        if (time_zone_cache.find(from_tz) == time_zone_cache.cend()) {
-            if (!TimezoneUtils::find_cctz_time_zone(from_tz, time_zone_cache[from_tz])) {
-                result_null_map[index_now] = true;
-                result_column->insert_default();
-                return;
-            }
+        if (!TimezoneUtils::find_cctz_time_zone(from_tz_name, from_tz)) {
+            result_null_map[index_now] = true;
+            result_column->insert_default();
+            return;
         }
 
-        if (time_zone_cache.find(to_tz) == time_zone_cache.cend()) {
-            if (!TimezoneUtils::find_cctz_time_zone(to_tz, time_zone_cache[to_tz])) {
-                result_null_map[index_now] = true;
-                result_column->insert_default();
-                return;
-            }
+        if (!TimezoneUtils::find_cctz_time_zone(to_tz_name, to_tz)) {
+            result_null_map[index_now] = true;
+            result_column->insert_default();
+            return;
         }
 
-        if (!ts_value.unix_timestamp(&timestamp, time_zone_cache[from_tz])) {
+        if (!ts_value.unix_timestamp(&timestamp, from_tz)) {
             result_null_map[index_now] = true;
             result_column->insert_default();
             return;
         }
 
         ReturnDateType ts_value2;
-        if (!ts_value2.from_unixtime(timestamp, time_zone_cache[to_tz])) {
+        if (!ts_value2.from_unixtime(timestamp, to_tz)) {
             result_null_map[index_now] = true;
             result_column->insert_default();
             return;
@@ -200,14 +183,6 @@ public:
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }
-
-    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if (scope != FunctionContext::THREAD_LOCAL) {
-            return Status::OK();
-        }
-        context->set_function_state(scope, std::make_shared<ConvertTzCtx>());
-        return Status::OK();
-    }
 
     Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         return Status::OK();

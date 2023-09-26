@@ -75,7 +75,7 @@ suite ("test_uniq_mv_schema_change") {
                 `max_dwell_time` INT DEFAULT "0" COMMENT "用户最大停留时间",
                 `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
             UNIQUE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
-            BUCKETS 1
+            BUCKETS 8
             PROPERTIES ( "replication_num" = "1", "light_schema_change" = "false", 'enable_unique_key_merge_on_write' = 'false');
         """
 
@@ -95,7 +95,7 @@ suite ("test_uniq_mv_schema_change") {
 
     //add materialized view
     def mvName = "mv1"
-    sql "create materialized view ${mvName} as select user_id, date, city, age from ${tableName} group by user_id, date, city, age;"
+    sql "create materialized view ${mvName} as select user_id, date, city, age from ${tableName};"
     waitForJob(tableName, 3000)
 
     // alter and test light schema change
@@ -103,7 +103,7 @@ suite ("test_uniq_mv_schema_change") {
 
     //add materialized view
     def mvName2 = "mv2"
-    sql "create materialized view ${mvName2} as select user_id, date, city, age, cost from ${tableName} group by user_id, date, city, age, cost;"
+    sql "create materialized view ${mvName2} as select user_id, date, city, age, cost from ${tableName};"
     waitForJob(tableName, 3000)
 
     sql """ INSERT INTO ${tableName} VALUES
@@ -140,12 +140,17 @@ suite ("test_uniq_mv_schema_change") {
 
     qt_sc """ select count(*) from ${tableName} """
 
+    test {
+        sql "ALTER TABLE ${tableName} DROP COLUMN cost"
+        exception "Can not drop column contained by mv, mv=mv2"
+    }
+
+    sql""" drop materialized view mv2 on ${tableName}; """
 
     // drop column
     sql """
           ALTER TABLE ${tableName} DROP COLUMN cost
           """
-
     qt_sc """ select * from ${tableName} where user_id = 3 """
 
 

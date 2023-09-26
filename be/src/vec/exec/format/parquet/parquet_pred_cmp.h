@@ -120,7 +120,7 @@ private:
     static bool _filter_by_min_max(const ColumnValueRange<primitive_type>& col_val_range,
                                    const ScanPredicate& predicate, const FieldSchema* col_schema,
                                    const std::string& encoded_min, const std::string& encoded_max,
-                                   const cctz::time_zone& ctz) {
+                                   const cctz::time_zone& ctz, bool use_min_max_value = false) {
         using CppType = typename PrimitiveTypeTraits<primitive_type>::CppType;
         std::vector<CppType> predicate_values;
         for (const void* v : predicate.values) {
@@ -144,6 +144,13 @@ private:
         case TYPE_CHAR:
             [[fallthrough]];
         case TYPE_STRING:
+            // TODO: In parquet, min and max statistics may not be able to handle UTF8 correctly.
+            // Current processing method is using min_value and max_value statistics introduced by PARQUET-1025 if they are used.
+            // If not, current processing method is temporarily ignored. A better way is try to read min and max statistics
+            // if it contains only ASCII characters.
+            if (!use_min_max_value) {
+                return false;
+            }
             if constexpr (std::is_same_v<CppType, StringRef>) {
                 min_value = StringRef(encoded_min);
                 max_value = StringRef(encoded_max);
@@ -372,7 +379,8 @@ public:
     static bool filter_by_stats(const ColumnValueRangeType& col_val_range,
                                 const FieldSchema* col_schema, bool is_set_min_max,
                                 const std::string& encoded_min, const std::string& encoded_max,
-                                bool is_all_null, const cctz::time_zone& ctz) {
+                                bool is_all_null, const cctz::time_zone& ctz,
+                                bool use_min_max_value = false) {
         bool need_filter = false;
         std::visit(
                 [&](auto&& range) {
@@ -387,7 +395,7 @@ public:
                     }
                     for (auto& filter : filters) {
                         need_filter |= _filter_by_min_max(range, filter, col_schema, encoded_min,
-                                                          encoded_max, ctz);
+                                                          encoded_max, ctz, use_min_max_value);
                         if (need_filter) {
                             break;
                         }

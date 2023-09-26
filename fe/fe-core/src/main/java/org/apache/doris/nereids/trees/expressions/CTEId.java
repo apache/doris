@@ -20,8 +20,6 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 
-import java.util.Objects;
-
 /**
  * It is believed that use a specific definition for CTE could fascinatingly avoid careless codes and bugs.
  */
@@ -31,18 +29,6 @@ public class CTEId extends Id<CTEId> {
 
     public CTEId(int id) {
         super(id);
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-        CTEId relationId = (CTEId) o;
-        return id == relationId.id;
     }
 
     /**
@@ -55,11 +41,6 @@ public class CTEId extends Id<CTEId> {
                 return new CTEId(nextId++);
             }
         };
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(id);
     }
 
     @Override

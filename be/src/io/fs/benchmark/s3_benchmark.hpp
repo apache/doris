@@ -19,6 +19,7 @@
 
 #include "io/file_factory.h"
 #include "io/fs/benchmark/base_benchmark.h"
+#include "io/fs/buffered_reader.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/s3_file_reader.h"
 #include "io/fs/s3_file_system.h"
@@ -35,17 +36,14 @@ public:
             : BaseBenchmark(name, threads, iterations, file_size, conf_map) {}
     virtual ~S3Benchmark() = default;
 
-    Status get_fs(const std::string& path) {
+    Status get_fs(const std::string& path, std::shared_ptr<io::S3FileSystem>* fs) {
         S3URI s3_uri(path);
         RETURN_IF_ERROR(s3_uri.parse());
+        S3Conf s3_conf;
         RETURN_IF_ERROR(
-                S3ClientFactory::convert_properties_to_s3_conf(_conf_map, s3_uri, &_s3_conf));
-        return io::S3FileSystem::create(std::move(_s3_conf), "", &_fs);
+                S3ClientFactory::convert_properties_to_s3_conf(_conf_map, s3_uri, &s3_conf));
+        return io::S3FileSystem::create(std::move(s3_conf), "", fs);
     }
-
-protected:
-    doris::S3Conf _s3_conf;
-    std::shared_ptr<io::S3FileSystem> _fs;
 };
 
 class S3OpenReadBenchmark : public S3Benchmark {
@@ -63,14 +61,16 @@ public:
 
     Status run(benchmark::State& state) override {
         auto file_path = get_file_path(state);
-        RETURN_IF_ERROR(get_fs(file_path));
+        std::shared_ptr<io::S3FileSystem> fs;
+        RETURN_IF_ERROR(get_fs(file_path, &fs));
 
         io::FileReaderSPtr reader;
-        io::FileReaderOptions reader_opts = FileFactory::get_reader_options(nullptr);
+        io::FileReaderOptions reader_opts;
+        FileDescription fd;
+        fd.path = file_path;
         RETURN_IF_ERROR(FileFactory::create_s3_reader(
-                _conf_map, file_path, reinterpret_cast<std::shared_ptr<io::FileSystem>*>(&_fs),
-                &reader, reader_opts));
-
+                _conf_map, fd, reader_opts, reinterpret_cast<std::shared_ptr<io::FileSystem>*>(&fs),
+                &reader));
         return read(state, reader);
     }
 };
@@ -92,6 +92,39 @@ public:
     }
 };
 
+// Read a single specified file by prefetch reader
+class S3PrefetchReadBenchmark : public S3Benchmark {
+public:
+    S3PrefetchReadBenchmark(int threads, int iterations, size_t file_size,
+                            const std::map<std::string, std::string>& conf_map)
+            : S3Benchmark("S3PrefetchReadBenchmark", threads, iterations, file_size, conf_map) {}
+    virtual ~S3PrefetchReadBenchmark() = default;
+
+    virtual std::string get_file_path(benchmark::State& state) override {
+        std::string file_path = _conf_map["file_path"];
+        bm_log("file_path: {}", file_path);
+        return file_path;
+    }
+
+    Status run(benchmark::State& state) override {
+        FileSystemProperties fs_props;
+        fs_props.system_type = TFileType::FILE_S3;
+        fs_props.properties = _conf_map;
+
+        FileDescription fd;
+        fd.path = get_file_path(state);
+        fd.file_size = _file_size;
+        std::shared_ptr<io::FileSystem> fs;
+        io::FileReaderSPtr reader;
+        io::FileReaderOptions reader_options;
+        IOContext io_ctx;
+        RETURN_IF_ERROR(io::DelegateReader::create_file_reader(
+                nullptr, fs_props, fd, reader_options, &fs, &reader,
+                io::DelegateReader::AccessMode::SEQUENTIAL, &io_ctx));
+        return read(state, reader);
+    }
+};
+
 class S3CreateWriteBenchmark : public S3Benchmark {
 public:
     S3CreateWriteBenchmark(int threads, int iterations, size_t file_size,
@@ -104,10 +137,11 @@ public:
         if (_file_size <= 0) {
             _file_size = 10 * 1024 * 1024; // default 10MB
         }
-        RETURN_IF_ERROR(get_fs(file_path));
+        std::shared_ptr<io::S3FileSystem> fs;
+        RETURN_IF_ERROR(get_fs(file_path, &fs));
 
         io::FileWriterPtr writer;
-        RETURN_IF_ERROR(_fs->create_file(file_path, &writer));
+        RETURN_IF_ERROR(fs->create_file(file_path, &writer));
         return write(state, writer.get());
     }
 };
@@ -125,12 +159,13 @@ public:
 
     Status run(benchmark::State& state) override {
         auto file_path = get_file_path(state);
-        RETURN_IF_ERROR(get_fs(file_path));
+        std::shared_ptr<io::S3FileSystem> fs;
+        RETURN_IF_ERROR(get_fs(file_path, &fs));
 
         auto start = std::chrono::high_resolution_clock::now();
         std::vector<FileInfo> files;
         bool exists = true;
-        RETURN_IF_ERROR(_fs->list(file_path, true, &files, &exists));
+        RETURN_IF_ERROR(fs->list(file_path, true, &files, &exists));
         auto end = std::chrono::high_resolution_clock::now();
         auto elapsed_seconds =
                 std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
@@ -168,10 +203,11 @@ public:
     Status run(benchmark::State& state) override {
         auto file_path = get_file_path(state);
         auto new_file_path = file_path + "_new";
-        RETURN_IF_ERROR(get_fs(file_path));
+        std::shared_ptr<io::S3FileSystem> fs;
+        RETURN_IF_ERROR(get_fs(file_path, &fs));
 
         auto start = std::chrono::high_resolution_clock::now();
-        RETURN_IF_ERROR(_fs->rename(file_path, new_file_path));
+        RETURN_IF_ERROR(fs->rename(file_path, new_file_path));
         auto end = std::chrono::high_resolution_clock::now();
         auto elapsed_seconds =
                 std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
@@ -192,11 +228,12 @@ public:
 
     Status run(benchmark::State& state) override {
         auto file_path = get_file_path(state);
-        RETURN_IF_ERROR(get_fs(file_path));
+        std::shared_ptr<io::S3FileSystem> fs;
+        RETURN_IF_ERROR(get_fs(file_path, &fs));
 
         auto start = std::chrono::high_resolution_clock::now();
         bool res = false;
-        RETURN_IF_ERROR(_fs->exists(file_path, &res));
+        RETURN_IF_ERROR(fs->exists(file_path, &res));
         auto end = std::chrono::high_resolution_clock::now();
         auto elapsed_seconds =
                 std::chrono::duration_cast<std::chrono::duration<double>>(end - start);

@@ -29,12 +29,12 @@ under the License.
 
 ## Usage
 
-1. Doris supports Snapshot Query on Copy-on-Write Hudi tables and Read Optimized Query / Snapshot on Merge-on-Read tables. In the future, it will support Incremental Query and Time Travel.
+1. The query types supported by the Hudi table are as follows, and the Incremental Query will be supported in the future.
 
 |  Table Type   | Supported Query types  |
 |  ----  | ----  |
-| Copy On Write  | Snapshot Query |
-| Merge On Read  | Snapshot Queries + Read Optimized Queries |
+| Copy On Write  | Snapshot Query + Time Travel |
+| Merge On Read  | Snapshot Queries + Read Optimized Queries + Time Travel |
 
 2. Doris supports Hive Metastore(Including catalogs compatible with Hive MetaStore, like [AWS Glue](./hive.md)/[Alibaba DLF](./dlf.md)) Catalogs.
 
@@ -59,6 +59,9 @@ CREATE CATALOG hudi PROPERTIES (
 
 Same as that in Hive Catalogs. See the relevant section in [Hive](./hive.md).
 
+## Skip Merge
+Spark will create the read optimize table with `_ro` suffix when generating hudi mor table. Doris will skip the log files when reading optimize table. Doris does not determine whether a table is read optimize by the `_ro` suffix instead of the hive inputformat. Users can observe whether the inputformat of the 'cow/mor/read optimize' table is the same through the `SHOW CREATE TABLE` command. In addition, Doris supports adding hoodie related configurations to catalog properties, which are compatible with [Spark Datasource Configs](https://hudi.apache.org/docs/configurations/#Read-Options), so users can add `hoodie.datasource.merge.type=skip_merge` in catalog properties to skip merge logs files.
+
 ## Query Optimization
 Doris uses the parquet native reader to read the data files of the COW table, and uses the Java SDK (By calling hudi-bundle through JNI) to read the data files of the MOR table. In `upsert` scenario, there may still remains base files that have not been updated in the MOR table, which can be read through the parquet native reader. Users can view the execution plan of hudi scan through the [explain](../../advanced/best-practice/query-analysis.md) command, where `hudiNativeReadSplits` indicates how many split files are read through the parquet native reader.
 ```
@@ -82,3 +85,19 @@ Users can view the perfomace of Java SDK through [profile](../../admin-manual/ht
 2. `JavaScanTime`: Time to read data by Java SDK
 3. `FillBlockTime`: Time co convert Java column data into C++ column data
 4. `GetRecordReaderTime`: Time to create and initialize Hudi Record Reader
+
+## Time Travel
+
+Supports reading snapshots specified in Hudi table.
+
+Every write operation to the Hudi table will generate a new snapshot.
+
+By default, query requests will only read the latest version of the snapshot.
+
+You can use the `FOR TIME AS OF` statement, based on the time of the snapshot to read historical version data. Examples are as follows:
+
+`SELECT * FROM hudi_tbl FOR TIME AS OF "2022-10-07 17:20:37";`
+
+`SELECT * FROM hudi_tbl FOR TIME AS OF "20221007172037";`
+
+Hudi table does not support the `FOR VERSION AS OF` statement. Using this syntax to query the Hudi table will throw an error.

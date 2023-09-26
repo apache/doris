@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.implementation.AggregateStrategies;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
@@ -27,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
@@ -40,7 +42,6 @@ import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
-import org.apache.doris.nereids.util.RelationUtil;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -60,7 +61,7 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
 
     @BeforeAll
     public final void beforeAll() {
-        rStudent = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student,
+        rStudent = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student,
                 ImmutableList.of(""));
     }
 
@@ -223,6 +224,8 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
      * </pre>
      */
     @Test
+    @Disabled
+    @Developing("reopen it after we could choose agg phase by CBO")
     public void distinctAggregateWithoutGroupByApply2PhaseRule() {
         List<Expression> groupExpressionList = new ArrayList<>();
         List<NamedExpression> outputExpressionList = Lists.newArrayList(new Alias(

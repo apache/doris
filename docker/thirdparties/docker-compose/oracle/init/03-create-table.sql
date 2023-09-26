@@ -107,3 +107,27 @@ create table doris_test.test_number4 (
   id number(11) not null primary key,
   num1 NUMBER(5,-7)
 );
+
+create table doris_test.test_clob (
+  id number(11) not null primary key,
+  num1 clob
+);
+
+create table doris_test."AA/D" (
+     id number(5),
+     name varchar2(20),
+     age number(2),
+     score number(3,1)
+);
+
+create table doris_test.aaad (
+     id number(5),
+     name varchar2(20)
+);
+
+create table doris_test."student2" (
+id number(5),
+name varchar2(20),
+age number(2),
+score number(3,1)
+);

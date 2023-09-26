@@ -35,6 +35,13 @@ import java.util.List;
 public class InsertEvent extends MetastoreTableEvent {
     private final Table hmsTbl;
 
+    // for test
+    public InsertEvent(long eventId, String catalogName, String dbName,
+                       String tblName) {
+        super(eventId, catalogName, dbName, tblName, MetastoreEventType.INSERT);
+        this.hmsTbl = null;
+    }
+
     private InsertEvent(NotificationEvent event, String catalogName) {
         super(event, catalogName);
         Preconditions.checkArgument(getEventType().equals(MetastoreEventType.INSERT));
@@ -55,10 +62,20 @@ public class InsertEvent extends MetastoreTableEvent {
     }
 
     @Override
+    protected boolean willCreateOrDropTable() {
+        return false;
+    }
+
+    @Override
+    protected boolean willChangeTableName() {
+        return false;
+    }
+
+    @Override
     protected void process() throws MetastoreNotificationException {
         try {
             infoLog("catalogName:[{}],dbName:[{}],tableName:[{}]", catalogName, dbName, tblName);
-            /***
+            /**
              *  Only when we use hive client to execute a `INSERT INTO TBL SELECT * ...` or `INSERT INTO TBL ...` sql
              *  to a non-partitioned table then the hms will generate an insert event, and there is not
              *  any partition event occurs, but the file cache may has been changed, so we need handle this.
@@ -71,5 +88,19 @@ public class InsertEvent extends MetastoreTableEvent {
             throw new MetastoreNotificationException(
                     debugString("Failed to process event"), e);
         }
+    }
+
+    @Override
+    protected boolean canBeBatched(MetastoreEvent that) {
+        if (!isSameTable(that)) {
+            return false;
+        }
+
+        /**
+         * Because the cache of this table will be cleared when handling `InsertEvent`,
+         * so `that` event can be batched if `that` event will not create or drop this table,
+         * and `that` event must be a MetastoreTableEvent event otherwise `isSameTable` will return false
+         */
+        return !((MetastoreTableEvent) that).willCreateOrDropTable();
     }
 }

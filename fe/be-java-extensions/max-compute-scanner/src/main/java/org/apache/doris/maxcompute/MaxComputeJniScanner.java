@@ -20,7 +20,6 @@ package org.apache.doris.maxcompute;
 import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ScanPredicate;
-import org.apache.doris.common.jni.vec.TableSchema;
 
 import com.aliyun.odps.Column;
 import com.aliyun.odps.OdpsType;
@@ -237,12 +236,6 @@ public class MaxComputeJniScanner extends JniScanner {
         remainBatchRows -= realRows;
         curTableScan.increaseReadRows(realRows);
         return realRows;
-    }
-
-    @Override
-    protected TableSchema parseTableSchema() throws UnsupportedOperationException {
-        // do nothing
-        return null;
     }
 
     private int readVectors(int expectedRows) throws IOException {

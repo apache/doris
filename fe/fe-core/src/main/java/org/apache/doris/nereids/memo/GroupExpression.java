@@ -53,7 +53,7 @@ public class GroupExpression {
     private static final EventProducer COST_STATE_TRACER = new EventProducer(CostStateUpdateEvent.class,
             EventChannel.getDefaultChannel().addConsumers(new LogConsumer(CostStateUpdateEvent.class,
                     EventChannel.LOG)));
-    private double cost = 0.0;
+    private Cost cost;
     private Group ownerGroup;
     private final List<Group> children;
     private final Plan plan;
@@ -62,7 +62,7 @@ public class GroupExpression {
 
     private double estOutputRowCount = -1;
 
-    //Record the rule that generate this plan. It's used for debugging
+    // Record the rule that generate this plan. It's used for debugging
     private Rule fromRule;
 
     // Mapping from output properties to the corresponding best cost, statistics, and child properties.
@@ -79,11 +79,15 @@ public class GroupExpression {
 
     private final ObjectId id = StatementScopeIdGenerator.newObjectId();
 
+    /**
+     * Just for UT.
+     */
     public GroupExpression(Plan plan) {
         this(plan, Lists.newArrayList());
     }
 
     /**
+     * Notice!!!: children will use param `children` directly, So don't modify it after this constructor outside.
      * Constructor for GroupExpression.
      *
      * @param plan {@link Plan} to reference
@@ -92,7 +96,7 @@ public class GroupExpression {
     public GroupExpression(Plan plan, List<Group> children) {
         this.plan = Objects.requireNonNull(plan, "plan can not be null")
                 .withGroupExpression(Optional.of(this));
-        this.children = Lists.newArrayList(Objects.requireNonNull(children, "children can not be null"));
+        this.children = Objects.requireNonNull(children, "children can not be null");
         this.children.forEach(childGroup -> childGroup.addParentExpression(this));
         this.ruleMasks = new BitSet(RuleType.SENTINEL.ordinal());
         this.statDerived = false;
@@ -253,11 +257,6 @@ public class GroupExpression {
         this.requestPropertiesMap.put(requiredProperties, outputProperties);
     }
 
-    public void putOutputPropertiesMapIfAbsent(PhysicalProperties outputProperties,
-            PhysicalProperties requiredProperties) {
-        this.requestPropertiesMap.putIfAbsent(requiredProperties, outputProperties);
-    }
-
     /**
      * Merge GroupExpression.
      */
@@ -284,11 +283,11 @@ public class GroupExpression {
         this.ownerGroup = null;
     }
 
-    public double getCost() {
+    public Cost getCost() {
         return cost;
     }
 
-    public void setCost(double cost) {
+    public void setCost(Cost cost) {
         this.cost = cost;
     }
 
@@ -301,8 +300,7 @@ public class GroupExpression {
             return false;
         }
         GroupExpression that = (GroupExpression) o;
-        return children.equals(that.children) && plan.equals(that.plan)
-                && plan.getLogicalProperties().equals(that.plan.getLogicalProperties());
+        return children.equals(that.children) && plan.equals(that.plan);
     }
 
     @Override
@@ -311,7 +309,7 @@ public class GroupExpression {
     }
 
     public Statistics childStatistics(int idx) {
-        return new Statistics(child(idx).getStatistics());
+        return child(idx).getStatistics();
     }
 
     public void setEstOutputRowCount(double estOutputRowCount) {
@@ -328,12 +326,20 @@ public class GroupExpression {
         } else {
             builder.append("#").append(ownerGroup.getGroupId().asInt());
         }
-        builder.append(" cost=").append(format.format((long) cost));
+        if (cost != null) {
+            builder.append(" cost=").append(format.format((long) cost.getValue()) + " " + cost);
+        } else {
+            builder.append(" cost=null");
+        }
         builder.append(" estRows=").append(format.format(estOutputRowCount));
         builder.append(" children=[").append(Joiner.on(", ").join(
                         children.stream().map(Group::getGroupId).collect(Collectors.toList())))
                 .append(" ]");
         builder.append(" (plan=").append(plan.toString()).append(")");
         return builder.toString();
+    }
+
+    public ObjectId getId() {
+        return id;
     }
 }

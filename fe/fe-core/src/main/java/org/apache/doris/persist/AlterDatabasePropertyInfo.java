@@ -29,6 +29,9 @@ import java.io.IOException;
 import java.util.Map;
 
 public class AlterDatabasePropertyInfo implements Writable {
+    @SerializedName(value = "dbId")
+    private long dbId;
+
     @SerializedName(value = "dbName")
     private String dbName;
 
@@ -41,9 +44,14 @@ public class AlterDatabasePropertyInfo implements Writable {
         this.properties = null;
     }
 
-    public AlterDatabasePropertyInfo(String dbName, Map<String, String> properties) {
+    public AlterDatabasePropertyInfo(long dbId, String dbName, Map<String, String> properties) {
+        this.dbId = dbId;
         this.dbName = dbName;
         this.properties = properties;
+    }
+
+    public long getDbId() {
+        return dbId;
     }
 
     public String getDbName() {
@@ -61,5 +69,9 @@ public class AlterDatabasePropertyInfo implements Writable {
 
     public static AlterDatabasePropertyInfo read(DataInput in) throws IOException {
         return GsonUtils.GSON.fromJson(Text.readString(in), AlterDatabasePropertyInfo.class);
+    }
+
+    public String toJson() {
+        return GsonUtils.GSON.toJson(this);
     }
 }

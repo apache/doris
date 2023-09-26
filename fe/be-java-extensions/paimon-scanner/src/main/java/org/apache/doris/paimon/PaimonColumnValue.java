@@ -20,7 +20,7 @@ package org.apache.doris.paimon;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ColumnValue;
 
-import org.apache.paimon.data.columnar.ColumnarRow;
+import org.apache.paimon.data.InternalRow;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -32,7 +32,7 @@ import java.util.List;
 
 public class PaimonColumnValue implements ColumnValue {
     private int idx;
-    private ColumnarRow record;
+    private InternalRow record;
     ColumnType dorisType;
 
     public PaimonColumnValue() {
@@ -43,13 +43,13 @@ public class PaimonColumnValue implements ColumnValue {
         this.dorisType = dorisType;
     }
 
-    public void setOffsetRow(ColumnarRow record) {
+    public void setOffsetRow(InternalRow record) {
         this.record = record;
     }
 
     @Override
     public boolean canGetStringAsBytes() {
-        return false;
+        return true;
     }
 
     @Override
@@ -103,15 +103,19 @@ public class PaimonColumnValue implements ColumnValue {
     }
 
     @Override
+    public byte[] getStringAsBytes() {
+        return record.getString(idx).toBytes();
+    }
+
+    @Override
     public LocalDate getDate() {
-        return Instant.ofEpochMilli(record.getTimestamp(idx, 3)
-                .getMillisecond()).atZone(ZoneOffset.ofHours(8)).toLocalDate();
+        return LocalDate.ofEpochDay(record.getLong(idx));
     }
 
     @Override
     public LocalDateTime getDateTime() {
         return Instant.ofEpochMilli(record.getTimestamp(idx, 3)
-            .getMillisecond()).atZone(ZoneOffset.ofHours(8)).toLocalDateTime();
+            .getMillisecond()).atZone(ZoneOffset.ofHours(0)).toLocalDateTime();
     }
 
     @Override

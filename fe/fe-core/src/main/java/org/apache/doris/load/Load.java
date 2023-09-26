@@ -562,7 +562,7 @@ public class Load {
     /*
      * This function will do followings:
      * 1. fill the column exprs if user does not specify any column or column mapping.
-     * 2. For not specified columns, check if they have default value.
+     * 2. For not specified columns, check if they have default value or they are auto-increment columns.
      * 3. Add any shadow columns if have.
      * 4. validate hadoop functions
      * 5. init slot descs and expr map for load plan
@@ -629,16 +629,26 @@ public class Load {
             columnExprMap.put(importColumnDesc.getColumnName(), importColumnDesc.getExpr());
         }
 
-        // check default value
+        // check default value and auto-increment column
         for (Column column : tbl.getBaseSchema()) {
             String columnName = column.getName();
             if (columnExprMap.containsKey(columnName)) {
                 continue;
             }
-            if (column.getDefaultValue() != null || column.isAllowNull() || isPartialUpdate) {
+            if (column.getDefaultValue() != null) {
+                exprsByName.put(column.getName(), column.getDefaultValueExpr());
                 continue;
             }
-            //continue;
+            if (column.isAllowNull()) {
+                exprsByName.put(column.getName(), NullLiteral.create(column.getType()));
+                continue;
+            }
+            if (isPartialUpdate) {
+                continue;
+            }
+            if (column.isAutoInc()) {
+                continue;
+            }
             throw new DdlException("Column has no default value. column: " + columnName);
         }
 
@@ -701,24 +711,14 @@ public class Load {
                 exprsByName.put(realColName, expr);
             } else {
                 SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);
-
-                if (formatType == TFileFormatType.FORMAT_JSON
-                            && tbl instanceof OlapTable && ((OlapTable) tbl).isDynamicSchema()) {
-                    // Dynamic table does not require conversion from VARCHAR to corresponding data types.
-                    // Some columns are self-described and their types are dynamically generated.
-                    slotDesc.setType(tblColumn.getType());
-                    slotDesc.setColumn(new Column(realColName, tblColumn.getType()));
-                    slotDesc.setIsNullable(tblColumn.isAllowNull());
-                } else {
-                    // columns default be varchar type
-                    slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
-                    slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
-                    // ISSUE A: src slot should be nullable even if the column is not nullable.
-                    // because src slot is what we read from file, not represent to real column value.
-                    // If column is not nullable, error will be thrown when filling the dest slot,
-                    // which is not nullable.
-                    slotDesc.setIsNullable(true);
-                }
+                // columns default be varchar type
+                slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
+                slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
+                // ISSUE A: src slot should be nullable even if the column is not nullable.
+                // because src slot is what we read from file, not represent to real column value.
+                // If column is not nullable, error will be thrown when filling the dest slot,
+                // which is not nullable.
+                slotDesc.setIsNullable(true);
 
                 slotDesc.setIsMaterialized(true);
                 srcSlotIds.add(slotDesc.getId().asInt());
@@ -726,21 +726,6 @@ public class Load {
             }
         }
 
-        // add a implict container column "DORIS_DYNAMIC_COL" for dynamic columns
-        if (tbl instanceof OlapTable && ((OlapTable) tbl).isDynamicSchema()) {
-            analyzer.getDescTbl().addReferencedTable(tbl);
-            SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);
-            String name = Column.DYNAMIC_COLUMN_NAME;
-            Column col = new Column(name, Type.VARIANT, false, null, false, "",
-                                    "stream load auto dynamic column");
-            slotDesc.setType(Type.VARIANT);
-            slotDesc.setColumn(col);
-            slotDesc.setIsNullable(false);
-            slotDesc.setIsMaterialized(true);
-            srcSlotIds.add(slotDesc.getId().asInt());
-            slotDescByName.put(name, slotDesc);
-            LOG.debug("add dynamic column to srcTupleDesc with name:{} id:{}", name, slotDesc.getId().asInt());
-        }
         LOG.debug("plan srcTupleDesc {}", srcTupleDesc.toString());
 
         /*

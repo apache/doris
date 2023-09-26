@@ -34,149 +34,36 @@
 
 namespace doris::vectorized {
 
+inline size_t get_bitmap_size(size_t key_number) {
+    return (key_number + 7) / 8;
+}
+
 using Sizes = std::vector<size_t>;
 
-/// When packing the values of nullable columns at a given row, we have to
-/// store the fact that these values are nullable or not. This is achieved
-/// by encoding this information as a bitmap. Let S be the size in bytes of
-/// a packed values binary blob and T the number of bytes we may place into
-/// this blob, the size that the bitmap shall occupy in the blob is equal to:
-/// ceil(T/8). Thus we must have: S = T + ceil(T/8). Below we indicate for
-/// each value of S, the corresponding value of T, and the bitmap size:
-///
-/// 32,28,4
-/// 16,14,2
-/// 8,7,1
-/// 4,3,1
-/// 2,1,1
-///
-
-namespace {
-// clang-format off
 template <typename T>
-constexpr auto get_bitmap_size() {
-    return (sizeof(T) == 32)
-            ? 4: (sizeof(T) == 16)
-            ? 2: ((sizeof(T) == 8)
-            ? 1: ((sizeof(T) == 4) 
-            ? 1: ((sizeof(T) == 2) 
-            ? 1: 0)));
-}
-// clang-format on
-
-} // namespace
-
-template <typename T>
-using KeysNullMap = std::array<UInt8, get_bitmap_size<T>()>;
-
-/// Pack into a binary blob of type T a set of fixed-size keys. Granted that all the keys fit into the
-/// binary blob, they are disposed in it consecutively.
-template <typename T, bool has_low_cardinality = false>
 T pack_fixed(size_t i, size_t keys_size, const ColumnRawPtrs& key_columns, const Sizes& key_sizes,
-             const ColumnRawPtrs* low_cardinality_positions [[maybe_unused]] = nullptr,
-             const Sizes* low_cardinality_sizes [[maybe_unused]] = nullptr) {
+             const ColumnRawPtrs& nullmap_columns) {
     union {
         T key;
         char bytes[sizeof(key)] = {};
     };
 
-    size_t offset = 0;
+    size_t bitmap_size = get_bitmap_size(nullmap_columns.size());
+    size_t offset = bitmap_size;
 
     for (size_t j = 0; j < keys_size; ++j) {
-        size_t index = i;
-        const IColumn* column = key_columns[j];
-        if constexpr (has_low_cardinality) {
-            if (const IColumn* positions = (*low_cardinality_positions)[j]) {
-                switch ((*low_cardinality_sizes)[j]) {
-                case sizeof(UInt8):
-                    index = assert_cast<const ColumnUInt8*>(positions)->get_element(i);
-                    break;
-                case sizeof(UInt16):
-                    index = assert_cast<const ColumnUInt16*>(positions)->get_element(i);
-                    break;
-                case sizeof(UInt32):
-                    index = assert_cast<const ColumnUInt32*>(positions)->get_element(i);
-                    break;
-                case sizeof(UInt64):
-                    index = assert_cast<const ColumnUInt64*>(positions)->get_element(i);
-                    break;
-                default:
-                    LOG(FATAL) << "Unexpected size of index type for low cardinality column.";
-                }
-            }
+        bool is_null = false;
+
+        if (bitmap_size && nullmap_columns[j] != nullptr) {
+            is_null = nullmap_columns[j]->get_bool(i);
         }
 
-        switch (key_sizes[j]) {
-        case 1:
-            memcpy(bytes + offset,
-                   static_cast<const ColumnVectorHelper*>(column)->get_raw_data_begin<1>() + index,
-                   1);
-            offset += 1;
-            break;
-        case 2:
-            memcpy(bytes + offset,
-                   static_cast<const ColumnVectorHelper*>(column)->get_raw_data_begin<2>() +
-                           index * 2,
-                   2);
-            offset += 2;
-            break;
-        case 4:
-            memcpy(bytes + offset,
-                   static_cast<const ColumnVectorHelper*>(column)->get_raw_data_begin<4>() +
-                           index * 4,
-                   4);
-            offset += 4;
-            break;
-        case 8:
-            memcpy(bytes + offset,
-                   static_cast<const ColumnVectorHelper*>(column)->get_raw_data_begin<8>() +
-                           index * 8,
-                   8);
-            offset += 8;
-            break;
-        default:
-            memcpy(bytes + offset,
-                   static_cast<const ColumnVectorHelper*>(column)->get_raw_data_begin<1>() +
-                           index * key_sizes[j],
-                   key_sizes[j]);
-            offset += key_sizes[j];
-        }
-    }
-
-    return key;
-}
-
-/// Similar as above but supports nullable values.
-template <typename T>
-T pack_fixed(size_t i, size_t keys_size, const ColumnRawPtrs& key_columns, const Sizes& key_sizes,
-             const KeysNullMap<T>& bitmap) {
-    union {
-        T key;
-        char bytes[sizeof(key)] = {};
-    };
-
-    size_t offset = 0;
-
-    static constexpr auto bitmap_size = std::tuple_size<KeysNullMap<T>>::value;
-    static constexpr bool has_bitmap = bitmap_size > 0;
-
-    if (has_bitmap) {
-        memcpy(bytes + offset, bitmap.data(), bitmap_size * sizeof(UInt8));
-        offset += bitmap_size;
-    }
-
-    for (size_t j = 0; j < keys_size; ++j) {
-        bool is_null;
-
-        if (!has_bitmap)
-            is_null = false;
-        else {
+        if (is_null) {
             size_t bucket = j / 8;
-            size_t off = j % 8;
-            is_null = ((bitmap[bucket] >> off) & 1) == 1;
+            bytes[bucket] |= (1 << (j - bucket * 8));
+            offset += key_sizes[j];
+            continue;
         }
-
-        if (is_null) continue;
 
         switch (key_sizes[j]) {
         case 1:
@@ -184,39 +71,98 @@ T pack_fixed(size_t i, size_t keys_size, const ColumnRawPtrs& key_columns, const
                    static_cast<const ColumnVectorHelper*>(key_columns[j])->get_raw_data_begin<1>() +
                            i,
                    1);
-            offset += 1;
             break;
         case 2:
             memcpy(bytes + offset,
                    static_cast<const ColumnVectorHelper*>(key_columns[j])->get_raw_data_begin<2>() +
                            i * 2,
                    2);
-            offset += 2;
             break;
         case 4:
             memcpy(bytes + offset,
                    static_cast<const ColumnVectorHelper*>(key_columns[j])->get_raw_data_begin<4>() +
                            i * 4,
                    4);
-            offset += 4;
             break;
         case 8:
             memcpy(bytes + offset,
                    static_cast<const ColumnVectorHelper*>(key_columns[j])->get_raw_data_begin<8>() +
                            i * 8,
                    8);
-            offset += 8;
             break;
         default:
             memcpy(bytes + offset,
                    static_cast<const ColumnVectorHelper*>(key_columns[j])->get_raw_data_begin<1>() +
                            i * key_sizes[j],
                    key_sizes[j]);
-            offset += key_sizes[j];
         }
+
+        offset += key_sizes[j];
     }
 
     return key;
+}
+
+template <typename T>
+std::vector<T> pack_fixeds(size_t row_numbers, const ColumnRawPtrs& key_columns,
+                           const Sizes& key_sizes, const ColumnRawPtrs& nullmap_columns) {
+    size_t bitmap_size = get_bitmap_size(nullmap_columns.size());
+
+    std::vector<T> result(row_numbers);
+    size_t offset = 0;
+    if (bitmap_size > 0) {
+        for (size_t j = 0; j < nullmap_columns.size(); j++) {
+            if (!nullmap_columns[j]) {
+                continue;
+            }
+            size_t bucket = j / 8;
+            size_t offset = j % 8;
+            const auto& data =
+                    assert_cast<const ColumnUInt8&>(*nullmap_columns[j]).get_data().data();
+            for (size_t i = 0; i < row_numbers; ++i) {
+                *((char*)(&result[i]) + bucket) |= data[i] << offset;
+            }
+        }
+        offset += bitmap_size;
+    }
+
+    for (size_t j = 0; j < key_columns.size(); ++j) {
+        const char* data = key_columns[j]->get_raw_data().data;
+
+        auto foo = [&]<typename Fixed>(Fixed zero) {
+            CHECK_EQ(sizeof(Fixed), key_sizes[j]);
+            if (nullmap_columns.size() && nullmap_columns[j]) {
+                const auto& nullmap =
+                        assert_cast<const ColumnUInt8&>(*nullmap_columns[j]).get_data().data();
+                for (size_t i = 0; i < row_numbers; ++i) {
+                    // make sure null cell is filled by 0x0
+                    memcpy_fixed<Fixed>((char*)(&result[i]) + offset,
+                                        nullmap[i] ? (char*)&zero : data + i * sizeof(Fixed));
+                }
+            } else {
+                for (size_t i = 0; i < row_numbers; ++i) {
+                    memcpy_fixed<Fixed>((char*)(&result[i]) + offset, data + i * sizeof(Fixed));
+                }
+            }
+        };
+
+        if (key_sizes[j] == 1) {
+            foo(int8_t());
+        } else if (key_sizes[j] == 2) {
+            foo(int16_t());
+        } else if (key_sizes[j] == 4) {
+            foo(int32_t());
+        } else if (key_sizes[j] == 8) {
+            foo(int64_t());
+        } else if (key_sizes[j] == 16) {
+            foo(UInt128());
+        } else {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "pack_fixeds input invalid key size, key_size={}", key_sizes[j]);
+        }
+        offset += key_sizes[j];
+    }
+    return result;
 }
 
 /// Hash a set of keys into a UInt128 value.
@@ -224,7 +170,9 @@ inline UInt128 hash128(size_t i, size_t keys_size, const ColumnRawPtrs& key_colu
     UInt128 key;
     SipHash hash;
 
-    for (size_t j = 0; j < keys_size; ++j) key_columns[j]->update_hash_with_value(i, hash);
+    for (size_t j = 0; j < keys_size; ++j) {
+        key_columns[j]->update_hash_with_value(i, hash);
+    }
 
     hash.get128(key.low, key.high);
 
@@ -253,8 +201,9 @@ inline StringRef serialize_keys_to_pool_contiguous(size_t i, size_t keys_size,
     const char* begin = nullptr;
 
     size_t sum_size = 0;
-    for (size_t j = 0; j < keys_size; ++j)
+    for (size_t j = 0; j < keys_size; ++j) {
         sum_size += key_columns[j]->serialize_value_into_arena(i, pool, begin).size;
+    }
 
     return {begin, sum_size};
 }

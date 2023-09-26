@@ -58,7 +58,7 @@ class TFileScanRangeParams;
 
 namespace io {
 class FileSystem;
-class IOContext;
+struct IOContext;
 } // namespace io
 namespace vectorized {
 class Block;
@@ -126,7 +126,9 @@ public:
         int64_t fs_read_bytes = 0;
         int64_t column_read_time = 0;
         int64_t get_batch_time = 0;
-        int64_t parse_meta_time = 0;
+        int64_t create_reader_time = 0;
+        int64_t init_column_time = 0;
+        int64_t set_fill_column_time = 0;
         int64_t decode_value_time = 0;
         int64_t decode_null_map_time = 0;
     };
@@ -200,7 +202,9 @@ private:
         RuntimeProfile::Counter* read_bytes;
         RuntimeProfile::Counter* column_read_time;
         RuntimeProfile::Counter* get_batch_time;
-        RuntimeProfile::Counter* parse_meta_time;
+        RuntimeProfile::Counter* create_reader_time;
+        RuntimeProfile::Counter* init_column_time;
+        RuntimeProfile::Counter* set_fill_column_time;
         RuntimeProfile::Counter* decode_value_time;
         RuntimeProfile::Counter* decode_null_map_time;
     };
@@ -402,6 +406,7 @@ private:
         if (data == nullptr) {
             return Status::InternalError("Wrong data type for colum '{}'", col_name);
         }
+        date_day_offset_dict& date_dict = date_day_offset_dict::get();
         auto& column_data = static_cast<ColumnVector<DorisColumnType>&>(*data_column).get_data();
         auto origin_size = column_data.size();
         column_data.resize(origin_size + num_values);
@@ -417,11 +422,13 @@ private:
                         continue;
                     }
                 }
-                int64_t& date_value = data->data[i];
-                v.from_unixtime(date_value * 24 * 60 * 60, _time_zone); // day to seconds
+                int64_t date_value = data->data[i] + _offset_days;
                 if constexpr (std::is_same_v<CppType, VecDateTimeValue>) {
+                    v.create_from_date_v2(date_dict[date_value], TIME_DATE);
                     // we should cast to date if using date v1.
                     v.cast_to_date();
+                } else {
+                    v = date_dict[date_value];
                 }
             } else { // timestamp
                 if constexpr (is_filter) {
@@ -478,29 +485,35 @@ private:
                                                            const NullMap* null_map,
                                                            orc::ColumnVectorBatch* cvb,
                                                            const orc::Type* orc_column_typ);
+    int64_t get_remaining_rows() { return _remaining_rows; }
+    void set_remaining_rows(int64_t rows) { _remaining_rows = rows; }
 
 private:
+    // This is only for count(*) short circuit read.
+    // save the total number of rows in range
+    int64_t _remaining_rows = 0;
     RuntimeProfile* _profile = nullptr;
     RuntimeState* _state = nullptr;
     const TFileScanRangeParams& _scan_params;
     const TFileRangeDesc& _scan_range;
-    FileSystemProperties _system_properties;
-    FileDescription _file_description;
+    io::FileSystemProperties _system_properties;
+    io::FileDescription _file_description;
     size_t _batch_size;
     int64_t _range_start_offset;
     int64_t _range_size;
     const std::string& _ctz;
     const std::vector<std::string>* _column_names;
+    size_t _offset_days = 0;
     cctz::time_zone _time_zone;
 
     std::list<std::string> _read_cols;
     std::list<std::string> _read_cols_lower_case;
     std::list<std::string> _missing_cols;
     std::unordered_map<std::string, int> _colname_to_idx;
-    // Column name in Orc file to column name to schema.
+    // Column name in Orc file after removed acid(remove row.) to column name to schema.
     // This is used for Hive 1.x which use internal column name in Orc file.
     // _col0, _col1...
-    std::unordered_map<std::string, std::string> _file_col_to_schema_col;
+    std::unordered_map<std::string, std::string> _removed_acid_file_col_name_to_schema_col;
     // Flag for hive engine. True if the external table engine is Hive.
     bool _is_hive = false;
     std::unordered_map<std::string, std::string> _col_name_to_file_col_name;
@@ -535,6 +548,7 @@ private:
 
     const TupleDescriptor* _tuple_descriptor;
     const RowDescriptor* _row_descriptor;
+    VExprContextSPtrs _not_single_slot_filter_conjuncts;
     const std::unordered_map<int, VExprContextSPtrs>* _slot_id_to_filter_conjuncts;
     VExprContextSPtrs _dict_filter_conjuncts;
     VExprContextSPtrs _non_dict_filter_conjuncts;

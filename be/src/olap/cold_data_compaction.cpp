@@ -48,7 +48,7 @@ ColdDataCompaction::~ColdDataCompaction() = default;
 
 Status ColdDataCompaction::prepare_compact() {
     if (UNLIKELY(!_tablet->init_succeeded())) {
-        return Status::Error<INVALID_ARGUMENT>();
+        return Status::Error<INVALID_ARGUMENT>("_tablet init failed");
     }
     return pick_rowsets_to_compact();
 }

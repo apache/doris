@@ -1,6 +1,6 @@
 ---
 {
-    "title": "update",
+    "title": "Update",
     "language": "en"
 }
 ---
@@ -65,13 +65,13 @@ This presents a problem in that if two Update operations update the same row at 
 However, in practice, the concurrency limit can be turned on manually if the user himself can guarantee that even if concurrent updates are performed, they will not operate on the same row at the same time. This is done by modifying the FE configuration ``enable_concurrent_update``. When the configuration value is true, there is no limit on concurrent updates.
 > Note: After enabling the configuration, there will be certain performance risks. You can refer to the performance section above to improve update efficiency.
 
-## Risks of use
+## Risks of Use
 
 Since Doris currently supports row updates and uses a two-step read-and-write operation, there is uncertainty about the outcome of an Update statement if it modifies the same row as another Import or Delete statement.
 
 Therefore, when using Doris, you must be careful to control the concurrency of Update statements and other DML statements on the **user side itself**.
 
-## Usage example
+## Usage Examples
 
 Suppose there is an order table in Doris, where the order id is the Key column, the order status and the order amount are the Value column. The data status is as follows:
 
@@ -80,11 +80,11 @@ Suppose there is an order table in Doris, where the order id is the Key column, 
 | 1        | 100          | Pending Payment |
 
 ```sql
-+----------+--------------+--------------+
-| order_id | order_amount | order_status |
-+----------+--------------+--------------+
-| 1        |          100 | 待付款       |
-+----------+--------------+--------------+
++----------+--------------+-----------------+
+| order_id | order_amount | order_status    |
++----------+--------------+-----------------+
+| 1        | 100          | Pending Payment |
++----------+--------------+-----------------+
 1 row in set (0.01 sec)
 ```
 
@@ -124,7 +124,7 @@ Since the table order is a UNIQUE model, the rows with the same Key, after which
   |---|---|---| 
   | 1 | 100 | Pending shipments |
 
-## Update primary key column
+## Update Primary Key Column
 Currently, the Update operation only supports updating the Value column, and the update of the Key column can refer to [Using FlinkCDC to update key column](../../ecosystem/flink-doris-connector.md#Use-FlinkCDC-to-update-Key-column)
 
 ## More Help

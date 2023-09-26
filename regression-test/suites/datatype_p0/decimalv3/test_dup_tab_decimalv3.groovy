@@ -86,5 +86,8 @@ suite("test_dup_tab_decimalv3") {
     qt_select_in_pred_decimal128_key2 "select * from ${table1} where decimal128_key in(1.30000000000) order by decimal32_key"
     qt_select_in_pred_decimal128_key3 "select * from ${table1} where decimal128_key in(1.3, 1.4) order by decimal32_key"
 
+    sql "set enable_nereids_planner=true;"
+    qt_select_in_pred_decimal64_key2 "select * from ${table1} where decimal64_key in(1.20000000000) order by decimal32_key"
+
     sql "drop table if exists ${table1}"
 }

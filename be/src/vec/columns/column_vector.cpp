@@ -376,18 +376,12 @@ void ColumnVector<T>::insert_indices_from(const IColumn& src, const int* indices
     if constexpr (std::is_same_v<T, UInt8>) {
         // nullmap : indices_begin[i] == -1 means is null at the here, set true here
         for (int i = 0; i < new_size; ++i) {
-            if (i + IColumn::PREFETCH_STEP < new_size) {
-                __builtin_prefetch(&src_data[indices_begin[i + IColumn::PREFETCH_STEP]], 0, 1);
-            }
             data[origin_size + i] = (indices_begin[i] == -1) +
                                     (indices_begin[i] != -1) * src_data[indices_begin[i]];
         }
     } else {
         // real data : indices_begin[i] == -1 what at is meaningless
         for (int i = 0; i < new_size; ++i) {
-            if (i + IColumn::PREFETCH_STEP < new_size) {
-                __builtin_prefetch(&src_data[indices_begin[i + IColumn::PREFETCH_STEP]], 0, 1);
-            }
             data[origin_size + i] = src_data[indices_begin[i]];
         }
     }
@@ -551,18 +545,18 @@ ColumnPtr ColumnVector<T>::replicate(const IColumn::Offsets& offsets) const {
 }
 
 template <typename T>
-void ColumnVector<T>::replicate(const uint32_t* counts, size_t target_size, IColumn& column,
-                                size_t begin, int count_sz) const {
-    size_t size = count_sz < 0 ? data.size() : count_sz;
-    if (size == 0) return;
-
+void ColumnVector<T>::replicate(const uint32_t* __restrict indexs, size_t target_size,
+                                IColumn& column) const {
     auto& res = reinterpret_cast<ColumnVector<T>&>(column);
     typename Self::Container& res_data = res.get_data();
-    res_data.reserve(target_size);
+    DCHECK(res_data.empty());
+    res_data.resize(target_size);
+    auto* __restrict left = res_data.data();
+    auto* __restrict right = data.data();
+    auto* __restrict idxs = indexs;
 
-    size_t end = begin + size;
-    for (size_t i = begin; i < end; ++i) {
-        res_data.add_num_element_without_reserve(data[i], counts[i]);
+    for (size_t i = 0; i < target_size; ++i) {
+        left[i] = right[idxs[i]];
     }
 }
 

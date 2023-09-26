@@ -19,6 +19,8 @@ package org.apache.doris.fs;
 
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.S3Util;
 import org.apache.doris.fs.remote.BrokerFileSystem;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.fs.remote.S3FileSystem;
@@ -26,10 +28,12 @@ import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.fs.remote.dfs.JFSFileSystem;
 import org.apache.doris.fs.remote.dfs.OFSFileSystem;
 
+import com.google.common.base.Strings;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 
 import java.io.IOException;
+import java.net.URI;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -52,23 +56,48 @@ public class FileSystemFactory {
         }
     }
 
-    public static RemoteFileSystem getByLocation(String location, Configuration conf) {
-        // TODO: need optimize the method. the conf is converted many times.
+    public static Pair<FileSystemType, String> getFSIdentity(String location) {
+        FileSystemType fsType;
+        if (S3Util.isObjStorage(location)) {
+            if (S3Util.isHdfsOnOssEndpoint(location)) {
+                // if hdfs service is enabled on oss, use hdfs lib to access oss.
+                fsType = FileSystemType.DFS;
+            } else {
+                fsType = FileSystemType.S3;
+            }
+        } else if (location.startsWith(FeConstants.FS_PREFIX_HDFS) || location.startsWith(FeConstants.FS_PREFIX_GFS)
+                 || location.startsWith(FeConstants.FS_PREFIX_VIEWFS)) {
+            fsType = FileSystemType.DFS;
+        } else if (location.startsWith(FeConstants.FS_PREFIX_OFS) || location.startsWith(FeConstants.FS_PREFIX_COSN)) {
+            // ofs:// and cosn:// use the same underlying file system: Tencent Cloud HDFS, aka CHDFS)) {
+            fsType = FileSystemType.OFS;
+        } else if (location.startsWith(FeConstants.FS_PREFIX_JFS)) {
+            fsType = FileSystemType.JFS;
+        } else {
+            throw new UnsupportedOperationException("Unknown file system for location: " + location);
+        }
+
+        Path path = new Path(location);
+        URI uri = path.toUri();
+        String fsIdent = Strings.nullToEmpty(uri.getScheme()) + "://" + Strings.nullToEmpty(uri.getAuthority());
+        return Pair.of(fsType, fsIdent);
+    }
+
+    public static RemoteFileSystem getByType(FileSystemType type, Configuration conf) {
         Map<String, String> properties = new HashMap<>();
         conf.iterator().forEachRemaining(e -> properties.put(e.getKey(), e.getValue()));
-        if (location.startsWith(FeConstants.FS_PREFIX_S3)
-                || location.startsWith(FeConstants.FS_PREFIX_OSS)
-                || location.startsWith(FeConstants.FS_PREFIX_COS)
-                || location.startsWith(FeConstants.FS_PREFIX_OBS)) {
-            return new S3FileSystem(properties);
-        } else if (location.startsWith(FeConstants.FS_PREFIX_HDFS) || location.startsWith(FeConstants.FS_PREFIX_GFS)) {
-            return new DFSFileSystem(properties);
-        } else if (location.startsWith(FeConstants.FS_PREFIX_OFS)) {
-            return new OFSFileSystem(properties);
-        } else if (location.startsWith(FeConstants.FS_PREFIX_JFS)) {
-            return new JFSFileSystem(properties);
+        switch (type) {
+            case S3:
+                return new S3FileSystem(properties);
+            case DFS:
+                return new DFSFileSystem(properties);
+            case OFS:
+                return new OFSFileSystem(properties);
+            case JFS:
+                return new JFSFileSystem(properties);
+            default:
+                throw new IllegalStateException("Not supported file system type: " + type);
         }
-        throw new UnsupportedOperationException("Can not create file system for: " + location);
     }
 
     public static RemoteFileSystem getS3FileSystem(Map<String, String> properties) {

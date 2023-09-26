@@ -1,6 +1,6 @@
 ---
 {
-    "title": "width_bucket",
+    "title": "WIDTH_BUCKET",
     "language": "zh-CN"
 }
 ---

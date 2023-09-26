@@ -17,7 +17,10 @@
 
 package org.apache.doris.datasource.property;
 
+import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.InitCatalogLog.Type;
 import org.apache.doris.datasource.credentials.CloudCredential;
 import org.apache.doris.datasource.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
@@ -29,6 +32,7 @@ import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.datasource.property.constants.MinioProperties;
 import org.apache.doris.datasource.property.constants.ObsProperties;
 import org.apache.doris.datasource.property.constants.OssProperties;
+import org.apache.doris.datasource.property.constants.PaimonProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
 
 import com.aliyun.datalake.metastore.common.DataLakeConfig;
@@ -119,13 +123,38 @@ public class PropertyConverter {
         } else if (props.containsKey(MinioProperties.ENDPOINT)) {
             return convertToMinioProperties(props, MinioProperties.getCredential(props));
         } else if (props.containsKey(S3Properties.ENDPOINT)) {
-            return convertToS3Properties(props, S3Properties.getCredential(props));
+            CloudCredential s3Credential = S3Properties.getCredential(props);
+            Map<String, String> s3Properties = convertToS3Properties(props, s3Credential);
+            String s3CliEndpoint = props.get(S3Properties.ENDPOINT);
+            return convertToCompatibleS3Properties(props, s3CliEndpoint, s3Credential, s3Properties);
         } else if (props.containsKey(S3Properties.Env.ENDPOINT)) {
             // checkout env in the end
             // compatible with the s3,obs,oss,cos when they use aws client.
-            return convertToS3EnvProperties(props, S3Properties.getEnvironmentCredentialWithEndpoint(props), false);
+            CloudCredentialWithEndpoint envCredentials = S3Properties.getEnvironmentCredentialWithEndpoint(props);
+            Map<String, String> s3Properties = convertToS3EnvProperties(props, envCredentials, false);
+            String s3CliEndpoint = envCredentials.getEndpoint();
+            return convertToCompatibleS3Properties(props, s3CliEndpoint, envCredentials, s3Properties);
         }
         return props;
+    }
+
+    private static Map<String, String> convertToCompatibleS3Properties(Map<String, String> props,
+                                                                       String s3CliEndpoint,
+                                                                       CloudCredential credential,
+                                                                       Map<String, String> s3Properties) {
+        Map<String, String> heteroProps = new HashMap<>(s3Properties);
+        if (s3CliEndpoint.contains(CosProperties.COS_PREFIX)) {
+            props.putIfAbsent(CosProperties.ENDPOINT, s3CliEndpoint);
+            // CosN is not compatible with S3, when use s3 properties, will convert to cosn properties.
+            heteroProps.putAll(convertToCOSProperties(props, credential));
+        } else if (s3CliEndpoint.contains(ObsProperties.OBS_PREFIX)) {
+            props.putIfAbsent(ObsProperties.ENDPOINT, s3CliEndpoint);
+            heteroProps.putAll(convertToOBSProperties(props, credential));
+        } else if (s3CliEndpoint.contains(OssProperties.OSS_REGION_PREFIX)) {
+            props.putIfAbsent(OssProperties.ENDPOINT, s3CliEndpoint);
+            heteroProps.putAll(convertToOSSProperties(props, credential));
+        }
+        return heteroProps;
     }
 
 
@@ -134,7 +163,7 @@ public class PropertyConverter {
         Map<String, String> obsProperties = Maps.newHashMap();
         obsProperties.put(OBSConstants.ENDPOINT, props.get(ObsProperties.ENDPOINT));
         obsProperties.put(ObsProperties.FS.IMPL_DISABLE_CACHE, "true");
-        obsProperties.put("fs.obs.impl", OBSFileSystem.class.getName());
+        obsProperties.put("fs.obs.impl", getHadoopFSImplByScheme("obs"));
         if (credential.isWhole()) {
             obsProperties.put(OBSConstants.ACCESS_KEY, credential.getAccessKey());
             obsProperties.put(OBSConstants.SECRET_KEY, credential.getSecretKey());
@@ -148,6 +177,18 @@ public class PropertyConverter {
             }
         }
         return obsProperties;
+    }
+
+    public static String getHadoopFSImplByScheme(String fsScheme) {
+        if (fsScheme.equalsIgnoreCase("obs")) {
+            return OBSFileSystem.class.getName();
+        } else if (fsScheme.equalsIgnoreCase("oss")) {
+            return AliyunOSSFileSystem.class.getName();
+        } else if (fsScheme.equalsIgnoreCase("cosn")) {
+            return CosNFileSystem.class.getName();
+        } else {
+            return S3AFileSystem.class.getName();
+        }
     }
 
     private static Map<String, String> convertToS3EnvProperties(Map<String, String> properties,
@@ -178,7 +219,12 @@ public class PropertyConverter {
     }
 
     private static Map<String, String> convertToS3Properties(Map<String, String> properties,
-                                                             CloudCredential credential) {
+            CloudCredential credential) {
+        // s3 property in paimon is personalized
+        String type = properties.get(CatalogMgr.CATALOG_TYPE_PROP);
+        if (type != null && type.equalsIgnoreCase(Type.PAIMON.toString())) {
+            return PaimonProperties.convertToS3Properties(properties, credential);
+        }
         Map<String, String> s3Properties = Maps.newHashMap();
         String endpoint = properties.get(S3Properties.ENDPOINT);
         s3Properties.put(Constants.ENDPOINT, endpoint);
@@ -215,7 +261,7 @@ public class PropertyConverter {
                                       CloudCredential credential) {
         s3Properties.put(Constants.MAX_ERROR_RETRIES, "2");
         s3Properties.put("fs.s3.impl.disable.cache", "true");
-        s3Properties.put("fs.s3.impl", S3AFileSystem.class.getName());
+        s3Properties.putIfAbsent("fs.s3.impl", S3AFileSystem.class.getName());
         String defaultProviderList = String.join(",", S3Properties.AWS_CREDENTIALS_PROVIDERS);
         String credentialsProviders = s3Properties
                 .getOrDefault(S3Properties.CREDENTIALS_PROVIDER, defaultProviderList);
@@ -252,7 +298,12 @@ public class PropertyConverter {
         }
         ossProperties.put(org.apache.hadoop.fs.aliyun.oss.Constants.ENDPOINT_KEY, endpoint);
         ossProperties.put("fs.oss.impl.disable.cache", "true");
-        ossProperties.put("fs.oss.impl", AliyunOSSFileSystem.class.getName());
+        ossProperties.put("fs.oss.impl", getHadoopFSImplByScheme("oss"));
+        boolean hdfsEnabled = Boolean.parseBoolean(props.getOrDefault(OssProperties.OSS_HDFS_ENABLED, "false"));
+        if (S3Util.isHdfsOnOssEndpoint(endpoint) || hdfsEnabled) {
+            // use endpoint or enable hdfs
+            rewriteHdfsOnOssProperties(ossProperties, endpoint);
+        }
         if (credential.isWhole()) {
             ossProperties.put(org.apache.hadoop.fs.aliyun.oss.Constants.ACCESS_KEY_ID, credential.getAccessKey());
             ossProperties.put(org.apache.hadoop.fs.aliyun.oss.Constants.ACCESS_KEY_SECRET, credential.getSecretKey());
@@ -268,11 +319,27 @@ public class PropertyConverter {
         return ossProperties;
     }
 
+    private static void rewriteHdfsOnOssProperties(Map<String, String> ossProperties, String endpoint) {
+        if (!S3Util.isHdfsOnOssEndpoint(endpoint)) {
+            // just for robustness here, avoid wrong endpoint when oss-hdfs is enabled.
+            // convert "oss-cn-beijing.aliyuncs.com" to "cn-beijing.oss-dls.aliyuncs.com"
+            // reference link: https://www.alibabacloud.com/help/en/e-mapreduce/latest/oss-kusisurumen
+            String[] endpointSplit = endpoint.split("\\.");
+            if (endpointSplit.length > 0) {
+                String region = endpointSplit[0].replace("oss-", "").replace("-internal", "");
+                ossProperties.put(org.apache.hadoop.fs.aliyun.oss.Constants.ENDPOINT_KEY,
+                            region + ".oss-dls.aliyuncs.com");
+            }
+        }
+        ossProperties.put("fs.oss.impl", "com.aliyun.emr.fs.oss.JindoOssFileSystem");
+        ossProperties.put("fs.AbstractFileSystem.oss.impl", "com.aliyun.emr.fs.oss.OSS");
+    }
+
     private static Map<String, String> convertToCOSProperties(Map<String, String> props, CloudCredential credential) {
         Map<String, String> cosProperties = Maps.newHashMap();
         cosProperties.put(CosNConfigKeys.COSN_ENDPOINT_SUFFIX_KEY, props.get(CosProperties.ENDPOINT));
         cosProperties.put("fs.cosn.impl.disable.cache", "true");
-        cosProperties.put("fs.cosn.impl", CosNFileSystem.class.getName());
+        cosProperties.put("fs.cosn.impl", getHadoopFSImplByScheme("cosn"));
         if (credential.isWhole()) {
             cosProperties.put(CosNConfigKeys.COSN_SECRET_ID_KEY, credential.getAccessKey());
             cosProperties.put(CosNConfigKeys.COSN_SECRET_KEY_KEY, credential.getSecretKey());
@@ -287,8 +354,9 @@ public class PropertyConverter {
     }
 
     private static Map<String, String> convertToMinioProperties(Map<String, String> props, CloudCredential credential) {
-        // minio does not have region, use an arbitrary one.
-        props.put(MinioProperties.REGION, "us-east-1");
+        if (!props.containsKey(MinioProperties.REGION)) {
+            props.put(MinioProperties.REGION, MinioProperties.DEFAULT_REGION);
+        }
         return convertToS3Properties(S3Properties.prefixToS3(props), credential);
     }
 
@@ -368,6 +436,10 @@ public class PropertyConverter {
         if (Strings.isNullOrEmpty(uid)) {
             throw new IllegalArgumentException("Required dlf property: " + DataLakeConfig.CATALOG_USER_ID);
         }
+        if (!props.containsKey(DLFProperties.ENDPOINT)) {
+            // just display DLFProperties in catalog, and hide DataLakeConfig properties
+            putNewPropertiesForCompatibility(props, credential);
+        }
         // convert to oss property
         if (credential.isWhole()) {
             props.put(OssProperties.ACCESS_KEY, credential.getAccessKey());
@@ -379,9 +451,30 @@ public class PropertyConverter {
         String publicAccess = props.getOrDefault(DLFProperties.Site.ACCESS_PUBLIC, "false");
         String region = props.getOrDefault(DataLakeConfig.CATALOG_REGION_ID, props.get(DLFProperties.REGION));
         if (!Strings.isNullOrEmpty(region)) {
-            props.put(OssProperties.REGION, "oss-" + region);
-            props.put(OssProperties.ENDPOINT, getOssEndpoint(region, Boolean.parseBoolean(publicAccess)));
+            boolean hdfsEnabled = Boolean.parseBoolean(props.getOrDefault(OssProperties.OSS_HDFS_ENABLED, "false"));
+            if (hdfsEnabled) {
+                props.putIfAbsent("fs.oss.impl", "com.aliyun.emr.fs.oss.JindoOssFileSystem");
+                props.putIfAbsent(OssProperties.REGION, region);
+                // example: cn-shanghai.oss-dls.aliyuncs.com
+                // from https://www.alibabacloud.com/help/en/e-mapreduce/latest/oss-kusisurumen
+                props.putIfAbsent(OssProperties.ENDPOINT, region + ".oss-dls.aliyuncs.com");
+            } else {
+                props.putIfAbsent(OssProperties.REGION, "oss-" + region);
+                props.putIfAbsent(OssProperties.ENDPOINT, getOssEndpoint(region, Boolean.parseBoolean(publicAccess)));
+            }
         }
+    }
+
+    private static void putNewPropertiesForCompatibility(Map<String, String> props, CloudCredential credential) {
+        props.put(DLFProperties.UID, props.get(DataLakeConfig.CATALOG_USER_ID));
+        String endpoint = props.get(DataLakeConfig.CATALOG_ENDPOINT);
+        props.put(DLFProperties.ENDPOINT, endpoint);
+        props.put(DLFProperties.REGION, props.getOrDefault(DataLakeConfig.CATALOG_REGION_ID,
+                S3Properties.getRegionOfEndpoint(endpoint)));
+        props.put(DLFProperties.PROXY_MODE, props.getOrDefault(DataLakeConfig.CATALOG_PROXY_MODE, "DLF_ONLY"));
+        props.put(DLFProperties.ACCESS_KEY, credential.getAccessKey());
+        props.put(DLFProperties.SECRET_KEY, credential.getSecretKey());
+        props.put(DLFProperties.ACCESS_PUBLIC, props.getOrDefault(DLFProperties.Site.ACCESS_PUBLIC, "false"));
     }
 
     private static String getOssEndpoint(String region, boolean publicAccess) {

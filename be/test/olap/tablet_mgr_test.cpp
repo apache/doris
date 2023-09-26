@@ -41,6 +41,7 @@
 #include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
+#include "runtime/exec_env.h"
 #include "util/uid_util.h"
 
 using ::testing::_;
@@ -66,6 +67,7 @@ public:
         // won't open engine, options.path is needless
         options.backend_uid = UniqueId::gen_uid();
         k_engine = new StorageEngine(options);
+        ExecEnv::GetInstance()->set_storage_engine(k_engine);
         _data_dir = new DataDir(_engine_data_path, 1000000000);
         _data_dir->init();
         _tablet_mgr = k_engine->tablet_manager();
@@ -77,6 +79,7 @@ public:
         if (k_engine != nullptr) {
             k_engine->stop();
         }
+        ExecEnv::GetInstance()->set_storage_engine(nullptr);
         SAFE_DELETE(k_engine);
         _tablet_mgr = nullptr;
     }
@@ -109,7 +112,8 @@ TEST_F(TabletMgrTest, CreateTablet) {
     create_tablet_req.__set_version(2);
     std::vector<DataDir*> data_dirs;
     data_dirs.push_back(_data_dir);
-    Status create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
+    RuntimeProfile profile("CreateTablet");
+    Status create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs, &profile);
     EXPECT_TRUE(create_st == Status::OK());
     TabletSharedPtr tablet = _tablet_mgr->get_tablet(111);
     EXPECT_TRUE(tablet != nullptr);
@@ -123,7 +127,7 @@ TEST_F(TabletMgrTest, CreateTablet) {
     EXPECT_TRUE(check_meta_st == Status::OK());
 
     // retry create should be successfully
-    create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
+    create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs, &profile);
     EXPECT_TRUE(create_st == Status::OK());
 
     Status drop_st = _tablet_mgr->drop_tablet(111, create_tablet_req.replica_id, false);
@@ -155,6 +159,7 @@ TEST_F(TabletMgrTest, CreateTabletWithSequence) {
     col3.__set_aggregation_type(TAggregationType::REPLACE);
     cols.push_back(col3);
 
+    RuntimeProfile profile("CreateTablet");
     TTabletSchema tablet_schema;
     tablet_schema.__set_short_key_column_count(1);
     tablet_schema.__set_schema_hash(3333);
@@ -168,7 +173,7 @@ TEST_F(TabletMgrTest, CreateTabletWithSequence) {
     create_tablet_req.__set_version(2);
     std::vector<DataDir*> data_dirs;
     data_dirs.push_back(_data_dir);
-    Status create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
+    Status create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs, &profile);
     EXPECT_TRUE(create_st == Status::OK());
 
     TabletSharedPtr tablet = _tablet_mgr->get_tablet(111);
@@ -190,6 +195,7 @@ TEST_F(TabletMgrTest, CreateTabletWithSequence) {
 }
 
 TEST_F(TabletMgrTest, DropTablet) {
+    RuntimeProfile profile("CreateTablet");
     TColumnType col_type;
     col_type.__set_type(TPrimitiveType::SMALLINT);
     TColumn col1;
@@ -210,7 +216,7 @@ TEST_F(TabletMgrTest, DropTablet) {
     create_tablet_req.__set_version(2);
     std::vector<DataDir*> data_dirs;
     data_dirs.push_back(_data_dir);
-    Status create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
+    Status create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs, &profile);
     EXPECT_TRUE(create_st == Status::OK());
     TabletSharedPtr tablet = _tablet_mgr->get_tablet(111);
     EXPECT_TRUE(tablet != nullptr);

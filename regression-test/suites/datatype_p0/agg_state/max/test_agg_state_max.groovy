@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_agg_state_max") {
+    sql "set global enable_agg_state=true"
     sql """ DROP TABLE IF EXISTS a_table; """
     sql """
             create table a_table(

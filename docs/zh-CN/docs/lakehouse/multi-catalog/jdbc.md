@@ -35,6 +35,13 @@ JDBC Catalog 通过标准 JDBC 协议，连接其他数据源。
 
 支持 MySQL、PostgreSQL、Oracle、SQLServer、Clickhouse、Doris、SAP HANA、Trino/Presto、OceanBase
 
+## 语法
+    
+```sql
+CREATE CATALOG <catalog_name>
+PROPERTIES ("key"="value", ...)
+```
+
 ## 参数说明
 
 | 参数                      | 必须 | 默认值  | 说明                                                                                          |
@@ -49,17 +56,34 @@ JDBC Catalog 通过标准 JDBC 协议，连接其他数据源。
 | `include_database_list`   | 否   | ""      | 当only_specified_database=true时，指定同步多个database，以','分隔。db名称是大小写敏感的。         |
 | `exclude_database_list`   | 否   | ""      | 当only_specified_database=true时，指定不需要同步的多个database，以','分割。db名称是大小写敏感的。 |
 
-:::tip
+### 驱动包路径
+
 `driver_url` 可以通过以下三种方式指定：
 
 1. 文件名。如 `mysql-connector-java-5.1.47.jar`。需将 Jar 包预先存放在 FE 和 BE 部署目录的 `jdbc_drivers/` 目录下。系统会自动在这个目录下寻找。该目录的位置，也可以由 fe.conf 和 be.conf 中的 `jdbc_drivers_dir` 配置修改。
 
 2. 本地绝对路径。如 `file:///path/to/mysql-connector-java-5.1.47.jar`。需将 Jar 包预先存放在所有 FE/BE 节点指定的路径下。
 
-3. Http 地址。如：`https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-5.1.47.jar`。系统会从这个 http 地址下载 Driver 文件。仅支持无认证的 http 服务。
-:::
+3. Http 地址。如：`https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar`。系统会从这个 http 地址下载 Driver 文件。仅支持无认证的 http 服务。
 
-:::tip
+### 小写表名同步
+
+当 `lower_case_table_names` 设置为 `true` 时，Doris 通过维护小写名称到远程系统中实际名称的映射，能够查询非小写的数据库和表
+
+**注意：**
+
+1. 在 Doris 2.0.3 之前的版本，仅对 Oracle 数据库有效，在查询时，会将所有的库名和表名转换为大写，再去查询 Oracle，例如：
+
+    Oracle 在 TEST 空间下有 TEST 表，Doris 创建 Catalog 时设置 `lower_case_table_names` 为 `true`，则 Doris 可以通过 `select * from oracle_catalog.test.test` 查询到 TEST 表，Doris 会自动将 test.test 格式化成 TEST.TEST 下发到 Oracle，需要注意的是这是个默认行为，也意味着不能查询 Oracle 中小写的表名。
+
+    对于其他数据库，仍需要在查询时指定真实的库名和表名。
+
+2. 在 Doris 2.0.3 及之后的版本，对所有的数据库都有效，在查询时，会将所有的库名和表名转换为真实的名称，再去查询，如果是从老版本升级到 2.0.3 ，需要 `Refresh <catalog_name>` 才能生效。
+
+   但是，如果数据库或者表名只有大小写不同，例如 `Doris` 和 `doris`，则 Doris 由于歧义而无法查询它们。
+
+### 指定同步数据库
+
 `only_specified_database`:
 在jdbc连接时可以指定链接到哪个database/schema, 如：mysql中jdbc_url中可以指定database, pg的jdbc_url中可以指定currentSchema。
 
@@ -72,7 +96,6 @@ JDBC Catalog 通过标准 JDBC 协议，连接其他数据源。
 当 `include_database_list` 和 `exclude_database_list` 有重合的database配置时，`exclude_database_list`会优先生效。
 
 如果使用该参数时连接oracle数据库，要求使用ojdbc8.jar以上版本jar包。
-:::
 
 ## 数据查询
 
@@ -89,7 +112,14 @@ select * from mysql_catalog.mysql_database.mysql_table where k1 > 1000 and k3 ='
 
 1. 当执行类似于 `where dt = '2022-01-01'` 这样的查询时，Doris 能够将这些过滤条件下推到外部数据源，从而直接在数据源层面排除不符合条件的数据，减少了不必要的数据获取和传输。这大大提高了查询性能，同时也降低了对外部数据源的负载。
    
-2. 当 `enable_func_pushdown` 设置为true，会将 where 之后的函数条件也下推到外部数据源，目前仅支持 MySQL，如遇到 MySQL 不支持的函数，可以将此参数设置为 false。
+2. 当 `enable_func_pushdown` 设置为true，会将 where 之后的函数条件也下推到外部数据源，目前仅支持 MySQL，如遇到 MySQL 不支持的函数，可以将此参数设置为 false，目前 Doris 会自动识别部分 MySQL 不支持的函数进行下推条件过滤，可通过 explain sql 查看。
+
+目前不会下推的函数有：
+
+|    MYSQL     |
+|:------------:|
+|  DATE_TRUNC  |
+| MONEY_FORMAT |
 
 ### 行数限制
 
@@ -160,7 +190,7 @@ CREATE CATALOG jdbc_mysql PROPERTIES (
 
 | MYSQL Type                                | Doris Type     | Comment                                         |
 |-------------------------------------------|----------------|-------------------------------------------------|
-| BOOLEAN                                   | BOOLEAN        |                                                 |
+| BOOLEAN                                   | TINYINT        |                                                 |
 | TINYINT                                   | TINYINT        |                                                 |
 | SMALLINT                                  | SMALLINT       |                                                 |
 | MEDIUMINT                                 | INT            |                                                 |
@@ -180,7 +210,7 @@ CREATE CATALOG jdbc_mysql PROPERTIES (
 | TIME                                      | STRING         |                                                 |
 | CHAR                                      | CHAR           |                                                 |
 | VARCHAR                                   | VARCHAR        |                                                 |
-| JSON                                      | STRING         |                                                 |
+| JSON                                      | JSON           |                                                 |
 | SET                                       | STRING         |                                                 |
 | BIT                                       | BOOLEAN/STRING | BIT(1) 会映射为 BOOLEAN,其他 BIT 映射为 STRING  |
 | TINYTEXT、TEXT、MEDIUMTEXT、LONGTEXT         | STRING         |                                                 |
@@ -236,12 +266,13 @@ Doris 通过sql 语句 `select nspname from pg_namespace where has_schema_privil
  | varchar/text                            | STRING         |                                               |
  | timestamp                               | DATETIME       |                                               |
  | date                                    | DATE           |                                               |
+ | json/josnb                              | JSON           |                                               |
  | time                                    | STRING         |                                               |
  | interval                                | STRING         |                                               |
  | point/line/lseg/box/path/polygon/circle | STRING         |                                               |
  | cidr/inet/macaddr                       | STRING         |                                               |
  | bit                                     | BOOLEAN/STRING | bit(1)会映射为 BOOLEAN,其他 bit 映射为 STRING |
- | uuid/josnb                              | STRING         |                                               |
+ | uuid                                    | STRING         |                                               |
  | Other                                   | UNSUPPORTED    |                                               |
 
 ### Oracle
@@ -254,7 +285,7 @@ CREATE CATALOG jdbc_oracle PROPERTIES (
     "user"="root",
     "password"="123456",
     "jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:1521:helowin",
-    "driver_url" = "ojdbc6.jar",
+    "driver_url" = "ojdbc8.jar",
     "driver_class" = "oracle.jdbc.driver.OracleDriver"
 );
 ```
@@ -268,6 +299,8 @@ CREATE CATALOG jdbc_oracle PROPERTIES (
 | Catalog  | Database |
 | Database |   User   |
 |  Table   |  Table   |
+
+**注意：** 当前不支持同步 Oracle 的 SYNONYM TABLE
 
 #### 类型映射
 
@@ -337,6 +370,8 @@ CREATE CATALOG jdbc_sqlserve PROPERTIES (
 
 Jdbc Catalog也支持连接另一个Doris数据库：
 
+* mysql 5.7 Driver
+
 ```sql
 CREATE CATALOG jdbc_doris PROPERTIES (
     "type"="jdbc",
@@ -345,10 +380,21 @@ CREATE CATALOG jdbc_doris PROPERTIES (
     "jdbc_url" = "jdbc:mysql://127.0.0.1:9030?useSSL=false",
     "driver_url" = "mysql-connector-java-5.1.47.jar",
     "driver_class" = "com.mysql.jdbc.Driver"
-);
+)
 ```
 
-**注意：** 目前 Jdbc Catalog 连接一个 Doris 数据库只支持用 5.x 版本的 jdbc jar 包。如果使用 8.x jdbc jar 包，可能会出现列类型无法匹配问题。
+* mysql 8 Driver
+
+```sql
+CREATE CATALOG jdbc_doris PROPERTIES (
+    "type"="jdbc",
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:mysql://127.0.0.1:9030?useSSL=false",
+    "driver_url" = "mysql-connector-java-8.0.25.jar",
+    "driver_class" = "com.mysql.cj.jdbc.Driver"
+)
+```
 
 #### 类型映射
 
@@ -369,7 +415,9 @@ CREATE CATALOG jdbc_doris PROPERTIES (
 | VARCHAR    | VARCHAR                |                                                      |
 | STRING     | STRING                 |                                                      |
 | TEXT       | STRING                 |                                                      |
-| HLL        | HLL                    | 查询HLL需要设置`return_object_data_as_binary=true`   |
+| HLL        | HLL                    | 查询HLL需要设置`return_object_data_as_binary=true`     |
+| Array      | Array                  | Array内部类型适配逻辑参考上述类型，不支持嵌套复杂类型        |
+| BITMAP     | BITMAP                 | 查询BITMAP需要设置`return_object_data_as_binary=true`  |
 | Other      | UNSUPPORTED            |                                                      |
 
 ### Clickhouse
@@ -491,7 +539,7 @@ CREATE CATALOG jdbc_presto PROPERTIES (
     "password"="",
     "jdbc_url" = "jdbc:presto://localhost:9000/hive",
     "driver_url" = "presto-jdbc-0.280.jar",
-    "driver_class" = "io.prestosql.jdbc.PrestoDriver"
+    "driver_class" = "com.facebook.presto.jdbc.PrestoDriver"
 );
 ```
 
@@ -544,6 +592,74 @@ CREATE CATALOG jdbc_oceanbase PROPERTIES (
 :::tip
  Doris 在连接 OceanBase 时，会自动识别 OceanBase 处于 MySQL 或者 Oracle 模式，层级对应和类型映射参考 [MySQL](#MySQL) 与 [Oracle](#Oracle)
 :::
+
+### 查看 JDBC Catalog
+
+可以通过 SHOW CATALOGS 查询当前所在 Doris 集群里所有 Catalog：
+
+```sql
+SHOW CATALOGS;
+```
+
+通过 SHOW CREATE CATALOG 查询某个 Catalog 的创建语句：
+
+```sql
+SHOW CREATE CATALOG <catalog_name>;
+```
+
+### 删除 JDBC Catalog
+
+可以通过 DROP CATALOG 删除某个 Catalog：
+
+```sql
+DROP CATALOG <catalog_name>;
+```
+
+### 查询 JDBC Catalog
+
+1. 通过 SWITCH 切换当前会话生效的 Catalog：
+
+    ```sql
+    SWITCH <catalog_name>;
+    ```
+
+2. 通过 SHOW DATABASES 查询当前 Catalog 下的所有库：
+
+    ```sql
+    SHOW DATABASES FROM <catalog_name>;
+    ```
+
+    ```sql
+    SHOW DATABASES;
+    ```
+
+3. 通过 USE 切换当前会话生效的 Database：
+
+    ```sql
+    USE <database_name>;
+    ```
+
+    或者直接通过 `USE <catalog_name>.<database_name>;` 切换当前会话生效的 Database
+
+4. 通过 SHOW TABLES 查询当前 Catalog 下的所有表：
+
+    ```sql
+    SHOW TABLES FROM <catalog_name>.<database_name>;
+    ```
+
+    ```sql
+    SHOW TABLES FROM <database_name>;
+    ```
+
+    ```sql
+    SHOW TABLES;
+    ```
+
+5. 通过 SELECT 查询当前 Catalog 下的某个表的数据：
+
+    ```sql
+    SELECT * FROM <table_name>;
+    ```
 
 ## 常见问题
 
@@ -683,3 +799,13 @@ CREATE CATALOG jdbc_oceanbase PROPERTIES (
     这是因为 JDBC 并不能处理 0000-00-00 00:00:00 这种时间格式，
     需要在创建 Catalog 的 `jdbc_url` 把JDBC连接串最后增加 `zeroDateTimeBehavior=convertToNull` ,如 `"jdbc_url" = "jdbc:mysql://127.0.0.1:3306/test?zeroDateTimeBehavior=convertToNull"`
     这种情况下，JDBC 会把 0000-00-00 00:00:00 转换成 null，然后 Doris 会把 DateTime 类型的列按照可空类型处理，这样就可以正常读取了。
+
+12. 读取 Oracle 出现 `Non supported character set (add orai18n.jar in your classpath): ZHS16GBK` 异常
+    
+    下载 [orai18n.jar](https://www.oracle.com/database/technologies/appdev/jdbc-downloads.html) 并放到 Doris FE 的 lib 目录以及 BE 的 lib/java_extensions 目录 (Doris 2.0 之前的版本需放到 BE 的 lib 目录下) 下即可。
+
+    从 2.0.2 版本起，可以将这个文件放置在BE的 `custom_lib/` 目录下（如不存在，手动创建即可），以防止升级集群时因为 lib 目录被替换而导致文件丢失。
+
+13. 通过jdbc catalog 读取Clickhouse数据出现`NoClassDefFoundError: net/jpountz/lz4/LZ4Factory` 错误信息
+    
+    可以先下载[lz4-1.3.0.jar](https://repo1.maven.org/maven2/net/jpountz/lz4/lz4/1.3.0/lz4-1.3.0.jar)包，然后放到DorisFE lib 目录以及BE 的 `lib/lib/java_extensions`目录中（Doris 2.0 之前的版本需放到 BE 的 lib 目录下）。

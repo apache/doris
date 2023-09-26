@@ -70,11 +70,11 @@ public:
     Status pull(RuntimeState* state, Block* output_block, bool* eos) override;
 
     Status sink_probe(RuntimeState* state, int child_id, Block* block, bool eos);
-    Status finalize_probe(RuntimeState* state, int child_id);
 
     bool is_child_finished(int child_id) const;
 
 private:
+    void _finalize_probe(int child_id);
     //Todo: In build process of hashtable, It's same as join node.
     //It's time to abstract out the same methods and provide them directly to others;
     void hash_table_init();

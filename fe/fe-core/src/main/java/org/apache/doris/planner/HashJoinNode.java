@@ -747,7 +747,7 @@ public class HashJoinNode extends JoinNodeBase {
             output.append(detailPrefix).append(
                     String.format("cardinality=%,d", cardinality)).append("\n");
             if (!runtimeFilters.isEmpty()) {
-                output.append(detailPrefix).append("Build RFs: ");
+                output.append(detailPrefix).append("runtime filters: ");
                 output.append(getRuntimeFilterExplainString(true, true));
             }
             return output.toString();

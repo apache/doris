@@ -63,6 +63,8 @@ public class ExchangeNode extends PlanNode {
     // exchange node. Null if this exchange does not merge sorted streams
     private SortInfo mergeInfo;
 
+    private boolean isRightChildOfBroadcastHashJoin = false;
+
     /**
      * use for Nereids only.
      */
@@ -108,15 +110,21 @@ public class ExchangeNode extends PlanNode {
     public final void computeTupleIds() {
         PlanNode inputNode = getChild(0);
         TupleDescriptor outputTupleDesc = inputNode.getOutputTupleDesc();
+        updateTupleIds(outputTupleDesc);
+    }
+
+    public void updateTupleIds(TupleDescriptor outputTupleDesc) {
         if (outputTupleDesc != null) {
             tupleIds.clear();
             tupleIds.add(outputTupleDesc.getId());
+            tblRefIds.add(outputTupleDesc.getId());
+            nullableTupleIds.add(outputTupleDesc.getId());
         } else {
             clearTupleIds();
             tupleIds.addAll(getChild(0).getTupleIds());
+            tblRefIds.addAll(getChild(0).getTblRefIds());
+            nullableTupleIds.addAll(getChild(0).getNullableTupleIds());
         }
-        tblRefIds.addAll(getChild(0).getTblRefIds());
-        nullableTupleIds.addAll(getChild(0).getNullableTupleIds());
     }
 
     @Override
@@ -137,6 +145,10 @@ public class ExchangeNode extends PlanNode {
         if (LOG.isDebugEnabled()) {
             LOG.debug("stats Exchange:" + id + ", cardinality: " + cardinality);
         }
+    }
+
+    public SortInfo getMergeInfo() {
+        return mergeInfo;
     }
 
     /**
@@ -177,5 +189,13 @@ public class ExchangeNode extends PlanNode {
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         return prefix + "offset: " + offset + "\n";
+    }
+
+    public boolean isRightChildOfBroadcastHashJoin() {
+        return isRightChildOfBroadcastHashJoin;
+    }
+
+    public void setRightChildOfBroadcastHashJoin(boolean value) {
+        isRightChildOfBroadcastHashJoin = value;
     }
 }

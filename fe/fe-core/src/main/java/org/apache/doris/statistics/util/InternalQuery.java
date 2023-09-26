@@ -24,7 +24,6 @@ import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -38,7 +37,7 @@ import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.RowBatch;
-import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
+import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TResultBatch;
@@ -50,9 +49,9 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.StringReader;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 /**
  * Execute SQL query statements internally(in FE). Internal-query mainly used for statistics module,
@@ -87,7 +86,7 @@ public class InternalQuery {
      * @return Result of the query statement
      * @throws Exception Errors in parsing or execution
      */
-    public InternalQueryResult query() throws Exception {
+    public List<ResultRow> query() throws Exception {
         // step1: mock connectContext
         buildContext();
 
@@ -180,14 +179,9 @@ public class InternalQuery {
         }
     }
 
-    private InternalQueryResult fetchResult() {
+    private List<ResultRow> fetchResult() {
         List<String> columns = stmt.getColLabels();
-        List<PrimitiveType> types = stmt.getResultExprs().stream()
-                .map(e -> e.getType().getPrimitiveType())
-                .collect(Collectors.toList());
-
-        InternalQueryResult result = new InternalQueryResult();
-        List<ResultRow> resultRows = result.getResultRows();
+        List<ResultRow> resultRows = new ArrayList<>();
 
         for (TResultBatch batch : resultBatches) {
             List<ByteBuffer> rows = batch.getRows();
@@ -200,12 +194,11 @@ public class InternalQuery {
                     values.add(value);
                 }
 
-                ResultRow resultRow = new ResultRow(columns, types, values);
+                ResultRow resultRow = new ResultRow(values);
                 resultRows.add(resultRow);
             }
         }
-
-        return result;
+        return resultRows;
     }
 
     public void cancel() {

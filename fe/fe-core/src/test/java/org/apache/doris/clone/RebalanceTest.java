@@ -196,7 +196,7 @@ public class RebalanceTest {
 
     @Test
     public void testPrioBackends() {
-        Rebalancer rebalancer = new DiskRebalancer(Env.getCurrentSystemInfo(), Env.getCurrentInvertedIndex());
+        Rebalancer rebalancer = new DiskRebalancer(Env.getCurrentSystemInfo(), Env.getCurrentInvertedIndex(), null);
         // add
         { // CHECKSTYLE IGNORE THIS LINE
             List<Backend> backends = Lists.newArrayList();
@@ -232,7 +232,7 @@ public class RebalanceTest {
         // Call runAfterCatalogReady manually instead of starting daemon thread
         TabletSchedulerStat stat = new TabletSchedulerStat();
         PartitionRebalancer rebalancer = new PartitionRebalancer(Env.getCurrentSystemInfo(),
-                Env.getCurrentInvertedIndex());
+                Env.getCurrentInvertedIndex(), null);
         TabletScheduler tabletScheduler = new TabletScheduler(env, systemInfoService, invertedIndex, stat, "");
         // The rebalancer inside the scheduler will use this rebalancer, for getToDeleteReplicaId
         Deencapsulation.setField(tabletScheduler, "rebalancer", rebalancer);
@@ -256,7 +256,7 @@ public class RebalanceTest {
                 tabletCtx.setTabletStatus(Tablet.TabletStatus.HEALTHY); // rebalance tablet should be healthy first
 
                 // createCloneReplicaAndTask, create replica will change invertedIndex too.
-                AgentTask task = rebalancer.createBalanceTask(tabletCtx, tabletScheduler.getBackendsWorkingSlots());
+                AgentTask task = rebalancer.createBalanceTask(tabletCtx);
                 batchTask.addTask(task);
             } catch (SchedException e) {
                 LOG.warn("schedule tablet {} failed: {}", tabletCtx.getTabletId(), e.getMessage());
@@ -307,8 +307,8 @@ public class RebalanceTest {
             Replica decommissionedReplica = replicas.stream()
                     .filter(r -> r.getState() == Replica.ReplicaState.DECOMMISSION)
                     .collect(MoreCollectors.onlyElement());
-            // expected watermarkTxnId is 111
-            Assert.assertEquals(111, decommissionedReplica.getWatermarkTxnId());
+            Assert.assertEquals(111, decommissionedReplica.getPreWatermarkTxnId());
+            Assert.assertEquals(112, decommissionedReplica.getPostWatermarkTxnId());
         });
 
         // Delete replica should change invertedIndex too

@@ -27,4 +27,12 @@ suite("test_decimalv3") {
 
 	qt_decimalv3 "select * from test5_v"
 	qt_decimalv3 "select cast(a as decimalv3(12,10)) * cast(b as decimalv3(18,10)) from test5"
+
+	sql "set experimental_enable_nereids_planner =false;"
+	qt_aEb_test1 "select 0e0;"
+	qt_aEb_test2 "select 1e-1"
+	qt_aEb_test3 "select -1e-2"
+	qt_aEb_test4 "select 10.123456e10;"
+	qt_aEb_test5 "select 123456789e-10"
+	qt_aEb_test6 "select 0.123445e10;"
 }

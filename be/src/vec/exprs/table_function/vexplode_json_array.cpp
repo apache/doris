@@ -22,8 +22,11 @@
 #include <stdio.h>
 
 #include <algorithm>
+#include <limits>
 
 #include "common/status.h"
+#include "rapidjson/stringbuffer.h"
+#include "rapidjson/writer.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -34,6 +37,8 @@ namespace doris::vectorized {
 
 std::string ParsedData::true_value = "true";
 std::string ParsedData::false_value = "false";
+auto max_value = std::numeric_limits<int64_t>::max(); //9223372036854775807
+auto min_value = std::numeric_limits<int64_t>::min(); //-9223372036854775808
 
 int ParsedData::set_output(ExplodeJsonArrayType type, rapidjson::Document& document) {
     int size = document.GetArray().Size();
@@ -45,6 +50,24 @@ int ParsedData::set_output(ExplodeJsonArrayType type, rapidjson::Document& docum
         for (auto& v : document.GetArray()) {
             if (v.IsInt64()) {
                 _backup_int[i] = v.GetInt64();
+                _data[i] = &_backup_int[i];
+            } else if (v.IsUint64()) {
+                auto value = v.GetUint64();
+                if (value > max_value) {
+                    _backup_int[i] = max_value;
+                } else {
+                    _backup_int[i] = value;
+                }
+                _data[i] = &_backup_int[i];
+            } else if (v.IsDouble()) {
+                auto value = v.GetDouble();
+                if (value > max_value) {
+                    _backup_int[i] = max_value;
+                } else if (value < min_value) {
+                    _backup_int[i] = min_value;
+                } else {
+                    _backup_int[i] = value;
+                }
                 _data[i] = &_backup_int[i];
             } else {
                 _data[i] = nullptr;
@@ -125,6 +148,29 @@ int ParsedData::set_output(ExplodeJsonArrayType type, rapidjson::Document& docum
         }
         break;
     }
+    case ExplodeJsonArrayType::JSON: {
+        _data_string.clear();
+        _backup_string.clear();
+        _string_nulls.clear();
+        for (auto& v : document.GetArray()) {
+            if (v.IsObject()) {
+                rapidjson::StringBuffer buffer;
+                rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+                v.Accept(writer);
+                _backup_string.emplace_back(buffer.GetString(), buffer.GetSize());
+                _string_nulls.push_back(false);
+            } else {
+                _data_string.push_back({});
+                _string_nulls.push_back(true);
+            }
+        }
+        // Must set _data_string at the end, so that we can
+        // save the real addr of string in `_backup_string` to `_data_string`.
+        for (auto& str : _backup_string) {
+            _data_string.emplace_back(str);
+        }
+        break;
+    }
     default:
         CHECK(false) << type;
         break;
@@ -137,7 +183,7 @@ VExplodeJsonArrayTableFunction::VExplodeJsonArrayTableFunction(ExplodeJsonArrayT
     _fn_name = "vexplode_json_array";
 }
 
-Status VExplodeJsonArrayTableFunction::process_init(Block* block) {
+Status VExplodeJsonArrayTableFunction::process_init(Block* block, RuntimeState* state) {
     CHECK(_expr_context->root()->children().size() == 1)
             << _expr_context->root()->children().size();
 

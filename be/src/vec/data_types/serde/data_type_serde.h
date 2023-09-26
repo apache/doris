@@ -26,8 +26,12 @@
 #include "common/status.h"
 #include "util/jsonb_writer.h"
 #include "util/mysql_row_buffer.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/common/pod_array.h"
 #include "vec/common/pod_array_fwd.h"
+#include "vec/common/string_buffer.hpp"
 #include "vec/core/types.h"
+#include "vec/io/reader_buffer.h"
 
 namespace arrow {
 class ArrayBuilder;
@@ -36,6 +40,33 @@ class Array;
 namespace cctz {
 class time_zone;
 } // namespace cctz
+
+#define SERIALIZE_COLUMN_TO_JSON()                                            \
+    for (size_t i = start_idx; i < end_idx; ++i) {                            \
+        if (i != start_idx) {                                                 \
+            bw.write(options.field_delim.data(), options.field_delim.size()); \
+        }                                                                     \
+        serialize_one_cell_to_json(column, i, bw, options);                   \
+    }
+
+#define DESERIALIZE_COLUMN_FROM_JSON_VECTOR()                                                      \
+    for (int i = 0; i < slices.size(); ++i) {                                                      \
+        if (Status st = deserialize_one_cell_from_json(column, slices[i], options, nesting_level); \
+            st != Status::OK()) {                                                                  \
+            return st;                                                                             \
+        }                                                                                          \
+        ++*num_deserialized;                                                                       \
+    }
+
+#define DESERIALIZE_COLUMN_FROM_HIVE_TEXT_VECTOR()                                      \
+    for (int i = 0; i < slices.size(); ++i) {                                           \
+        if (Status st = deserialize_one_cell_from_hive_text(column, slices[i], options, \
+                                                            nesting_level);             \
+            st != Status::OK()) {                                                       \
+            return st;                                                                  \
+        }                                                                               \
+        ++*num_deserialized;                                                            \
+    }
 
 namespace doris {
 class PValues;
@@ -58,8 +89,111 @@ class IDataType;
 
 class DataTypeSerDe {
 public:
+    // Text serialization/deserialization of data types depend on some settings witch we define
+    // in formatOptions.
+    struct FormatOptions {
+        /**
+         * if true, we will use olap format which defined in src/olap/types.h, but we do not suggest
+         * use this format in olap, because it is more slower, keep this option is for compatibility.
+         */
+        bool date_olap_format = false;
+        /**
+         * field delimiter is used to separate fields in one row
+         */
+        std::string field_delim = ",";
+        /**
+         * collection_delim is used to separate elements in collection, such as array, map
+         */
+        char collection_delim = ',';
+        /**
+         * map_key_delim is used to separate key and value in map , eg. key:value
+         */
+        char map_key_delim = ':';
+        /**
+         * used in deserialize with text format, if the element is packed in string using "" or '', but not string type, and this switch is open
+         *  we can convert the string to the element type, such as int, float, double, date, datetime, timestamp, decimal
+         *  by dropping the "" or ''.
+         */
+        bool converted_from_string = false;
+
+        char escape_char = 0;
+
+        [[nodiscard]] char get_collection_delimiter(int nesting_level) const {
+            CHECK(0 <= nesting_level && nesting_level <= 153);
+
+            char ans = '\002';
+            //https://github.com/apache/hive/blob/master/serde/src/java/org/apache/hadoop/hive/serde2/lazy/LazySerDeParameters.java#L250
+            //use only control chars that are very unlikely to be part of the string
+            // the following might/likely to be used in text files for strings
+            // 9 (horizontal tab, HT, \t, ^I)
+            // 10 (line feed, LF, \n, ^J),
+            // 12 (form feed, FF, \f, ^L),
+            // 13 (carriage return, CR, \r, ^M),
+            // 27 (escape, ESC, \e [GCC only], ^[).
+
+            if (nesting_level == 1) {
+                ans = collection_delim;
+            } else if (nesting_level == 2) {
+                ans = map_key_delim;
+            } else if (nesting_level <= 7) {
+                // [3, 7] -> [4, 8]
+                ans = nesting_level + 1;
+            } else if (nesting_level == 8) {
+                // [8] -> [11]
+                ans = 11;
+            } else if (nesting_level <= 21) {
+                // [9, 21] -> [14, 26]
+                ans = nesting_level + 5;
+            } else if (nesting_level <= 25) {
+                // [22, 25] -> [28, 31]
+                ans = nesting_level + 6;
+            } else if (nesting_level <= 153) {
+                // [26, 153] -> [-128, -1]
+                ans = nesting_level + (-26 - 128);
+            }
+
+            return ans;
+        }
+    };
+
+public:
     DataTypeSerDe();
     virtual ~DataTypeSerDe();
+    // Text serializer and deserializer with formatOptions to handle different text format
+    virtual void serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
+                                            FormatOptions& options) const = 0;
+
+    // this function serialize multi-column to one row text to avoid virtual function call in complex type nested loop
+    virtual void serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
+                                          BufferWritable& bw, FormatOptions& options) const = 0;
+
+    virtual Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
+                                                  const FormatOptions& options,
+                                                  int nesting_level = 1) const = 0;
+    // deserialize text vector is to avoid virtual function call in complex type nested loop
+    virtual Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
+                                                       int* num_deserialized,
+                                                       const FormatOptions& options,
+                                                       int nesting_level = 1) const = 0;
+
+    virtual Status deserialize_one_cell_from_hive_text(IColumn& column, Slice& slice,
+                                                       const FormatOptions& options,
+                                                       int nesting_level = 1) const {
+        return deserialize_one_cell_from_json(column, slice, options, nesting_level);
+    };
+    virtual Status deserialize_column_from_hive_text_vector(IColumn& column,
+                                                            std::vector<Slice>& slices,
+                                                            int* num_deserialized,
+                                                            const FormatOptions& options,
+                                                            int nesting_level = 1) const {
+        return deserialize_column_from_json_vector(column, slices, num_deserialized, options,
+                                                   nesting_level);
+    };
+    virtual void serialize_one_cell_to_hive_text(const IColumn& column, int row_num,
+                                                 BufferWritable& bw, FormatOptions& options,
+                                                 int nesting_level = 1) const {
+        serialize_one_cell_to_json(column, row_num, bw, options);
+    }
 
     // Protobuf serializer and deserializer
     virtual Status write_column_to_pb(const IColumn& column, PValues& result, int start,
@@ -88,7 +222,7 @@ public:
     // JSON serializer and deserializer
 
     // Arrow serializer and deserializer
-    virtual void write_column_to_arrow(const IColumn& column, const UInt8* null_map,
+    virtual void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                        arrow::ArrayBuilder* array_builder, int start,
                                        int end) const = 0;
     virtual void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
@@ -99,6 +233,20 @@ public:
 protected:
     bool _return_object_as_string = false;
 };
+
+/// Invert values since Arrow interprets 1 as a non-null value, while doris as a null
+inline static NullMap revert_null_map(const NullMap* null_bytemap, size_t start, size_t end) {
+    NullMap res;
+    if (!null_bytemap) {
+        return res;
+    }
+
+    res.reserve(end - start);
+    for (size_t i = start; i < end; ++i) {
+        res.emplace_back(!(*null_bytemap)[i]);
+    }
+    return res;
+}
 
 inline void checkArrowStatus(const arrow::Status& status, const std::string& column,
                              const std::string& format_name) {

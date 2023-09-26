@@ -22,21 +22,24 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.gson.Gson;
 import com.google.gson.annotations.SerializedName;
 import com.google.gson.reflect.TypeToken;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.logging.log4j.core.util.CronExpression;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.lang.reflect.Type;
+import java.text.ParseException;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.StringJoiner;
@@ -45,6 +48,7 @@ public class AnalysisInfo implements Writable {
 
     private static final Logger LOG = LogManager.getLogger(AnalysisInfo.class);
 
+    // TODO: useless, remove it later
     public enum AnalysisMode {
         INCREMENTAL,
         FULL
@@ -65,7 +69,7 @@ public class AnalysisInfo implements Writable {
         // submit by user directly
         MANUAL,
         // submit by system automatically
-        SYSTEM
+        SYSTEM;
     }
 
     public enum ScheduleType {
@@ -77,8 +81,13 @@ public class AnalysisInfo implements Writable {
     @SerializedName("jobId")
     public final long jobId;
 
+    // When this AnalysisInfo represent a task, this is the task id for it.
     @SerializedName("taskId")
     public final long taskId;
+
+    // When this AnalysisInfo represent a job, this is the list of task ids belong to this job.
+    @SerializedName("taskIds")
+    public final List<Long> taskIds;
 
     @SerializedName("catalogName")
     public final String catalogName;
@@ -89,6 +98,7 @@ public class AnalysisInfo implements Writable {
     @SerializedName("tblName")
     public final String tblName;
 
+    // TODO: Map here is wired, List is enough
     @SerializedName("colToPartitions")
     public final Map<String, Set<String>> colToPartitions;
 
@@ -129,6 +139,10 @@ public class AnalysisInfo implements Writable {
     @SerializedName("lastExecTimeInMs")
     public long lastExecTimeInMs;
 
+    // finished or failed
+    @SerializedName("timeCostInMs")
+    public long timeCostInMs;
+
     @SerializedName("state")
     public AnalysisState state;
 
@@ -141,22 +155,42 @@ public class AnalysisInfo implements Writable {
     // True means this task is a table level task for external table.
     // This kind of task is mainly to collect the number of rows of a table.
     @SerializedName("externalTableLevelTask")
-    public boolean externalTableLevelTask;
+    public final boolean externalTableLevelTask;
 
     @SerializedName("partitionOnly")
-    public boolean partitionOnly;
+    public final boolean partitionOnly;
 
     @SerializedName("samplingPartition")
-    public boolean samplingPartition;
+    public final boolean samplingPartition;
 
-    public AnalysisInfo(long jobId, long taskId, String catalogName, String dbName, String tblName,
+    @SerializedName("isAllPartition")
+    public final boolean isAllPartition;
+
+    @SerializedName("partitionCount")
+    public final long partitionCount;
+
+    // For serialize
+    @SerializedName("cronExpr")
+    public String cronExprStr;
+
+    @SerializedName("progress")
+    public String progress;
+
+    public CronExpression cronExpression;
+
+    @SerializedName("forceFull")
+    public final boolean forceFull;
+
+    public AnalysisInfo(long jobId, long taskId, List<Long> taskIds, String catalogName, String dbName, String tblName,
             Map<String, Set<String>> colToPartitions, Set<String> partitionNames, String colName, Long indexId,
             JobType jobType, AnalysisMode analysisMode, AnalysisMethod analysisMethod, AnalysisType analysisType,
             int samplePercent, int sampleRows, int maxBucketNum, long periodTimeInMs, String message,
-            long lastExecTimeInMs, AnalysisState state, ScheduleType scheduleType, boolean isExternalTableLevelTask,
-            boolean partitionOnly, boolean samplingPartition) {
+            long lastExecTimeInMs, long timeCostInMs, AnalysisState state, ScheduleType scheduleType,
+            boolean isExternalTableLevelTask, boolean partitionOnly, boolean samplingPartition,
+            boolean isAllPartition, long partitionCount, CronExpression cronExpression, boolean forceFull) {
         this.jobId = jobId;
         this.taskId = taskId;
+        this.taskIds = taskIds;
         this.catalogName = catalogName;
         this.dbName = dbName;
         this.tblName = tblName;
@@ -174,11 +208,19 @@ public class AnalysisInfo implements Writable {
         this.periodTimeInMs = periodTimeInMs;
         this.message = message;
         this.lastExecTimeInMs = lastExecTimeInMs;
+        this.timeCostInMs = timeCostInMs;
         this.state = state;
         this.scheduleType = scheduleType;
         this.externalTableLevelTask = isExternalTableLevelTask;
         this.partitionOnly = partitionOnly;
         this.samplingPartition = samplingPartition;
+        this.isAllPartition = isAllPartition;
+        this.partitionCount = partitionCount;
+        this.cronExpression = cronExpression;
+        if (cronExpression != null) {
+            this.cronExprStr = cronExpression.getCronExpression();
+        }
+        this.forceFull = forceFull;
     }
 
     @Override
@@ -189,11 +231,11 @@ public class AnalysisInfo implements Writable {
         sj.add("DBName: " + dbName);
         sj.add("TableName: " + tblName);
         sj.add("ColumnName: " + colName);
-        sj.add("TaskType: " + analysisType.toString());
-        sj.add("TaskMode: " + analysisMode.toString());
-        sj.add("TaskMethod: " + analysisMethod.toString());
+        sj.add("TaskType: " + analysisType);
+        sj.add("TaskMode: " + analysisMode);
+        sj.add("TaskMethod: " + analysisMethod);
         sj.add("Message: " + message);
-        sj.add("CurrentState: " + state.toString());
+        sj.add("CurrentState: " + state);
         if (samplePercent > 0) {
             sj.add("SamplePercent: " + samplePercent);
         }
@@ -209,9 +251,16 @@ public class AnalysisInfo implements Writable {
         if (lastExecTimeInMs > 0) {
             sj.add("LastExecTime: " + StatisticsUtil.getReadableTime(lastExecTimeInMs));
         }
+        if (timeCostInMs > 0) {
+            sj.add("timeCost: " + timeCostInMs);
+        }
         if (periodTimeInMs > 0) {
             sj.add("periodTimeInMs: " + StatisticsUtil.getReadableTime(periodTimeInMs));
         }
+        if (StringUtils.isNotEmpty(cronExprStr)) {
+            sj.add("cronExpr: " + cronExprStr);
+        }
+        sj.add("forceFull: " + forceFull);
         return sj.toString();
     }
 
@@ -223,56 +272,8 @@ public class AnalysisInfo implements Writable {
         return taskId == -1;
     }
 
-    // TODO: use thrift
-    public static AnalysisInfo fromResultRow(ResultRow resultRow) {
-        try {
-            AnalysisInfoBuilder analysisInfoBuilder = new AnalysisInfoBuilder();
-            long jobId = Long.parseLong(resultRow.getColumnValue("job_id"));
-            analysisInfoBuilder.setJobId(jobId);
-            long taskId = Long.parseLong(resultRow.getColumnValue("task_id"));
-            analysisInfoBuilder.setTaskId(taskId);
-            String catalogName = resultRow.getColumnValue("catalog_name");
-            analysisInfoBuilder.setCatalogName(catalogName);
-            String dbName = resultRow.getColumnValue("db_name");
-            analysisInfoBuilder.setDbName(dbName);
-            String tblName = resultRow.getColumnValue("tbl_name");
-            analysisInfoBuilder.setTblName(tblName);
-            String colName = resultRow.getColumnValue("col_name");
-            analysisInfoBuilder.setColName(colName);
-            long indexId = Long.parseLong(resultRow.getColumnValue("index_id"));
-            analysisInfoBuilder.setIndexId(indexId);
-            String partitionNames = resultRow.getColumnValue("col_partitions");
-            Map<String, Set<String>> colToPartitions = getColToPartition(partitionNames);
-            analysisInfoBuilder.setColToPartitions(colToPartitions);
-            String jobType = resultRow.getColumnValue("job_type");
-            analysisInfoBuilder.setJobType(JobType.valueOf(jobType));
-            String analysisType = resultRow.getColumnValue("analysis_type");
-            analysisInfoBuilder.setAnalysisType(AnalysisType.valueOf(analysisType));
-            String analysisMode = resultRow.getColumnValue("analysis_mode");
-            analysisInfoBuilder.setAnalysisMode(AnalysisMode.valueOf(analysisMode));
-            String analysisMethod = resultRow.getColumnValue("analysis_method");
-            analysisInfoBuilder.setAnalysisMethod(AnalysisMethod.valueOf(analysisMethod));
-            String scheduleType = resultRow.getColumnValue("schedule_type");
-            analysisInfoBuilder.setScheduleType(ScheduleType.valueOf(scheduleType));
-            String state = resultRow.getColumnValue("state");
-            analysisInfoBuilder.setState(AnalysisState.valueOf(state));
-            String samplePercent = resultRow.getColumnValue("sample_percent");
-            analysisInfoBuilder.setSamplePercent(StatisticsUtil.convertStrToInt(samplePercent));
-            String sampleRows = resultRow.getColumnValue("sample_rows");
-            analysisInfoBuilder.setSampleRows(StatisticsUtil.convertStrToInt(sampleRows));
-            String maxBucketNum = resultRow.getColumnValue("max_bucket_num");
-            analysisInfoBuilder.setMaxBucketNum(StatisticsUtil.convertStrToInt(maxBucketNum));
-            String periodTimeInMs = resultRow.getColumnValue("period_time_in_ms");
-            analysisInfoBuilder.setPeriodTimeInMs(StatisticsUtil.convertStrToInt(periodTimeInMs));
-            String lastExecTimeInMs = resultRow.getColumnValue("last_exec_time_in_ms");
-            analysisInfoBuilder.setLastExecTimeInMs(StatisticsUtil.convertStrToLong(lastExecTimeInMs));
-            String message = resultRow.getColumnValue("message");
-            analysisInfoBuilder.setMessage(message);
-            return analysisInfoBuilder.build();
-        } catch (Exception e) {
-            LOG.warn("Failed to deserialize analysis task info.", e);
-            return null;
-        }
+    public void addTaskId(long taskId) {
+        taskIds.add(taskId);
     }
 
     public String getColToPartitionStr() {
@@ -337,7 +338,15 @@ public class AnalysisInfo implements Writable {
             return analysisInfoBuilder.build();
         } else {
             String json = Text.readString(dataInput);
-            return GsonUtils.GSON.fromJson(json, AnalysisInfo.class);
+            AnalysisInfo analysisInfo = GsonUtils.GSON.fromJson(json, AnalysisInfo.class);
+            if (analysisInfo.cronExprStr != null) {
+                try {
+                    analysisInfo.cronExpression = new CronExpression(analysisInfo.cronExprStr);
+                } catch (ParseException e) {
+                    LOG.warn("Cron expression of job is invalid, there is a bug", e);
+                }
+            }
+            return analysisInfo;
         }
     }
 }

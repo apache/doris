@@ -21,6 +21,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.AggregateInfo;
+import org.apache.doris.analysis.AnalyticExpr;
 import org.apache.doris.analysis.AnalyticInfo;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.AssertNumRowsElement;
@@ -55,7 +56,6 @@ import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionSet;
-import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.PrimitiveType;
@@ -72,6 +72,8 @@ import org.apache.doris.planner.external.HiveScanNode;
 import org.apache.doris.planner.external.MaxComputeScanNode;
 import org.apache.doris.planner.external.hudi.HudiScanNode;
 import org.apache.doris.planner.external.iceberg.IcebergScanNode;
+import org.apache.doris.planner.external.jdbc.JdbcScanNode;
+import org.apache.doris.planner.external.odbc.OdbcScanNode;
 import org.apache.doris.planner.external.paimon.PaimonScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
@@ -180,8 +182,12 @@ public class SingleNodePlanner {
         if (LOG.isTraceEnabled()) {
             LOG.trace("desctbl: " + analyzer.getDescTbl().debugString());
         }
+        long sqlSelectLimit = -1;
+        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null) {
+            sqlSelectLimit = ConnectContext.get().getSessionVariable().getSqlSelectLimit();
+        }
         PlanNode singleNodePlan = createQueryPlan(queryStmt, analyzer,
-                ctx.getQueryOptions().getDefaultOrderByLimit());
+                ctx.getQueryOptions().getDefaultOrderByLimit(), sqlSelectLimit);
         Preconditions.checkNotNull(singleNodePlan);
         analyzer.getDescTbl().materializeIntermediateSlots();
         return singleNodePlan;
@@ -241,10 +247,10 @@ public class SingleNodePlanner {
      * Create plan tree for single-node execution. Generates PlanNodes for the
      * Select/Project/Join/Union [All]/Group by/Having/Order by clauses of the query stmt.
      */
-    private PlanNode createQueryPlan(QueryStmt stmt, Analyzer analyzer, long defaultOrderByLimit)
+    private PlanNode createQueryPlan(QueryStmt stmt, Analyzer analyzer, long defaultOrderByLimit, long sqlSelectLimit)
             throws UserException {
         long newDefaultOrderByLimit = defaultOrderByLimit;
-        long defaultLimit = analyzer.getContext().getSessionVariable().defaultOrderByLimit;
+        long defaultLimit = analyzer.getContext().getSessionVariable().getDefaultOrderByLimit();
         if (newDefaultOrderByLimit == -1) {
             if (defaultLimit <= -1) {
                 newDefaultOrderByLimit = Long.MAX_VALUE;
@@ -268,6 +274,13 @@ public class SingleNodePlanner {
                 AggregateInfo aggInfo = selectStmt.getAggInfo();
                 root = analyticPlanner.createSingleNodePlan(root,
                         aggInfo != null ? aggInfo.getGroupingExprs() : null, inputPartitionExprs);
+                List<Expr> predicates = getBoundPredicates(analyzer,
+                        selectStmt.getAnalyticInfo().getOutputTupleDesc());
+                if (!predicates.isEmpty()) {
+                    root = new SelectNode(ctx.getNextNodeId(), root, predicates);
+                    root.init(analyzer);
+                    Preconditions.checkState(root.hasValidStats());
+                }
                 if (aggInfo != null && !inputPartitionExprs.isEmpty()) {
                     // analytic computation will benefit from a partition on inputPartitionExprs
                     aggInfo.setPartitionExprs(inputPartitionExprs);
@@ -275,7 +288,10 @@ public class SingleNodePlanner {
             }
         } else {
             Preconditions.checkState(stmt instanceof SetOperationStmt);
-            root = createSetOperationPlan((SetOperationStmt) stmt, analyzer, newDefaultOrderByLimit);
+            root = createSetOperationPlan((SetOperationStmt) stmt, analyzer, newDefaultOrderByLimit, sqlSelectLimit);
+        }
+        if (ConnectContext.get().getExecutor() != null) {
+            ConnectContext.get().getExecutor().getSummaryProfile().setQueryJoinReorderFinishTime();
         }
 
         // Avoid adding a sort node if the sort tuple has no materialized slots.
@@ -301,9 +317,16 @@ public class SingleNodePlanner {
             root = new SortNode(ctx.getNextNodeId(), root, stmt.getSortInfo(),
                     useTopN);
             ((SortNode) root).setDefaultLimit(limit == -1);
-            ((SortNode) root).setOffset(stmt.getOffset());
+            root.setOffset(stmt.getOffset());
             if (useTopN) {
-                root.setLimit(limit != -1 ? limit : newDefaultOrderByLimit);
+                if (sqlSelectLimit >= 0) {
+                    newDefaultOrderByLimit = Math.min(newDefaultOrderByLimit, sqlSelectLimit);
+                }
+                if (newDefaultOrderByLimit == Long.MAX_VALUE) {
+                    root.setLimit(limit);
+                } else {
+                    root.setLimit(limit != -1 ? limit : newDefaultOrderByLimit);
+                }
             } else {
                 root.setLimit(limit);
             }
@@ -313,7 +336,11 @@ public class SingleNodePlanner {
             // from SelectStmt outside
             root = addUnassignedConjuncts(analyzer, root);
         } else {
-            root.setLimitAndOffset(stmt.getLimit(), stmt.getOffset());
+            if (!stmt.hasLimit() && sqlSelectLimit >= 0) {
+                root.setLimitAndOffset(sqlSelectLimit, stmt.getOffset());
+            } else {
+                root.setLimitAndOffset(stmt.getLimit(), stmt.getOffset());
+            }
             root.computeStats(analyzer);
         }
 
@@ -322,7 +349,7 @@ public class SingleNodePlanner {
             root = createAssertRowCountNode(root, stmt.getAssertNumRowsElement(), analyzer);
         }
 
-        if (analyzer.hasEmptyResultSet()) {
+        if (analyzer.hasEmptyResultSet() || root.getLimit() == 0) {
             // Must clear the scanNodes, otherwise we will get NPE in Coordinator::computeScanRangeAssignment
             Set<TupleId> scanTupleIds = new HashSet<>(root.getAllScanTupleIds());
             scanNodes.removeIf(scanNode -> scanTupleIds.contains(scanNode.getTupleIds().get(0)));
@@ -395,17 +422,8 @@ public class SingleNodePlanner {
 
     private void pushDownAggNoGrouping(AggregateInfo aggInfo, SelectStmt selectStmt, Analyzer analyzer, PlanNode root) {
         do {
-            // TODO: Support other scan node in the future
-            if (!(root instanceof OlapScanNode)) {
-                break;
-            }
-
-            KeysType type = ((OlapScanNode) root).getOlapTable().getKeysType();
-            if (type == KeysType.UNIQUE_KEYS || type == KeysType.PRIMARY_KEYS) {
-                break;
-            }
-
-            if (CollectionUtils.isNotEmpty(root.getConjuncts())) {
+            if (CollectionUtils.isNotEmpty(root.getConjuncts())
+                    || CollectionUtils.isNotEmpty(root.getProjectList())) {
                 break;
             }
 
@@ -429,7 +447,6 @@ public class SingleNodePlanner {
             boolean aggExprValidate = true;
             TPushAggOp aggOp = null;
             for (FunctionCallExpr aggExpr : aggExprs) {
-                // Only support `min`, `max`, `count` and `count` only effective in dup table
                 String functionName = aggExpr.getFnName().getFunction();
                 if (!functionName.equalsIgnoreCase("MAX")
                         && !functionName.equalsIgnoreCase("MIN")
@@ -438,8 +455,7 @@ public class SingleNodePlanner {
                     break;
                 }
 
-                if (functionName.equalsIgnoreCase("COUNT")
-                        && type != KeysType.DUP_KEYS) {
+                if (!root.pushDownAggNoGrouping(aggExpr)) {
                     aggExprValidate = false;
                     break;
                 }
@@ -484,8 +500,7 @@ public class SingleNodePlanner {
                             continue;
                         }
 
-                        // The value column of the agg does not support zone_map index.
-                        if (type == KeysType.AGG_KEYS && !col.isKey()) {
+                        if (!root.pushDownAggNoGroupingCheckCol(aggExpr, col)) {
                             returnColumnValidate = false;
                             break;
                         }
@@ -528,8 +543,7 @@ public class SingleNodePlanner {
                 break;
             }
 
-            OlapScanNode olapNode = (OlapScanNode) root;
-            olapNode.setPushDownAggNoGrouping(aggOp);
+            root.setPushDownAggNoGrouping(aggOp);
         } while (false);
     }
 
@@ -1041,7 +1055,7 @@ public class SingleNodePlanner {
                 // reset assigned conjuncts of analyzer in every compare
                 analyzer.setAssignedConjuncts(root.getAssignedConjuncts());
                 PlanNode candidate = createJoinNode(analyzer, root, rootPlanNodeOfCandidate, tblRefOfCandidate);
-                // (ML): 这里还需要吗？应该不会返回null吧
+                // it may not return null, but protect.
                 if (candidate == null) {
                     continue;
                 }
@@ -1633,7 +1647,13 @@ public class SingleNodePlanner {
                     return unionNode;
                 }
                 unionNode.setTblRefIds(Lists.newArrayList(inlineViewRef.getId()));
-                unionNode.addConstExprList(selectStmt.getBaseTblResultExprs());
+                if (selectStmt.getValueList() != null) {
+                    for (List<Expr> row : selectStmt.getValueList().getRows()) {
+                        unionNode.addConstExprList(row);
+                    }
+                } else {
+                    unionNode.addConstExprList(selectStmt.getBaseTblResultExprs());
+                }
                 unionNode.init(analyzer);
                 //set outputSmap to substitute literal in outputExpr
                 unionNode.setWithoutTupleIsNullOutputSmap(inlineViewRef.getSmap());
@@ -1654,7 +1674,7 @@ public class SingleNodePlanner {
             }
         }
 
-        PlanNode rootNode = createQueryPlan(inlineViewRef.getViewStmt(), inlineViewRef.getAnalyzer(), -1);
+        PlanNode rootNode = createQueryPlan(inlineViewRef.getViewStmt(), inlineViewRef.getAnalyzer(), -1, -1);
         // TODO: we should compute the "physical layout" of the view's descriptor, so that
         // the avg row size is available during optimization; however, that means we need to
         // select references to its resultExprs from the enclosing scope(s)
@@ -1795,7 +1815,6 @@ public class SingleNodePlanner {
             e.setIsOnClauseConjunct(false);
         }
         inlineViewRef.getAnalyzer().registerConjuncts(viewPredicates, inlineViewRef.getAllTupleIds());
-
         // mark (fully resolve) slots referenced by remaining unassigned conjuncts as
         // materialized
         List<Expr> substUnassigned = Expr.substituteList(unassignedConjuncts,
@@ -1821,15 +1840,21 @@ public class SingleNodePlanner {
             return;
         }
 
-        List<Expr> newConjuncts = cloneExprs(conjuncts);
         final QueryStmt stmt = inlineViewRef.getViewStmt();
         final Analyzer viewAnalyzer = inlineViewRef.getAnalyzer();
         viewAnalyzer.markConjunctsAssigned(conjuncts);
+        // even if the conjuncts are constant, they may contains slotRef
+        // for example: case when slotRef is null then 0 else 1
+        // we need substitute the conjuncts using inlineViewRef's analyzer
+        // otherwise, when analyzing the conjunct in the inline view
+        // the analyzer is not able to find the column because it comes from outside
+        List<Expr> newConjuncts =
+                Expr.substituteList(conjuncts, inlineViewRef.getSmap(), viewAnalyzer, false);
         if (stmt instanceof SelectStmt) {
             final SelectStmt select = (SelectStmt) stmt;
             if (select.getAggInfo() != null) {
                 viewAnalyzer.registerConjuncts(newConjuncts, select.getAggInfo().getOutputTupleId().asList());
-            } else if (select.getTableRefs().size() > 1) {
+            } else if (select.getTableRefs().size() > 0) {
                 for (int i = select.getTableRefs().size() - 1; i >= 0; i--) {
                     viewAnalyzer.registerConjuncts(newConjuncts,
                             select.getTableRefs().get(i).getDesc().getId().asList());
@@ -1999,9 +2024,10 @@ public class SingleNodePlanner {
                         break;
                     case HIVE:
                         scanNode = new HiveScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
+                        ((HiveScanNode) scanNode).setTableSample(tblRef.getTableSample());
                         break;
                     default:
-                        throw new UserException("Not supported table type" + table.getType());
+                        throw new UserException("Not supported table type: " + ((HMSExternalTable) table).getDlaType());
                 }
                 break;
             case ICEBERG_EXTERNAL_TABLE:
@@ -2025,10 +2051,11 @@ public class SingleNodePlanner {
                 scanNode = new TestExternalTableScanNode(ctx.getNextNodeId(), tblRef.getDesc());
                 break;
             default:
-                throw new UserException("Not supported table type" + tblRef.getTable().getType());
+                throw new UserException("Not supported table type: " + tblRef.getTable().getType());
         }
         if (scanNode instanceof OlapScanNode || scanNode instanceof EsScanNode
-                || scanNode instanceof FileQueryScanNode) {
+                || scanNode instanceof OdbcScanNode || scanNode instanceof JdbcScanNode
+                || scanNode instanceof FileQueryScanNode || scanNode instanceof MysqlScanNode) {
             if (analyzer.enableInferPredicate()) {
                 PredicatePushDown.visitScanNode(scanNode, tblRef.getJoinOp(), analyzer);
             }
@@ -2069,7 +2096,7 @@ public class SingleNodePlanner {
 
         for (Expr e : candidates) {
             // Ignore predicate if one of its children is a constant.
-            if (e.getChild(0).isConstant() || e.getChild(1).isConstant()) {
+            if (e.getChild(0).isLiteral() || e.getChild(1).isLiteral()) {
                 LOG.debug("double is constant.");
                 continue;
             }
@@ -2235,7 +2262,7 @@ public class SingleNodePlanner {
      */
     private SetOperationNode createSetOperationPlan(
             Analyzer analyzer, SetOperationStmt setOperationStmt, List<SetOperationStmt.SetOperand> setOperands,
-            PlanNode result, long defaultOrderByLimit)
+            PlanNode result, long defaultOrderByLimit, long sqlSelectLimit)
             throws UserException, AnalysisException {
         SetOperationNode setOpNode;
         SetOperationStmt.Operation operation = null;
@@ -2294,7 +2321,7 @@ public class SingleNodePlanner {
                     continue;
                 }
             }
-            PlanNode opPlan = createQueryPlan(queryStmt, op.getAnalyzer(), defaultOrderByLimit);
+            PlanNode opPlan = createQueryPlan(queryStmt, op.getAnalyzer(), defaultOrderByLimit, sqlSelectLimit);
             // There may still be unassigned conjuncts if the operand has an order by + limit.
             // Place them into a SelectNode on top of the operand's plan.
             opPlan = addUnassignedConjuncts(analyzer, opPlan.getTupleIds(), opPlan);
@@ -2324,7 +2351,7 @@ public class SingleNodePlanner {
      * use a union node (this is tricky because a union materializes a new tuple).
      */
     private PlanNode createSetOperationPlan(
-            SetOperationStmt setOperationStmt, Analyzer analyzer, long defaultOrderByLimit)
+            SetOperationStmt setOperationStmt, Analyzer analyzer, long defaultOrderByLimit, long sqlSelectLimit)
             throws UserException, AnalysisException {
         // TODO(zc): get unassigned conjuncts
         // List<Expr> conjuncts =
@@ -2356,7 +2383,18 @@ public class SingleNodePlanner {
                 // Forbid to register Conjuncts with SelectStmt' tuple when Select is constant
                 if ((queryStmt instanceof SelectStmt) && selectHasTableRef) {
                     final SelectStmt select = (SelectStmt) queryStmt;
-                    op.getAnalyzer().registerConjuncts(opConjuncts, select.getTableRefIds());
+                    // if there is an agg node, we need register the constant conjuncts on agg node's tuple
+                    // this is consistent with migrateConstantConjuncts()
+                    if (select.getAggInfo() != null) {
+                        Map<Boolean, List<Expr>> splittedConjuncts = opConjuncts.stream()
+                                .collect(Collectors.partitioningBy(expr -> expr.isConstant()));
+                        op.getAnalyzer().registerConjuncts(splittedConjuncts.get(true),
+                                select.getAggInfo().getOutputTupleId().asList());
+                        op.getAnalyzer().registerConjuncts(splittedConjuncts.get(false),
+                                select.getTableRefIds());
+                    } else {
+                        op.getAnalyzer().registerConjuncts(opConjuncts, select.getTableRefIds());
+                    }
                 } else if (queryStmt instanceof SetOperationStmt) {
                     final SetOperationStmt subSetOp = (SetOperationStmt) queryStmt;
                     op.getAnalyzer().registerConjuncts(opConjuncts, subSetOp.getTupleId().asList());
@@ -2394,10 +2432,10 @@ public class SingleNodePlanner {
                     if (operation == SetOperationStmt.Operation.INTERSECT
                             || operation == SetOperationStmt.Operation.EXCEPT) {
                         result = createSetOperationPlan(analyzer, setOperationStmt, partialOperands, result,
-                                defaultOrderByLimit);
+                                defaultOrderByLimit, sqlSelectLimit);
                     } else {
                         result = createUnionPartialSetOperationPlan(analyzer, setOperationStmt, partialOperands, result,
-                                defaultOrderByLimit);
+                                defaultOrderByLimit, sqlSelectLimit);
                     }
                     partialOperands.clear();
                 }
@@ -2411,10 +2449,10 @@ public class SingleNodePlanner {
             if (operation == SetOperationStmt.Operation.INTERSECT
                     || operation == SetOperationStmt.Operation.EXCEPT) {
                 result = createSetOperationPlan(analyzer, setOperationStmt, partialOperands, result,
-                        defaultOrderByLimit);
+                        defaultOrderByLimit, sqlSelectLimit);
             } else {
                 result = createUnionPartialSetOperationPlan(analyzer, setOperationStmt, partialOperands, result,
-                        defaultOrderByLimit);
+                        defaultOrderByLimit, sqlSelectLimit);
             }
         }
 
@@ -2432,7 +2470,7 @@ public class SingleNodePlanner {
     // while the left-hand child(a)'s operation is null
     private PlanNode createUnionPartialSetOperationPlan(Analyzer analyzer, SetOperationStmt setOperationStmt,
                                                         List<SetOperationStmt.SetOperand> setOperands,
-                                                        PlanNode result, long defaultOrderByLimit)
+                                                        PlanNode result, long defaultOrderByLimit, long sqlSelectLimit)
             throws UserException {
         boolean hasDistinctOps = false;
         boolean hasAllOps = false;
@@ -2451,7 +2489,7 @@ public class SingleNodePlanner {
         // create DISTINCT tree
         if (hasDistinctOps) {
             result = createSetOperationPlan(
-                    analyzer, setOperationStmt, distinctOps, result, defaultOrderByLimit);
+                    analyzer, setOperationStmt, distinctOps, result, defaultOrderByLimit, sqlSelectLimit);
             result = new AggregationNode(ctx.getNextNodeId(), result,
                     setOperationStmt.getDistinctAggInfo());
             result.init(analyzer);
@@ -2459,7 +2497,7 @@ public class SingleNodePlanner {
         // create ALL tree
         if (hasAllOps) {
             result = createSetOperationPlan(analyzer, setOperationStmt, allOps,
-                    result, defaultOrderByLimit);
+                    result, defaultOrderByLimit, sqlSelectLimit);
         }
         return result;
     }
@@ -2669,7 +2707,12 @@ public class SingleNodePlanner {
         if (aggregateInfo == null || aggregateInfo.getGroupingExprs().isEmpty()) {
             return;
         }
-        final List<Expr> predicates = getBoundPredicates(analyzer, aggregateInfo.getOutputTupleDesc());
+        // The output of the 1st phase agg is the 1st phase intermediate.
+        // see createSecondPhaseAggInfo method
+        final List<Expr> predicates = getBoundPredicates(analyzer,
+                aggregateInfo.getSecondPhaseDistinctAggInfo() != null
+                        ? aggregateInfo.getIntermediateTupleDesc()
+                        : aggregateInfo.getOutputTupleDesc());
         if (predicates.isEmpty()) {
             return;
         }
@@ -2695,7 +2738,11 @@ public class SingleNodePlanner {
         }
         final AggregateInfo secondPhaseAggInfo = firstPhaseAggInfo.getSecondPhaseDistinctAggInfo();
 
-        final List<TupleId> firstPhaseTupleIds = Lists.newArrayList(firstPhaseAggInfo.getOutputTupleId());
+        // The output of the 1st phase agg is the 1st phase intermediate.
+        // see createSecondPhaseAggInfo method
+        final List<TupleId> firstPhaseTupleIds = Lists.newArrayList(
+                secondPhaseAggInfo != null ? firstPhaseAggInfo.getIntermediateTupleId()
+                        : firstPhaseAggInfo.getOutputTupleId());
         pushDownPredicatesPastAggregationOnePhase(secondPhaseAggInfo, analyzer, stmt, firstPhaseTupleIds);
         pushDownPredicatesPastAggregationOnePhase(firstPhaseAggInfo, analyzer, stmt, stmt.getTableRefIds());
     }
@@ -2723,10 +2770,14 @@ public class SingleNodePlanner {
                 while (sourceExpr instanceof SlotRef) {
                     SlotRef slotRef = (SlotRef) sourceExpr;
                     SlotDescriptor slotDesc = slotRef.getDesc();
-                    if (slotDesc.getSourceExprs().isEmpty()) {
+                    if (slotDesc.getSourceExprs().size() != 1) {
                         break;
                     }
                     sourceExpr = slotDesc.getSourceExprs().get(0);
+                }
+                if (sourceExpr instanceof AnalyticExpr) {
+                    isAllSlotReferToGroupBys = false;
+                    break;
                 }
                 // if grouping set is given and column is not in all grouping set list
                 // we cannot push the predicate since the column value can be null
@@ -2756,7 +2807,9 @@ public class SingleNodePlanner {
                 }
                 GroupByClause groupByClause = stmt.getGroupByClause();
                 List<Expr> exprs = groupByClause.getGroupingExprs();
-                if (!exprs.contains(sourceExpr)) {
+                final Expr srcExpr = sourceExpr;
+                if (!exprs.contains(srcExpr) && !exprs.stream().anyMatch(expr -> expr.comeFrom(srcExpr))) {
+                    // the sourceExpr doesn't come from any of the group by exprs
                     isAllSlotReferToGroupBys = false;
                     break;
                 }

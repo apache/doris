@@ -39,6 +39,7 @@ enum class CompactionActionType {
 const std::string PARAM_COMPACTION_TYPE = "compact_type";
 const std::string PARAM_COMPACTION_BASE = "base";
 const std::string PARAM_COMPACTION_CUMULATIVE = "cumulative";
+const std::string PARAM_COMPACTION_FULL = "full";
 
 /// This action is used for viewing the compaction status.
 /// See compaction-action.md for details.
@@ -65,7 +66,7 @@ private:
     Status _handle_run_status_compaction(HttpRequest* req, std::string* json_result);
 
     /// check param and fetch tablet_id from req
-    Status _check_param(HttpRequest* req, uint64_t* tablet_id);
+    Status _check_param(HttpRequest* req, uint64_t* tablet_id, uint64_t* table_id);
 
 private:
     CompactionActionType _type;

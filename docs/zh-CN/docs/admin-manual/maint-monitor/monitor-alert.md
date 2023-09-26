@@ -217,7 +217,7 @@ jvm_heap_size_bytes{type="used"} 156375280
     logs = data/log
     
     # Protocol (http, https, socket)
-    protocal = http
+    protocol = http
     
     # The ip address to bind to, empty will bind to all interfaces
     http_addr =

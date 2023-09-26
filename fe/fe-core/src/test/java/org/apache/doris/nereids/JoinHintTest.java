@@ -114,22 +114,23 @@ class JoinHintTest extends TestWithFeService implements MemoPatternMatchSupporte
         PlanChecker.from(connectContext).checkExplain(sql, planner -> {
             Plan plan = planner.getOptimizedPlan();
             MatchingUtils.assertMatches(plan,
-                    physicalDistribute(
-                            physicalProject(
-                                    physicalHashJoin(
-                                            physicalHashJoin(physicalDistribute().when(dis -> {
-                                                DistributionSpec spec = dis.getDistributionSpec();
-                                                Assertions.assertTrue(spec instanceof DistributionSpecHash);
-                                                DistributionSpecHash hashSpec = (DistributionSpecHash) spec;
-                                                Assertions.assertEquals(ShuffleType.EXECUTION_BUCKETED,
-                                                        hashSpec.getShuffleType());
-                                                return true;
-                                            }), physicalDistribute()),
-                                            physicalDistribute()
-                                    ).when(join -> join.getHint() == JoinHint.SHUFFLE_RIGHT)
+                    physicalResultSink(
+                            physicalDistribute(
+                                    physicalProject(
+                                            physicalHashJoin(
+                                                    physicalHashJoin(physicalDistribute().when(dis -> {
+                                                        DistributionSpec spec = dis.getDistributionSpec();
+                                                        Assertions.assertTrue(spec instanceof DistributionSpecHash);
+                                                        DistributionSpecHash hashSpec = (DistributionSpecHash) spec;
+                                                        Assertions.assertEquals(ShuffleType.EXECUTION_BUCKETED,
+                                                                hashSpec.getShuffleType());
+                                                        return true;
+                                                    }), physicalDistribute()),
+                                                    physicalDistribute()
+                                            ).when(join -> join.getHint() == JoinHint.SHUFFLE_RIGHT)
+                                    )
                             )
-                    )
-            );
+                    ));
         });
     }
 

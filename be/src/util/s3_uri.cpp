@@ -50,11 +50,12 @@ Status S3URI::parse() {
             rest = scheme_split[1];
             std::vector<std::string> authority_split =
                     strings::Split(rest, strings::delimiter::Limit(_PATH_DELIM, 1));
-            if (authority_split.size() != 2) {
+            if (authority_split.size() < 1) {
                 return Status::InvalidArgument("Invalid S3 URI: {}", _location);
             }
             _bucket = authority_split[0];
-            _key = authority_split[1];
+            // support s3://bucket1
+            _key = authority_split.size() == 1 ? "/" : authority_split[1];
         } else if (scheme_split[0] == _SCHEME_HTTP || scheme_split[0] == _SCHEME_HTTPS) {
             // has scheme, eg: http(s)://host/bucket1/path/to/file.txt
             rest = scheme_split[1];

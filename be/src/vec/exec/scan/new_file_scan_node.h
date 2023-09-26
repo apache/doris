@@ -49,6 +49,8 @@ public:
 
     void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
 
+    std::string get_name() override;
+
 protected:
     Status _init_profile() override;
     Status _process_conjuncts() override;
@@ -62,5 +64,7 @@ private:
     // 2. parquet file meta
     // KVCache<std::string> _kv_cache;
     std::unique_ptr<ShardedKVCache> _kv_cache;
+
+    std::string _table_name;
 };
 } // namespace doris::vectorized

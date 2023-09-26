@@ -44,6 +44,8 @@ Status BenchmarkFactory::getBm(const std::string fs_type, const std::string op_t
             *bm = new S3OpenReadBenchmark(threads, iterations, file_size, conf_map);
         } else if (op_type == "single_read") {
             *bm = new S3SingleReadBenchmark(threads, iterations, file_size, conf_map);
+        } else if (op_type == "prefetch_read") {
+            *bm = new S3PrefetchReadBenchmark(threads, iterations, file_size, conf_map);
         } else if (op_type == "rename") {
             *bm = new S3RenameBenchmark(threads, iterations, file_size, conf_map);
         } else if (op_type == "exists") {
@@ -96,8 +98,7 @@ public:
     Status init_env() {
         std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
         if (!doris::config::init(conffile.c_str(), true, true, true)) {
-            fprintf(stderr, "error read config file. \n");
-            return Status::Error<INTERNAL_ERROR>();
+            return Status::Error<INTERNAL_ERROR>("error read config file.");
         }
         doris::CpuInfo::init();
         Status status = Status::OK();

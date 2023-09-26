@@ -47,6 +47,7 @@ namespace segment_v2 {
 class BitmapIndexIterator;
 } // namespace segment_v2
 
+template <PrimitiveType T>
 class LikeColumnPredicate : public ColumnPredicate {
 public:
     LikeColumnPredicate(bool opposite, uint32_t column_id, doris::FunctionContext* fn_ctx,
@@ -76,12 +77,14 @@ public:
         _page_ng_bf = std::move(src);
     }
     bool evaluate_and(const BloomFilter* bf) const override {
+        // like predicate can not use normal bf, just return true to accept
+        if (!bf->is_ngram_bf()) return true;
         if (_page_ng_bf) {
             return bf->contains(*_page_ng_bf);
         }
         return true;
     }
-    bool can_do_bloom_filter() const override { return true; }
+    bool can_do_bloom_filter(bool ngram) const override { return ngram; }
 
 private:
     template <bool is_and>

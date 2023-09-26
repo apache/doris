@@ -156,37 +156,39 @@ Status JniConnector::close() {
     if (!_closed) {
         JNIEnv* env = nullptr;
         RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-        // update scanner metrics
-        for (const auto& metric : get_statistics(env)) {
-            std::vector<std::string> type_and_name = split(metric.first, ":");
-            if (type_and_name.size() != 2) {
-                LOG(WARNING) << "Name of JNI Scanner metric should be pattern like "
-                             << "'metricType:metricName'";
-                continue;
+        if (_scanner_initialized) {
+            // update scanner metrics
+            for (const auto& metric : get_statistics(env)) {
+                std::vector<std::string> type_and_name = split(metric.first, ":");
+                if (type_and_name.size() != 2) {
+                    LOG(WARNING) << "Name of JNI Scanner metric should be pattern like "
+                                 << "'metricType:metricName'";
+                    continue;
+                }
+                long metric_value = std::stol(metric.second);
+                RuntimeProfile::Counter* scanner_counter;
+                if (type_and_name[0] == "timer") {
+                    scanner_counter =
+                            ADD_CHILD_TIMER(_profile, type_and_name[1], _connector_name.c_str());
+                } else if (type_and_name[0] == "counter") {
+                    scanner_counter = ADD_CHILD_COUNTER(_profile, type_and_name[1], TUnit::UNIT,
+                                                        _connector_name.c_str());
+                } else if (type_and_name[0] == "bytes") {
+                    scanner_counter = ADD_CHILD_COUNTER(_profile, type_and_name[1], TUnit::BYTES,
+                                                        _connector_name.c_str());
+                } else {
+                    LOG(WARNING) << "Type of JNI Scanner metric should be timer, counter or bytes";
+                    continue;
+                }
+                COUNTER_UPDATE(scanner_counter, metric_value);
             }
-            long metric_value = std::stol(metric.second);
-            RuntimeProfile::Counter* scanner_counter;
-            if (type_and_name[0] == "timer") {
-                scanner_counter =
-                        ADD_CHILD_TIMER(_profile, type_and_name[1], _connector_name.c_str());
-            } else if (type_and_name[0] == "counter") {
-                scanner_counter = ADD_CHILD_COUNTER(_profile, type_and_name[1], TUnit::UNIT,
-                                                    _connector_name.c_str());
-            } else if (type_and_name[0] == "bytes") {
-                scanner_counter = ADD_CHILD_COUNTER(_profile, type_and_name[1], TUnit::BYTES,
-                                                    _connector_name.c_str());
-            } else {
-                LOG(WARNING) << "Type of JNI Scanner metric should be timer, counter or bytes";
-                continue;
-            }
-            COUNTER_UPDATE(scanner_counter, metric_value);
-        }
 
-        // _fill_block may be failed and returned, we should release table in close.
-        // org.apache.doris.common.jni.JniScanner#releaseTable is idempotent
-        env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_release_table);
-        env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_close);
-        env->DeleteGlobalRef(_jni_scanner_obj);
+            // _fill_block may be failed and returned, we should release table in close.
+            // org.apache.doris.common.jni.JniScanner#releaseTable is idempotent
+            env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_release_table);
+            env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_close);
+            env->DeleteGlobalRef(_jni_scanner_obj);
+        }
         env->DeleteGlobalRef(_jni_scanner_cls);
         _closed = true;
         jthrowable exc = (env)->ExceptionOccurred();
@@ -199,7 +201,13 @@ Status JniConnector::close() {
 }
 
 Status JniConnector::_init_jni_scanner(JNIEnv* env, int batch_size) {
-    RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, _connector_class.c_str(), &_jni_scanner_cls));
+    RETURN_IF_ERROR(
+            JniUtil::get_jni_scanner_class(env, _connector_class.c_str(), &_jni_scanner_cls));
+    if (_jni_scanner_cls == NULL) {
+        if (env->ExceptionOccurred()) env->ExceptionDescribe();
+        return Status::InternalError("Fail to get JniScanner class.");
+    }
+    RETURN_ERROR_IF_EXC(env);
     jmethodID scanner_constructor =
             env->GetMethodID(_jni_scanner_cls, "<init>", "(ILjava/util/Map;)V");
     RETURN_ERROR_IF_EXC(env);
@@ -222,6 +230,7 @@ Status JniConnector::_init_jni_scanner(JNIEnv* env, int batch_size) {
     _jni_scanner_get_statistics =
             env->GetMethodID(_jni_scanner_cls, "getStatistics", "()Ljava/util/Map;");
     RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, jni_scanner_obj, &_jni_scanner_obj));
+    _scanner_initialized = true;
     env->DeleteLocalRef(jni_scanner_obj);
     RETURN_ERROR_IF_EXC(env);
     return Status::OK();

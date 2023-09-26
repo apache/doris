@@ -37,6 +37,8 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -74,6 +76,16 @@ public final class QeProcessorImpl implements QeProcessor {
             return queryInfo.getCoord();
         }
         return null;
+    }
+
+    @Override
+    public List<Coordinator> getAllCoordinators() {
+        List<Coordinator> res = new ArrayList<>();
+
+        for (QueryInfo co : coordinatorMap.values()) {
+            res.add(co.coord);
+        }
+        return res;
     }
 
     @Override
@@ -197,7 +209,7 @@ public final class QeProcessorImpl implements QeProcessor {
             } else {
                 result.setStatus(new TStatus(TStatusCode.RUNTIME_ERROR));
             }
-            LOG.info("ReportExecStatus() runtime error, query {} with type {} does not exist",
+            LOG.warn("ReportExecStatus() runtime error, query {} with type {} does not exist",
                     DebugUtil.printId(params.query_id), params.query_type);
             return result;
         }

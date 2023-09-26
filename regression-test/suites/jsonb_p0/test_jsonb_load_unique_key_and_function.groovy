@@ -20,6 +20,8 @@ suite("test_jsonb_unique_load_and_function", "p0") {
     def testTable = "tbl_test_jsonb_unique"
     def dataFile = "test_jsonb_unique_key.csv"
 
+    sql """ set experimental_enable_nereids_planner = false """
+
     sql "DROP TABLE IF EXISTS ${testTable}"
 
     sql """
@@ -97,7 +99,7 @@ suite("test_jsonb_unique_load_and_function", "p0") {
     // insert into invalid json rows with enable_insert_strict=true
     // expect excepiton and no rows not changed
     sql """ set enable_insert_strict = true """
-    success = true
+    def success = true
     try {
         sql """INSERT INTO ${testTable} VALUES(26, '')"""
     } catch(Exception ex) {
@@ -170,6 +172,10 @@ suite("test_jsonb_unique_load_and_function", "p0") {
     qt_select "SELECT id, j, jsonb_extract(j, '\$.a1[-0]') FROM ${testTable} ORDER BY id"
     qt_select "SELECT id, j, jsonb_extract(j, '\$.a1[-1]') FROM ${testTable} ORDER BY id"
     qt_select "SELECT id, j, jsonb_extract(j, '\$.a1[-10]') FROM ${testTable} ORDER BY id"
+
+
+    // jsonb_extract_multipath
+    qt_jsonb_extract_multipath "SELECT id, j, jsonb_extract(j, '\$', '\$.*', '\$.k1', '\$[0]') FROM ${testTable} ORDER BY id"
 
     // jsonb_extract_string
     qt_jsonb_extract_string_select "SELECT id, j, jsonb_extract_string(j, '\$') FROM ${testTable} ORDER BY id"
@@ -471,4 +477,35 @@ suite("test_jsonb_unique_load_and_function", "p0") {
     qt_select """SELECT CAST('{x' AS JSONB)"""
     qt_select """SELECT CAST('[123, abc]' AS JSONB)"""
 
+    //json_length
+    qt_sql_json_length """SELECT json_length('1')"""
+    qt_sql_json_length """SELECT json_length('true')"""
+    qt_sql_json_length """SELECT json_length('null')"""
+    qt_sql_json_length """SELECT json_length('"abc"')"""
+    qt_sql_json_length """SELECT json_length('[]')"""
+    qt_sql_json_length """SELECT json_length('[1, 2]')"""
+    qt_sql_json_length """SELECT json_length('[1, {"x": 2}]')"""
+    qt_sql_json_length """SELECT json_length('{"x": 1, "y": [1, 2]}', '\$.y')"""
+    qt_sql_json_length """SELECT json_length('{"k1":"v31","k2":300}')"""
+    qt_sql_json_length """SELECT json_length('{"a.b.c":{"k1.a1":"v31", "k2": 300},"a":"niu"}')"""
+    qt_sql_json_length """SELECT json_length('{"a":{"k1.a1":"v31", "k2": 300},"b":"niu"}','\$.a')"""
+
+    qt_select_length """SELECT id, j, json_length(j) FROM ${testTable} ORDER BY id"""
+    qt_select_length """SELECT id, j, json_length(j, '\$[1]') FROM ${testTable} ORDER BY id"""
+    qt_select_length """SELECT id, j, json_length(j, '\$.k2') FROM ${testTable} ORDER BY id"""
+    qt_select_length """SELECT id, j, json_length(null) FROM ${testTable} ORDER BY id"""
+
+    //json_contains
+    qt_sql_json_contains """SELECT json_contains('[1, 2, {"x": 3}]', '1')"""
+    qt_sql_json_contains """SELECT json_contains('[1, 2, {"x": 3}]', '{"x": 3}')"""
+    qt_sql_json_contains """SELECT json_contains('[1, 2, {"x": 3}]', '3')"""
+    qt_sql_json_contains """SELECT json_contains('[1, 2, [3, 4]]', '2')"""
+    qt_sql_json_contains """SELECT json_contains('[1, 2, [3, 4]]', '2', '\$[2]')"""
+    qt_sql_json_contains """SELECT json_contains('{"k1":"v31","k2":300}', '{"k2":300}')"""
+    qt_sql_json_contains """SELECT json_contains('{"k1":"v31","k2":300}', '{"k2":300,"k1":"v31"}')"""
+
+    qt_select_json_contains """SELECT id, j, json_contains(j, cast('true' as json)) FROM ${testTable} ORDER BY id"""
+    qt_select_json_contains """SELECT id, j, json_contains(j, cast('{"k2":300}' as json)) FROM ${testTable} ORDER BY id"""
+    qt_select_json_contains """SELECT id, j, json_contains(j, cast('{"k1":"v41","k2":400}' as json), '\$.a1') FROM ${testTable} ORDER BY id"""
+    qt_select_json_contains """SELECT id, j, json_contains(j, cast('[123,456]' as json)) FROM ${testTable} ORDER BY id"""
 }

@@ -21,11 +21,14 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.analysis.BoolLiteral;
+import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IsNullPredicate;
+import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
 import java.math.BigDecimal;
@@ -46,45 +49,48 @@ public class RoundLiteralInBinaryPredicatesRule implements ExprRewriteRule {
                     && ((ScalarType) expr0.getType()).getScalarScale()
                     < ((ScalarType) expr1.getType()).getScalarScale()) {
                 int toScale = ((ScalarType) expr0.getType()).getScalarScale();
-                try {
-                    switch (op) {
-                        case EQ: {
-                            BigDecimal originValue = literal.getValue();
-                            literal.roundCeiling();
-                            if (literal.getValue().equals(originValue.setScale(toScale))) {
-                                expr.setChild(1, literal);
-                                return expr;
+                switch (op) {
+                    case EQ:
+                    case NE: {
+                        try {
+                            BigDecimal newValue = literal.getValue().setScale(toScale);
+                            expr.setChild(1, new DecimalLiteral(newValue));
+                            return expr;
+                        } catch (ArithmeticException e) {
+                            if (expr0.isNullable()) {
+                                // TODO: the ideal way is to return an If expr like:
+                                // List<Expr> innerIfExprs = Lists.newArrayList();
+                                // innerIfExprs.add(new IsNullPredicate(expr0, false));
+                                // innerIfExprs.add(NullLiteral.create(Type.BOOLEAN));
+                                // innerIfExprs
+                                //         .add(op == Operator.EQ ? new BoolLiteral(false) : new BoolLiteral(true));
+                                // return new FunctionCallExpr("if", innerIfExprs);
+                                // but current fold constant rule can't handle such complex expr with null literal
+                                // so we use a trick way like this:
+                                Expr newExpr = new CompoundPredicate(CompoundPredicate.Operator.AND,
+                                        new IsNullPredicate(expr0, false), NullLiteral.create(Type.BOOLEAN));
+                                return op == Operator.EQ ? newExpr
+                                        : new CompoundPredicate(CompoundPredicate.Operator.NOT,
+                                                newExpr, null);
                             } else {
-                                return new BoolLiteral(false);
+                                return op == Operator.EQ ? new BoolLiteral(false) : new BoolLiteral(true);
                             }
                         }
-                        case NE: {
-                            BigDecimal originValue = literal.getValue();
-                            literal.roundCeiling(toScale);
-                            if (literal.getValue().equals(originValue.setScale(toScale))) {
-                                expr.setChild(1, literal);
-                                return expr;
-                            } else {
-                                return new IsNullPredicate(expr0, true);
-                            }
-                        }
-                        case GT:
-                        case LE: {
-                            literal.roundFloor(toScale);
-                            expr.setChild(1, literal);
-                            return expr;
-                        }
-                        case LT:
-                        case GE: {
-                            literal.roundCeiling(toScale);
-                            expr.setChild(1, literal);
-                            return expr;
-                        }
-                        default:
-                            return expr;
                     }
-                } catch (ArithmeticException e) {
-                    return new BoolLiteral(false);
+                    case GT:
+                    case LE: {
+                        literal.roundFloor(toScale);
+                        expr.setChild(1, literal);
+                        return expr;
+                    }
+                    case LT:
+                    case GE: {
+                        literal.roundCeiling(toScale);
+                        expr.setChild(1, literal);
+                        return expr;
+                    }
+                    default:
+                        return expr;
                 }
             }
         }
@@ -101,16 +107,7 @@ public class RoundLiteralInBinaryPredicatesRule implements ExprRewriteRule {
         if (expr0.getType().isDatetimeV2() && expr1 instanceof DateLiteral && expr1.getType().isDatetimeV2()) {
             DateLiteral literal = (DateLiteral) expr1;
             switch (op) {
-                case EQ: {
-                    long originValue = literal.getMicrosecond();
-                    literal.roundCeiling(((ScalarType) expr0.getType()).getScalarScale());
-                    if (literal.getMicrosecond() == originValue) {
-                        expr.setChild(1, literal);
-                        return expr;
-                    } else {
-                        return new BoolLiteral(false);
-                    }
-                }
+                case EQ:
                 case NE: {
                     long originValue = literal.getMicrosecond();
                     literal.roundCeiling(((ScalarType) expr0.getType()).getScalarScale());
@@ -118,7 +115,24 @@ public class RoundLiteralInBinaryPredicatesRule implements ExprRewriteRule {
                         expr.setChild(1, literal);
                         return expr;
                     } else {
-                        return new IsNullPredicate(expr0, true);
+                        if (expr0.isNullable()) {
+                            // TODO: the ideal way is to return an If expr like:
+                            // List<Expr> innerIfExprs = Lists.newArrayList();
+                            // innerIfExprs.add(new IsNullPredicate(expr0, false));
+                            // innerIfExprs.add(NullLiteral.create(Type.BOOLEAN));
+                            // innerIfExprs
+                            //         .add(op == Operator.EQ ? new BoolLiteral(false) : new BoolLiteral(true));
+                            // return new FunctionCallExpr("if", innerIfExprs);
+                            // but current fold constant rule can't handle such complex expr with null literal
+                            // so we use a trick way like this:
+                            Expr newExpr = new CompoundPredicate(CompoundPredicate.Operator.AND,
+                                    new IsNullPredicate(expr0, false), NullLiteral.create(Type.BOOLEAN));
+                            return op == Operator.EQ ? newExpr
+                                    : new CompoundPredicate(CompoundPredicate.Operator.NOT, newExpr,
+                                            null);
+                        } else {
+                            return op == Operator.EQ ? new BoolLiteral(false) : new BoolLiteral(true);
+                        }
                     }
                 }
                 case GT:

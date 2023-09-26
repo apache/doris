@@ -66,6 +66,8 @@ SET enable_nereids_planner=true;
 SET enable_fallback_to_original_planner=true;
 ```
 
+为了能够充分利用新优化器的CBO能力，强烈建议对关注性能查询所以来的表，执行analyze语句，以收集列统计信息
+
 ## 已知问题和暂不支持的功能
 
 ### 暂不支持的功能
@@ -73,15 +75,12 @@ SET enable_fallback_to_original_planner=true;
 > 如果开启了自动回退，则会自动回退到旧优化器执行
 
 - Json、Array、Map、Struct 类型：查询的表含有以上类型，或者查询中的函数会输出以上类型
-- DML：所有的 DML 语句，例如 Insert Into Select，Create Table As Select，Update，Delete 等
-- 函数别名
+- DML：仅支持如下DML：Insert Into Select, Update, Delete
+- 带过滤条件的物化视图
+- 别名函数
 - Java UDF 和 HDFS UDF
 - 高并发点查询优化
-- 倒排索引
 
 ### 已知问题
 
-- 不支持命中 Query Cache 和 Partition Cache
-- 不支持选中多表物化视图
-- 不支持选中使用 2.0 版本新创建物化视图
-- 部分不支持的子查询用法会产生错误结果而不是报错
+- 不支持命中 Partition Cache

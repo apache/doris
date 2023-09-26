@@ -44,29 +44,32 @@ class SyncerUtils {
         request.setPasswd(context.passwd)
     }
 
-    private static String newLabel(SyncerContext context, String table) {
-        return String.format("ccr_sync_job:%s:%s:%d", context.db, table, context.seq)
+    private static String newLabel(SyncerContext context, Long tableId) {
+        return String.format("ccr_sync_job:%s:%d:%d", context.db, tableId, context.seq)
     }
 
-    static TGetBinlogResult getBinLog(FrontendClientImpl clientImpl, SyncerContext context, String table) throws TException {
+    static TGetBinlogResult getBinLog(FrontendClientImpl clientImpl, SyncerContext context, String table, Long tableId) throws TException {
         TGetBinlogRequest request = new TGetBinlogRequest()
         setAuthorInformation(request, context)
         request.setDb(context.db)
         if (!table.isEmpty()) {
             request.setTable(table)
         }
+        if (tableId != -1) {
+            request.setTableId(tableId)
+        }
         request.setPrevCommitSeq(context.seq)
         return clientImpl.client.getBinlog(request)
     }
 
-    static TBeginTxnResult beginTxn(FrontendClientImpl clientImpl, SyncerContext context, String table) throws TException {
+    static TBeginTxnResult beginTxn(FrontendClientImpl clientImpl, SyncerContext context, Long tableId) throws TException {
         TBeginTxnRequest request = new TBeginTxnRequest()
         setAuthorInformation(request, context)
         request.setDb("TEST_" + context.db)
-        if (table != null) {
-            request.addToTables(table)
+        if (tableId != -1) {
+            request.addToTableIds(tableId)
         }
-        request.setLabel(newLabel(context, table))
+        request.setLabel(newLabel(context, tableId))
         return clientImpl.client.beginTxn(request)
 
     }
@@ -97,10 +100,14 @@ class SyncerUtils {
         return clientImpl.client.getSnapshot(request)
     }
 
-    static TRestoreSnapshotResult restoreSnapshot(FrontendClientImpl clientImpl, SyncerContext context) throws TException {
+    static TRestoreSnapshotResult restoreSnapshot(FrontendClientImpl clientImpl, SyncerContext context, boolean forCCR) throws TException {
         TRestoreSnapshotRequest request = new TRestoreSnapshotRequest()
         setAuthorInformation(request, context)
-        request.setDb(context.db)
+        if (forCCR) {
+            request.setDb("TEST_" + context.db)
+        } else {
+            request.setDb(context.db)
+        }
         if (context.tableName != null) {
             request.setTable(context.tableName)
         }

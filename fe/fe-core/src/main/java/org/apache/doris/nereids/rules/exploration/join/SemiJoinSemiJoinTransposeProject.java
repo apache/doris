@@ -28,9 +28,9 @@ import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -81,7 +81,7 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
                     LogicalJoin newTopSemi = bottomSemi.withChildrenNoContext(acProject, b);
                     newTopSemi.getJoinReorderContext().copyFrom(topSemi.getJoinReorderContext());
                     newTopSemi.getJoinReorderContext().setHasLAsscom(true);
-                    return CBOUtils.projectOrSelf(new ArrayList<>(topSemi.getOutput()), newTopSemi);
+                    return CBOUtils.projectOrSelf(ImmutableList.copyOf(topSemi.getOutput()), newTopSemi);
                 }).toRule(RuleType.LOGICAL_SEMI_JOIN_SEMI_JOIN_TRANSPOSE_PROJECT);
     }
 

@@ -35,28 +35,28 @@ under the License.
 
 ## 连接 DLF
 
-### 方式一：创建Hive Catalog连接DLF
+### 创建DLF Catalog
 
 ```sql
-CREATE CATALOG hive_with_dlf PROPERTIES (
+CREATE CATALOG dlf PROPERTIES (
    "type"="hms",
-   "dlf.catalog.proxyMode" = "DLF_ONLY",
    "hive.metastore.type" = "dlf",
-   "dlf.catalog.endpoint" = "dlf.cn-beijing.aliyuncs.com",
-   "dlf.catalog.region" = "cn-beijing",
-   "dlf.catalog.uid" = "uid",
-   "dlf.catalog.accessKeyId" = "ak",
-   "dlf.catalog.accessKeySecret" = "sk"
+   "dlf.proxy.mode" = "DLF_ONLY",
+   "dlf.endpoint" = "datalake-vpc.cn-beijing.aliyuncs.com",
+   "dlf.region" = "cn-beijing",
+   "dlf.uid" = "uid",
+   "dlf.access_key" = "ak",
+   "dlf.secret_key" = "sk"
 );
 ```
 
-其中 `type` 固定为 `hms`。 如果需要公网访问阿里云对象存储的数据，可以设置 `"dlf.catalog.accessPublic"="true"`
+其中 `type` 固定为 `hms`。 如果需要公网访问阿里云对象存储的数据，可以设置 `"dlf.access.public"="true"`
 
-* `dlf.catalog.endpoint`：DLF Endpoint，参阅：[DLF Region和Endpoint对照表](https://www.alibabacloud.com/help/zh/data-lake-formation/latest/regions-and-endpoints)
-* `dlf.catalog.region`：DLF Region，参阅：[DLF Region和Endpoint对照表](https://www.alibabacloud.com/help/zh/data-lake-formation/latest/regions-and-endpoints)
-* `dlf.catalog.uid`：阿里云账号。即阿里云控制台右上角个人信息的“云账号ID”。
-* `dlf.catalog.accessKeyId`：AccessKey。可以在 [阿里云控制台](https://ram.console.aliyun.com/manage/ak) 中创建和管理。
-* `dlf.catalog.accessKeySecret`：SecretKey。可以在 [阿里云控制台](https://ram.console.aliyun.com/manage/ak) 中创建和管理。
+* `dlf.endpoint`：DLF Endpoint，参阅：[DLF Region和Endpoint对照表](https://www.alibabacloud.com/help/zh/data-lake-formation/latest/regions-and-endpoints)
+* `dlf.region`：DLF Region，参阅：[DLF Region和Endpoint对照表](https://www.alibabacloud.com/help/zh/data-lake-formation/latest/regions-and-endpoints)
+* `dlf.uid`：阿里云账号。即阿里云控制台右上角个人信息的“云账号ID”。
+* `dlf.access_key`：AccessKey。可以在 [阿里云控制台](https://ram.console.aliyun.com/manage/ak) 中创建和管理。
+* `dlf.secret_key`：SecretKey。可以在 [阿里云控制台](https://ram.console.aliyun.com/manage/ak) 中创建和管理。
 
 其他配置项为固定值，无需改动。
 
@@ -64,55 +64,42 @@ CREATE CATALOG hive_with_dlf PROPERTIES (
 
 同 Hive Catalog 一样，支持访问 DLF 中的 Hive/Iceberg/Hudi 的元数据信息。
 
-### 方式二：配置Hive Conf连接DLF
+### 使用开启了HDFS服务的OSS存储数据
 
-1. 创建 hive-site.xml 文件，并将其放置在 `fe/conf` 目录下。
-
- ```
- <?xml version="1.0"?>
- <configuration>
-     <!--Set to use dlf client-->
-     <property>
-         <name>hive.metastore.type</name>
-         <value>dlf</value>
-     </property>
-     <property>
-         <name>dlf.catalog.endpoint</name>
-         <value>dlf-vpc.cn-beijing.aliyuncs.com</value>
-     </property>
-     <property>
-         <name>dlf.catalog.region</name>
-         <value>cn-beijing</value>
-     </property>
-     <property>
-         <name>dlf.catalog.proxyMode</name>
-         <value>DLF_ONLY</value>
-     </property>
-     <property>
-         <name>dlf.catalog.uid</name>
-         <value>20000000000000000</value>
-     </property>
-     <property>
-         <name>dlf.catalog.accessKeyId</name>
-         <value>XXXXXXXXXXXXXXX</value>
-     </property>
-     <property>
-         <name>dlf.catalog.accessKeySecret</name>
-         <value>XXXXXXXXXXXXXXXXX</value>
-     </property>
- </configuration>
- ```
-
-2. 重启 FE，Doris 会读取和解析 fe/conf/hive-site.xml。 并通过 `CREATE CATALOG` 语句创建 catalog。
+1. 确认OSS开启了HDFS服务。[开通并授权访问OSS-HDFS服务](https://help.aliyun.com/document_detail/419505.html?spm=a2c4g.2357115.0.i0)
+2. 下载SDK。[JindoData SDK下载](https://github.com/aliyun/alibabacloud-jindodata/blob/master/docs/user/5.x/5.0.0-beta7/jindodata_download.md)
+3. 解压下载后的jindosdk.tar.gz，将其lib目录下的`jindo-core.jar、jindo-sdk.jar`放到`${DORIS_HOME}/fe/lib`和`${DORIS_HOME}/be/lib/java_extensions`目录下。
+4. 创建DLF Catalog，并配置`oss.hdfs.enabled`为`true`：
 
 ```sql
-CREATE CATALOG hive_with_dlf PROPERTIES (
+CREATE CATALOG dlf_oss_hdfs PROPERTIES (
    "type"="hms",
-    "hive.metastore.uris" = "thrift://127.0.0.1:9083"
-)
+   "hive.metastore.type" = "dlf",
+   "dlf.proxy.mode" = "DLF_ONLY",
+   "dlf.endpoint" = "datalake-vpc.cn-beijing.aliyuncs.com",
+   "dlf.region" = "cn-beijing",
+   "dlf.uid" = "uid",
+   "dlf.access_key" = "ak",
+   "dlf.secret_key" = "sk",
+   "oss.hdfs.enabled" = "true"
+);
 ```
 
-其中 `type` 固定为 `hms`。`hive.metastore.uris` 的值随意填写即可，实际不会使用。但需要按照标准 hive metastore thrift uri 格式填写。
-   
+### 访问DLF Iceberg表
 
+```sql
+CREATE CATALOG dlf_iceberg PROPERTIES (
+   "type"="iceberg",
+   "iceberg.catalog.type" = "dlf",
+   "dlf.proxy.mode" = "DLF_ONLY",
+   "dlf.endpoint" = "datalake-vpc.cn-beijing.aliyuncs.com",
+   "dlf.region" = "cn-beijing",
+   "dlf.uid" = "uid",
+   "dlf.access_key" = "ak",
+   "dlf.secret_key" = "sk"
+);
+```
 
+## 列类型映射
+
+和 Hive Catalog 一致，可参阅 [Hive Catalog](./hive.md) 中 **列类型映射** 一节。

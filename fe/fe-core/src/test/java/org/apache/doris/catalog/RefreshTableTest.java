@@ -19,15 +19,11 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
-import org.apache.doris.analysis.RefreshCatalogStmt;
-import org.apache.doris.analysis.RefreshDbStmt;
 import org.apache.doris.analysis.RefreshTableStmt;
 import org.apache.doris.analysis.TableName;
-import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.TestExternalTable;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.DdlExecutor;
@@ -69,76 +65,16 @@ public class RefreshTableTest extends TestWithFeService {
     }
 
     @Test
-    public void testRefreshCatalog() throws Exception {
-        CatalogIf test1 = env.getCatalogMgr().getCatalog("test1");
-        TestExternalTable table = (TestExternalTable) test1.getDbNullable("db1").getTable("tbl11").get();
-        Assertions.assertFalse(table.isObjectCreated());
-        table.makeSureInitialized();
-        Assertions.assertTrue(table.isObjectCreated());
-        RefreshCatalogStmt refreshCatalogStmt = new RefreshCatalogStmt("test1", null);
-        Assertions.assertTrue(refreshCatalogStmt.isInvalidCache());
-        try {
-            DdlExecutor.execute(Env.getCurrentEnv(), refreshCatalogStmt);
-        } catch (Exception e) {
-            // Do nothing
-        }
-        Assertions.assertTrue(table.isObjectCreated());
-        test1.getDbNullable("db1").getTables();
-        Assertions.assertFalse(table.isObjectCreated());
-        try {
-            DdlExecutor.execute(Env.getCurrentEnv(), refreshCatalogStmt);
-        } catch (Exception e) {
-            // Do nothing
-        }
-        Assertions.assertFalse(((ExternalCatalog) test1).isInitialized());
-        table.makeSureInitialized();
-        Assertions.assertTrue(((ExternalCatalog) test1).isInitialized());
-        try {
-            DdlExecutor.execute(Env.getCurrentEnv(), refreshCatalogStmt);
-        } catch (Exception e) {
-            // Do nothing
-        }
-        Assertions.assertFalse(((ExternalCatalog) test1).isInitialized());
-    }
-
-    @Test
-    public void testRefreshDatabase() throws Exception {
-        CatalogIf test1 = env.getCatalogMgr().getCatalog("test1");
-        TestExternalTable table = (TestExternalTable) test1.getDbNullable("db1").getTable("tbl11").get();
-        Assertions.assertFalse(table.isObjectCreated());
-        table.makeSureInitialized();
-        Assertions.assertTrue(table.isObjectCreated());
-        RefreshDbStmt refreshDbStmt = new RefreshDbStmt("test1", "db1", null);
-        try {
-            DdlExecutor.execute(Env.getCurrentEnv(), refreshDbStmt);
-        } catch (Exception e) {
-            // Do nothing
-        }
-        Assertions.assertTrue(table.isObjectCreated());
-        test1.getDbNullable("db1").getTables();
-        Assertions.assertFalse(table.isObjectCreated());
-        try {
-            DdlExecutor.execute(Env.getCurrentEnv(), refreshDbStmt);
-        } catch (Exception e) {
-            // Do nothing
-        }
-        Assertions.assertFalse(((ExternalDatabase) test1.getDbNullable("db1")).isInitialized());
-        table.makeSureInitialized();
-        Assertions.assertTrue(((ExternalDatabase) test1.getDbNullable("db1")).isInitialized());
-        try {
-            DdlExecutor.execute(Env.getCurrentEnv(), refreshDbStmt);
-        } catch (Exception e) {
-            // Do nothing
-        }
-    }
-
-    @Test
     public void testRefreshTable() throws Exception {
         CatalogIf test1 = env.getCatalogMgr().getCatalog("test1");
         TestExternalTable table = (TestExternalTable) test1.getDbNullable("db1").getTable("tbl11").get();
         Assertions.assertFalse(table.isObjectCreated());
+        long l1 = table.getLastUpdateTime();
+        Assertions.assertTrue(l1 == 0);
         table.makeSureInitialized();
         Assertions.assertTrue(table.isObjectCreated());
+        long l2 = table.getLastUpdateTime();
+        Assertions.assertTrue(l2 == l1);
         RefreshTableStmt refreshTableStmt = new RefreshTableStmt(new TableName("test1", "db1", "tbl11"));
         try {
             DdlExecutor.execute(Env.getCurrentEnv(), refreshTableStmt);
@@ -146,6 +82,12 @@ public class RefreshTableTest extends TestWithFeService {
             // Do nothing
         }
         Assertions.assertFalse(table.isObjectCreated());
+        long l3 = table.getLastUpdateTime();
+        Assertions.assertTrue(l3 == l2);
+        table.getFullSchema();
+        // only table.getFullSchema() can change table.lastUpdateTime
+        long l4 = table.getLastUpdateTime();
+        Assertions.assertTrue(l4 > l3);
     }
 
     public static class RefreshTableProvider implements TestExternalCatalog.TestCatalogProvider {

@@ -32,7 +32,7 @@ class MultiTablePipe : public KafkaConsumerPipe {
 public:
     MultiTablePipe(std::shared_ptr<StreamLoadContext> ctx, size_t max_buffered_bytes = 1024 * 1024,
                    size_t min_chunk_size = 64 * 1024)
-            : KafkaConsumerPipe(max_buffered_bytes, min_chunk_size), _ctx(ctx) {}
+            : KafkaConsumerPipe(max_buffered_bytes, min_chunk_size), _ctx(ctx.get()) {}
 
     ~MultiTablePipe() override = default;
 
@@ -68,13 +68,19 @@ private:
     // [thread-unsafe] dispatch data to corresponding KafkaConsumerPipe
     Status dispatch(const std::string& table, const char* data, size_t size, AppendFunc cb);
 
+    template <typename ExecParam>
+    Status exec_plans(ExecEnv* exec_env, std::vector<ExecParam> params);
+
 private:
     std::unordered_map<std::string /*table*/, KafkaConsumerPipePtr> _planned_pipes;
     std::unordered_map<std::string /*table*/, KafkaConsumerPipePtr> _unplanned_pipes;
     std::atomic<uint64_t> _unplanned_row_cnt {0}; // trigger plan request when exceed threshold
     std::atomic<uint64_t> _inflight_plan_cnt {0}; // how many plan fragment are executing?
     std::atomic<bool> _consume_finished {false};
-    std::shared_ptr<StreamLoadContext> _ctx;
+    // note: Use raw pointer here to avoid cycle reference with StreamLoadContext.
+    // Life cycle of MultiTablePipe is under control of StreamLoadContext, which means StreamLoadContext is created
+    // before NultiTablePipe and released after it. It is safe to use raw pointer here.
+    StreamLoadContext* _ctx;
     Status _status; // save the first error status of all executing plan fragment
 #ifndef BE_TEST
     std::mutex _tablet_commit_infos_lock;

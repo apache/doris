@@ -115,7 +115,7 @@ suite("test_aggregate_table") {
             AGGREGATE KEY(k)
             DISTRIBUTED BY HASH(k) BUCKETS 5 properties("replication_num" = "1");
         """
-        exception "the auto increment is only supported in duplicate table."
+        exception "the auto increment is only supported in duplicate table and unique table."
     }
     // sql "drop database ${dbName}"
 }

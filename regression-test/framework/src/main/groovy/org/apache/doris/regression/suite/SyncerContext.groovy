@@ -18,6 +18,7 @@
 package org.apache.doris.regression.suite
 
 import org.apache.doris.regression.Config
+import org.apache.doris.regression.json.BinlogData
 import org.apache.doris.regression.suite.client.BackendClientImpl
 import org.apache.doris.regression.suite.client.FrontendClientImpl
 import org.apache.doris.thrift.TTabletCommitInfo
@@ -96,16 +97,17 @@ class SyncerContext {
     protected FrontendClientImpl sourceFrontendClient
     protected FrontendClientImpl targetFrontendClient
 
-    protected Long sourceDbId
-    protected HashMap<Long, String> sourceTableIdToName = new HashMap<>()
+    protected long sourceDbId
     protected HashMap<String, TableMeta> sourceTableMap = new HashMap<>()
-    protected Long targetDbId
+    protected long targetDbId
     protected HashMap<String, TableMeta> targetTableMap = new HashMap<>()
 
     protected HashMap<Long, BackendClientImpl> sourceBackendClients = new HashMap<Long, BackendClientImpl>()
     protected HashMap<Long, BackendClientImpl> targetBackendClients = new HashMap<Long, BackendClientImpl>()
 
     public ArrayList<TTabletCommitInfo> commitInfos = new ArrayList<TTabletCommitInfo>()
+
+    public BinlogData lastBinlog
 
     public String labelName
     public String tableName
@@ -120,6 +122,8 @@ class SyncerContext {
     public long seq
 
     SyncerContext(String dbName, Config config) {
+        this.sourceDbId = -1
+        this.targetDbId = -1
         this.db = dbName
         this.config = config
         this.user = config.feSyncerUser
@@ -208,6 +212,8 @@ class SyncerContext {
     }
 
     void closeConn() {
-        targetConnection.close()
+        if (targetConnection != null) {
+            targetConnection.close()
+        }
     }
 }

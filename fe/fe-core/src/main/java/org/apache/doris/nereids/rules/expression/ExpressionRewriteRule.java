@@ -22,6 +22,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 /**
  * The interface of expression rewrite rule.
  */
-public interface ExpressionRewriteRule {
-    Expression rewrite(Expression expr, ExpressionRewriteContext ctx);
+public interface ExpressionRewriteRule<T> {
+    Expression rewrite(Expression expr, T ctx);
 }

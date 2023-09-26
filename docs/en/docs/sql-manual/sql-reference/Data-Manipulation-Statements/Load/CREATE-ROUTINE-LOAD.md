@@ -102,7 +102,7 @@ FROM data_source [data_source_properties]
 
     Filter raw data. For a detailed introduction to this part, you can refer to the [Column Mapping, Transformation and Filtering] document.
 
-    Tips: When using dynamic multiple tables, please note that this parameter should be consistent with the type of each dynamic table, otherwise it will result in import failure.
+    Tips: Dynamic multiple tables are not supported.
 
   - `where_predicates`
 
@@ -149,7 +149,7 @@ FROM data_source [data_source_properties]
 
   1. `desired_concurrent_number`
 
-     Desired concurrency. A routine import job will be divided into multiple subtasks for execution. This parameter specifies the maximum number of tasks a job can execute concurrently. Must be greater than 0. Default is 3.
+     Desired concurrency. A routine import job will be divided into multiple subtasks for execution. This parameter specifies the maximum number of tasks a job can execute concurrently. Must be greater than 0. Default is 5.
 
      This degree of concurrency is not the actual degree of concurrency. The actual degree of concurrency will be comprehensively considered by the number of nodes in the cluster, the load situation, and the situation of the data source.
 
@@ -159,7 +159,7 @@ FROM data_source [data_source_properties]
 
      These three parameters represent:
 
-     1. The maximum execution time of each subtask, in seconds. The range is 5 to 60. Default is 10.
+     1. The maximum execution time of each subtask, in seconds. The range is 1 to 60. Default is 10.
      2. The maximum number of lines read by each subtask. Must be greater than or equal to 200000. The default is 200000.
      3. The maximum number of bytes read by each subtask. The unit is bytes and the range is 100MB to 1GB. The default is 100MB.
 
@@ -247,8 +247,18 @@ FROM data_source [data_source_properties]
      Integer, Used to set the default parallelism for sending batch, if the value for parallelism exceed `max_send_batch_parallelism_per_job` in BE config, then the coordinator BE will use the value of `max_send_batch_parallelism_per_job`.
   
   11. `load_to_single_tablet`
-      Boolean type, True means that one task can only load data to one tablet in the corresponding partition at a time. The default value is false. This parameter can only be set when loading data into the OLAP table with random partition.
+      Boolean type, True means that one task can only load data to one tablet in the corresponding partition at a time. The default value is false. This parameter can only be set when loading data into the OLAP table with random bucketing.
 
+  12. `partial_columns`
+      Boolean type, True means that use partial column update, the default value is false, this parameter is only allowed to be set when the table model is Unique and Merge on Write is used. Multi-table does not support this parameter.
+
+  13. `max_filter_ratio`
+      The maximum allowed filtering rate within the sampling window. Must be between 0 and 1. The default value is 1.0.
+
+      The sampling window is `max_batch_rows * 10`. That is, if the number of error lines / total lines is greater than `max_filter_ratio` within the sampling window, the routine operation will be suspended, requiring manual intervention to check data quality problems.
+
+      Rows that are filtered out by where conditions are not considered error rows.
+  
 - `FROM data_source [data_source_properties]`
 
   The type of data source. Currently supports:
@@ -579,7 +589,7 @@ Assuming that we need to import data from Kafka into tables "test1" and "test2" 
    (
        "kafka_broker_list" = "broker1:9092,broker2:9092",
        "kafka_topic" = "my_topic",
-       "kafka_default_offset" = "2021-05-21 10:00:00"
+       "kafka_default_offsets" = "2021-05-21 10:00:00"
    );
    ````
 
@@ -597,11 +607,11 @@ There are three relevant parameters:
 
 - `kafka_partitions`: Specify a list of partitions to be consumed, such as "0, 1, 2, 3".
 - `kafka_offsets`: Specify the starting offset of each partition, which must correspond to the number of `kafka_partitions` list. For example: "1000, 1000, 2000, 2000"
-- `property.kafka_default_offset`: Specifies the default starting offset of the partition.
+- `property.kafka_default_offsets`: Specifies the default starting offset of the partition.
 
 When creating an import job, these three parameters can have the following combinations:
 
-| Composition | `kafka_partitions` | `kafka_offsets` | `property.kafka_default_offset` | Behavior                                                     |
+| Composition | `kafka_partitions` | `kafka_offsets` | `property.kafka_default_offsets` | Behavior                                                     |
 | ----------- | ------------------ | --------------- | ------------------------------- | ------------------------------------------------------------ |
 | 1           | No                 | No              | No                              | The system will automatically find all partitions corresponding to the topic and start consumption from OFFSET_END |
 | 2           | No                 | No              | Yes                             | The system will automatically find all partitions corresponding to the topic and start consumption from the location specified by default offset |

@@ -139,6 +139,10 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         return dbName;
     }
 
+    public void setMVKeysType(KeysType type) {
+        mvKeysType = type;
+    }
+
     public KeysType getMVKeysType() {
         return mvKeysType;
     }
@@ -204,6 +208,11 @@ public class CreateMaterializedViewStmt extends DdlStmt {
          */
         for (int i = 0; i < selectList.getItems().size(); i++) {
             SelectListItem selectListItem = selectList.getItems().get(i);
+
+            if (selectListItem.isStar()) {
+                throw new AnalysisException("The materialized view not support select star");
+            }
+
             Expr selectListItemExpr = selectListItem.getExpr();
             if (!(selectListItemExpr instanceof SlotRef) && !(selectListItemExpr instanceof FunctionCallExpr)
                     && !(selectListItemExpr instanceof ArithmeticExpr)) {
@@ -262,7 +271,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
     }
 
     private void analyzeGroupByClause() throws AnalysisException {
-        if (selectStmt.getGroupByClause() == null) {
+        if (isReplay || selectStmt.getGroupByClause() == null) {
             return;
         }
         List<Expr> groupingExprs = selectStmt.getGroupByClause().getGroupingExprs();
@@ -290,6 +299,22 @@ public class CreateMaterializedViewStmt extends DdlStmt {
 
             if (!match) {
                 throw new AnalysisException("The select expr " + lhs + " not in grouping or aggregate columns");
+            }
+        }
+
+        for (Expr groupExpr : groupingExprs) {
+            boolean match = false;
+            String rhs = selectStmt.getExprFromAliasSMap(groupExpr).toSqlWithoutTbl();
+            for (Expr expr : selectExprs) {
+                String lhs = selectStmt.getExprFromAliasSMap(expr).toSqlWithoutTbl();
+                if (lhs.equalsIgnoreCase(rhs)) {
+                    match = true;
+                    break;
+                }
+            }
+
+            if (!match) {
+                throw new AnalysisException("The grouping expr " + rhs + " not in select list.");
             }
         }
     }
@@ -432,14 +457,14 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 break;
             case FunctionSet.BITMAP_UNION:
                 type = Type.BITMAP;
-                if (analyzer != null && !baseType.isBitmapType()) {
+                if (!isReplay && analyzer != null && !baseType.isBitmapType()) {
                     throw new AnalysisException(
                             "BITMAP_UNION need input a bitmap column, but input " + baseType.toString());
                 }
                 break;
             case FunctionSet.HLL_UNION:
                 type = Type.HLL;
-                if (analyzer != null && !baseType.isHllType()) {
+                if (!isReplay && analyzer != null && !baseType.isHllType()) {
                     throw new AnalysisException("HLL_UNION need input a hll column, but input " + baseType.toString());
                 }
                 break;

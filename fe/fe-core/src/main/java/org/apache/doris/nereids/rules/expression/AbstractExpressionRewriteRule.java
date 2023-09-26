@@ -24,7 +24,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewri
  * Base class of expression rewrite rule.
  */
 public abstract class AbstractExpressionRewriteRule extends DefaultExpressionRewriter<ExpressionRewriteContext>
-        implements ExpressionRewriteRule {
+        implements ExpressionRewriteRule<ExpressionRewriteContext> {
 
     @Override
     public Expression rewrite(Expression expr, ExpressionRewriteContext ctx) {

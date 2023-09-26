@@ -35,28 +35,28 @@ Doris can access DLF the same way as it accesses Hive Metastore.
 
 ## Connect to DLF
 
-### The First Way, Create a Hive Catalog.
+### Create a DLF Catalog.
 
 ```sql
-CREATE CATALOG hive_with_dlf PROPERTIES (
+CREATE CATALOG dlf PROPERTIES (
    "type"="hms",
-   "dlf.catalog.proxyMode" = "DLF_ONLY",
    "hive.metastore.type" = "dlf",
-   "dlf.catalog.endpoint" = "dlf.cn-beijing.aliyuncs.com",
-   "dlf.catalog.region" = "cn-beijing",
-   "dlf.catalog.uid" = "uid",
-   "dlf.catalog.accessKeyId" = "ak",
-   "dlf.catalog.accessKeySecret" = "sk"
+   "dlf.proxy.mode" = "DLF_ONLY",
+   "dlf.endpoint" = "datalake-vpc.cn-beijing.aliyuncs.com",
+   "dlf.region" = "cn-beijing",
+   "dlf.uid" = "uid",
+   "dlf.access_key" = "ak",
+   "dlf.secret_key" = "sk"
 );
 ```
 
-`type` should always be `hms`. If you need to access Alibaba Cloud OSS on the public network, can add `"dlf.catalog.accessPublic"="true"`.
+`type` should always be `hms`. If you need to access Alibaba Cloud OSS on the public network, can add `"dlf.access.public"="true"`.
 
-* `dlf.catalog.endpoint`: DLF Endpoint. See [Regions and Endpoints of DLF](https://www.alibabacloud.com/help/en/data-lake-formation/latest/regions-and-endpoints).
-* `dlf.catalog.region`: DLF Region. See [Regions and Endpoints of DLF](https://www.alibabacloud.com/help/en/data-lake-formation/latest/regions-and-endpoints).
-* `dlf.catalog.uid`: Alibaba Cloud account. You can find the "Account ID" in the upper right corner on the Alibaba Cloud console.
-* `dlf.catalog.accessKeyId`：AccessKey, which you can create and manage on the [Alibaba Cloud console](https://ram.console.aliyun.com/manage/ak).
-* `dlf.catalog.accessKeySecret`：SecretKey, which you can create and manage on the [Alibaba Cloud console](https://ram.console.aliyun.com/manage/ak).
+* `dlf.endpoint`: DLF Endpoint. See [Regions and Endpoints of DLF](https://www.alibabacloud.com/help/en/data-lake-formation/latest/regions-and-endpoints).
+* `dlf.region`: DLF Region. See [Regions and Endpoints of DLF](https://www.alibabacloud.com/help/en/data-lake-formation/latest/regions-and-endpoints).
+* `dlf.uid`: Alibaba Cloud account. You can find the "Account ID" in the upper right corner on the Alibaba Cloud console.
+* `dlf.access_key`：AccessKey, which you can create and manage on the [Alibaba Cloud console](https://ram.console.aliyun.com/manage/ak).
+* `dlf.secret_key`：SecretKey, which you can create and manage on the [Alibaba Cloud console](https://ram.console.aliyun.com/manage/ak).
 
 Other configuration items are fixed and require no modifications.
 
@@ -64,54 +64,43 @@ After the above steps, you can access metadata in DLF the same way as you access
 
 Doris supports accessing Hive/Iceberg/Hudi metadata in DLF.
 
-### The Second Way, Configure the Hive Conf
+### Use OSS-HDFS as the datasource
 
-1. Create the `hive-site.xml` file, and put it in the `fe/conf`  directory.
-
-```
-<?xml version="1.0"?>
-<configuration>
-    <!--Set to use dlf client-->
-    <property>
-        <name>hive.metastore.type</name>
-        <value>dlf</value>
-    </property>
-    <property>
-        <name>dlf.catalog.endpoint</name>
-        <value>dlf-vpc.cn-beijing.aliyuncs.com</value>
-    </property>
-    <property>
-        <name>dlf.catalog.region</name>
-        <value>cn-beijing</value>
-    </property>
-    <property>
-        <name>dlf.catalog.proxyMode</name>
-        <value>DLF_ONLY</value>
-    </property>
-    <property>
-        <name>dlf.catalog.uid</name>
-        <value>20000000000000000</value>
-    </property>
-    <property>
-        <name>dlf.catalog.accessKeyId</name>
-        <value>XXXXXXXXXXXXXXX</value>
-    </property>
-    <property>
-        <name>dlf.catalog.accessKeySecret</name>
-        <value>XXXXXXXXXXXXXXXXX</value>
-    </property>
-</configuration>
-```
-
-2. Restart FE, Doris will read and parse `fe/conf/hive-site.xml`. And then Create Catalog via the `CREATE CATALOG` statement.
+1. Enable OSS-HDFS. [Grant access to OSS or OSS-HDFS](https://www.alibabacloud.com/help/en/e-mapreduce/latest/oss-hdfsnew)
+2. Download the SDK. [JindoData SDK](https://github.com/aliyun/alibabacloud-jindodata/blob/master/docs/user/5.x/5.0.0-beta7/jindodata_download.md)
+3. Decompress the jindosdk.tar.gz, and then enter its lib directory and put `jindo-core.jar, jindo-sdk.jar` to both `${DORIS_HOME}/fe/lib` and `${DORIS_HOME}/be/lib/java_extensions`.
+4. Create DLF Catalog, set `oss.hdfs.enabled` as `true`：
 
 ```sql
-CREATE CATALOG hive_with_dlf PROPERTIES (
-    "type"="hms",
-    "hive.metastore.uris" = "thrift://127.0.0.1:9083"
-)
+CREATE CATALOG dlf_oss_hdfs PROPERTIES (
+   "type"="hms",
+   "hive.metastore.type" = "dlf",
+   "dlf.proxy.mode" = "DLF_ONLY",
+   "dlf.endpoint" = "datalake-vpc.cn-beijing.aliyuncs.com",
+   "dlf.region" = "cn-beijing",
+   "dlf.uid" = "uid",
+   "dlf.access_key" = "ak",
+   "dlf.secret_key" = "sk",
+   "oss.hdfs.enabled" = "true"
+);
 ```
 
-`type` should always be `hms`; while `hive.metastore.uris` can be arbitary since it is not used in real practice, but it should follow the format of Hive Metastore Thrift URI.
+### DLF Iceberg Catalog
 
+```sql
+CREATE CATALOG dlf_iceberg PROPERTIES (
+   "type"="iceberg",
+   "iceberg.catalog.type" = "dlf",
+   "dlf.proxy.mode" = "DLF_ONLY",
+   "dlf.endpoint" = "datalake-vpc.cn-beijing.aliyuncs.com",
+   "dlf.region" = "cn-beijing",
+   "dlf.uid" = "uid",
+   "dlf.access_key" = "ak",
+   "dlf.secret_key" = "sk"
+);
+```
+
+## Column type mapping
+
+Consistent with Hive Catalog, please refer to the **column type mapping** section in [Hive Catalog](./hive.md).
 

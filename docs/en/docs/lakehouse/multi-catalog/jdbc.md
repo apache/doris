@@ -35,6 +35,13 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
 
 Supported datas sources include MySQL, PostgreSQL, Oracle, SQLServer, Clickhouse, Doris, SAP HANA, Trino and OceanBase.
 
+## Syntax
+
+```sql
+CREATE CATALOG <catalog_name>
+PROPERTIES ("key"="value", ...)
+```
+
 ## Parameter Description
 
 | Parameter                 | Required or Not | Default Value | Description                                                                                                              |
@@ -49,22 +56,39 @@ Supported datas sources include MySQL, PostgreSQL, Oracle, SQLServer, Clickhouse
 | `include_database_list`   | No              | ""            | When only_specified_database=true，only synchronize the specified databases. split with ','. db name is case sensitive.   |
 | `exclude_database_list`   | No              | ""            | When only_specified_database=true，do not synchronize the specified databases. split with ','. db name is case sensitive. |
 
-:::tip
+### Driver path
+
 `driver_url` can be specified in three ways:
 
 1. File name. For example,  `mysql-connector-java-5.1.47.jar`. Please place the Jar file package in  `jdbc_drivers/`  under the FE/BE deployment directory in advance so the system can locate the file. You can change the location of the file by modifying  `jdbc_drivers_dir`  in fe.conf and be.conf.
 
 2. Local absolute path. For example, `file:///path/to/mysql-connector-java-5.1.47.jar`. Please place the Jar file package in the specified paths of FE/BE node.
 
-3. HTTP address. For example, `https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-5.1.47.jar`. The system will download the Driver file from the HTTP address. This only supports HTTP services with no authentication requirements.
-:::
+3. HTTP address. For example, `https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar`. The system will download the Driver file from the HTTP address. This only supports HTTP services with no authentication requirements.
 
-:::tip
- `only_specified_database`:
- When the JDBC is connected, you can specify which database/schema to connect. For example, you can specify the DataBase in mysql `jdbc_url`; you can specify the CurrentSchema in PG `jdbc_url`.
+### Lowercase table name synchronization
 
- `include_database_list`:
- It only takes effect when `only_specified_database=true`, specify the database that needs to be synchronized, separated by ',', and the db name is case-sensitive.
+When `lower_case_table_names` is set to `true`, Doris is able to query non-lowercase databases and tables by maintaining a mapping of lowercase names to actual names on the remote system
+
+**Notice:**
+
+1. In versions before Doris 2.0.3, it is only valid for Oracle database. When querying, all library names and table names will be converted to uppercase before querying Oracle, for example:
+
+Oracle has the TEST table in the TEST space. When Doris creates the Catalog, set `lower_case_table_names` to `true`, then Doris can query the TEST table through `select * from oracle_catalog.test.test`, and Doris will automatically format test.test into TEST.TEST is sent to Oracle. It should be noted that this is the default behavior, which also means that lowercase table names in Oracle cannot be queried.
+
+   For other databases, you still need to specify the real library name and table name when querying.
+
+2. In Doris 2.0.3 and later versions, it is valid for all databases. When querying, all library names and table names will be converted into real names and then queried. If you upgrade from an old version to 2.0. 3, `Refresh <catalog_name>` is required to take effect.
+
+   However, if the database or table names differ only in case, such as `Doris` and `doris`, Doris cannot query them due to ambiguity.
+
+### Specify synchronization database:
+
+`only_specified_database`:
+When the JDBC is connected, you can specify which database/schema to connect. For example, you can specify the DataBase in mysql `jdbc_url`; you can specify the CurrentSchema in PG `jdbc_url`.
+
+`include_database_list`:
+It only takes effect when `only_specified_database=true`, specify the database that needs to be synchronized, separated by ',', and the db name is case-sensitive.
 
 `exclude_database_list`:
 It only takes effect when `only specified database=true`, specifies multiple databases that do not need to be synchronized, separated by ',', and the db name is case-sensitive.
@@ -72,7 +96,6 @@ It only takes effect when `only specified database=true`, specifies multiple dat
 When `include_database_list` and `exclude_database_list` specify overlapping databases, `exclude_database_list` would take effect with higher privilege over `include_database_list`.
 
 If you connect the Oracle database when using this property, please  use the version of the jar package above 8 or more (such as ojdbc8.jar).
-:::
 
 ## Query
 
@@ -89,7 +112,14 @@ In some cases, the keywords in the database might be used as the field names. Fo
 
 1. When executing a query like `where dt = '2022-01-01'`, Doris can push down these filtering conditions to the external data source, thereby directly excluding data that does not meet the conditions at the data source level, reducing the number of unqualified Necessary data acquisition and transfer. This greatly improves query performance while also reducing the load on external data sources.
    
-2. When `enable_func_pushdown` is set to true, the function condition after where will also be pushed down to the external data source. Currently, only MySQL is supported. If you encounter a function that MySQL does not support, you can set this parameter to false.
+2. When `enable_func_pushdown` is set to true, the function condition after where will also be pushed down to the external data source. Currently, only MySQL is supported. If you encounter a function that MySQL does not support, you can set this parameter to false, at present, Doris will automatically identify some functions not supported by MySQL to filter the push-down conditions, which can be checked by explain sql.
+
+Functions that are currently not pushed down include:
+
+|    MYSQL     |
+|:------------:|
+|  DATE_TRUNC  |
+| MONEY_FORMAT |
 
 ### Line Limit
 
@@ -160,7 +190,7 @@ CREATE CATALOG jdbc_mysql PROPERTIES (
 
 | MYSQL Type                                | Doris Type     | Comment                                                                       |
 |-------------------------------------------|----------------|-------------------------------------------------------------------------------|
-| BOOLEAN                                   | BOOLEAN        |                                                                               |
+| BOOLEAN                                   | TINYINT        |                                                                               |
 | TINYINT                                   | TINYINT        |                                                                               |
 | SMALLINT                                  | SMALLINT       |                                                                               |
 | MEDIUMINT                                 | INT            |                                                                               |
@@ -180,7 +210,7 @@ CREATE CATALOG jdbc_mysql PROPERTIES (
 | TIME                                      | STRING         |                                                                               |
 | CHAR                                      | CHAR           |                                                                               |
 | VARCHAR                                   | VARCHAR        |                                                                               |
-| JSON                                      | STRING         |                                                                               |
+| JSON                                      | JSON           |                                                                               |
 | SET                                       | STRING         |                                                                               |
 | BIT                                       | BOOLEAN/STRING | BIT(1) will be mapped to BOOLEAN, and other BITs will be mapped to STRING     |
 | TINYTEXT、TEXT、MEDIUMTEXT、LONGTEXT         | STRING         |                                                                               |
@@ -236,12 +266,13 @@ Doris obtains all schemas that PG user can access through the SQL statement: `se
  | varchar/text                            | STRING         |                                           |
  | timestamp                               | DATETIME       |                                           |
  | date                                    | DATE           |                                           |
+ | json/josnb                              | JSON           |                                           |
  | time                                    | STRING         |                                           |
  | interval                                | STRING         |                                           |
  | point/line/lseg/box/path/polygon/circle | STRING         |                                           |
  | cidr/inet/macaddr                       | STRING         |                                           |
  | bit                                     | BOOLEAN/STRING | bit(1) will be mapped to BOOLEAN, and other bits will be mapped to STRING |
- | uuid/josnb                              | STRING         |                                           |
+ | uuid                                    | STRING         |                                           |
  | Other                                   | UNSUPPORTED    |                                           |
 
 ### Oracle
@@ -254,7 +285,7 @@ CREATE CATALOG jdbc_oracle PROPERTIES (
     "user"="root",
     "password"="123456",
     "jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:1521:helowin",
-    "driver_url" = "ojdbc6.jar",
+    "driver_url" = "ojdbc8.jar",
     "driver_class" = "oracle.jdbc.driver.OracleDriver"
 );
 ```
@@ -268,6 +299,8 @@ As for data mapping from Oracle to Doris, one Database in Doris corresponds to o
 | Catalog  | Database |
 | Database |   User   |
 |  Table   |  Table   |
+
+**NOTE:** Synchronizing Oracle's SYNONYM TABLE is not currently supported.
 
 #### Type Mapping
 
@@ -336,6 +369,8 @@ As for data mapping from SQLServer to Doris, one Database in Doris corresponds t
 
 Jdbc Catalog also support to connect another Doris database:
 
+* mysql 5.7 Driver
+
 ```sql
 CREATE CATALOG jdbc_doris PROPERTIES (
     "type"="jdbc",
@@ -344,10 +379,21 @@ CREATE CATALOG jdbc_doris PROPERTIES (
     "jdbc_url" = "jdbc:mysql://127.0.0.1:9030?useSSL=false",
     "driver_url" = "mysql-connector-java-5.1.47.jar",
     "driver_class" = "com.mysql.jdbc.Driver"
-);
+)
 ```
 
-**Note:** Currently, Jdbc Catalog only support to use 5.x version of JDBC jar package to connect another Doris database. If you use 8.x version of JDBC jar package, the data type of column may not be matched.
+* mysql 8 Driver
+
+```sql
+CREATE CATALOG jdbc_doris PROPERTIES (
+    "type"="jdbc",
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:mysql://127.0.0.1:9030?useSSL=false",
+    "driver_url" = "mysql-connector-java-8.0.25.jar",
+    "driver_class" = "com.mysql.cj.jdbc.Driver"
+)
+```
 
 #### Type Mapping
 
@@ -369,6 +415,8 @@ CREATE CATALOG jdbc_doris PROPERTIES (
 | STRING     | STRING                 |                                                                                      |
 | TEXT       | STRING                 |                                                                                      |
 | HLL        | HLL                    | Query HLL needs to set `return_object_data_as_binary=true`                           |
+| Array      | Array                  | The internal type adaptation logic of Array refers to the above types, and nested complex types are not supported        |
+| BITMAP     | BITMAP                 | Query BITMAP needs to set `return_object_data_as_binary=true`                        |
 | Other      | UNSUPPORTED            |                                                                                      |
 
 ### Clickhouse
@@ -490,7 +538,7 @@ CREATE CATALOG jdbc_presto PROPERTIES (
     "password"="",
     "jdbc_url" = "jdbc:presto://localhost:9000/hive",
     "driver_url" = "presto-jdbc-0.280.jar",
-    "driver_class" = "io.prestosql.jdbc.PrestoDriver"
+    "driver_class" = "com.facebook.presto.jdbc.PrestoDriver"
 );
 ```
 
@@ -543,6 +591,74 @@ CREATE CATALOG jdbc_oceanbase PROPERTIES (
 :::tip
 When Doris connects to OceanBase, it will automatically recognize that OceanBase is in MySQL or Oracle mode. Hierarchical correspondence and type mapping refer to [MySQL](#MySQL) and [Oracle](#Oracle)
 :::
+
+### View the JDBC Catalog
+
+You can query all Catalogs in the current Doris cluster through SHOW CATALOGS:
+
+```sql
+SHOW CATALOGS;
+```
+
+Query the creation statement of a Catalog through SHOW CREATE CATALOG:
+
+```sql
+SHOW CREATE CATALOG <catalog_name>;
+```
+
+### Drop the JDBC Catalog
+
+A Catalog can be deleted via DROP CATALOG:
+
+```sql
+DROP CATALOG <catalog_name>;
+```
+
+### Query the JDBC Catalog
+
+1. Use SWITCH to switch the Catalog in effect for the current session:
+
+    ```sql
+    SWITCH <catalog_name>;
+    ```
+
+2. Query all libraries under the current Catalog through SHOW DATABASES:
+
+    ```sql
+    SHOW DATABASES FROM <catalog_name>;
+    ```
+
+    ```sql
+    SHOW DATABASES;
+    ```
+
+3. Use USE to switch the Database that takes effect in the current session:
+
+    ```sql
+    USE <database_name>;
+    ```
+
+   Or directly use `USE <catalog_name>.<database_name>;` to switch the Database that takes effect in the current session
+
+4. Query all tables under the current Catalog through SHOW TABLES:
+
+    ```sql
+    SHOW TABLES FROM <catalog_name>.<database_name>;
+    ```
+
+    ```sql
+    SHOW TABLES FROM <database_name>;
+    ```
+
+    ```sql
+    SHOW TABLES;
+    ```
+
+5. Query the data of a table under the current Catalog through SELECT:
+
+    ```sql
+    SELECT * FROM <table_name>;
+    ```
 
 ## FAQ
 
@@ -688,3 +804,13 @@ When Doris connects to OceanBase, it will automatically recognize that OceanBase
     This happens because JDBC can't handle the datetime format 0000-00-00 00:00:00. 
     To address this, append zeroDateTimeBehavior=convertToNull to the jdbc_url when creating the Catalog, e.g., "jdbc_url" = "jdbc:mysql://127.0.0.1:3306/test?zeroDateTimeBehavior=convertToNull". 
     In this case, JDBC will convert 0000-00-00 00:00:00 to null, and then Doris will handle the DateTime column as a nullable type, allowing for successful reading.
+
+12. `Non supported character set (add orai18n.jar in your classpath): ZHS16GBK` exception occurs when reading Oracle
+
+    Download [orai18n.jar](https://www.oracle.com/database/technologies/appdev/jdbc-downloads.html) and put it in the lib directory of Doris FE and the `lib/java_extensions/` directory of BE (Doris versions before 2.0 need to be placed in the lib directory of BE).
+
+    Starting from version 2.0.2, this file can be placed in BE's `custom_lib/` directory (if it does not exist, just create it manually) to prevent the file from being lost due to the replacement of the lib directory when upgrading the cluster.
+
+13. `NoClassDefFoundError: net/jpountz/lz4/LZ4Factory` exception occurs when reading Clickhouse data via jdbc catalog.
+
+    You can download the [lz4-1.3.0.jar](https://repo1.maven.org/maven2/net/jpountz/lz4/lz4/1.3.0/lz4-1.3.0.jar) package and put it into the DorisFE `lib` directory and the `lib/java_extensions` directory of BE (the version before Doris 2.0 should be put into the `lib` directory of BE).

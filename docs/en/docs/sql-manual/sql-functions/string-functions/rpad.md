@@ -1,6 +1,6 @@
 ---
 {
-    "title": "rpad",
+    "title": "RPAD",
     "language": "en"
 }
 ---

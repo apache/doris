@@ -66,6 +66,6 @@ private:
 }; // class HeartBeatServer
 
 Status create_heartbeat_server(ExecEnv* exec_env, uint32_t heartbeat_server_port,
-                               ThriftServer** heart_beat_server, uint32_t worker_thread_num,
-                               TMasterInfo* local_master_info);
+                               std::unique_ptr<ThriftServer>* heart_beat_server,
+                               uint32_t worker_thread_num, TMasterInfo* local_master_info);
 } // namespace doris

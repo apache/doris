@@ -30,11 +30,13 @@ Broker 是 Doris 集群中一种可选进程，主要用于支持 Doris 读写�
 
 - Apache HDFS
 - 阿里云 OSS
+- 百度云 BOS
 - 腾讯云 CHDFS
 - 腾讯云 GFS (1.2.0 版本支持)
 - 华为云 OBS (1.2.0 版本后支持)
 - 亚马逊 S3
 - JuiceFS (2.0.0 版本支持)
+- GCS (2.0.0 版本支持)
 
 Broker 通过提供一个 RPC 服务端口来提供服务，是一个无状态的 Java 进程，负责为远端存储的读写操作封装一些类 POSIX 的文件操作，如 open，pread，pwrite 等等。除此之外，Broker 不记录任何其他信息，所以包括远端存储的连接信息、文件信息、权限信息等等，都需要通过参数在 RPC 调用中传递给 Broker 进程，才能使得 Broker 能够正确读写文件。
 
@@ -121,8 +123,8 @@ WITH BROKER "broker_name"
    该认证方式需提供以下信息：
 
    - `hadoop.security.authentication`：指定认证方式为 kerberos。
-   - `kerberos_principal`：指定 kerberos 的 principal。
-   - `kerberos_keytab`：指定 kerberos 的 keytab 文件路径。该文件必须为 Broker 进程所在服务器上的文件的绝对路径。并且可以被 Broker 进程访问。
+   - `hadoop.kerberos.principal`：指定 kerberos 的 principal。
+   - `hadoop.kerberos.keytab`：指定 kerberos 的 keytab 文件路径。该文件必须为 Broker 进程所在服务器上的文件的绝对路径。并且可以被 Broker 进程访问。
    - `kerberos_keytab_content`：指定 kerberos 中 keytab 文件内容经过 base64 编码之后的内容。这个跟 `kerberos_keytab` 配置二选一即可。
 
    示例如下：
@@ -130,15 +132,15 @@ WITH BROKER "broker_name"
    ```text
    (
        "hadoop.security.authentication" = "kerberos",
-       "kerberos_principal" = "doris@YOUR.COM",
-       "kerberos_keytab" = "/home/doris/my.keytab"
+       "hadoop.kerberos.principal" = "doris@YOUR.COM",
+       "hadoop.kerberos.keytab" = "/home/doris/my.keytab"
    )
    ```
 
    ```text
    (
        "hadoop.security.authentication" = "kerberos",
-       "kerberos_principal" = "doris@YOUR.COM",
+       "hadoop.kerberos.principal" = "doris@YOUR.COM",
        "kerberos_keytab_content" = "ASDOWHDLAWIDJHWLDKSALDJSDIWALD"
    )
    ```
@@ -172,6 +174,7 @@ WITH BROKER "broker_name"
 
    ```text
    (
+       "fs.defaultFS" = "hdfs://my_ha",
        "dfs.nameservices" = "my_ha",
        "dfs.ha.namenodes.my_ha" = "my_namenode1, my_namenode2",
        "dfs.namenode.rpc-address.my_ha.my_namenode1" = "nn1_host:rpc_port",
@@ -186,6 +189,7 @@ WITH BROKER "broker_name"
    (
        "username"="user",
        "password"="passwd",
+       "fs.defaultFS" = "hdfs://my_ha",
        "dfs.nameservices" = "my_ha",
        "dfs.ha.namenodes.my_ha" = "my_namenode1, my_namenode2",
        "dfs.namenode.rpc-address.my_ha.my_namenode1" = "nn1_host:rpc_port",
@@ -207,6 +211,17 @@ WITH BROKER "broker_name"
     "fs.oss.accessKeyId" = "",
     "fs.oss.accessKeySecret" = "",
     "fs.oss.endpoint" = ""
+)
+```
+
+#### 百度云 BOS
+当前使用BOS时需要将[bos-hdfs-sdk-1.0.3-community.jar.zip](https://sdk.bce.baidu.com/console-sdk/bos-hdfs-sdk-1.0.3-community.jar.zip)下载并解压后把jar包放到broker的lib目录下。
+
+```
+(
+    "fs.bos.access.key" = "xx",
+    "fs.bos.secret.access.key" = "xx",
+    "fs.bos.endpoint" = "xx"
 )
 ```
 
@@ -239,5 +254,15 @@ WITH BROKER "broker_name"
     "fs.AbstractFileSystem.jfs.impl" = "io.juicefs.JuiceFS",
     "juicefs.meta" = "xxx",
     "juicefs.access-log" = "xxx"
+)
+```
+
+#### GCS
+ 在使用 Broker 访问 GCS 时，Project ID 是必须的，其他参数可选,所有参数配置请参考 [GCS Config](https://github.com/GoogleCloudDataproc/hadoop-connectors/blob/branch-2.2.x/gcs/CONFIGURATION.md)
+```
+(
+    "fs.gs.project.id" = "你的 Project ID",
+    "fs.AbstractFileSystem.gs.impl" = "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS",
+    "fs.gs.impl" = "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem",
 )
 ```

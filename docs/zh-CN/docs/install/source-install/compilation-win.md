@@ -1,6 +1,6 @@
 ---
 {
-"title": "在Windows平台上编译",
+"title": "在 Windows 平台上编译",
 "language": "zh-CN"
 }
 ---

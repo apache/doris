@@ -36,6 +36,7 @@ class ConfigOptions {
     static Option feTargetThriftAddressOpt
     static Option feSyncerUserOpt
     static Option feSyncerPasswordOpt
+    static Option syncerAddressOpt
     static Option feHttpAddressOpt
     static Option feHttpUserOpt
     static Option feHttpPasswordOpt
@@ -44,8 +45,10 @@ class ConfigOptions {
     static Option dataOpt
     static Option realDataOpt
     static Option cacheDataOpt
+    static Option enableCacheDataOpt
     static Option pluginOpt
     static Option sslCertificateOpt
+    static Option imageOpt
     static Option suiteOpt
     static Option excludeSuiteOpt
     static Option groupsOpt
@@ -144,7 +147,14 @@ class ConfigOptions {
                 .longOpt("cacheDataPath")
                 .desc("the cache data path caches data for stream load from s3")
                 .build()
-
+       enableCacheDataOpt = Option.builder("ECD")
+                .argName("enableCacheData")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("enableCacheData")
+                .desc("enable caches data for stream load from s3")
+                .build()
         pluginOpt = Option.builder("plugin")
                 .argName("pluginPath")
                 .required(false)
@@ -162,6 +172,15 @@ class ConfigOptions {
                 .longOpt("sslCertificatePath")
                 .desc("the sslCertificate path")
                 .build() 
+
+        imageOpt = Option.builder("image")
+                .argName("image")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("image")
+                .desc("the docker image")
+                .build()
 
         suiteOpt = Option.builder("s")
                 .argName("suiteName")
@@ -248,6 +267,14 @@ class ConfigOptions {
                 .type(String.class)
                 .longOpt("feSyncerPassword")
                 .desc("the password of syncer")
+                .build()
+        syncerAddressOpt = Option.builder("sa")
+                .argName("address")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("syncerAddressOpt")
+                .desc("the syncer address, format is ip:port")
                 .build()
         feHttpAddressOpt = Option.builder("ha")
                 .argName("address")
@@ -364,6 +391,7 @@ class ConfigOptions {
                 .addOption(dataOpt)
                 .addOption(pluginOpt)
                 .addOption(sslCertificateOpt)
+                .addOption(imageOpt)
                 .addOption(confOpt)
                 .addOption(suiteOpt)
                 .addOption(excludeSuiteOpt)
@@ -375,6 +403,7 @@ class ConfigOptions {
                 .addOption(feTargetThriftAddressOpt)
                 .addOption(feSyncerUserOpt)
                 .addOption(feSyncerPasswordOpt)
+                .addOption(syncerAddressOpt)
                 .addOption(feHttpAddressOpt)
                 .addOption(feHttpUserOpt)
                 .addOption(feHttpPasswordOpt)

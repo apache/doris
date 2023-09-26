@@ -160,7 +160,7 @@ public final class ExprSubstitutionMap {
         ExprSubstitutionMap result = new ExprSubstitutionMap();
         // f's substitution targets need to be substituted via g
         result.lhs = Expr.cloneList(f.lhs);
-        result.rhs = Expr.substituteList(f.rhs, g, analyzer, false);
+        result.rhs = Expr.substituteList(f.rhs, g, analyzer, true);
 
         // substitution maps are cumulative: the combined map contains all
         // substitutions from f and g.
@@ -345,5 +345,15 @@ public final class ExprSubstitutionMap {
     @Override
     public ExprSubstitutionMap clone() {
         return new ExprSubstitutionMap(Expr.cloneList(lhs), Expr.cloneList(rhs));
+    }
+
+    public void reCalculateNullableInfoForSlotInRhs() {
+        Preconditions.checkState(lhs.size() == rhs.size(), "lhs and rhs must be same size");
+        for (int i = 0; i < rhs.size(); i++) {
+            if (rhs.get(i) instanceof SlotRef) {
+                ((SlotRef) rhs.get(i)).getDesc().setIsNullable(lhs.get(i).isNullable()
+                        || ((SlotRef) rhs.get(i)).getDesc().getIsNullable());
+            }
+        }
     }
 }

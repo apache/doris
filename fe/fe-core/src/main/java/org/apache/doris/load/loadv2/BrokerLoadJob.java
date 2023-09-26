@@ -32,6 +32,7 @@ import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.Version;
 import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.profile.SummaryProfile.SummaryBuilder;
 import org.apache.doris.common.util.DebugUtil;
@@ -47,6 +48,7 @@ import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.BeginTransactionException;
@@ -207,7 +209,7 @@ public class BrokerLoadJob extends BulkLoadJob {
                 // Generate loading task and init the plan of task
                 LoadLoadingTask task = new LoadLoadingTask(db, table, brokerDesc,
                         brokerFileGroups, getDeadlineMs(), getExecMemLimit(),
-                        isStrictMode(), transactionId, this, getTimeZone(), getTimeout(),
+                        isStrictMode(), isPartialUpdate(), transactionId, this, getTimeZone(), getTimeout(),
                         getLoadParallelism(), getSendBatchParallelism(),
                         getMaxFilterRatio() <= 0, enableProfile ? jobProfile : null, isSingleTabletLoadPerSink(),
                         useNewLoadScanNode(), getPriority());
@@ -320,13 +322,19 @@ public class BrokerLoadJob extends BulkLoadJob {
         if (!enableProfile) {
             return;
         }
-        jobProfile.update(createTimestamp, getSummaryInfo(true), true);
+        jobProfile.update(createTimestamp, getSummaryInfo(true), true,
+                Boolean.valueOf(sessionVariables.getOrDefault(SessionVariable.ENABLE_SIMPLY_PROFILE, "true")));
     }
 
     private Map<String, String> getSummaryInfo(boolean isFinished) {
         long currentTimestamp = System.currentTimeMillis();
         SummaryBuilder builder = new SummaryBuilder();
         builder.profileId(String.valueOf(id));
+        if (Version.DORIS_BUILD_VERSION_MAJOR == 0) {
+            builder.dorisVersion(Version.DORIS_BUILD_SHORT_HASH);
+        } else {
+            builder.dorisVersion(Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH);
+        }
         builder.taskType(ProfileType.LOAD.name());
         builder.startTime(TimeUtils.longToTimeString(createTimestamp));
         if (isFinished) {

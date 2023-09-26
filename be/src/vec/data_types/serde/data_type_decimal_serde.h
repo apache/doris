@@ -47,9 +47,41 @@ class DataTypeDecimalSerDe : public DataTypeSerDe {
     static_assert(IsDecimalNumber<T>);
 
 public:
-    DataTypeDecimalSerDe(int scale_)
+    static constexpr PrimitiveType get_primitive_type() {
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal32>>) {
+            return TYPE_DECIMAL32;
+        }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal64>>) {
+            return TYPE_DECIMAL64;
+        }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128I>>) {
+            return TYPE_DECIMAL128I;
+        }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128>>) {
+            return TYPE_DECIMALV2;
+        }
+        LOG(FATAL) << "__builtin_unreachable";
+        __builtin_unreachable();
+    }
+
+    DataTypeDecimalSerDe(int scale_, int precision_)
             : scale(scale_),
+              precision(precision_),
               scale_multiplier(decimal_scale_multiplier<typename T::NativeType>(scale)) {}
+
+    void serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
+                                    FormatOptions& options) const override;
+
+    void serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
+                                  BufferWritable& bw, FormatOptions& options) const override;
+
+    Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
+                                          const FormatOptions& options,
+                                          int nesting_level = 1) const override;
+
+    Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
+                                               int* num_deserialized, const FormatOptions& options,
+                                               int nesting_level = 1) const override;
 
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override;
@@ -60,7 +92,7 @@ public:
 
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
 
-    void write_column_to_arrow(const IColumn& column, const UInt8* null_map,
+    void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                arrow::ArrayBuilder* array_builder, int start,
                                int end) const override;
     void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
@@ -76,7 +108,8 @@ private:
                                   int row_idx, bool col_const) const;
 
     int scale;
-    const T::NativeType scale_multiplier;
+    int precision;
+    const typename T::NativeType scale_multiplier;
     mutable char buf[T::max_string_length()];
 };
 
@@ -88,7 +121,7 @@ Status DataTypeDecimalSerDe<T>::write_column_to_pb(const IColumn& column, PValue
     auto ptype = result.mutable_type();
     if constexpr (std::is_same_v<T, Decimal<Int128>>) {
         ptype->set_id(PGenericType::DECIMAL128);
-    } else if constexpr (std::is_same_v<T, Decimal<Int128I>>) {
+    } else if constexpr (std::is_same_v<T, Decimal128I>) {
         ptype->set_id(PGenericType::DECIMAL128I);
     } else if constexpr (std::is_same_v<T, Decimal<Int32>>) {
         ptype->set_id(PGenericType::INT32);
@@ -107,12 +140,12 @@ Status DataTypeDecimalSerDe<T>::write_column_to_pb(const IColumn& column, PValue
 
 template <typename T>
 Status DataTypeDecimalSerDe<T>::read_column_from_pb(IColumn& column, const PValues& arg) const {
-    if constexpr (std::is_same_v<T, Decimal<Int128>> || std::is_same_v<T, Decimal<Int128I>> ||
+    if constexpr (std::is_same_v<T, Decimal<Int128>> || std::is_same_v<T, Decimal128I> ||
                   std::is_same_v<T, Decimal<Int16>> || std::is_same_v<T, Decimal<Int32>>) {
         column.resize(arg.bytes_value_size());
         auto& data = reinterpret_cast<ColumnDecimal<T>&>(column).get_data();
         for (int i = 0; i < arg.bytes_value_size(); ++i) {
-            data[i] = *(int128_t*)(arg.bytes_value(i).c_str());
+            data[i] = *(T*)(arg.bytes_value(i).c_str());
         }
         return Status::OK();
     }
@@ -130,7 +163,7 @@ void DataTypeDecimalSerDe<T>::write_one_cell_to_jsonb(const IColumn& column, Jso
         Decimal128::NativeType val =
                 *reinterpret_cast<const Decimal128::NativeType*>(data_ref.data);
         result.writeInt128(val);
-    } else if constexpr (std::is_same_v<T, Decimal<Int128I>>) {
+    } else if constexpr (std::is_same_v<T, Decimal128I>) {
         Decimal128I::NativeType val =
                 *reinterpret_cast<const Decimal128I::NativeType*>(data_ref.data);
         result.writeInt128(val);
@@ -141,7 +174,8 @@ void DataTypeDecimalSerDe<T>::write_one_cell_to_jsonb(const IColumn& column, Jso
         Decimal64::NativeType val = *reinterpret_cast<const Decimal64::NativeType*>(data_ref.data);
         result.writeInt64(val);
     } else {
-        LOG(FATAL) << "unknown Column " << column.get_name() << " for writing to jsonb";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "write_one_cell_to_jsonb with type " + column.get_name());
     }
 }
 
@@ -151,14 +185,15 @@ void DataTypeDecimalSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
     auto& col = reinterpret_cast<ColumnDecimal<T>&>(column);
     if constexpr (std::is_same_v<T, Decimal<Int128>>) {
         col.insert_value(static_cast<const JsonbInt128Val*>(arg)->val());
-    } else if constexpr (std::is_same_v<T, Decimal<Int128I>>) {
+    } else if constexpr (std::is_same_v<T, Decimal128I>) {
         col.insert_value(static_cast<const JsonbInt128Val*>(arg)->val());
     } else if constexpr (std::is_same_v<T, Decimal<Int32>>) {
         col.insert_value(static_cast<const JsonbInt32Val*>(arg)->val());
     } else if constexpr (std::is_same_v<T, Decimal<Int64>>) {
         col.insert_value(static_cast<const JsonbInt64Val*>(arg)->val());
     } else {
-        LOG(FATAL) << "unknown jsonb " << arg->typeName() << " for writing to column";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "read_one_cell_from_jsonb with type " + column.get_name());
     }
 }
 } // namespace vectorized

@@ -102,6 +102,7 @@ suite("test_dup_table_without_keys_load") {
         // stream load action will check result, include Success status, and NumberTotalRows == NumberLoadedRows
     }
 
+    sql """sync"""
     test {
         sql """
             SELECT * FROM test_dup_table_without_keys_load;

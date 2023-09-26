@@ -26,11 +26,11 @@ under the License.
 
 # Import Overview
 
-## Supported data sources
+## Supported Data Sources
 
 Doris provides a variety of data import solutions, and you can choose different data import methods for different data sources.
 
-### By scene
+### By Scene
 
 | Data Source                          | Import Method                                                |
 | ------------------------------------ | ------------------------------------------------------------ |
@@ -41,7 +41,7 @@ Doris provides a variety of data import solutions, and you can choose different 
 | Import via JDBC                      | [Sync data using JDBC](./import-scenes/jdbc-load.md)       |
 | Import JSON format data              | [JSON format data import](./import-way/load-json-format.md) |
 
-### Divided by import method
+### Divided by Import Method
 
 | Import method name | Use method                                                   |
 | ------------------ | ------------------------------------------------------------ |
@@ -53,7 +53,7 @@ Doris provides a variety of data import solutions, and you can choose different 
 | S3 Load            | [Object storage data import of S3 protocol](./import-way/s3-load-manual.md) |
 | MySql Load         | [Local data import of MySql protocol](./import-way/mysql-load-manual.md) |
 
-## Supported data formats
+## Supported Data Formats
 
 Different import methods support slightly different data formats.
 
@@ -64,11 +64,11 @@ Different import methods support slightly different data formats.
 | Routine Load   | csv, json               |
 | MySql Load     | csv                     |
 
-## import instructions
+## Import Instructions
 
 The data import implementation of Apache Doris has the following common features, which are introduced here to help you better use the data import function
 
-## Import atomicity guarantees
+## Import Atomicity Guarantees
 
 Each import job of Doris, whether it is batch import using Broker Load or single import using INSERT statement, is a complete transaction operation. The import transaction can ensure that the data in a batch takes effect atomically, and there will be no partial data writing.
 
@@ -78,11 +78,11 @@ Label is used to ensure that the corresponding import job can only be successful
 
 For best practices on atomicity guarantees, see Importing Transactions and Atomicity.
 
-## Synchronous and asynchronous imports
+## Synchronous and Asynchronous Imports
 
 Import methods are divided into synchronous and asynchronous. For the synchronous import method, the returned result indicates whether the import succeeds or fails. For the asynchronous import method, a successful return only means that the job was submitted successfully, not that the data was imported successfully. You need to use the corresponding command to check the running status of the import job.
 
-## Import the data of array type
+## Import the Data of Array Types
 
 The array function can only be supported in vectorization scenarios, but non-vectorization scenarios are not supported.
 if you want to apply the array function to import data, you should enable vectorization engine. Then you need to cast the input parameter column into the array type according to the parameter of the array function. Finally, you can continue to use the array function.

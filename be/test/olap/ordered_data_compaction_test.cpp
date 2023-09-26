@@ -61,6 +61,7 @@
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
+#include "runtime/exec_env.h"
 #include "util/uid_util.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
@@ -89,8 +90,7 @@ protected:
         _data_dir->update_capacity();
         doris::EngineOptions options;
         k_engine = new StorageEngine(options);
-        StorageEngine::_s_instance = k_engine;
-
+        ExecEnv::GetInstance()->set_storage_engine(k_engine);
         config::enable_ordered_data_compaction = true;
         config::ordered_data_compaction_min_segment_size = 10;
     }
@@ -100,6 +100,7 @@ protected:
             k_engine->stop();
             delete k_engine;
             k_engine = nullptr;
+            ExecEnv::GetInstance()->set_storage_engine(nullptr);
         }
     }
 
@@ -462,7 +463,7 @@ TEST_F(OrderedDataCompactionTest, test_01) {
             output_data.emplace_back(columns[0].column->get_int(i), columns[1].column->get_int(i));
         }
     } while (s == Status::OK());
-    EXPECT_EQ(Status::Error<END_OF_FILE>(), s);
+    EXPECT_EQ(Status::Error<END_OF_FILE>(""), s);
     EXPECT_EQ(out_rowset->rowset_meta()->num_rows(), output_data.size());
     EXPECT_EQ(output_data.size(), num_input_rowset * num_segments * rows_per_segment);
     std::vector<uint32_t> segment_num_rows;

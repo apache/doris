@@ -97,6 +97,8 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
             } else {
                 tRoutineLoadTask.setParams(rePlan(routineLoadJob));
             }
+        } else {
+            Env.getCurrentEnv().getRoutineLoadManager().addMultiLoadTaskTxnIdToRoutineLoadJobId(txnId, jobId);
         }
         tRoutineLoadTask.setMaxIntervalS(routineLoadJob.getMaxBatchIntervalS());
         tRoutineLoadTask.setMaxBatchRows(routineLoadJob.getMaxBatchRows());

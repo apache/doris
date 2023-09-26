@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.analyzer;
 
+import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
@@ -24,11 +25,13 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.logical.LogicalUnary;
+import org.apache.doris.nereids.trees.plans.algebra.Sink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
@@ -37,25 +40,46 @@ import java.util.Optional;
 /**
  * Represent an olap table sink plan node that has not been bound.
  */
-public class UnboundOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements Unbound {
+public class UnboundOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<CHILD_TYPE> implements Unbound, Sink {
+
     private final List<String> nameParts;
     private final List<String> colNames;
     private final List<String> hints;
     private final List<String> partitions;
+    private final boolean isPartialUpdate;
+    private final boolean isFromNativeInsertStmt;
 
     public UnboundOlapTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
             List<String> partitions, CHILD_TYPE child) {
-        this(nameParts, colNames, hints, partitions, Optional.empty(), Optional.empty(), child);
+        this(nameParts, colNames, hints, partitions, false, false, Optional.empty(), Optional.empty(), child);
     }
 
     public UnboundOlapTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
-            List<String> partitions, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        super(PlanType.LOGICAL_UNBOUND_OLAP_TABLE_SINK, groupExpression, logicalProperties, child);
+            List<String> partitions, boolean isPartialUpdate, CHILD_TYPE child) {
+        this(nameParts, colNames, hints, partitions, isPartialUpdate, false,
+                Optional.empty(), Optional.empty(), child);
+    }
+
+    public UnboundOlapTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
+            List<String> partitions, boolean isPartialUpdate, boolean isFromNativeInsertStmt, CHILD_TYPE child) {
+        this(nameParts, colNames, hints, partitions, isPartialUpdate, isFromNativeInsertStmt,
+                Optional.empty(), Optional.empty(), child);
+    }
+
+    /**
+     * constructor
+     */
+    public UnboundOlapTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
+            List<String> partitions, boolean isPartialUpdate, boolean isFromNativeInsertStmt,
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
+            CHILD_TYPE child) {
+        super(PlanType.LOGICAL_UNBOUND_OLAP_TABLE_SINK, ImmutableList.of(), groupExpression, logicalProperties, child);
         this.nameParts = Utils.copyRequiredList(nameParts);
         this.colNames = Utils.copyRequiredList(colNames);
         this.hints = Utils.copyRequiredList(hints);
         this.partitions = Utils.copyRequiredList(partitions);
+        this.isPartialUpdate = isPartialUpdate;
+        this.isFromNativeInsertStmt = isFromNativeInsertStmt;
     }
 
     public List<String> getColNames() {
@@ -70,11 +94,23 @@ public class UnboundOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
         return partitions;
     }
 
+    public List<String> getHints() {
+        return hints;
+    }
+
+    public boolean isPartialUpdate() {
+        return isPartialUpdate;
+    }
+
+    public boolean isFromNativeInsertStmt() {
+        return isFromNativeInsertStmt;
+    }
+
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "UnboundOlapTableSink only accepts one child");
-        return new UnboundOlapTableSink<>(nameParts, colNames, hints, partitions, groupExpression,
-                Optional.of(getLogicalProperties()), children.get(0));
+        return new UnboundOlapTableSink<>(nameParts, colNames, hints, partitions, isPartialUpdate,
+                isFromNativeInsertStmt, groupExpression, Optional.empty(), children.get(0));
     }
 
     @Override
@@ -109,14 +145,15 @@ public class UnboundOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new UnboundOlapTableSink<>(nameParts, colNames, hints, partitions, groupExpression,
-                Optional.of(getLogicalProperties()), child());
+        return new UnboundOlapTableSink<>(nameParts, colNames, hints, partitions, isPartialUpdate,
+                isFromNativeInsertStmt, groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new UnboundOlapTableSink<>(nameParts, colNames, hints, partitions, groupExpression,
-                logicalProperties, child());
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new UnboundOlapTableSink<>(nameParts, colNames, hints, partitions,
+                isPartialUpdate, isFromNativeInsertStmt, groupExpression, logicalProperties, children.get(0));
     }
 
     @Override
@@ -126,6 +163,6 @@ public class UnboundOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
 
     @Override
     public List<Slot> computeOutput() {
-        return child().getOutput();
+        throw new UnboundException("output");
     }
 }

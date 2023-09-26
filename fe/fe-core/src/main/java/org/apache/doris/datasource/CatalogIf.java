@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource;
 
-
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
@@ -30,9 +29,11 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import javax.annotation.Nullable;
 
@@ -152,6 +153,10 @@ public interface CatalogIf<T extends DatabaseIf> {
 
     String getComment();
 
+    default long getLastUpdateTime() {
+        return -1L;
+    }
+
     default CatalogLog constructEditLog() {
         CatalogLog log = new CatalogLog();
         log.setCatalogId(getId());
@@ -161,4 +166,12 @@ public interface CatalogIf<T extends DatabaseIf> {
         log.setProps(getProperties());
         return log;
     }
+
+    // Return a copy of all db collection.
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    public Collection<DatabaseIf> getAllDbs();
+
+    public boolean enableAutoAnalyze();
+
+    public ConcurrentHashMap<Long, DatabaseIf> getIdToDb();
 }

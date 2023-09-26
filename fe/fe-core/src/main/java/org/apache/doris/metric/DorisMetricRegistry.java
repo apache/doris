@@ -19,16 +19,17 @@ package org.apache.doris.metric;
 
 import org.apache.doris.catalog.Env;
 
+import com.google.common.collect.Lists;
+
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
-import java.util.PriorityQueue;
 import java.util.stream.Collectors;
 
 public class DorisMetricRegistry {
 
-    private Collection<Metric> metrics = new PriorityQueue<>(Comparator.comparing(Metric::getName));
-    private Collection<Metric> systemMetrics = new PriorityQueue<>(Comparator.comparing(Metric::getName));
+    private Collection<Metric> metrics = Lists.newArrayList();
+    private Collection<Metric> systemMetrics = Lists.newArrayList();
 
     public DorisMetricRegistry() {
 
@@ -47,6 +48,10 @@ public class DorisMetricRegistry {
         if (!Env.isCheckpointThread()) {
             systemMetrics.add(sysMetric);
         }
+    }
+
+    public synchronized int getAllMetricSize() {
+        return metrics.size() + systemMetrics.size();
     }
 
     public synchronized List<Metric> getMetrics() {

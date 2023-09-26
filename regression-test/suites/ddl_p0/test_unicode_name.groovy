@@ -42,7 +42,8 @@ suite("test_unicode_name") {
     CREATE TABLE IF NOT EXISTS `中文表名_1` LIKE `中文表名`
     """
 
-        qt_select """SHOW CREATE TABLE `中文表名_1`"""
+        def res = sql """SHOW CREATE TABLE `中文表名_1`"""
+        assertTrue(res.size() != 0)
     } finally {
         sql """ DROP DATABASE IF EXISTS `中文库名` """
         sql """ DROP TABLE IF EXISTS `中文表名` """

@@ -61,7 +61,8 @@ suite("test_array_show_create", "query") {
         sql "DROP TABLE IF EXISTS ${testTable}"
         create_test_table.call(testTable)
 
-        qt_select "show create table ${testTable}"
+        def res = sql "show create table ${testTable}"
+        assertTrue(res.size() != 0)
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
     }

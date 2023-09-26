@@ -101,7 +101,7 @@ SELECT
 Doris 支持以下JOIN语法
 
 ```sql
-JION
+JOIN
 table_references:
     table_reference [, table_reference] …
 table_reference:

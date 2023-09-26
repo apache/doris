@@ -45,8 +45,8 @@ Status MatchPredicate::evaluate(const Schema& schema, InvertedIndexIterator* ite
         return Status::OK();
     }
     if (_skip_evaluate(iterator)) {
-        LOG(INFO) << "match predicate evaluate skipped.";
-        return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>();
+        return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                "match predicate evaluate skipped.");
     }
     auto column_desc = schema.column(_column_id);
     roaring::Roaring roaring;

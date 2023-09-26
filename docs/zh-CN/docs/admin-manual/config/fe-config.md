@@ -8,7 +8,7 @@
 
 ---
 
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -181,7 +181,7 @@ Doris 元数据将保存在这里。 强烈建议将此目录的存储为：
 
 #### `bdbje_lock_timeout_second`
 
-默认值：1
+默认值：5
 
 bdbje 操作的 lock timeout  如果 FE WARN 日志中有很多 LockTimeoutException，可以尝试增加这个值
 
@@ -231,7 +231,7 @@ Master FE 的 bdbje 同步策略。 如果您只部署一个 Follower FE，请�
 
 是否可以动态配置：true
 
-如果为 true，非主 FE 将忽略主 FE 与其自身之间的元数据延迟间隙，即使元数据延迟间隙超过 `meta_delay_toleration_second`。 
+如果为 true，非主 FE 将忽略主 FE 与其自身之间的元数据延迟间隙，即使元数据延迟间隙超过 `meta_delay_toleration_second`。
 非主 FE 仍将提供读取服务。 当您出于某种原因尝试停止 Master FE 较长时间，但仍希望非 Master FE 可以提供读取服务时，这会很有帮助。
 
 #### `meta_delay_toleration_second`
@@ -384,11 +384,17 @@ heartbeat_mgr 中处理心跳事件的线程数。
 
 Doris FE 通过 mysql 协议查询连接端口
 
+#### `arrow_flight_sql_port`
+
+默认值：-1
+
+Doris FE 通过 Arrow Flight SQL 协议查询连接端口
+
 #### `frontend_address`
 
 状态:已弃用，不建议使用。
 
-类型:string 
+类型:string
 
 描述:显式配置FE的IP地址，不使用*InetAddress。getByName*获取IP地址。通常在*InetAddress中。getByName*当无法获得预期结果时。只支持IP地址，不支持主机名。
 
@@ -431,14 +437,6 @@ FE https 使能标志位，false 表示支持 http，true 表示同时支持 htt
 
 每个 FE 的最大连接数
 
-#### `max_connection_scheduler_threads_num`
-
-默认值：4096
-
-查询请求调度器中的最大线程数。
-
-目前的策略是，有请求过来，就为其单独申请一个线程进行服务
-
 #### `check_java_version`
 
 默认值：true
@@ -477,7 +475,7 @@ thrift 服务器的 backlog_num 当你扩大这个 backlog_num 时，你应该�
 
 默认值：0
 
-thrift 服务器的连接超时和套接字超时配置 
+thrift 服务器的连接超时和套接字超时配置
 
 thrift_client_timeout_ms 的默认值设置为零以防止读取超时
 
@@ -613,7 +611,7 @@ FE向BE的BackendService发送rpc请求时的超时时间，单位：毫秒。
 
 #### `remote_fragment_exec_timeout_ms`
 
-默认值：5000  （ms）
+默认值：30000  （ms）
 
 是否可以动态配置：true
 
@@ -664,7 +662,7 @@ workers 线程池默认不做设置，根据自己需要进行设置
 
 #### `jetty_server_max_http_header_size`
 
-默认值：10240  （10K）
+默认值：1048576  （1M）
 
 http header size 配置参数
 
@@ -765,6 +763,16 @@ trace导出到 collector: `http://127.0.0.1:4318/v1/traces`
 
 </version>
 
+#### `multi_partition_name_prefix`
+
+默认值：p_
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+使用此参数设置 multi partition 的分区名前缀，仅仅multi partition 生效，不作用于动态分区，默认前缀是“p_”。
+
 #### `partition_in_memory_update_interval_secs`
 
 默认值：300 (s)
@@ -796,8 +804,8 @@ trace导出到 collector: `http://127.0.0.1:4318/v1/traces`
 用于控制用户表表名大小写是否敏感。
 该配置只能在集群初始化时配置，初始化完成后集群重启和升级时不能修改。
 
-0：表名按指定存储，比较区分大小写。 
-1：表名以小写形式存储，比较不区分大小写。 
+0：表名按指定存储，比较区分大小写。
+1：表名以小写形式存储，比较不区分大小写。
 2：表名按指定存储，但以小写形式进行比较。
 
 #### `table_name_length_limit`
@@ -818,7 +826,7 @@ trace导出到 collector: `http://127.0.0.1:4318/v1/traces`
 
 是否为 Master FE 节点独有的配置项：false
 
-如果设置为 true，SQL 查询结果集将被缓存。如果查询中所有表的所有分区最后一次访问版本时间的间隔大于cache_last_version_interval_second，且结果集小于cache_result_max_row_count，则结果集会被缓存，下一条相同的SQL会命中缓存
+如果设置为 true，SQL 查询结果集将被缓存。如果查询中所有表的所有分区最后一次访问版本时间的间隔大于cache_last_version_interval_second，且结果集行数小于cache_result_max_row_count，且数据大小小于cache_result_max_data_size，则结果集会被缓存，下一条相同的SQL会命中缓存
 
 如果设置为 true，FE 会启用 sql 结果缓存，该选项适用于离线数据更新场景
 
@@ -846,6 +854,16 @@ trace导出到 collector: `http://127.0.0.1:4318/v1/traces`
 是否为 Master FE 节点独有的配置项：false
 
 设置可以缓存的最大行数，详细的原理可以参考官方文档：操作手册->分区缓存
+
+#### `cache_result_max_data_size`
+
+默认值：31457280
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：false
+
+设置可以缓存的最大数据大小，单位Bytes
 
 #### `cache_last_version_interval_second`
 
@@ -1141,7 +1159,7 @@ current running txns on db xxx is xx, larger than limit xx
 
 #### `max_bytes_per_broker_scanner`
 
-默认值：3 * 1024 * 1024 * 1024L  （3G）
+默认值：500 * 1024 * 1024 * 1024L  （500G）
 
 是否可以动态配置：true
 
@@ -1471,7 +1489,7 @@ NORMAL 优先级挂起加载作业的并发数。
 
 负载中落后节点的最大等待秒数
    例如：
-      有 3 个副本 A, B, C 
+      有 3 个副本 A, B, C
       load 已经在 t1 时仲裁完成 (A,B) 并且 C 没有完成，
       如果 (current_time-t1)> 300s，那么 doris会将 C 视为故障节点，
       将调用事务管理器提交事务并告诉事务管理器 C 失败。
@@ -1680,6 +1698,12 @@ sys_log_dir:
 
 日志拆分的大小，每1G拆分一个日志文件
 
+#### `sys_log_enable_compress`
+
+默认值：false
+
+控制是否压缩fe log, 包括fe.log 及 fe.warn.log。如果开启，则使用gzip算法进行压缩。
+
 #### `audit_log_dir`
 
 默认值：DorisFE.DORIS_HOME_DIR + "/log"
@@ -1724,6 +1748,12 @@ HOUR: log前缀是：yyyyMMddHH
 - 10小时  10 小时
 - 60m    60 分钟
 - 120s   120 秒
+
+#### `audit_log_enable_compress`
+
+默认值：false
+
+控制是否压缩 fe.audit.log。如果开启，则使用gzip算法进行压缩。
 
 ### 存储
 
@@ -1781,7 +1811,7 @@ show data （其他用法：HELP SHOW DATA）
 
 是否为 Master FE 节点独有的配置项：true
 
-在某些情况下，某些 tablet 可能会损坏或丢失所有副本。 此时数据已经丢失，损坏的 tablet 会导致整个查询失败，无法查询剩余的健康 tablet。 
+在某些情况下，某些 tablet 可能会损坏或丢失所有副本。 此时数据已经丢失，损坏的 tablet 会导致整个查询失败，无法查询剩余的健康 tablet。
 
 在这种情况下，您可以将此配置设置为 true。 系统会将损坏的 tablet 替换为空 tablet，以确保查询可以执行。 （但此时数据已经丢失，所以查询结果可能不准确）
 
@@ -1800,7 +1830,7 @@ show data （其他用法：HELP SHOW DATA）
 这个配置有三个值：
 
    * disable ：出现异常会正常报错。
-   * ignore_version: 忽略 fe partition 中记录的visibleVersion 信息， 使用replica version 
+   * ignore_version: 忽略 fe partition 中记录的visibleVersion 信息， 使用replica version
    * ignore_all: 除了ignore_version， 在遇到找不到可查询的replica 时，直接跳过而不是抛出异常
 
 #### `min_clone_task_timeout_sec`  和 `max_clone_task_timeout_sec`
@@ -2164,7 +2194,7 @@ tablet 状态更新间隔
 
 #### `enable_storage_policy`
 
-是否开启 Storage Policy 功能。该功能用户冷热数据分离功能。该功能仍在开发中，不排除后续后功能修改或重构。仅建议测试环境使用。
+是否开启 Storage Policy 功能。该功能用户冷热数据分离功能。
 
 默认值：false。即不开启
 
@@ -2567,7 +2597,7 @@ SmallFileMgr 中存储的最大文件数
 
 是否为  Master FE  节点独有的配置项：true
 
-这个阈值是为了避免在 FE 中堆积过多的报告任务，可能会导致 OOM 异常等问题。 
+这个阈值是为了避免在 FE 中堆积过多的报告任务，可能会导致 OOM 异常等问题。
 
 并且每个 BE 每 1 分钟会报告一次 tablet 信息，因此无限制接收报告是不可接受的。
 以后我们会优化 tablet 报告的处理速度
@@ -2714,14 +2744,6 @@ show data （其他用法：HELP SHOW DATA）
 
 这个参数主要用于避免因 external catalog 无法访问、信息过多等原因导致的查询 `information_schema` 超时的问题。
 
-#### `max_instance_num`
-
-<version since="dev"></version>
-
-默认值：128
-
-用于限制parallel_fragment_exec_instance_num的设置，set parallel_fragment_exec_instance_num不能超过max_instance_num
-
 #### `enable_query_hit_stats`
 
 <version since="dev"></version>
@@ -2740,3 +2762,15 @@ show data （其他用法：HELP SHOW DATA）
 默认值：4
 
 此变量表示增加与/运算符执行的除法操作结果规模的位数。默认为4。
+
+#### `enable_convert_light_weight_schema_change`
+
+默认值：true
+
+暂时性配置项，开启后会启动后台线程自动将所有的olap表修改为可light schema change，修改结果可通过命令`show convert_light_schema_change [from db]` 来查看，将会展示所有非light schema change表的转换结果
+
+#### `disable_local_deploy_manager_drop_node`
+
+默认值：true
+
+禁止LocalDeployManager删除节点，防止cluster.info文件有误导致节点被删除。

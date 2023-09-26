@@ -22,23 +22,48 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.SortPhase;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
+import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.qe.ConnectContext;
+
+import com.google.common.collect.ImmutableList;
 
 /**
  * topN opt
  * refer to:
- * https://github.com/apache/doris/pull/15558
- * https://github.com/apache/doris/pull/15663
+ * <a href="https://github.com/apache/doris/pull/15558">...</a>
+ * <a href="https://github.com/apache/doris/pull/15663">...</a>
  */
 
 public class TopNScanOpt extends PlanPostProcessor {
 
     @Override
-    public PhysicalTopN visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, CascadesContext ctx) {
-        topN.child().accept(this, ctx);
+    public PhysicalTopN<? extends Plan> visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, CascadesContext ctx) {
+        Plan child = topN.child().accept(this, ctx);
+        topN = rewriteTopN(topN);
+        if (child != topN.child()) {
+            topN = ((PhysicalTopN) topN.withChildren(child)).copyStatsAndGroupIdFrom(topN);
+        }
+        return topN;
+    }
+
+    @Override
+    public Plan visitPhysicalDeferMaterializeTopN(PhysicalDeferMaterializeTopN<? extends Plan> topN,
+            CascadesContext context) {
+        Plan child = topN.child().accept(this, context);
+        if (child != topN.child()) {
+            topN = topN.withChildren(ImmutableList.of(child)).copyStatsAndGroupIdFrom(topN);
+        }
+        PhysicalTopN<? extends Plan> rewrittenTopN = rewriteTopN(topN.getPhysicalTopN());
+        if (topN.getPhysicalTopN() != rewrittenTopN) {
+            topN = topN.withPhysicalTopN(rewrittenTopN).copyStatsAndGroupIdFrom(topN);
+        }
+        return topN;
+    }
+
+    private PhysicalTopN<? extends Plan> rewriteTopN(PhysicalTopN<? extends Plan> topN) {
         Plan child = topN.child();
         if (topN.getSortPhase() != SortPhase.LOCAL_SORT) {
             return topN;
@@ -52,7 +77,7 @@ public class TopNScanOpt extends PlanPostProcessor {
         if (topNOptLimitThreshold == -1 || topN.getLimit() > topNOptLimitThreshold) {
             return topN;
         }
-        // if firstKey's column is not present, it means the firstKey is not a original column from scan node
+        // if firstKey's column is not present, it means the firstKey is not an original column from scan node
         // for example: "select cast(k1 as INT) as id from tbl1 order by id limit 2;" the firstKey "id" is
         // a cast expr which is not from tbl1 and its column is not present.
         // On the other hand "select k1 as id from tbl1 order by id limit 2;" the firstKey "id" is just an alias of k1
@@ -68,17 +93,17 @@ public class TopNScanOpt extends PlanPostProcessor {
             return topN;
         }
 
-        PhysicalOlapScan olapScan;
+        OlapScan olapScan;
         while (child instanceof Project || child instanceof Filter) {
             child = child.child(0);
         }
-        if (!(child instanceof PhysicalOlapScan)) {
+        if (!(child instanceof OlapScan)) {
             return topN;
         }
-        olapScan = (PhysicalOlapScan) child;
+        olapScan = (OlapScan) child;
 
         if (olapScan.getTable().isDupKeysOrMergeOnWrite()) {
-            topN.setMutableState(PhysicalTopN.TOPN_RUNTIME_FILTER, true);
+            return topN.withEnableRuntimeFilter(true).copyStatsAndGroupIdFrom(topN);
         }
 
         return topN;

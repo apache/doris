@@ -17,13 +17,15 @@
 
 package org.apache.doris.udf;
 
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.exception.UdfRuntimeException;
+import org.apache.doris.common.jni.utils.JavaUdfDataType;
 import org.apache.doris.common.jni.utils.UdfUtils;
-import org.apache.doris.common.jni.utils.UdfUtils.JavaUdfDataType;
 import org.apache.doris.thrift.TJavaUdfExecutorCtorParams;
 
+import com.esotericsoftware.reflectasm.MethodAccess;
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import org.apache.log4j.Logger;
@@ -36,6 +38,7 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.net.MalformedURLException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 
 /**
@@ -45,10 +48,10 @@ public class UdafExecutor extends BaseExecutor {
 
     private static final Logger LOG = Logger.getLogger(UdafExecutor.class);
 
-    private long inputPlacesPtr;
     private HashMap<String, Method> allMethods;
     private HashMap<Long, Object> stateObjMap;
     private Class retClass;
+    private int addIndex;
 
     /**
      * Constructor to create an object.
@@ -66,40 +69,98 @@ public class UdafExecutor extends BaseExecutor {
         super.close();
     }
 
-    /**
-     * invoke add function, add row in loop [rowStart, rowEnd).
-     */
-    public void add(boolean isSinglePlace, long rowStart, long rowEnd) throws UdfRuntimeException {
+    public Object[] convertBasicArguments(int argIdx, boolean isNullable, int rowStart, int rowEnd, long nullMapAddr,
+            long columnAddr, long strOffsetAddr) {
+        return convertBasicArg(false, argIdx, isNullable, rowStart, rowEnd, nullMapAddr, columnAddr, strOffsetAddr);
+    }
+
+    public Object[] convertArrayArguments(int argIdx, boolean isNullable, int rowStart, int rowEnd, long nullMapAddr,
+            long offsetsAddr, long nestedNullMapAddr, long dataAddr, long strOffsetAddr) {
+        return convertArrayArg(argIdx, isNullable, rowStart, rowEnd, nullMapAddr, offsetsAddr, nestedNullMapAddr,
+                dataAddr, strOffsetAddr);
+    }
+
+    public Object[] convertMapArguments(int argIdx, boolean isNullable, int rowStart, int rowEnd, long nullMapAddr,
+            long offsetsAddr, long keyNestedNullMapAddr, long keyDataAddr, long keyStrOffsetAddr,
+            long valueNestedNullMapAddr, long valueDataAddr, long valueStrOffsetAddr) {
+        PrimitiveType keyType = argTypes[argIdx].getKeyType().getPrimitiveType();
+        PrimitiveType valueType = argTypes[argIdx].getValueType().getPrimitiveType();
+        Object[] keyCol = convertMapArg(keyType, argIdx, isNullable, rowStart, rowEnd, nullMapAddr, offsetsAddr,
+                keyNestedNullMapAddr, keyDataAddr,
+                keyStrOffsetAddr, argTypes[argIdx].getKeyScale());
+        Object[] valueCol = convertMapArg(valueType, argIdx, isNullable, rowStart, rowEnd, nullMapAddr, offsetsAddr,
+                valueNestedNullMapAddr,
+                valueDataAddr,
+                valueStrOffsetAddr, argTypes[argIdx].getValueScale());
+        return buildHashMap(keyType, valueType, keyCol, valueCol);
+    }
+
+    public void addBatch(boolean isSinglePlace, int rowStart, int rowEnd, long placeAddr, int offset, Object[] column)
+            throws UdfRuntimeException {
+        if (isSinglePlace) {
+            addBatchSingle(rowStart, rowEnd, placeAddr, column);
+        } else {
+            addBatchPlaces(rowStart, rowEnd, placeAddr, offset, column);
+        }
+    }
+
+    public void addBatchSingle(int rowStart, int rowEnd, long placeAddr, Object[] column) throws UdfRuntimeException {
         try {
-            long idx = rowStart;
-            do {
-                Long curPlace = null;
-                if (isSinglePlace) {
-                    curPlace = UdfUtils.UNSAFE.getLong(null, UdfUtils.UNSAFE.getLong(null, inputPlacesPtr));
-                } else {
-                    curPlace = UdfUtils.UNSAFE.getLong(null, UdfUtils.UNSAFE.getLong(null, inputPlacesPtr) + 8L * idx);
+            Long curPlace = placeAddr;
+            Object[] inputArgs = new Object[argTypes.length + 1];
+            Object state = stateObjMap.get(curPlace);
+            if (state != null) {
+                inputArgs[0] = state;
+            } else {
+                Object newState = createAggState();
+                stateObjMap.put(curPlace, newState);
+                inputArgs[0] = newState;
+            }
+
+            Object[][] inputs = (Object[][]) column;
+            for (int i = 0; i < (rowEnd - rowStart); ++i) {
+                for (int j = 0; j < column.length; ++j) {
+                    inputArgs[j + 1] = inputs[j][i];
                 }
-                Object[] inputArgs = new Object[argTypes.length + 1];
+                methodAccess.invoke(udf, addIndex, inputArgs);
+            }
+        } catch (Exception e) {
+            LOG.info("evaluate exception debug: " + debugString());
+            LOG.info("invoke add function meet some error: " + e.getCause().toString());
+            throw new UdfRuntimeException("UDAF failed to addBatchSingle: ", e);
+        }
+    }
+
+    public void addBatchPlaces(int rowStart, int rowEnd, long placeAddr, int offset, Object[] column)
+            throws UdfRuntimeException {
+        try {
+            Object[][] inputs = (Object[][]) column;
+            ArrayList<Object> placeState = new ArrayList<>(rowEnd - rowStart);
+            for (int row = rowStart; row < rowEnd; ++row) {
+                Long curPlace = UdfUtils.UNSAFE.getLong(null, placeAddr + (8L * row)) + offset;
                 Object state = stateObjMap.get(curPlace);
                 if (state != null) {
-                    inputArgs[0] = state;
+                    placeState.add(state);
                 } else {
                     Object newState = createAggState();
                     stateObjMap.put(curPlace, newState);
-                    inputArgs[0] = newState;
+                    placeState.add(newState);
                 }
-                do {
-                    Object[] inputObjects = allocateInputObjects(idx, 1);
-                    for (int i = 0; i < argTypes.length; ++i) {
-                        inputArgs[i + 1] = inputObjects[i];
-                    }
-                    allMethods.get(UDAF_ADD_FUNCTION).invoke(udf, inputArgs);
-                    idx++;
-                } while (isSinglePlace && idx < rowEnd);
-            } while (idx < rowEnd);
+            }
+            //spilt into two for loop
+
+            Object[] inputArgs = new Object[argTypes.length + 1];
+            for (int row = 0; row < (rowEnd - rowStart); ++row) {
+                inputArgs[0] = placeState.get(row);
+                for (int j = 0; j < column.length; ++j) {
+                    inputArgs[j + 1] = inputs[j][row];
+                }
+                methodAccess.invoke(udf, addIndex, inputArgs);
+            }
         } catch (Exception e) {
-            LOG.warn("invoke add function meet some error: " + e.getCause().toString());
-            throw new UdfRuntimeException("UDAF failed to add: ", e);
+            LOG.info("evaluate exception debug: " + debugString());
+            LOG.info("invoke add function meet some error: " + Arrays.toString(e.getStackTrace()));
+            throw new UdfRuntimeException("UDAF failed to addBatchPlaces: ", e);
         }
     }
 
@@ -142,6 +203,7 @@ public class UdafExecutor extends BaseExecutor {
             allMethods.get(UDAF_SERIALIZE_FUNCTION).invoke(udf, args);
             return baos.toByteArray();
         } catch (Exception e) {
+            LOG.info("evaluate exception debug: " + debugString());
             LOG.warn("invoke serialize function meet some error: " + e.getCause().toString());
             throw new UdfRuntimeException("UDAF failed to serialize: ", e);
         }
@@ -159,6 +221,7 @@ public class UdafExecutor extends BaseExecutor {
             }
             allMethods.get(UDAF_RESET_FUNCTION).invoke(udf, args);
         } catch (Exception e) {
+            LOG.info("evaluate exception debug: " + debugString());
             LOG.warn("invoke reset function meet some error: " + e.getCause().toString());
             throw new UdfRuntimeException("UDAF failed to reset: ", e);
         }
@@ -187,6 +250,7 @@ public class UdafExecutor extends BaseExecutor {
             }
             allMethods.get(UDAF_MERGE_FUNCTION).invoke(udf, args);
         } catch (Exception e) {
+            LOG.info("evaluate exception debug: " + debugString());
             LOG.warn("invoke merge function meet some error: " + e.getCause().toString());
             throw new UdfRuntimeException("UDAF failed to merge: ", e);
         }
@@ -195,47 +259,79 @@ public class UdafExecutor extends BaseExecutor {
     /**
      * invoke getValue to return finally result.
      */
-    public boolean getValue(long row, long place) throws UdfRuntimeException {
+
+    public Object getValue(long place) throws UdfRuntimeException {
         try {
             if (stateObjMap.get(place) == null) {
                 stateObjMap.put(place, createAggState());
             }
-            return storeUdfResult(allMethods.get(UDAF_RESULT_FUNCTION).invoke(udf, stateObjMap.get((Long) place)),
-                    row, retClass);
+            return allMethods.get(UDAF_RESULT_FUNCTION).invoke(udf, stateObjMap.get((Long) place));
         } catch (Exception e) {
+            LOG.info("evaluate exception debug: " + debugString());
             LOG.warn("invoke getValue function meet some error: " + e.getCause().toString());
             throw new UdfRuntimeException("UDAF failed to result", e);
         }
     }
 
-    @Override
-    protected boolean storeUdfResult(Object obj, long row, Class retClass) throws UdfRuntimeException {
-        if (obj == null) {
-            // If result is null, return true directly when row == 0 as we have already inserted default value.
-            if (UdfUtils.UNSAFE.getLong(null, outputNullPtr) == -1) {
+    public void copyTupleBasicResult(Object result, int row, long outputNullMapPtr, long outputBufferBase,
+            long charsAddress,
+            long offsetsAddr) throws UdfRuntimeException {
+        if (result == null) {
+            // put null obj
+            if (outputNullMapPtr == -1) {
                 throw new UdfRuntimeException("UDAF failed to store null data to not null column");
+            } else {
+                UdfUtils.UNSAFE.putByte(outputNullMapPtr + row, (byte) 1);
             }
-            return true;
+            return;
         }
-        return super.storeUdfResult(obj, row, retClass);
+        try {
+            if (outputNullMapPtr != -1) {
+                UdfUtils.UNSAFE.putByte(outputNullMapPtr + row, (byte) 0);
+            }
+            copyTupleBasicResult(result, row, retClass, outputBufferBase, charsAddress,
+                    offsetsAddr, retType);
+        } catch (UdfRuntimeException e) {
+            LOG.info(e.toString());
+        }
     }
 
-    @Override
-    protected long getCurrentOutputOffset(long row, boolean isArrayType) {
-        if (isArrayType) {
-            return Integer.toUnsignedLong(
-                UdfUtils.UNSAFE.getInt(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr) + 8L * (row - 1)));
-        } else {
-            return Integer.toUnsignedLong(
-                UdfUtils.UNSAFE.getInt(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr) + 4L * (row - 1)));
+    public void copyTupleArrayResult(long hasPutElementNum, boolean isNullable, int row, Object result,
+            long nullMapAddr,
+            long offsetsAddr, long nestedNullMapAddr, long dataAddr, long strOffsetAddr) throws UdfRuntimeException {
+        if (nullMapAddr > 0) {
+            UdfUtils.UNSAFE.putByte(nullMapAddr + row, (byte) 0);
         }
+        copyTupleArrayResultImpl(hasPutElementNum, isNullable, row, result, nullMapAddr, offsetsAddr, nestedNullMapAddr,
+                dataAddr, strOffsetAddr, retType.getItemType().getPrimitiveType(), retType.getScale());
+    }
+
+    public void copyTupleMapResult(long hasPutElementNum, boolean isNullable, int row, Object result, long nullMapAddr,
+            long offsetsAddr,
+            long keyNsestedNullMapAddr, long keyDataAddr,
+            long keyStrOffsetAddr,
+            long valueNsestedNullMapAddr, long valueDataAddr, long valueStrOffsetAddr) throws UdfRuntimeException {
+        if (nullMapAddr > 0) {
+            UdfUtils.UNSAFE.putByte(nullMapAddr + row, (byte) 0);
+        }
+        PrimitiveType keyType = retType.getKeyType().getPrimitiveType();
+        PrimitiveType valueType = retType.getValueType().getPrimitiveType();
+        Object[] keyCol = new Object[1];
+        Object[] valueCol = new Object[1];
+        Object[] resultArr = new Object[1];
+        resultArr[0] = result;
+        buildArrayListFromHashMap(resultArr, keyType, valueType, keyCol, valueCol);
+        copyTupleArrayResultImpl(hasPutElementNum, isNullable, row,
+                valueCol[0], nullMapAddr, offsetsAddr,
+                valueNsestedNullMapAddr, valueDataAddr, valueStrOffsetAddr, valueType, retType.getKeyScale());
+        copyTupleArrayResultImpl(hasPutElementNum, isNullable, row, keyCol[0], nullMapAddr, offsetsAddr,
+                keyNsestedNullMapAddr, keyDataAddr, keyStrOffsetAddr, keyType, retType.getValueScale());
     }
 
     @Override
     protected void init(TJavaUdfExecutorCtorParams request, String jarPath, Type funcRetType,
             Type... parameterTypes) throws UdfRuntimeException {
         String className = request.fn.aggregate_fn.symbol;
-        inputPlacesPtr = request.input_places_ptr;
         allMethods = new HashMap<>();
         stateObjMap = new HashMap<>();
 
@@ -251,6 +347,7 @@ public class UdafExecutor extends BaseExecutor {
                 loader = ClassLoader.getSystemClassLoader();
             }
             Class<?> c = Class.forName(className, true, loader);
+            methodAccess = MethodAccess.get(c);
             Constructor<?> ctor = c.getConstructor();
             udf = ctor.newInstance();
             Method[] methods = c.getDeclaredMethods();
@@ -281,7 +378,7 @@ public class UdafExecutor extends BaseExecutor {
                     }
                     case UDAF_ADD_FUNCTION: {
                         allMethods.put(methods[idx].getName(), methods[idx]);
-
+                        addIndex = methodAccess.getIndex(UDAF_ADD_FUNCTION);
                         argClass = methods[idx].getParameterTypes();
                         if (argClass.length != parameterTypes.length + 1) {
                             LOG.debug("add function parameterTypes length not equal " + argClass.length + " "

@@ -31,14 +31,13 @@
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
+#include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "util/defer_op.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
 namespace segment_v2 {
-
-InvertedIndexSearcherCache* InvertedIndexSearcherCache::_s_instance = nullptr;
 
 IndexSearcherPtr InvertedIndexSearcherCache::build_index_searcher(const io::FileSystemSPtr& fs,
                                                                   const std::string& index_dir,
@@ -55,14 +54,16 @@ IndexSearcherPtr InvertedIndexSearcherCache::build_index_searcher(const io::File
     return index_searcher;
 }
 
-void InvertedIndexSearcherCache::create_global_instance(size_t capacity, uint32_t num_shards) {
-    DCHECK(_s_instance == nullptr);
-    static InvertedIndexSearcherCache instance(capacity, num_shards);
-    _s_instance = &instance;
+InvertedIndexSearcherCache* InvertedIndexSearcherCache::create_global_instance(
+        size_t capacity, uint32_t num_shards) {
+    InvertedIndexSearcherCache* res = new InvertedIndexSearcherCache(capacity, num_shards);
+    return res;
 }
 
 InvertedIndexSearcherCache::InvertedIndexSearcherCache(size_t capacity, uint32_t num_shards)
-        : _mem_tracker(std::make_unique<MemTracker>("InvertedIndexSearcherCache")) {
+        : LRUCachePolicy(CachePolicy::CacheType::INVERTEDINDEX_SEARCHER_CACHE,
+                         config::inverted_index_cache_stale_sweep_time_sec),
+          _mem_tracker(std::make_unique<MemTracker>("InvertedIndexSearcherCache")) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     uint64_t fd_number = config::min_file_descriptor_number;
     struct rlimit l;
@@ -179,32 +180,6 @@ Status InvertedIndexSearcherCache::erase(const std::string& index_file_path) {
     return Status::OK();
 }
 
-int64_t InvertedIndexSearcherCache::prune() {
-    if (_cache) {
-        const int64_t curtime = UnixMillis();
-        int64_t byte_size = 0L;
-        auto pred = [curtime, &byte_size](const void* value) -> bool {
-            InvertedIndexSearcherCache::CacheValue* cache_value =
-                    (InvertedIndexSearcherCache::CacheValue*)value;
-            if ((cache_value->last_visit_time +
-                 config::index_cache_entry_no_visit_gc_time_s * 1000) < curtime) {
-                byte_size += cache_value->size;
-                return true;
-            }
-            return false;
-        };
-
-        MonotonicStopWatch watch;
-        watch.start();
-        // Prune cache in lazy mode to save cpu and minimize the time holding write lock
-        int64_t prune_num = _cache->prune_if(pred, true);
-        LOG(INFO) << "prune " << prune_num << " entries in inverted index cache. cost(ms): "
-                  << watch.elapsed_time() / 1000 / 1000;
-        return byte_size;
-    }
-    return 0L;
-}
-
 int64_t InvertedIndexSearcherCache::mem_consumption() {
     if (_cache) {
         return _cache->mem_consumption();
@@ -234,8 +209,6 @@ Cache::Handle* InvertedIndexSearcherCache::_insert(const InvertedIndexSearcherCa
             _cache->insert(key.index_file_path, value, value->size, deleter, CachePriority::NORMAL);
     return lru_handle;
 }
-
-InvertedIndexQueryCache* InvertedIndexQueryCache::_s_instance = nullptr;
 
 bool InvertedIndexQueryCache::lookup(const CacheKey& key, InvertedIndexQueryCacheHandle* handle) {
     if (key.encode().empty()) {
@@ -267,32 +240,6 @@ void InvertedIndexQueryCache::insert(const CacheKey& key, std::shared_ptr<roarin
     auto lru_handle = _cache->insert(key.encode(), (void*)cache_value_ptr.release(),
                                      bitmap->getSizeInBytes(), deleter, CachePriority::NORMAL);
     *handle = InvertedIndexQueryCacheHandle(_cache.get(), lru_handle);
-}
-
-int64_t InvertedIndexQueryCache::prune() {
-    if (_cache) {
-        const int64_t curtime = UnixMillis();
-        int64_t byte_size = 0L;
-        auto pred = [curtime, &byte_size](const void* value) -> bool {
-            InvertedIndexQueryCache::CacheValue* cache_value =
-                    (InvertedIndexQueryCache::CacheValue*)value;
-            if ((cache_value->last_visit_time +
-                 config::index_cache_entry_no_visit_gc_time_s * 1000) < curtime) {
-                byte_size += cache_value->size;
-                return true;
-            }
-            return false;
-        };
-
-        MonotonicStopWatch watch;
-        watch.start();
-        // Prune cache in lazy mode to save cpu and minimize the time holding write lock
-        int64_t prune_num = _cache->prune_if(pred, true);
-        LOG(INFO) << "prune " << prune_num << " entries in inverted index cache. cost(ms): "
-                  << watch.elapsed_time() / 1000 / 1000;
-        return byte_size;
-    }
-    return 0L;
 }
 
 int64_t InvertedIndexQueryCache::mem_consumption() {

@@ -57,12 +57,20 @@ class MemTrackerLimiter;
 class PQueryStatistics;
 class RuntimeState;
 
+namespace pipeline {
+struct ExchangeDataDependency;
+class ChannelDependency;
+} // namespace pipeline
+
 namespace vectorized {
 class VDataStreamMgr;
 class VSortedRunMerger;
 
+class VDataStreamRecvr;
+
 class VDataStreamRecvr {
 public:
+    class SenderQueue;
     VDataStreamRecvr(VDataStreamMgr* stream_mgr, RuntimeState* state, const RowDescriptor& row_desc,
                      const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
                      int num_senders, bool is_merging, RuntimeProfile* profile,
@@ -75,8 +83,10 @@ public:
                          const std::vector<bool>& nulls_first, size_t batch_size, int64_t limit,
                          size_t offset);
 
-    void add_block(const PBlock& pblock, int sender_id, int be_number, int64_t packet_seq,
-                   ::google::protobuf::Closure** done);
+    std::vector<SenderQueue*> sender_queues() const { return _sender_queues; }
+
+    Status add_block(const PBlock& pblock, int sender_id, int be_number, int64_t packet_seq,
+                     ::google::protobuf::Closure** done);
 
     void add_block(Block* block, int sender_id, bool use_move);
 
@@ -102,15 +112,20 @@ public:
 
     void close();
 
+    // Careful: stream sender will call this function for a local receiver,
+    // accessing members of receiver that are allocated by Object pool
+    // in this function is not safe.
     bool exceeds_limit(int batch_size) {
-        return _blocks_memory_usage->current_value() + batch_size >
+        return _blocks_memory_usage_current_value + batch_size >
                config::exchg_node_buffer_size_bytes;
     }
 
     bool is_closed() const { return _is_closed; }
 
+    void set_dependency(std::shared_ptr<pipeline::ChannelDependency> dependency);
+
 private:
-    class SenderQueue;
+    void update_blocks_memory_usage(int64_t size);
     class PipSenderQueue;
 
     friend struct BlockSupplierSortCursorImpl;
@@ -154,10 +169,18 @@ private:
     RuntimeProfile::Counter* _decompress_bytes;
     RuntimeProfile::Counter* _memory_usage_counter;
     RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage;
+    std::atomic<int64_t> _blocks_memory_usage_current_value = 0;
+    RuntimeProfile::Counter* _peak_memory_usage_counter;
+
+    // Number of rows received
+    RuntimeProfile::Counter* _rows_produced_counter;
+    // Number of blocks received
+    RuntimeProfile::Counter* _blocks_produced_counter;
 
     std::shared_ptr<QueryStatisticsRecvr> _sub_plan_query_statistics_recvr;
 
     bool _enable_pipeline;
+    std::shared_ptr<pipeline::ChannelDependency> _dependency;
 };
 
 class ThreadClosure : public google::protobuf::Closure {
@@ -179,8 +202,8 @@ public:
 
     virtual Status get_batch(Block* next_block, bool* eos);
 
-    void add_block(const PBlock& pblock, int be_number, int64_t packet_seq,
-                   ::google::protobuf::Closure** done);
+    Status add_block(const PBlock& pblock, int be_number, int64_t packet_seq,
+                     ::google::protobuf::Closure** done);
 
     virtual void add_block(Block* block, bool use_move);
 
@@ -193,6 +216,14 @@ public:
     bool queue_empty() {
         std::unique_lock<std::mutex> l(_lock);
         return _block_queue.empty();
+    }
+
+    void set_dependency(std::shared_ptr<pipeline::ExchangeDataDependency> dependency) {
+        _dependency = dependency;
+    }
+
+    void set_channel_dependency(std::shared_ptr<pipeline::ChannelDependency> channel_dependency) {
+        _channel_dependency = channel_dependency;
     }
 
 protected:
@@ -214,6 +245,9 @@ protected:
     std::unordered_map<int, int64_t> _packet_seq_map;
     std::deque<std::pair<google::protobuf::Closure*, MonotonicStopWatch>> _pending_closures;
     std::unordered_map<std::thread::id, std::unique_ptr<ThreadClosure>> _local_closure;
+
+    std::shared_ptr<pipeline::ExchangeDataDependency> _dependency = nullptr;
+    std::shared_ptr<pipeline::ChannelDependency> _channel_dependency = nullptr;
 };
 
 class VDataStreamRecvr::PipSenderQueue : public SenderQueue {
@@ -230,40 +264,7 @@ public:
         return _inner_get_batch_without_lock(block, eos);
     }
 
-    void add_block(Block* block, bool use_move) override {
-        if (block->rows() == 0) return;
-        {
-            std::unique_lock<std::mutex> l(_lock);
-            if (_is_cancelled) {
-                return;
-            }
-        }
-        BlockUPtr nblock = Block::create_unique(block->get_columns_with_type_and_name());
-
-        // local exchange should copy the block contented if use move == false
-        if (use_move) {
-            block->clear();
-        } else {
-            auto rows = block->rows();
-            for (int i = 0; i < nblock->columns(); ++i) {
-                nblock->get_by_position(i).column =
-                        nblock->get_by_position(i).column->clone_resized(rows);
-            }
-        }
-        materialize_block_inplace(*nblock);
-
-        auto block_mem_size = nblock->allocated_bytes();
-        {
-            std::unique_lock<std::mutex> l(_lock);
-            if (_is_cancelled) {
-                return;
-            }
-            _block_queue.emplace_back(std::move(nblock), block_mem_size);
-            COUNTER_UPDATE(_recvr->_local_bytes_received_counter, block_mem_size);
-            _recvr->_blocks_memory_usage->add(block_mem_size);
-            _data_arrival_cv.notify_one();
-        }
-    }
+    void add_block(Block* block, bool use_move) override;
 };
 } // namespace vectorized
 } // namespace doris

@@ -35,8 +35,8 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /** MultiDistinctSum */
-public class MultiDistinctSum extends AggregateFunction
-        implements UnaryExpression, AlwaysNotNullable, ExplicitlyCastableSignature, ComputePrecisionForSum {
+public class MultiDistinctSum extends AggregateFunction implements UnaryExpression, AlwaysNotNullable,
+        ExplicitlyCastableSignature, ComputePrecisionForSum, MultiDistinction {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BigIntType.INSTANCE).varArgs(BigIntType.INSTANCE),

@@ -341,7 +341,10 @@ public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implemen
         System.out.printf("Test:\n%s\n\n", sql);
         Plan plan = PlanChecker.from(createCascadesContext(sql))
                 .analyze(sql)
-                .applyTopDown(new AggScalarSubQueryToWindowFunction())
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .applyTopDown(new PushdownFilterThroughProject())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .customRewrite(new AggScalarSubQueryToWindowFunction())
                 .rewrite()
                 .getPlan();
         System.out.println(plan.treeString());
@@ -352,7 +355,7 @@ public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implemen
         System.out.printf("Test:\n%s\n\n", sql);
         Plan plan = PlanChecker.from(createCascadesContext(sql))
                 .analyze(sql)
-                .applyTopDown(new AggScalarSubQueryToWindowFunction())
+                .customRewrite(new AggScalarSubQueryToWindowFunction())
                 .rewrite()
                 .getPlan();
         System.out.println(plan.treeString());

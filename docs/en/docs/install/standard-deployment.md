@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Standard deployment",
+    "title": "Standard Deployment",
     "language": "en"
 }
 ---
@@ -123,6 +123,7 @@ Doris instances communicate directly over the network. The following table shows
 | FE | http_port | 8030 | FE <--> FE, user <--> FE | HTTP server port on FE |
 | FE | rpc_port | 9020 | BE --> FE, FE <--> FE | Thrift server port on FE; The configurations of each FE should be consistent. |
 | FE | query_port | 9030 | user <--> FE | MySQL server port on FE |
+| FE | arrow_flight_sql_port | 9040 | user <--> FE | Arrow Flight SQL server port on FE |
 | FE | edit\_log_port | 9010 | FE <--> FE | Port on FE for BDBJE communication |
 | Broker | broker ipc_port | 8000 | FE --> Broker, BE --> Broker | Thrift server port on Broker for receiving requests |
 
@@ -177,7 +178,7 @@ See the `lower_case_table_names` section in [Variables](../advanced/variables.md
 
      **Note: For production environments, it is better not to put the directory under the Doris installation directory but in a separate disk (SSD would be the best); for test and development environments, you may use the default configuration.**
 
-  2. The default maximum Java heap memory of JAVA_OPTS in fe.conf is 4GB. For production environments, we recommend that it be adjusted to more than 8G.
+  2. The default maximum Java heap memory of JAVA_OPTS in fe.conf is 8GB.
 
 * Start FE
 
@@ -197,14 +198,12 @@ See the `lower_case_table_names` section in [Variables](../advanced/variables.md
 
 * Modify all BE configurations
 
-  Modify be/conf/be.conf. Mainly configure `storage_root_path`: data storage directory. By default, it is under be/storage. If you need to specify a directory, you need to **pre-create the directory**. Multiple paths are separated by a semicolon `;` in English (**do not add `;`** after the last directory).
+  Modify be/conf/be.conf. Mainly configure `storage_root_path`: data storage directory. By default, it is under be/storage. If you need to specify a directory, you need to **pre-create the directory**. Multiple paths are separated by a semicolon `;` in English.
   The hot and cold data storage directories in the node can be distinguished by path, HDD (cold data directory) or SSD (hot data directory). If you don't need the hot and cold mechanism in the BE node, you only need to configure the path without specifying the medium type; and you don't need to modify the default storage medium configuration of FE
 
   **Notice:**
-    1. If you specify the storage type of the storage path, at least one path must have a storage type of HDD (cold data directory)!
-    2. If the storage type of the storage path is not specified, all are HDD (cold data directory) by default.
-    3. The HDD and SSD here have nothing to do with the physical storage medium, but only to distinguish the storage type of the storage path, that is, you can mark a certain directory on the disk of the HDD medium as SSD (hot data directory).
-    4. Here HDD and SSD **MUST** be capitalized!
+    1. If the storage type of the storage path is not specified, all are HDD (cold data directory) by default.
+    2. The HDD and SSD here have nothing to do with the physical storage medium, but only to distinguish the storage type of the storage path, that is, you can mark a certain directory on the disk of the HDD medium as SSD (hot data directory).
 
   Example 1 is as follows:
 
@@ -286,6 +285,16 @@ Broker is deployed as a plug-in, which is independent of Doris. If you need to i
 * View Broker status
 
 	Connect any started FE using mysql-client and execute the following command to view Broker status: `SHOW PROC '/brokers';`
+
+#### FE and BE Startup Methods
+
+##### Version >= 2.0.2
+1. Start with start_xx.sh: This method logs the output to a file and does not exit the startup script process. It is recommended to use this method when using tools like Supervisor for automatic restarting.
+2. Start with start_xx.sh --daemon: FE/BE will run as a background process, and the log output will be written to the specified log file by default. This startup method is suitable for production environments.
+3. Start with start_xx.sh --console: This parameter is used to start FE/BE in console mode. When started with the --console parameter, the server will start in the current terminal session, and the log output and console interaction will be printed to that terminal. This startup method is suitable for development and testing scenarios.
+##### Version < 2.0.2
+1. Start with start_xx.sh --daemon: FE/BE will run as a background process, and the log output will be written to the specified log file by default. This startup method is suitable for production environments.
+2. Start with start_xx.sh: This parameter is used to start FE/BE in console mode. When started with the --console parameter, the server will start in the current terminal session, and the log output and console interaction will be printed to that terminal. This startup method is suitable for development and testing scenarios.
 
 **Note: In production environments, daemons should be used to start all instances to ensure that processes are automatically pulled up after they exit, such as [Supervisor](http://supervisord.org/). For daemon startup, in Doris 0.9.0 and previous versions, you need to remove the last `&` symbol in the start_xx.sh scripts**. In Doris 0.10.0 and the subsequent versions, you may just call `sh start_xx.sh` directly to start.
 

@@ -115,7 +115,7 @@ public:
         return _enable_memory_overcommit;
     };
 
-    bool memory_limit() const {
+    int64_t memory_limit() const {
         std::shared_lock<std::shared_mutex> r_lock(_mutex);
         return _memory_limit;
     };
@@ -160,7 +160,7 @@ struct TaskGroupInfo {
     int64_t version;
 
     static Status parse_group_info(const TPipelineWorkloadGroup& resource_group,
-                                   TaskGroupInfo* task_group_info);
+                                   TaskGroupInfo* task_group_info, int* query_cpu_hard_limit);
 
 private:
     static bool check_group_info(const TPipelineWorkloadGroup& resource_group);

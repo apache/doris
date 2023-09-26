@@ -17,8 +17,10 @@
 
 package org.apache.doris.regression.suite
 
+import com.google.common.collect.Maps
 import com.google.gson.Gson
 import org.apache.doris.regression.Config
+import org.apache.doris.regression.json.PartitionRecords
 import org.apache.doris.regression.suite.client.BackendClientImpl
 import org.apache.doris.regression.suite.client.FrontendClientImpl
 import org.apache.doris.regression.util.SyncerUtils
@@ -61,7 +63,15 @@ class Syncer {
         TARGET
     }
 
-    private Boolean checkBinlog(TBinlog binlog, Boolean update) {
+    Boolean checkEnableFeatureBinlog() {
+        List<List<Object>> rows = suite.sql("ADMIN SHOW FRONTEND CONFIG LIKE \"%%enable_feature_binlog%%\"")
+        if (rows.size() >= 1 && (rows[0][0] as String).contains("enable_feature_binlog")) {
+            return (rows[0][1] as String) == "true"
+        }
+        return false
+    }
+
+    private Boolean checkBinlog(TBinlog binlog, String table, Boolean update) {
 
         // step 1: check binlog availability
         if (binlog == null) {
@@ -103,8 +113,10 @@ class Syncer {
             logger.info("binlog data is ${data}")
             if (update) {
                 Gson gson = new Gson()
-                getSourceMeta(gson.fromJson(data, BinlogData.class))
-                logger.info("Source tableId: ${context.sourceTableMap}, ${context.sourceTableMap}")
+                context.lastBinlog = gson.fromJson(data, BinlogData.class)
+                logger.info("Source lastBinlog: ${context.lastBinlog}")
+
+                return getSourceMeta(table)
             }
         } else {
             logger.error("binlog data is not contains data!")
@@ -156,7 +168,7 @@ class Syncer {
         }
 
         // step 2: check binlog
-        return checkBinlog(binlog, update)
+        return checkBinlog(binlog, table, update)
     }
 
     private Boolean checkBeginTxn(TBeginTxnResult result) {
@@ -347,7 +359,7 @@ class Syncer {
     }
 
     Boolean checkRestoreFinish() {
-        String checkSQL = "SHOW RESTORE FROM " + context.db
+        String checkSQL = "SHOW RESTORE FROM TEST_" + context.db
         List<Object> row = suite.sql(checkSQL)[0]
         logger.info("Now row is ${row}")
 
@@ -404,41 +416,6 @@ class Syncer {
         return clientsMap
     }
 
-    void getSourceMeta(BinlogData binlogData) {
-        logger.info("data struct: ${binlogData}")
-        context.sourceTableIdToName.clear()
-        context.sourceTableMap.clear()
-
-        context.sourceDbId = binlogData.dbId
-
-        String metaSQL = "SHOW PROC '/dbs/" + binlogData.dbId.toString()
-        List<List<Object>> sqlInfo = suite.sql(metaSQL + "'")
-
-        // Get table information
-        for (List<Object> row : sqlInfo) {
-            context.sourceTableIdToName.put(row[0] as Long, row[1] as String)
-        }
-
-        // Get table meta in binlog
-        binlogData.tableRecords.forEach((tableId, partitionRecord) -> {
-            String tableName = context.sourceTableIdToName.get(tableId)
-            TableMeta tableMeta = new TableMeta(tableId)
-
-            partitionRecord.partitionRecords.forEach {
-                String partitionSQL = metaSQL + "/" + tableId.toString() + "/partitions/" + it.partitionId.toString()
-                sqlInfo = suite.sql(partitionSQL + "'")
-                PartitionMeta partitionMeta = new PartitionMeta(sqlInfo[0][0] as Long, it.version)
-                partitionSQL += "/" + partitionMeta.indexId.toString()
-                sqlInfo = suite.sql(partitionSQL + "'")
-                sqlInfo.forEach(row -> {
-                    partitionMeta.tabletMeta.put((row[0] as Long), (row[2] as Long))
-                })
-                tableMeta.partitionMap.put(it.partitionId, partitionMeta)
-            }
-            context.sourceTableMap.put(tableName, tableMeta)
-        })
-    }
-
     ArrayList<TTabletCommitInfo> copyCommitInfos() {
         return new ArrayList<TTabletCommitInfo>(context.commitInfos)
     }
@@ -486,7 +463,7 @@ class Syncer {
         return checkGetMasterToken(result)
     }
 
-    Boolean restoreSnapshot() {
+    Boolean restoreSnapshot(boolean forCCR = false) {
         logger.info("Restore snapshot ${context.labelName}")
         FrontendClientImpl clientImpl = context.getSourceFrontClient()
 
@@ -505,7 +482,7 @@ class Syncer {
         context.getSnapshotResult.setJobInfo(gson.toJson(jsonMap).getBytes())
 
         // step 2: restore
-        TRestoreSnapshotResult result = SyncerUtils.restoreSnapshot(clientImpl, context)
+        TRestoreSnapshotResult result = SyncerUtils.restoreSnapshot(clientImpl, context, forCCR)
         return checkRestoreSnapshot(result)
     }
 
@@ -518,86 +495,118 @@ class Syncer {
         return checkGetSnapshot()
     }
 
-    Boolean getTargetMeta(String table = "") {
-        logger.info("Get target cluster meta data.")
+    Boolean getSourceMeta(String table = "") {
+        logger.info("Get source cluster meta")
         String baseSQL = "SHOW PROC '/dbs"
         List<List<Object>> sqlInfo
-
-        // step 1: get target dbId
-        Long dbId = -1
-        sqlInfo = suite.target_sql(baseSQL + "'")
-        for (List<Object> row : sqlInfo) {
-            String[] dbName = (row[1] as String).split(":")
-            if (dbName[1] == ("TEST_" + context.db)) {
-                dbId = row[0] as Long
-                break
+        if (context.sourceDbId == -1) {
+            sqlInfo = suite.sql(baseSQL + "'")
+            for (List<Object> row : sqlInfo) {
+                String[] dbName = (row[1] as String).split(":")
+                if (dbName[1] == context.db) {
+                    context.sourceDbId = row[0] as Long
+                    break
+                }
             }
         }
-        if (dbId == -1) {
-            logger.error("Target cluster get ${context.db} db error.")
+        if (context.sourceDbId == -1) {
+            logger.error("Get ${context.db} db error.")
             return false
         }
-        context.targetDbId = dbId
+        baseSQL += "/" + context.sourceDbId.toString()
+        return getMeta(baseSQL, table, context.sourceTableMap, true)
+    }
 
-        // step 2: get target dbId/tableId
-        baseSQL += "/" + dbId.toString()
-        sqlInfo = suite.target_sql(baseSQL + "'")
+    Boolean getTargetMeta(String table = "") {
+        logger.info("Get target cluster meta")
+        String baseSQL = "SHOW PROC '/dbs"
+        List<List<Object>> sqlInfo
+        if (context.targetDbId == -1) {
+            sqlInfo = suite.target_sql(baseSQL + "'")
+            for (List<Object> row : sqlInfo) {
+                String[] dbName = (row[1] as String).split(":")
+                if (dbName[1] == "TEST_" + context.db) {
+                    context.targetDbId = row[0] as Long
+                    break
+                }
+            }
+        }
+        if (context.targetDbId == -1) {
+            logger.error("Get TEST_${context.db} db error.")
+            return false
+        }
+        baseSQL += "/" + context.targetDbId.toString()
+        return getMeta(baseSQL, table, context.targetTableMap, false)
+    }
+
+    Boolean getMeta(String baseSql, String table, Map<String, TableMeta> metaMap, Boolean toSrc) {
+        def sendSql = { String sqlStmt, Boolean isToSrc -> List<List<Object>>
+            if (isToSrc) {
+                return suite.sql(sqlStmt + "'")
+            } else {
+                return suite.target_sql(sqlStmt + "'")
+            }
+        }
+
+        List<List<Object>> sqlInfo
+
+        // step 1: get target dbId/tableId
+        sqlInfo = sendSql.call(baseSql, toSrc)
         if (table == "") {
             for (List<Object> row : sqlInfo) {
-                context.targetTableMap.put(row[1] as String, new TableMeta(row[0] as long))
+                metaMap.put(row[1] as String, new TableMeta(row[0] as long))
             }
         } else {
             for (List<Object> row : sqlInfo) {
                 if ((row[1] as String) == table) {
-                    context.targetTableMap.put(row[1] as String, new TableMeta(row[0] as long))
+                    metaMap.put(row[1] as String, new TableMeta(row[0] as long))
                     break
                 }
             }
         }
 
-
-        // step 3: get partitionIds
-        context.targetTableMap.values().forEach {
-            baseSQL += "/" + it.id.toString() + "/partitions"
-            ArrayList<Long> partitionIds = new ArrayList<Long>()
-            sqlInfo = suite.target_sql(baseSQL + "'")
+        // step 2: get partitionIds
+        metaMap.values().forEach {
+            baseSql += "/" + it.id.toString() + "/partitions"
+            Map<Long, Long> partitionInfo = Maps.newHashMap()
+            sqlInfo = sendSql.call(baseSql, toSrc)
             for (List<Object> row : sqlInfo) {
-                partitionIds.add(row[0] as Long)
+                partitionInfo.put(row[0] as Long, row[2] as Long)
             }
-            if (partitionIds.isEmpty()) {
+            if (partitionInfo.isEmpty()) {
                 logger.error("Target cluster get partitions fault.")
                 return false
             }
 
-            // step 4: get partitionMetas
-            for (Long id : partitionIds) {
+            // step 3: get partitionMetas
+            for (Entry<Long, Long> info : partitionInfo) {
 
-                // step 4.1: get partition/indexId
-                String partitionSQl = baseSQL + "/" + id.toString()
-                sqlInfo = suite.target_sql(partitionSQl + "'")
+                // step 3.1: get partition/indexId
+                String partitionSQl = baseSql + "/" + info.key.toString()
+                sqlInfo = sendSql.call(partitionSQl, toSrc)
                 if (sqlInfo.isEmpty()) {
-                    logger.error("Target cluster partition-${id} indexId fault.")
+                    logger.error("Target cluster partition-${info.key} indexId fault.")
                     return false
                 }
-                PartitionMeta meta = new PartitionMeta(sqlInfo[0][0] as Long, -1)
+                PartitionMeta meta = new PartitionMeta(sqlInfo[0][0] as Long, info.value)
 
-                // step 4.2: get partition/indexId/tabletId
+                // step 3.2: get partition/indexId/tabletId
                 partitionSQl += "/" + meta.indexId.toString()
-                sqlInfo = suite.target_sql(partitionSQl + "'")
+                sqlInfo = sendSql.call(partitionSQl, toSrc)
                 for (List<Object> row : sqlInfo) {
                     meta.tabletMeta.put(row[0] as Long, row[2] as Long)
                 }
                 if (meta.tabletMeta.isEmpty()) {
-                    logger.error("Target cluster get (partitionId/indexId)-(${id}/${meta.indexId}) tabletIds fault.")
+                    logger.error("Target cluster get (partitionId/indexId)-(${info.key}/${meta.indexId}) tabletIds fault.")
                     return false
                 }
 
-                it.partitionMap.put(id, meta)
+                it.partitionMap.put(info.key, meta)
             }
         }
 
 
-        logger.info("Target cluster metadata: ${context.targetTableMap}")
+        logger.info("cluster metadata: ${metaMap}")
         return true
     }
 
@@ -627,14 +636,22 @@ class Syncer {
     Boolean getBinlog(String table = "", Boolean update = true) {
         logger.info("Get binlog from source cluster ${context.config.feSourceThriftNetworkAddress}, binlog seq: ${context.seq}")
         FrontendClientImpl clientImpl = context.getSourceFrontClient()
-        TGetBinlogResult result = SyncerUtils.getBinLog(clientImpl, context, table)
+        Long tableId = -1
+        if (!table.isEmpty() && context.sourceTableMap.containsKey(table)) {
+            tableId = context.sourceTableMap.get(table).id
+        }
+        TGetBinlogResult result = SyncerUtils.getBinLog(clientImpl, context, table, tableId)
         return checkGetBinlog(table, result, update)
     }
 
     Boolean beginTxn(String table) {
         logger.info("Begin transaction to target cluster ${context.config.feTargetThriftNetworkAddress}")
         FrontendClientImpl clientImpl = context.getTargetFrontClient()
-        TBeginTxnResult result = SyncerUtils.beginTxn(clientImpl, context, table)
+        Long tableId = -1
+        if (context.sourceTableMap.containsKey(table)) {
+            tableId = context.targetTableMap.get(table).id
+        }
+        TBeginTxnResult result = SyncerUtils.beginTxn(clientImpl, context, tableId)
         return checkBeginTxn(result)
     }
 
@@ -647,19 +664,31 @@ class Syncer {
             return false
         }
 
+        BinlogData binlogData = context.lastBinlog
+
         // step 2: Begin ingest binlog
         // step 2.1: ingest each table in meta
         for (Entry<String, TableMeta> tableInfo : context.sourceTableMap) {
             String tableName = tableInfo.key
             TableMeta srcTableMeta = tableInfo.value
+            if (!binlogData.tableRecords.containsKey(srcTableMeta.id)) {
+                continue
+            }
+
+            PartitionRecords binlogRecords = binlogData.tableRecords.get(srcTableMeta.id)
+
             TableMeta tarTableMeta = context.targetTableMap.get(tableName)
 
             Iterator sourcePartitionIter = srcTableMeta.partitionMap.iterator()
             Iterator targetPartitionIter = tarTableMeta.partitionMap.iterator()
+
             // step 2.2: ingest each partition in the table
             while (sourcePartitionIter.hasNext()) {
                 Entry srcPartition = sourcePartitionIter.next()
                 Entry tarPartition = targetPartitionIter.next()
+                if (!binlogRecords.contains(srcPartition.key)) {
+                    continue
+                }
                 Iterator srcTabletIter = srcPartition.value.tabletMeta.iterator()
                 Iterator tarTabletIter = tarPartition.value.tabletMeta.iterator()
 

@@ -115,7 +115,7 @@ public class ViewTest extends TestWithFeService implements MemoPatternMatchSuppo
                 .analyze("SELECT * FROM V1")
                 .applyTopDown(new LogicalSubQueryAliasToLogicalProject())
                 .applyTopDown(new MergeProjects())
-                .matchesFromRoot(
+                .matches(
                       logicalProject(
                               logicalOlapScan()
                       )
@@ -142,7 +142,7 @@ public class ViewTest extends TestWithFeService implements MemoPatternMatchSuppo
                 )
                 .applyTopDown(new LogicalSubQueryAliasToLogicalProject())
                 .applyTopDown(new MergeProjects())
-                .matchesFromRoot(
+                .matches(
                         logicalProject(
                                 logicalJoin(
                                         logicalProject(

@@ -84,6 +84,8 @@ Status PrimaryKeyIndexBuilder::finalize(segment_v2::PrimaryKeyIndexMetaPB* meta)
     RETURN_IF_ERROR(
             _bloom_filter_index_builder->finish(_file_writer, meta->mutable_bloom_filter_index()));
     _disk_size += _file_writer->bytes_appended() - start_size;
+    _primary_key_index_builder.reset(nullptr);
+    _bloom_filter_index_builder.reset(nullptr);
     return Status::OK();
 }
 
@@ -92,7 +94,7 @@ Status PrimaryKeyIndexReader::parse_index(io::FileReaderSPtr file_reader,
     // parse primary key index
     _index_reader.reset(new segment_v2::IndexedColumnReader(file_reader, meta.primary_key_index()));
     _index_reader->set_is_pk_index(true);
-    RETURN_IF_ERROR(_index_reader->load(!config::disable_storage_page_cache, false));
+    RETURN_IF_ERROR(_index_reader->load(!config::disable_pk_storage_page_cache, false));
 
     _index_parsed = true;
     return Status::OK();
@@ -103,8 +105,8 @@ Status PrimaryKeyIndexReader::parse_bf(io::FileReaderSPtr file_reader,
     // parse bloom filter
     segment_v2::ColumnIndexMetaPB column_index_meta = meta.bloom_filter_index();
     segment_v2::BloomFilterIndexReader bf_index_reader(std::move(file_reader),
-                                                       &column_index_meta.bloom_filter_index());
-    RETURN_IF_ERROR(bf_index_reader.load(!config::disable_storage_page_cache, false));
+                                                       column_index_meta.bloom_filter_index());
+    RETURN_IF_ERROR(bf_index_reader.load(!config::disable_pk_storage_page_cache, false));
     std::unique_ptr<segment_v2::BloomFilterIndexIterator> bf_iter;
     RETURN_IF_ERROR(bf_index_reader.new_iterator(&bf_iter));
     RETURN_IF_ERROR(bf_iter->read_bloom_filter(0, &_bf));

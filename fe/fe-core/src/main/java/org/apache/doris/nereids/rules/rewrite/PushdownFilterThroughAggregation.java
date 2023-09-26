@@ -83,9 +83,12 @@ public class PushdownFilterThroughAggregation extends OneRewriteRuleFactory {
      */
     public static Set<Slot> getCanPushDownSlots(LogicalAggregate<? extends Plan> aggregate) {
         Set<Slot> canPushDownSlots = new HashSet<>();
-        if (aggregate.hasRepeat()) {
+        if (aggregate.getSourceRepeat().isPresent()) {
             // When there is a repeat, the push-down condition is consistent with the repeat
-            canPushDownSlots.addAll(aggregate.getSourceRepeat().get().getCommonGroupingSetExpressions());
+            aggregate.getSourceRepeat().get().getCommonGroupingSetExpressions().stream()
+                    .filter(Slot.class::isInstance)
+                    .map(Slot.class::cast)
+                    .forEach(canPushDownSlots::add);
         } else {
             for (Expression groupByExpression : aggregate.getGroupByExpressions()) {
                 if (groupByExpression instanceof Slot) {

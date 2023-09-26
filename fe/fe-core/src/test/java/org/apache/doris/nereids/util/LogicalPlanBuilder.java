@@ -20,6 +20,8 @@ package org.apache.doris.nereids.util;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
+import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement.Assertion;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -28,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
@@ -121,7 +124,7 @@ public class LogicalPlanBuilder {
     }
 
     public LogicalPlanBuilder joinEmptyOn(LogicalPlan right, JoinType joinType) {
-        LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, new ArrayList<>(), this.plan, right);
+        LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, this.plan, right);
         return from(join);
     }
 
@@ -171,14 +174,31 @@ public class LogicalPlanBuilder {
         for (Integer index : groupByKeysIndex) {
             groupByBuilder.add(this.plan.getOutput().get(index));
         }
-        ImmutableList<Expression> groupByKeys = groupByBuilder.build();
+        List<Expression> groupByKeys = groupByBuilder.build();
 
         LogicalAggregate<Plan> agg = new LogicalAggregate<>(groupByKeys, outputExprsList, this.plan);
+        return from(agg);
+    }
+
+    public LogicalPlanBuilder distinct(List<Integer> groupByKeysIndex) {
+        Builder<NamedExpression> groupByBuilder = ImmutableList.builder();
+        for (Integer index : groupByKeysIndex) {
+            groupByBuilder.add(this.plan.getOutput().get(index));
+        }
+        List<NamedExpression> groupByKeys = groupByBuilder.build();
+
+        LogicalAggregate<Plan> agg = new LogicalAggregate<>(groupByKeys, false, this.plan);
         return from(agg);
     }
 
     public LogicalPlanBuilder agg(List<Expression> groupByKeys, List<NamedExpression> outputExprsList) {
         LogicalAggregate<Plan> agg = new LogicalAggregate<>(groupByKeys, outputExprsList, this.plan);
         return from(agg);
+    }
+
+    public LogicalPlanBuilder assertNumRows(Assertion assertion, long numRows) {
+        LogicalAssertNumRows<LogicalPlan> assertNumRows = new LogicalAssertNumRows<>(
+                new AssertNumRowsElement(numRows, "", assertion), this.plan);
+        return from(assertNumRows);
     }
 }

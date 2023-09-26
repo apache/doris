@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 
 import java.util.List;
@@ -41,15 +42,15 @@ public class CheckMatchExpression extends OneRewriteRuleFactory {
                 .toRule(RuleType.CHECK_MATCH_EXPRESSION);
     }
 
-    private LogicalFilter checkChildren(LogicalFilter filter) {
+    private Plan checkChildren(LogicalFilter<? extends Plan> filter) {
         List<Expression> expressions = filter.getExpressions();
         for (Expression expr : expressions) {
             if (expr instanceof Match) {
                 Match matchExpression = (Match) expr;
                 if (!(matchExpression.left() instanceof SlotReference)
                         || !(matchExpression.right() instanceof Literal)) {
-                    throw new AnalysisException(String.format(
-                        "Only support match left operand is SlotRef, right operand is Literal"));
+                    throw new AnalysisException(String.format("Only support match left operand is SlotRef,"
+                            + " right operand is Literal. But meet expression %s", matchExpression));
                 }
             }
         }

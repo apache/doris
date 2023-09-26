@@ -190,14 +190,15 @@ public final class HiveUtil {
             return true;
         }
 
-        // use reflection to get isSplittable method on FileInputFormat
+        // use reflection to get isSplitable method on FileInputFormat
+        // ATTN: the method name is actually "isSplitable", but the right spell is "isSplittable"
         Method method = null;
         for (Class<?> clazz = inputFormat.getClass(); clazz != null; clazz = clazz.getSuperclass()) {
             try {
                 method = clazz.getDeclaredMethod("isSplitable", FileSystem.class, Path.class);
                 break;
             } catch (NoSuchMethodException ignored) {
-                LOG.warn("Class {} doesn't contain isSplitable method.", clazz);
+                LOG.debug("Class {} doesn't contain isSplitable method.", clazz);
             }
         }
 

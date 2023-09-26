@@ -34,20 +34,25 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionInfo;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.planner.external.HiveScanNode;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.RowBatch;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -87,7 +92,6 @@ public class CacheAnalyzer {
     private StatementBase parsedStmt;
     private SelectStmt selectStmt;
     private List<ScanNode> scanNodes;
-    private OlapTable olapTable;
     private RangePartitionInfo partitionInfo;
     private Column partColumn;
     private CompoundPredicate partitionPredicate;
@@ -135,16 +139,20 @@ public class CacheAnalyzer {
     }
 
     public class CacheTable implements Comparable<CacheTable> {
-        public OlapTable olapTable;
+        public TableIf table;
         public long latestPartitionId;
         public long latestVersion;
         public long latestTime;
+        public long partitionNum;
+        public long sumOfPartitionNum;
 
         public CacheTable() {
-            olapTable = null;
+            table = null;
             latestPartitionId = 0;
             latestVersion = 0;
             latestTime = 0;
+            partitionNum = 0;
+            sumOfPartitionNum = 0;
         }
 
         @Override
@@ -153,8 +161,8 @@ public class CacheAnalyzer {
         }
 
         public void debug() {
-            LOG.debug("table {}, partition id {}, ver {}, time {}", olapTable.getName(),
-                    latestPartitionId, latestVersion, latestTime);
+            LOG.debug("table {}, partition id {}, ver {}, time {}, partition num {}, sumOfPartitionNum: {}",
+                    table.getName(), latestPartitionId, latestVersion, latestTime, partitionNum, sumOfPartitionNum);
         }
     }
 
@@ -188,6 +196,10 @@ public class CacheAnalyzer {
         cacheMode = innerCheckCacheMode(now);
     }
 
+    public void checkCacheModeForNereids(long now) {
+        cacheMode = innerCheckCacheModeForNereids(now);
+    }
+
     private CacheMode innerCheckCacheMode(long now) {
         if (!enableCache()) {
             LOG.debug("cache is disabled. queryid {}", DebugUtil.printId(queryId));
@@ -197,29 +209,14 @@ public class CacheAnalyzer {
             LOG.debug("not a select stmt or no scan node. queryid {}", DebugUtil.printId(queryId));
             return CacheMode.NoNeed;
         }
-        MetricRepo.COUNTER_QUERY_TABLE.increase(1L);
-
         this.selectStmt = (SelectStmt) parsedStmt;
-        //Check the last version time of the table
-        List<CacheTable> tblTimeList = Lists.newArrayList();
-        for (int i = 0; i < scanNodes.size(); i++) {
-            ScanNode node = scanNodes.get(i);
-            if (!(node instanceof OlapScanNode)) {
-                LOG.debug("query contains non-olap table. queryid {}", DebugUtil.printId(queryId));
-                return CacheMode.None;
-            }
-            if (enablePartitionCache() && ((OlapScanNode) node).getSelectedPartitionNum() > 1
-                    && selectStmt.hasGroupByClause()) {
-                LOG.debug("more than one partition scanned when qeury has agg, partition cache cannot use, queryid {}",
-                        DebugUtil.printId(queryId));
-                return CacheMode.None;
-            }
-            CacheTable cTable = getSelectedPartitionLastUpdateTime((OlapScanNode) node);
-            tblTimeList.add(cTable);
+
+        List<CacheTable> tblTimeList = buildCacheTableList();
+        if (CollectionUtils.isEmpty(tblTimeList)) {
+            return CacheMode.None;
         }
-        MetricRepo.COUNTER_QUERY_OLAP_TABLE.increase(1L);
-        Collections.sort(tblTimeList);
         latestTable = tblTimeList.get(0);
+        latestTable.sumOfPartitionNum = tblTimeList.stream().mapToLong(item -> item.partitionNum).sum();
         latestTable.debug();
 
         addAllViewStmt(selectStmt);
@@ -230,14 +227,21 @@ public class CacheAnalyzer {
         }
         if (enableSqlCache()
                 && (now - latestTable.latestTime) >= Config.cache_last_version_interval_second * 1000L) {
-            LOG.debug("TIME:{},{},{}", now, latestTable.latestTime,
-                    Config.cache_last_version_interval_second * 1000);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Query cache time:{},{},{}", now, latestTable.latestTime,
+                        Config.cache_last_version_interval_second * 1000);
+            }
             cache = new SqlCache(this.queryId, this.selectStmt);
             ((SqlCache) cache).setCacheInfo(this.latestTable, allViewExpandStmtListStr);
             MetricRepo.COUNTER_CACHE_ADDED_SQL.increase(1L);
             return CacheMode.Sql;
         }
 
+        // TODO:wxy support partition cache for hive table later
+        if (!(latestTable.table instanceof OlapTable)) {
+            LOG.debug("only support partition cache for olap table now. queryid {}", DebugUtil.printId(queryId));
+            return CacheMode.None;
+        }
         if (!enablePartitionCache()) {
             LOG.debug("partition query cache is disabled. queryid {}", DebugUtil.printId(queryId));
             return CacheMode.None;
@@ -252,7 +256,7 @@ public class CacheAnalyzer {
                 return CacheMode.None;
             }
         }
-        olapTable = latestTable.olapTable;
+        OlapTable olapTable = (OlapTable) latestTable.table;
         if (olapTable.getPartitionInfo().getType() != PartitionType.RANGE) {
             LOG.debug("the partition of OlapTable not RANGE type, queryid {}", DebugUtil.printId(queryId));
             return CacheMode.None;
@@ -288,8 +292,150 @@ public class CacheAnalyzer {
         return CacheMode.Partition;
     }
 
-    public InternalService.PFetchCacheResult getCacheData() {
-        cacheMode = innerCheckCacheMode(0);
+    private CacheMode innerCheckCacheModeSetOperation(long now) {
+        // only sql cache
+        if (!enableSqlCache()) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("sql cache is disabled. queryid {}", DebugUtil.printId(queryId));
+            }
+            return CacheMode.NoNeed;
+        }
+        if (!(parsedStmt instanceof SetOperationStmt) || scanNodes.size() == 0) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("not a set operation stmt or no scan node. queryid {}", DebugUtil.printId(queryId));
+            }
+            return CacheMode.NoNeed;
+        }
+
+        //Check the last version time of the table
+        List<CacheTable> tblTimeList = buildCacheTableList();
+        if (CollectionUtils.isEmpty(tblTimeList)) {
+            return CacheMode.None;
+        }
+        latestTable = tblTimeList.get(0);
+        latestTable.sumOfPartitionNum = tblTimeList.stream().mapToLong(item -> item.partitionNum).sum();
+        latestTable.debug();
+
+        addAllViewStmt((SetOperationStmt) parsedStmt);
+        String allViewExpandStmtListStr = StringUtils.join(allViewStmtSet, "|");
+
+        if (now == 0) {
+            now = nowtime();
+        }
+        if (enableSqlCache()
+                && (now - latestTable.latestTime) >= Config.cache_last_version_interval_second * 1000L) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Query cache time:{},{},{}", now, latestTable.latestTime,
+                        Config.cache_last_version_interval_second * 1000);
+            }
+            cache = new SqlCache(this.queryId, parsedStmt.toSql());
+            ((SqlCache) cache).setCacheInfo(this.latestTable, allViewExpandStmtListStr);
+            MetricRepo.COUNTER_CACHE_ADDED_SQL.increase(1L);
+            return CacheMode.Sql;
+        }
+        return CacheMode.None;
+    }
+
+    private CacheMode innerCheckCacheModeForNereids(long now) {
+        // only sql cache
+        if (!enableSqlCache()) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("sql cache is disabled. queryid {}", DebugUtil.printId(queryId));
+            }
+            return CacheMode.NoNeed;
+        }
+        if (!(parsedStmt instanceof LogicalPlanAdapter) || scanNodes.size() == 0) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("not a select stmt or no scan node. queryid {}", DebugUtil.printId(queryId));
+            }
+            return CacheMode.NoNeed;
+        }
+
+        //Check the last version time of the table
+        List<CacheTable> tblTimeList = buildCacheTableList();
+        if (CollectionUtils.isEmpty(tblTimeList)) {
+            return CacheMode.None;
+        }
+        latestTable = tblTimeList.get(0);
+        latestTable.sumOfPartitionNum = tblTimeList.stream().mapToLong(item -> item.partitionNum).sum();
+        latestTable.debug();
+
+        if (((LogicalPlanAdapter) parsedStmt).getStatementContext().getParsedStatement().isExplain()) {
+            return CacheMode.NoNeed;
+        }
+
+        allViewStmtSet.addAll(((LogicalPlanAdapter) parsedStmt).getViewDdlSqls());
+        String allViewExpandStmtListStr = StringUtils.join(allViewStmtSet, "|");
+
+        if (now == 0) {
+            now = nowtime();
+        }
+
+        if (enableSqlCache()
+                && (now - latestTable.latestTime) >= Config.cache_last_version_interval_second * 1000L) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Query cache time :{},{},{}", now, latestTable.latestTime,
+                        Config.cache_last_version_interval_second * 1000);
+            }
+            cache = new SqlCache(this.queryId, ((LogicalPlanAdapter) parsedStmt).getStatementContext()
+                    .getOriginStatement().originStmt);
+            ((SqlCache) cache).setCacheInfo(this.latestTable, allViewExpandStmtListStr);
+            MetricRepo.COUNTER_CACHE_ADDED_SQL.increase(1L);
+            return CacheMode.Sql;
+        }
+        return CacheMode.None;
+    }
+
+    private List<CacheTable> buildCacheTableList() {
+        //Check the last version time of the table
+        MetricRepo.COUNTER_QUERY_TABLE.increase(1L);
+        long olapScanNodeSize = scanNodes.stream().filter(node -> node instanceof OlapScanNode).count();
+        long hiveScanNodeSize = scanNodes.stream().filter(node -> node instanceof HiveScanNode).count();
+        if (olapScanNodeSize > 0) {
+            MetricRepo.COUNTER_QUERY_OLAP_TABLE.increase(1L);
+        }
+        if (hiveScanNodeSize > 0) {
+            MetricRepo.COUNTER_QUERY_HIVE_TABLE.increase(1L);
+        }
+
+        if (!(olapScanNodeSize == scanNodes.size() || hiveScanNodeSize == scanNodes.size())) {
+            LOG.debug("only support olap/hive table with non-federated query, other types are not supported now, "
+                    + "queryId {}", DebugUtil.printId(queryId));
+            return Collections.emptyList();
+        }
+
+        List<CacheTable> tblTimeList = Lists.newArrayList();
+        for (int i = 0; i < scanNodes.size(); i++) {
+            ScanNode node = scanNodes.get(i);
+            if (enablePartitionCache()
+                    && (node instanceof OlapScanNode)
+                    && ((OlapScanNode) node).getSelectedPartitionNum() > 1
+                    && selectStmt != null
+                    && selectStmt.hasGroupByClause()) {
+                LOG.debug("more than one partition scanned when qeury has agg, partition cache cannot use, queryid {}",
+                        DebugUtil.printId(queryId));
+                return Collections.emptyList();
+            }
+            CacheTable cTable = node instanceof OlapScanNode
+                    ? buildCacheTableForOlapScanNode((OlapScanNode) node)
+                    : buildCacheTableForHiveScanNode((HiveScanNode) node);
+            tblTimeList.add(cTable);
+        }
+        Collections.sort(tblTimeList);
+        return tblTimeList;
+    }
+
+    public InternalService.PFetchCacheResult getCacheData() throws UserException {
+        if (parsedStmt instanceof LogicalPlanAdapter) {
+            cacheMode = innerCheckCacheModeForNereids(0);
+        } else if (parsedStmt instanceof SelectStmt) {
+            cacheMode = innerCheckCacheMode(0);
+        } else if (parsedStmt instanceof SetOperationStmt) {
+            cacheMode = innerCheckCacheModeSetOperation(0);
+        } else {
+            return null;
+        }
+
         if (cacheMode == CacheMode.NoNeed) {
             return null;
         }
@@ -441,10 +587,11 @@ public class CacheAnalyzer {
         }
     }
 
-    private CacheTable getSelectedPartitionLastUpdateTime(OlapScanNode node) {
+    private CacheTable buildCacheTableForOlapScanNode(OlapScanNode node) {
         CacheTable cacheTable = new CacheTable();
         OlapTable olapTable = node.getOlapTable();
-        cacheTable.olapTable = olapTable;
+        cacheTable.partitionNum = node.getSelectedPartitionIds().size();
+        cacheTable.table = olapTable;
         for (Long partitionId : node.getSelectedPartitionIds()) {
             Partition partition = olapTable.getPartition(partitionId);
             if (partition.getVisibleVersionTime() >= cacheTable.latestTime) {
@@ -453,6 +600,14 @@ public class CacheAnalyzer {
                 cacheTable.latestVersion = partition.getVisibleVersion();
             }
         }
+        return cacheTable;
+    }
+
+    private CacheTable buildCacheTableForHiveScanNode(HiveScanNode node) {
+        CacheTable cacheTable = new CacheTable();
+        cacheTable.table = node.getTargetTable();
+        cacheTable.partitionNum = node.getReadPartitionNum();
+        cacheTable.latestTime = cacheTable.table.getLastUpdateTime();
         return cacheTable;
     }
 
@@ -512,3 +667,4 @@ public class CacheAnalyzer {
         cache.updateCache();
     }
 }
+

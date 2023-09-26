@@ -46,6 +46,7 @@ public class ExplainCommand extends Command implements NoForward {
         REWRITTEN_PLAN(true),
         OPTIMIZED_PLAN(true),
         SHAPE_PLAN(true),
+        MEMO_PLAN(true),
         ALL_PLAN(true)
         ;
 
@@ -78,7 +79,8 @@ public class ExplainCommand extends Command implements NoForward {
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
         planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
         executor.setPlanner(planner);
-        executor.handleExplainStmt(planner.getExplainString(new ExplainOptions(level)));
+        executor.checkBlockRules();
+        executor.handleExplainStmt(planner.getExplainString(new ExplainOptions(level)), true);
     }
 
     @Override

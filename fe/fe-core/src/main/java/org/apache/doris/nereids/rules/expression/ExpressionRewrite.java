@@ -111,7 +111,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 if (projects.equals(newProjects)) {
                     return oneRowRelation;
                 }
-                return new LogicalOneRowRelation(newProjects);
+                return new LogicalOneRowRelation(oneRowRelation.getRelationId(), newProjects);
             }).toRule(RuleType.REWRITE_ONE_ROW_RELATION_EXPRESSION);
         }
     }
@@ -204,7 +204,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 }
                 return new LogicalJoin<>(join.getJoinType(), rewriteHashJoinConjuncts,
                         rewriteOtherJoinConjuncts, join.getHint(), join.getMarkJoinSlotReference(),
-                        join.left(), join.right());
+                        join.children());
             }).toRule(RuleType.REWRITE_JOIN_EXPRESSION);
         }
     }

@@ -31,9 +31,9 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPlanFragment;
+import org.apache.doris.thrift.TResultSinkType;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
@@ -146,7 +146,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     // has colocate plan node
     private boolean hasColocatePlanNode = false;
 
-    private boolean isRightChildOfBroadcastHashJoin = false;
+    private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCAL;
 
     /**
      * C'tor for fragment with specific partition; the output is by default broadcast.
@@ -171,8 +171,8 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     public PlanFragment(PlanFragmentId id, PlanNode root, DataPartition partition,
             Set<RuntimeFilterId> builderRuntimeFilterIds, Set<RuntimeFilterId> targetRuntimeFilterIds) {
         this(id, root, partition);
-        this.builderRuntimeFilterIds = ImmutableSet.copyOf(builderRuntimeFilterIds);
-        this.targetRuntimeFilterIds = ImmutableSet.copyOf(targetRuntimeFilterIds);
+        this.builderRuntimeFilterIds = new HashSet<>(builderRuntimeFilterIds);
+        this.targetRuntimeFilterIds = new HashSet<>(targetRuntimeFilterIds);
     }
 
     /**
@@ -237,6 +237,10 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         this.hasColocatePlanNode = hasColocatePlanNode;
     }
 
+    public void setResultSinkType(TResultSinkType resultSinkType) {
+        this.resultSinkType = resultSinkType;
+    }
+
     public boolean hasColocatePlanNode() {
         return hasColocatePlanNode;
     }
@@ -256,7 +260,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
             Preconditions.checkState(sink == null);
             // we're streaming to an exchange node
             DataStreamSink streamSink = new DataStreamSink(destNode.getId());
-            streamSink.setPartition(outputPartition);
+            streamSink.setOutputPartition(outputPartition);
             streamSink.setFragment(this);
             sink = streamSink;
         } else {
@@ -272,7 +276,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
             } else {
                 // add ResultSink
                 // we're streaming to an result sink
-                sink = new ResultSink(planRoot.getId());
+                sink = new ResultSink(planRoot.getId(), resultSinkType);
             }
         }
     }
@@ -433,14 +437,6 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     public boolean isTransferQueryStatisticsWithEveryBatch() {
         return transferQueryStatisticsWithEveryBatch;
-    }
-
-    public boolean isRightChildOfBroadcastHashJoin() {
-        return isRightChildOfBroadcastHashJoin;
-    }
-
-    public void setRightChildOfBroadcastHashJoin(boolean value) {
-        isRightChildOfBroadcastHashJoin = value;
     }
 
     public int getFragmentSequenceNum() {

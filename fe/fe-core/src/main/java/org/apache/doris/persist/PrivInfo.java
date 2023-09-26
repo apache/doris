@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.mysql.privilege.ColPrivilegeKey;
 import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.persist.gson.GsonUtils;
 
@@ -35,6 +36,8 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 public class PrivInfo implements Writable {
     @SerializedName(value = "userIdent")
@@ -51,6 +54,8 @@ public class PrivInfo implements Writable {
     private byte[] passwd;
     @SerializedName(value = "role")
     private String role;
+    @SerializedName(value = "colPrivileges")
+    private Map<ColPrivilegeKey, Set<String>> colPrivileges;
     @SerializedName(value = "passwordOptions")
     private PasswordOptions passwordOptions;
     // Indicates that these roles are granted to a user
@@ -75,7 +80,7 @@ public class PrivInfo implements Writable {
 
     // For grant/revoke
     public PrivInfo(UserIdentity userIdent, TablePattern tablePattern, PrivBitSet privs,
-            byte[] passwd, String role) {
+            byte[] passwd, String role, Map<ColPrivilegeKey, Set<String>> colPrivileges) {
         this.userIdent = userIdent;
         this.tblPattern = tablePattern;
         this.resourcePattern = null;
@@ -83,6 +88,7 @@ public class PrivInfo implements Writable {
         this.privs = privs;
         this.passwd = passwd;
         this.role = role;
+        this.colPrivileges = colPrivileges;
     }
 
     // For grant/revoke resource priv
@@ -148,6 +154,10 @@ public class PrivInfo implements Writable {
 
     public List<String> getRoles() {
         return roles;
+    }
+
+    public Map<ColPrivilegeKey, Set<String>> getColPrivileges() {
+        return colPrivileges;
     }
 
     public static PrivInfo read(DataInput in) throws IOException {

@@ -27,14 +27,30 @@ public class SchedException extends Exception {
         FINISHED // schedule is done, remove the tablet from tablet scheduler with status FINISHED
     }
 
+    public enum SubCode {
+        NONE,
+        WAITING_DECOMMISSION,
+        WAITING_SLOT,
+    }
+
     private Status status;
+    private SubCode subCode;
 
     public SchedException(Status status, String errorMsg) {
+        this(status, SubCode.NONE, errorMsg);
+    }
+
+    public SchedException(Status status, SubCode subCode, String errorMsg) {
         super(errorMsg);
         this.status = status;
+        this.subCode = subCode;
     }
 
     public Status getStatus() {
         return status;
+    }
+
+    public SubCode getSubCode() {
+        return subCode;
     }
 }

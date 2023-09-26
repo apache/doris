@@ -105,7 +105,7 @@ public class PushdownExpressionsInHashConditionTest extends TestWithFeService im
                         "SELECT * FROM (SELECT * FROM T1) X JOIN (SELECT * FROM T2) Y ON X.ID + 1 = Y.ID + 2 AND X.ID + 1 > 2")
                 .applyTopDown(new FindHashConditionForJoin())
                 .applyTopDown(new PushdownExpressionsInHashCondition())
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         logicalJoin(
                             logicalProject(
@@ -134,21 +134,23 @@ public class PushdownExpressionsInHashConditionTest extends TestWithFeService im
                         "SELECT * FROM T1 JOIN (SELECT ID, SUM(SCORE) SCORE FROM T2 GROUP BY ID) T ON T1.ID + 1 = T.ID AND T.SCORE = T1.SCORE + 10")
                 .applyTopDown(new FindHashConditionForJoin())
                 .applyTopDown(new PushdownExpressionsInHashCondition())
-                .matchesFromRoot(
-                    logicalProject(
-                        logicalJoin(
-                            logicalProject(
-                                logicalOlapScan()
-                            ),
-                            logicalProject(
-                                logicalSubQueryAlias(
-                                    logicalAggregate(
-                                        logicalOlapScan()
-                                    )
+                .matches(
+                        logicalProject(
+                                logicalJoin(
+                                        logicalProject(
+                                                logicalOlapScan()
+                                        ),
+                                        logicalProject(
+                                                logicalSubQueryAlias(
+                                                        logicalProject(
+                                                                logicalAggregate(
+                                                                        logicalProject(
+                                                                                logicalOlapScan()
+                                                                        )))
+                                                )
+                                        )
                                 )
-                            )
                         )
-                    )
                 );
     }
 
@@ -159,7 +161,7 @@ public class PushdownExpressionsInHashConditionTest extends TestWithFeService im
                         "SELECT * FROM T1 JOIN (SELECT ID, SUM(SCORE) SCORE FROM T2 GROUP BY ID ORDER BY ID) T ON T1.ID + 1 = T.ID AND T.SCORE = T1.SCORE + 10")
                 .applyTopDown(new FindHashConditionForJoin())
                 .applyTopDown(new PushdownExpressionsInHashCondition())
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         logicalJoin(
                             logicalProject(
@@ -168,8 +170,12 @@ public class PushdownExpressionsInHashConditionTest extends TestWithFeService im
                             logicalProject(
                                 logicalSubQueryAlias(
                                     logicalSort(
-                                        logicalAggregate(
-                                                logicalOlapScan()
+                                        logicalProject(
+                                            logicalAggregate(
+                                                logicalProject(
+                                                    logicalOlapScan()
+                                                )
+                                            )
                                         )
                                     )
                                 )

@@ -22,9 +22,7 @@ import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
-import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.QueryStmt;
-import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
@@ -35,7 +33,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -57,18 +54,14 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
-import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
-import org.apache.doris.plugin.AuditEvent.EventType;
 import org.apache.doris.proto.Data;
 import org.apache.doris.qe.QueryState.MysqlStateType;
-import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
 import io.opentelemetry.api.trace.Span;
-import io.opentelemetry.api.trace.SpanContext;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
@@ -181,6 +174,16 @@ public class ConnectProcessor {
         ctx.getState().setOk();
     }
 
+    private void handleStmtClose() {
+        packetBuf = packetBuf.order(ByteOrder.LITTLE_ENDIAN);
+        int stmtId = packetBuf.getInt();
+        LOG.debug("close stmt id: {}", stmtId);
+        ConnectContext.get().removePrepareStmt(String.valueOf(stmtId));
+        // No response packet is sent back to the client, see
+        // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_close.html
+        ctx.getState().setNoop();
+    }
+
     private void debugPacket() {
         byte[] bytes = packetBuf.array();
         StringBuilder printB = new StringBuilder();
@@ -219,10 +222,16 @@ public class ConnectProcessor {
                     "msg: Not supported such prepared statement");
             return;
         }
+        ctx.setStartTime();
+        if (prepareCtx.stmt.getInnerStmt() instanceof QueryStmt) {
+            ctx.getState().setIsQuery(true);
+        }
+        prepareCtx.stmt.setIsPrepared();
         int paramCount = prepareCtx.stmt.getParmCount();
         // null bitmap
         byte[] nullbitmapData = new byte[(paramCount + 7) / 8];
         packetBuf.get(nullbitmapData);
+        String stmtStr = "";
         try {
             // new_params_bind_flag
             if ((int) packetBuf.get() != 0) {
@@ -252,6 +261,7 @@ public class ConnectProcessor {
             executor = new StmtExecutor(ctx, executeStmt);
             ctx.setExecutor(executor);
             executor.execute();
+            stmtStr = executeStmt.toSql();
         } catch (Throwable e)  {
             // Catch all throwable.
             // If reach here, maybe palo bug.
@@ -259,89 +269,20 @@ public class ConnectProcessor {
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
                     e.getClass().getSimpleName() + ", msg: " + e.getMessage());
         }
+        auditAfterExec(stmtStr, prepareCtx.stmt.getInnerStmt(), null, false);
     }
 
-    private void auditAfterExec(String origStmt, StatementBase parsedStmt, Data.PQueryStatistics statistics) {
-        origStmt = origStmt.replace("\n", " ");
-        // slow query
-        long endTime = System.currentTimeMillis();
-        long elapseMs = endTime - ctx.getStartTime();
-        SpanContext spanContext = Span.fromContext(Context.current()).getSpanContext();
-
-        ctx.getAuditEventBuilder().setEventType(EventType.AFTER_QUERY)
-                .setDb(ClusterNamespace.getNameFromFullName(ctx.getDatabase()))
-                .setState(ctx.getState().toString())
-                .setErrorCode(ctx.getState().getErrorCode() == null ? 0 : ctx.getState().getErrorCode().getCode())
-                .setErrorMessage((ctx.getState().getErrorMessage() == null ? "" :
-                        ctx.getState().getErrorMessage().replace("\n", " ").replace("\t", " ")))
-                .setQueryTime(elapseMs)
-                .setScanBytes(statistics == null ? 0 : statistics.getScanBytes())
-                .setScanRows(statistics == null ? 0 : statistics.getScanRows())
-                .setCpuTimeMs(statistics == null ? 0 : statistics.getCpuMs())
-                .setPeakMemoryBytes(statistics == null ? 0 : statistics.getMaxPeakMemoryBytes())
-                .setReturnRows(ctx.getReturnRows())
-                .setStmtId(ctx.getStmtId())
-                .setQueryId(ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()))
-                .setTraceId(spanContext.isValid() ? spanContext.getTraceId() : "")
-                .setFuzzyVariables(ctx.getSessionVariable().printFuzzyVariables());
-
-        if (ctx.getState().isQuery()) {
-            MetricRepo.COUNTER_QUERY_ALL.increase(1L);
-            if (ctx.getState().getStateType() == MysqlStateType.ERR
-                    && ctx.getState().getErrType() != QueryState.ErrType.ANALYSIS_ERR) {
-                // err query
-                MetricRepo.COUNTER_QUERY_ERR.increase(1L);
-            } else if (ctx.getState().getStateType() == MysqlStateType.OK
-                    || ctx.getState().getStateType() == MysqlStateType.EOF) {
-                // ok query
-                MetricRepo.HISTO_QUERY_LATENCY.update(elapseMs);
-                MetricRepo.DB_HISTO_QUERY_LATENCY.getOrAdd(ctx.getDatabase()).update(elapseMs);
-                if (elapseMs > Config.qe_slow_log_ms) {
-                    String sqlDigest = DigestUtils.md5Hex(((Queriable) parsedStmt).toDigest());
-                    ctx.getAuditEventBuilder().setSqlDigest(sqlDigest);
-                }
-            }
-            ctx.getAuditEventBuilder().setIsQuery(true);
-            if (ctx.getQueryDetail() != null) {
-                ctx.getQueryDetail().setEventTime(endTime);
-                ctx.getQueryDetail().setEndTime(endTime);
-                ctx.getQueryDetail().setLatency(elapseMs);
-                ctx.getQueryDetail().setState(QueryDetail.QueryMemState.FINISHED);
-                QueryDetailQueue.addOrUpdateQueryDetail(ctx.getQueryDetail());
-                ctx.setQueryDetail(null);
-            }
-        } else {
-            ctx.getAuditEventBuilder().setIsQuery(false);
-        }
-        ctx.getAuditEventBuilder().setIsNereids(ctx.getState().isNereids);
-
-        ctx.getAuditEventBuilder().setFeIp(FrontendOptions.getLocalHostAddress());
-
-        // We put origin query stmt at the end of audit log, for parsing the log more convenient.
-        if (!ctx.getState().isQuery() && (parsedStmt != null && parsedStmt.needAuditEncryption())) {
-            ctx.getAuditEventBuilder().setStmt(parsedStmt.toSql());
-        } else {
-            if (parsedStmt instanceof InsertStmt && !((InsertStmt) parsedStmt).needLoadManager()
-                    && ((InsertStmt) parsedStmt).isValuesOrConstantSelect()) {
-                // INSERT INTO VALUES may be very long, so we only log at most 1K bytes.
-                int length = Math.min(1024, origStmt.length());
-                ctx.getAuditEventBuilder().setStmt(origStmt.substring(0, length));
-            } else {
-                ctx.getAuditEventBuilder().setStmt(origStmt);
-            }
-        }
-        if (!Env.getCurrentEnv().isMaster()) {
-            if (ctx.executor.isForwardToMaster()) {
-                ctx.getAuditEventBuilder().setState(ctx.executor.getProxyStatus());
-            }
-        }
-        Env.getCurrentAuditEventProcessor().handleAuditEvent(ctx.getAuditEventBuilder().build());
+    private void auditAfterExec(String origStmt, StatementBase parsedStmt,
+                    Data.PQueryStatistics statistics, boolean printFuzzyVariables) {
+        AuditLogHelper.logAuditLog(ctx, origStmt, parsedStmt, statistics, printFuzzyVariables);
     }
 
     // Process COM_QUERY statement,
     // only throw an exception when there is a problem interacting with the requesting client
-    private void handleQuery() {
-        MetricRepo.COUNTER_REQUEST_ALL.increase(1L);
+    private void handleQuery(MysqlCommand mysqlCommand) {
+        if (MetricRepo.isInit) {
+            MetricRepo.COUNTER_REQUEST_ALL.increase(1L);
+        }
         // convert statement to Java string
         byte[] bytes = packetBuf.array();
         int ending = packetBuf.limit() - 1;
@@ -359,23 +300,14 @@ public class ConnectProcessor {
                 .setUser(ClusterNamespace.getNameFromFullName(ctx.getQualifiedUser()))
                 .setSqlHash(ctx.getSqlHash());
 
-        Exception nereidsParseException = null;
         List<StatementBase> stmts = null;
 
-        if (ctx.getSessionVariable().isEnableNereidsPlanner()) {
+        // Nereids do not support prepare and execute now, so forbid prepare command, only process query command
+        if (mysqlCommand == MysqlCommand.COM_QUERY && ctx.getSessionVariable().isEnableNereidsPlanner()) {
             try {
                 stmts = new NereidsParser().parseSQL(originStmt);
-                for (StatementBase stmt : stmts) {
-                    LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) stmt;
-                    // TODO: remove this after we could process CreatePolicyCommand
-                    if (logicalPlanAdapter.getLogicalPlan() instanceof CreatePolicyCommand) {
-                        stmts = null;
-                        break;
-                    }
-                }
             } catch (Exception e) {
                 // TODO: We should catch all exception here until we support all query syntax.
-                nereidsParseException = e;
                 LOG.debug("Nereids parse sql failed. Reason: {}. Statement: \"{}\".",
                         e.getMessage(), originStmt);
             }
@@ -412,17 +344,6 @@ public class ConnectProcessor {
             }
 
             StatementBase parsedStmt = stmts.get(i);
-            if (parsedStmt instanceof SelectStmt && nereidsParseException != null
-                    && ctx.getSessionVariable().isEnableNereidsPlanner()
-                    && !ctx.getSessionVariable().enableFallbackToOriginalPlanner) {
-                Exception exception = new Exception(
-                        String.format("Nereids cannot parse the SQL, and fallback disabled. caused by: \n\n%s",
-                                nereidsParseException.getMessage()), nereidsParseException);
-                // audit it and break
-                handleQueryException(exception, auditStmt, null, null);
-                break;
-            }
-
             parsedStmt.setOrigStmt(new OriginStatement(originStmt, i));
             parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
             executor = new StmtExecutor(ctx, parsedStmt);
@@ -436,7 +357,7 @@ public class ConnectProcessor {
                         finalizeCommand();
                     }
                 }
-                auditAfterExec(auditStmt, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog());
+                auditAfterExec(auditStmt, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
                 // execute failed, skip remaining stmts
                 if (ctx.getState().getStateType() == MysqlStateType.ERR) {
                     break;
@@ -480,7 +401,7 @@ public class ConnectProcessor {
                 ctx.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
             }
         }
-        auditAfterExec(origStmt, parsedStmt, statistics);
+        auditAfterExec(origStmt, parsedStmt, statistics, true);
     }
 
     // analyze the origin stmt and return multi-statements
@@ -577,7 +498,7 @@ public class ConnectProcessor {
                 ctx.initTracer("trace");
                 Span rootSpan = ctx.getTracer().spanBuilder("handleQuery").setNoParent().startSpan();
                 try (Scope scope = rootSpan.makeCurrent()) {
-                    handleQuery();
+                    handleQuery(command);
                 } catch (Exception e) {
                     rootSpan.recordException(e);
                     throw e;
@@ -598,8 +519,7 @@ public class ConnectProcessor {
                 handleStmtReset();
                 break;
             case COM_STMT_CLOSE:
-                // TODO
-                handleStmtReset();
+                handleStmtClose();
                 break;
             default:
                 ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR, "Unsupported command(" + command + ")");
@@ -745,6 +665,20 @@ public class ConnectProcessor {
             int idx = request.isSetStmtIdx() ? request.getStmtIdx() : 0;
             executor = new StmtExecutor(ctx, new OriginStatement(request.getSql(), idx), true);
             ctx.setExecutor(executor);
+            // Set default catalog only if the catalog exists.
+            if (request.isSetDefaultCatalog()) {
+                CatalogIf catalog = ctx.getEnv().getCatalogMgr().getCatalog(request.getDefaultCatalog());
+                if (catalog != null) {
+                    ctx.getEnv().changeCatalog(ctx, request.getDefaultCatalog());
+                    // Set default db only when the default catalog is set and the dbname exists in default catalog.
+                    if (request.isSetDefaultDatabase()) {
+                        DatabaseIf db = ctx.getCurrentCatalog().getDbNullable(request.getDefaultDatabase());
+                        if (db != null) {
+                            ctx.getEnv().changeDb(ctx, request.getDefaultDatabase());
+                        }
+                    }
+                }
+            }
             TUniqueId queryId; // This query id will be set in ctx
             if (request.isSetQueryId()) {
                 queryId = request.getQueryId();
@@ -835,4 +769,5 @@ public class ConnectProcessor {
         }
     }
 }
+
 

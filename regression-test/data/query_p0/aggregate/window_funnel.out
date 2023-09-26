@@ -11,3 +11,21 @@
 -- !window_funnel --
 2
 
+-- !window_funnel_deduplication_compat --
+4
+
+-- !window_funnel_deduplication --
+2
+
+-- !window_funnel_fixed --
+2
+
+-- !window_funnel_fixed --
+1
+
+-- !window_funnel_increase --
+4
+
+-- !window_funnel_increase --
+2
+

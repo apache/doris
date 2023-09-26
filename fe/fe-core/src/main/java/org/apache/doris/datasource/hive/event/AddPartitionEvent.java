@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.apache.hadoop.hive.common.FileUtils;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
@@ -32,14 +33,23 @@ import org.apache.hadoop.hive.metastore.messaging.AddPartitionMessage;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
  * MetastoreEvent for ADD_PARTITION event type
  */
-public class AddPartitionEvent extends MetastoreTableEvent {
+public class AddPartitionEvent extends MetastorePartitionEvent {
     private final Table hmsTbl;
     private final List<String> partitionNames;
+
+    // for test
+    public AddPartitionEvent(long eventId, String catalogName, String dbName,
+                             String tblName, List<String> partitionNames) {
+        super(eventId, catalogName, dbName, tblName, MetastoreEventType.ADD_PARTITION);
+        this.partitionNames = partitionNames;
+        this.hmsTbl = null;
+    }
 
     private AddPartitionEvent(NotificationEvent event,
             String catalogName) {
@@ -61,6 +71,20 @@ public class AddPartitionEvent extends MetastoreTableEvent {
         } catch (Exception ex) {
             throw new MetastoreNotificationException(ex);
         }
+    }
+
+    @Override
+    protected boolean willChangePartitionName() {
+        return false;
+    }
+
+    @Override
+    public Set<String> getAllPartitionNames() {
+        return ImmutableSet.copyOf(partitionNames);
+    }
+
+    public void removePartition(String partitionName) {
+        partitionNames.remove(partitionName);
     }
 
     protected static List<MetastoreEvent> getEvents(NotificationEvent event,

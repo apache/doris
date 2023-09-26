@@ -41,6 +41,12 @@ class ThreadPoolToken;
 class RuntimeState;
 class TupleDescriptor;
 
+namespace pipeline {
+class ScanLocalStateBase;
+struct ScannerDoneDependency;
+struct DataReadyDependency;
+} // namespace pipeline
+
 namespace taskgroup {
 class TaskGroup;
 } // namespace taskgroup
@@ -63,15 +69,16 @@ class ScannerContext {
     ENABLE_FACTORY_CREATOR(ScannerContext);
 
 public:
-    ScannerContext(RuntimeState* state_, VScanNode* parent, const TupleDescriptor* input_tuple_desc,
+    ScannerContext(RuntimeState* state_, VScanNode* parent,
                    const TupleDescriptor* output_tuple_desc,
                    const std::list<VScannerSPtr>& scanners_, int64_t limit_,
-                   int64_t max_bytes_in_blocks_queue_, const int num_parallel_instances = 0);
+                   int64_t max_bytes_in_blocks_queue_, const int num_parallel_instances = 1,
+                   pipeline::ScanLocalStateBase* local_state = nullptr);
 
     virtual ~ScannerContext() = default;
     virtual Status init();
 
-    vectorized::BlockUPtr get_free_block(bool* has_free_block, bool get_not_empty_block = false);
+    vectorized::BlockUPtr get_free_block();
     void return_free_block(std::unique_ptr<vectorized::Block> block);
 
     // Append blocks from scanners to the blocks queue.
@@ -82,30 +89,31 @@ public:
     virtual Status get_block_from_queue(RuntimeState* state, vectorized::BlockUPtr* block,
                                         bool* eos, int id, bool wait = true);
 
+    [[nodiscard]] Status validate_block_schema(Block* block);
+
     // When a scanner complete a scan, this method will be called
     // to return the scanner to the list for next scheduling.
     void push_back_scanner_and_reschedule(VScannerSPtr scanner);
 
-    bool set_status_on_error(const Status& status);
+    bool set_status_on_error(const Status& status, bool need_lock = true);
 
     Status status() {
-        std::lock_guard l(_transfer_lock);
+        if (_process_status.is<ErrorCode::END_OF_FILE>()) {
+            return Status::OK();
+        }
         return _process_status;
     }
 
+    virtual void set_dependency(
+            std::shared_ptr<pipeline::DataReadyDependency> dependency,
+            std::shared_ptr<pipeline::ScannerDoneDependency> scanner_done_dependency) {}
+
     // Called by ScanNode.
     // Used to notify the scheduler that this ScannerContext can stop working.
-    void set_should_stop() {
-        std::lock_guard l(_transfer_lock);
-        _should_stop = true;
-        _blocks_queue_added_cv.notify_one();
-    }
+    void set_should_stop();
 
     // Return true if this ScannerContext need no more process
-    virtual bool done() {
-        std::unique_lock l(_transfer_lock);
-        return _is_finished || _should_stop || !_process_status.ok();
-    }
+    virtual bool done() { return _is_finished || _should_stop; }
 
     // Update the running num of scanners and contexts
     void update_num_running(int32_t scanner_inc, int32_t sched_inc) {
@@ -122,11 +130,12 @@ public:
 
     void get_next_batch_of_scanners(std::list<VScannerSPtr>* current_run);
 
-    void clear_and_join(VScanNode* node, RuntimeState* state);
+    template <typename Parent>
+    void clear_and_join(Parent* parent, RuntimeState* state);
 
     bool no_schedule();
 
-    std::string debug_string();
+    virtual std::string debug_string();
 
     RuntimeState* state() { return _state; }
 
@@ -134,24 +143,30 @@ public:
     void incr_ctx_scheduling_time(int64_t num) { _scanner_ctx_sched_time->update(num); }
     void incr_num_scanner_scheduling(int64_t num) { _scanner_sched_counter->update(num); }
 
-    VScanNode* parent() { return _parent; }
+    std::string parent_name();
 
     virtual bool empty_in_queue(int id);
 
     // todo(wb) rethinking how to calculate ```_max_bytes_in_queue``` when executing shared scan
-    virtual inline bool has_enough_space_in_blocks_queue() const {
-        return _cur_bytes_in_queue < _max_bytes_in_queue / 2;
+    inline bool should_be_scheduled() const {
+        return (_cur_bytes_in_queue < _max_bytes_in_queue / 2) &&
+               (_serving_blocks_num < allowed_blocks_num());
     }
 
-    int cal_thread_slot_num_by_free_block_num() {
+    int get_available_thread_slot_num() {
         int thread_slot_num = 0;
-        thread_slot_num = (_free_blocks_capacity + _block_per_scanner - 1) / _block_per_scanner;
+        thread_slot_num = (allowed_blocks_num() + _block_per_scanner - 1) / _block_per_scanner;
         thread_slot_num = std::min(thread_slot_num, _max_thread_num - _num_running_scanners);
-        if (thread_slot_num <= 0) {
-            thread_slot_num = 1;
-        }
         return thread_slot_num;
     }
+
+    int32_t allowed_blocks_num() const {
+        int32_t blocks_num = std::min(_free_blocks_capacity,
+                                      int32_t((_max_bytes_in_queue + _estimated_block_bytes - 1) /
+                                              _estimated_block_bytes));
+        return blocks_num;
+    }
+
     taskgroup::TaskGroup* get_task_group() const;
 
     void reschedule_scanner_ctx();
@@ -159,26 +174,22 @@ public:
     // the unique id of this context
     std::string ctx_id;
     int32_t queue_idx = -1;
-    ThreadPoolToken* thread_token;
+    ThreadPoolToken* thread_token = nullptr;
     std::vector<bthread_t> _btids;
 
 private:
-    Status _close_and_clear_scanners(VScanNode* node, RuntimeState* state);
+    template <typename Parent>
+    Status _close_and_clear_scanners(Parent* parent, RuntimeState* state);
 
 protected:
     virtual void _dispose_coloate_blocks_not_in_queue() {}
 
-    void _init_free_block(int pre_alloc_block_count, int real_block_size);
-
     RuntimeState* _state;
     VScanNode* _parent;
+    pipeline::ScanLocalStateBase* _local_state;
 
     // the comment of same fields in VScanNode
-    const TupleDescriptor* _input_tuple_desc;
     const TupleDescriptor* _output_tuple_desc;
-    // If _input_tuple_desc is not null, _real_tuple_desc point to _input_tuple_desc,
-    // otherwise, _real_tuple_desc point to _output_tuple_desc
-    const TupleDescriptor* _real_tuple_desc;
 
     // _transfer_lock is used to protect the critical section
     // where the ScanNode and ScannerScheduler interact.
@@ -213,10 +224,12 @@ protected:
 
     // Lazy-allocated blocks for all scanners to share, for memory reuse.
     moodycamel::ConcurrentQueue<vectorized::BlockUPtr> _free_blocks;
+    std::atomic<int32_t> _serving_blocks_num = 0;
     // The current number of free blocks available to the scanners.
     // Used to limit the memory usage of the scanner.
     // NOTE: this is NOT the size of `_free_blocks`.
-    std::atomic_int32_t _free_blocks_capacity = 0;
+    int32_t _free_blocks_capacity = 0;
+    int64_t _estimated_block_bytes = 0;
 
     int _batch_size;
     // The limit from SQL's limit clause
@@ -263,6 +276,8 @@ protected:
     RuntimeProfile::HighWaterMarkCounter* _queued_blocks_memory_usage = nullptr;
     RuntimeProfile::Counter* _newly_create_free_blocks_num = nullptr;
     RuntimeProfile::Counter* _scanner_wait_batch_timer = nullptr;
+
+    std::shared_ptr<pipeline::ScannerDoneDependency> _scanner_done_dependency = nullptr;
 };
 } // namespace vectorized
 } // namespace doris

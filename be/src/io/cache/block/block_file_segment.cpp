@@ -68,6 +68,13 @@ FileBlock::FileBlock(size_t offset_, size_t size_, const Key& key_, IFileCache* 
     }
 }
 
+FileBlock::~FileBlock() {
+    std::shared_ptr<FileReader> reader;
+    if ((reader = _cache_reader.lock())) {
+        IFileCache::remove_file_reader(std::make_pair(_file_key, offset()));
+    }
+}
+
 FileBlock::State FileBlock::state() const {
     std::lock_guard segment_lock(_mutex);
     return _download_state;
@@ -171,21 +178,20 @@ std::string FileBlock::get_path_in_local_cache() const {
     return _cache->get_path_in_local_cache(key(), offset(), _cache_type);
 }
 
-Status FileBlock::read_at(Slice buffer, size_t offset) {
+Status FileBlock::read_at(Slice buffer, size_t read_offset) {
     Status st = Status::OK();
-    if (!_cache_reader) {
-        std::lock_guard segment_lock(_mutex);
-        if (!_cache_reader) {
+    std::shared_ptr<FileReader> reader;
+    if (!(reader = _cache_reader.lock())) {
+        std::lock_guard<std::mutex> lock(_mutex);
+        if (!(reader = _cache_reader.lock())) {
             auto download_path = get_path_in_local_cache();
-            st = global_local_filesystem()->open_file(download_path, &_cache_reader);
-            if (!st) {
-                _cache_reader.reset();
-                return st;
-            }
+            RETURN_IF_ERROR(global_local_filesystem()->open_file(download_path, &reader));
+            _cache_reader =
+                    IFileCache::cache_file_reader(std::make_pair(_file_key, offset()), reader);
         }
     }
     size_t bytes_reads = buffer.size;
-    RETURN_IF_ERROR(_cache_reader->read_at(offset, buffer, &bytes_reads));
+    RETURN_IF_ERROR(reader->read_at(read_offset, buffer, &bytes_reads));
     DCHECK(bytes_reads == buffer.size);
     return st;
 }
