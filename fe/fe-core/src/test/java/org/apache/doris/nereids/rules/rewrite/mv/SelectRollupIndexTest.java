@@ -111,7 +111,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
                 .analyze(" select k1, sum(v1) from t group by k1")
                 .applyTopDown(new SelectMaterializedIndexWithAggregate())
                 .matches(logicalOlapScan().when(scan -> {
-                    Assertions.assertTrue(scan.getPreAggStatus().isOn());
+                    Assertions.assertTrue(scan.getPreAggStatus().isOff());
                     Assertions.assertEquals("t", scan.getSelectedMaterializedIndexName().get());
                     return true;
                 }));
@@ -139,9 +139,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
     public void testTranslateWhenPreAggIsOff() {
         singleTableTest("select k2, min(v1) from t group by k2", scan -> {
             Assertions.assertFalse(scan.isPreAggregation());
-            Assertions.assertEquals("Aggregate operator don't match, "
-                            + "aggregate function: min(v1), column aggregate type: SUM",
-                    scan.getReasonOfPreAggregation());
+            Assertions.assertEquals("Scan not matched on mv", scan.getReasonOfPreAggregation());
         });
     }
 
@@ -227,8 +225,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
                 .matches(logicalOlapScan().when(scan -> {
                     PreAggStatus preAgg = scan.getPreAggStatus();
                     Assertions.assertTrue(preAgg.isOff());
-                    Assertions.assertEquals("Aggregate operator don't match, "
-                            + "aggregate function: min(v1), column aggregate type: SUM", preAgg.getOffReason());
+                    Assertions.assertEquals("Scan not matched on mv", preAgg.getOffReason());
                     return true;
                 }));
     }
@@ -242,8 +239,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
                 .matches(logicalOlapScan().when(scan -> {
                     PreAggStatus preAgg = scan.getPreAggStatus();
                     Assertions.assertTrue(preAgg.isOff());
-                    Assertions.assertEquals("Slot((v1 + 1)) in sum((v1 + 1)) is neither key column nor value column.",
-                            preAgg.getOffReason());
+                    Assertions.assertEquals("Scan not matched on mv", preAgg.getOffReason());
                     return true;
                 }));
     }
@@ -257,8 +253,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
                 .matches(logicalOlapScan().when(scan -> {
                     PreAggStatus preAgg = scan.getPreAggStatus();
                     Assertions.assertTrue(preAgg.isOff());
-                    Assertions.assertEquals("Aggregate function sum(k2) contains key column k2.",
-                            preAgg.getOffReason());
+                    Assertions.assertEquals("Scan not matched on mv", preAgg.getOffReason());
                     return true;
                 }));
     }
@@ -359,30 +354,25 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
         singleTableTest("select k1, sum(v1) from t4 group by k1", "r1", true);
     }
 
-    //@Disabled //ISSUE #18263
     @Test
     public void testComplexGroupingExpr() throws Exception {
         singleTableTest("select k2 + 1, sum(v1) from t group by k2 + 1", "r1", true);
     }
 
-    //@Disabled //ISSUE #18263
     @Test
     public void testCountDistinctKeyColumn() {
         singleTableTest("select k2, count(distinct k3) from t group by k2", "r4", true);
     }
 
-    //@Disabled //ISSUE #18263
     @Test
     public void testCountDistinctValueColumn() {
         singleTableTest("select k1, count(distinct v1) from t group by k1", scan -> {
             Assertions.assertFalse(scan.isPreAggregation());
-            Assertions.assertEquals("Count distinct is only valid for key columns, but meet count(DISTINCT v1).",
-                    scan.getReasonOfPreAggregation());
+            Assertions.assertEquals("Scan not matched on mv", scan.getReasonOfPreAggregation());
             Assertions.assertEquals("t", scan.getSelectedIndexName());
         });
     }
 
-    //@Disabled //ISSUE #18263
     @Test
     public void testOnlyValueColumn1() throws Exception {
         singleTableTest("select sum(v1) from t", "r1", true);
