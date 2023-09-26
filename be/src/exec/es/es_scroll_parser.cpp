@@ -198,18 +198,18 @@ Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool 
             std::chrono::system_clock::time_point tp;
             // time_zone suffix pattern
             // Z/+08:00/-04:30
-            std::regex time_zone_pattern(R"([+-]\d{2}:\d{2}|Z)");
-            std::smatch time_zone_match;
+            RE2 time_zone_pattern(R"([+-]\d{2}:\d{2}|Z)");
             bool ok = false;
             std::string fmt;
-            if (std::regex_search(str_date, time_zone_match, time_zone_pattern)) {
+            re2::StringPiece value;
+            if (time_zone_pattern.Match(str_date, 0, str_date.size(), RE2::UNANCHORED, &value, 1)) {
                 // with time_zone info
                 // YYYY-MM-DDTHH:MM:SSZ or YYYY-MM-DDTHH:MM:SS+08:00
                 // or 2022-08-08T12:10:10.000Z or YYYY-MM-DDTHH:MM:SS-08:00
                 fmt = "%Y-%m-%dT%H:%M:%E*S%Ez";
                 cctz::time_zone ctz;
                 // find time_zone by time_zone suffix string
-                TimezoneUtils::find_cctz_time_zone(time_zone_match.str(), ctz);
+                TimezoneUtils::find_cctz_time_zone(value.as_string(), ctz);
                 ok = cctz::parse(fmt, str_date, ctz, &tp);
             } else {
                 // without time_zone info
