@@ -255,7 +255,7 @@ suite("test_union_pipelineX") {
     }
 
     // test_union_different_schema
-    def new_union_table = "union_different_schema_table"
+    def new_union_table = "union_different_schema_table_pipelineX"
     sql"""drop table if exists ${new_union_table}"""
     sql"""create table if not exists ${new_union_table}(k1 tinyint, k2 decimal(9,3) NULL, k3 char(5) NULL,
         k4 date NULL, k5 datetime NULL, 
