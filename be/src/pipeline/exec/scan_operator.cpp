@@ -23,8 +23,8 @@
 #include <memory>
 
 #include "pipeline/exec/es_scan_operator.h"
-#include "pipeline/exec/jdbc_scan_operator.h"
 #include "pipeline/exec/file_scan_operator.h"
+#include "pipeline/exec/jdbc_scan_operator.h"
 #include "pipeline/exec/meta_scan_operator.h"
 #include "pipeline/exec/olap_scan_operator.h"
 #include "pipeline/exec/operator.h"

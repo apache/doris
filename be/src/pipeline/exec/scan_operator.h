@@ -224,6 +224,7 @@ class ScanLocalState : public ScanLocalStateBase {
     TPushAggOp::type get_push_down_agg_type() override;
 
     int64_t get_push_down_count() override;
+
 protected:
     template <typename LocalStateType>
     friend class ScanOperatorX;
