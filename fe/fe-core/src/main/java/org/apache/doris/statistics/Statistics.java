@@ -17,7 +17,6 @@
 
 package org.apache.doris.statistics;
 
-import com.google.common.base.Preconditions;
 import org.apache.doris.nereids.stats.StatsMathUtil;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -96,6 +95,7 @@ public class Statistics {
     public Statistics setRowCount(double rowCount) {
         return new Statistics(rowCount, new HashMap<>(expressionToColumnStats));
     }
+
     /**
      * Update by count.
      */

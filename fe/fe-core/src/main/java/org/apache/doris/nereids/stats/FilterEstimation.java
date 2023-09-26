@@ -17,9 +17,7 @@
 
 package org.apache.doris.nereids.stats;
 
-import com.google.common.base.Preconditions;
 import org.apache.doris.analysis.LiteralExpr;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.stats.FilterEstimation.EstimationContext;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.And;
@@ -42,7 +40,6 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.statistics.Bucket;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
@@ -52,11 +49,11 @@ import org.apache.doris.statistics.StatisticRange;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatisticsBuilder;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.function.Predicate;
 
@@ -564,7 +561,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                 + leftOverlapPercent * rightAlwaysGreaterRangeFraction;
         context.addKeyIfSlot(leftExpr);
         context.addKeyIfSlot(rightExpr);
-        return context.statistics.withSel(sel,false)
+        return context.statistics.withSel(sel, false)
                 .addColumnStats(leftExpr, leftColumnStatistic)
                 .addColumnStats(rightExpr, rightColumnStatistic);
     }
