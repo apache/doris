@@ -469,9 +469,10 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                     });
 
             LOG(INFO) << "succeed to do index compaction"
-                  << ". tablet=" << _tablet->full_name() << ", input row number=" << _input_row_num
-                  << ", output row number=" << _output_rowset->num_rows()
-                  << ". elapsed time=" << inverted_watch.get_elapse_second() << "s.";
+                      << ". tablet=" << _tablet->full_name()
+                      << ", input row number=" << _input_row_num
+                      << ", output row number=" << _output_rowset->num_rows()
+                      << ". elapsed time=" << inverted_watch.get_elapse_second() << "s.";
         } else {
             LOG(INFO) << "skip doing index compaction due to no output segments"
                       << ". tablet=" << _tablet->full_name()
