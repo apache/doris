@@ -507,7 +507,7 @@ public class RuntimeProfile {
         return builder.toString();
     }
 
-    public String getSimpleString() {
+    public String getProfileByLevel() {
         if (this.profileLevel == 3) {
             return toString();
         }
