@@ -99,11 +99,4 @@ public class S3Utils {
         return key;
     }
 
-    public static void main(String[] args) throws IOException {
-        S3Utils.parseURI("https://10.10.10.1:9000/bucket1/path/person.avro");
-        String bucket1 = S3Utils.getBucket();
-        String key1 = S3Utils.getKey();
-        System.out.println(bucket1 + "  " + key1);
-    }
-
 }

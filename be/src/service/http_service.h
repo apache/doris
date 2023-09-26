@@ -37,6 +37,9 @@ public:
     Status start();
     void stop();
 
+    // get real port
+    int get_real_port() const;
+
 private:
     ExecEnv* _env;
     ObjectPool _pool;

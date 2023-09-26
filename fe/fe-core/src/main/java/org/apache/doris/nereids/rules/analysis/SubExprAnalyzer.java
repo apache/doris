@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
@@ -72,7 +73,13 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
     @Override
     public Expression visitExistsSubquery(Exists exists, CascadesContext context) {
         AnalyzedResult analyzedResult = analyzeSubquery(exists);
-
+        if (analyzedResult.rootIsLimitZero()) {
+            return BooleanLiteral.of(exists.isNot());
+        }
+        if (analyzedResult.isCorrelated() && analyzedResult.rootIsLimitWithOffset()) {
+            throw new AnalysisException("Unsupported correlated subquery with a LIMIT clause with offset > 0 "
+                    + analyzedResult.getLogicalPlan());
+        }
         return new Exists(analyzedResult.getLogicalPlan(),
                 analyzedResult.getCorrelatedSlots(), exists.isNot());
     }
@@ -218,6 +225,14 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
 
         public boolean rootIsLimit() {
             return logicalPlan instanceof LogicalLimit;
+        }
+
+        public boolean rootIsLimitWithOffset() {
+            return logicalPlan instanceof LogicalLimit && ((LogicalLimit<?>) logicalPlan).getOffset() != 0;
+        }
+
+        public boolean rootIsLimitZero() {
+            return logicalPlan instanceof LogicalLimit && ((LogicalLimit<?>) logicalPlan).getLimit() == 0;
         }
     }
 }

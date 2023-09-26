@@ -2329,7 +2329,7 @@ public class OlapTable extends Table {
                 Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), connectContext);
                 meta.parseStmt(analyzer);
             } catch (IOException e) {
-                e.printStackTrace();
+                LOG.info(e);
             }
         }
     }

@@ -953,6 +953,8 @@ DEFINE_Bool(enable_java_support, "true");
 // Set config randomly to check more issues in github workflow
 DEFINE_Bool(enable_fuzzy_mode, "false");
 
+DEFINE_Bool(enable_debug_points, "false");
+
 DEFINE_Int32(pipeline_executor_size, "0");
 DEFINE_Bool(enable_workload_group_for_scan, "false");
 
@@ -1085,6 +1087,12 @@ DEFINE_Int32(fe_expire_duration_seconds, "60");
 DEFINE_Int32(grace_shutdown_wait_seconds, "120");
 
 DEFINE_Int16(bitmap_serialize_version, "1");
+
+// group commit insert config
+DEFINE_String(group_commit_replay_wal_dir, "./wal");
+DEFINE_Int32(group_commit_replay_wal_retry_num, "10");
+DEFINE_Int32(group_commit_replay_wal_retry_interval_seconds, "5");
+DEFINE_Int32(group_commit_sync_wal_batch, "10");
 
 // the count of thread to group commit insert
 DEFINE_Int32(group_commit_insert_threads, "10");

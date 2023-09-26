@@ -28,6 +28,7 @@ import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import lombok.Getter;
@@ -38,7 +39,7 @@ import java.util.Map;
 
 @Getter
 public class JdbcExternalCatalog extends ExternalCatalog {
-    private static final List<String> REQUIRED_PROPERTIES = Lists.newArrayList(
+    private static final List<String> REQUIRED_PROPERTIES = ImmutableList.of(
             JdbcResource.JDBC_URL,
             JdbcResource.DRIVER_URL,
             JdbcResource.DRIVER_CLASS
