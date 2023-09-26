@@ -135,7 +135,7 @@ public class ColocateTableCheckerAndBalancerPerfTest {
         ColocateTableIndex colocateIndex = env.getColocateTableIndex();
         Set<GroupId> groupIds = colocateIndex.getAllGroupIds();
 
-        RebalancerTestUtil.updateReplicaDataSize(100L << 20, 10, 10);
+        RebalancerTestUtil.updateReplicaDataSize(100L << 10, 10, 10);
         RebalancerTestUtil.updateReplicaPathHash();
 
         BalanceStatistic beforeBalanceStatistic = BalanceStatistic.getCurrentBalanceStatistic();
@@ -171,7 +171,7 @@ public class ColocateTableCheckerAndBalancerPerfTest {
                 break;
             }
 
-            Assert.assertTrue("some groups are unstable", i < 40);
+            Assert.assertTrue("some groups are unstable", i < 60);
         }
 
         System.out.println("=== before colocate relocate and balance:");

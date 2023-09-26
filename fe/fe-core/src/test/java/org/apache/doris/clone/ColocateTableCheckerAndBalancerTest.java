@@ -117,7 +117,8 @@ public class ColocateTableCheckerAndBalancerTest {
         for (int i = 0; i < backendsPerBucketSeq.size(); i++) {
             totalReplicaDataSizes.add(1L);
         }
-        globalColocateStatistic.addGroup(groupId, backendsPerBucketSeq, totalReplicaDataSizes, 3);
+        ReplicaAllocation replicaAlloc = new ReplicaAllocation((short) backendsPerBucketSeq.get(0).size());
+        globalColocateStatistic.addGroup(groupId, replicaAlloc, backendsPerBucketSeq, totalReplicaDataSizes, 3);
 
         return globalColocateStatistic;
     }
@@ -179,7 +180,8 @@ public class ColocateTableCheckerAndBalancerTest {
         List<Long> allAvailBackendIds = Lists.newArrayList(1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L, 9L);
         boolean changed = (Boolean) Deencapsulation.invoke(balancer, "relocateAndBalance", groupId,
                 Tag.DEFAULT_BACKEND_TAG, new HashSet<Long>(), allAvailBackendIds,
-                colocateTableIndex, infoService, statistic, globalColocateStatistic, balancedBackendsPerBucketSeq);
+                colocateTableIndex, infoService, statistic, globalColocateStatistic,
+                balancedBackendsPerBucketSeq, false);
         List<List<Long>> expected = Lists.partition(
                 Lists.newArrayList(9L, 5L, 3L, 4L, 6L, 8L, 7L, 6L, 1L, 2L, 9L, 4L, 1L, 2L, 3L), 3);
         Assert.assertTrue("" + globalColocateStatistic, changed);
@@ -194,7 +196,7 @@ public class ColocateTableCheckerAndBalancerTest {
         changed = (Boolean) Deencapsulation.invoke(balancer, "relocateAndBalance", groupId,
                 Tag.DEFAULT_BACKEND_TAG, new HashSet<Long>(), allAvailBackendIds,
                 colocateTableIndex, infoService, statistic, globalColocateStatistic,
-                balancedBackendsPerBucketSeq);
+                balancedBackendsPerBucketSeq, false);
         System.out.println(balancedBackendsPerBucketSeq);
         Assert.assertFalse(changed);
         Assert.assertTrue(balancedBackendsPerBucketSeq.isEmpty());
@@ -255,7 +257,7 @@ public class ColocateTableCheckerAndBalancerTest {
         List<Long> allAvailBackendIds = Lists.newArrayList(7L);
         boolean changed = Deencapsulation.invoke(balancer, "relocateAndBalance", groupId, Tag.DEFAULT_BACKEND_TAG,
                 new HashSet<Long>(), allAvailBackendIds, colocateTableIndex, infoService, statistic, globalColocateStatistic,
-                balancedBackendsPerBucketSeq);
+                balancedBackendsPerBucketSeq, false);
         Assert.assertFalse(changed);
 
         // 2. all backends are checked but this round is not changed
@@ -269,7 +271,7 @@ public class ColocateTableCheckerAndBalancerTest {
         allAvailBackendIds = Lists.newArrayList(7L, 8L, 9L);
         changed = Deencapsulation.invoke(balancer, "relocateAndBalance", groupId, Tag.DEFAULT_BACKEND_TAG,
                 new HashSet<Long>(), allAvailBackendIds, colocateTableIndex, infoService, statistic, globalColocateStatistic,
-                balancedBackendsPerBucketSeq);
+                balancedBackendsPerBucketSeq, false);
         Assert.assertFalse(changed);
     }
 
@@ -302,7 +304,7 @@ public class ColocateTableCheckerAndBalancerTest {
         List<Long> availBackendIds = Lists.newArrayList();
         boolean changed = (Boolean) Deencapsulation.invoke(balancer, "relocateAndBalance", groupId, Tag.DEFAULT_BACKEND_TAG,
                 unAvailBackendIds, availBackendIds, colocateTableIndex, infoService, statistic, globalColocateStatistic,
-                balancedBackendsPerBucketSeq);
+                balancedBackendsPerBucketSeq, false);
         Assert.assertFalse(changed);
     }
 
@@ -631,11 +633,11 @@ public class ColocateTableCheckerAndBalancerTest {
         GroupId groupId1 = new GroupId(1L, 10000L);
         GroupId groupId2 = new GroupId(2L, 20000L);
         GlobalColocateStatistic globalColocateStatistic = new GlobalColocateStatistic();
-        globalColocateStatistic.addGroup(groupId1,
+        globalColocateStatistic.addGroup(groupId1, new ReplicaAllocation((short) 2),
                 Lists.newArrayList(Sets.newHashSet(1001L, 1002L), Sets.newHashSet(1002L, 1003L),
                         Sets.newHashSet(1001L, 1003L)),
                 Lists.newArrayList(100L, 200L, 300L), 5);
-        globalColocateStatistic.addGroup(groupId2,
+        globalColocateStatistic.addGroup(groupId2, new ReplicaAllocation((short) 1),
                 Lists.newArrayList(Sets.newHashSet(1001L), Sets.newHashSet(1002L),
                         Sets.newHashSet(1003L), Sets.newHashSet(1001L)),
                 Lists.newArrayList(100L, 200L, 300L, 400L), 7);
@@ -668,6 +670,8 @@ public class ColocateTableCheckerAndBalancerTest {
                     new BucketStatistic(2, 7, 300L), new BucketStatistic(3, 7, 400L)),
                 allGroupBucketsMap.get(groupId2));
 
-        Assert.assertEquals(globalColocateStatistic, globalColocateStatistic.copy());
+        Map<Tag, Integer> expectAllTagBucketNum = Maps.newHashMap();
+        expectAllTagBucketNum.put(Tag.DEFAULT_BACKEND_TAG, 10);
+        Assert.assertEquals(expectAllTagBucketNum, globalColocateStatistic.getAllTagBucketNum());
     }
 }
