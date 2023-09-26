@@ -17,6 +17,7 @@
 
 package org.apache.doris.statistics;
 
+import com.google.common.base.Preconditions;
 import org.apache.doris.nereids.stats.StatsMathUtil;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -92,10 +93,13 @@ public class Statistics {
         return statistics;
     }
 
+    public Statistics setRowCount(double rowCount) {
+        return new Statistics(rowCount, new HashMap<>(expressionToColumnStats));
+    }
     /**
      * Update by count.
      */
-    public Statistics updateRowCountOnly(double rowCount) {
+    public Statistics updateRowCountAndColStats(double rowCount) {
         Statistics statistics = new Statistics(rowCount, expressionToColumnStats);
         for (Entry<Expression, ColumnStatistic> entry : expressionToColumnStats.entrySet()) {
             ColumnStatistic columnStatistic = entry.getValue();
@@ -106,6 +110,26 @@ public class Statistics {
             expressionToColumnStats.put(entry.getKey(), columnStatisticBuilder.build());
         }
         return statistics;
+    }
+
+    public void enforceValid() {
+        for (Entry<Expression, ColumnStatistic> entry : expressionToColumnStats.entrySet()) {
+            ColumnStatistic columnStatistic = entry.getValue();
+            if (!checkColumnStatsValid(columnStatistic)) {
+                double ndv = Math.min(columnStatistic.ndv, rowCount);
+                ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(columnStatistic);
+                columnStatisticBuilder.setNdv(ndv);
+                columnStatisticBuilder.setNumNulls(Math.min(columnStatistic.numNulls, rowCount - ndv));
+                columnStatisticBuilder.setCount(rowCount);
+                columnStatistic = columnStatisticBuilder.build();
+            }
+            expressionToColumnStats.put(entry.getKey(), columnStatistic);
+        }
+    }
+
+    public boolean checkColumnStatsValid(ColumnStatistic columnStatistic) {
+        return columnStatistic.ndv <= rowCount
+                && columnStatistic.numNulls <= rowCount - columnStatistic.ndv;
     }
 
     /**
@@ -144,8 +168,21 @@ public class Statistics {
     }
 
     public Statistics withSel(double sel) {
+        return withSel(sel, true);
+    }
+
+    public Statistics withSel(double sel, boolean updateColStats) {
         sel = StatsMathUtil.minNonNaN(sel, 1);
-        return withRowCount(rowCount * sel);
+        if (Double.isNaN(rowCount)) {
+            return this;
+        }
+        double newCount = rowCount * sel;
+        double originCount = rowCount;
+        Statistics statistics = new Statistics(newCount, new HashMap<>(expressionToColumnStats));
+        if (updateColStats) {
+            statistics.fix(newCount, StatsMathUtil.nonZeroDivisor(originCount));
+        }
+        return statistics;
     }
 
     public Statistics addColumnStats(Expression expression, ColumnStatistic columnStatistic) {
