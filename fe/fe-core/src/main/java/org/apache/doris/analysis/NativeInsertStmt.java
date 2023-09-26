@@ -164,7 +164,7 @@ public class NativeInsertStmt extends InsertStmt {
     private ByteString rangeBytes = null;
     private long tableId = -1;
     // true if be generates an insert from group commit tvf stmt and executes to load data
-    public boolean isInnerGroupCommit = false;
+    public boolean isGroupCommitTvf = false;
 
     private boolean isFromDeleteOrUpdateStmt = false;
 
@@ -895,7 +895,7 @@ public class NativeInsertStmt extends InsertStmt {
         }
         if (targetTable instanceof OlapTable) {
             checkInnerGroupCommit();
-            OlapTableSink sink = isInnerGroupCommit ? new GroupCommitOlapTableSink((OlapTable) targetTable, olapTuple,
+            OlapTableSink sink = isGroupCommitTvf ? new GroupCommitOlapTableSink((OlapTable) targetTable, olapTuple,
                     targetPartitionIds, analyzer.getContext().getSessionVariable().isEnableSingleReplicaInsert())
                     : new OlapTableSink((OlapTable) targetTable, olapTuple, targetPartitionIds,
                             analyzer.getContext().getSessionVariable().isEnableSingleReplicaInsert());
@@ -933,10 +933,11 @@ public class NativeInsertStmt extends InsertStmt {
     private void checkInnerGroupCommit() {
         List<TableRef> tableRefs = new ArrayList<>();
         queryStmt.collectTableRefs(tableRefs);
-        if (tableRefs.size() == 1 && tableRefs.get(0) instanceof TableValuedFunctionRef
-                && ((TableValuedFunctionRef) tableRefs.get(
-                0)).getTableFunction() instanceof GroupCommitTableValuedFunction) {
-            isInnerGroupCommit = true;
+        if (tableRefs.size() == 1 && tableRefs.get(0) instanceof TableValuedFunctionRef) {
+            TableValuedFunctionRef tvfRef = (TableValuedFunctionRef) tableRefs.get(0);
+            if (tvfRef.getTableFunction() instanceof GroupCommitTableValuedFunction) {
+                isGroupCommitTvf = true;
+            }
         }
     }
 
