@@ -711,7 +711,9 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 .collect(Collectors.toList());
 
         long selectIndexId = selectBestIndex(haveAllRequiredColumns, scan, predicates);
-        if ((new CheckContext(scan, selectIndexId)).isBaseIndex()) {
+        // Pre-aggregation is set to `on` by default for duplicate-keys table.
+        // In other cases where mv is not hit, preagg may turn off from on.
+        if (!table.isDupKeysOrMergeOnWrite() && (new CheckContext(scan, selectIndexId)).isBaseIndex()) {
             PreAggStatus preagg = scan.getPreAggStatus();
             if (preagg.isOn()) {
                 preagg = checkPreAggStatus(scan, scan.getTable().getBaseIndexId(), predicates, aggregateFunctions,

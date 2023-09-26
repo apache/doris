@@ -301,7 +301,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
                 .applyTopDown(new SelectMaterializedIndexWithoutAggregate())
                 .matches(logicalOlapScan().when(scan -> {
                     PreAggStatus preAgg = scan.getPreAggStatus();
-                    Assertions.assertTrue(preAgg.isOff());
+                    Assertions.assertTrue(preAgg.isOn());
                     return true;
                 }));
     }
