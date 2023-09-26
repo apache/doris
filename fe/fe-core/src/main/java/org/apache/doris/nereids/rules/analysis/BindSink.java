@@ -145,11 +145,13 @@ public class BindSink implements AnalysisRuleFactory {
                                 Optional<Column> seqCol = table.getFullSchema().stream()
                                         .filter(col -> col.getName().equals(table.getSequenceMapCol()))
                                         .findFirst();
-                                if (!seqCol.isPresent()) {
+                                if (!seqCol.isPresent() && !sink.isPartialUpdate()) {
                                     throw new AnalysisException("sequence column is not contained in"
                                             + " target table " + table.getName());
                                 }
-                                columnToOutput.put(column.getName(), columnToOutput.get(seqCol.get().getName()));
+                                if (columnToOutput.get(seqCol.get().getName()) != null) {
+                                    columnToOutput.put(column.getName(), columnToOutput.get(seqCol.get().getName()));
+                                }
                             } else if (sink.isPartialUpdate()) {
                                 // If the current load is a partial update, the values of unmentioned
                                 // columns will be filled in SegmentWriter. And the output of sink node

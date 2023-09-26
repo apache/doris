@@ -199,6 +199,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -376,8 +377,19 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         HashSet<String> partialUpdateCols = new HashSet<>();
         boolean isPartialUpdate = olapTableSink.isPartialUpdate();
+        OlapTable olapTable = (OlapTable) olapTableSink.getTargetTable();
+
+        if (olapTable.hasSequenceCol() && olapTable.getSequenceMapCol() != null
+                && !olapTableSink.getCols().isEmpty() && olapTableSink.isFromNativeInsertStmt()) {
+            Optional<Column> foundCol = olapTableSink.getCols().stream()
+                        .filter(col -> col.getName().equalsIgnoreCase(olapTable.getSequenceMapCol())).findAny();
+            if (!foundCol.isPresent() && !isPartialUpdate) {
+                throw new AnalysisException("Table " + olapTable.getName()
+                        + " has sequence column, need to specify the sequence column");
+            }
+        }
+
         if (isPartialUpdate) {
-            OlapTable olapTable = olapTableSink.getTargetTable();
             if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
                 throw new AnalysisException("Partial update is only allowed in"
                         + "unique table with merge-on-write enabled.");
