@@ -18,6 +18,7 @@
 #pragma once
 #include "exec/data_sink.h"
 #include "vec/exprs/vexpr_fwd.h"
+#include "vec/sink/vtablet_sink.h"
 
 namespace doris {
 
@@ -25,8 +26,6 @@ class OlapTableSchemaParam;
 class MemTracker;
 
 namespace stream_load {
-
-class OlapTableBlockConvertor;
 
 class GroupCommitBlockSink : public DataSink {
 public:
@@ -53,7 +52,7 @@ private:
     std::shared_ptr<MemTracker> _mem_tracker;
     // this is tuple descriptor of destination OLAP table
     TupleDescriptor* _output_tuple_desc = nullptr;
-    std::unique_ptr<OlapTableBlockConvertor> _block_convertor;
+    std::unique_ptr<vectorized::OlapTableBlockConvertor> _block_convertor;
 };
 
 } // namespace stream_load

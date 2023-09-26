@@ -21,7 +21,6 @@
 #include "runtime/runtime_state.h"
 #include "util/doris_metrics.h"
 #include "vec/exprs/vexpr.h"
-#include "vec/sink/vtablet_block_convertor.h"
 #include "vec/sink/vtablet_finder.h"
 #include "vec/sink/vtablet_sink.h"
 
@@ -66,7 +65,7 @@ Status GroupCommitBlockSink::prepare(RuntimeState* state) {
         return Status::InternalError("unknown destination tuple descriptor");
     }
 
-    _block_convertor = std::make_unique<stream_load::OlapTableBlockConvertor>(_output_tuple_desc);
+    _block_convertor = std::make_unique<vectorized::OlapTableBlockConvertor>(_output_tuple_desc);
     _block_convertor->init_autoinc_info(_schema->db_id(), _schema->table_id(),
                                         _state->batch_size());
     // Prepare the exprs to run.
@@ -97,7 +96,7 @@ Status GroupCommitBlockSink::send(RuntimeState* state, vectorized::Block* input_
     std::shared_ptr<vectorized::Block> block;
     bool has_filtered_rows = false;
     RETURN_IF_ERROR(_block_convertor->validate_and_convert_block(
-            state, input_block, block, _output_vexpr_ctxs, rows, eos, has_filtered_rows));
+            state, input_block, block, _output_vexpr_ctxs, rows, has_filtered_rows));
     block->swap(*input_block);
     return Status::OK();
 }

@@ -381,10 +381,6 @@ GroupCommitMgr::GroupCommitMgr(ExecEnv* exec_env) : _exec_env(exec_env) {
             .set_min_threads(config::group_commit_insert_threads)
             .set_max_threads(config::group_commit_insert_threads)
             .build(&_insert_into_thread_pool);
-    ThreadPoolBuilder("StreamLoadGroupCommitThreadPool")
-            .set_min_threads(config::group_commit_stream_load_threads)
-            .set_max_threads(config::group_commit_stream_load_threads)
-            .build(&_stream_load_thread_pool);
 }
 
 GroupCommitMgr::~GroupCommitMgr() {
@@ -393,7 +389,6 @@ GroupCommitMgr::~GroupCommitMgr() {
 
 void GroupCommitMgr::stop() {
     _insert_into_thread_pool->shutdown();
-    _stream_load_thread_pool->shutdown();
     LOG(INFO) << "GroupCommitMgr is stopped";
 }
 
@@ -517,7 +512,7 @@ Status GroupCommitMgr::_append_row(std::shared_ptr<io::StreamLoadPipe> pipe,
 }
 
 Status GroupCommitMgr::group_commit_stream_load(std::shared_ptr<StreamLoadContext> ctx) {
-    return _stream_load_thread_pool->submit_func([ctx, this] {
+    return _insert_into_thread_pool->submit_func([ctx, this] {
         Status st = _group_commit_stream_load(ctx);
         if (!st.ok()) {
             ctx->promise.set_value(st);

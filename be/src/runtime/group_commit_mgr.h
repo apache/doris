@@ -144,8 +144,6 @@ private:
 
     // thread pool to handle insert into: append data to pipe
     std::unique_ptr<doris::ThreadPool> _insert_into_thread_pool;
-    // thread pool to handle stream load
-    std::unique_ptr<doris::ThreadPool> _stream_load_thread_pool;
 };
 
 } // namespace doris
