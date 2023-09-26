@@ -48,6 +48,7 @@
 #include "olap/schema_cache.h"
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
+#include "olap/wal_manager.h"
 #include "pipeline/task_queue.h"
 #include "pipeline/task_scheduler.h"
 #include "runtime/block_spill_manager.h"
@@ -210,6 +211,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _memtable_memory_limiter = std::make_unique<MemTableMemoryLimiter>();
     _load_stream_stub_pool = std::make_unique<stream_load::LoadStreamStubPool>();
     _delta_writer_v2_pool = std::make_unique<vectorized::DeltaWriterV2Pool>();
+    _wal_manager = WalManager::create_shared(this, config::group_commit_replay_wal_dir);
 
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");
@@ -232,6 +234,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
 
     RETURN_IF_ERROR(_memtable_memory_limiter->init(MemInfo::mem_limit()));
     RETURN_IF_ERROR(_load_channel_mgr->init(MemInfo::mem_limit()));
+    RETURN_IF_ERROR(_wal_manager->init());
     _heartbeat_flags = new HeartbeatFlags();
     _register_metrics();
 
@@ -526,6 +529,8 @@ void ExecEnv::destroy() {
     // Memory barrier to prevent other threads from accessing destructed resources
     _s_ready = false;
 
+    SAFE_STOP(_wal_manager);
+    _wal_manager.reset();
     SAFE_STOP(_tablet_schema_cache);
     SAFE_STOP(_load_channel_mgr);
     SAFE_STOP(_scanner_scheduler);

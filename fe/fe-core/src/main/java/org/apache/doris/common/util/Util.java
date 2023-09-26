@@ -563,6 +563,8 @@ public class Util {
                 // TODO: Add TEXTFILE to TFileFormatType to Support hive text file format.
                 || lowerFileFormat.equals(FeConstants.text)) {
             return TFileFormatType.FORMAT_CSV_PLAIN;
+        } else if (lowerFileFormat.equals("wal")) {
+            return TFileFormatType.FORMAT_WAL;
         } else {
             return TFileFormatType.FORMAT_UNKNOWN;
         }
