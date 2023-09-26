@@ -953,7 +953,6 @@ DEFINE_Bool(enable_index_apply_preds_except_leafnode_of_andnode, "true");
 
 DEFINE_mBool(enable_flatten_nested_for_variant, "false");
 DEFINE_mDouble(ratio_of_defaults_as_sparse_column, "0.95");
-DEFINE_mInt64(threshold_rows_to_estimate_sparse_column, "1000");
 DEFINE_mDouble(max_filter_ratio_for_variant_parsing, "0.05");
 
 // block file cache
@@ -1079,12 +1078,12 @@ DEFINE_Int32(group_commit_insert_threads, "10");
 DEFINE_mInt32(scan_thread_nice_value, "0");
 DEFINE_mInt32(tablet_schema_cache_recycle_interval, "86400");
 
-DEFINE_Bool(exit_on_exception, "false")
+DEFINE_Bool(exit_on_exception, "false");
 
+DEFINE_Bool(enable_scan_thread_low_thread_priority, "false");
+
+DEFINE_mInt64(threshold_rows_to_estimate_sparse_column, "1000");
 // clang-format off
-DEFINE_mInt32(tablet_schema_cache_recycle_interval, "86400");
-
-DEFINE_mBool(enable_scan_thread_low_thread_priority, "false");
 
 #ifdef BE_TEST
 // test s3

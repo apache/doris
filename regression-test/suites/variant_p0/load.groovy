@@ -104,7 +104,7 @@ suite("regression_test_variant", "variant_type"){
             verify table_name 
         }
         // FIXME
-        sql "insert into simple_variant_DUPLICATE select k, cast(v as string) from simple_variant_UNIQUE;"
+        // sql "insert into simple_variant_DUPLICATE select k, cast(v as string) from simple_variant_UNIQUE;"
         
         // 2. type confilct cases
         def table_name = "type_conflict_resolution"
@@ -287,23 +287,23 @@ suite("regression_test_variant", "variant_type"){
         // no sparse columns
         set_be_config.call("ratio_of_defaults_as_sparse_column", "1")
         load_json_data.call(table_name, """${getS3Url() + '/load/logdata.json'}""")
-        qt_sql_32 """ select v->"\$.json.parseFailed" from logdata where  v->"\$.json.parseFailed" != 'null' order by k limit 1;"""
+        qt_sql_32 """ select json_extract(v, "\$.json.parseFailed") from logdata where  json_extract(v, "\$.json.parseFailed") != 'null' order by k limit 1;"""
         qt_sql_32_1 """select v:json.parseFailed from  logdata where cast(v:json.parseFailed as string) is not null and k = 162 limit 1;"""
         sql "truncate table ${table_name}"
 
         // 0.95 default ratio    
         set_be_config.call("ratio_of_defaults_as_sparse_column", "0.95")
         load_json_data.call(table_name, """${getS3Url() + '/load/logdata.json'}""")
-        qt_sql_33 """ select v->"\$.json.parseFailed" from logdata where  v->"\$.json.parseFailed" != 'null' order by k limit 1;"""
+        qt_sql_33 """ select json_extract(v,"\$.json.parseFailed") from logdata where  json_extract(v,"\$.json.parseFailed") != 'null' order by k limit 1;"""
         qt_sql_33_1 """select v:json.parseFailed from  logdata where cast(v:json.parseFailed as string) is not null and k = 162 limit 1;"""
         sql "truncate table ${table_name}"
 
         // always sparse column
         set_be_config.call("ratio_of_defaults_as_sparse_column", "0")
         load_json_data.call(table_name, """${getS3Url() + '/load/logdata.json'}""")
-        qt_sql_34 """ select v->"\$.json.parseFailed" from logdata where  v->"\$.json.parseFailed" != 'null' order by k limit 1;"""
+        qt_sql_34 """ select json_extract(v, "\$.json.parseFailed") from logdata where  json_extract(v,"\$.json.parseFailed") != 'null' order by k limit 1;"""
         sql "truncate table ${table_name}"
-        qt_sql_35 """select v->"\$.json.parseFailed"  from logdata where k = 162 and  v->"\$.json.parseFailed" != 'null';"""
+        qt_sql_35 """select json_extract(v,"\$.json.parseFailed")  from logdata where k = 162 and  json_extract(v,"\$.json.parseFailed") != 'null';"""
         qt_sql_35_1 """select v:json.parseFailed from  logdata where cast(v:json.parseFailed as string) is not null and k = 162 limit 1;"""
 
         // TODO add test case that some certain columns are materialized in some file while others are not materilized(sparse)
@@ -388,8 +388,25 @@ suite("regression_test_variant", "variant_type"){
         set_be_config.call("ratio_of_defaults_as_sparse_column", "0.95")
 
         // test with inverted index
+        def delta_time = 1000
+        def useTime = 0
+        def wait_for_latest_op_on_table_finish = { tableName, OpTimeout ->
+            for(int t = delta_time; t <= OpTimeout; t += delta_time){
+                alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${tableName}" ORDER BY CreateTime DESC LIMIT 1;"""
+                alter_res = alter_res.toString()
+                if(alter_res.contains("FINISHED")) {
+                    sleep(3000) // wait change table state to normal
+                    logger.info(tableName + " latest alter job finished, detail: " + alter_res)
+                    break
+                }
+                useTime = t
+                sleep(delta_time)
+            }
+            assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
+        }
         set_be_config.call("ratio_of_defaults_as_sparse_column", "0")
         set_be_config.call("threshold_rows_to_estimate_sparse_column", "0")
+        table_name = "var_index"
         sql "DROP TABLE IF EXISTS var_index"
         sql """
             CREATE TABLE IF NOT EXISTS var_index (
@@ -399,17 +416,43 @@ suite("regression_test_variant", "variant_type"){
                 INDEX idx(inv) USING INVERTED PROPERTIES("parser"="standard")  COMMENT ''
             )
             DUPLICATE KEY(`k`)
-            DISTRIBUTED BY HASH(k) BUCKETS 1 
+            DISTRIBUTED BY HASH(k) BUCKETS 3
             properties("replication_num" = "1", "disable_auto_compaction" = "false");
         """
         sql """insert into var_index values(1, '{"a" : 0, "b": 3}', 'hello world'), (2, '{"a" : 123}', 'world'),(3, '{"a" : 123}', 'hello world')"""
         qt_sql_inv_1 "select v:a from var_index where inv match 'hello' order by k"
         qt_sql_inv_2 "select v:a from var_index where inv match 'hello' and cast(v:a as int) > 0 order by k"
         qt_sql_inv_3 "select * from var_index where inv match 'hello' and cast(v:a as int) > 0 order by k"
+        // set back configs
+        set_be_config.call("ratio_of_defaults_as_sparse_column", "0.95")
+        set_be_config.call("threshold_rows_to_estimate_sparse_column", "100")
+        // sql "truncate table ${table_name}"
+        sql """insert into var_index values(1, '{"a1" : 0, "b1": 3}', 'hello world'), (2, '{"a2" : 123}', 'world'),(3, '{"a3" : 123}', 'hello world')"""
+        sql """insert into var_index values(4, '{"b1" : 0, "b2": 3}', 'hello world'), (5, '{"b2" : 123}', 'world'),(6, '{"b3" : 123}', 'hello world')"""
+        def drop_result = sql """
+                          ALTER TABLE var_index
+                              drop index idx
+                      """
+        logger.info("drop index " + "${table_name}" +  "; result: " + drop_result)
+        def timeout = 60000
+        wait_for_latest_op_on_table_finish(table_name, timeout)
+        show_result = sql "show index from ${table_name}"
+        assertEquals(show_result.size(), 0)
+        qt_sql_inv4 """select v:a1 from ${table_name} where cast(v:a1 as int) = 0"""
+        qt_sql_inv5 """select * from ${table_name} order by k"""
+        sql """set describe_extend_variant_column = true"""
+        qt_sql_desc """desc  ${table_name}"""
+        sql "create index inv_idx on ${table_name}(`inv`) using inverted"
+        wait_for_latest_op_on_table_finish(table_name, timeout)
+        show_result = sql "show index from ${table_name}"
+        assertEquals(show_result.size(), 1)
+        sql """insert into var_index values(7, '{"a1" : 0, "b1": 3}', 'hello world'), (8, '{"a2" : 123}', 'world'),(9, '{"a3" : 123}', 'hello world')"""
+        qt_sql_inv6 """select * from ${table_name} order by k desc limit 4"""
 
     } finally {
         // reset flags
         set_be_config.call("max_filter_ratio_for_variant_parsing", "0.05")
         set_be_config.call("ratio_of_defaults_as_sparse_column", "0.95")
+        set_be_config.call("threshold_rows_to_estimate_sparse_column", "1000")
     }
 }

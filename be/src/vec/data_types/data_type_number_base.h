@@ -87,19 +87,15 @@ public:
         }
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Int128>> ||
                       std::is_same_v<TypeId<T>, TypeId<Int128>>) {
-            return TYPE_LARGEINT;
+            return TypeDescriptor(TYPE_LARGEINT);
         }
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Float32>>) {
-            return TYPE_FLOAT;
+            return TypeDescriptor(TYPE_FLOAT);
         }
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Float64>>) {
-            return TYPE_DOUBLE;
+            return TypeDescriptor(TYPE_DOUBLE);
         }
-<<<<<<< HEAD
-        return INVALID_TYPE;
-=======
-        LOG(FATAL) << "Not implemented";
->>>>>>> ab79078e35 ([to-pick] fix MemoryScratchSink with boolean type and complex type)
+        return TypeDescriptor(INVALID_TYPE);
     }
 
     TPrimitiveType::type get_type_as_tprimitive_type() const override {

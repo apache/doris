@@ -22,6 +22,7 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.SetType;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.Snapshot;

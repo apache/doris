@@ -220,6 +220,9 @@ Status ScannerContext::validate_block_schema(Block* block) {
             continue;
         }
         auto& data = block->get_by_position(index++);
+        if (!data.column->can_be_inside_nullable()) {
+            continue;
+        }
         if (data.column->is_nullable() != data.type->is_nullable()) {
             return Status::Error<ErrorCode::INVALID_SCHEMA>(
                     "column(name: {}) nullable({}) does not match type nullable({}), slot(id: {}, "

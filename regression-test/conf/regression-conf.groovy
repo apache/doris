@@ -94,12 +94,6 @@ enableHiveTest=false
 hms_port=9183
 hdfs_port=8120
 
-// kafka test config
-// to enable kafka test, you need firstly to start kafka container
-// See `docker/thirdparties/start-thirdparties-docker.sh`
-enableKafkaTest=false
-kafka_port=19193
-
 // elasticsearch catalog test config
 // See `docker/thirdparties/start-thirdparties-docker.sh`
 enableEsTest=false

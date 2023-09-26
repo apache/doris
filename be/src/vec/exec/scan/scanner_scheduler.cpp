@@ -279,7 +279,8 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
     }
 #endif
 #ifndef __APPLE__
-    if (config::enable_scan_thread_low_thread_priority && scanner->get_name() != VFileScanner::NAME) {
+    if (config::enable_scan_thread_low_thread_priority &&
+        scanner->get_name() != VFileScanner::NAME) {
         Thread::set_low_priority();
     }
 #endif
