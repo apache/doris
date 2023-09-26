@@ -49,7 +49,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-public final class FlightStatementExecutor extends AutoCloseable {
+public final class FlightStatementExecutor implements AutoCloseable {
     private ConnectContext connectContext;
     private final String query;
     private TUniqueId queryId;

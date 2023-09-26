@@ -108,10 +108,11 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     @Override
     public FlightInfo getFlightInfoStatement(final CommandStatementQuery request, final CallContext context,
             final FlightDescriptor descriptor) {
-        ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
-        // Only for ConnectContext check timeout.
-        connectContext.setCommand(MysqlCommand.COM_QUERY);
+        ConnectContext connectContext = null;
         try {
+            connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
+            // Only for ConnectContext check timeout.
+            connectContext.setCommand(MysqlCommand.COM_QUERY);
             final String query = request.getQuery();
             final FlightStatementExecutor flightStatementExecutor = new FlightStatementExecutor(query, connectContext);
 
@@ -135,7 +136,9 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             connectContext.setCommand(MysqlCommand.COM_SLEEP);
             return new FlightInfo(schema, descriptor, endpoints, -1, -1);
         } catch (Exception e) {
-            connectContext.setCommand(MysqlCommand.COM_SLEEP);
+            if (null != connectContext) {
+                connectContext.setCommand(MysqlCommand.COM_SLEEP);
+            }
             LOG.warn("get flight info statement failed, " + e.getMessage(), e);
             throw CallStatus.INTERNAL.withDescription(Util.getRootCauseMessage(e)).withCause(e).toRuntimeException();
         }

@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
+import org.apache.doris.system.SystemInfoService;
 
 import org.apache.arrow.flight.CallStatus;
 
@@ -48,25 +49,27 @@ public interface FlightSessionsManager {
      */
     ConnectContext createConnectContext(String peerIdentity);
 
-    public static ConnectContext buildConnectContext(String peerIdentity) {
+    public static ConnectContext buildConnectContext(String peerIdentity, UserIdentity userIdentity, String remoteIP) {
         ConnectContext connectContext = new ConnectContext(peerIdentity);
         connectContext.setEnv(Env.getCurrentEnv());
+        connectContext.setStartTime();
+        connectContext.setCluster(SystemInfoService.DEFAULT_CLUSTER);
+        connectContext.getSessionVariable().setEnablePipelineEngine(false); // TODO
+        connectContext.getSessionVariable().setEnablePipelineXEngine(false); // TODO
+        connectContext.setQualifiedUser(userIdentity.getQualifiedUser());
+        connectContext.setCurrentUserIdentity(userIdentity);
+        connectContext.setRemoteIP(remoteIP);
+        connectContext.setUserQueryTimeout(
+                connectContext.getEnv().getAuth().getQueryTimeout(connectContext.getQualifiedUser()));
+        connectContext.setUserInsertTimeout(
+                connectContext.getEnv().getAuth().getInsertTimeout(connectContext.getQualifiedUser()));
+
         connectContext.setConnectScheduler(ExecuteEnv.getInstance().getScheduler());
         if (!ExecuteEnv.getInstance().getScheduler().registerConnection(connectContext)) {
             connectContext.getState().setError(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS,
                     "Reach limit of connections");
             throw CallStatus.UNAUTHENTICATED.withDescription("Reach limit of connections").toRuntimeException();
         }
-
-        connectContext.setStartTime();
-        connectContext.getSessionVariable().setEnablePipelineEngine(false); // TODO
-        connectContext.getSessionVariable().setEnablePipelineXEngine(false); // TODO
-        connectContext.setQualifiedUser(UserIdentity.UNKNOWN.getQualifiedUser());
-        connectContext.setCurrentUserIdentity(UserIdentity.UNKNOWN);
-        connectContext.setUserQueryTimeout(
-                connectContext.getEnv().getAuth().getQueryTimeout(connectContext.getQualifiedUser()));
-        connectContext.setUserInsertTimeout(
-                connectContext.getEnv().getAuth().getInsertTimeout(connectContext.getQualifiedUser()));
         return connectContext;
     }
 }

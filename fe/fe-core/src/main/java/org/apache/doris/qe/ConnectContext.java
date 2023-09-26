@@ -281,7 +281,7 @@ public class ConnectContext {
     }
 
     public ConnectContext() {
-        this(null);
+        this((StreamConnection) null);
     }
 
     public ConnectContext(String peerIdentity) {
@@ -291,6 +291,7 @@ public class ConnectContext {
         returnRows = 0;
         isKilled = false;
         sessionVariable = VariableMgr.newSessionVariable();
+        mysqlChannel = new DummyMysqlChannel();
         command = MysqlCommand.COM_SLEEP;
         if (Config.use_fuzzy_session_variable) {
             sessionVariable.initFuzzyModeVariables();
@@ -835,10 +836,9 @@ public class ConnectContext {
             }
             row.add("" + connectionId);
             row.add(ClusterNamespace.getNameFromFullName(qualifiedUser));
-            row.add(getMysqlChannel().getRemoteHostPortString());
+            row.add(getRemoteHostPortString());
             row.add(TimeUtils.longToTimeString(loginTime));
             row.add(defaultCatalog);
-            row.add(getRemoteHostPortString());
             row.add(ClusterNamespace.getNameFromFullName(currentDb));
             row.add(command.toString());
             row.add("" + (nowMs - startTime) / 1000);

@@ -17,7 +17,6 @@
 
 package org.apache.doris.service.arrowflight.sessions;
 
-import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.arrowflight.tokens.FlightTokenDetails;
@@ -59,12 +58,8 @@ public class FlightSessionsWithTokenManager implements FlightSessionsManager {
             if (flightTokenDetails.getCreatedSession()) {
                 return null;
             }
-
-            ConnectContext connectContext = FlightSessionsManager.buildConnectContext(peerIdentity);
-            connectContext.setQualifiedUser(flightTokenDetails.getUserIdentity().getQualifiedUser());
-            connectContext.setCurrentUserIdentity(flightTokenDetails.getUserIdentity());
-            connectContext.setRemoteIP(flightTokenDetails.getRemoteIp());
-            return connectContext;
+            return FlightSessionsManager.buildConnectContext(peerIdentity, flightTokenDetails.getUserIdentity(),
+                    flightTokenDetails.getRemoteIp());
         } catch (IllegalArgumentException e) {
             LOG.error("Bearer token validation failed.", e);
             throw CallStatus.UNAUTHENTICATED.toRuntimeException();
