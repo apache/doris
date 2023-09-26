@@ -1076,7 +1076,14 @@ suite("test_stream_load", "p0") {
         }
 
         do_streamload_2pc.call(label, "commit")
-        sleep(60)
+        
+        while (true) {
+            res = sql "select count(*) from ${tableName15}"
+            if (res[0][0] > 0) {
+                break;
+            }
+        }
+
         qt_sql_2pc_commit "select * from ${tableName15} order by k1"
     } finally {
         sql """ DROP TABLE IF EXISTS ${tableName15} FORCE"""

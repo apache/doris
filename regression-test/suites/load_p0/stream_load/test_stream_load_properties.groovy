@@ -559,7 +559,18 @@ suite("test_stream_load_properties", "p0") {
 
             do_streamload_2pc.call(txnId, "commit", tableName1)
 
-            sleep(60)
+            while (true) {
+                def res
+                if (i <= 3) {
+                    res = sql "select count(*) from ${tableName1}"
+                } else {
+                    res = sql "select count(*) from ${tableName1}"
+                }
+                if (res[0][0] > 0) {
+                    break;
+                }
+            }
+            
             if (i <= 3) {
                 qt_sql_2pc_commit "select * from ${tableName1} order by k00,k01"
             } else {
