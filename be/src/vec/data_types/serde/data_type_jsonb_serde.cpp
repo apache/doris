@@ -113,5 +113,11 @@ void DataTypeJsonbSerDe::write_column_to_arrow(const IColumn& column, const Null
     }
 }
 
+Status DataTypeJsonbSerDe::write_column_to_orc(const IColumn& column, const NullMap* null_map,
+                                               orc::ColumnVectorBatch* orc_col_batch, int start,
+                                               int end, std::vector<StringRef>& buffer_list) const {
+    return Status::NotSupported("write_column_to_orc with type [{}]", column.get_name());
+}
+
 } // namespace vectorized
 } // namespace doris
