@@ -94,7 +94,9 @@ enum TPrimitiveType {
   UNSUPPORTED,
   VARIANT,
   LAMBDA_FUNCTION,
-  AGG_STATE
+  AGG_STATE,
+  IPV4,
+  IPV6
 }
 
 enum TTypeNodeType {

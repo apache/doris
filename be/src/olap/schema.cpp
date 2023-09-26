@@ -199,6 +199,12 @@ vectorized::IColumn::MutablePtr Schema::get_predicate_column_ptr(const Field& fi
     case FieldType::OLAP_FIELD_TYPE_DECIMAL128I:
         ptr = doris::vectorized::PredicateColumnType<TYPE_DECIMAL128I>::create();
         break;
+    case FieldType::OLAP_FIELD_TYPE_IPV4:
+        ptr = doris::vectorized::PredicateColumnType<TYPE_IPV4>::create();
+        break;
+    case FieldType::OLAP_FIELD_TYPE_IPV6:
+        ptr = doris::vectorized::PredicateColumnType<TYPE_IPV6>::create();
+        break;
     case FieldType::OLAP_FIELD_TYPE_ARRAY:
         ptr = doris::vectorized::ColumnArray::create(
                 get_predicate_column_ptr(*field.get_sub_field(0), reader_type),

@@ -489,8 +489,21 @@ public:
             } else {
                 insert_date_to_res_column(sel, sel_size, column);
             }
-        } else if (std::is_same_v<T, bool>) {
+        } else if constexpr (std::is_same_v<T, doris::vectorized::Int128>) {
+            insert_default_value_res_column(
+                    sel, sel_size,
+                    reinterpret_cast<vectorized::ColumnVector<doris::vectorized::Int128>*>(
+                            col_ptr));
+        } else if constexpr (std::is_same_v<T, bool>) {
             insert_byte_to_res_column(sel, sel_size, col_ptr);
+        } else if constexpr (std::is_same_v<T, doris::vectorized::IPv4>) {
+            insert_default_value_res_column(
+                    sel, sel_size,
+                    reinterpret_cast<vectorized::ColumnVector<doris::vectorized::IPv4>*>(col_ptr));
+        } else if constexpr (std::is_same_v<T, doris::vectorized::IPv6>) {
+            insert_default_value_res_column(
+                    sel, sel_size,
+                    reinterpret_cast<vectorized::ColumnVector<doris::vectorized::IPv6>*>(col_ptr));
         } else {
             return Status::NotSupported("not supported output type in predicate_column, type={}",
                                         type_to_string(Type));
