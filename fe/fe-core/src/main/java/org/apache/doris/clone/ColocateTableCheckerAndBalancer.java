@@ -49,6 +49,7 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -77,6 +78,227 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
             }
         }
         return INSTANCE;
+    }
+
+    private class BucketStatistic {
+        public int tabletOrderIdx;
+        public int totalReplicaNum;
+        public long totalReplicaDataSize;
+
+        public BucketStatistic(int tabletOrderIdx, int totalReplicaNum, long totalReplicaDataSize) {
+            this.tabletOrderIdx = tabletOrderIdx;
+            this.totalReplicaNum = totalReplicaNum;
+            this.totalReplicaDataSize = totalReplicaDataSize;
+        }
+    }
+
+    private class BackendBuckets {
+        private long beId;
+        private Map<GroupId, List<Integer>>  groupTabletOrderIndices = Maps.newHashMap();
+        private Map<GroupId, List<BucketStatistic>> groupBucketsMap;
+
+        public BackendBuckets(long beId, Map<GroupId, List<BucketStatistic>> groupBucketsMap) {
+            this.beId = beId;
+            this.groupBucketsMap = groupBucketsMap;
+        }
+
+        public void addGroupTablet(GroupId groupId, int tabletOrderIdx) {
+            List<Integer> indices = groupTabletOrderIndices.get(groupId);
+            if (indices == null) {
+                indices = Lists.newArrayList();
+                groupTabletOrderIndices.put(groupId, indices);
+            }
+            indices.add(tabletOrderIdx);
+        }
+
+        public void removeGroupTablet(GroupId groupId, int tabletOrderIdx) {
+            List<Integer> indices = groupTabletOrderIndices.get(groupId);
+            if (indices == null) {
+                return;
+            }
+
+            indices.remove(Integer.valueOf(tabletOrderIdx));
+            if (indices.isEmpty()) {
+                groupTabletOrderIndices.remove(groupId);
+            }
+        }
+
+        public boolean containsGroupTablet(GroupId groupId, int tabletOrderIdx) {
+            List<Integer> indices = groupTabletOrderIndices.get(groupId);
+            if (indices == null) {
+                return false;
+            }
+
+            return indices.indexOf(Integer.valueOf(tabletOrderIdx)) >= 0;
+        }
+
+        public int getTotalReplicaNum() {
+            int totalReplicaNum = 0;
+            for (Map.Entry<GroupId, List<Integer>> entry : groupTabletOrderIndices.entrySet()) {
+                List<BucketStatistic> bucketStatistics = groupBucketsMap.get(entry.getKey());
+                if (bucketStatistics != null) {
+                    for (int tabletOrderIdx : entry.getValue()) {
+                        if (tabletOrderIdx < bucketStatistics.size()) {
+                            totalReplicaNum += bucketStatistics.get(tabletOrderIdx).totalReplicaNum;
+                        }
+                    }
+                }
+            }
+
+            return totalReplicaNum;
+        }
+
+        public long getTotalReplicaDataSize() {
+            long totalReplicaDataSize = 0;
+            for (Map.Entry<GroupId, List<Integer>> entry : groupTabletOrderIndices.entrySet()) {
+                List<BucketStatistic> bucketStatistics = groupBucketsMap.get(entry.getKey());
+                if (bucketStatistics != null) {
+                    for (int tabletOrderIdx : entry.getValue()) {
+                        if (tabletOrderIdx < bucketStatistics.size()) {
+                            totalReplicaDataSize += bucketStatistics.get(tabletOrderIdx).totalReplicaDataSize;
+                        }
+                    }
+                }
+            }
+
+            return totalReplicaDataSize;
+        }
+
+        public int getTotalBucketsNum() {
+            return groupTabletOrderIndices.values().stream().mapToInt(indices -> indices.size()).sum();
+        }
+
+        public int getGroupBucketsNum(GroupId groupId) {
+            List<Integer> indices = groupTabletOrderIndices.get(groupId);
+            if (indices == null) {
+                return 0;
+            } else {
+                return indices.size();
+            }
+        }
+    }
+
+    private class GlobalColocateStatistic {
+        private Map<Long, BackendBuckets> backendBucketsMap = Maps.newHashMap();
+        private Map<GroupId, List<BucketStatistic>> groupBucketsMap = Maps.newHashMap();
+        private int totalReplicaNum = 0;
+        private long totalReplicaDataSize = 0;
+        private BackendBuckets dummyBeBuckets = new BackendBuckets(0, groupBucketsMap);
+
+        public GlobalColocateStatistic() {
+        }
+
+        public boolean moveTablet(GroupId groupId, int tabletOrderIdx,
+                long srcBeId, long destBeId) {
+            BackendBuckets srcBackendBuckets = backendBucketsMap.get(srcBeId);
+            if (srcBackendBuckets == null || !srcBackendBuckets.containsGroupTablet(groupId, tabletOrderIdx)) {
+                return false;
+            }
+
+            BackendBuckets destBackendBuckets = backendBucketsMap.get(destBeId);
+            if (destBackendBuckets == null) {
+                destBackendBuckets = new BackendBuckets(destBeId, groupBucketsMap);
+                backendBucketsMap.put(destBeId, destBackendBuckets);
+            }
+            if (destBackendBuckets.containsGroupTablet(groupId, tabletOrderIdx)) {
+                return false;
+            }
+
+            srcBackendBuckets.removeGroupTablet(groupId, tabletOrderIdx);
+            destBackendBuckets.addGroupTablet(groupId, tabletOrderIdx);
+            if (srcBackendBuckets.getTotalBucketsNum() == 0) {
+                backendBucketsMap.remove(srcBeId);
+            }
+
+            return true;
+        }
+
+        public long getBackendTotalReplicaDataSize(long backendId) {
+            return backendBucketsMap.getOrDefault(backendId, dummyBeBuckets).getTotalReplicaDataSize();
+        }
+
+        public long getBucketTotalReplicaDataSize(GroupId groupId, int tabletOrderIdx) {
+            List<BucketStatistic> bucketStatistics = groupBucketsMap.get(groupId);
+            if (bucketStatistics != null && tabletOrderIdx < bucketStatistics.size()) {
+                return bucketStatistics.get(tabletOrderIdx).totalReplicaDataSize;
+            } else {
+                return 0L;
+            }
+        }
+
+        public void addGroup(GroupId groupId, List<Set<Long>> backendBucketsSeq,
+                List<Long> totalReplicaDataSizes, int totalReplicaNumPerBucket) {
+            Preconditions.checkState(backendBucketsSeq.size() == totalReplicaDataSizes.size(),
+                    backendBucketsSeq.size() + " vs. " + totalReplicaDataSizes.size());
+            List<BucketStatistic> bucketStatistics = Lists.newArrayList();
+            for (int tabletOrderIdx = 0; tabletOrderIdx < backendBucketsSeq.size(); tabletOrderIdx++) {
+                BucketStatistic bucket = new BucketStatistic(tabletOrderIdx, totalReplicaNumPerBucket,
+                        totalReplicaDataSizes.get(tabletOrderIdx));
+                bucketStatistics.add(bucket);
+                for (long backendId : backendBucketsSeq.get(tabletOrderIdx)) {
+                    BackendBuckets backendBuckets = backendBucketsMap.get(backendId);
+                    if (backendBuckets == null) {
+                        backendBuckets = new BackendBuckets(backendId, groupBucketsMap);
+                        backendBucketsMap.put(backendId, backendBuckets);
+                    }
+                    backendBuckets.addGroupTablet(groupId, tabletOrderIdx);
+                    totalReplicaNum += totalReplicaNumPerBucket;
+                    totalReplicaDataSize += totalReplicaDataSizes.get(tabletOrderIdx);
+                }
+            }
+            groupBucketsMap.put(groupId, bucketStatistics);
+        }
+
+        public boolean isMoveTabletMoreBalance(GroupId groupId, int tabletOrderIdx,
+                long srcBeId, long destBeId) {
+            BackendBuckets srcBackendBuckets = backendBucketsMap.getOrDefault(srcBeId, dummyBeBuckets);
+            BackendBuckets destBackendBuckets = backendBucketsMap.getOrDefault(destBeId, dummyBeBuckets);
+            int groupBucketNumDiff = srcBackendBuckets.getGroupBucketsNum(groupId)
+                    - destBackendBuckets.getGroupBucketsNum(groupId);
+            if (groupBucketNumDiff > 1) {
+                return true;
+            }
+            if (groupBucketNumDiff < 1) {
+                return false;
+            }
+
+            // src's group bucket num = dest's group bucket num + 1
+            // if move group bucket from src to dest, dest will be one more group num than src.
+            // check global view
+            //
+            // suppose bucket num = 3, three BE A/B/C,  two group group1/group2, then we have:
+            //
+            // A [ group1:bucket0,  group2:bucket0]
+            // B [ group1:bucket1,  group2:bucket1]
+            // C [ group1:bucket2,  group2:bucket2]
+            //
+            // if we add a new BE D, for each group: bucketNum(A)=bucketNum(B)=bucketNum(C)=1,  bucketNum(D)=0
+            // so each group is balance, but in global groups view, it's not balance.
+            // we should move one of the buckets to D
+            int totalBucketNumDiff = srcBackendBuckets.getTotalBucketsNum() - destBackendBuckets.getTotalBucketsNum();
+            if (totalBucketNumDiff > 1) {
+                return true;
+            }
+            if (totalBucketNumDiff < 1) {
+                return false;
+            }
+
+            // We can compare more statistic variables like 'total replica num' or 'total replica data size' here.
+            // But maybe we should ignore them to make the colocate groups as stable as possible
+            // even if they are unbalanced.
+
+            return false;
+        }
+
+        public double getColocateLoadScore(long beId) {
+            int backendNum = backendBucketsMap.size();
+            BackendBuckets backendBuckets = backendBucketsMap.getOrDefault(beId, dummyBeBuckets);
+            double replicaNumScore = totalReplicaNum == 0 ? 0.0
+                    : ((double) backendBuckets.getTotalReplicaNum()) * backendNum / totalReplicaNum;
+            double replicaDataSizeScore = totalReplicaDataSize == 0 ? 0.0
+                    : ((double) backendBuckets.getTotalReplicaDataSize()) * backendNum / totalReplicaDataSize;
+            return 0.5 * replicaNumScore + 0.5 * replicaDataSizeScore;
+        }
     }
 
     @Override
@@ -143,6 +365,8 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
         ColocateTableIndex colocateIndex = env.getColocateTableIndex();
         SystemInfoService infoService = Env.getCurrentSystemInfo();
 
+        GlobalColocateStatistic globalColocateStatistic = buildGlobalColocateStatistic();
+
         // get all groups
         Set<GroupId> groupIds = colocateIndex.getAllGroupIds();
         for (GroupId groupId : groupIds) {
@@ -182,9 +406,9 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                 // try relocate or balance this group for specified tag
                 List<List<Long>> balancedBackendsPerBucketSeq = Lists.newArrayList();
                 if (relocateAndBalance(groupId, tag, unavailableBeIdsInGroup, availableBeIds, colocateIndex,
-                        infoService, statistic, balancedBackendsPerBucketSeq)) {
+                        infoService, statistic, globalColocateStatistic, balancedBackendsPerBucketSeq)) {
                     if (!colocateIndex.addBackendsPerBucketSeqByTag(groupId, tag, balancedBackendsPerBucketSeq,
-                                replicaAlloc)) {
+                            replicaAlloc)) {
                         LOG.warn("relocate group {} succ, but replica allocation has change, old replica alloc {}",
                                 groupId, replicaAlloc);
                         continue;
@@ -315,6 +539,77 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                 counter.tabletInScheduler, counter.tabletNotReady, cost);
     }
 
+    private GlobalColocateStatistic buildGlobalColocateStatistic() {
+        Env env = Env.getCurrentEnv();
+        ColocateTableIndex colocateIndex = env.getColocateTableIndex();
+        GlobalColocateStatistic globalColocateStatistic = new GlobalColocateStatistic();
+
+        Set<GroupId> groupIds = colocateIndex.getAllGroupIds();
+        for (GroupId groupId : groupIds) {
+            List<Long> tableIds = colocateIndex.getAllTableIds(groupId);
+            List<Set<Long>> backendBucketsSeq = colocateIndex.getBackendsPerBucketSeqSet(groupId);
+            if (backendBucketsSeq.isEmpty()) {
+                continue;
+            }
+
+            int totalReplicaNumPerBucket = 0;
+            ArrayList<Long> totalReplicaDataSizes = Lists.newArrayList();
+            for (int i = 0; i < backendBucketsSeq.size(); i++) {
+                totalReplicaDataSizes.add(0L);
+            }
+
+            for (Long tableId : tableIds) {
+                long dbId = groupId.dbId;
+                if (dbId == 0) {
+                    dbId = groupId.getDbIdByTblId(tableId);
+                }
+                Database db = env.getInternalCatalog().getDbNullable(dbId);
+                if (db == null) {
+                    continue;
+                }
+                OlapTable olapTable = (OlapTable) db.getTableNullable(tableId);
+                if (olapTable == null || !colocateIndex.isColocateTable(olapTable.getId())) {
+                    continue;
+                }
+
+                olapTable.readLock();
+                try {
+                    for (Partition partition : olapTable.getPartitions()) {
+                        ReplicaAllocation replicaAlloc
+                                = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId());
+                        short replicationNum = replicaAlloc.getTotalReplicaNum();
+
+                        // Here we only get VISIBLE indexes. All other indexes are not queryable.
+                        // So it does not matter if tablets of other indexes are not matched.
+
+                        for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                            Preconditions.checkState(backendBucketsSeq.size() == index.getTablets().size(),
+                                    backendBucketsSeq.size() + " vs. " + index.getTablets().size());
+                            int tabletOrderIdx = 0;
+                            totalReplicaNumPerBucket++;
+                            for (Long tabletId : index.getTabletIdsInOrder()) {
+                                Set<Long> bucketsSeq = backendBucketsSeq.get(tabletOrderIdx);
+                                Preconditions.checkState(bucketsSeq.size() == replicationNum,
+                                        bucketsSeq.size() + " vs. " + replicationNum);
+                                Tablet tablet = index.getTablet(tabletId);
+                                totalReplicaDataSizes.set(tabletOrderIdx,
+                                        totalReplicaDataSizes.get(tabletOrderIdx) + tablet.getDataSize(true));
+                                tabletOrderIdx++;
+                            }
+                        }
+                    }
+                } finally {
+                    olapTable.readUnlock();
+                }
+            }
+
+            globalColocateStatistic.addGroup(groupId, backendBucketsSeq, totalReplicaDataSizes,
+                    totalReplicaNumPerBucket);
+        }
+
+        return globalColocateStatistic;
+    }
+
     /*
      * Each balance is performed for a single workload group in a colocate group.
      * For example, if the replica allocation of a colocate group is {TagA: 2, TagB: 1},
@@ -373,8 +668,8 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
      *  Return false if nothing changed.
      */
     private boolean relocateAndBalance(GroupId groupId, Tag tag, Set<Long> unavailableBeIds, List<Long> availableBeIds,
-            ColocateTableIndex colocateIndex, SystemInfoService infoService,
-            LoadStatisticForTag statistic, List<List<Long>> balancedBackendsPerBucketSeq) {
+            ColocateTableIndex colocateIndex, SystemInfoService infoService, LoadStatisticForTag statistic,
+            GlobalColocateStatistic globalColocateStatistic, List<List<Long>> balancedBackendsPerBucketSeq) {
         ColocateGroupSchema groupSchema = colocateIndex.getGroupSchema(groupId);
         short replicaNum = groupSchema.getReplicaAlloc().getReplicaNumByTag(tag);
         List<List<Long>> backendsPerBucketSeq = Lists.newArrayList(
@@ -384,6 +679,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                 .flatMap(List::stream).collect(Collectors.toList());
 
         boolean isChanged = false;
+        int times = 0;
         OUT:
         while (true) {
             // update backends and hosts at each round
@@ -394,27 +690,35 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                 return false;
             }
             Preconditions.checkState(backendsPerBucketSeq.size() == hostsPerBucketSeq.size());
+            times++;
+            if (times > 10 * backendsPerBucketSeq.size()) {
+                // error happens, change nothing
+                LOG.warn("iterate too many times for relocate group: {}, times: {}, bucket num: {}",
+                        groupId, times, backendsPerBucketSeq.size());
+                return false;
+            }
 
             long srcBeId = -1;
             List<Integer> seqIndexes = null;
-            boolean hasUnavailableBe = false;
+            boolean srcBeUnavailable = false;
             // first choose the unavailable be as src be
             for (Long beId : unavailableBeIds) {
                 seqIndexes = getBeSeqIndexes(flatBackendsPerBucketSeq, beId);
                 if (!seqIndexes.isEmpty()) {
                     srcBeId = beId;
-                    hasUnavailableBe = true;
+                    srcBeUnavailable = true;
                     LOG.info("find unavailable backend {} in colocate group: {}", beId, groupId);
                     break;
                 }
             }
+
             // sort backends with replica num in desc order
             List<Map.Entry<Long, Long>> backendWithReplicaNum =
-                    getSortedBackendReplicaNumPairs(availableBeIds,
-                            unavailableBeIds, statistic, flatBackendsPerBucketSeq);
+                    getSortedBackendReplicaNumPairs(availableBeIds, unavailableBeIds, statistic,
+                            globalColocateStatistic, flatBackendsPerBucketSeq);
 
             // if there is only one available backend and no unavailable bucketId to relocate, end the outer loop
-            if (backendWithReplicaNum.size() <= 1 && !hasUnavailableBe) {
+            if (backendWithReplicaNum.size() <= 1 && !srcBeUnavailable) {
                 break;
             }
 
@@ -430,7 +734,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                 // we try to use a low backend to replace the src backend.
                 // if replace failed(eg: both backends are on some host), select next low backend and try(j--)
                 Map.Entry<Long, Long> lowBackend = backendWithReplicaNum.get(j);
-                if ((!hasUnavailableBe) && (seqIndexes.size() - lowBackend.getValue()) <= 1) {
+                if (!srcBeUnavailable && (seqIndexes.size() - lowBackend.getValue()) < 1) {
                     // balanced
                     break OUT;
                 }
@@ -458,6 +762,8 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                     continue;
                 }
 
+                int targetSeqIndex = -1;
+                long minDataSizeDiff = Long.MAX_VALUE;
                 for (int seqIndex : seqIndexes) {
                     // the bucket index.
                     // eg: 0 / 3 = 0, so that the bucket index of the 4th backend id in flatBackendsPerBucketSeq is 0.
@@ -465,26 +771,47 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                     List<Long> backendsSet = backendsPerBucketSeq.get(bucketIndex);
                     List<String> hostsSet = hostsPerBucketSeq.get(bucketIndex);
                     // the replicas of a tablet can not locate in same Backend or same host
-                    if (!backendsSet.contains(destBeId) && !hostsSet.contains(destBe.getHost())) {
-                        Preconditions.checkState(backendsSet.contains(srcBeId), srcBeId);
-                        flatBackendsPerBucketSeq.set(seqIndex, destBeId);
-                        LOG.info("replace backend {} with backend {} in colocate group {}, idx: {}",
-                                srcBeId, destBeId, groupId, seqIndex);
-                        // just replace one backend at a time, src and dest BE id should be recalculated because
-                        // flatBackendsPerBucketSeq is changed.
-                        isChanged = true;
-                        isThisRoundChanged = true;
-                        break;
+                    if (backendsSet.contains(destBeId) || hostsSet.contains(destBe.getHost())) {
+                        continue;
+                    }
+
+                    if (!srcBeUnavailable && !globalColocateStatistic.isMoveTabletMoreBalance(
+                                groupId, bucketIndex, srcBeId, destBeId)) {
+                        continue;
+                    }
+
+                    Preconditions.checkState(backendsSet.contains(srcBeId), srcBeId);
+                    long bucketDataSize =
+                            globalColocateStatistic.getBucketTotalReplicaDataSize(groupId, bucketIndex);
+                    long newSrcBeTotalReplicaDataSize = globalColocateStatistic.getBackendTotalReplicaDataSize(srcBeId)
+                            - bucketDataSize;
+                    long newDestBeTotalReplicaDataSize =
+                            globalColocateStatistic.getBackendTotalReplicaDataSize(destBeId) + bucketDataSize;
+                    long dataSizeDiff = Math.abs(newSrcBeTotalReplicaDataSize - newDestBeTotalReplicaDataSize);
+                    if (targetSeqIndex < 0 || dataSizeDiff < minDataSizeDiff) {
+                        targetSeqIndex = seqIndex;
+                        minDataSizeDiff = dataSizeDiff;
                     }
                 }
 
-                if (isThisRoundChanged) {
-                    // we found a change
-                    break;
+                if (targetSeqIndex < 0) {
+                    // we use next node as dst node
+                    LOG.info("unable to replace backend {} with backend {} in colocate group {}",
+                            srcBeId, destBeId, groupId);
+                    continue;
                 }
-                // we use next node as dst node
-                LOG.info("unable to replace backend {} with backend {} in colocate group {}",
-                        srcBeId, destBeId, groupId);
+
+                int tabletOrderIdx = targetSeqIndex / replicaNum;
+                Preconditions.checkState(
+                        globalColocateStatistic.moveTablet(groupId, tabletOrderIdx, srcBeId, destBeId));
+                flatBackendsPerBucketSeq.set(targetSeqIndex, destBeId);
+                // just replace one backend at a time, src and dest BE id should be recalculated because
+                // flatBackendsPerBucketSeq is changed.
+                isChanged = true;
+                isThisRoundChanged = true;
+                LOG.info("replace backend {} with backend {} in colocate group {}, idx: {}",
+                        srcBeId, destBeId, groupId, targetSeqIndex);
+                break;
             }
 
             if (!isThisRoundChanged) {
@@ -642,7 +969,9 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
     }
 
     private List<Map.Entry<Long, Long>> getSortedBackendReplicaNumPairs(List<Long> allAvailBackendIds,
-            Set<Long> unavailBackendIds, LoadStatisticForTag statistic, List<Long> flatBackendsPerBucketSeq) {
+            Set<Long> unavailBackendIds, LoadStatisticForTag statistic,
+            GlobalColocateStatistic globalColocateStatistic,
+            List<Long> flatBackendsPerBucketSeq) {
         // backend id -> replica num, and sorted by replica num, descending.
         Map<Long, Long> backendToReplicaNum = flatBackendsPerBucketSeq.stream()
                 .collect(Collectors.groupingBy(Function.identity(), Collectors.counting()));
@@ -664,6 +993,12 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                     if (!entry1.getValue().equals(entry2.getValue())) {
                         return (int) (entry2.getValue() - entry1.getValue());
                     }
+                    double colocateScore1 = globalColocateStatistic.getColocateLoadScore(entry1.getKey());
+                    double colocateScore2 = globalColocateStatistic.getColocateLoadScore(entry2.getKey());
+                    if (Math.abs(colocateScore1 - colocateScore2) >= 1e-6) {
+                        return colocateScore1 < colocateScore2 ? 1 : -1;
+                    }
+
                     BackendLoadStatistic beStat1 = statistic.getBackendLoadStatistic(entry1.getKey());
                     BackendLoadStatistic beStat2 = statistic.getBackendLoadStatistic(entry2.getKey());
                     if (beStat1 == null || beStat2 == null) {
