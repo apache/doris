@@ -70,6 +70,7 @@ struct ResultFileOptions {
     std::string orc_schema;
 
     bool delete_existing_files = false;
+    std::string file_suffix;
 
     ResultFileOptions(const TResultFileSinkOptions& t_opt) {
         file_path = t_opt.file_path;
@@ -80,6 +81,7 @@ struct ResultFileOptions {
                 t_opt.__isset.max_file_size_bytes ? t_opt.max_file_size_bytes : max_file_size_bytes;
         delete_existing_files =
                 t_opt.__isset.delete_existing_files ? t_opt.delete_existing_files : false;
+        file_suffix = t_opt.file_suffix;
 
         is_local_file = true;
         if (t_opt.__isset.broker_addresses) {

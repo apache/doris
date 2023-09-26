@@ -94,6 +94,7 @@ public:
                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
 
     // for ut and non-query.
+    void set_exec_env(ExecEnv* exec_env) { _exec_env = exec_env; }
     void init_mem_trackers(const TUniqueId& id = TUniqueId(), const std::string& name = "unknown");
 
     const TQueryOptions& query_options() const { return _query_options; }
@@ -228,6 +229,12 @@ public:
 
     const std::string& db_name() { return _db_name; }
 
+    void set_wal_id(int64_t wal_id) { _wal_id = wal_id; }
+
+    int64_t wal_id() { return _wal_id; }
+
+    const std::string& import_label() { return _import_label; }
+
     const std::string& load_dir() const { return _load_dir; }
 
     void set_load_job_id(int64_t job_id) { _load_job_id = job_id; }
@@ -281,8 +288,8 @@ public:
         _num_rows_load_unselected.fetch_add(num_rows);
     }
 
-    void update_num_rows_filtered_in_strict_mode_partial_update(int64_t num_rows) {
-        _num_rows_filtered_in_strict_mode_partial_update += num_rows;
+    void set_num_rows_filtered_in_strict_mode_partial_update(int64_t num_rows) {
+        _num_rows_filtered_in_strict_mode_partial_update = num_rows;
     }
 
     void set_per_fragment_instance_idx(int idx) { _per_fragment_instance_idx = idx; }
@@ -350,6 +357,11 @@ public:
 
     bool skip_delete_bitmap() const {
         return _query_options.__isset.skip_delete_bitmap && _query_options.skip_delete_bitmap;
+    }
+
+    bool enable_page_cache() const {
+        return !config::disable_storage_page_cache &&
+               (_query_options.__isset.enable_page_cache && _query_options.enable_page_cache);
     }
 
     int partitioned_hash_join_rows_threshold() const {
@@ -541,6 +553,7 @@ private:
     std::string _db_name;
     std::string _load_dir;
     int64_t _load_job_id;
+    int64_t _wal_id = -1;
 
     // mini load
     int64_t _normal_row_number;

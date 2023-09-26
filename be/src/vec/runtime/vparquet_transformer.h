@@ -26,7 +26,7 @@
 #include <parquet/types.h>
 #include <stdint.h>
 
-#include "vfile_writer_wrapper.h"
+#include "vfile_format_transformer.h"
 
 namespace doris {
 namespace io {

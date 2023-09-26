@@ -191,11 +191,6 @@ public:
     Status capture_rs_readers(const std::vector<Version>& version_path,
                               std::vector<RowSetSplits>* rs_splits) const;
 
-    const std::vector<RowsetMetaSharedPtr> delete_predicates() {
-        return _tablet_meta->delete_predicates();
-    }
-    bool version_for_delete_predicate(const Version& version);
-
     // meta lock
     std::shared_mutex& get_header_lock() { return _meta_lock; }
     std::mutex& get_rowset_update_lock() { return _rowset_update_lock; }
@@ -533,7 +528,13 @@ public:
     void gc_binlogs(int64_t version);
     Status ingest_binlog_metas(RowsetBinlogMetasPB* metas_pb);
 
-    inline void increase_io_error_times() { ++_io_error_times; }
+    inline void report_error(const Status& st) {
+        if (st.is<ErrorCode::IO_ERROR>()) {
+            ++_io_error_times;
+        } else if (st.is<ErrorCode::CORRUPTION>()) {
+            _io_error_times = config::max_tablet_io_errors + 1;
+        }
+    }
 
     inline int64_t get_io_error_times() const { return _io_error_times; }
 

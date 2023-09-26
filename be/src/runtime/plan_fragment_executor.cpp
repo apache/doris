@@ -156,6 +156,9 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     if (request.__isset.load_job_id) {
         _runtime_state->set_load_job_id(request.load_job_id);
     }
+    if (request.__isset.wal_id) {
+        _runtime_state->set_wal_id(request.wal_id);
+    }
 
     if (request.query_options.__isset.is_report_success) {
         _is_report_success = request.query_options.is_report_success;
@@ -536,7 +539,9 @@ void PlanFragmentExecutor::send_report(bool done) {
         return;
     }
     ReportStatusRequest report_req = {
+            false,
             status,
+            {},
             _runtime_state->enable_profile() ? _runtime_state->runtime_profile() : nullptr,
             _runtime_state->enable_profile() ? _runtime_state->load_channel_profile() : nullptr,
             done || !status.ok(),

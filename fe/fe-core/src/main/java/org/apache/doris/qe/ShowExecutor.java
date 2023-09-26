@@ -461,7 +461,7 @@ public class ShowExecutor {
                 .listConnection(ctx.getQualifiedUser(), showStmt.isFull());
         long nowMs = System.currentTimeMillis();
         for (ConnectContext.ThreadInfo info : threadInfos) {
-            rowSet.add(info.toRow(nowMs, false));
+            rowSet.add(info.toRow(ctx.getConnectionId(), nowMs, false));
         }
 
         resultSet = new ShowResultSet(showStmt.getMetaData(), rowSet);
@@ -1958,7 +1958,7 @@ public class ShowExecutor {
     private void handleShowExport() throws AnalysisException {
         ShowExportStmt showExportStmt = (ShowExportStmt) stmt;
         Env env = Env.getCurrentEnv();
-        Database db = env.getInternalCatalog().getDbOrAnalysisException(showExportStmt.getDbName());
+        DatabaseIf db = env.getCurrentCatalog().getDbOrAnalysisException(showExportStmt.getDbName());
         long dbId = db.getId();
 
         ExportMgr exportMgr = env.getExportMgr();
@@ -2675,7 +2675,9 @@ public class ShowExecutor {
                             ZoneId.systemDefault())));
             row.add(analysisInfo.state.toString());
             try {
-                row.add(Env.getCurrentEnv().getAnalysisManager().getJobProgress(analysisInfo.jobId));
+                row.add(showStmt.isAuto()
+                        ? analysisInfo.progress
+                        : Env.getCurrentEnv().getAnalysisManager().getJobProgress(analysisInfo.jobId));
             } catch (Exception e) {
                 row.add("N/A");
                 LOG.warn("Failed to get progress for job: {}", analysisInfo, e);

@@ -36,7 +36,7 @@ CREATE TABLE lineitem (
 )ENGINE=OLAP
 DUPLICATE KEY(`l_shipdate`, `l_orderkey`)
 COMMENT "OLAP"
-DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 96
+DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 32
 PROPERTIES (
     "replication_num" = "1",
     "colocate_with" = "lineitem_orders"
@@ -56,7 +56,7 @@ CREATE TABLE orders  (
 )ENGINE=OLAP
 DUPLICATE KEY(`o_orderkey`, `o_orderdate`)
 COMMENT "OLAP"
-DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 96
+DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 32
 PROPERTIES (
     "replication_num" = "1",
     "colocate_with" = "lineitem_orders"
@@ -72,7 +72,7 @@ CREATE TABLE partsupp (
 )ENGINE=OLAP
 DUPLICATE KEY(`ps_partkey`)
 COMMENT "OLAP"
-DISTRIBUTED BY HASH(`ps_partkey`) BUCKETS 24
+DISTRIBUTED BY HASH(`ps_partkey`) BUCKETS 12
 PROPERTIES (
     "replication_num" = "1",
     "colocate_with" = "part_partsupp"
@@ -92,7 +92,7 @@ CREATE TABLE part (
 )ENGINE=OLAP
 DUPLICATE KEY(`p_partkey`)
 COMMENT "OLAP"
-DISTRIBUTED BY HASH(`p_partkey`) BUCKETS 24
+DISTRIBUTED BY HASH(`p_partkey`) BUCKETS 12
 PROPERTIES (
     "replication_num" = "1",
     "colocate_with" = "part_partsupp"
@@ -111,7 +111,7 @@ CREATE TABLE customer (
 )ENGINE=OLAP
 DUPLICATE KEY(`c_custkey`)
 COMMENT "OLAP"
-DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 24
+DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 12
 PROPERTIES (
     "replication_num" = "1"
 );
@@ -128,7 +128,7 @@ CREATE TABLE supplier (
 )ENGINE=OLAP
 DUPLICATE KEY(`s_suppkey`)
 COMMENT "OLAP"
-DISTRIBUTED BY HASH(`s_suppkey`) BUCKETS 12
+DISTRIBUTED BY HASH(`s_suppkey`) BUCKETS 6
 PROPERTIES (
     "replication_num" = "1"
 );

@@ -245,6 +245,8 @@ struct TQueryOptions {
   // A seperate flag to indicate whether to enable profile, not
   // use is_report_success any more
   84: optional bool enable_profile = false;
+  85: optional bool enable_page_cache = false;
+  86: optional i32 analyze_timeout = 43200
 }
 
 
@@ -443,6 +445,8 @@ struct TExecPlanFragmentParams {
 
   // scan node id -> scan range params, only for external file scan
   24: optional map<Types.TPlanNodeId, PlanNodes.TFileScanRangeParams> file_scan_params
+
+  25: optional i64 wal_id
 }
 
 struct TExecPlanFragmentParamsList {

@@ -88,5 +88,8 @@ header:
     - "regression-test/ssl_default_certificate/*"
     - "extension/beats/go.mod"
     - "extension/beats/go.sum"
-
+    - "pytest/hdfs"
+    - "pytest/qe"
+    - "pytest/sys/data"
+    - "pytest/deploy/*.conf"
   comment: on-failure
