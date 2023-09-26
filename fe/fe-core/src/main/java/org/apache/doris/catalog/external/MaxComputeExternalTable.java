@@ -42,6 +42,7 @@ import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * MaxCompute external table.
@@ -49,6 +50,7 @@ import java.util.List;
 public class MaxComputeExternalTable extends ExternalTable {
 
     private Table odpsTable;
+    private Set<String> partitionKeys;
 
     public MaxComputeExternalTable(long id, String name, String dbName, MaxComputeExternalCatalog catalog) {
         super(id, name, catalog, dbName, TableType.MAX_COMPUTE_EXTERNAL_TABLE);
@@ -72,7 +74,17 @@ public class MaxComputeExternalTable extends ExternalTable {
             result.add(new Column(field.getName(), mcTypeToDorisType(field.getTypeInfo()), true, null,
                     true, field.getComment(), true, -1));
         }
+        List<com.aliyun.odps.Column> partitionColumns = odpsTable.getSchema().getPartitionColumns();
+        for (com.aliyun.odps.Column partColumn : partitionColumns) {
+            result.add(new Column(partColumn.getName(), mcTypeToDorisType(partColumn.getTypeInfo()), true, null,
+                    true, partColumn.getComment(), true, -1));
+            partitionKeys.add(partColumn.getName());
+        }
         return result;
+    }
+
+    public Set<String> getPartitionKeys() {
+        return partitionKeys;
     }
 
     private Type mcTypeToDorisType(TypeInfo typeInfo) {

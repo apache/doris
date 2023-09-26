@@ -23,6 +23,7 @@ import org.apache.doris.catalog.external.MaxComputeExternalTable;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.MaxComputeExternalCatalog;
+import org.apache.doris.planner.ColumnRange;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
@@ -37,6 +38,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class MaxComputeScanNode extends FileQueryScanNode {
 
@@ -96,7 +98,17 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         }
         try {
             List<Pair<Long, Long>> sliceRange = new ArrayList<>();
-            long totalRows = catalog.getTotalRows(table.getDbName(), table.getName());
+            List<String> partitionConjuncts = new ArrayList<>();
+            Set<String> partitionKeys = table.getPartitionKeys();
+            if (!partitionKeys.isEmpty()) {
+                for (ColumnRange columnRange : columnNameToRange.values()) {
+                    columnRange.getRangeSet().isPresent();
+                }
+                if (!conjuncts.isEmpty()) {
+                    conjuncts.get(0).toMySql();
+                }
+            }
+            long totalRows = catalog.getTotalRows(table.getDbName(), table.getName(), partitionConjuncts);
             long fileNum = odpsTable.getFileNum();
             long start = 0;
             long splitSize = (long) Math.ceil((double) totalRows / fileNum);

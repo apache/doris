@@ -23,6 +23,7 @@ import org.apache.doris.common.jni.vec.ScanPredicate;
 
 import com.aliyun.odps.Column;
 import com.aliyun.odps.OdpsType;
+import com.aliyun.odps.PartitionSpec;
 import com.aliyun.odps.data.ArrowRecordReader;
 import com.aliyun.odps.tunnel.TableTunnel;
 import com.aliyun.odps.type.TypeInfo;
@@ -40,6 +41,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.StringJoiner;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -55,7 +57,7 @@ public class MaxComputeJniScanner extends JniScanner {
     private static final String START_OFFSET = "start_offset";
     private static final String SPLIT_SIZE = "split_size";
     private static final String PUBLIC_ACCESS = "public_access";
-    private static final Map<String, MaxComputeTableScan> tableScans = new ConcurrentHashMap<>();
+    private final Map<String, MaxComputeTableScan> tableScans = new ConcurrentHashMap<>();
     private final String region;
     private final String project;
     private final String table;
@@ -139,7 +141,15 @@ public class MaxComputeJniScanner extends JniScanner {
             return;
         }
         try {
-            TableTunnel.DownloadSession session = curTableScan.getSession();
+            TableTunnel.DownloadSession session;
+            if (predicates.length != 0) {
+                StringJoiner partitionStr = new StringJoiner(",");
+                // predicates.forEach(partitionStr::add);
+                PartitionSpec partitionSpec = new PartitionSpec(partitionStr.toString());
+                session = curTableScan.openDownLoadSession(partitionSpec);
+            } else {
+                session = curTableScan.openDownLoadSession();
+            }
             long start = startOffset == -1L ? 0 : startOffset;
             long recordCount = session.getRecordCount();
             totalRows = splitSize > 0 ? Math.min(splitSize, recordCount) : recordCount;
