@@ -70,13 +70,18 @@ public class JobTaskManager implements Writable {
         prepareTaskCreateMsMap.remove(jobId);
     }
 
-    public void addJobTask(JobTask jobTask) {
+    public void addJobTask(JobTask jobTask, boolean persist) {
         ConcurrentLinkedQueue<JobTask> jobTasks = jobTaskMap
                 .computeIfAbsent(jobTask.getJobId(), k -> new ConcurrentLinkedQueue<>());
         jobTasks.add(jobTask);
         if (jobTasks.size() > TASK_MAX_NUM) {
             JobTask oldTask = jobTasks.poll();
-            Env.getCurrentEnv().getEditLog().logDeleteJobTask(oldTask);
+            if (persist) {
+                Env.getCurrentEnv().getEditLog().logDeleteJobTask(oldTask);
+            }
+        }
+        if (!persist) {
+            return;
         }
         Env.getCurrentEnv().getEditLog().logCreateJobTask(jobTask);
     }
@@ -110,12 +115,10 @@ public class JobTaskManager implements Writable {
 
     public void deleteJobTasks(Long jobId) {
         ConcurrentLinkedQueue<JobTask> jobTasks = jobTaskMap.get(jobId);
-        if (jobTasks != null) {
-            JobTask jobTask = jobTasks.poll();
-            log.info(new LogBuilder(LogKey.SCHEDULER_TASK, jobTask.getTaskId())
-                    .add("msg", "replay delete scheduler task").build());
+        if (null != jobTasks) {
+            jobTaskMap.remove(jobId);
         }
-        jobTaskMap.remove(jobId);
+        clearPrepareTaskByJobId(jobId);
     }
 
     @Override
