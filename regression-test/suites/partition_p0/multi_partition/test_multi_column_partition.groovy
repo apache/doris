@@ -16,6 +16,10 @@
 // under the License.
 
 suite("test_multi_partition_key", "p0") {
+
+    // TODO: remove it after we add implicit cast check in Nereids
+    sql "set enable_nereids_dml=false"
+
     def random = new Random()
     sql "set enable_insert_strict=true"
     def createTable = { String tableName, String partitionInfo /* param */  ->

@@ -639,6 +639,7 @@ struct TStreamLoadPutRequest {
     // only valid when file type is CSV
     52: optional i8 escape
     53: optional bool memtable_on_sink_node;
+    54: optional bool group_commit
 }
 
 struct TStreamLoadPutResult {
@@ -648,6 +649,8 @@ struct TStreamLoadPutResult {
     3: optional PaloInternalService.TPipelineFragmentParams pipeline_params
     // used for group commit
     4: optional i64 base_schema_version
+    5: optional i64 db_id
+    6: optional i64 table_id
 }
 
 struct TStreamLoadMultiTablePutResult {
@@ -664,6 +667,16 @@ struct TStreamLoadWithLoadStatusResult {
     4: optional i64 loaded_rows
     5: optional i64 filtered_rows
     6: optional i64 unselected_rows
+}
+
+struct TCheckWalRequest {
+    1: optional i64 wal_id
+    2: optional i64 db_id
+}
+
+struct TCheckWalResult {
+    1: optional Status.TStatus status
+    2: optional bool need_recovery
 }
 
 struct TKafkaRLTaskProgress {
