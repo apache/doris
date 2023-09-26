@@ -85,8 +85,7 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule {
         }
 
         // decimalv3 type
-        if (left.getDataType() instanceof DecimalV3Type
-                && right.getDataType() instanceof DecimalV3Type) {
+        if (left.getDataType() instanceof DecimalV3Type && right.getDataType() instanceof DecimalV3Type) {
             return processDecimalV3TypeCoercion(cp, left, right);
         }
 
@@ -198,7 +197,7 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule {
         }
 
         if (left.getDataType() == DateType.INSTANCE && right.getDataType() == DateType.INSTANCE) {
-            //Date cp Date is not supported in BE storage engine. So cast to DateTime
+            // Date cp Date is not supported in BE storage engine. So cast to DateTime
             left = new Cast(left, DateTimeType.INSTANCE);
             if (right instanceof DateLiteral) {
                 right = migrateLiteralToDateTime((DateLiteral) originalRight);
@@ -346,16 +345,6 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule {
             return new IntegerLiteral((int) val);
         } else {
             return new BigIntLiteral(val);
-        }
-    }
-
-    private Expression migrateCastToDateTime(Cast cast) {
-        //cast( cast(v as date) as datetime) if v is datetime, set left = v
-        if (cast.child() instanceof Cast
-                && cast.child().child(0).getDataType() instanceof DateTimeType) {
-            return cast.child().child(0);
-        } else {
-            return new Cast(cast.child(), DateTimeType.INSTANCE);
         }
     }
 
