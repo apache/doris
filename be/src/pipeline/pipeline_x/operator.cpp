@@ -34,6 +34,7 @@
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/jdbc_scan_operator.h"
+#include "pipeline/exec/file_scan_operator.h"
 #include "pipeline/exec/meta_scan_operator.h"
 #include "pipeline/exec/multi_cast_data_stream_source.h"
 #include "pipeline/exec/nested_loop_join_build_operator.h"
@@ -398,6 +399,7 @@ DECLARE_OPERATOR_X(PartitionSortSinkLocalState)
 DECLARE_OPERATOR_X(HashJoinProbeLocalState)
 DECLARE_OPERATOR_X(OlapScanLocalState)
 DECLARE_OPERATOR_X(JDBCScanLocalState)
+DECLARE_OPERATOR_X(FileScanLocalState)
 DECLARE_OPERATOR_X(EsScanLocalState)
 DECLARE_OPERATOR_X(AnalyticLocalState)
 DECLARE_OPERATOR_X(SortLocalState)

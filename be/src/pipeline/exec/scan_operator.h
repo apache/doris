@@ -19,6 +19,7 @@
 
 #include <stdint.h>
 
+#include <cstdint>
 #include <string>
 
 #include "common/status.h"
@@ -139,6 +140,8 @@ public:
 
     virtual TPushAggOp::type get_push_down_agg_type() = 0;
 
+    virtual int64_t get_push_down_count() = 0;
+
     [[nodiscard]] std::string get_name() { return _parent->get_name(); }
 
 protected:
@@ -220,6 +223,7 @@ class ScanLocalState : public ScanLocalStateBase {
 
     TPushAggOp::type get_push_down_agg_type() override;
 
+    int64_t get_push_down_count() override;
 protected:
     template <typename LocalStateType>
     friend class ScanOperatorX;
@@ -428,6 +432,7 @@ public:
 
     TPushAggOp::type get_push_down_agg_type() { return _push_down_agg_type; }
 
+    int64_t get_push_down_count() const { return _push_down_count; }
     using OperatorX<LocalStateType>::id;
 
 protected:
@@ -465,6 +470,9 @@ protected:
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
 
     TPushAggOp::type _push_down_agg_type;
+
+    // Record the value of the aggregate function 'count' from doris's be
+    int64_t _push_down_count = -1;
 };
 
 } // namespace doris::pipeline
