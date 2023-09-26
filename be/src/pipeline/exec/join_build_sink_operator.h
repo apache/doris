@@ -42,8 +42,6 @@ protected:
 
     bool _short_circuit_for_null_in_probe_side = false;
 
-    RuntimeProfile::Counter* _build_timer;
-    RuntimeProfile::Counter* _build_get_next_timer;
     RuntimeProfile::Counter* _build_rows_counter;
     RuntimeProfile::Counter* _push_down_timer;
     RuntimeProfile::Counter* _push_compute_timer;

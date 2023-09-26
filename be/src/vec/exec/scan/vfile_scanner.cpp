@@ -32,6 +32,7 @@
 #include <utility>
 
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/exec/format/wal/wal_reader.h"
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -257,6 +258,10 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
             // Some of column in block may not be filled (column not exist in file)
             RETURN_IF_ERROR(
                     _cur_reader->get_next_block(_src_block_ptr, &read_rows, &_cur_reader_eof));
+        }
+        if (_params->format_type == TFileFormatType::FORMAT_WAL) {
+            block->swap(*_src_block_ptr);
+            break;
         }
         // use read_rows instead of _src_block_ptr->rows(), because the first column of _src_block_ptr
         // may not be filled after calling `get_next_block()`, so _src_block_ptr->rows() may return wrong result.
@@ -782,6 +787,11 @@ Status VFileScanner::_get_next_reader() {
                                                        range);
             init_status = ((AvroJNIReader*)(_cur_reader.get()))
                                   ->init_fetch_table_reader(_colname_to_value_range);
+            break;
+        }
+        case TFileFormatType::FORMAT_WAL: {
+            _cur_reader.reset(new WalReader(_state));
+            init_status = ((WalReader*)(_cur_reader.get()))->init_reader();
             break;
         }
         default:
