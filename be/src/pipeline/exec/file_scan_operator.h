@@ -65,7 +65,9 @@ private:
 class FileScanOperatorX final : public ScanOperatorX<FileScanLocalState> {
 public:
     FileScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
-            : ScanOperatorX<FileScanLocalState>(pool, tnode, descs) {}
+            : ScanOperatorX<FileScanLocalState>(pool, tnode, descs) {
+        _output_tuple_id = tnode.file_scan_node.tuple_id;
+    }
 
 private:
     friend class FileScanLocalState;
