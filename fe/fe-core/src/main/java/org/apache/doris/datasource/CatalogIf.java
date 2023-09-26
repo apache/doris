@@ -153,6 +153,9 @@ public interface CatalogIf<T extends DatabaseIf> {
 
     String getComment();
 
+    default void setComment(String comment) {
+    }
+
     default long getLastUpdateTime() {
         return -1L;
     }

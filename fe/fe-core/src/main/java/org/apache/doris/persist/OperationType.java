@@ -338,6 +338,8 @@ public class OperationType {
 
     public static final short OP_PERSIST_AUTO_JOB = 456;
 
+    public static final short OP_ALTER_CATALOG_COMMENT = 457;
+
     /**
      * Get opcode name by op code.
      **/
