@@ -120,7 +120,6 @@
 #include "vec/exprs/vexpr_context.h"
 #include "vec/sink/vtablet_block_convertor.h"
 #include "vec/sink/vtablet_finder.h"
-#include "vec/sink/vtablet_finder.h"
 
 namespace doris {
 class TExpr;
