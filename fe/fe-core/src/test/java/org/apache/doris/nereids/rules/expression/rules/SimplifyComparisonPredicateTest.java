@@ -39,7 +39,8 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
 
     @Test
     void testSimplifyComparisonPredicateRule() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(SimplifyCastRule.INSTANCE, SimplifyComparisonPredicate.INSTANCE));
+        executor = new ExpressionRuleExecutor(
+                ImmutableList.of(SimplifyCastRule.INSTANCE, SimplifyComparisonPredicate.INSTANCE));
 
         Expression dtv2 = new DateTimeV2Literal(1, 1, 1, 1, 1, 1, 0);
         Expression dt = new DateTimeLiteral(1, 1, 1, 1, 1, 1);
@@ -67,10 +68,10 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
         // DateTimeV2 -> Date
         assertRewrite(
                 new GreaterThan(new Cast(d, DateTimeV2Type.SYSTEM_DEFAULT), dtv2),
-                new GreaterThan(new Cast(d, DateTimeType.INSTANCE), dt));
+                new GreaterThan(new Cast(d, DateTimeType.INSTANCE), new DateTimeLiteral(1, 1, 1, 0, 0, 0)));
         assertRewrite(
                 new LessThan(new Cast(d, DateTimeV2Type.SYSTEM_DEFAULT), dtv2),
-                new LessThan(new Cast(d, DateTimeType.INSTANCE), dt));
+                new LessThan(new Cast(d, DateTimeType.INSTANCE), new DateTimeLiteral(1, 1, 2, 0, 0, 0)));
         assertRewrite(
                 new EqualTo(new Cast(d, DateTimeV2Type.SYSTEM_DEFAULT), dtv2),
                 new EqualTo(new Cast(d, DateTimeV2Type.SYSTEM_DEFAULT), dtv2));
