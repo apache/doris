@@ -29,6 +29,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.UnsupportedEncodingException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
 import java.util.Random;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -83,7 +84,7 @@ public class MysqlPassword {
     public static final byte PVERSION41_CHAR = '*';
     private static final byte[] DIG_VEC_UPPER = {'0', '1', '2', '3', '4', '5', '6', '7',
             '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
-    private static final Random random = new Random(System.currentTimeMillis());
+    private static final Random random = new SecureRandom();
     private static final Set<Character> complexCharSet;
     public static final int MIN_PASSWORD_LEN = 8;
 

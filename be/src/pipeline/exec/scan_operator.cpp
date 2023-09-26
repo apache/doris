@@ -21,6 +21,9 @@
 
 #include <memory>
 
+#include "pipeline/exec/es_scan_operator.h"
+#include "pipeline/exec/jdbc_scan_operator.h"
+#include "pipeline/exec/meta_scan_operator.h"
 #include "pipeline/exec/olap_scan_operator.h"
 #include "pipeline/exec/operator.h"
 #include "vec/exec/runtime_filter_consumer.h"
@@ -1273,9 +1276,8 @@ ScanOperatorX<LocalStateType>::ScanOperatorX(ObjectPool* pool, const TPlanNode& 
 
 template <typename LocalStateType>
 Dependency* ScanOperatorX<LocalStateType>::wait_for_dependency(RuntimeState* state) {
-    return state->get_local_state(id())
-            ->template cast<LocalStateType>()
-            ._source_dependency->read_blocked_by();
+    CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
+    return local_state._source_dependency->read_blocked_by();
 }
 
 template <typename LocalStateType>
@@ -1326,7 +1328,7 @@ Status ScanOperatorX<LocalStateType>::open(RuntimeState* state) {
 
 template <typename LocalStateType>
 Status ScanOperatorX<LocalStateType>::try_close(RuntimeState* state) {
-    auto& local_state = state->get_local_state(id())->template cast<LocalStateType>();
+    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
     if (local_state._scanner_ctx.get()) {
         // mark this scanner ctx as should_stop to make sure scanners will not be scheduled anymore
         // TODO: there is a lock in `set_should_stop` may cause some slight impact
@@ -1376,7 +1378,7 @@ bool ScanOperatorX<LocalStateType>::runtime_filters_are_ready_or_timeout(
 template <typename LocalStateType>
 Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized::Block* block,
                                                 SourceState& source_state) {
-    auto& local_state = state->get_local_state(id())->template cast<LocalStateType>();
+    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
     SCOPED_TIMER(local_state._get_next_timer);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     // in inverted index apply logic, in order to optimize query performance,
@@ -1433,5 +1435,11 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
 
 template class ScanOperatorX<OlapScanLocalState>;
 template class ScanLocalState<OlapScanLocalState>;
+template class ScanOperatorX<JDBCScanLocalState>;
+template class ScanLocalState<JDBCScanLocalState>;
+template class ScanOperatorX<EsScanLocalState>;
+template class ScanLocalState<EsScanLocalState>;
+template class ScanLocalState<MetaScanLocalState>;
+template class ScanOperatorX<MetaScanLocalState>;
 
 } // namespace doris::pipeline

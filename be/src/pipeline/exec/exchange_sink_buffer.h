@@ -174,7 +174,7 @@ public:
     void register_sink(TUniqueId);
 
     Status add_block(TransmitInfo<Parent>&& request);
-    Status add_block(BroadcastTransmitInfo<Parent>&& request);
+    Status add_block(BroadcastTransmitInfo<Parent>&& request, [[maybe_unused]] bool* sent);
     bool can_write() const;
     bool is_pending_finish();
     void close();

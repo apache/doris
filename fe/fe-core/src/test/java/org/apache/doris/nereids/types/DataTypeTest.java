@@ -453,8 +453,8 @@ public class DataTypeTest {
         int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
         Assertions.assertFalse(dataType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
         Assertions.assertTrue(dataType.acceptsType(new CharType(new Random().nextInt())));
-        Assertions.assertFalse(dataType.acceptsType(new VarcharType(new Random().nextInt())));
-        Assertions.assertFalse(dataType.acceptsType(StringType.INSTANCE));
+        Assertions.assertTrue(dataType.acceptsType(new VarcharType(new Random().nextInt())));
+        Assertions.assertTrue(dataType.acceptsType(StringType.INSTANCE));
         Assertions.assertFalse(dataType.acceptsType(DateType.INSTANCE));
         Assertions.assertFalse(dataType.acceptsType(DateTimeType.INSTANCE));
     }
@@ -474,7 +474,7 @@ public class DataTypeTest {
         int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
         int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
         Assertions.assertFalse(dataType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
-        Assertions.assertFalse(dataType.acceptsType(new CharType(new Random().nextInt())));
+        Assertions.assertTrue(dataType.acceptsType(new CharType(new Random().nextInt())));
         Assertions.assertTrue(dataType.acceptsType(new VarcharType(new Random().nextInt())));
         Assertions.assertTrue(dataType.acceptsType(StringType.INSTANCE));
         Assertions.assertFalse(dataType.acceptsType(DateType.INSTANCE));
@@ -496,7 +496,7 @@ public class DataTypeTest {
         int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
         int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
         Assertions.assertFalse(dataType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
-        Assertions.assertFalse(dataType.acceptsType(new CharType(new Random().nextInt())));
+        Assertions.assertTrue(dataType.acceptsType(new CharType(new Random().nextInt())));
         Assertions.assertTrue(dataType.acceptsType(new VarcharType(new Random().nextInt())));
         Assertions.assertTrue(dataType.acceptsType(StringType.INSTANCE));
         Assertions.assertFalse(dataType.acceptsType(DateType.INSTANCE));

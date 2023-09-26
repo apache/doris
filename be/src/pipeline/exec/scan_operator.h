@@ -101,6 +101,11 @@ public:
         if (_scanner_ctx->get_num_running_scanners() == 0 && _scanner_ctx->should_be_scheduled()) {
             _scanner_ctx->reschedule_scanner_ctx();
         }
+        if (config::enable_fuzzy_mode && !_ready_for_read &&
+            _read_dependency_watcher.elapsed_time() > SLOW_DEPENDENCY_THRESHOLD) {
+            LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
+                         << id();
+        }
         return _ready_for_read ? nullptr : this;
     }
 
@@ -189,7 +194,7 @@ template <typename Derived>
 class ScanLocalState : public ScanLocalStateBase {
     ENABLE_FACTORY_CREATOR(ScanLocalState);
     ScanLocalState(RuntimeState* state, OperatorXBase* parent);
-    virtual ~ScanLocalState() = default;
+    ~ScanLocalState() override = default;
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status open(RuntimeState* state) override;
@@ -426,6 +431,7 @@ public:
     using OperatorX<LocalStateType>::id;
 
 protected:
+    using LocalState = LocalStateType;
     ScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     virtual ~ScanOperatorX() = default;
     template <typename Derived>

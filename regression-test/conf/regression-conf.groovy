@@ -47,6 +47,13 @@ pluginPath = "${DORIS_HOME}/regression-test/plugins"
 realDataPath = "${DORIS_HOME}/regression-test/realdata"
 sslCertificatePath = "${DORIS_HOME}/regression-test/ssl_default_certificate"
 
+// docker image
+image = ""
+dockerEndDeleteFiles = false
+dorisComposePath = "${DORIS_HOME}/docker/runtime/doris-compose/doris-compose.py"
+// do run docker test because pipeline not support build image now
+excludeDockerTest = true
+
 // will test <group>/<suite>.groovy
 // empty group will test all group
 testGroups = ""
@@ -93,6 +100,7 @@ doris_port=9030
 enableHiveTest=false
 hms_port=9183
 hdfs_port=8120
+hiveServerPort=10000
 
 // kafka test config
 // to enable kafka test, you need firstly to start kafka container
@@ -113,6 +121,7 @@ enableExternalHiveTest = false
 extHiveHmsHost = "***.**.**.**"
 extHiveHmsPort = 7004
 extHdfsPort = 4007
+extHiveServerPort= 7001
 extHiveHmsUser = "****"
 extHiveHmsPassword= "***********"
 

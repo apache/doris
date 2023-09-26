@@ -642,8 +642,10 @@
                                 "sql-manual/sql-functions/json-functions/get-json-double",
                                 "sql-manual/sql-functions/json-functions/get-json-int",
                                 "sql-manual/sql-functions/json-functions/get-json-bigint",
-                                "sql-manual/sql-functions/json-functions/get-json-string"
-                                
+                                "sql-manual/sql-functions/json-functions/get-json-string",
+                                "sql-manual/sql-functions/json-functions/json-insert",
+                                "sql-manual/sql-functions/json-functions/json-replace",
+                                "sql-manual/sql-functions/json-functions/json-set"
                             ]
                         },
                         {
@@ -1255,6 +1257,7 @@
                                 "admin-manual/http-actions/fe/upload-action",
                                 "admin-manual/http-actions/fe/import-action",
                                 "admin-manual/http-actions/fe/meta-info-action-V2",
+                                "admin-manual/http-actions/fe/debug-point-action",
                                 "admin-manual/http-actions/fe/statistic-action"
                             ]
                         },

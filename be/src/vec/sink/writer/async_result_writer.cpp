@@ -17,6 +17,7 @@
 
 #include "async_result_writer.h"
 
+#include "pipeline/pipeline_x/dependency.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/runtime_state.h"
@@ -32,27 +33,32 @@ class TExpr;
 namespace vectorized {
 
 AsyncResultWriter::AsyncResultWriter(const doris::vectorized::VExprContextSPtrs& output_expr_ctxs)
-        : _vec_output_expr_ctxs(output_expr_ctxs) {};
+        : _vec_output_expr_ctxs(output_expr_ctxs), _dependency(nullptr) {};
 
 Status AsyncResultWriter::sink(Block* block, bool eos) {
     auto rows = block->rows();
     auto status = Status::OK();
     std::unique_ptr<Block> add_block;
     if (rows) {
-        add_block = block->create_same_struct_block(0);
+        add_block = _get_free_block(block, rows);
     }
 
-    std::lock_guard l(_m);
     // if io task failed, just return error status to
     // end the query
     if (!_writer_status.ok()) {
         return _writer_status;
     }
 
+    std::lock_guard l(_m);
     _eos = eos;
+    if (_dependency && _is_finished()) {
+        _dependency->set_ready_for_write();
+    }
     if (rows) {
-        RETURN_IF_ERROR(MutableBlock::build_mutable_block(add_block.get()).merge(*block));
         _data_queue.emplace_back(std::move(add_block));
+        if (_dependency && !_data_queue_is_available() && !_is_finished()) {
+            _dependency->block_writing();
+        }
     } else if (_eos && _data_queue.empty()) {
         status = Status::EndOfFile("Run out of sink data");
     }
@@ -66,6 +72,9 @@ std::unique_ptr<Block> AsyncResultWriter::get_block_from_queue() {
     DCHECK(!_data_queue.empty());
     auto block = std::move(_data_queue.front());
     _data_queue.pop_front();
+    if (_dependency && _data_queue_is_available()) {
+        _dependency->set_ready_for_write();
+    }
     return block;
 }
 
@@ -81,7 +90,7 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
 
     if (_writer_status.ok()) {
         while (true) {
-            {
+            if (!_eos && _data_queue.empty() && _writer_status.ok()) {
                 std::unique_lock l(_m);
                 while (!_eos && _data_queue.empty() && _writer_status.ok()) {
                     _cv.wait(l);
@@ -93,10 +102,16 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
                 break;
             }
 
-            auto status = write(get_block_from_queue());
-            std::unique_lock l(_m);
-            _writer_status = status;
+            auto block = get_block_from_queue();
+            auto status = write(block);
+            _return_free_block(std::move(block));
+
             if (!status.ok()) {
+                std::unique_lock l(_m);
+                _writer_status = status;
+                if (_dependency && _is_finished()) {
+                    _dependency->set_ready_for_write();
+                }
                 break;
             }
         }
@@ -126,7 +141,30 @@ Status AsyncResultWriter::_projection_block(doris::vectorized::Block& input_bloc
 void AsyncResultWriter::force_close(Status s) {
     std::lock_guard l(_m);
     _writer_status = s;
+    if (_dependency && _is_finished()) {
+        _dependency->set_ready_for_write();
+    }
     _cv.notify_one();
+}
+
+void AsyncResultWriter::_return_free_block(std::unique_ptr<Block> b) {
+    _free_blocks.enqueue(std::move(b));
+}
+
+std::unique_ptr<Block> AsyncResultWriter::_get_free_block(doris::vectorized::Block* block,
+                                                          int rows) {
+    std::unique_ptr<Block> b;
+    if (!_free_blocks.try_dequeue(b)) {
+        b = block->create_same_struct_block(rows, true);
+    }
+    b->swap(*block);
+    return b;
+}
+
+pipeline::WriteDependency* AsyncResultWriter::write_blocked_by() {
+    std::lock_guard l(_m);
+    DCHECK(_dependency != nullptr);
+    return _dependency->write_blocked_by();
 }
 
 } // namespace vectorized

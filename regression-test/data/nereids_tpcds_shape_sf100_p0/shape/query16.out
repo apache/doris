@@ -25,7 +25,7 @@ PhysicalResultSink
 --------------------------------PhysicalOlapScan[catalog_sales]
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
-----------------------------------filter((cast(ca_state as VARCHAR(*)) = 'WV'))
+----------------------------------filter((customer_address.ca_state = 'WV'))
 ------------------------------------PhysicalOlapScan[customer_address]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject

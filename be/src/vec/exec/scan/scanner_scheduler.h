@@ -64,7 +64,7 @@ public:
     ScannerScheduler();
     ~ScannerScheduler();
 
-    [[nodiscard]] Status init();
+    [[nodiscard]] Status init(ExecEnv* env);
 
     [[nodiscard]] Status submit(ScannerContext* ctx);
 
@@ -92,10 +92,11 @@ private:
     static const int QUEUE_NUM = 4;
     // The ScannerContext will be submitted to the pending queue roundrobin.
     // _queue_idx pointer to the current queue.
+    // Use std::atomic_uint to prevent numerical overflow from memory out of bound.
     // The scheduler thread will take ctx from pending queue, schedule it,
     // and put it to the _scheduling_map.
     // If any scanner finish, it will take ctx from and put it to pending queue again.
-    std::atomic_int _queue_idx = {0};
+    std::atomic_uint _queue_idx = {0};
     BlockingQueue<ScannerContext*>** _pending_queues;
 
     // scheduling thread pool

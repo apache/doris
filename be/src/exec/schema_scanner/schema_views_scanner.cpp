@@ -58,26 +58,26 @@ Status SchemaViewsScanner::start(RuntimeState* state) {
     }
     SCOPED_TIMER(_get_db_timer);
     TGetDbsParams db_params;
-    if (nullptr != _param->db) {
-        db_params.__set_pattern(*(_param->db));
+    if (nullptr != _param->common_param->db) {
+        db_params.__set_pattern(*(_param->common_param->db));
     }
-    if (nullptr != _param->catalog) {
-        db_params.__set_catalog(*(_param->catalog));
+    if (nullptr != _param->common_param->catalog) {
+        db_params.__set_catalog(*(_param->common_param->catalog));
     }
-    if (nullptr != _param->current_user_ident) {
-        db_params.__set_current_user_ident(*(_param->current_user_ident));
+    if (nullptr != _param->common_param->current_user_ident) {
+        db_params.__set_current_user_ident(*(_param->common_param->current_user_ident));
     } else {
-        if (nullptr != _param->user) {
-            db_params.__set_user(*(_param->user));
+        if (nullptr != _param->common_param->user) {
+            db_params.__set_user(*(_param->common_param->user));
         }
-        if (nullptr != _param->user_ip) {
-            db_params.__set_user_ip(*(_param->user_ip));
+        if (nullptr != _param->common_param->user_ip) {
+            db_params.__set_user_ip(*(_param->common_param->user_ip));
         }
     }
 
-    if (nullptr != _param->ip && 0 != _param->port) {
-        RETURN_IF_ERROR(
-                SchemaHelper::get_db_names(*(_param->ip), _param->port, db_params, &_db_result));
+    if (nullptr != _param->common_param->ip && 0 != _param->common_param->port) {
+        RETURN_IF_ERROR(SchemaHelper::get_db_names(
+                *(_param->common_param->ip), _param->common_param->port, db_params, &_db_result));
     } else {
         return Status::InternalError("IP or port doesn't exists");
     }
@@ -88,23 +88,24 @@ Status SchemaViewsScanner::_get_new_table() {
     SCOPED_TIMER(_get_table_timer);
     TGetTablesParams table_params;
     table_params.__set_db(_db_result.dbs[_db_index++]);
-    if (nullptr != _param->wild) {
-        table_params.__set_pattern(*(_param->wild));
+    if (nullptr != _param->common_param->wild) {
+        table_params.__set_pattern(*(_param->common_param->wild));
     }
-    if (nullptr != _param->current_user_ident) {
-        table_params.__set_current_user_ident(*(_param->current_user_ident));
+    if (nullptr != _param->common_param->current_user_ident) {
+        table_params.__set_current_user_ident(*(_param->common_param->current_user_ident));
     } else {
-        if (nullptr != _param->user) {
-            table_params.__set_user(*(_param->user));
+        if (nullptr != _param->common_param->user) {
+            table_params.__set_user(*(_param->common_param->user));
         }
-        if (nullptr != _param->user_ip) {
-            table_params.__set_user_ip(*(_param->user_ip));
+        if (nullptr != _param->common_param->user_ip) {
+            table_params.__set_user_ip(*(_param->common_param->user_ip));
         }
     }
     table_params.__set_type("VIEW");
 
-    if (nullptr != _param->ip && 0 != _param->port) {
-        RETURN_IF_ERROR(SchemaHelper::list_table_status(*(_param->ip), _param->port, table_params,
+    if (nullptr != _param->common_param->ip && 0 != _param->common_param->port) {
+        RETURN_IF_ERROR(SchemaHelper::list_table_status(*(_param->common_param->ip),
+                                                        _param->common_param->port, table_params,
                                                         &_table_result));
     } else {
         return Status::InternalError("IP or port doesn't exists");

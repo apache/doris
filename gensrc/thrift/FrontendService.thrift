@@ -409,6 +409,7 @@ struct TReportExecStatusParams {
   3: optional i32 backend_num
 
   // required in V1
+  // Move to TDetailedReportParams for pipelineX
   4: optional Types.TUniqueId fragment_instance_id
 
   // Status of fragment execution; any error status means it's done.
@@ -421,6 +422,7 @@ struct TReportExecStatusParams {
 
   // cumulative profile
   // required in V1
+  // Move to TDetailedReportParams for pipelineX
   7: optional RuntimeProfile.TRuntimeProfileTree profile
 
   // New errors that have not been reported to the coordinator
@@ -450,6 +452,7 @@ struct TReportExecStatusParams {
 
   20: optional PaloInternalService.TQueryType query_type
 
+  // Move to TDetailedReportParams for pipelineX
   21: optional RuntimeProfile.TRuntimeProfileTree loadChannelProfile
 
   22: optional i32 finished_scan_ranges
@@ -636,7 +639,6 @@ struct TStreamLoadPutRequest {
     // only valid when file type is CSV
     52: optional i8 escape
     53: optional bool memtable_on_sink_node;
-    54: optional bool ignore_mode = false
 }
 
 struct TStreamLoadPutResult {
@@ -741,6 +743,7 @@ struct TLoadTxn2PCRequest {
     8: optional i64 auth_code
     9: optional string token
     10: optional i64 thrift_rpc_timeout_ms
+    11: optional string label
 }
 
 struct TLoadTxn2PCResult {
@@ -1028,6 +1031,7 @@ enum TBinlogType {
   BARRIER = 10,
   MODIFY_PARTITIONS = 11,
   REPLACE_PARTITIONS = 12,
+  TRUNCATE_TABLE = 13,
 }
 
 struct TBinlog {

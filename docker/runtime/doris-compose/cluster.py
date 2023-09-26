@@ -91,8 +91,8 @@ class Group(object):
         self.nodes = {}  # id : NodeMeta
         self.next_id = 1
 
-    def add(self, id, image):
-        assert image
+    def add(self, id, node_meta):
+        assert node_meta.image
         if not id:
             id = self.next_id
             self.next_id += 1
@@ -104,7 +104,7 @@ class Group(object):
             raise Exception(
                 "Failed to add {} with id {}, id exceeds {}".format(
                     self.node_type, id, ID_LIMIT))
-        self.nodes[id] = NodeMeta(image)
+        self.nodes[id] = node_meta
 
         return id
 
@@ -147,7 +147,7 @@ class Node(object):
         else:
             raise Exception("Unknown node type {}".format(node_type))
 
-    def init_dir(self):
+    def init_conf(self, config):
         path = self.get_path()
         os.makedirs(path, exist_ok=True)
 
@@ -160,6 +160,12 @@ class Node(object):
                 conf_dir)
             assert not utils.is_dir_empty(conf_dir), "conf directory {} is empty, " \
                     "check doris path in image is correct".format(conf_dir)
+            utils.enable_dir_with_rw_perm(conf_dir)
+            if config:
+                with open(os.path.join(conf_dir, self.conf_file_name()),
+                          "a") as f:
+                    for item in config:
+                        f.write(item + "\n")
         for sub_dir in self.expose_sub_dirs():
             os.makedirs(os.path.join(path, sub_dir), exist_ok=True)
 
@@ -168,6 +174,9 @@ class Node(object):
 
     def is_be(self):
         return self.node_type() == Node.TYPE_BE
+
+    def conf_file_name(self):
+        return self.node_type() + ".conf"
 
     def node_type(self):
         raise Exception("No implemented")
@@ -307,22 +316,38 @@ class BE(Node):
     def expose_sub_dirs(self):
         return super().expose_sub_dirs() + ["storage"]
 
+    def init_disk(self, be_disk_num):
+        if not be_disk_num or be_disk_num <= 1:
+            return
+        path = self.get_path()
+        for i in range(1, be_disk_num + 1):
+            os.makedirs("{}/storage/disk{}".format(path, i), exist_ok=True)
+        with open("{}/conf/{}".format(path, self.conf_file_name()), "a") as f:
+            f.write("storage_root_path = " + ";".join([
+                "${{DORIS_HOME}}/storage/disk{}".format(i)
+                for i in range(1, be_disk_num + 1)
+            ]) + "\n")
+
 
 class Cluster(object):
 
-    def __init__(self, name, subnet, image):
+    def __init__(self, name, subnet, image, fe_config, be_config, be_disk_num):
         self.name = name
         self.subnet = subnet
         self.image = image
+        self.fe_config = fe_config
+        self.be_config = be_config
+        self.be_disk_num = be_disk_num
         self.groups = {
             node_type: Group(node_type)
             for node_type in Node.TYPE_ALL
         }
 
     @staticmethod
-    def new(name, image):
+    def new(name, image, fe_config, be_config, be_disk_num):
         subnet = gen_subnet_prefix16()
-        cluster = Cluster(name, subnet, image)
+        cluster = Cluster(name, subnet, image, fe_config, be_config,
+                          be_disk_num)
         os.makedirs(cluster.get_path(), exist_ok=True)
         os.makedirs(get_status_path(name), exist_ok=True)
         return cluster
@@ -393,9 +418,17 @@ class Cluster(object):
         return num
 
     def add(self, node_type, id=None):
-        id = self.get_group(node_type).add(id, self.image)
+        node_meta = NodeMeta(self.image)
+        id = self.get_group(node_type).add(id, node_meta)
         node = self.get_node(node_type, id)
-        node.init_dir()
+        if not os.path.exists(node.get_path()):
+            if node.is_fe():
+                node.init_conf(self.fe_config)
+            elif node.is_be():
+                node.init_conf(self.be_config)
+                node.init_disk(self.be_disk_num)
+            else:
+                node.init_conf([])
         return node
 
     def remove(self, node_type, id):
