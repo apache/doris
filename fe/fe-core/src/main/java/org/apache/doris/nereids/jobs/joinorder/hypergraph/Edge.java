@@ -239,7 +239,7 @@ public class Edge {
      * extract join type and conjuncts from edges
      */
     public static @Nullable JoinType extractJoinTypeAndConjuncts(List<Edge> edges,
-                                                                 List<Expression> hashConjuncts, List<Expression> otherConjuncts) {
+            List<Expression> hashConjuncts, List<Expression> otherConjuncts) {
         JoinType joinType = null;
         for (Edge edge : edges) {
             if (edge.getJoinType() != joinType && joinType != null) {
