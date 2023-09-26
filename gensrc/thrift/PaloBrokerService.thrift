@@ -92,8 +92,8 @@ struct TBrokerCheckPathExistResponse {
 }
 
 struct TBrokerIsSplittableResponse {
-    1: required TBrokerOperationStatus opStatus;
-    2: required bool splittable;
+    1: optional TBrokerOperationStatus opStatus;
+    2: optional bool splittable;
 }
 
 struct TBrokerListPathRequest {

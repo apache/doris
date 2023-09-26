@@ -385,7 +385,7 @@ CREATE CATALOG hive PROPERTIES (
 创建 HMS Catalog 时增加如下配置，Hive 外表文件分片和文件扫描将会由名为 `test_broekr` 的 broker 完成
 
 ```sql
-"bind.broker.name" = "test_broker"
+"broker.name" = "test_broker"
 ```
 
 ## 使用 Ranger 进行权限校验

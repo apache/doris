@@ -406,7 +406,7 @@ The variable default is false.
 Add following setting when creating an HMS catalog, file splitting and scanning for Hive external table will be completed by broker named `test_broekr`
 
 ```sql
-"bind.broker.name" = "test_broker"
+"broker.name" = "test_broker"
 ```
 
 ## Integrate with Apache Ranger
