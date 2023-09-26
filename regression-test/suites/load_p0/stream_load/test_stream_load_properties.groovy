@@ -15,6 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.http.HttpRequest;
+import org.apache.http.HttpResponse;
+import org.apache.http.client.config.RequestConfig;
+import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.client.methods.HttpPut;
+import org.apache.http.client.methods.RequestBuilder;
+import org.apache.http.entity.ContentType;
+import org.apache.http.entity.StringEntity;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
+import org.apache.http.protocol.HttpContext;
+import org.apache.http.util.EntityUtils;
+import org.apache.http.client.RedirectStrategy;
+import org.apache.http.impl.client.LaxRedirectStrategy;
+
 suite("test_stream_load_properties", "p0") {
 
     def tables = [
@@ -432,47 +447,45 @@ suite("test_stream_load_properties", "p0") {
     }
 
     // two_phase_commit
-    i = 0
-    try {
-        for (String tableName in tables) {
-            sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
-            sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
+    def do_streamload_2pc = { txn_id, txn_operation, tableName->
+        HttpClients.createDefault().withCloseable { client ->
+            RequestBuilder requestBuilder = RequestBuilder.put("http://${address.hostString}:${address.port}/api/${db}/${tableName}/_stream_load_2pc")
+            String encoding = Base64.getEncoder()
+                .encodeToString((user + ":" + (password == null ? "" : password)).getBytes("UTF-8"))
+            requestBuilder.setHeader("Authorization", "Basic ${encoding}")
+            requestBuilder.setHeader("Expect", "100-Continue")
+            requestBuilder.setHeader("txn_id", "${txn_id}")
+            requestBuilder.setHeader("txn_operation", "${txn_operation}")
 
-            String txnId
-            streamLoad {
-                table "stream_load_" + tableName
-                set 'column_separator', '|'
-                set 'columns', columns[i]
-                set 'two_phase_commit', 'true'
-                file files[i]
-                time 10000 // limit inflight 10s
-
-                check { result, exception, startTime, endTime ->
-                    if (exception != null) {
-                        throw exception
+            String backendStreamLoadUri = null
+            client.execute(requestBuilder.build()).withCloseable { resp ->
+                resp.withCloseable {
+                    String body = EntityUtils.toString(resp.getEntity())
+                    def respCode = resp.getStatusLine().getStatusCode()
+                    // should redirect to backend
+                    if (respCode != 307) {
+                        throw new IllegalStateException("Expect frontend stream load response code is 307, " +
+                                "but meet ${respCode}\nbody: ${body}")
                     }
-                    log.info("Stream load result: ${result}".toString())
-                    def json = parseJson(result)
-                    txnId = json.TxnId
-                    assertEquals("success", json.Status.toLowerCase())
-                    assertEquals(20, json.NumberTotalRows)
-                    assertEquals(20, json.NumberLoadedRows)
-                    assertEquals(0, json.NumberFilteredRows)
-                    assertEquals(0, json.NumberUnselectedRows)
+                    backendStreamLoadUri = resp.getFirstHeader("location").getValue()
                 }
             }
 
-            def tableName1 =  "stream_load_" + tableName
-            if (i <= 3) {
-                qt_sql_2pc "select * from ${tableName1} order by k00,k01"
-            } else {
-                qt_sql_2pc "select * from ${tableName1} order by k00"
+            requestBuilder.setUri(backendStreamLoadUri)
+            try{
+                client.execute(requestBuilder.build()).withCloseable { resp ->
+                    resp.withCloseable {
+                        String body = EntityUtils.toString(resp.getEntity())
+                        def respCode = resp.getStatusLine().getStatusCode()
+                        if (respCode != 200) {
+                            throw new IllegalStateException("Expect backend stream load response code is 200, " +
+                                    "but meet ${respCode}\nbody: ${body}")
+                        }
+                    }
+                }
+            } catch (Throwable t) {
+                log.info("StreamLoad Exception: ", t)
             }
-            i++
-        }
-    } finally {
-        for (String tableName in tables) {
-            sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
         }
     }
 
@@ -506,13 +519,53 @@ suite("test_stream_load_properties", "p0") {
                 }
             }
 
-            //sql """curl -X PUT --location-trusted -u ${user}:${password}  -H "txn_id:${txnId}" -H "txn_operation:commit"  http://${address.hostString}:${address.port}/api/${db}/${tableName}/_stream_load_2pc"""
             def tableName1 =  "stream_load_" + tableName
             if (i <= 3) {
                 qt_sql_2pc "select * from ${tableName1} order by k00,k01"
             } else {
                 qt_sql_2pc "select * from ${tableName1} order by k00"
             }
+
+            do_streamload_2pc.call(txnId, "abort", tableName1)
+
+            if (i <= 3) {
+                qt_sql_2pc_abort "select * from ${tableName1} order by k00,k01"
+            } else {
+                qt_sql_2pc_abort "select * from ${tableName1} order by k00"
+            }
+
+            streamLoad {
+                table "stream_load_" + tableName
+                set 'column_separator', '|'
+                set 'columns', columns[i]
+                set 'two_phase_commit', 'true'
+                file files[i]
+                time 10000 // limit inflight 10s
+
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    log.info("Stream load result: ${result}".toString())
+                    def json = parseJson(result)
+                    txnId = json.TxnId
+                    assertEquals("success", json.Status.toLowerCase())
+                    assertEquals(20, json.NumberTotalRows)
+                    assertEquals(20, json.NumberLoadedRows)
+                    assertEquals(0, json.NumberFilteredRows)
+                    assertEquals(0, json.NumberUnselectedRows)
+                }
+            }
+
+            do_streamload_2pc.call(txnId, "commit", tableName1)
+
+            sleep(60)
+            if (i <= 3) {
+                qt_sql_2pc_commit "select * from ${tableName1} order by k00,k01"
+            } else {
+                qt_sql_2pc_commit "select * from ${tableName1} order by k00"
+            }
+
             i++
         }
     } finally {
