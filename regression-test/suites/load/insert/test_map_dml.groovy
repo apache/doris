@@ -20,8 +20,6 @@ suite("test_map_dml", "load") {
     def testTable = "tbl_test_map_string_int"
     def testTable01 = "tbl_test_map_normal"
 
-    sql "ADMIN SET FRONTEND CONFIG ('enable_map_type' = 'true')"
-
     def create_test_table = {testTablex ->
         def result1 = sql """
             CREATE TABLE IF NOT EXISTS ${testTable} (

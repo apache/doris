@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/aggregation_common.h"
@@ -120,7 +121,7 @@ class HashMethodBase {
 public:
     using EmplaceResult = EmplaceResultImpl<Mapped>;
     using FindResult = FindResultImpl<Mapped>;
-    static constexpr bool has_mapped = !std::is_same<Mapped, void>::value;
+    static constexpr bool has_mapped = !std::is_same_v<Mapped, void>;
     using Cache = LastElementCache<Value, consecutive_keys_optimization>;
 
     static HashMethodContextPtr createContext(const HashMethodContext::Settings&) {
@@ -140,20 +141,30 @@ public:
         return emplaceImpl(key_holder, hash_value, data);
     }
 
+    template <typename Data, typename KeyHolder>
+    EmplaceResult emplace_with_key(Data& data, KeyHolder&& key, size_t hash_value, size_t row) {
+        return emplaceImpl(key, hash_value, data);
+    }
+
     template <typename Data, typename Func>
-    ALWAYS_INLINE typename std::enable_if_t<has_mapped, Mapped>& lazy_emplace_key(Data& data,
-                                                                                  size_t row,
-                                                                                  Arena& pool,
-                                                                                  Func&& f) {
+        requires has_mapped
+    ALWAYS_INLINE Mapped& lazy_emplace_key(Data& data, size_t row, Arena& pool, Func&& f) {
         auto key_holder = static_cast<Derived&>(*this).get_key_holder(row, pool);
         return lazy_emplace_impl(key_holder, data, std::forward<Func>(f));
     }
 
     template <typename Data, typename Func>
-    ALWAYS_INLINE typename std::enable_if_t<has_mapped, Mapped>& lazy_emplace_key(
-            Data& data, size_t hash_value, size_t row, Arena& pool, Func&& f) {
+        requires has_mapped
+    ALWAYS_INLINE Mapped& lazy_emplace_key(Data& data, size_t hash_value, size_t row, Arena& pool,
+                                           Func&& f) {
         auto key_holder = static_cast<Derived&>(*this).get_key_holder(row, pool);
         return lazy_emplace_impl(key_holder, hash_value, data, std::forward<Func>(f));
+    }
+
+    template <typename Data, typename Func, typename Keys>
+    void lazy_emplace_keys(Data& data, const Keys& keys, const std::vector<size_t>& hash_values,
+                           Func&& f, AggregateDataPtr* places) {
+        data.lazy_emplace_keys(std::span(keys), hash_values, places, std::forward<Func>(f));
     }
 
     template <typename Data>
@@ -176,15 +187,15 @@ public:
     }
 
     template <typename Data>
-    ALWAYS_INLINE void prefetch(Data& data, size_t row, Arena& pool) {
+    ALWAYS_INLINE void prefetch_by_key(Data& data, size_t row, Arena& pool) {
         auto key_holder = static_cast<Derived&>(*this).get_key_holder(row, pool);
-        data.prefetch(key_holder);
+        data.prefetch_by_key(key_holder);
     }
 
     template <bool READ, typename Data>
-    ALWAYS_INLINE void prefetch(Data& data, size_t row, Arena& pool) {
+    ALWAYS_INLINE void prefetch_by_key(Data& data, size_t row, Arena& pool) {
         auto key_holder = static_cast<Derived&>(*this).get_key_holder(row, pool);
-        data.template prefetch<READ>(key_holder);
+        data.template prefetch_by_key<READ>(key_holder);
     }
 
     template <bool READ, typename Data>
@@ -271,7 +282,7 @@ protected:
 
         typename Data::LookupResult it;
         bool inserted = false;
-        data.emplace(key_holder, it, hash_value, inserted);
+        data.emplace(key_holder, it, inserted, hash_value);
 
         [[maybe_unused]] Mapped* cached = nullptr;
         if constexpr (has_mapped) cached = lookup_result_get_mapped(it);
@@ -302,16 +313,17 @@ protected:
     }
 
     template <typename Data, typename KeyHolder, typename Func>
-    ALWAYS_INLINE typename std::enable_if_t<has_mapped, Mapped>& lazy_emplace_impl(
-            KeyHolder& key_holder, Data& data, Func&& f) {
+        requires has_mapped
+    ALWAYS_INLINE Mapped& lazy_emplace_impl(KeyHolder& key_holder, Data& data, Func&& f) {
         typename Data::LookupResult it;
         data.lazy_emplace(key_holder, it, std::forward<Func>(f));
         return *lookup_result_get_mapped(it);
     }
 
     template <typename Data, typename KeyHolder, typename Func>
-    ALWAYS_INLINE typename std::enable_if_t<has_mapped, Mapped>& lazy_emplace_impl(
-            KeyHolder& key_holder, size_t hash_value, Data& data, Func&& f) {
+        requires has_mapped
+    ALWAYS_INLINE Mapped& lazy_emplace_impl(KeyHolder& key_holder, size_t hash_value, Data& data,
+                                            Func&& f) {
         typename Data::LookupResult it;
         data.lazy_emplace(key_holder, it, hash_value, std::forward<Func>(f));
 
@@ -421,24 +433,7 @@ protected:
     /// column. Otherwise we return the key column itself.
     const ColumnRawPtrs& get_actual_columns() const { return actual_columns; }
 
-    /// Create a bitmap that indicates whether, for a particular row,
-    /// a key column bears a null value or not.
-    KeysNullMap<Key> create_bitmap(size_t row) const {
-        KeysNullMap<Key> bitmap {};
-
-        for (size_t k = 0; k < null_maps.size(); ++k) {
-            if (null_maps[k] != nullptr) {
-                const auto& null_map = assert_cast<const ColumnUInt8&>(*null_maps[k]).get_data();
-                if (null_map[row] == 1) {
-                    size_t bucket = k / 8;
-                    size_t offset = k % 8;
-                    bitmap[bucket] |= UInt8(1) << offset;
-                }
-            }
-        }
-
-        return bitmap;
-    }
+    const ColumnRawPtrs& get_nullmap_columns() const { return null_maps; }
 
 private:
     ColumnRawPtrs actual_columns;
@@ -453,12 +448,11 @@ protected:
 
     const ColumnRawPtrs& get_actual_columns() const { return actual_columns; }
 
-    KeysNullMap<Key> create_bitmap(size_t) const {
-        LOG(FATAL) << "Internal error: calling create_bitmap() for non-nullable keys is forbidden";
-    }
+    const ColumnRawPtrs& get_nullmap_columns() const { return null_maps; }
 
 private:
     ColumnRawPtrs actual_columns;
+    ColumnRawPtrs null_maps;
 };
 
 } // namespace columns_hashing_impl

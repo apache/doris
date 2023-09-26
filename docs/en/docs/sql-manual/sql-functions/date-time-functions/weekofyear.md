@@ -1,6 +1,6 @@
 ---
 {
-    "title": "weekofyear",
+    "title": "WEEKOFYEAR",
     "language": "en"
 }
 ---

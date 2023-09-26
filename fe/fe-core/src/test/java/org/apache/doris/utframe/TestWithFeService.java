@@ -58,6 +58,8 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -82,6 +84,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
@@ -101,6 +104,7 @@ import java.util.Comparator;
 import java.util.ConcurrentModificationException;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -119,12 +123,13 @@ public abstract class TestWithFeService {
     protected String dorisHome;
     protected String runningDir = "fe/mocked/" + getClass().getSimpleName() + "/" + UUID.randomUUID() + "/";
     protected ConnectContext connectContext;
+    protected boolean needCleanDir = true;
 
     protected static final String DEFAULT_CLUSTER_PREFIX = "default_cluster:";
 
     @BeforeAll
     public final void beforeAll() throws Exception {
-        FeConstants.disableInternalSchemaDb = true;
+        FeConstants.enableInternalSchemaDb = false;
         beforeCreatingConnectContext();
         connectContext = createDefaultCtx();
         beforeCluster();
@@ -140,7 +145,9 @@ public abstract class TestWithFeService {
         runAfterAll();
         Env.getCurrentEnv().clear();
         StatementScopeIdGenerator.clear();
-        cleanDorisFeDir();
+        if (needCleanDir) {
+            cleanDorisFeDir();
+        }
     }
 
     @BeforeEach
@@ -177,6 +184,12 @@ public abstract class TestWithFeService {
         return statementContext;
     }
 
+    protected StatementContext createStatementCtx(String sql, ConnectContext ctx) {
+        StatementContext statementContext = new StatementContext(ctx, new OriginStatement(sql, 0));
+        ctx.setStatementContext(statementContext);
+        return statementContext;
+    }
+
     protected  <T extends StatementBase> T createStmt(String showSql)
             throws Exception {
         return (T) parseAndAnalyzeStmt(showSql, connectContext);
@@ -187,11 +200,55 @@ public abstract class TestWithFeService {
         return MemoTestUtils.createCascadesContext(statementCtx, sql);
     }
 
-    public LogicalPlan analyze(String sql) {
+    protected CascadesContext createCascadesContext(String sql, ConnectContext ctx) {
+        StatementContext statementCtx = createStatementCtx(sql, ctx);
+        return MemoTestUtils.createCascadesContext(statementCtx, sql);
+    }
+
+    public LogicalPlan analyzeAndGetLogicalPlanByNereids(String sql) {
+        Set<String> originDisableRules = connectContext.getSessionVariable().getDisableNereidsRuleNames();
+        Set<String> disableRuleWithAuth = Sets.newHashSet(originDisableRules);
+        disableRuleWithAuth.add(RuleType.RELATION_AUTHENTICATION.name());
+        connectContext.getSessionVariable().setDisableNereidsRules(String.join(",", disableRuleWithAuth));
         CascadesContext cascadesContext = createCascadesContext(sql);
         cascadesContext.newAnalyzer().analyze();
+        connectContext.getSessionVariable().setDisableNereidsRules(String.join(",", originDisableRules));
         cascadesContext.toMemo();
         return (LogicalPlan) cascadesContext.getRewritePlan();
+    }
+
+    public LogicalPlan analyzeAndGetLogicalPlanByNereids(String sql, ConnectContext ctx) {
+        Set<String> originDisableRules = ctx.getSessionVariable().getDisableNereidsRuleNames();
+        Set<String> disableRuleWithAuth = Sets.newHashSet(originDisableRules);
+        disableRuleWithAuth.add(RuleType.RELATION_AUTHENTICATION.name());
+        ctx.getSessionVariable().setDisableNereidsRules(String.join(",", disableRuleWithAuth));
+        CascadesContext cascadesContext = createCascadesContext(sql, ctx);
+        cascadesContext.newAnalyzer().analyze();
+        ctx.getSessionVariable().setDisableNereidsRules(String.join(",", originDisableRules));
+        cascadesContext.toMemo();
+        return (LogicalPlan) cascadesContext.getRewritePlan();
+    }
+
+    // Parse an origin stmt and analyze it by nereids. Return a StatementBase instance.
+    public StatementBase analyzeAndGetStmtByNereids(String sql) {
+        return analyzeAndGetStmtByNereids(sql, connectContext);
+    }
+
+    // Parse an origin stmt and analyze it by nereids. Return a StatementBase instance.
+    public StatementBase analyzeAndGetStmtByNereids(String sql, ConnectContext ctx) {
+        Set<String> originDisableRules = ctx.getSessionVariable().getDisableNereidsRuleNames();
+        Set<String> disableRuleWithAuth = Sets.newHashSet(originDisableRules);
+        disableRuleWithAuth.add(RuleType.RELATION_AUTHENTICATION.name());
+        ctx.getSessionVariable().setDisableNereidsRules(String.join(",", disableRuleWithAuth));
+        CascadesContext cascadesContext = createCascadesContext(sql, ctx);
+        cascadesContext.newAnalyzer().analyze();
+        ctx.getSessionVariable().setDisableNereidsRules(String.join(",", originDisableRules));
+        cascadesContext.toMemo();
+        LogicalPlan plan = (LogicalPlan) cascadesContext.getRewritePlan();
+        LogicalPlanAdapter adapter = new LogicalPlanAdapter(plan, cascadesContext.getStatementContext());
+        adapter.setViewDdlSqls(cascadesContext.getStatementContext().getViewDdlSqls());
+        cascadesContext.getStatementContext().setParsedStatement(adapter);
+        return adapter;
     }
 
     protected ConnectContext createCtx(UserIdentity user, String host) throws IOException {
@@ -296,17 +353,25 @@ public abstract class TestWithFeService {
         if (!file.exists()) {
             file.mkdir();
         }
+        if (null != System.getenv("DORIS_HOME")) {
+            File metaDir = new File(Config.meta_dir);
+            if (!metaDir.exists()) {
+                metaDir.mkdir();
+            }
+        }
         System.out.println("CREATE FE SERVER DIR: " + Config.custom_config_dir);
 
         int feHttpPort = findValidPort();
         int feRpcPort = findValidPort();
         int feQueryPort = findValidPort();
+        int arrowFlightSqlPort = findValidPort();
         int feEditLogPort = findValidPort();
         Map<String, String> feConfMap = Maps.newHashMap();
         // set additional fe config
         feConfMap.put("http_port", String.valueOf(feHttpPort));
         feConfMap.put("rpc_port", String.valueOf(feRpcPort));
         feConfMap.put("query_port", String.valueOf(feQueryPort));
+        feConfMap.put("arrow_flight_sql_port", String.valueOf(arrowFlightSqlPort));
         feConfMap.put("edit_log_port", String.valueOf(feEditLogPort));
         feConfMap.put("tablet_create_timeout_second", "10");
         // start fe in "DORIS_HOME/fe/mocked/"
@@ -386,10 +451,11 @@ public abstract class TestWithFeService {
         int beThriftPort = findValidPort();
         int beBrpcPort = findValidPort();
         int beHttpPort = findValidPort();
+        int beArrowFlightSqlPort = findValidPort();
 
         // start be
         MockedBackend backend = MockedBackendFactory.createBackend(beHost, beHeartbeatPort, beThriftPort, beBrpcPort,
-                beHttpPort, new DefaultHeartbeatServiceImpl(beThriftPort, beHttpPort, beBrpcPort),
+                beHttpPort, beArrowFlightSqlPort, new DefaultHeartbeatServiceImpl(beThriftPort, beHttpPort, beBrpcPort, beArrowFlightSqlPort),
                 new DefaultBeThriftServiceImpl(), new DefaultPBackendServiceImpl());
         backend.setFeAddress(new TNetworkAddress("127.0.0.1", feRpcPort));
         backend.start();
@@ -408,6 +474,7 @@ public abstract class TestWithFeService {
         be.setBePort(beThriftPort);
         be.setHttpPort(beHttpPort);
         be.setBrpcPort(beBrpcPort);
+        be.setArrowFlightSqlPort(beArrowFlightSqlPort);
         Env.getCurrentSystemInfo().addBackend(be);
         return be;
     }

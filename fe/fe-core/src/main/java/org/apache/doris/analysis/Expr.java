@@ -84,6 +84,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     public static final String AGG_MERGE_SUFFIX = "_merge";
 
     protected boolean disableTableName = false;
+    protected boolean needToMysql = false;
 
     // to be used where we can't come up with a better estimate
     public static final double DEFAULT_SELECTIVITY = 0.1;
@@ -722,6 +723,16 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return false;
     }
 
+    public static void extractSlots(Expr root, Set<SlotId> slotIdSet) {
+        if (root instanceof SlotRef) {
+            slotIdSet.add(((SlotRef) root).getDesc().getId());
+            return;
+        }
+        for (Expr child : root.getChildren()) {
+            extractSlots(child, slotIdSet);
+        }
+    }
+
     /**
      * Returns an analyzed clone of 'this' with exprs substituted according to smap.
      * Removes implicit casts and analysis state while cloning/substituting exprs within
@@ -946,6 +957,13 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
     }
 
+    public void setNeedToMysql(boolean value) {
+        needToMysql = value;
+        for (Expr child : children) {
+            child.setNeedToMysql(value);
+        }
+    }
+
     public String toSqlWithoutTbl() {
         setDisableTableName(true);
         String result = toSql();
@@ -973,7 +991,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     }
 
     public String toMySql() {
-        return toSql();
+        setNeedToMysql(true);
+        String result =  toSql();
+        setNeedToMysql(false);
+        return result;
     }
 
     /**
@@ -1824,6 +1845,11 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             if (slot.getColumnName() != null && slot.getColumnName().equals(colName)) {
                 return true;
             }
+        } else if (this instanceof ColumnRefExpr) {
+            ColumnRefExpr slot = (ColumnRefExpr) this;
+            if (slot.getName() != null && slot.getName().equals(colName)) {
+                return true;
+            }
         }
         return false;
     }
@@ -1835,7 +1861,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      * Looks up in the catalog the builtin for 'name' and 'argTypes'.
      * Returns null if the function is not found.
      */
-    protected Function getBuiltinFunction(String name, Type[] argTypes, Function.CompareMode mode)
+    public Function getBuiltinFunction(String name, Type[] argTypes, Function.CompareMode mode)
             throws AnalysisException {
         FunctionName fnName = new FunctionName(name);
         Function searchDesc = new Function(fnName, Arrays.asList(getActualArgTypes(argTypes)), Type.INVALID, false,
@@ -2049,6 +2075,8 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             output.writeInt(ExprSerCode.INT_LITERAL.getCode());
         } else if (expr instanceof LargeIntLiteral) {
             output.writeInt(ExprSerCode.LARGE_INT_LITERAL.getCode());
+        } else if (expr instanceof DateLiteral) {
+            output.writeInt(ExprSerCode.DATE_LITERAL.getCode());
         } else if (expr instanceof FloatLiteral) {
             output.writeInt(ExprSerCode.FLOAT_LITERAL.getCode());
         } else if (expr instanceof DecimalLiteral) {
@@ -2100,6 +2128,8 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 return BoolLiteral.read(in);
             case INT_LITERAL:
                 return IntLiteral.read(in);
+            case DATE_LITERAL:
+                return DateLiteral.read(in);
             case LARGE_INT_LITERAL:
                 return LargeIntLiteral.read(in);
             case FLOAT_LITERAL:
@@ -2329,6 +2359,14 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         if (fn.functionName().equalsIgnoreCase("array_sortby")) {
             return children.get(0).isNullable();
         }
+        if (fn.functionName().equalsIgnoreCase("array_map")) {
+            for (int i = 1; i < children.size(); ++i) {
+                if (children.get(i).isNullable()) {
+                    return true;
+                }
+            }
+            return false;
+        }
         return true;
     }
 
@@ -2457,7 +2495,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
     }
 
-    protected  Type getActualScalarType(Type originType) {
+    protected Type getActualScalarType(Type originType) {
         if (originType.getPrimitiveType() == PrimitiveType.DECIMAL32) {
             return Type.DECIMAL32;
         } else if (originType.getPrimitiveType() == PrimitiveType.DECIMAL64) {
@@ -2466,12 +2504,16 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             return Type.DECIMAL128;
         } else if (originType.getPrimitiveType() == PrimitiveType.DATETIMEV2) {
             return Type.DATETIMEV2;
+        } else if (originType.getPrimitiveType() == PrimitiveType.DATEV2) {
+            return Type.DATEV2;
         } else if (originType.getPrimitiveType() == PrimitiveType.VARCHAR) {
             return Type.VARCHAR;
         } else if (originType.getPrimitiveType() == PrimitiveType.CHAR) {
             return Type.CHAR;
         } else if (originType.getPrimitiveType() == PrimitiveType.DECIMALV2) {
             return Type.MAX_DECIMALV2_TYPE;
+        } else if (originType.getPrimitiveType() == PrimitiveType.TIMEV2) {
+            return Type.TIMEV2;
         }
         return originType;
     }
@@ -2493,9 +2535,14 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 if (e instanceof FunctionCallExpr) {
                     FunctionCallExpr funcExpr = (FunctionCallExpr) e;
                     Function f = funcExpr.fn;
-                    if (f.getFunctionName().getFunction().equals("count")
-                            && funcExpr.children.stream().anyMatch(Expr::isConstant)) {
-                        return true;
+                    // Return true if count function include non-literal expr child.
+                    // In this case, agg output must be materialized whether outer query block required or not.
+                    if (f.getFunctionName().getFunction().equals("count")) {
+                        for (Expr expr : funcExpr.children) {
+                            if (expr.isConstant && !(expr instanceof LiteralExpr)) {
+                                return true;
+                            }
+                        }
                     }
                 }
                 return false;

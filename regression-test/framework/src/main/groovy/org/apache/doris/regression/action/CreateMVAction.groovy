@@ -63,8 +63,8 @@ class CreateMVAction implements SuiteAction {
             def tmp = doRun("SHOW ALTER TABLE MATERIALIZED VIEW ORDER BY CreateTime DESC LIMIT 1;")
             sqlResult = tmp.result[0]
             log.info("result: ${sqlResult}".toString())
-            if (tryTimes == 60 || sqlResult.contains("CANCELLED")) {
-                throw new IllegalStateException("MV create check times over limit");
+            if (tryTimes == 120 || sqlResult.contains("CANCELLED")) {
+                throw new IllegalStateException("MV create check times over limit, result='${sqlResult}'");
             }
             Thread.sleep(1200)
             tryTimes++

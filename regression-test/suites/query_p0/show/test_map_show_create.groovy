@@ -57,7 +57,6 @@ suite("test_map_show_create", "query") {
 
     try {
         sql "DROP TABLE IF EXISTS ${testTable}"
-        sql "ADMIN SET FRONTEND CONFIG ('enable_map_type' = 'true')"
 
         create_test_table.call(testTable)
 

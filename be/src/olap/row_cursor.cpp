@@ -54,8 +54,7 @@ Status RowCursor::_init(const std::vector<uint32_t>& columns) {
     _variable_len = 0;
     for (auto cid : columns) {
         if (_schema->column(cid) == nullptr) {
-            LOG(WARNING) << "Fail to create field.";
-            return Status::Error<INIT_FAILED>();
+            return Status::Error<INIT_FAILED>("Fail to malloc _fixed_buf.");
         }
         _variable_len += column_schema(cid)->get_variable_len();
         if (_schema->column(cid)->type() == FieldType::OLAP_FIELD_TYPE_STRING) {
@@ -66,8 +65,7 @@ Status RowCursor::_init(const std::vector<uint32_t>& columns) {
     _fixed_len = _schema->schema_size();
     _fixed_buf = new (nothrow) char[_fixed_len]();
     if (_fixed_buf == nullptr) {
-        LOG(WARNING) << "Fail to malloc _fixed_buf.";
-        return Status::Error<MEM_ALLOC_FAILED>();
+        return Status::Error<MEM_ALLOC_FAILED>("Fail to malloc _fixed_buf.");
     }
     _owned_fixed_buf = _fixed_buf;
 
@@ -145,11 +143,10 @@ Status RowCursor::init(const std::vector<TabletColumn>& schema) {
 
 Status RowCursor::init(TabletSchemaSPtr schema, size_t column_count) {
     if (column_count > schema->num_columns()) {
-        LOG(WARNING)
-                << "Input param are invalid. Column count is bigger than num_columns of schema. "
-                << "column_count=" << column_count
-                << ", schema.num_columns=" << schema->num_columns();
-        return Status::Error<INVALID_ARGUMENT>();
+        return Status::Error<INVALID_ARGUMENT>(
+                "Input param are invalid. Column count is bigger than num_columns of schema. "
+                "column_count={}, schema.num_columns={}",
+                column_count, schema->num_columns());
     }
 
     std::vector<uint32_t> columns;
@@ -162,10 +159,10 @@ Status RowCursor::init(TabletSchemaSPtr schema, size_t column_count) {
 
 Status RowCursor::init(const std::vector<TabletColumn>& schema, size_t column_count) {
     if (column_count > schema.size()) {
-        LOG(WARNING)
-                << "Input param are invalid. Column count is bigger than num_columns of schema. "
-                << "column_count=" << column_count << ", schema.num_columns=" << schema.size();
-        return Status::Error<INVALID_ARGUMENT>();
+        return Status::Error<INVALID_ARGUMENT>(
+                "Input param are invalid. Column count is bigger than num_columns of schema. "
+                "column_count={}, schema.num_columns={}",
+                column_count, schema.size());
     }
 
     std::vector<uint32_t> columns;
@@ -185,11 +182,10 @@ Status RowCursor::init_scan_key(TabletSchemaSPtr schema,
                                 const std::vector<std::string>& scan_keys) {
     size_t scan_key_size = scan_keys.size();
     if (scan_key_size > schema->num_columns()) {
-        LOG(WARNING)
-                << "Input param are invalid. Column count is bigger than num_columns of schema. "
-                << "column_count=" << scan_key_size
-                << ", schema.num_columns=" << schema->num_columns();
-        return Status::Error<INVALID_ARGUMENT>();
+        return Status::Error<INVALID_ARGUMENT>(
+                "Input param are invalid. Column count is bigger than num_columns of schema. "
+                "column_count={}, schema.num_columns={}",
+                scan_key_size, schema->num_columns());
     }
 
     std::vector<uint32_t> columns(scan_key_size);
@@ -265,9 +261,9 @@ Status RowCursor::build_min_key() {
 
 Status RowCursor::from_tuple(const OlapTuple& tuple) {
     if (tuple.size() != _schema->num_column_ids()) {
-        LOG(WARNING) << "column count does not match. tuple_size=" << tuple.size()
-                     << ", field_count=" << _schema->num_column_ids();
-        return Status::Error<INVALID_ARGUMENT>();
+        return Status::Error<INVALID_ARGUMENT>(
+                "column count does not match. tuple_size={}, field_count={}", tuple.size(),
+                _schema->num_column_ids());
     }
 
     for (size_t i = 0; i < tuple.size(); ++i) {
@@ -336,20 +332,17 @@ Status RowCursor::_alloc_buf() {
     // variable_len for null bytes
     _variable_buf = new (nothrow) char[_variable_len]();
     if (_variable_buf == nullptr) {
-        LOG(WARNING) << "Fail to malloc _variable_buf.";
-        return Status::Error<MEM_ALLOC_FAILED>();
+        return Status::Error<MEM_ALLOC_FAILED>("Fail to malloc _variable_buf.");
     }
     if (_string_field_count > 0) {
         _long_text_buf = (char**)malloc(_string_field_count * sizeof(char*));
         if (_long_text_buf == nullptr) {
-            LOG(WARNING) << "Fail to malloc _long_text_buf.";
-            return Status::Error<MEM_ALLOC_FAILED>();
+            return Status::Error<MEM_ALLOC_FAILED>("Fail to malloc _long_text_buf.");
         }
         for (int i = 0; i < _string_field_count; ++i) {
             _long_text_buf[i] = (char*)malloc(DEFAULT_TEXT_LENGTH * sizeof(char));
             if (_long_text_buf[i] == nullptr) {
-                LOG(WARNING) << "Fail to malloc _long_text_buf.";
-                return Status::Error<MEM_ALLOC_FAILED>();
+                return Status::Error<MEM_ALLOC_FAILED>("Fail to malloc _long_text_buf.");
             }
         }
     }

@@ -98,8 +98,6 @@ MutableColumnPtr ColumnMap::clone_resized(size_t to_size) const {
 
 // to support field functions
 Field ColumnMap::operator[](size_t n) const {
-    // Map is FieldVector, now we keep key value in seperate  , see in field.h
-    Map m(2);
     size_t start_offset = offset_at(n);
     size_t element_size = size_at(n);
 
@@ -116,9 +114,7 @@ Field ColumnMap::operator[](size_t n) const {
         v[i] = get_values()[start_offset + i];
     }
 
-    m.push_back(k);
-    m.push_back(v);
-    return m;
+    return Map {k, v};
 }
 
 // here to compare to below
@@ -169,6 +165,7 @@ void ColumnMap::pop_back(size_t n) {
 }
 
 void ColumnMap::insert_from(const IColumn& src_, size_t n) {
+    DCHECK(n < src_.size());
     const ColumnMap& src = assert_cast<const ColumnMap&>(src_);
     size_t size = src.size_at(n);
     size_t offset = src.offset_at(n);
@@ -253,26 +250,64 @@ void ColumnMap::update_hashes_with_value(std::vector<SipHash>& hashes,
     SIP_HASHES_FUNCTION_COLUMN_IMPL();
 }
 
-void ColumnMap::update_xxHash_with_value(size_t n, uint64_t& hash) const {
-    size_t kv_size = size_at(n);
-    size_t offset = offset_at(n);
-
-    hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&kv_size), sizeof(kv_size),
-                                      hash);
-    for (auto i = 0; i < kv_size; ++i) {
-        get_keys().update_xxHash_with_value(offset + i, hash);
-        get_values().update_xxHash_with_value(offset + i, hash);
+void ColumnMap::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                         const uint8_t* __restrict null_data) const {
+    auto& offsets = get_offsets();
+    if (null_data) {
+        for (size_t i = start; i < end; ++i) {
+            if (null_data[i] == 0) {
+                size_t kv_size = offsets[i] - offsets[i - 1];
+                if (kv_size == 0) {
+                    hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&kv_size),
+                                                      sizeof(kv_size), hash);
+                } else {
+                    get_keys().update_xxHash_with_value(offsets[i - 1], offsets[i], hash, nullptr);
+                    get_values().update_xxHash_with_value(offsets[i - 1], offsets[i], hash,
+                                                          nullptr);
+                }
+            }
+        }
+    } else {
+        for (size_t i = start; i < end; ++i) {
+            size_t kv_size = offsets[i] - offsets[i - 1];
+            if (kv_size == 0) {
+                hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&kv_size),
+                                                  sizeof(kv_size), hash);
+            } else {
+                get_keys().update_xxHash_with_value(offsets[i - 1], offsets[i], hash, nullptr);
+                get_values().update_xxHash_with_value(offsets[i - 1], offsets[i], hash, nullptr);
+            }
+        }
     }
 }
 
-void ColumnMap::update_crc_with_value(size_t n, uint64_t& crc) const {
-    size_t kv_size = size_at(n);
-    size_t offset = offset_at(n);
-
-    crc = HashUtil::zlib_crc_hash(reinterpret_cast<const char*>(&kv_size), sizeof(kv_size), crc);
-    for (size_t i = 0; i < kv_size; ++i) {
-        get_keys().update_crc_with_value(offset + i, crc);
-        get_values().update_crc_with_value(offset + i, crc);
+void ColumnMap::update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+                                      const uint8_t* __restrict null_data) const {
+    auto& offsets = get_offsets();
+    if (null_data) {
+        for (size_t i = start; i < end; ++i) {
+            if (null_data[i] == 0) {
+                size_t kv_size = offsets[i] - offsets[i - 1];
+                if (kv_size == 0) {
+                    hash = HashUtil::zlib_crc_hash(reinterpret_cast<const char*>(&kv_size),
+                                                   sizeof(kv_size), hash);
+                } else {
+                    get_keys().update_crc_with_value(offsets[i - 1], offsets[i], hash, nullptr);
+                    get_values().update_crc_with_value(offsets[i - 1], offsets[i], hash, nullptr);
+                }
+            }
+        }
+    } else {
+        for (size_t i = start; i < end; ++i) {
+            size_t kv_size = offsets[i] - offsets[i - 1];
+            if (kv_size == 0) {
+                hash = HashUtil::zlib_crc_hash(reinterpret_cast<const char*>(&kv_size),
+                                               sizeof(kv_size), hash);
+            } else {
+                get_keys().update_crc_with_value(offsets[i - 1], offsets[i], hash, nullptr);
+                get_values().update_crc_with_value(offsets[i - 1], offsets[i], hash, nullptr);
+            }
+        }
     }
 }
 
@@ -282,12 +317,12 @@ void ColumnMap::update_hashes_with_value(uint64_t* hashes, const uint8_t* null_d
         for (size_t i = 0; i < s; ++i) {
             // every row
             if (null_data[i] == 0) {
-                update_xxHash_with_value(i, hashes[i]);
+                update_xxHash_with_value(i, i + 1, hashes[i], nullptr);
             }
         }
     } else {
         for (size_t i = 0; i < s; ++i) {
-            update_xxHash_with_value(i, hashes[i]);
+            update_xxHash_with_value(i, i + 1, hashes[i], nullptr);
         }
     }
 }
@@ -301,12 +336,12 @@ void ColumnMap::update_crcs_with_value(std::vector<uint64_t>& hash, PrimitiveTyp
         for (size_t i = 0; i < s; ++i) {
             // every row
             if (null_data[i] == 0) {
-                update_crc_with_value(i, hash[i]);
+                update_crc_with_value(i, i + 1, hash[i], nullptr);
             }
         }
     } else {
         for (size_t i = 0; i < s; ++i) {
-            update_crc_with_value(i, hash[i]);
+            update_crc_with_value(i, i + 1, hash[i], nullptr);
         }
     }
 }
@@ -381,7 +416,7 @@ Status ColumnMap::filter_by_selector(const uint16_t* sel, size_t sel_size, IColu
         max_offset = std::max(max_offset, offset_at(sel[i]));
     }
     if (max_offset > std::numeric_limits<uint16_t>::max()) {
-        return Status::IOError("map elements too large than uint16_t::max");
+        return Status::Corruption("map elements too large than uint16_t::max");
     }
 
     to_offsets.reserve(to_offsets.size() + sel_size);
@@ -429,6 +464,16 @@ ColumnPtr ColumnMap::replicate(const Offsets& offsets) const {
                                  assert_cast<const ColumnArray&>(*v_arr).get_data_ptr(),
                                  assert_cast<const ColumnArray&>(*k_arr).get_offsets_ptr());
     return res;
+}
+
+void ColumnMap::replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const {
+    auto& res = reinterpret_cast<ColumnMap&>(column);
+
+    // Make a temp column array for reusing its replicate function
+    ColumnArray::create(keys_column->assume_mutable(), offsets_column->assume_mutable())
+            ->replicate(indexs, target_size, res.keys_column->assume_mutable_ref());
+    ColumnArray::create(values_column->assume_mutable(), offsets_column->assume_mutable())
+            ->replicate(indexs, target_size, res.values_column->assume_mutable_ref());
 }
 
 void ColumnMap::reserve(size_t n) {

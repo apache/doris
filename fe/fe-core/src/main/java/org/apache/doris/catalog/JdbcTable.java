@@ -41,12 +41,15 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Setter
 public class JdbcTable extends Table {
     private static final Logger LOG = LogManager.getLogger(JdbcTable.class);
 
     private static final String TABLE = "table";
+    private static final String REAL_DATABASE = "real_database";
+    private static final String REAL_TABLE = "real_table";
     private static final String RESOURCE = "resource";
     private static final String TABLE_TYPE = "table_type";
     private static final String URL = "jdbc_url";
@@ -58,6 +61,11 @@ public class JdbcTable extends Table {
     private static Map<String, TOdbcTableType> TABLE_TYPE_MAP;
     private String resourceName;
     private String externalTableName;
+
+    // real name only for jdbc catalog
+    private String realDatabaseName;
+    private String realTableName;
+
     private String jdbcTypeName;
 
     private String jdbcUrl;
@@ -99,10 +107,12 @@ public class JdbcTable extends Table {
 
     public String getInsertSql(List<String> insertCols) {
         StringBuilder sb = new StringBuilder("INSERT INTO ");
-
-        sb.append(databaseProperName(TABLE_TYPE_MAP.get(getTableTypeName()), getExternalTableName()));
+        sb.append(getProperRealFullTableName(TABLE_TYPE_MAP.get(getTableTypeName())));
         sb.append("(");
-        sb.append(String.join(",", insertCols));
+        List<String> transformedInsertCols = insertCols.stream()
+                .map(col -> databaseProperName(TABLE_TYPE_MAP.get(getTableTypeName()), col))
+                .collect(Collectors.toList());
+        sb.append(String.join(",", transformedInsertCols));
         sb.append(")");
         sb.append(" VALUES (");
         for (int i = 0; i < insertCols.size(); ++i) {
@@ -188,6 +198,8 @@ public class JdbcTable extends Table {
         serializeMap.put(DRIVER_CLASS, driverClass);
         serializeMap.put(DRIVER_URL, driverUrl);
         serializeMap.put(CHECK_SUM, checkSum);
+        serializeMap.put(REAL_DATABASE, realDatabaseName);
+        serializeMap.put(REAL_TABLE, realTableName);
 
         int size = (int) serializeMap.values().stream().filter(v -> {
             return v != null;
@@ -222,6 +234,8 @@ public class JdbcTable extends Table {
         driverClass = serializeMap.get(DRIVER_CLASS);
         driverUrl = serializeMap.get(DRIVER_URL);
         checkSum = serializeMap.get(CHECK_SUM);
+        realDatabaseName = serializeMap.get(REAL_DATABASE);
+        realTableName = serializeMap.get(REAL_TABLE);
     }
 
     public String getResourceName() {
@@ -230,6 +244,23 @@ public class JdbcTable extends Table {
 
     public String getJdbcTable() {
         return externalTableName;
+    }
+
+    public String getRealDatabaseName() {
+        return realDatabaseName;
+    }
+
+    public String getRealTableName() {
+        return realTableName;
+    }
+
+    public String getProperRealFullTableName(TOdbcTableType tableType) {
+        if (realDatabaseName == null || realTableName == null) {
+            return databaseProperName(tableType, externalTableName);
+        } else {
+            return properNameWithRealName(tableType, realDatabaseName) + "." + properNameWithRealName(tableType,
+                    realTableName);
+        }
     }
 
     public String getTableTypeName() {
@@ -312,7 +343,8 @@ public class JdbcTable extends Table {
 
         String urlType = jdbcUrl.split(":")[1];
         if (!jdbcTypeName.equalsIgnoreCase(urlType)) {
-            if (!(jdbcTypeName.equalsIgnoreCase("oceanbase_oracle") && urlType.equalsIgnoreCase("oceanbase"))) {
+            if (!(jdbcTypeName.equalsIgnoreCase("oceanbase_oracle") && urlType.equalsIgnoreCase("oceanbase"))
+                    && !(jdbcTypeName.equalsIgnoreCase("sap_hana") && urlType.equalsIgnoreCase("sap"))) {
                 throw new DdlException("property " + TABLE_TYPE + " must be same with resource url");
             }
         }
@@ -337,7 +369,7 @@ public class JdbcTable extends Table {
      * @return The formatted name.
      */
     public static String formatName(String name, String wrapStart, String wrapEnd, boolean toUpperCase,
-                                    boolean toLowerCase) {
+            boolean toLowerCase) {
         int index = name.indexOf(".");
         if (index == -1) { // No dot in the name
             String newName = toUpperCase ? name.toUpperCase() : name;
@@ -387,5 +419,29 @@ public class JdbcTable extends Table {
             default:
                 return name;
         }
+    }
+
+    public static String properNameWithRealName(TOdbcTableType tableType, String name) {
+        switch (tableType) {
+            case MYSQL:
+            case OCEANBASE:
+                return formatNameWithRealName(name, "`", "`");
+            case SQLSERVER:
+                return formatNameWithRealName(name, "[", "]");
+            case POSTGRESQL:
+            case CLICKHOUSE:
+            case TRINO:
+            case PRESTO:
+            case OCEANBASE_ORACLE:
+            case ORACLE:
+            case SAP_HANA:
+                return formatNameWithRealName(name, "\"", "\"");
+            default:
+                return name;
+        }
+    }
+
+    public static String formatNameWithRealName(String name, String wrapStart, String wrapEnd) {
+        return wrapStart + name + wrapEnd;
     }
 }

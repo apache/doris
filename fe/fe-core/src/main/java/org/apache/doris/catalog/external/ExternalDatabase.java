@@ -20,6 +20,7 @@ package org.apache.doris.catalog.external;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DatabaseProperty;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
@@ -44,6 +45,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -73,6 +75,8 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     protected Map<String, Long> tableNameToId = Maps.newConcurrentMap();
     @SerializedName(value = "idToTbl")
     protected Map<Long, T> idToTbl = Maps.newConcurrentMap();
+    @SerializedName(value = "lastUpdateTime")
+    protected long lastUpdateTime;
     protected final InitDatabaseLog.Type dbLogType;
     protected ExternalCatalog extCatalog;
     protected boolean invalidCacheInInit = true;
@@ -147,6 +151,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         }
         tableNameToId = tmpTableNameToId;
         idToTbl = tmpIdToTbl;
+        lastUpdateTime = log.getLastUpdateTime();
         initialized = true;
     }
 
@@ -179,6 +184,10 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             tableNameToId = tmpTableNameToId;
             idToTbl = tmpIdToTbl;
         }
+
+        long currentTime = System.currentTimeMillis();
+        lastUpdateTime = currentTime;
+        initDatabaseLog.setLastUpdateTime(lastUpdateTime);
         initialized = true;
         Env.getCurrentEnv().getEditLog().logInitExternalDb(initDatabaseLog);
     }
@@ -307,6 +316,14 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         return idToTbl.get(tableId);
     }
 
+    public long getLastUpdateTime() {
+        return lastUpdateTime;
+    }
+
+    public void setLastUpdateTime(long lastUpdateTime) {
+        this.lastUpdateTime = lastUpdateTime;
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
@@ -332,13 +349,22 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         throw new NotImplementedException("dropTable() is not implemented");
     }
 
+    public void dropTableForReplay(String tableName) {
+        throw new NotImplementedException("replayDropTableFromEvent() is not implemented");
+    }
+
     @Override
     public CatalogIf getCatalog() {
         return extCatalog;
     }
 
     // Only used for sync hive metastore event
-    public void replayCreateTableFromEvent(String tableName, long tableId) {
+    public void createTableForReplay(String tableName, long tableId) {
         throw new NotImplementedException("createTable() is not implemented");
+    }
+
+    @Override
+    public Map<Long, TableIf> getIdToTable() {
+        return new HashMap<>(idToTbl);
     }
 }

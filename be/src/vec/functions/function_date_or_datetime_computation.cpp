@@ -89,7 +89,7 @@ using FunctionLocalTimestamp =
         FunctionCurrentDateOrDateTime<CurrentDateTimeImpl<LocalTimestampFunctionName, false>>;
 
 using FunctionNowWithPrecision =
-        FunctionCurrentDateOrDateTime<CurrentDateTimeImpl<NowFunctionName, true>, false>;
+        FunctionCurrentDateOrDateTime<CurrentDateTimeImpl<NowFunctionName, true>>;
 using FunctionCurrentTimestampWithPrecision =
         FunctionCurrentDateOrDateTime<CurrentDateTimeImpl<CurrentTimestampFunctionName, true>>;
 using FunctionLocalTimeWithPrecision =
@@ -123,6 +123,10 @@ using FunctionCurTime = FunctionCurrentDateOrDateTime<CurrentTimeImpl<CurTimeFun
 using FunctionCurrentTime = FunctionCurrentDateOrDateTime<CurrentTimeImpl<CurrentTimeFunctionName>>;
 using FunctionUtcTimeStamp = FunctionCurrentDateOrDateTime<UtcTimestampImpl>;
 using FunctionTimeToSec = FunctionCurrentDateOrDateTime<TimeToSecImpl>;
+using FunctionSecToTime = FunctionCurrentDateOrDateTime<SecToTimeImpl>;
+using FunctionMicroSecToDateTime = TimestampToDateTime<MicroSec>;
+using FunctionMilliSecToDateTime = TimestampToDateTime<MilliSec>;
+using FunctionSecToDateTime = TimestampToDateTime<Sec>;
 
 /// @TEMPORARY: for be_exec_version=2
 using FunctionToWeekTwoArgsOld =
@@ -177,6 +181,10 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionCurrentTime>();
     factory.register_function<FunctionUtcTimeStamp>();
     factory.register_function<FunctionTimeToSec>();
+    factory.register_function<FunctionSecToTime>();
+    factory.register_function<FunctionMicroSecToDateTime>();
+    factory.register_function<FunctionMilliSecToDateTime>();
+    factory.register_function<FunctionSecToDateTime>();
 
     // alias
     factory.register_alias("days_add", "date_add");

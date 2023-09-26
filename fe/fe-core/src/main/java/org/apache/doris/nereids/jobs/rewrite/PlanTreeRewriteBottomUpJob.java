@@ -21,6 +21,7 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 
 import java.util.List;
 import java.util.Objects;
@@ -102,7 +103,10 @@ public class PlanTreeRewriteBottomUpJob extends PlanTreeRewriteJob {
             Plan child = children.get(i);
             RewriteJobContext childRewriteJobContext = new RewriteJobContext(
                     child, clearedStateContext, i, false);
-            pushJob(new PlanTreeRewriteBottomUpJob(childRewriteJobContext, context, rules));
+            // NOTICE: this relay on pull up cte anchor
+            if (!(rewriteJobContext.plan instanceof LogicalCTEAnchor)) {
+                pushJob(new PlanTreeRewriteBottomUpJob(childRewriteJobContext, context, rules));
+            }
         }
     }
 
@@ -142,7 +146,10 @@ public class PlanTreeRewriteBottomUpJob extends PlanTreeRewriteJob {
             // we should transform this new plan nodes too.
             RewriteJobContext childRewriteJobContext = new RewriteJobContext(
                     child, rewriteJobContext, i, false);
-            pushJob(new PlanTreeRewriteBottomUpJob(childRewriteJobContext, context, rules));
+            // NOTICE: this relay on pull up cte anchor
+            if (!(rewriteJobContext.plan instanceof LogicalCTEAnchor)) {
+                pushJob(new PlanTreeRewriteBottomUpJob(childRewriteJobContext, context, rules));
+            }
         }
     }
 

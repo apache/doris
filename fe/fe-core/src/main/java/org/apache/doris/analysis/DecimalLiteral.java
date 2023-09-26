@@ -333,14 +333,6 @@ public class DecimalLiteral extends LiteralExpr {
         return fracPart.intValue();
     }
 
-    public void roundCeiling() {
-        roundCeiling(0);
-    }
-
-    public void roundFloor() {
-        roundFloor(0);
-    }
-
     public void roundCeiling(int newScale) {
         value = value.setScale(newScale, RoundingMode.CEILING);
         type = ScalarType.createDecimalType(((ScalarType) type)

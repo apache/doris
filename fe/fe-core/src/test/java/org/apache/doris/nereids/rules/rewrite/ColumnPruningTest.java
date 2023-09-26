@@ -62,7 +62,7 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
                 .analyze("select id,name,grade from student left join score on student.id = score.sid"
                         + " where score.grade > 60")
                 .customRewrite(new ColumnPruning())
-                .matchesFromRoot(
+                .matches(
                         logicalProject(
                                 logicalFilter(
                                         logicalProject(
@@ -94,7 +94,7 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
                         + "from student left join score on student.id = score.sid "
                         + "where score.grade > 60")
                 .customRewrite(new ColumnPruning())
-                .matchesFromRoot(
+                .matches(
                         logicalProject(
                                 logicalFilter(
                                         logicalProject(
@@ -124,7 +124,7 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
         PlanChecker.from(connectContext)
                 .analyze("select id,name from student where age > 18")
                 .customRewrite(new ColumnPruning())
-                .matchesFromRoot(
+                .matches(
                         logicalProject(
                                 logicalFilter(
                                         logicalProject().when(p -> getOutputQualifiedNames(p)
@@ -146,7 +146,7 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
                         + "on score.cid = course.cid "
                         + "where score.grade > 60")
                 .customRewrite(new ColumnPruning())
-                .matchesFromRoot(
+                .matches(
                         logicalProject(
                                 logicalFilter(
                                         logicalProject(
@@ -184,7 +184,7 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
         PlanChecker.from(connectContext)
                 .analyze("SELECT COUNT(*) FROM test.course")
                 .customRewrite(new ColumnPruning())
-                .matchesFromRoot(
+                .matches(
                         logicalAggregate(
                                 logicalProject(
                                         logicalOlapScan()
@@ -199,7 +199,7 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
         PlanChecker.from(connectContext)
                 .analyze("SELECT COUNT(1) FROM test.course")
                 .customRewrite(new ColumnPruning())
-                .matchesFromRoot(
+                .matches(
                         logicalAggregate(
                                 logicalProject(
                                         logicalOlapScan()
@@ -214,7 +214,7 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
         PlanChecker.from(connectContext)
                 .analyze("SELECT COUNT(1), SUM(2) FROM test.course")
                 .customRewrite(new ColumnPruning())
-                .matchesFromRoot(
+                .matches(
                         logicalAggregate(
                                 logicalProject(
                                         logicalOlapScan()
@@ -229,7 +229,7 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
         PlanChecker.from(connectContext)
                 .analyze("SELECT COUNT(*), SUM(2) FROM test.course")
                 .customRewrite(new ColumnPruning())
-                .matchesFromRoot(
+                .matches(
                         logicalAggregate(
                                 logicalProject(
                                         logicalOlapScan()
@@ -244,7 +244,7 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
         PlanChecker.from(connectContext)
                 .analyze("SELECT COUNT(*), SUM(grade) FROM test.score")
                 .customRewrite(new ColumnPruning())
-                .matchesFromRoot(
+                .matches(
                         logicalAggregate(
                                 logicalProject(
                                         logicalOlapScan()
@@ -259,7 +259,7 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
         PlanChecker.from(connectContext)
                 .analyze("SELECT COUNT(*), SUM(grade) + SUM(2) FROM test.score")
                 .customRewrite(new ColumnPruning())
-                .matchesFromRoot(
+                .matches(
                         logicalAggregate(
                                 logicalProject(
                                         logicalOlapScan()
@@ -274,7 +274,7 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
         PlanChecker.from(connectContext)
                 .analyze("select id,name from student cross join score")
                 .customRewrite(new ColumnPruning())
-                .matchesFromRoot(
+                .matches(
                         logicalProject(
                                     logicalJoin(
                                             logicalProject(logicalRelation())
@@ -296,18 +296,19 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
         PlanChecker.from(connectContext)
                 .analyze("select id from (select id, sum(age) from student group by id)a")
                 .customRewrite(new ColumnPruning())
-                .matchesFromRoot(
+                .matches(
                         logicalProject(
                             logicalSubQueryAlias(
-                                logicalAggregate(
                                     logicalProject(
-                                        logicalOlapScan()
-                                    ).when(p -> getOutputQualifiedNames(p).equals(
-                                            ImmutableList.of("default_cluster:test.student.id")
-                                    ))
-                                ).when(agg -> getOutputQualifiedNames(agg.getOutputs()).equals(
-                                        ImmutableList.of("default_cluster:test.student.id")
-                                ))
+                                        logicalAggregate(
+                                            logicalProject(
+                                                logicalOlapScan()
+                                            ).when(p -> getOutputQualifiedNames(p).equals(
+                                                    ImmutableList.of("default_cluster:test.student.id")
+                                            ))
+                                        ).when(agg -> getOutputQualifiedNames(agg.getOutputs()).equals(
+                                                ImmutableList.of("default_cluster:test.student.id")
+                                )))
                             )
                         )
                 );

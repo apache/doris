@@ -56,10 +56,7 @@ namespace doris::vectorized {
 
 const std::string AGG_STATE_SUFFIX = "_state";
 
-VectorizedFnCall::VectorizedFnCall(const TExprNode& node) : VExpr(node) {
-    _expr_name = fmt::format("VectorizedFnCall[{}](arguments={},return={})", _fn.name.function_name,
-                             get_child_names(), _data_type->get_name());
-}
+VectorizedFnCall::VectorizedFnCall(const TExprNode& node) : VExpr(node) {}
 
 Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
                                  VExprContext* context) {
@@ -69,6 +66,9 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
     for (auto child : _children) {
         argument_template.emplace_back(nullptr, child->data_type(), child->expr_name());
     }
+
+    _expr_name = fmt::format("VectorizedFnCall[{}](arguments={},return={})", _fn.name.function_name,
+                             get_child_names(), _data_type->get_name());
 
     if (_fn.binary_type == TFunctionBinaryType::RPC) {
         _function = FunctionRPC::create(_fn, argument_template, _data_type);
@@ -121,8 +121,13 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
 
 Status VectorizedFnCall::open(RuntimeState* state, VExprContext* context,
                               FunctionContext::FunctionStateScope scope) {
-    RETURN_IF_ERROR(VExpr::open(state, context, scope));
+    for (int i = 0; i < _children.size(); ++i) {
+        RETURN_IF_ERROR(_children[i]->open(state, context, scope));
+    }
     RETURN_IF_ERROR(VExpr::init_function_context(context, scope, _function));
+    if (scope == FunctionContext::FRAGMENT_LOCAL) {
+        RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
+    }
     return Status::OK();
 }
 

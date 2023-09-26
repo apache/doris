@@ -25,6 +25,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.external.FileSplit.FileSplitCreator;
 import org.apache.doris.qe.ConnectContext;
@@ -32,6 +33,7 @@ import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
+import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanNode;
 import org.apache.doris.thrift.TFileScanRangeParams;
@@ -60,7 +62,7 @@ import java.util.Map;
 public abstract class FileScanNode extends ExternalScanNode {
     private static final Logger LOG = LogManager.getLogger(FileScanNode.class);
 
-    public static final long DEFAULT_SPLIT_SIZE = 128 * 1024 * 1024; // 128MB
+    public static final long DEFAULT_SPLIT_SIZE = 8 * 1024 * 1024; // 8MB
 
     // For explain
     protected long inputSplitsNum = 0;
@@ -69,16 +71,21 @@ public abstract class FileScanNode extends ExternalScanNode {
     protected long readPartitionNum = 0;
 
     public FileScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType,
-                            boolean needCheckColumnPriv) {
+            boolean needCheckColumnPriv) {
         super(id, desc, planNodeName, statisticalType, needCheckColumnPriv);
         this.needCheckColumnPriv = needCheckColumnPriv;
     }
 
     @Override
     protected void toThrift(TPlanNode planNode) {
+        planNode.setPushDownAggTypeOpt(pushDownAggNoGroupingOp);
+
         planNode.setNodeType(TPlanNodeType.FILE_SCAN_NODE);
         TFileScanNode fileScanNode = new TFileScanNode();
         fileScanNode.setTupleId(desc.getId().asInt());
+        if (desc.getTable() != null) {
+            fileScanNode.setTableName(desc.getTable().getName());
+        }
         planNode.setFileScanNode(fileScanNode);
     }
 
@@ -153,6 +160,7 @@ public abstract class FileScanNode extends ExternalScanNode {
             output.append(String.format("avgRowSize=%s, ", avgRowSize));
         }
         output.append(String.format("numNodes=%s", numNodes)).append("\n");
+        output.append(prefix).append(String.format("pushdown agg=%s", pushDownAggNoGroupingOp)).append("\n");
 
         return output.toString();
     }
@@ -170,6 +178,7 @@ public abstract class FileScanNode extends ExternalScanNode {
             if (column.getDefaultValue() != null) {
                 if (column.getDefaultValueExprDef() != null) {
                     expr = column.getDefaultValueExpr();
+                    expr.analyze(analyzer);
                 } else {
                     expr = new StringLiteral(column.getDefaultValue());
                 }
@@ -214,19 +223,20 @@ public abstract class FileScanNode extends ExternalScanNode {
         if (blockLocations == null) {
             blockLocations = new BlockLocation[0];
         }
+        List<Split> result = Lists.newArrayList();
+        TFileCompressType compressType = Util.inferFileCompressTypeByPath(path.toString());
+        if (!splittable || compressType != TFileCompressType.PLAIN) {
+            LOG.debug("Path {} is not splittable.", path);
+            String[] hosts = blockLocations.length == 0 ? null : blockLocations[0].getHosts();
+            result.add(splitCreator.create(path, 0, length, length, modificationTime, hosts, partitionValues));
+            return result;
+        }
         long splitSize = ConnectContext.get().getSessionVariable().getFileSplitSize();
         if (splitSize <= 0) {
             splitSize = blockSize;
         }
         // Min split size is DEFAULT_SPLIT_SIZE(128MB).
         splitSize = Math.max(splitSize, DEFAULT_SPLIT_SIZE);
-        List<Split> result = Lists.newArrayList();
-        if (!splittable) {
-            LOG.debug("Path {} is not splittable.", path);
-            String[] hosts = blockLocations.length == 0 ? null : blockLocations[0].getHosts();
-            result.add(splitCreator.create(path, 0, length, length, modificationTime, hosts, partitionValues));
-            return result;
-        }
         long bytesRemaining;
         for (bytesRemaining = length; (double) bytesRemaining / (double) splitSize > 1.1D;
                 bytesRemaining -= splitSize) {
@@ -259,5 +269,9 @@ public abstract class FileScanNode extends ExternalScanNode {
         BlockLocation last = blkLocations[blkLocations.length - 1];
         long fileLength = last.getOffset() + last.getLength() - 1L;
         throw new IllegalArgumentException(String.format("Offset %d is outside of file (0..%d)", offset, fileLength));
+    }
+
+    public long getReadPartitionNum() {
+        return this.readPartitionNum;
     }
 }

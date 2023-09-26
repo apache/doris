@@ -86,7 +86,8 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
     public String toString() {
         return Utils.toSqlString("LogicalLimit",
                 "limit", limit,
-                "offset", offset
+                "offset", offset,
+                "phase", phase
         );
     }
 
@@ -103,7 +104,7 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        LogicalLimit that = (LogicalLimit) o;
+        LogicalLimit<?> that = (LogicalLimit<?>) o;
         return limit == that.limit && offset == that.offset && phase == that.phase;
     }
 
@@ -122,8 +123,10 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
     }
 
     @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalLimit<>(limit, offset, phase, Optional.empty(), logicalProperties, child());
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new LogicalLimit<>(limit, offset, phase, groupExpression, logicalProperties, children.get(0));
     }
 
     @Override

@@ -41,5 +41,19 @@ private:
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
                                   int row_idx, bool col_const) const;
 };
+class DataTypeTimeV2SerDe : public DataTypeNumberSerDe<Float64> {
+public:
+    DataTypeTimeV2SerDe(int scale = 0) : scale(scale) {};
+    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
+                                 int row_idx, bool col_const) const override;
+    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
+                                 int row_idx, bool col_const) const override;
+
+private:
+    template <bool is_binary_format>
+    Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
+                                  int row_idx, bool col_const) const;
+    int scale;
+};
 } // namespace vectorized
 } // namespace doris

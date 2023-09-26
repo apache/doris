@@ -76,13 +76,17 @@ After deploying the cluster according to 'Enable FQDN for new cluster', if you w
 Precondition: The current program supports the syntax 'Alter SYSTEM MODIFY FRONTEND'<fe_ip>:<edit_log_port>'HOSTNAME'<fe_hostname>',
 If not, upgrade to a version that supports the syntax
 
+>Note that.
+>
+> At least three followers are required to perform the following operations, otherwise the cluster may not start properly
+
 Next, follow the steps below:
 
 1. Perform the following operations on the Follower and Observer nodes one by one (and finally on the Master node):
 
    1. Stop the node.
    2. Check if the node has stopped. Execute 'show frontends' through the MySQL client to view the Alive status of the FE node until it becomes false
-   3. set FQDN for node: `ALTER SYSTEM MODIFY FRONTEND "<fe_ip>:<edit_log_port>" HOSTNAME "<fe_hostname>"`
+   3. set FQDN for node: `ALTER SYSTEM MODIFY FRONTEND "<fe_ip>:<edit_log_port>" HOSTNAME "<fe_hostname>"`(After stopping the master, a new master node will be selected and used to execute SQL statements)
    4. Modify node configuration. Modify the 'conf/fe. conf' file in the FE root directory and add the configuration: `enable_fqdn_mode = true`
    5. Start the node.
 

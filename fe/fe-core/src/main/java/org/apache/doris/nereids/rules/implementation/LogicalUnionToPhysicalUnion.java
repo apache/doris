@@ -29,6 +29,8 @@ public class LogicalUnionToPhysicalUnion extends OneImplementationRuleFactory {
     public Rule build() {
         return logicalUnion().then(union ->
             new PhysicalUnion(union.getQualifier(),
+                    union.getOutputs(),
+                    union.getRegularChildrenOutputs(),
                     union.getConstantExprsList(),
                     union.getLogicalProperties(),
                     union.children())

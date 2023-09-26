@@ -227,8 +227,7 @@ struct TypeDescriptor {
     }
 
     bool is_complex_type() const {
-        return type == TYPE_STRUCT || type == TYPE_ARRAY || type == TYPE_MAP ||
-               type == TYPE_VARIANT;
+        return type == TYPE_STRUCT || type == TYPE_ARRAY || type == TYPE_MAP;
     }
 
     bool is_collection_type() const { return type == TYPE_ARRAY || type == TYPE_MAP; }
@@ -240,6 +239,8 @@ struct TypeDescriptor {
     bool is_bitmap_type() const { return type == TYPE_OBJECT; }
 
     bool is_variant_type() const { return type == TYPE_VARIANT; }
+
+    bool is_json_type() const { return type == TYPE_JSONB; }
 
     static inline int get_decimal_byte_size(int precision) {
         DCHECK_GT(precision, 0);

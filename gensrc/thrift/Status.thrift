@@ -69,7 +69,7 @@ enum TStatusCode {
     NOT_AUTHORIZED      = 38,
     ABORTED             = 39,
     REMOTE_ERROR        = 40,
-    SERVICE_UNAVAILABLE = 41,
+    //SERVICE_UNAVAILABLE = 41, // Not used any more
     UNINITIALIZED       = 42,
     CONFIGURATION_ERROR = 43,
     INCOMPLETE          = 44,
@@ -94,6 +94,13 @@ enum TStatusCode {
 
     // Snapshot Related from 70
     SNAPSHOT_NOT_EXIST = 70,
+
+    // BE Status HTTP_ERROR
+    HTTP_ERROR = 71,
+
+    TABLET_MISSING = 72,
+
+    NOT_MASTER = 73,
 }
 
 struct TStatus {

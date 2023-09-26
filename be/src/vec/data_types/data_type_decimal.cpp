@@ -87,13 +87,17 @@ void DataTypeDecimal<T>::to_string(const IColumn& column, size_t row_num,
 template <typename T>
 Status DataTypeDecimal<T>::from_string(ReadBuffer& rb, IColumn* column) const {
     auto& column_data = static_cast<ColumnType&>(*column).get_data();
-    T val = 0;
-    if (!read_decimal_text_impl<T>(val, rb, precision, scale)) {
-        return Status::InvalidArgument("parse decimal fail, string: '{}'",
-                                       std::string(rb.position(), rb.count()).c_str());
+    T val {};
+    StringParser::ParseResult res =
+            read_decimal_text_impl<DataTypeDecimalSerDe<T>::get_primitive_type(), T>(
+                    val, rb, precision, scale);
+    if (res == StringParser::PARSE_SUCCESS || res == StringParser::PARSE_UNDERFLOW) {
+        column_data.emplace_back(val);
+        return Status::OK();
     }
-    column_data.emplace_back(val);
-    return Status::OK();
+    return Status::InvalidArgument("parse decimal fail, string: '{}', primitive type: '{}'",
+                                   std::string(rb.position(), rb.count()).c_str(),
+                                   DataTypeDecimalSerDe<T>::get_primitive_type());
 }
 
 // binary: row_num | value1 | value2 | ...
@@ -140,7 +144,7 @@ void DataTypeDecimal<T>::to_pb_column_meta(PColumnMeta* col_meta) const {
 
 template <typename T>
 Field DataTypeDecimal<T>::get_default() const {
-    return DecimalField(T(0), scale);
+    return DecimalField(T(), scale);
 }
 template <typename T>
 MutableColumnPtr DataTypeDecimal<T>::create_column() const {
@@ -156,8 +160,8 @@ MutableColumnPtr DataTypeDecimal<T>::create_column() const {
 template <typename T>
 bool DataTypeDecimal<T>::parse_from_string(const std::string& str, T* res) const {
     StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-    *res = StringParser::string_to_decimal<__int128>(str.c_str(), str.size(), precision, scale,
-                                                     &result);
+    res->value = StringParser::string_to_decimal<DataTypeDecimalSerDe<T>::get_primitive_type()>(
+            str.c_str(), str.size(), precision, scale, &result);
     return result == StringParser::PARSE_SUCCESS;
 }
 
@@ -208,49 +212,6 @@ Decimal128I DataTypeDecimal<Decimal128I>::get_scale_multiplier(UInt32 scale) {
     return common::exp10_i128(scale);
 }
 
-template <typename T>
-typename T::NativeType max_decimal_value(UInt32 precision) {
-    return 0;
-}
-template <>
-Int32 max_decimal_value<Decimal32>(UInt32 precision) {
-    return 999999999 / DataTypeDecimal<Decimal32>::get_scale_multiplier(
-                               (UInt32)(max_decimal_precision<Decimal32>() - precision));
-}
-template <>
-Int64 max_decimal_value<Decimal64>(UInt32 precision) {
-    return 999999999999999999 / DataTypeDecimal<Decimal64>::get_scale_multiplier(
-                                        (UInt64)max_decimal_precision<Decimal64>() - precision);
-}
-template <>
-Int128 max_decimal_value<Decimal128>(UInt32 precision) {
-    return (static_cast<int128_t>(999999999999999999ll) * 100000000000000000ll * 1000ll +
-            static_cast<int128_t>(99999999999999999ll) * 1000ll + 999ll) /
-           DataTypeDecimal<Decimal128>::get_scale_multiplier(
-                   (UInt64)max_decimal_precision<Decimal128>() - precision);
-}
-
-template <typename T>
-typename T::NativeType min_decimal_value(UInt32 precision) {
-    return 0;
-}
-template <>
-Int32 min_decimal_value<Decimal32>(UInt32 precision) {
-    return -999999999 / DataTypeDecimal<Decimal32>::get_scale_multiplier(
-                                (UInt32)max_decimal_precision<Decimal32>() - precision);
-}
-template <>
-Int64 min_decimal_value<Decimal64>(UInt32 precision) {
-    return -999999999999999999 / DataTypeDecimal<Decimal64>::get_scale_multiplier(
-                                         (UInt64)max_decimal_precision<Decimal64>() - precision);
-}
-template <>
-Int128 min_decimal_value<Decimal128>(UInt32 precision) {
-    return -(static_cast<int128_t>(999999999999999999ll) * 100000000000000000ll * 1000ll +
-             static_cast<int128_t>(99999999999999999ll) * 1000ll + 999ll) /
-           DataTypeDecimal<Decimal128>::get_scale_multiplier(
-                   (UInt64)max_decimal_precision<Decimal128>() - precision);
-}
 /// Explicit template instantiations.
 template class DataTypeDecimal<Decimal32>;
 template class DataTypeDecimal<Decimal64>;

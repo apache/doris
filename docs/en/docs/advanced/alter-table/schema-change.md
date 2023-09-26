@@ -280,6 +280,7 @@ SHOW ALTER TABLE COLUMN\G;
 * `alter_tablet_worker_count`: Number of threads used to perform historical data conversion on the BE side. The default is 3. If you want to speed up the Schema Change job, you can increase this parameter appropriately and restart the BE. But too many conversion threads can cause increased IO pressure and affect other operations. This thread is shared with the Rollup job.
 
 
+* `alter_index_worker_count`: Number of threads used to perform historical data build index on the BE size (note: only inverted index is supported now). The default is 3. If you want to speed up the Index Change job, you can increase this parameter appropriately and restart the BE. But too many threads can cause increased IO pressure and affect other operations.
 
 ## More Help
 

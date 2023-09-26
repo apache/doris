@@ -51,10 +51,6 @@ bool is_type_compatible(PrimitiveType lhs, PrimitiveType rhs) {
     return lhs == rhs;
 }
 
-TExprOpcode::type to_in_opcode(PrimitiveType t) {
-    return TExprOpcode::FILTER_IN;
-}
-
 PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
     switch (ttype) {
     case TPrimitiveType::INVALID_TYPE:
@@ -156,6 +152,8 @@ PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
     case TPrimitiveType::AGG_STATE:
         return TYPE_AGG_STATE;
 
+    case TPrimitiveType::VARIANT:
+        return TYPE_VARIANT;
     default:
         CHECK(false) << ", meet unknown type " << ttype;
         return INVALID_TYPE;
@@ -220,6 +218,9 @@ TPrimitiveType::type to_thrift(PrimitiveType ptype) {
 
     case TYPE_JSONB:
         return TPrimitiveType::JSONB;
+
+    case TYPE_VARIANT:
+        return TPrimitiveType::VARIANT;
 
     case TYPE_BINARY:
         return TPrimitiveType::BINARY;

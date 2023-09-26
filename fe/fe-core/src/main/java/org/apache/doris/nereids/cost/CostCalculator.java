@@ -43,13 +43,9 @@ public class CostCalculator {
                 && childrenProperties.get(1).getDistributionSpec() instanceof DistributionSpecReplicated) {
             planContext.setBroadcastJoin();
         }
-        if (ConnectContext.get().getSessionVariable().getEnableNewCostModel()) {
-            CostModelV2 costModelV2 = new CostModelV2();
-            return groupExpression.getPlan().accept(costModelV2, planContext);
-        } else {
-            CostModelV1 costModelV1 = new CostModelV1();
-            return groupExpression.getPlan().accept(costModelV1, planContext);
-        }
+
+        CostModelV1 costModelV1 = new CostModelV1();
+        return groupExpression.getPlan().accept(costModelV1, planContext);
     }
 
     /**

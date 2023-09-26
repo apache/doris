@@ -64,6 +64,15 @@ VMetaScanner::VMetaScanner(RuntimeState* state, VMetaScanNode* parent, int64_t t
           _user_identity(user_identity),
           _scan_range(scan_range.scan_range) {}
 
+VMetaScanner::VMetaScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state,
+                           int64_t tuple_id, const TScanRangeParams& scan_range, int64_t limit,
+                           RuntimeProfile* profile, TUserIdentity user_identity)
+        : VScanner(state, local_state, limit, profile),
+          _meta_eos(false),
+          _tuple_id(tuple_id),
+          _user_identity(user_identity),
+          _scan_range(scan_range.scan_range) {}
+
 Status VMetaScanner::open(RuntimeState* state) {
     VLOG_CRITICAL << "VMetaScanner::open";
     RETURN_IF_ERROR(VScanner::open(state));
@@ -213,8 +222,14 @@ Status VMetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
     case TMetadataType::FRONTENDS:
         RETURN_IF_ERROR(_build_frontends_metadata_request(meta_scan_range, &request));
         break;
+    case TMetadataType::FRONTENDS_DISKS:
+        RETURN_IF_ERROR(_build_frontends_disks_metadata_request(meta_scan_range, &request));
+        break;
     case TMetadataType::WORKLOAD_GROUPS:
         RETURN_IF_ERROR(_build_workload_groups_metadata_request(meta_scan_range, &request));
+        break;
+    case TMetadataType::CATALOGS:
+        RETURN_IF_ERROR(_build_catalogs_metadata_request(meta_scan_range, &request));
         break;
     default:
         _meta_eos = true;
@@ -239,7 +254,7 @@ Status VMetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
             },
             time_out));
 
-    Status status(result.status);
+    Status status(Status::create(result.status));
     if (!status.ok()) {
         LOG(WARNING) << "fetch schema table data from master failed, errmsg=" << status;
         return status;
@@ -306,6 +321,25 @@ Status VMetaScanner::_build_frontends_metadata_request(const TMetaScanRange& met
     return Status::OK();
 }
 
+Status VMetaScanner::_build_frontends_disks_metadata_request(
+        const TMetaScanRange& meta_scan_range, TFetchSchemaTableDataRequest* request) {
+    VLOG_CRITICAL << "VMetaScanner::_build_frontends_metadata_request";
+    if (!meta_scan_range.__isset.frontends_params) {
+        return Status::InternalError("Can not find TFrontendsMetadataParams from meta_scan_range.");
+    }
+    // create request
+    request->__set_cluster_name("");
+    request->__set_schema_table_name(TSchemaTableName::METADATA_TABLE);
+
+    // create TMetadataTableRequestParams
+    TMetadataTableRequestParams metadata_table_params;
+    metadata_table_params.__set_metadata_type(TMetadataType::FRONTENDS_DISKS);
+    metadata_table_params.__set_frontends_metadata_params(meta_scan_range.frontends_params);
+
+    request->__set_metada_table_params(metadata_table_params);
+    return Status::OK();
+}
+
 Status VMetaScanner::_build_workload_groups_metadata_request(
         const TMetaScanRange& meta_scan_range, TFetchSchemaTableDataRequest* request) {
     VLOG_CRITICAL << "VMetaScanner::_build_workload_groups_metadata_request";
@@ -318,6 +352,21 @@ Status VMetaScanner::_build_workload_groups_metadata_request(
     TMetadataTableRequestParams metadata_table_params;
     metadata_table_params.__set_metadata_type(TMetadataType::WORKLOAD_GROUPS);
     metadata_table_params.__set_current_user_ident(_user_identity);
+
+    request->__set_metada_table_params(metadata_table_params);
+    return Status::OK();
+}
+
+Status VMetaScanner::_build_catalogs_metadata_request(const TMetaScanRange& meta_scan_range,
+                                                      TFetchSchemaTableDataRequest* request) {
+    VLOG_CRITICAL << "VMetaScanner::_build_catalogs_metadata_request";
+
+    // create request
+    request->__set_schema_table_name(TSchemaTableName::METADATA_TABLE);
+
+    // create TMetadataTableRequestParams
+    TMetadataTableRequestParams metadata_table_params;
+    metadata_table_params.__set_metadata_type(TMetadataType::CATALOGS);
 
     request->__set_metada_table_params(metadata_table_params);
     return Status::OK();

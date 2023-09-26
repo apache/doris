@@ -95,10 +95,6 @@ public class LogicalProperties {
         return outputExprIdsSupplier.get();
     }
 
-    public LogicalProperties withOutput(List<Slot> output) {
-        return new LogicalProperties(Suppliers.ofInstance(output));
-    }
-
     @Override
     public String toString() {
         return "LogicalProperties{"

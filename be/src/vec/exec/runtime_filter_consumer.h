@@ -45,6 +45,8 @@ protected:
     // Append late-arrival runtime filters to the vconjunct_ctx.
     Status _append_rf_into_conjuncts(const VExprSPtrs& vexprs);
 
+    void _init_profile(RuntimeProfile* profile);
+
     void _prepare_rf_timer(RuntimeProfile* profile);
 
     // For runtime filters
@@ -61,13 +63,13 @@ protected:
     std::vector<bool> _runtime_filter_ready_flag;
     doris::Mutex _rf_locks;
     phmap::flat_hash_set<VExprSPtr> _rf_vexpr_set;
-
-private:
     RuntimeState* _state;
 
+private:
     int32_t _filter_id;
 
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
+    std::list<vectorized::VExprContextSPtr> _probe_ctxs;
 
     const RowDescriptor& _row_descriptor_ref;
 

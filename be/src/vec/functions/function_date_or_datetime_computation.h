@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <cstdint>
 #include <memory>
 #include <type_traits>
 #include <utility>
@@ -147,6 +148,7 @@ extern ResultType date_time_add(const Arg& t, Int64 delta, bool& is_null) {
     }
 
 ADD_TIME_FUNCTION_IMPL(AddMicrosecondsImpl, microseconds_add, MICROSECOND);
+ADD_TIME_FUNCTION_IMPL(AddMillisecondsImpl, milliseconds_add, MILLISECOND);
 ADD_TIME_FUNCTION_IMPL(AddSecondsImpl, seconds_add, SECOND);
 ADD_TIME_FUNCTION_IMPL(AddMinutesImpl, minutes_add, MINUTE);
 ADD_TIME_FUNCTION_IMPL(AddHoursImpl, hours_add, HOUR);
@@ -207,6 +209,11 @@ struct SubtractIntervalImpl {
 template <typename DateType>
 struct SubtractMicrosecondsImpl : SubtractIntervalImpl<AddMicrosecondsImpl<DateType>, DateType> {
     static constexpr auto name = "microseconds_sub";
+};
+
+template <typename DateType>
+struct SubtractMillisecondsImpl : SubtractIntervalImpl<AddMillisecondsImpl<DateType>, DateType> {
+    static constexpr auto name = "milliseconds_sub";
 };
 
 template <typename DateType>
@@ -281,8 +288,48 @@ struct SubtractYearsImpl : SubtractIntervalImpl<AddYearsImpl<DateType>, DateType
         }                                                                                          \
     };
 DECLARE_DATE_FUNCTIONS(DateDiffImpl, datediff, DataTypeInt32, (ts0.daynr() - ts1.daynr()));
-DECLARE_DATE_FUNCTIONS(TimeDiffImpl, timediff, DataTypeTime, ts0.second_diff(ts1));
+// DECLARE_DATE_FUNCTIONS(TimeDiffImpl, timediff, DataTypeTime, ts0.second_diff(ts1));
+// Expands to
+template <typename DateType1, typename DateType2>
+struct TimeDiffImpl {
+    using ArgType1 = std ::conditional_t<
+            std ::is_same_v<DateType1, DataTypeDateV2>, UInt32,
+            std ::conditional_t<std ::is_same_v<DateType1, DataTypeDateTimeV2>, UInt64, Int64>>;
+    using ArgType2 = std ::conditional_t<
+            std ::is_same_v<DateType2, DataTypeDateV2>, UInt32,
+            std ::conditional_t<std ::is_same_v<DateType2, DataTypeDateTimeV2>, UInt64, Int64>>;
+    using DateValueType1 = std ::conditional_t<
+            std ::is_same_v<DateType1, DataTypeDateV2>, DateV2Value<DateV2ValueType>,
+            std ::conditional_t<std ::is_same_v<DateType1, DataTypeDateTimeV2>,
+                                DateV2Value<DateTimeV2ValueType>, VecDateTimeValue>>;
+    using DateValueType2 = std ::conditional_t<
+            std ::is_same_v<DateType2, DataTypeDateV2>, DateV2Value<DateV2ValueType>,
+            std ::conditional_t<std ::is_same_v<DateType2, DataTypeDateTimeV2>,
+                                DateV2Value<DateTimeV2ValueType>, VecDateTimeValue>>;
+    static constexpr bool UsingTimev2 = std::is_same_v<DateType1, DataTypeDateTimeV2> ||
+                                        std::is_same_v<DateType2, DataTypeDateTimeV2> ||
+                                        std::is_same_v<DateType1, DataTypeDateV2> ||
+                                        std::is_same_v<DateType2, DataTypeDateV2>;
 
+    using ReturnType = DataTypeTimeV2;
+
+    static constexpr auto name = "timediff";
+    static constexpr auto is_nullable = false;
+    static inline ReturnType ::FieldType execute(const ArgType1& t0, const ArgType2& t1,
+                                                 bool& is_null) {
+        const auto& ts0 = reinterpret_cast<const DateValueType1&>(t0);
+        const auto& ts1 = reinterpret_cast<const DateValueType2&>(t1);
+        is_null = !ts0.is_valid_date() || !ts1.is_valid_date();
+        if constexpr (UsingTimev2) {
+            return ts0.microsecond_diff(ts1);
+        } else {
+            return (1000 * 1000) * ts0.second_diff(ts1);
+        }
+    }
+    static DataTypes get_variadic_argument_types() {
+        return {std ::make_shared<DateType1>(), std ::make_shared<DateType2>()};
+    }
+};
 #define TIME_DIFF_FUNCTION_IMPL(CLASS, NAME, UNIT) \
     DECLARE_DATE_FUNCTIONS(CLASS, NAME, DataTypeInt64, datetime_diff<TimeUnit::UNIT>(ts1, ts0))
 
@@ -293,6 +340,8 @@ TIME_DIFF_FUNCTION_IMPL(DaysDiffImpl, days_diff, DAY);
 TIME_DIFF_FUNCTION_IMPL(HoursDiffImpl, hours_diff, HOUR);
 TIME_DIFF_FUNCTION_IMPL(MintueSDiffImpl, minutes_diff, MINUTE);
 TIME_DIFF_FUNCTION_IMPL(SecondsDiffImpl, seconds_diff, SECOND);
+TIME_DIFF_FUNCTION_IMPL(MilliSecondsDiffImpl, milliseconds_diff, MILLISECOND);
+TIME_DIFF_FUNCTION_IMPL(MicroSecondsDiffImpl, microseconds_diff, MICROSECOND);
 
 #define TIME_FUNCTION_TWO_ARGS_IMPL(CLASS, NAME, FUNCTION, RETURN_TYPE)                           \
     template <typename DateType>                                                                  \
@@ -793,7 +842,7 @@ public:
     }
 };
 
-template <typename FunctionImpl, bool DefaultNullable = true>
+template <typename FunctionImpl>
 class FunctionCurrentDateOrDateTime : public IFunction {
 public:
     static constexpr bool has_variadic_argument =
@@ -805,8 +854,6 @@ public:
     String get_name() const override { return name; }
 
     size_t get_number_of_arguments() const override { return 0; }
-
-    bool use_default_implementation_for_nulls() const override { return DefaultNullable; }
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
         return std::make_shared<typename FunctionImpl::ReturnType>();
@@ -1007,7 +1054,7 @@ struct CurrentDateImpl {
 
 template <typename FunctionName>
 struct CurrentTimeImpl {
-    using ReturnType = DataTypeTime;
+    using ReturnType = DataTypeTimeV2;
     static constexpr auto name = FunctionName::name;
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           size_t result, size_t input_rows_count) {
@@ -1016,6 +1063,7 @@ struct CurrentTimeImpl {
         if (dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
                               context->state()->timezone_obj())) {
             double time = dtv.hour() * 3600l + dtv.minute() * 60l + dtv.second();
+            time *= (1000 * 1000);
             col_to->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&time)), 0);
         } else {
             auto invalid_val = 0;
@@ -1032,24 +1080,84 @@ struct TimeToSecImpl {
     static constexpr auto name = "time_to_sec";
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           size_t result, size_t input_rows_count) {
-        auto res_col = ColumnVector<Int32>::create();
-        const auto& [argument_column, arg_is_const] =
-                unpack_if_const(block.get_by_position(arguments[0]).column);
-        const auto& column_data = assert_cast<const ColumnFloat64&>(*argument_column);
-        if (arg_is_const) {
-            double time = column_data.get_element(0);
-            res_col->insert_value(static_cast<int>(time));
-            block.replace_by_position(result,
-                                      ColumnConst::create(std::move(res_col), input_rows_count));
-        } else {
-            auto& res_data = res_col->get_data();
-            res_data.resize(input_rows_count);
-            for (int i = 0; i < input_rows_count; ++i) {
-                double time = column_data.get_element(i);
-                res_data[i] = static_cast<int>(time);
-            }
-            block.replace_by_position(result, std::move(res_col));
+        auto res_col = ColumnInt32::create(input_rows_count);
+        const auto& arg_col = block.get_by_position(arguments[0]).column;
+        const auto& column_data = assert_cast<const ColumnFloat64&>(*arg_col);
+
+        auto& res_data = res_col->get_data();
+        for (int i = 0; i < input_rows_count; ++i) {
+            res_data[i] = static_cast<int64_t>(column_data.get_element(i)) / (1000 * 1000);
         }
+        block.replace_by_position(result, std::move(res_col));
+
+        return Status::OK();
+    }
+};
+
+struct SecToTimeImpl {
+    using ReturnType = DataTypeTimeV2;
+    static constexpr auto name = "sec_to_time";
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          size_t result, size_t input_rows_count) {
+        const auto& arg_col = block.get_by_position(arguments[0]).column;
+        const auto& column_data = assert_cast<const ColumnInt32&>(*arg_col);
+
+        auto res_col = ColumnFloat64::create(input_rows_count);
+        auto& res_data = res_col->get_data();
+        for (int i = 0; i < input_rows_count; ++i) {
+            res_data[i] = (1000 * 1000) * static_cast<double>(column_data.get_element(i));
+        }
+
+        block.replace_by_position(result, std::move(res_col));
+        return Status::OK();
+    }
+};
+struct MicroSec {
+    static constexpr auto name = "from_microsecond";
+    static constexpr Int64 ratio = 1000000;
+};
+struct MilliSec {
+    static constexpr auto name = "from_millisecond";
+    static constexpr Int64 ratio = 1000;
+};
+struct Sec {
+    static constexpr auto name = "from_second";
+    static constexpr Int64 ratio = 1;
+};
+template <typename Impl>
+struct TimestampToDateTime : IFunction {
+    using ReturnType = DataTypeDateTimeV2;
+    static constexpr auto name = Impl::name;
+    static constexpr Int64 ratio_to_micro = (1000 * 1000) / Impl::ratio;
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
+        return make_nullable(std::make_shared<ReturnType>());
+    }
+
+    static FunctionPtr create() { return std::make_shared<TimestampToDateTime<Impl>>(); }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        const auto& arg_col = block.get_by_position(arguments[0]).column;
+        const auto& column_data = assert_cast<const ColumnInt64&>(*arg_col);
+        auto res_col = ColumnUInt64::create();
+        auto null_vector = ColumnVector<UInt8>::create();
+        res_col->get_data().resize_fill(input_rows_count, 0);
+        null_vector->get_data().resize_fill(input_rows_count, false);
+        NullMap& null_map = null_vector->get_data();
+        auto& res_data = res_col->get_data();
+        const cctz::time_zone& time_zone = context->state()->timezone_obj();
+        for (int i = 0; i < input_rows_count; ++i) {
+            Int64 value = column_data.get_element(i);
+            auto& dt = reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(res_data[i]);
+            null_map[i] = !dt.from_unixtime(value / Impl::ratio, time_zone);
+            dt.set_microsecond((value % Impl::ratio) * ratio_to_micro);
+        }
+        block.get_by_position(result).column =
+                ColumnNullable::create(std::move(res_col), std::move(null_vector));
         return Status::OK();
     }
 };

@@ -49,7 +49,9 @@ class RowSourcesBuffer;
 class VerticalBlockReader final : public TabletReader {
 public:
     VerticalBlockReader(RowSourcesBuffer* row_sources_buffer)
-            : _row_sources_buffer(row_sources_buffer) {}
+            : _row_sources_buffer(row_sources_buffer) {
+        _id = nextId++;
+    }
 
     ~VerticalBlockReader() override;
 
@@ -58,8 +60,8 @@ public:
 
     Status next_block_with_aggregation(Block* block, bool* eof) override {
         auto res = (this->*_next_block_func)(block, eof);
-        if (UNLIKELY(res.is_io_error())) {
-            _tablet->increase_io_error_times();
+        if (UNLIKELY(!res.ok() && !res.is<ErrorCode::END_OF_FILE>())) {
+            _tablet->report_error(res);
         }
         return res;
     }
@@ -68,7 +70,10 @@ public:
         DCHECK(_vcollect_iter);
         return _vcollect_iter->merged_rows();
     }
+
     std::vector<RowLocation> current_block_row_locations() { return _block_row_locations; }
+
+    static uint64_t nextId;
 
 private:
     // Directly read row from rowset and pass to upper caller. No need to do aggregation.
@@ -95,6 +100,7 @@ private:
     void _update_agg_value(MutableColumns& columns, int begin, int end, bool is_close = true);
 
 private:
+    size_t _id;
     std::shared_ptr<RowwiseIterator> _vcollect_iter;
     IteratorRowRef _next_row {{}, -1, false};
 

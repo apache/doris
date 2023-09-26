@@ -139,8 +139,10 @@ public:
     StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;
     const char* deserialize_and_insert_from_arena(const char* pos) override;
     void update_hash_with_value(size_t n, SipHash& hash) const override;
-    void update_xxHash_with_value(size_t n, uint64_t& hash) const override;
-    void update_crc_with_value(size_t n, uint64_t& crc) const override;
+    void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                  const uint8_t* __restrict null_data) const override;
+    void update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+                               const uint8_t* __restrict null_data) const override;
 
     void update_hashes_with_value(std::vector<SipHash>& hashes,
                                   const uint8_t* __restrict null_data) const override;
@@ -175,8 +177,7 @@ public:
     size_t allocated_bytes() const override;
     void protect() override;
     ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override;
-    void replicate(const uint32_t* counts, size_t target_size, IColumn& column, size_t begin = 0,
-                   int count_sz = -1) const override;
+    void replicate(const uint32_t* counts, size_t target_size, IColumn& column) const override;
     ColumnPtr convert_to_full_column_if_const() const override;
     void get_extremes(Field& min, Field& max) const override {
         LOG(FATAL) << "get_extremes not implemented";
@@ -209,6 +210,10 @@ public:
         return scatter_impl<ColumnArray>(num_columns, selector);
     }
 
+    size_t ALWAYS_INLINE offset_at(ssize_t i) const { return get_offsets()[i - 1]; }
+    size_t ALWAYS_INLINE size_at(ssize_t i) const {
+        return get_offsets()[i] - get_offsets()[i - 1];
+    }
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
         return append_data_by_selector_impl<ColumnArray>(res, selector);
@@ -256,11 +261,6 @@ private:
     // [[[2,1,5],[9,1]], [[1,2]]] --> data column [3 column array], offset[-1] = 0, offset[0] = 2, offset[1] = 3
     WrappedPtr data;
     WrappedPtr offsets;
-
-    size_t ALWAYS_INLINE offset_at(ssize_t i) const { return get_offsets()[i - 1]; }
-    size_t ALWAYS_INLINE size_at(ssize_t i) const {
-        return get_offsets()[i] - get_offsets()[i - 1];
-    }
 
     /// Multiply values if the nested column is ColumnVector<T>.
     template <typename T>

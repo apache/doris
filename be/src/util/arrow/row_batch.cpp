@@ -37,6 +37,8 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/types.h"
+#include "util/arrow/block_convertor.h"
+#include "vec/core/block.h"
 
 namespace doris {
 
@@ -65,10 +67,12 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
     case TYPE_TIME:
         *result = arrow::float64();
         break;
+    case TYPE_LARGEINT:
+        *result = arrow::fixed_size_binary(sizeof(int128_t));
+        break;
     case TYPE_VARCHAR:
     case TYPE_CHAR:
     case TYPE_HLL:
-    case TYPE_LARGEINT:
     case TYPE_DATE:
     case TYPE_DATETIME:
     case TYPE_DATEV2:
@@ -184,6 +188,18 @@ Status serialize_record_batch(const arrow::RecordBatch& record_batch, std::strin
         return Status::InternalError("Close failed, reason: {}", a_st.ToString());
     }
     return Status::OK();
+}
+
+Status serialize_arrow_schema(RowDescriptor row_desc, std::shared_ptr<arrow::Schema>* schema,
+                              std::string* result) {
+    std::vector<SlotDescriptor*> slots;
+    for (auto tuple_desc : row_desc.tuple_descriptors()) {
+        slots.insert(slots.end(), tuple_desc->slots().begin(), tuple_desc->slots().end());
+    }
+    auto block = vectorized::Block(slots, 0);
+    std::shared_ptr<arrow::RecordBatch> batch;
+    RETURN_IF_ERROR(convert_to_arrow_batch(block, *schema, arrow::default_memory_pool(), &batch));
+    return serialize_record_batch(*batch, result);
 }
 
 } // namespace doris

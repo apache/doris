@@ -29,6 +29,8 @@ public class LogicalExceptToPhysicalExcept extends OneImplementationRuleFactory 
     public Rule build() {
         return logicalExcept().then(except ->
                 new PhysicalExcept(except.getQualifier(),
+                        except.getOutputs(),
+                        except.getRegularChildrenOutputs(),
                         except.getLogicalProperties(),
                         except.children())
         ).toRule(RuleType.LOGICAL_EXCEPT_TO_PHYSICAL_EXCEPT);

@@ -55,11 +55,18 @@ public class PruneOlapScanTablet extends OneRewriteRuleFactory {
                     LogicalOlapScan olapScan = filter.child();
                     OlapTable table = olapScan.getTable();
                     Builder<Long> selectedTabletIdsBuilder = ImmutableList.builder();
-                    for (Long id : olapScan.getSelectedPartitionIds()) {
-                        Partition partition = table.getPartition(id);
-                        MaterializedIndex index = partition.getIndex(olapScan.getSelectedIndexId());
-                        selectedTabletIdsBuilder.addAll(getSelectedTabletIds(filter.getConjuncts(),
-                                index, partition.getDistributionInfo()));
+                    if (olapScan.getSelectedTabletIds().isEmpty()) {
+                        for (Long id : olapScan.getSelectedPartitionIds()) {
+                            Partition partition = table.getPartition(id);
+                            MaterializedIndex index = partition.getIndex(olapScan.getSelectedIndexId());
+                            selectedTabletIdsBuilder
+                                    .addAll(getSelectedTabletIds(filter.getConjuncts(), index,
+                                            olapScan.getSelectedIndexId() == olapScan.getTable()
+                                                    .getBaseIndexId(),
+                                            partition.getDistributionInfo()));
+                        }
+                    } else {
+                        selectedTabletIdsBuilder.addAll(olapScan.getSelectedTabletIds());
                     }
                     List<Long> selectedTabletIds = selectedTabletIdsBuilder.build();
                     if (new HashSet(selectedTabletIds).equals(new HashSet(olapScan.getSelectedTabletIds()))) {
@@ -70,7 +77,7 @@ public class PruneOlapScanTablet extends OneRewriteRuleFactory {
     }
 
     private Collection<Long> getSelectedTabletIds(Set<Expression> expressions,
-            MaterializedIndex index, DistributionInfo info) {
+            MaterializedIndex index, boolean isBaseIndexSelected, DistributionInfo info) {
         if (info.getType() != DistributionInfoType.HASH) {
             return index.getTabletIdsInOrder();
         }
@@ -81,7 +88,8 @@ public class PruneOlapScanTablet extends OneRewriteRuleFactory {
         return new HashDistributionPruner(index.getTabletIdsInOrder(),
                 hashInfo.getDistributionColumns(),
                 filterMap,
-                hashInfo.getBucketNum()
+                hashInfo.getBucketNum(),
+                isBaseIndexSelected
         ).prune();
     }
 }

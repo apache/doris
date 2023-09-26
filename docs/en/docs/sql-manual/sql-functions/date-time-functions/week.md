@@ -1,6 +1,6 @@
 ---
 {
-    "title": "week",
+    "title": "WEEK",
     "language": "en"
 }
 ---

@@ -248,7 +248,7 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
     int64_t duration_ns = 0;
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
     if (master_addr.hostname.empty() || master_addr.port == 0) {
-        status = Status::ServiceUnavailable("Have not get FE Master heartbeat yet");
+        status = Status::Error<SERVICE_UNAVAILABLE>("Have not get FE Master heartbeat yet");
     } else {
         SCOPED_RAW_TIMER(&duration_ns);
 #ifndef BE_TEST
@@ -260,7 +260,7 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
 #else
         result = k_stream_load_begin_result;
 #endif
-        status = Status(result.status);
+        status = Status::create(result.status);
     }
     g_stream_load_begin_txn_latency << duration_ns / 1000;
     if (!status.ok()) {
@@ -303,7 +303,7 @@ Status StreamLoadExecutor::pre_commit_txn(StreamLoadContext* ctx) {
     // Return if this transaction is precommitted successful; otherwise, we need try
     // to
     // rollback this transaction
-    Status status(result.status);
+    Status status(Status::create(result.status));
     if (!status.ok()) {
         LOG(WARNING) << "precommit transaction failed, errmsg=" << status << ctx->brief();
         if (status.is<PUBLISH_TIMEOUT>()) {
@@ -321,9 +321,12 @@ Status StreamLoadExecutor::operate_txn_2pc(StreamLoadContext* ctx) {
     TLoadTxn2PCRequest request;
     set_request_auth(&request, ctx->auth);
     request.__set_db(ctx->db);
-    request.__set_txnId(ctx->txn_id);
     request.__set_operation(ctx->txn_operation);
     request.__set_thrift_rpc_timeout_ms(config::txn_commit_rpc_timeout_ms);
+    request.__set_label(ctx->label);
+    if (ctx->txn_id != ctx->default_txn_id) {
+        request.__set_txnId(ctx->txn_id);
+    }
 
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
     TLoadTxn2PCResult result;
@@ -338,7 +341,7 @@ Status StreamLoadExecutor::operate_txn_2pc(StreamLoadContext* ctx) {
                 config::txn_commit_rpc_timeout_ms));
     }
     g_stream_load_commit_txn_latency << duration_ns / 1000;
-    Status status(result.status);
+    Status status(Status::create(result.status));
     if (!status.ok()) {
         LOG(WARNING) << "2PC commit transaction failed, errmsg=" << status;
         return status;
@@ -394,7 +397,7 @@ Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
     // Return if this transaction is committed successful; otherwise, we need try
     // to
     // rollback this transaction
-    Status status(result.status);
+    Status status(Status::create(result.status));
     if (!status.ok()) {
         LOG(WARNING) << "commit transaction failed, errmsg=" << status << ", " << ctx->brief();
         if (status.is<PUBLISH_TIMEOUT>()) {

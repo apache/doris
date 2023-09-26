@@ -266,7 +266,7 @@ create table doris_test.all_types (
   `int` int,
   `bigint` bigint,
   `date` date,
-  `timestamp` timestamp(4),
+  `timestamp` timestamp(4) null,
   `datetime` datetime,
   `float` float,
   `double` double,
@@ -304,3 +304,20 @@ CREATE TABLE doris_test.dt (
 CREATE TABLE doris_test.dt_null (
   `dt` datetime NOT NULL
 ) ENGINE=INNODB CHARSET=utf8;
+
+CREATE VIEW doris_test.mysql_view as
+select 10086 as col_1, 4294967295 as col_2, tinyint_u as col_3  from doris_test.all_types where tinyint_u=201;
+
+CREATE TABLE show_test_do_not_modify.ex_tb0 (
+  `id` int PRIMARY KEY,
+  `name` varchar(128)
+);
+
+CREATE TABLE show_test_do_not_modify.ex_tb1 (
+  id varchar(128)
+);
+
+CREATE TABLE show_test_do_not_modify.ex_tb2 (
+  id int,
+  count_value varchar(20)
+);

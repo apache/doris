@@ -20,10 +20,13 @@ package org.apache.doris.tablefunction;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.property.constants.HMSProperties;
+import org.apache.doris.planner.external.iceberg.IcebergMetadataCache;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TBackendsMetadataParams;
@@ -59,6 +62,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
+
+
 public class MetadataGenerator {
     private static final Logger LOG = LogManager.getLogger(MetadataGenerator.class);
 
@@ -78,8 +83,14 @@ public class MetadataGenerator {
             case FRONTENDS:
                 result = frontendsMetadataResult(params);
                 break;
+            case FRONTENDS_DISKS:
+                result = frontendsDisksMetadataResult(params);
+                break;
             case WORKLOAD_GROUPS:
                 result = workloadGroupsMetadataResult(params);
+                break;
+            case CATALOGS:
+                result = catalogsMetadataResult(params);
                 break;
             default:
                 return errorResult("Metadata table params is not set.");
@@ -102,21 +113,22 @@ public class MetadataGenerator {
         if (!params.isSetIcebergMetadataParams()) {
             return errorResult("Iceberg metadata params is not set.");
         }
+
         TIcebergMetadataParams icebergMetadataParams =  params.getIcebergMetadataParams();
-        HMSExternalCatalog catalog = (HMSExternalCatalog) Env.getCurrentEnv().getCatalogMgr()
-                .getCatalog(icebergMetadataParams.getCatalog());
-        org.apache.iceberg.Table table;
-        try {
-            table = getIcebergTable(catalog, icebergMetadataParams.getDatabase(), icebergMetadataParams.getTable());
-        } catch (MetaNotFoundException e) {
-            return errorResult(e.getMessage());
-        }
-        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
-        List<TRow> dataBatch = Lists.newArrayList();
         TIcebergQueryType icebergQueryType = icebergMetadataParams.getIcebergQueryType();
+        IcebergMetadataCache icebergMetadataCache = Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache();
+        List<TRow> dataBatch = Lists.newArrayList();
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+
         switch (icebergQueryType) {
             case SNAPSHOTS:
-                for (Snapshot snapshot : table.snapshots()) {
+                List<Snapshot> snapshotList;
+                try {
+                    snapshotList = icebergMetadataCache.getSnapshotList(icebergMetadataParams);
+                } catch (UserException e) {
+                    return errorResult(e.getMessage());
+                }
+                for (Snapshot snapshot : snapshotList) {
                     TRow trow = new TRow();
                     LocalDateTime committedAt = LocalDateTime.ofInstant(Instant.ofEpochMilli(
                             snapshot.timestampMillis()), TimeUtils.getTimeZone().toZoneId());
@@ -176,6 +188,7 @@ public class MetadataGenerator {
                 trow.addToColumnValue(new TCell().setIntVal(backend.getBePort()));
                 trow.addToColumnValue(new TCell().setIntVal(backend.getHttpPort()));
                 trow.addToColumnValue(new TCell().setIntVal(backend.getBrpcPort()));
+                trow.addToColumnValue(new TCell().setIntVal(backend.getArrowFlightSqlPort()));
             }
             trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(backend.getLastStartTime())));
             trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(backend.getLastUpdateMs())));
@@ -186,6 +199,9 @@ public class MetadataGenerator {
             // capacity
             // data used
             trow.addToColumnValue(new TCell().setLongVal(backend.getDataUsedCapacityB()));
+
+            // trash used
+            trow.addToColumnValue(new TCell().setLongVal(backend.getTrashUsedCapacityB()));
 
             // available
             long availB = backend.getAvailableCapacityB();
@@ -250,6 +266,60 @@ public class MetadataGenerator {
                 trow.addToColumnValue(new TCell().setStringVal(item));
             }
             dataBatch.add(trow);
+        }
+
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult frontendsDisksMetadataResult(TMetadataTableRequestParams params) {
+        if (!params.isSetFrontendsMetadataParams()) {
+            return errorResult("frontends metadata param is not set.");
+        }
+
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+
+        List<TRow> dataBatch = Lists.newArrayList();
+        List<List<String>> infos = Lists.newArrayList();
+        FrontendsProcNode.getFrontendsDiskInfo(Env.getCurrentEnv(), infos);
+        for (List<String> info : infos) {
+            TRow trow = new TRow();
+            for (String item : info) {
+                trow.addToColumnValue(new TCell().setStringVal(item));
+            }
+            dataBatch.add(trow);
+        }
+
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult catalogsMetadataResult(TMetadataTableRequestParams params) {
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<CatalogIf> info  = Env.getCurrentEnv().getCatalogMgr().listCatalogs();
+        List<TRow> dataBatch = Lists.newArrayList();
+
+        for (CatalogIf catalog : info) {
+            TRow trow = new TRow();
+            trow.addToColumnValue(new TCell().setLongVal(catalog.getId()));
+            trow.addToColumnValue(new TCell().setStringVal(catalog.getName()));
+            trow.addToColumnValue(new TCell().setStringVal(catalog.getType()));
+
+            Map<String, String> properties = catalog.getProperties();
+
+            for (Map.Entry<String, String> entry : properties.entrySet()) {
+                TRow subTrow = new TRow(trow);
+                subTrow.addToColumnValue(new TCell().setStringVal(entry.getKey()));
+                subTrow.addToColumnValue(new TCell().setStringVal(entry.getValue()));
+                dataBatch.add(subTrow);
+            }
+            if (properties.isEmpty()) {
+                trow.addToColumnValue(new TCell().setStringVal("NULL"));
+                trow.addToColumnValue(new TCell().setStringVal("NULL"));
+                dataBatch.add(trow);
+            }
         }
 
         result.setDataBatch(dataBatch);

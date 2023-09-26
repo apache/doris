@@ -25,10 +25,11 @@ import org.apache.doris.nereids.rules.expression.rules.FunctionBinder;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.plans.ObjectId;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
@@ -52,7 +53,7 @@ public abstract class ExpressionRewriteTestHelper {
 
     public ExpressionRewriteTestHelper() {
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(
-                new UnboundRelation(new ObjectId(1), ImmutableList.of("tbl")));
+                new UnboundRelation(new RelationId(1), ImmutableList.of("tbl")));
         context = new ExpressionRewriteContext(cascadesContext);
     }
 
@@ -85,7 +86,7 @@ public abstract class ExpressionRewriteTestHelper {
         Assertions.assertEquals(expectedExpression.toSql(), rewrittenExpression.toSql());
     }
 
-    private Expression replaceUnboundSlot(Expression expression, Map<String, Slot> mem) {
+    protected Expression replaceUnboundSlot(Expression expression, Map<String, Slot> mem) {
         List<Expression> children = Lists.newArrayList();
         boolean hasNewChildren = false;
         for (Expression child : expression.children()) {
@@ -103,7 +104,7 @@ public abstract class ExpressionRewriteTestHelper {
         return hasNewChildren ? expression.withChildren(children) : expression;
     }
 
-    private Expression typeCoercion(Expression expression) {
+    protected Expression typeCoercion(Expression expression) {
         return FunctionBinder.INSTANCE.rewrite(expression, null);
     }
 
@@ -121,6 +122,8 @@ public abstract class ExpressionRewriteTestHelper {
                 return VarcharType.SYSTEM_DEFAULT;
             case 'B':
                 return BooleanType.INSTANCE;
+            case 'C':
+                return DateV2Type.INSTANCE;
             default:
                 return BigIntType.INSTANCE;
         }

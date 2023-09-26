@@ -37,11 +37,7 @@ suite ("test_rollup_agg_fail") {
             BUCKETS 1
             PROPERTIES ( "replication_num" = "1", "light_schema_change" = "true" );
         """
-    //add rollup (failed)
-    test {
-        sql "create materialized view mv1 as select user_id, date, city, age, sex, sum(cost) from ${tableName} group by user_id, date, city, age, sex;"
-        exception "errCode = 2"
-    }
+
     //add rollup (failed)
     test {
         sql "ALTER TABLE ${tableName} ADD ROLLUP r1 (`user_id`,`date`,`city`,`age`, `sex`, cost);"

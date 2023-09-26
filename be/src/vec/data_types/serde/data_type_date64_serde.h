@@ -42,7 +42,19 @@ namespace vectorized {
 class Arena;
 
 class DataTypeDate64SerDe : public DataTypeNumberSerDe<Int64> {
-    void write_column_to_arrow(const IColumn& column, const UInt8* null_bytemap,
+    void serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
+                                    FormatOptions& options) const override;
+    void serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
+                                  BufferWritable& bw, FormatOptions& options) const override;
+    Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
+                                          const FormatOptions& options,
+                                          int nesting_level = 1) const override;
+
+    Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
+                                               int* num_deserialized, const FormatOptions& options,
+                                               int nesting_level = 1) const override;
+
+    void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                arrow::ArrayBuilder* array_builder, int start,
                                int end) const override;
     void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
@@ -56,6 +68,21 @@ private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
                                   int row_idx, bool col_const) const;
+};
+
+class DataTypeDateTimeSerDe : public DataTypeDate64SerDe {
+    void serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
+                                  BufferWritable& bw, FormatOptions& options) const override;
+
+    void serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
+                                    FormatOptions& options) const override;
+
+    Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
+                                          const FormatOptions& options,
+                                          int nesting_level = 1) const override;
+    Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
+                                               int* num_deserialized, const FormatOptions& options,
+                                               int nesting_level = 1) const override;
 };
 } // namespace vectorized
 } // namespace doris

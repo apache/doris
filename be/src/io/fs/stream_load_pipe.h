@@ -37,7 +37,7 @@
 
 namespace doris {
 namespace io {
-class IOContext;
+struct IOContext;
 
 static inline constexpr size_t kMaxPipeBufferedBytes = 4 * 1024 * 1024;
 
@@ -60,7 +60,9 @@ public:
 
     // called when consumer finished
     Status close() override {
-        cancel("closed");
+        if (!(_finished || _cancelled)) {
+            cancel("closed");
+        }
         return Status::OK();
     }
 
@@ -77,6 +79,9 @@ public:
     FileSystemSPtr fs() const override { return nullptr; }
 
     size_t get_queue_size() { return _buf_queue.size(); }
+
+    // used for pipeline load, which use TUniqueId(lo: query_id.lo + fragment_id, hi: query_id.hi) as pipe_id
+    static TUniqueId calculate_pipe_id(const UniqueId& query_id, int32_t fragment_id);
 
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,

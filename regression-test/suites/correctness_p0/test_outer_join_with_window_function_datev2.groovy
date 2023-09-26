@@ -222,7 +222,6 @@ suite("test_outer_join_with_window_function_datev2") {
         "dynamic_partition.buckets" = "4",
         "dynamic_partition.create_history_partition" = "true",
         "dynamic_partition.history_partition_num" = "50",
-        "dynamic_partition.hot_partition_num" = "2",
         "dynamic_partition.reserved_history_periods" = "NULL",
         "dynamic_partition.start_day_of_month" = "1",
         "in_memory" = "false",

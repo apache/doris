@@ -146,13 +146,11 @@ public class AvroJNIScanner extends JniScanner {
                 this.avroReader = new HDFSFileReader(uri);
                 break;
             case FILE_S3:
-                String bucketName = requiredParams.get(AvroProperties.S3_BUCKET);
-                String key = requiredParams.get(AvroProperties.S3_KEY);
                 String accessKey = requiredParams.get(AvroProperties.S3_ACCESS_KEY);
                 String secretKey = requiredParams.get(AvroProperties.S3_SECRET_KEY);
                 String endpoint = requiredParams.get(AvroProperties.S3_ENDPOINT);
                 String region = requiredParams.get(AvroProperties.S3_REGION);
-                this.avroReader = new S3FileReader(accessKey, secretKey, endpoint, region, bucketName, key);
+                this.avroReader = new S3FileReader(accessKey, secretKey, endpoint, region, uri);
                 break;
             default:
                 LOG.warn("Unsupported " + fileType.name() + " file type.");

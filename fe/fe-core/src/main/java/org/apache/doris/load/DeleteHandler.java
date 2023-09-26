@@ -497,11 +497,10 @@ public class DeleteHandler implements Writable {
 
     private void commitJob(DeleteJob job, Database db, Table table, long timeoutMs)
             throws DdlException, QueryStateException {
-        TransactionStatus status = null;
+        TransactionStatus status = TransactionStatus.UNKNOWN;
         try {
-            unprotectedCommitJob(job, db, table, timeoutMs);
-            status = Env.getCurrentGlobalTransactionMgr()
-                    .getTransactionState(db.getId(), job.getTransactionId()).getTransactionStatus();
+            boolean isVisible = unprotectedCommitJob(job, db, table, timeoutMs);
+            status = isVisible ? TransactionStatus.VISIBLE : TransactionStatus.COMMITTED;
         } catch (UserException e) {
             if (cancelJob(job, CancelType.COMMIT_FAIL, e.getMessage())) {
                 throw new DdlException(e.getMessage(), e);
@@ -688,11 +687,19 @@ public class DeleteHandler implements Writable {
             // Due to rounding errors, most floating-point numbers end up being slightly imprecise,
             // it also means that numbers expected to be equal often differ slightly, so we do not allow compare with
             // floating-point numbers, floating-point number not allowed in where clause
-            if (!column.isKey() && table.getKeysType() != KeysType.DUP_KEYS
-                    || column.getDataType().isFloatingPointType()) {
-                // ErrorReport.reportDdlException(ErrorCode.ERR_NOT_KEY_COLUMN, columnName);
-                throw new DdlException("Column[" + columnName + "] is not key column or storage model "
-                        + "is not duplicate or column type is float or double.");
+            if (column.getDataType().isFloatingPointType()) {
+                throw new DdlException("Column[" + columnName + "] type is float or double.");
+            }
+            if (!column.isKey()) {
+                if (table.getKeysType() == KeysType.AGG_KEYS) {
+                    throw new DdlException("delete predicate on value column only supports Unique table with"
+                            + " merge-on-write enabled and Duplicate table, but " + "Table[" + table.getName()
+                                    + "] is an Aggregate table.");
+                } else if (table.getKeysType() == KeysType.UNIQUE_KEYS && !table.getEnableUniqueKeyMergeOnWrite()) {
+                    throw new DdlException("delete predicate on value column only supports Unique table with"
+                            + " merge-on-write enabled and Duplicate table, but " + "Table[" + table.getName()
+                                    + "] is an Aggregate table.");
+                }
             }
 
             if (condition instanceof BinaryPredicate) {
@@ -801,7 +808,7 @@ public class DeleteHandler implements Writable {
                 String columnName = slotRef.getColumnName();
                 StringBuilder sb = new StringBuilder();
                 sb.append(columnName).append(" ").append(binaryPredicate.getOp().name()).append(" \"")
-                        .append(((LiteralExpr) binaryPredicate.getChild(1)).getStringValue()).append("\"");
+                        .append(binaryPredicate.getChild(1).getStringValue()).append("\"");
                 deleteConditions.add(sb.toString());
             } else if (condition instanceof IsNullPredicate) {
                 IsNullPredicate isNullPredicate = (IsNullPredicate) condition;

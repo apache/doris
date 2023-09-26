@@ -1,6 +1,6 @@
 ---
 {
-    "title": "MySql load",
+    "title": "MySql Load",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Mysql load
+# Mysql Load
 <version since="dev">
 
 This is an stand syntax of MySql [LOAD DATA](https://dev.mysql.com/doc/refman/8.0/en/load-data.html) for user to load local file.

@@ -37,6 +37,42 @@ namespace doris {
 namespace vectorized {
 class IColumn;
 
+void DataTypeHLLSerDe::serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
+                                                BufferWritable& bw, FormatOptions& options) const {
+    SERIALIZE_COLUMN_TO_JSON()
+}
+
+void DataTypeHLLSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+                                                  BufferWritable& bw,
+                                                  FormatOptions& options) const {
+    auto col_row = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = col_row.first;
+    row_num = col_row.second;
+    auto& data = const_cast<HyperLogLog&>(assert_cast<const ColumnHLL&>(*ptr).get_element(row_num));
+    std::unique_ptr<char[]> buf = std::make_unique<char[]>(data.max_serialized_size());
+    size_t size = data.serialize((uint8*)buf.get());
+    bw.write(buf.get(), size);
+}
+
+Status DataTypeHLLSerDe::deserialize_column_from_json_vector(IColumn& column,
+                                                             std::vector<Slice>& slices,
+                                                             int* num_deserialized,
+                                                             const FormatOptions& options,
+                                                             int nesting_level) const {
+    DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
+    return Status::OK();
+}
+
+Status DataTypeHLLSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
+                                                        const FormatOptions& options,
+                                                        int nesting_level) const {
+    auto& data_column = assert_cast<ColumnHLL&>(column);
+
+    HyperLogLog hyper_log_log(slice);
+    data_column.insert_value(hyper_log_log);
+    return Status::OK();
+}
+
 Status DataTypeHLLSerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
                                             int end) const {
     auto ptype = result.mutable_type();
@@ -81,13 +117,13 @@ void DataTypeHLLSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValu
     col.insert_value(hyper_log_log);
 }
 
-void DataTypeHLLSerDe::write_column_to_arrow(const IColumn& column, const UInt8* null_map,
+void DataTypeHLLSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                              arrow::ArrayBuilder* array_builder, int start,
                                              int end) const {
     const auto& col = assert_cast<const ColumnHLL&>(column);
     auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t string_i = start; string_i < end; ++string_i) {
-        if (null_map && null_map[string_i]) {
+        if (null_map && (*null_map)[string_i]) {
             checkArrowStatus(builder.AppendNull(), column.get_name(),
                              array_builder->type()->name());
         } else {

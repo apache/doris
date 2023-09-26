@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
@@ -38,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
@@ -252,6 +254,34 @@ public class ExpressionUtils {
     }
 
     /**
+     * get slot covered by cast
+     * example: input: cast(cast(table.columnA)) output: columnA.datatype
+     *
+     */
+    public static DataType getDatatypeCoveredByCast(Expression expr) {
+        if (expr instanceof Cast) {
+            return getDatatypeCoveredByCast(((Cast) expr).child());
+        }
+        return expr.getDataType();
+    }
+
+    /**
+     * judge if expression is slot covered by cast
+     * example: cast(cast(table.columnA))
+     */
+    public static boolean isExpressionSlotCoveredByCast(Expression expr) {
+        if (expr instanceof Cast) {
+            return isExpressionSlotCoveredByCast(((Cast) expr).child());
+        }
+        return expr instanceof SlotReference;
+    }
+
+    public static boolean isTwoExpressionEqualWithCast(Expression left, Expression right) {
+        return ExpressionUtils.extractSlotOrCastOnSlot(left)
+            .equals(ExpressionUtils.extractSlotOrCastOnSlot(right));
+    }
+
+    /**
      * Replace expression node in the expression tree by `replaceMap` in top-down manner.
      * For example.
      * <pre>
@@ -403,6 +433,11 @@ public class ExpressionUtils {
                 .anyMatch(expr -> expr.anyMatch(predicate));
     }
 
+    public static boolean noneMatch(List<? extends Expression> expressions, Predicate<TreeNode<Expression>> predicate) {
+        return expressions.stream()
+                .noneMatch(expr -> expr.anyMatch(predicate));
+    }
+
     public static boolean containsType(List<? extends Expression> expressions, Class type) {
         return anyMatch(expressions, type::isInstance);
     }
@@ -505,5 +540,20 @@ public class ExpressionUtils {
             expression = ((Cast) expression).child();
         }
         return expression;
+    }
+
+    /**
+     * To check whether a slot is constant after passing through a filter
+     */
+    public static boolean checkSlotConstant(Slot slot, Set<Expression> predicates) {
+        return predicates.stream().anyMatch(predicate -> {
+                    if (predicate instanceof EqualTo) {
+                        EqualTo equalTo = (EqualTo) predicate;
+                        return (equalTo.left() instanceof Literal && equalTo.right().equals(slot))
+                                || (equalTo.right() instanceof Literal && equalTo.left().equals(slot));
+                    }
+                    return false;
+                }
+        );
     }
 }

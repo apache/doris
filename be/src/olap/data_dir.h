@@ -32,7 +32,6 @@
 
 #include "common/status.h"
 #include "io/fs/file_system.h"
-#include "io/fs/fs_utils.h"
 #include "olap/olap_common.h"
 #include "util/metrics.h"
 
@@ -71,6 +70,7 @@ public:
         info.path_hash = _path_hash;
         info.disk_capacity = _disk_capacity_bytes;
         info.available = _available_bytes;
+        info.trash_used_capacity = _trash_used_bytes;
         info.is_used = _is_used;
         info.storage_medium = _storage_medium;
         return info;
@@ -87,8 +87,6 @@ public:
     OlapMeta* get_meta() { return _meta; }
 
     bool is_ssd_disk() const { return _storage_medium == TStorageMedium::SSD; }
-
-    bool is_remote() const { return io::FilePathDesc::is_remote(_storage_medium); }
 
     TStorageMedium::type storage_medium() const { return _storage_medium; }
 
@@ -133,11 +131,17 @@ public:
 
     Status update_capacity();
 
+    void update_trash_capacity();
+
     void update_local_data_size(int64_t size);
 
     void update_remote_data_size(int64_t size);
 
-    size_t tablet_size() const;
+    size_t disk_capacity() const;
+
+    size_t disk_available() const;
+
+    size_t tablet_num() const;
 
     void disks_compaction_score_increment(int64_t delta);
 
@@ -177,6 +181,7 @@ private:
     size_t _available_bytes;
     // the actual capacity of the disk of this data dir
     size_t _disk_capacity_bytes;
+    size_t _trash_used_bytes;
     TStorageMedium::type _storage_medium;
     bool _is_used;
 
@@ -210,6 +215,7 @@ private:
     IntGauge* disks_avail_capacity;
     IntGauge* disks_local_used_capacity;
     IntGauge* disks_remote_used_capacity;
+    IntGauge* disks_trash_used_capacity;
     IntGauge* disks_state;
     IntGauge* disks_compaction_score;
     IntGauge* disks_compaction_num;

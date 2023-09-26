@@ -21,7 +21,9 @@
 #pragma once
 
 #include <memory>
+#include <span>
 
+#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
@@ -29,6 +31,7 @@
 #include "vec/common/hash_table/hash_table.h"
 #include "vec/common/hash_table/hash_table_key_holder.h"
 #include "vec/common/hash_table/ph_hash_map.h"
+#include "vec/common/string_ref.h"
 #include "vec/common/unaligned.h"
 
 namespace doris::vectorized {
@@ -70,8 +73,11 @@ struct HashMethodOneNumber : public columns_hashing_impl::HashMethodBase<
     using Base::get_hash; /// (const Data & data, size_t row, Arena & pool) -> size_t
 
     /// Is used for default implementation in HashMethodBase.
-    FieldType get_key_holder(size_t row, Arena&) const {
-        return unaligned_load<FieldType>(vec + row * sizeof(FieldType));
+    FieldType get_key_holder(size_t row, Arena&) const { return ((FieldType*)(vec))[row]; }
+    FieldType pack_key_holder(FieldType key, Arena&) const { return key; }
+
+    std::span<FieldType> get_keys(size_t rows_number) const {
+        return std::span<FieldType>((FieldType*)vec, rows_number);
     }
 };
 
@@ -124,13 +130,13 @@ struct HashMethodSerialized
 
     ColumnRawPtrs key_columns;
     size_t keys_size;
-    const StringRef* keys;
+    StringRef* keys;
 
     HashMethodSerialized(const ColumnRawPtrs& key_columns_, const Sizes& /*key_sizes*/,
                          const HashMethodContextPtr&)
             : key_columns(key_columns_), keys_size(key_columns_.size()) {}
 
-    void set_serialized_keys(const StringRef* keys_) { keys = keys_; }
+    void set_serialized_keys(StringRef* keys_) { keys = keys_; }
 
     ALWAYS_INLINE KeyHolderType get_key_holder(size_t row, Arena& pool) const {
         if constexpr (keys_pre_serialized) {
@@ -139,6 +145,14 @@ struct HashMethodSerialized
             return KeyHolderType {
                     serialize_keys_to_pool_contiguous(row, keys_size, key_columns, pool), pool};
         }
+    }
+
+    KeyHolderType pack_key_holder(StringRef key, Arena& pool) const {
+        return KeyHolderType {key, pool};
+    }
+
+    std::span<StringRef> get_keys(size_t rows_number) const {
+        return std::span<StringRef>(keys, rows_number);
     }
 
 protected:
@@ -194,12 +208,15 @@ struct HashMethodKeysFixed
             : Base(key_columns), key_sizes(key_sizes_), keys_size(key_columns.size()) {}
 
     ALWAYS_INLINE Key get_key_holder(size_t row, Arena&) const {
-        if constexpr (has_nullable_keys_) {
-            auto bitmap = Base::create_bitmap(row);
-            return pack_fixed<Key>(row, keys_size, Base::get_actual_columns(), key_sizes, bitmap);
-        } else {
-            return pack_fixed<Key>(row, keys_size, Base::get_actual_columns(), key_sizes);
-        }
+        return pack_fixed<Key>(row, keys_size, Base::get_actual_columns(), key_sizes,
+                               Base::get_nullmap_columns());
+    }
+
+    Key pack_key_holder(Key key, Arena& pool) const { return key; }
+
+    std::vector<Key> get_keys(size_t rows_number) const {
+        return pack_fixeds<Key>(rows_number, Base::get_actual_columns(), key_sizes,
+                                Base::get_nullmap_columns());
     }
 };
 
@@ -261,6 +278,11 @@ struct HashMethodSingleLowNullableColumn : public SingleColumnMethod {
     template <typename Data>
     ALWAYS_INLINE EmplaceResult emplace_key(Data& data, size_t hash_value, size_t row,
                                             Arena& pool) {
+        return emplace_with_key(data, Base::get_key_holder(row, pool), hash_value, row, pool);
+    }
+
+    template <typename Data, typename KeyHolder>
+    EmplaceResult emplace_with_key(Data& data, KeyHolder&& key, size_t hash_value, size_t row) {
         if (key_column->is_null_at(row)) {
             bool has_null_key = data.has_null_key_data();
             data.has_null_key_data() = true;
@@ -273,11 +295,9 @@ struct HashMethodSingleLowNullableColumn : public SingleColumnMethod {
             }
         }
 
-        auto key_holder = Base::get_key_holder(row, pool);
-
         bool inserted = false;
         typename Data::LookupResult it;
-        data.emplace(key_holder, it, hash_value, inserted);
+        data.emplace(key, it, hash_value, inserted);
 
         if constexpr (has_mapped) {
             auto& mapped = *lookup_result_get_mapped(it);
@@ -291,8 +311,9 @@ struct HashMethodSingleLowNullableColumn : public SingleColumnMethod {
     }
 
     template <typename Data, typename Func, typename CreatorForNull>
-    ALWAYS_INLINE typename std::enable_if_t<has_mapped, Mapped>& lazy_emplace_key(
-            Data& data, size_t row, Arena& pool, Func&& f, CreatorForNull&& null_creator) {
+        requires has_mapped
+    ALWAYS_INLINE Mapped& lazy_emplace_key(Data& data, size_t row, Arena& pool, Func&& f,
+                                           CreatorForNull&& null_creator) {
         if (key_column->is_null_at(row)) {
             bool has_null_key = data.has_null_key_data();
             data.has_null_key_data() = true;
@@ -306,9 +327,9 @@ struct HashMethodSingleLowNullableColumn : public SingleColumnMethod {
     }
 
     template <typename Data, typename Func, typename CreatorForNull>
-    ALWAYS_INLINE typename std::enable_if_t<has_mapped, Mapped>& lazy_emplace_key(
-            Data& data, size_t row, Arena& pool, size_t hash_value, Func&& f,
-            CreatorForNull&& null_creator) {
+        requires has_mapped
+    ALWAYS_INLINE Mapped& lazy_emplace_key(Data& data, size_t row, Arena& pool, size_t hash_value,
+                                           Func&& f, CreatorForNull&& null_creator) {
         if (key_column->is_null_at(row)) {
             bool has_null_key = data.has_null_key_data();
             data.has_null_key_data() = true;

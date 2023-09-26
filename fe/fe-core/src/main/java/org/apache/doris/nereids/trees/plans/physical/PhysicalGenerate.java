@@ -106,9 +106,6 @@ public class PhysicalGenerate<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        if (!super.equals(o)) {
-            return false;
-        }
         PhysicalGenerate<?> that = (PhysicalGenerate<?>) o;
         return generators.equals(that.generators)
                 && generatorOutput.equals(that.generatorOutput);
@@ -116,7 +113,7 @@ public class PhysicalGenerate<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), generators, generatorOutput);
+        return Objects.hash(generators, generatorOutput);
     }
 
     @Override
@@ -138,9 +135,11 @@ public class PhysicalGenerate<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
     }
 
     @Override
-    public PhysicalGenerate<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1);
         return new PhysicalGenerate<>(generators, generatorOutput,
-                Optional.empty(), logicalProperties.get(), child());
+                groupExpression, logicalProperties.get(), children.get(0));
     }
 
     @Override
@@ -148,6 +147,21 @@ public class PhysicalGenerate<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
             Statistics statistics) {
         return new PhysicalGenerate<>(generators, generatorOutput,
                 Optional.empty(), getLogicalProperties(), physicalProperties,
+                statistics, child());
+    }
+
+    @Override
+    public List<Slot> computeOutput() {
+        return ImmutableList.<Slot>builder()
+                .addAll(child().getOutput())
+                .addAll(generatorOutput)
+                .build();
+    }
+
+    @Override
+    public PhysicalGenerate<CHILD_TYPE> resetLogicalProperties() {
+        return new PhysicalGenerate<>(generators, generatorOutput,
+                Optional.empty(), null, physicalProperties,
                 statistics, child());
     }
 }

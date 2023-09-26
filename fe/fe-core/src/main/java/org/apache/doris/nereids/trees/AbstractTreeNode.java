@@ -17,14 +17,12 @@
 
 package org.apache.doris.nereids.trees;
 
-import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
-import java.util.Optional;
 
 /**
  * Abstract class for plan node in Nereids, include plan node and expression.
@@ -39,21 +37,11 @@ public abstract class AbstractTreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>>
     // TODO: Maybe we should use a GroupPlan to avoid TreeNode hold the GroupExpression.
     // https://github.com/apache/doris/pull/9807#discussion_r884829067
 
-    public AbstractTreeNode(NODE_TYPE... children) {
-        this(Optional.empty(), children);
-    }
-
-    /**
-     * Constructor for plan node.
-     *
-     * @param groupExpression group expression related to the plan of this node
-     * @param children children of this node
-     */
-    public AbstractTreeNode(Optional<GroupExpression> groupExpression, NODE_TYPE... children) {
+    protected AbstractTreeNode(NODE_TYPE... children) {
         this.children = ImmutableList.copyOf(children);
     }
 
-    public AbstractTreeNode(Optional<GroupExpression> groupExpression, List<NODE_TYPE> children) {
+    protected AbstractTreeNode(List<NODE_TYPE> children) {
         this.children = ImmutableList.copyOf(children);
     }
 

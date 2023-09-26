@@ -21,6 +21,11 @@
     qt_select "SELECT round_bankers(10.12345)"
     qt_select "SELECT round_bankers(10.12345, 2)"
 
+    // test tie case 1: float, banker's rounding
+    qt_select "SELECT number*10/100 AS x, ROUND(number * 10 / 100) from NUMBERS('number'=50) where number % 5 = 0 ORDER BY x;"
+    // test tie case 2: decimal, rounded up when tie
+    qt_select "SELECT number*10/100 AS x, ROUND(CAST(number * 10 AS DECIMALV3(10,2)) / 100) from NUMBERS('number'=50) where number % 5 = 0 ORDER BY x;"
+
     def tableTest = "test_query_db.test"
     qt_truncate "select truncate(k1, 1), truncate(k2, 1), truncate(k3, 1), truncate(k5, 1), truncate(k8, 1), truncate(k9, 1) from ${tableTest} order by 1;"
 
@@ -138,5 +143,4 @@
     qt_query """ select cast(round(sum(d1), 2) as decimalv3(27, 3)), cast(round(sum(d2), 2) as decimalv3(27, 3)), cast(round(sum(d3),2) as decimalv3(27, 3)) from ${tableName3} """
     qt_query """ select cast(round(sum(d1), -2) as decimalv3(27, 3)), cast(round(sum(d2), -2) as decimalv3(27, 3)), cast(round(sum(d3), -2) as decimalv3(27, 3)) from ${tableName3} """
     qt_query """ select cast(round(sum(d1), -4) as decimalv3(27, 3)), cast(round(sum(d2), -4) as decimalv3(27, 3)), cast(round(sum(d3), -4) as decimalv3(27, 3)) from ${tableName3} """
-
 }

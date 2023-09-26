@@ -9,7 +9,7 @@ k6	VARCHAR(1)	Yes	false	\N	NONE
 k7	DATE	Yes	false	\N	NONE
 k8	DATETIME	Yes	false	\N	NONE
 k9	LARGEINT	Yes	false	\N	NONE
-k10	DECIMALV3(9, 0)	Yes	false	\N	NONE
+k10	DECIMAL	Yes	false	\N	NONE
 k11	BOOLEAN	Yes	false	\N	NONE
 
 -- !sql --
@@ -38,7 +38,7 @@ k6	VARCHAR(1)	Yes	true	\N
 k7	DATE	Yes	true	\N	
 k8	DATETIME	Yes	true	\N	
 k9	LARGEINT	Yes	true	\N	
-k10	DECIMALV3(9, 0)	Yes	true	\N	
+k10	DECIMAL	Yes	true	\N	
 k11	BOOLEAN	Yes	true	\N	
 v1	INT	Yes	false	\N	SUM
 
@@ -68,7 +68,7 @@ k6	VARCHAR(1)	Yes	true	\N
 k7	DATE	Yes	true	\N	
 k8	DATETIME	Yes	true	\N	
 k9	LARGEINT	Yes	true	\N	
-k10	DECIMALV3(9, 0)	Yes	true	\N	
+k10	DECIMAL	Yes	true	\N	
 k11	BOOLEAN	Yes	true	\N	
 v1	INT	Yes	false	\N	REPLACE
 

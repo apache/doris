@@ -156,7 +156,7 @@ class MORSnapshotSplitReader(override val split: HoodieSplit) extends BaseSplitR
           StructType(requiredDataSchema.structTypeSchema.fields
             .filterNot(f => unusedMandatoryColumnNames.contains(f.name)))
 
-        HoodieTableSchema(prunedStructSchema, convertToAvroSchema(prunedStructSchema).toString)
+        HoodieTableSchema(prunedStructSchema, convertToAvroSchema(prunedStructSchema, tableName).toString)
       }
 
       val requiredSchemaReaderSkipMerging = createBaseFileReader(

@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource;
 
+
+import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.credentials.CloudCredential;
 import org.apache.doris.datasource.property.constants.MCProperties;
 
@@ -27,6 +29,7 @@ import com.aliyun.odps.account.AliyunAccount;
 import com.aliyun.odps.tunnel.TableTunnel;
 import com.aliyun.odps.tunnel.TunnelException;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.ArrayList;
@@ -43,11 +46,15 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     private String secretKey;
     @SerializedName(value = "publicAccess")
     private boolean enablePublicAccess;
-    private static final String odpsUrlTemplate = "http://service.{}.maxcompute.aliyun.com/api";
+    private static final String odpsUrlTemplate = "http://service.{}.maxcompute.aliyun-inc.com/api";
     private static final String tunnelUrlTemplate = "http://dt.{}.maxcompute.aliyun-inc.com";
+    private static final List<String> REQUIRED_PROPERTIES = ImmutableList.of(
+            MCProperties.REGION,
+            MCProperties.PROJECT
+    );
 
     public MaxComputeExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
-            String comment) {
+                                     String comment) {
         super(catalogId, name, InitCatalogLog.Type.MAX_COMPUTE, comment);
         catalogProperty = new CatalogProperty(resource, props);
     }
@@ -77,9 +84,13 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
         secretKey = credential.getSecretKey();
         Account account = new AliyunAccount(accessKey, secretKey);
         this.odps = new Odps(account);
-        odps.setEndpoint(odpsUrlTemplate.replace("{}", region));
-        odps.setDefaultProject(defaultProject);
         enablePublicAccess = Boolean.parseBoolean(props.getOrDefault(MCProperties.PUBLIC_ACCESS, "false"));
+        String odpsUrl = odpsUrlTemplate.replace("{}", region);
+        if (enablePublicAccess) {
+            odpsUrl = odpsUrl.replace("-inc", "");
+        }
+        odps.setEndpoint(odpsUrl);
+        odps.setDefaultProject(defaultProject);
     }
 
     public long getTotalRows(String project, String table) throws TunnelException {
@@ -87,7 +98,7 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
         TableTunnel tunnel = new TableTunnel(odps);
         String tunnelUrl = tunnelUrlTemplate.replace("{}", region);
         if (enablePublicAccess) {
-            tunnelUrl = tunnelUrlTemplate.replace("-inc", "");
+            tunnelUrl = tunnelUrl.replace("-inc", "");
         }
         tunnel.setEndpoint(tunnelUrl);
         return tunnel.createDownloadSession(project, table).getRecordCount();
@@ -150,5 +161,15 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     public boolean enablePublicAccess() {
         makeSureInitialized();
         return enablePublicAccess;
+    }
+
+    @Override
+    public void checkProperties() throws DdlException {
+        super.checkProperties();
+        for (String requiredProperty : REQUIRED_PROPERTIES) {
+            if (!catalogProperty.getProperties().containsKey(requiredProperty)) {
+                throw new DdlException("Required property '" + requiredProperty + "' is missing");
+            }
+        }
     }
 }

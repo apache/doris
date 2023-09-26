@@ -34,13 +34,6 @@
 #include "vec/core/types.h"
 #include "vec/io/io_helper.h"
 
-#ifdef DBMS_HASH_MAP_DEBUG_RESIZES
-#include <Common/Stopwatch.h>
-
-#include <iomanip>
-#include <iostream>
-#endif
-
 /** NOTE HashTable could only be used for memmoveable (position independent) types.
   * Example: std::string is not position independent in libstdc++ with C++11 ABI or in libc++.
   * Also, key in hash table must be of type, that zero bytes is compared equals to zero key.
@@ -379,7 +372,10 @@ struct HashTableFixedGrower {
     size_t next(size_t pos) const { return pos + 1; }
     bool overflow(size_t /*elems*/) const { return false; }
 
-    void increase_size() { __builtin_unreachable(); }
+    void increase_size() {
+        LOG(FATAL) << "__builtin_unreachable";
+        __builtin_unreachable();
+    }
     void set(size_t /*num_elems*/) {}
     void set_buf_size(size_t /*buf_size_*/) {}
 };
@@ -462,9 +458,7 @@ protected:
     //factor that will trigger growing the hash table on insert.
     static constexpr float MAX_BUCKET_OCCUPANCY_FRACTION = 0.5f;
 
-#ifdef DBMS_HASH_MAP_COUNT_COLLISIONS
     mutable size_t collisions = 0;
-#endif
 
     void set_partitioned_threshold(int threshold) { _partitioned_threshold = threshold; }
 
@@ -479,9 +473,7 @@ protected:
         while (!buf[place_value].is_zero(*this) &&
                !buf[place_value].key_equals(x, hash_value, *this)) {
             place_value = grower.next(place_value);
-#ifdef DBMS_HASH_MAP_COUNT_COLLISIONS
             ++collisions;
-#endif
         }
 
         return place_value;
@@ -503,9 +495,7 @@ protected:
     size_t ALWAYS_INLINE find_empty_cell(size_t place_value) const {
         while (!buf[place_value].is_zero(*this)) {
             place_value = grower.next(place_value);
-#ifdef DBMS_HASH_MAP_COUNT_COLLISIONS
             ++collisions;
-#endif
         }
 
         return place_value;
@@ -872,7 +862,7 @@ public:
     }
 
     template <typename KeyHolder>
-    void ALWAYS_INLINE prefetch(KeyHolder& key_holder) {
+    void ALWAYS_INLINE prefetch_by_key(KeyHolder& key_holder) {
         const auto& key = key_holder_get_key(key_holder);
         auto hash_value = hash(key);
         auto place_value = grower.place(hash_value);
@@ -889,7 +879,7 @@ public:
     }
 
     template <bool READ, typename KeyHolder>
-    void ALWAYS_INLINE prefetch(KeyHolder& key_holder) {
+    void ALWAYS_INLINE prefetch_by_key(KeyHolder& key_holder) {
         // Two optional arguments:
         // 'rw': 1 means the memory access is write
         // 'locality': 0-3. 0 means no temporal locality. 3 means high temporal locality.
@@ -1090,17 +1080,12 @@ public:
     bool add_elem_size_overflow(size_t add_size) const {
         return grower.overflow(add_size + m_size);
     }
-#ifdef DBMS_HASH_MAP_COUNT_COLLISIONS
-    size_t getCollisions() const { return collisions; }
-#endif
+    int64_t get_collisions() const { return collisions; }
 
 private:
     /// Increase the size of the buffer.
     void resize(size_t for_num_elems = 0, size_t for_buf_size = 0) {
         SCOPED_RAW_TIMER(&_resize_timer_ns);
-#ifdef DBMS_HASH_MAP_DEBUG_RESIZES
-        Stopwatch watch;
-#endif
 
         size_t old_size = grower.buf_size();
 
@@ -1150,12 +1135,5 @@ private:
           */
         for (; !buf[i].is_zero(*this) && !buf[i].is_deleted(); ++i)
             reinsert(buf[i], buf[i].get_hash(*this));
-
-#ifdef DBMS_HASH_MAP_DEBUG_RESIZES
-        watch.stop();
-        std::cerr << std::fixed << std::setprecision(3) << "Resize from " << old_size << " to "
-                  << grower.buf_size() << " took " << watch.elapsedSeconds() << " sec."
-                  << std::endl;
-#endif
     }
 };

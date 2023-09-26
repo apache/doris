@@ -17,7 +17,10 @@
 
 package org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap;
 
+import org.apache.doris.nereids.trees.plans.RelationId;
+
 import java.util.BitSet;
+import java.util.Set;
 
 /**
  * This is helper class for some bitmap operation
@@ -145,6 +148,14 @@ public class LongBitmap {
 
     public static int lowestOneIndex(long bitmap) {
         return Long.numberOfTrailingZeros(bitmap);
+    }
+
+    public static Long computeTableBitmap(Set<RelationId> relationIdSet) {
+        Long totalBitmap = 0L;
+        for (RelationId id : relationIdSet) {
+            totalBitmap = LongBitmap.set(totalBitmap, (id.asInt()));
+        }
+        return totalBitmap;
     }
 
     public static String toString(long bitmap) {

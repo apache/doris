@@ -44,13 +44,13 @@
 #include "io/cache/block/block_file_cache.h"
 #include "io/cache/block/block_file_cache_fwd.h"
 #include "io/fs/file_reader.h"
-#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
 #include "util/doris_metrics.h"
 #include "util/slice.h"
+#include "util/stopwatch.hpp"
 #include "vec/common/hex.h"
 
 namespace fs = std::filesystem;
@@ -72,6 +72,7 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_disposable_queue_max_size, MetricU
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_disposable_queue_curr_size, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_disposable_queue_max_elements, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_disposable_queue_curr_elements, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_segment_reader_cache_size, MetricUnit::NOUNIT);
 
 LRUFileCache::LRUFileCache(const std::string& cache_base_path,
                            const FileCacheSettings& cache_settings)
@@ -104,6 +105,7 @@ LRUFileCache::LRUFileCache(const std::string& cache_base_path,
     INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_disposable_queue_curr_size);
     INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_disposable_queue_max_elements);
     INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_disposable_queue_curr_elements);
+    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_segment_reader_cache_size);
 
     LOG(INFO) << fmt::format(
             "file cache path={}, disposable queue size={} elements={}, index queue size={} "
@@ -116,6 +118,8 @@ LRUFileCache::LRUFileCache(const std::string& cache_base_path,
 }
 
 Status LRUFileCache::initialize() {
+    MonotonicStopWatch watch;
+    watch.start();
     std::lock_guard cache_lock(_mutex);
     if (!_is_initialized) {
         if (fs::exists(_cache_base_path)) {
@@ -132,17 +136,18 @@ Status LRUFileCache::initialize() {
     }
     _is_initialized = true;
     _cache_background_thread = std::thread(&LRUFileCache::run_background_operation, this);
+    int64_t cost = watch.elapsed_time() / 1000 / 1000;
     LOG(INFO) << fmt::format(
             "After initialize file cache path={}, disposable queue size={} elements={}, index "
             "queue size={} "
             "elements={}, query queue "
-            "size={} elements={}",
+            "size={} elements={}, init cost(ms)={}",
             _cache_base_path, _disposable_queue.get_total_cache_size(cache_lock),
             _disposable_queue.get_elements_num(cache_lock),
             _index_queue.get_total_cache_size(cache_lock),
             _index_queue.get_elements_num(cache_lock),
             _normal_queue.get_total_cache_size(cache_lock),
-            _normal_queue.get_elements_num(cache_lock));
+            _normal_queue.get_elements_num(cache_lock), cost);
     return Status::OK();
 }
 
@@ -1116,6 +1121,7 @@ void LRUFileCache::update_cache_metrics() const {
     file_cache_disposable_queue_curr_size->set_value(_disposable_queue.get_total_cache_size(l));
     file_cache_disposable_queue_max_elements->set_value(_disposable_queue.get_max_element_size());
     file_cache_disposable_queue_curr_elements->set_value(_disposable_queue.get_elements_num(l));
+    file_cache_segment_reader_cache_size->set_value(IFileCache::file_reader_cache_size());
 }
 
 } // namespace io

@@ -18,8 +18,10 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
+import org.apache.doris.catalog.external.DeltaLakeExternalDataBase;
 import org.apache.doris.catalog.external.EsExternalDatabase;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.ExternalTable;
@@ -47,6 +49,8 @@ import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -55,10 +59,13 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * The abstract class for all types of external catalogs.
@@ -67,6 +74,8 @@ import java.util.Optional;
 public abstract class ExternalCatalog
             implements CatalogIf<ExternalDatabase<? extends ExternalTable>>, Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(ExternalCatalog.class);
+
+    public static final String ENABLE_AUTO_ANALYZE = "enable.auto.analyze";
 
     // Unique id of this catalog, will be assigned after catalog is loaded.
     @SerializedName(value = "id")
@@ -84,6 +93,8 @@ public abstract class ExternalCatalog
     private boolean initialized = false;
     @SerializedName(value = "idToDb")
     protected Map<Long, ExternalDatabase<? extends ExternalTable>> idToDb = Maps.newConcurrentMap();
+    @SerializedName(value = "lastUpdateTime")
+    protected long lastUpdateTime;
     // db name does not contains "default_cluster"
     protected Map<String, Long> dbNameToId = Maps.newConcurrentMap();
     private boolean objectCreated = false;
@@ -99,12 +110,21 @@ public abstract class ExternalCatalog
         this.comment = com.google.common.base.Strings.nullToEmpty(comment);
     }
 
+    public Configuration getConfiguration() {
+        Configuration conf = new HdfsConfiguration();
+        Map<String, String> catalogProperties = catalogProperty.getHadoopProperties();
+        for (Map.Entry<String, String> entry : catalogProperties.entrySet()) {
+            conf.set(entry.getKey(), entry.getValue());
+        }
+        return conf;
+    }
+
     protected List<String> listDatabaseNames() {
         throw new UnsupportedOperationException("Unsupported operation: "
                 + "listDatabaseNames from remote client when init catalog with " + logType.name());
     }
 
-    public void setDefaultProps() {
+    public void setDefaultPropsWhenCreating(boolean isReplay) throws DdlException {
         // set some default properties when creating catalog
     }
 
@@ -179,7 +199,11 @@ public abstract class ExternalCatalog
         Map<String, String> properties = getCatalogProperty().getProperties();
         if (properties.containsKey(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC)) {
             try {
-                Integer.valueOf(properties.get(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC));
+                Integer metadataRefreshIntervalSec = Integer.valueOf(
+                        properties.get(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC));
+                if (metadataRefreshIntervalSec < 0) {
+                    throw new DdlException("Invalid properties: " + CatalogMgr.METADATA_REFRESH_INTERVAL_SEC);
+                }
             } catch (NumberFormatException e) {
                 throw new DdlException("Invalid properties: " + CatalogMgr.METADATA_REFRESH_INTERVAL_SEC);
             }
@@ -193,8 +217,10 @@ public abstract class ExternalCatalog
      * "access_controller.properties.prop1" = "xxx",
      * "access_controller.properties.prop2" = "yyy",
      * )
+     * <p>
+     * isDryRun: if true, it will try to create the custom access controller, but will not add it to the access manager.
      */
-    public void initAccessController() {
+    public void initAccessController(boolean isDryRun) {
         Map<String, String> properties = getCatalogProperty().getProperties();
         // 1. get access controller class name
         String className = properties.getOrDefault(CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP, "");
@@ -214,7 +240,7 @@ public abstract class ExternalCatalog
         }
 
         // 3. create access controller
-        Env.getCurrentEnv().getAccessManager().createAccessController(name, className, acProperties);
+        Env.getCurrentEnv().getAccessManager().createAccessController(name, className, acProperties, isDryRun);
     }
 
     // init schema related objects
@@ -253,6 +279,9 @@ public abstract class ExternalCatalog
         }
         dbNameToId = tmpDbNameToId;
         idToDb = tmpIdToDb;
+        long currentTime = System.currentTimeMillis();
+        lastUpdateTime = currentTime;
+        initCatalogLog.setLastUpdateTime(lastUpdateTime);
         Env.getCurrentEnv().getEditLog().logInitCatalog(initCatalogLog);
     }
 
@@ -275,7 +304,7 @@ public abstract class ExternalCatalog
         if (db.isPresent()) {
             Optional<? extends ExternalTable> table = db.get().getTable(tblName);
             if (table.isPresent()) {
-                return table.get().initSchema();
+                return table.get().initSchemaAndUpdateTime();
             }
         }
         // return one column with unsupported type.
@@ -338,6 +367,9 @@ public abstract class ExternalCatalog
     @Nullable
     @Override
     public ExternalDatabase<? extends ExternalTable> getDbNullable(String dbName) {
+        if (StringUtils.isEmpty(dbName)) {
+            return null;
+        }
         try {
             makeSureInitialized();
         } catch (Exception e) {
@@ -386,9 +418,25 @@ public abstract class ExternalCatalog
         notifyPropertiesUpdated(props);
     }
 
+    public void tryModifyCatalogProps(Map<String, String> props) {
+        catalogProperty.modifyCatalogProps(props);
+    }
+
+    public void rollBackCatalogProps(Map<String, String> props) {
+        catalogProperty.rollBackCatalogProps(props);
+    }
+
     private void modifyComment(Map<String, String> props) {
         setComment(props.getOrDefault("comment", comment));
         props.remove("comment");
+    }
+
+    public long getLastUpdateTime() {
+        return lastUpdateTime;
+    }
+
+    public void setLastUpdateTime(long lastUpdateTime) {
+        this.lastUpdateTime = lastUpdateTime;
     }
 
     @Override
@@ -425,6 +473,7 @@ public abstract class ExternalCatalog
         }
         dbNameToId = tmpDbNameToId;
         idToDb = tmpIdToDb;
+        lastUpdateTime = log.getLastUpdateTime();
         initialized = true;
     }
 
@@ -451,6 +500,8 @@ public abstract class ExternalCatalog
                 return new TestExternalDatabase(this, dbId, dbName);
             case PAIMON:
                 return new PaimonExternalDatabase(this, dbId, dbName);
+            case DELTALAKE:
+                return new DeltaLakeExternalDataBase(this, dbId, dbName);
             default:
                 break;
         }
@@ -505,11 +556,11 @@ public abstract class ExternalCatalog
         dbNameToId.put(ClusterNamespace.getNameFromFullName(db.getFullName()), db.getId());
     }
 
-    public void dropDatabase(String dbName) {
+    public void dropDatabaseForReplay(String dbName) {
         throw new NotImplementedException("dropDatabase not implemented");
     }
 
-    public void createDatabase(long dbId, String dbName) {
+    public void createDatabaseForReplay(long dbId, String dbName) {
         throw new NotImplementedException("createDatabase not implemented");
     }
 
@@ -546,5 +597,29 @@ public abstract class ExternalCatalog
             ret = false;
         }
         return ret;
+    }
+
+    @Override
+    public Collection<DatabaseIf> getAllDbs() {
+        makeSureInitialized();
+        return new HashSet<>(idToDb.values());
+    }
+
+    @Override
+    public boolean enableAutoAnalyze() {
+        // By default, external catalog disables auto analyze, uses could set catalog property to enable it:
+        // "enable.auto.analyze" = true
+        Map<String, String> properties = catalogProperty.getProperties();
+        boolean ret = false;
+        if (properties.containsKey(ENABLE_AUTO_ANALYZE)
+                && properties.get(ENABLE_AUTO_ANALYZE).equalsIgnoreCase("true")) {
+            ret = true;
+        }
+        return ret;
+    }
+
+    @Override
+    public ConcurrentHashMap<Long, DatabaseIf> getIdToDb() {
+        return new ConcurrentHashMap<>(idToDb);
     }
 }

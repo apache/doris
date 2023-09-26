@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.jobs.joinorder;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.Job;
@@ -26,6 +27,7 @@ import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.GraphSimplifier;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.SubgraphEnumerator;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver.PlanReceiver;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -37,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -66,7 +69,7 @@ public class JoinOrderJob extends Job {
     }
 
     private Group optimizePlan(Group group) {
-        if (group.isInnerJoinGroup()) {
+        if (group.isValidJoinGroup()) {
             return optimizeJoin(group);
         }
         GroupExpression rootExpr = group.getLogicalExpression();
@@ -110,20 +113,22 @@ public class JoinOrderJob extends Job {
      *
      * @param group root group, should be join type
      * @param hyperGraph build hyperGraph
+     *
+     * @return return edges of group's child and subTreeNodes of this group
      */
-    public void buildGraph(Group group, HyperGraph hyperGraph) {
+    public Pair<BitSet, Long> buildGraph(Group group, HyperGraph hyperGraph) {
         if (group.isProjectGroup()) {
-            buildGraph(group.getLogicalExpression().child(0), hyperGraph);
-            processProjectPlan(hyperGraph, group);
-            return;
+            Pair<BitSet, Long> res = buildGraph(group.getLogicalExpression().child(0), hyperGraph);
+            processProjectPlan(hyperGraph, group, res.second);
+            return res;
         }
-        if (!group.isInnerJoinGroup()) {
-            hyperGraph.addNode(optimizePlan(group));
-            return;
+        if (!group.isValidJoinGroup()) {
+            int idx = hyperGraph.addNode(optimizePlan(group));
+            return Pair.of(new BitSet(), LongBitmap.newBitmap(idx));
         }
-        buildGraph(group.getLogicalExpression().child(0), hyperGraph);
-        buildGraph(group.getLogicalExpression().child(1), hyperGraph);
-        hyperGraph.addEdge(group);
+        Pair<BitSet, Long> left = buildGraph(group.getLogicalExpression().child(0), hyperGraph);
+        Pair<BitSet, Long> right = buildGraph(group.getLogicalExpression().child(1), hyperGraph);
+        return Pair.of(hyperGraph.addEdge(group, left, right), LongBitmap.or(left.second, right.second));
     }
 
     /**
@@ -132,14 +137,14 @@ public class JoinOrderJob extends Job {
      * 2. If it's an alias that may be used in the join operator, we need to add it to graph
      * 3. If it's other expression, we can ignore them and add it after optimizing
      */
-    private void processProjectPlan(HyperGraph hyperGraph, Group group) {
+    private void processProjectPlan(HyperGraph hyperGraph, Group group, long subTreeNodes) {
         LogicalProject<? extends Plan> logicalProject
                 = (LogicalProject<? extends Plan>) group.getLogicalExpression()
                 .getPlan();
 
         for (NamedExpression expr : logicalProject.getProjects()) {
             if (expr instanceof Alias) {
-                hyperGraph.addAlias((Alias) expr);
+                hyperGraph.addAlias((Alias) expr, subTreeNodes);
             } else if (!expr.isSlot()) {
                 otherProject.add(expr);
             }

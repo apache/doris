@@ -21,13 +21,13 @@
 
 namespace doris {
 
-inline std::string_view CUMULATIVE_TIME_SERIES_POLICY = "time_series";
+inline constexpr std::string_view CUMULATIVE_TIME_SERIES_POLICY = "time_series";
 
 /// TimeSeries cumulative compaction policy implementation.
 /// The following three conditions will be considered when calculating compaction scores and selecting input rowsets in this policy:
-/// Condition 1: the size of input files for compaction meets the requirement of parameter _compaction_goal_size
-/// Condition 2: the number of input files reaches the threshold specified by parameter _compaction_file_count_threshold
-/// Condition 3: the time interval between compactions exceeds the value specified by parameter _compaction_time_threshold_seconds
+/// Condition 1: the size of input files for compaction meets the requirement of time_series_compaction_goal_size_mbytes
+/// Condition 2: the number of input files reaches the threshold specified by time_series_compaction_file_count_threshold
+/// Condition 3: the time interval between compactions exceeds the value specified by  time_series_compaction_time_threshold_seconds
 /// The conditions are evaluated sequentially, starting with Condition 1.
 /// If any condition is met, the compaction score calculation or selection of input rowsets will be successful.
 class TimeSeriesCumulativeCompactionPolicy final : public CumulativeCompactionPolicy {
@@ -51,7 +51,8 @@ public:
     int pick_input_rowsets(Tablet* tablet, const std::vector<RowsetSharedPtr>& candidate_rowsets,
                            const int64_t max_compaction_score, const int64_t min_compaction_score,
                            std::vector<RowsetSharedPtr>* input_rowsets,
-                           Version* last_delete_version, size_t* compaction_score) override;
+                           Version* last_delete_version, size_t* compaction_score,
+                           bool allow_delete = false) override;
 
     /// The point must be updated after each cumulative compaction is completed.
     /// We want each rowset to do cumulative compaction once.

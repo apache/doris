@@ -84,7 +84,9 @@ public:
 
     std::string to_string(const IColumn& column, size_t row_num) const override;
 
-    DataTypeSerDeSPtr get_serde() const override { return std::make_shared<DataTypeDate64SerDe>(); }
+    DataTypeSerDeSPtr get_serde() const override {
+        return std::make_shared<DataTypeDateTimeSerDe>();
+    }
 
     Field get_field(const TExprNode& node) const override {
         VecDateTimeValue value;

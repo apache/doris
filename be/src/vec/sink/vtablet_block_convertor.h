@@ -20,19 +20,22 @@
 #include <stdint.h>
 
 // IWYU pragma: no_include <bits/chrono.h>
+
 #include <chrono> // IWYU pragma: keep
 #include <map>
 
 #include "common/status.h"
 #include "runtime/decimalv2_value.h"
+#include "runtime/descriptors.h"
 #include "runtime/types.h"
 #include "util/bitmap.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
+#include "vec/data_types/data_type_factory.hpp"
 #include "vec/exprs/vexpr_fwd.h"
+#include "vec/sink/autoinc_buffer.h"
 
-namespace doris {
-namespace stream_load {
+namespace doris::vectorized {
 
 class OlapTableBlockConvertor {
 public:
@@ -41,7 +44,7 @@ public:
 
     Status validate_and_convert_block(RuntimeState* state, vectorized::Block* input_block,
                                       std::shared_ptr<vectorized::Block>& block,
-                                      vectorized::VExprContextSPtrs output_vexpr_ctxs,
+                                      vectorized::VExprContextSPtrs output_vexpr_ctxs, size_t rows,
                                       bool& has_filtered_rows);
 
     const Bitmap& filter_bitmap() { return _filter_bitmap; }
@@ -49,6 +52,10 @@ public:
     int64_t validate_data_ns() const { return _validate_data_ns; }
 
     int64_t num_filtered_rows() const { return _num_filtered_rows; }
+
+    void init_autoinc_info(int64_t db_id, int64_t table_id, int batch_size);
+
+    AutoIncIDAllocator& auto_inc_id_allocator() { return _auto_inc_id_allocator; }
 
 private:
     template <bool is_min>
@@ -73,6 +80,8 @@ private:
     // so here need to do the convert operation
     void _convert_to_dest_desc_block(vectorized::Block* block);
 
+    Status _fill_auto_inc_cols(vectorized::Block* block, size_t rows);
+
     TupleDescriptor* _output_tuple_desc = nullptr;
 
     std::map<std::pair<int, int>, DecimalV2Value> _max_decimalv2_val;
@@ -89,7 +98,11 @@ private:
 
     int64_t _validate_data_ns = 0;
     int64_t _num_filtered_rows = 0;
+
+    size_t _batch_size;
+    std::optional<size_t> _auto_inc_col_idx;
+    AutoIncIDBuffer* _auto_inc_id_buffer;
+    AutoIncIDAllocator _auto_inc_id_allocator;
 };
 
-} // namespace stream_load
-} // namespace doris
+} // namespace doris::vectorized

@@ -37,6 +37,8 @@
 #include "io/fs/path.h"
 #include "olap/lru_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_query_type.h"
+#include "runtime/exec_env.h"
+#include "runtime/memory/lru_cache_policy.h"
 #include "runtime/memory/mem_tracker.h"
 #include "util/slice.h"
 #include "util/time.h"
@@ -55,7 +57,7 @@ using IndexSearcherPtr = std::shared_ptr<lucene::search::IndexSearcher>;
 
 class InvertedIndexCacheHandle;
 
-class InvertedIndexSearcherCache {
+class InvertedIndexSearcherCache : public LRUCachePolicy {
 public:
     // The cache key of index_searcher lru cache
     struct CacheKey {
@@ -65,21 +67,26 @@ public:
 
     // The cache value of index_searcher lru cache.
     // Holding a opened index_searcher.
-    struct CacheValue {
-        // Save the last visit time of this cache entry.
-        // Use atomic because it may be modified by multi threads.
-        std::atomic<int64_t> last_visit_time = 0;
+    struct CacheValue : public LRUCacheValueBase {
         IndexSearcherPtr index_searcher;
-        size_t size = 0;
     };
 
     // Create global instance of this class.
     // "capacity" is the capacity of lru cache.
-    static void create_global_instance(size_t capacity, uint32_t num_shards = 16);
+    static InvertedIndexSearcherCache* create_global_instance(size_t capacity,
+                                                              uint32_t num_shards = 16);
+
+    void reset() {
+        _cache.reset();
+        _mem_tracker.reset();
+        // Reset or clear the state of the object.
+    }
 
     // Return global instance.
     // Client should call create_global_cache before.
-    static InvertedIndexSearcherCache* instance() { return _s_instance; }
+    static InvertedIndexSearcherCache* instance() {
+        return ExecEnv::GetInstance()->get_inverted_index_searcher_cache();
+    }
 
     static IndexSearcherPtr build_index_searcher(const io::FileSystemSPtr& fs,
                                                  const std::string& index_dir,
@@ -98,8 +105,6 @@ public:
     // function `erase` called after compaction remove segment
     Status erase(const std::string& index_file_path);
 
-    int64_t prune();
-
     int64_t mem_consumption();
 
 private:
@@ -116,9 +121,6 @@ private:
     Cache::Handle* _insert(const InvertedIndexSearcherCache::CacheKey& key, CacheValue* value);
 
 private:
-    static InvertedIndexSearcherCache* _s_instance;
-    // A LRU cache to cache all opened index_searcher
-    std::unique_ptr<Cache> _cache = nullptr;
     std::unique_ptr<MemTracker> _mem_tracker = nullptr;
 };
 
@@ -187,14 +189,14 @@ private:
 
 class InvertedIndexQueryCacheHandle;
 
-class InvertedIndexQueryCache {
+class InvertedIndexQueryCache : public LRUCachePolicy {
 public:
     // cache key
     struct CacheKey {
         io::Path index_path;               // index file path
         std::string column_name;           // column name
         InvertedIndexQueryType query_type; // query type
-        std::wstring value;                // query value
+        std::string value;                 // query value
 
         // Encode to a flat binary which can be used as LRUCache's key
         std::string encode() const {
@@ -208,51 +210,40 @@ public:
             }
             key_buf.append(query_type_str);
             key_buf.append("/");
-            auto str = lucene_wcstoutf8string(value.c_str(), value.length());
-            key_buf.append(str);
+            key_buf.append(value);
             return key_buf;
         }
     };
 
-    struct CacheValue {
-        // Save the last visit time of this cache entry.
-        // Use atomic because it may be modified by multi threads.
-        std::atomic<int64_t> last_visit_time = 0;
+    struct CacheValue : public LRUCacheValueBase {
         std::shared_ptr<roaring::Roaring> bitmap;
-        size_t size = 0;
     };
 
     // Create global instance of this class
-    static void create_global_cache(size_t capacity, int32_t index_cache_percentage,
-                                    uint32_t num_shards = 16) {
-        DCHECK(_s_instance == nullptr);
-        static InvertedIndexQueryCache instance(capacity, index_cache_percentage, num_shards);
-        _s_instance = &instance;
+    static InvertedIndexQueryCache* create_global_cache(size_t capacity, uint32_t num_shards = 16) {
+        InvertedIndexQueryCache* res = new InvertedIndexQueryCache(capacity, num_shards);
+        return res;
     }
 
     // Return global instance.
     // Client should call create_global_cache before.
-    static InvertedIndexQueryCache* instance() { return _s_instance; }
+    static InvertedIndexQueryCache* instance() {
+        return ExecEnv::GetInstance()->get_inverted_index_query_cache();
+    }
 
     InvertedIndexQueryCache() = delete;
 
-    InvertedIndexQueryCache(size_t capacity, int32_t index_cache_percentage, uint32_t num_shards) {
-        _cache = std::unique_ptr<Cache>(
-                new_lru_cache("InvertedIndexQueryCache", capacity, LRUCacheType::SIZE, num_shards));
-    }
+    InvertedIndexQueryCache(size_t capacity, uint32_t num_shards)
+            : LRUCachePolicy(CachePolicy::CacheType::INVERTEDINDEX_QUERY_CACHE, capacity,
+                             LRUCacheType::SIZE, config::inverted_index_cache_stale_sweep_time_sec,
+                             num_shards) {}
 
     bool lookup(const CacheKey& key, InvertedIndexQueryCacheHandle* handle);
 
     void insert(const CacheKey& key, std::shared_ptr<roaring::Roaring> bitmap,
                 InvertedIndexQueryCacheHandle* handle);
 
-    int64_t prune();
-
     int64_t mem_consumption();
-
-private:
-    static InvertedIndexQueryCache* _s_instance;
-    std::unique_ptr<Cache> _cache {nullptr};
 };
 
 class InvertedIndexQueryCacheHandle {

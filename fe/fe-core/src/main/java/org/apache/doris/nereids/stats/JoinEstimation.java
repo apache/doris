@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.stats;
 
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -44,6 +43,7 @@ import java.util.stream.Collectors;
  * TODO: Update other props in the ColumnStats properly.
  */
 public class JoinEstimation {
+    private static double DEFAULT_ANTI_JOIN_SELECTIVITY_COEFFICIENT = 0.3;
 
     private static EqualTo normalizeHashJoinCondition(EqualTo equalTo, Statistics leftStats, Statistics rightStats) {
         boolean changeOrder = equalTo.left().getInputSlots().stream().anyMatch(
@@ -83,6 +83,8 @@ public class JoinEstimation {
         List<Double> unTrustEqualRatio = Lists.newArrayList();
         List<EqualTo> unTrustableCondition = Lists.newArrayList();
         boolean leftBigger = leftStats.getRowCount() > rightStats.getRowCount();
+        double rightStatsRowCount = StatsMathUtil.nonZeroDivisor(rightStats.getRowCount());
+        double leftStatsRowCount = StatsMathUtil.nonZeroDivisor(leftStats.getRowCount());
         List<EqualTo> trustableConditions = join.getHashJoinConjuncts().stream()
                 .map(expression -> (EqualTo) expression)
                 .filter(
@@ -93,8 +95,6 @@ public class JoinEstimation {
                             EqualTo equal = normalizeHashJoinCondition(expression, leftStats, rightStats);
                             ColumnStatistic eqLeftColStats = ExpressionEstimation.estimate(equal.left(), leftStats);
                             ColumnStatistic eqRightColStats = ExpressionEstimation.estimate(equal.right(), rightStats);
-                            double rightStatsRowCount = StatsMathUtil.nonZeroDivisor(rightStats.getRowCount());
-                            double leftStatsRowCount = StatsMathUtil.nonZeroDivisor(leftStats.getRowCount());
                             boolean trustable = eqRightColStats.ndv / rightStatsRowCount > almostUniqueThreshold
                                     || eqLeftColStats.ndv / leftStatsRowCount > almostUniqueThreshold;
                             if (!trustable) {
@@ -115,41 +115,34 @@ public class JoinEstimation {
 
         Statistics innerJoinStats;
         Statistics crossJoinStats = new StatisticsBuilder()
-                .setRowCount(Math.max(1, leftStats.getRowCount() * rightStats.getRowCount()))
+                .setRowCount(Math.max(1, leftStats.getRowCount()) * Math.max(1, rightStats.getRowCount()))
                 .putColumnStatistics(leftStats.columnStatistics())
                 .putColumnStatistics(rightStats.columnStatistics())
                 .build();
 
-        double outputRowCount = 1;
+        double outputRowCount;
         if (!trustableConditions.isEmpty()) {
-            List<Pair<? extends Expression, Double>> sortedJoinConditions = trustableConditions.stream()
-                    .map(expression -> Pair.of(expression, estimateJoinConditionSel(crossJoinStats, expression)))
-                    .sorted((a, b) -> {
-                        double sub = a.second - b.second;
-                        if (sub > 0) {
-                            return 1;
-                        } else if (sub < 0) {
-                            return -1;
-                        } else {
-                            return 0;
-                        }
-                    }).collect(Collectors.toList());
+            List<Double> joinConditionSels = trustableConditions.stream()
+                    .map(expression -> estimateJoinConditionSel(crossJoinStats, expression))
+                    .sorted()
+                    .collect(Collectors.toList());
 
             double sel = 1.0;
-            for (int i = 0; i < sortedJoinConditions.size(); i++) {
-                sel *= Math.pow(sortedJoinConditions.get(i).second, 1 / Math.pow(2, i));
+            double denominator = 1.0;
+            for (Double joinConditionSel : joinConditionSels) {
+                sel *= Math.pow(joinConditionSel, 1 / denominator);
+                denominator *= 2;
             }
             outputRowCount = Math.max(1, crossJoinStats.getRowCount() * sel);
             outputRowCount = outputRowCount * Math.pow(0.9, unTrustableCondition.size());
-            innerJoinStats = crossJoinStats.updateRowCountOnly(outputRowCount);
         } else {
             outputRowCount = Math.max(leftStats.getRowCount(), rightStats.getRowCount());
-            Optional<Double> ratio = unTrustEqualRatio.stream().max(Double::compareTo);
+            Optional<Double> ratio = unTrustEqualRatio.stream().min(Double::compareTo);
             if (ratio.isPresent()) {
                 outputRowCount = Math.max(1, outputRowCount * ratio.get());
             }
-            innerJoinStats = crossJoinStats.updateRowCountOnly(outputRowCount);
         }
+        innerJoinStats = crossJoinStats.updateRowCountOnly(outputRowCount);
         return innerJoinStats;
     }
 
@@ -187,9 +180,6 @@ public class JoinEstimation {
                 innerJoinStats = new StatisticsBuilder(innerJoinStats).setRowCount(1).build();
             }
         }
-
-        innerJoinStats.setWidth(leftStats.getWidth() + rightStats.getWidth());
-        innerJoinStats.setPenalty(0);
         return innerJoinStats;
     }
 
@@ -221,7 +211,8 @@ public class JoinEstimation {
             if (join.getJoinType().isSemiJoin()) {
                 rowCount = semiRowCount;
             } else {
-                rowCount = leftStats.getRowCount() - semiRowCount;
+                rowCount = Math.max(leftStats.getRowCount() - semiRowCount,
+                        leftStats.getRowCount() * DEFAULT_ANTI_JOIN_SELECTIVITY_COEFFICIENT);
             }
         } else {
             //right semi or anti
@@ -230,7 +221,8 @@ public class JoinEstimation {
             if (join.getJoinType().isSemiJoin()) {
                 rowCount = semiRowCount;
             } else {
-                rowCount = rightStats.getRowCount() - semiRowCount;
+                rowCount = Math.max(rightStats.getRowCount() - semiRowCount,
+                        rightStats.getRowCount() * DEFAULT_ANTI_JOIN_SELECTIVITY_COEFFICIENT);
             }
         }
         return Math.max(1, rowCount);

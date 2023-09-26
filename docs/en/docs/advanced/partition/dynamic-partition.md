@@ -30,7 +30,9 @@ Dynamic partition is a new feature introduced in Doris version 0.12. It's design
 
 At present, the functions of dynamically adding partitions and dynamically deleting partitions are realized.
 
-Dynamic partitioning is only supported for Range partitions.
+Dynamic partitioning is only supported for Range partitions.  
+
+Node: This feature will be disabled when synchronized by CCR. If this table is copied by CCR, that is, PROPERTIES contains `is_being_synced = true`, it will be displayed as enabled in show create table, but will not actually take effect. When `is_being_synced` is set to `false`, these features will resume working, but the `is_being_synced` property is for CCR peripheral modules only and should not be manually set during CCR synchronization.
 
 ## Noun Interpretation
 
@@ -81,7 +83,7 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 
     Whether to enable the dynamic partition feature. Can be specified as `TRUE` or` FALSE`. If not filled, the default is `TRUE`. If it is `FALSE`, Doris will ignore the dynamic partitioning rules of the table.
 
-* `dynamic_partition.time_unit`
+* `dynamic_partition.time_unit`(required parameters)
 
     The unit for dynamic partition scheduling. Can be specified as `HOUR`,`DAY`,` WEEK`, `MONTH` and `YEAR`, means to create or delete partitions by hour, day, week, month and year, respectively.
 
@@ -103,11 +105,11 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 
     The starting offset of the dynamic partition, usually a negative number. Depending on the `time_unit` attribute, based on the current day (week / month), the partitions with a partition range before this offset will be deleted. If not filled, the default is `-2147483648`, that is, the history partition will not be  deleted.
 
-* `dynamic_partition.end`
+* `dynamic_partition.end`(required parameters)
 
     The end offset of the dynamic partition, usually a positive number. According to the difference of the `time_unit` attribute, the partition of the corresponding range is created in advance based on the current day (week / month).
 
-* `dynamic_partition.prefix`
+* `dynamic_partition.prefix`(required parameters)
 
     The dynamically created partition name prefix.
 

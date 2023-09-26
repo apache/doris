@@ -58,7 +58,7 @@ under the License.
 环境变量参考：
 
 ```
-JAVA_OPTS=-Xmx1024m -DlogPath=$DORIS_HOME/log/jni.log -Dsun.java.command=DorisBE -XX:-CriticalJNINatives -DJDBC_MIN_POOL=1 -DJDBC_MAX_POOL=100 -DJDBC_MAX_IDEL_TIME=300000;
+JAVA_OPTS=-Xmx1024m -DlogPath=$DORIS_HOME/log/jni.log -Dsun.java.command=DorisBE -XX:-CriticalJNINatives -DJDBC_MIN_POOL=1 -DJDBC_MAX_POOL=100 -DJDBC_MAX_IDLE_TIME=300000;
 LOG_DIR=~/DorisDev/doris-run/be/log;
 NLS_LANG=AMERICAN_AMERICA.AL32UTF8;
 ODBCSYSINI=~/DorisDev/doris-run/be/conf;

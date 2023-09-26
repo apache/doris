@@ -23,7 +23,6 @@ import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.Collections;
-import java.util.List;
 import java.util.Map;
 
 public class BinlogTombstone {
@@ -36,33 +35,26 @@ public class BinlogTombstone {
     @SerializedName(value = "commitSeq")
     private long commitSeq;
 
-    @SerializedName(value = "tableIds")
-    private List<Long> tableIds;
+    @SerializedName(value = "tableCommitSeqMap")
+    private Map<Long, Long> tableCommitSeqMap;
 
     @SerializedName(value = "tableVersionMap")
     // this map keep last upsert record <tableId, UpsertRecord>
     // only for master fe to send be gc task, not need persist
     private Map<Long, UpsertRecord.TableRecord> tableVersionMap = Maps.newHashMap();
 
-    public BinlogTombstone(long dbId, List<Long> tableIds, long commitSeq) {
-        this.dbBinlogTombstone = true;
+    public BinlogTombstone(long dbId, boolean isDbTombstone) {
+        this.dbBinlogTombstone = isDbTombstone;
         this.dbId = dbId;
-        this.tableIds = tableIds;
-        this.commitSeq = commitSeq;
+        this.commitSeq = -1;
+        this.tableCommitSeqMap = Maps.newHashMap();
     }
 
-    public BinlogTombstone(long dbId, long commitSeq) {
+    public BinlogTombstone(long tableId, long commitSeq) {
         this.dbBinlogTombstone = false;
-        this.dbId = dbId;
-        this.tableIds = null;
+        this.dbId = -1;
         this.commitSeq = commitSeq;
-    }
-
-    public BinlogTombstone(long dbId, long tableId, long commitSeq) {
-        this.dbBinlogTombstone = false;
-        this.dbId = dbId;
-        this.tableIds = Collections.singletonList(tableId);
-        this.commitSeq = commitSeq;
+        this.tableCommitSeqMap = Collections.singletonMap(tableId, commitSeq);
     }
 
     public void addTableRecord(long tableId, UpsertRecord upsertRecord) {
@@ -71,8 +63,16 @@ public class BinlogTombstone {
         tableVersionMap.put(tableId, tableRecord);
     }
 
-    public void addTableRecord(long tableId, UpsertRecord.TableRecord record) {
-        tableVersionMap.put(tableId, record);
+    public void addTableRecord(Map<Long, UpsertRecord.TableRecord> records) {
+        tableVersionMap.putAll(records);
+    }
+
+    // Can only be used to merge tombstone of the same db
+    public void mergeTableTombstone(BinlogTombstone tombstone) {
+        if (commitSeq < tombstone.getCommitSeq()) {
+            commitSeq = tombstone.getCommitSeq();
+        }
+        tableCommitSeqMap.putAll(tombstone.getTableCommitSeqMap());
     }
 
     public boolean isDbBinlogTomstone() {
@@ -83,12 +83,19 @@ public class BinlogTombstone {
         return dbId;
     }
 
-    public List<Long> getTableIds() {
-        return tableIds;
+    public Map<Long, Long> getTableCommitSeqMap() {
+        if (tableCommitSeqMap == null) {
+            tableCommitSeqMap = Maps.newHashMap();
+        }
+        return tableCommitSeqMap;
     }
 
     public long getCommitSeq() {
         return commitSeq;
+    }
+
+    public void setCommitSeq(long seq) {
+        commitSeq = seq;
     }
 
     public Map<Long, UpsertRecord.TableRecord> getTableVersionMap() {

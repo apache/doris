@@ -40,4 +40,18 @@ public class ExecuteStmt extends StatementBase {
     public RedirectStatus getRedirectStatus() {
         return RedirectStatus.NO_FORWARD;
     }
+
+    @Override
+    public String toSql() {
+        String sql = "EXECUTE(";
+        int size = args.size();
+        for (int i = 0; i < size; ++i) {
+            sql += args.get(i).toSql();
+            if (i < size - 1) {
+                sql += ", ";
+            }
+        }
+        sql += ")";
+        return sql;
+    }
 }

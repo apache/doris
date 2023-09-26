@@ -172,11 +172,13 @@ rapidjson::Value* JsonFunctions::get_json_array_from_parsed_json(
     rapidjson::Value* root = match_value(parsed_paths, document, mem_allocator, true);
     if (root == nullptr || root == document) { // not found
         return nullptr;
-    } else if (!root->IsArray()) {
+    } else if (!root->IsArray() && wrap_explicitly) {
         rapidjson::Value* array_obj = nullptr;
         array_obj = static_cast<rapidjson::Value*>(mem_allocator.Malloc(sizeof(rapidjson::Value)));
         array_obj->SetArray();
-        array_obj->PushBack(*root, mem_allocator);
+        rapidjson::Value copy;
+        copy.CopyFrom(*root, mem_allocator);
+        array_obj->PushBack(std::move(copy), mem_allocator);
         // set `wrap_explicitly` to true, so that the caller knows that this Array is wrapped actively.
         *wrap_explicitly = true;
         return array_obj;

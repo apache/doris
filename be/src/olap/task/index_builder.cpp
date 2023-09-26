@@ -55,6 +55,8 @@ Status IndexBuilder::update_inverted_index_info() {
     // just do link files
     LOG(INFO) << "begin to update_inverted_index_info, tablet=" << _tablet->tablet_id()
               << ", is_drop_op=" << _is_drop_op;
+    // index ids that will not be linked
+    std::set<int32_t> without_index_uids;
     for (auto i = 0; i < _input_rowsets.size(); ++i) {
         auto input_rowset = _input_rowsets[i];
         TabletSchemaSPtr output_rs_tablet_schema = std::make_shared<TabletSchema>();
@@ -74,7 +76,19 @@ Status IndexBuilder::update_inverted_index_info() {
             for (auto t_inverted_index : _alter_inverted_indexes) {
                 TabletIndex index;
                 index.init_from_thrift(t_inverted_index, *input_rs_tablet_schema);
-                output_rs_tablet_schema->append_index(std::move(index));
+                auto column_uid = index.col_unique_ids()[0];
+                const TabletIndex* exist_index =
+                        output_rs_tablet_schema->get_inverted_index(column_uid);
+                if (exist_index && exist_index->index_id() != index.index_id()) {
+                    LOG(WARNING) << fmt::format(
+                            "column: {} has a exist inverted index, but the index id not equal "
+                            "request's index id, , exist index id: {}, request's index id: {}, "
+                            "remove exist index in new output_rs_tablet_schema",
+                            column_uid, exist_index->index_id(), index.index_id());
+                    without_index_uids.insert(exist_index->index_id());
+                    output_rs_tablet_schema->remove_index(exist_index->index_id());
+                }
+                output_rs_tablet_schema->append_index(index);
             }
         }
         // construct input rowset reader
@@ -92,13 +106,19 @@ Status IndexBuilder::update_inverted_index_info() {
         context.fs = input_rs_reader->rowset()->rowset_meta()->fs();
         Status status = _tablet->create_rowset_writer(context, &output_rs_writer);
         if (!status.ok()) {
-            return Status::Error<ErrorCode::ROWSET_BUILDER_INIT>();
+            return Status::Error<ErrorCode::ROWSET_BUILDER_INIT>(status.to_string());
         }
-        std::set<int32_t> alter_column_ids_set =
-                _rowset_alter_index_column_ids[input_rowset->rowset_id().to_string()];
-        RETURN_IF_ERROR(input_rowset->link_files_to(_tablet->tablet_path(),
-                                                    output_rs_writer->rowset_id(), 0,
-                                                    &alter_column_ids_set)); // build output rowset
+
+        // if without_index_uids is not empty, copy _alter_index_ids to it
+        // else just use _alter_index_ids to avoid copy
+        if (!without_index_uids.empty()) {
+            without_index_uids.insert(_alter_index_ids.begin(), _alter_index_ids.end());
+        }
+
+        // build output rowset
+        RETURN_IF_ERROR(input_rowset->link_files_to(
+                _tablet->tablet_path(), output_rs_writer->rowset_id(), 0,
+                without_index_uids.empty() ? &_alter_index_ids : &without_index_uids));
 
         auto input_rowset_meta = input_rowset->rowset_meta();
         RowsetMetaSharedPtr rowset_meta = std::make_shared<RowsetMeta>();
@@ -165,8 +185,8 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                             field.get(), &inverted_index_builder, segment_filename, segment_dir,
                             index_meta, fs));
                 } catch (const std::exception& e) {
-                    LOG(WARNING) << "CLuceneError occured: " << e.what();
-                    return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>();
+                    return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                            "CLuceneError occured: {}", e.what());
                 }
 
                 if (inverted_index_builder) {
@@ -208,8 +228,8 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 // write inverted index data
                 if (_write_inverted_index_data(output_rowset_schema, iter->data_id(),
                                                block.get()) != Status::OK()) {
-                    LOG(WARNING) << "failed to write block.";
-                    return Status::Error<ErrorCode::SCHEMA_CHANGE_INFO_INVALID>();
+                    return Status::Error<ErrorCode::SCHEMA_CHANGE_INFO_INVALID>(
+                            "failed to write block.");
                 }
                 block->clear_column_data();
             }
@@ -221,8 +241,8 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                         _inverted_index_builders[writer_sign]->finish();
                     }
                 } catch (const std::exception& e) {
-                    LOG(WARNING) << "CLuceneError occured: " << e.what();
-                    return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>();
+                    return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                            "CLuceneError occured: {}", e.what());
                 }
             }
 
@@ -244,7 +264,7 @@ Status IndexBuilder::_write_inverted_index_data(TabletSchemaSPtr tablet_schema, 
         auto inverted_index = _alter_inverted_indexes[i];
         auto index_id = inverted_index.index_id;
         auto converted_result = _olap_data_convertor->convert_column_data(i);
-        if (converted_result.first != Status::OK()) {
+        if (!converted_result.first.ok()) {
             LOG(WARNING) << "failed to convert block, errcode: " << converted_result.first;
             return converted_result.first;
         }
@@ -289,6 +309,33 @@ Status IndexBuilder::_add_nullable(const std::string& column_name,
         }
         return step;
     };
+    if (field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+        DCHECK(field->get_sub_field_count() == 1);
+        BitmapIterator null_iter(null_map, num_rows);
+        bool is_null = false;
+        size_t this_run = 0;
+        while ((this_run = null_iter.Next(&is_null)) > 0) {
+            if (is_null) {
+                RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_nulls(this_run));
+            } else {
+                // [size, offset_ptr, item_data_ptr, item_nullmap_ptr]
+                auto data_ptr = reinterpret_cast<const uint64_t*>(*ptr);
+                // total number length
+                size_t element_cnt = size_t((unsigned long)(*data_ptr));
+                auto offset_data = *(data_ptr + 1);
+                const uint8_t* offsets_ptr = (const uint8_t*)offset_data;
+                if (element_cnt > 0) {
+                    auto data = *(data_ptr + 2);
+                    auto nested_null_map = *(data_ptr + 3);
+                    RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_array_values(
+                            field->get_sub_field(0)->size(), reinterpret_cast<const void*>(data),
+                            reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr,
+                            num_rows));
+                }
+            }
+        }
+        return Status::OK();
+    }
 
     try {
         do {
@@ -310,8 +357,8 @@ Status IndexBuilder::_add_nullable(const std::string& column_name,
             offset += step;
         } while (offset < num_rows);
     } catch (const std::exception& e) {
-        LOG(WARNING) << "CLuceneError occured: " << e.what();
-        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>();
+        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("CLuceneError occured: {}",
+                                                                      e.what());
     }
 
     return Status::OK();
@@ -331,8 +378,8 @@ Status IndexBuilder::_add_data(const std::string& column_name,
                     column_name, *ptr, num_rows));
         }
     } catch (const std::exception& e) {
-        LOG(WARNING) << "CLuceneError occured: " << e.what();
-        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>();
+        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("CLuceneError occured: {}",
+                                                                      e.what());
     }
 
     return Status::OK();
@@ -385,14 +432,14 @@ Status IndexBuilder::do_build_inverted_index() {
     std::unique_lock<std::mutex> build_inverted_index_lock(_tablet->get_build_inverted_index_lock(),
                                                            std::try_to_lock);
     if (!build_inverted_index_lock.owns_lock()) {
-        LOG(WARNING) << "failed to obtain build inverted index lock. "
-                     << "tablet=" << _tablet->tablet_id();
-        return Status::Error<ErrorCode::TRY_LOCK_FAILED>();
+        return Status::Error<ErrorCode::TRY_LOCK_FAILED>(
+                "failed to obtain build inverted index lock. tablet={}", _tablet->tablet_id());
     }
 
-    if (_tablet->get_clone_occurred()) {
-        _tablet->set_clone_occurred(false);
-        return Status::Error<ErrorCode::BE_CLONE_OCCURRED>();
+    std::shared_lock migration_rlock(_tablet->get_migration_lock(), std::try_to_lock);
+    if (!migration_rlock.owns_lock()) {
+        return Status::Error<ErrorCode::TRY_LOCK_FAILED>("got migration_rlock failed. tablet={}",
+                                                         _tablet->full_name());
     }
 
     _input_rowsets =
@@ -401,8 +448,6 @@ Status IndexBuilder::do_build_inverted_index() {
         LOG(INFO) << "_input_rowsets is empty";
         return Status::OK();
     }
-
-    _calc_alter_column_ids();
 
     auto st = update_inverted_index_info();
     if (!st.ok()) {
@@ -442,11 +487,26 @@ Status IndexBuilder::modify_rowsets(const Merger::Statistics* stats) {
 
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
-        std::lock_guard<std::mutex> rwlock(_tablet->get_rowset_update_lock());
-        std::shared_lock<std::shared_mutex> wrlock(_tablet->get_header_lock());
-        for (auto rowset_ptr : _output_rowsets) {
-            RETURN_IF_ERROR(_tablet->update_delete_bitmap_without_lock(rowset_ptr));
+        std::lock_guard<std::mutex> rowset_update_wlock(_tablet->get_rowset_update_lock());
+        std::lock_guard<std::shared_mutex> meta_wlock(_tablet->get_header_lock());
+        DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(_tablet->tablet_id());
+        for (auto i = 0; i < _input_rowsets.size(); ++i) {
+            RowsetId input_rowset_id = _input_rowsets[i]->rowset_id();
+            RowsetId output_rowset_id = _output_rowsets[i]->rowset_id();
+            for (const auto& [k, v] : _tablet->tablet_meta()->delete_bitmap().delete_bitmap) {
+                RowsetId rs_id = std::get<0>(k);
+                if (rs_id == input_rowset_id) {
+                    DeleteBitmap::BitmapKey output_rs_key = {output_rowset_id, std::get<1>(k),
+                                                             std::get<2>(k)};
+                    auto res = delete_bitmap->set(output_rs_key, v);
+                    DCHECK(res > 0) << "delete_bitmap set failed, res=" << res;
+                }
+            }
         }
+        _tablet->tablet_meta()->delete_bitmap().merge(*delete_bitmap);
+
+        // modify_rowsets will remove the delete_bimap for input rowsets,
+        // should call it after merge delete_bitmap
         RETURN_IF_ERROR(_tablet->modify_rowsets(_output_rowsets, _input_rowsets, true));
     } else {
         std::lock_guard<std::shared_mutex> wrlock(_tablet->get_header_lock());
@@ -471,30 +531,6 @@ void IndexBuilder::gc_output_rowset() {
         }
         StorageEngine::instance()->add_unused_rowset(output_rowset);
     }
-}
-
-Status IndexBuilder::_calc_alter_column_ids() {
-    for (auto& rs : _input_rowsets) {
-        RowsetId rowset_id = rs->rowset_id();
-        auto rs_tablet_schema = rs->tablet_schema();
-        std::set<int32_t> alter_column_uids;
-        for (auto inverted_index : _alter_inverted_indexes) {
-            auto column_name = inverted_index.columns[0];
-            auto column_idx = rs_tablet_schema->field_index(column_name);
-            if (column_idx < 0) {
-                LOG(WARNING) << "referenced column was missing. "
-                             << "[column=" << column_name << " referenced_column=" << column_idx
-                             << "]";
-                continue;
-            }
-            auto column = rs_tablet_schema->column(column_idx);
-            alter_column_uids.insert(column.unique_id());
-        }
-        _rowset_alter_index_column_ids.insert(
-                std::make_pair(rowset_id.to_string(), alter_column_uids));
-    }
-
-    return Status::OK();
 }
 
 } // namespace doris

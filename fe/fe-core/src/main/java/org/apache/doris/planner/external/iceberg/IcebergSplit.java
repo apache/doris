@@ -23,16 +23,22 @@ import lombok.Data;
 import org.apache.hadoop.fs.Path;
 
 import java.util.List;
+import java.util.Map;
 
 @Data
 public class IcebergSplit extends FileSplit {
+
     // File path will be changed if the file is modified, so there's no need to get modification time.
-    public IcebergSplit(Path file, long start, long length, long fileLength, String[] hosts) {
+    public IcebergSplit(Path file, long start, long length, long fileLength, String[] hosts,
+                        Integer formatVersion, Map<String, String> config) {
         super(file, start, length, fileLength, hosts, null);
+        this.formatVersion = formatVersion;
+        this.config = config;
     }
 
     private Integer formatVersion;
     private List<IcebergDeleteFileFilter> deleteFileFilters;
+    private Map<String, String> config;
 }
 
 

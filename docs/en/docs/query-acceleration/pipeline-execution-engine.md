@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Pipeline execution engine",
+    "title": "Pipeline Execution Engine",
     "language": "en",
     "toc_min_heading_level": 2,
     "toc_max_heading_level": 4
@@ -26,7 +26,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Pipeline execution engine
+# Pipeline Execution Engine
 
 <version since="2.0.0"></version>
 
@@ -76,3 +76,4 @@ set enable_pipeline_engine = true;
 ```
 set parallel_pipeline_task_num = 0;
 ```
+You can limit the automatically configured concurrency by setting "max_instance_num."（The default value is 64)

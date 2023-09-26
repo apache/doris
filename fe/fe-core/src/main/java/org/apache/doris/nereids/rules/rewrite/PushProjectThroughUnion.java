@@ -35,8 +35,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * when we do analyze, we add project on the top of SetOperation's children when we need to cast children's output
- * this rule push down the project under union to let MergeUnion could do better
+ * this rule push down the project through union to let MergeUnion could do better
  * TODO: this rule maybe lead to unequal transformation if cast is not monomorphism,
  *   maybe we need to distinguish implicit cast and explicit cast
  */
@@ -58,10 +57,12 @@ public class PushProjectThroughUnion extends OneRewriteRuleFactory {
                 .then(project -> {
                     LogicalSetOperation union = project.child();
                     ImmutableList.Builder<Plan> newChildren = ImmutableList.builder();
-                    for (Plan child : union.children()) {
+                    ImmutableList.Builder<List<SlotReference>> newRegularChildrenOutput = ImmutableList.builder();
+                    for (int i = 0; i < union.arity(); i++) {
+                        Plan child = union.child(i);
                         Map<Expression, Expression> replaceMap = Maps.newHashMap();
-                        for (int i = 0; i < union.getOutput().size(); i++) {
-                            replaceMap.put(union.getOutput().get(i), child.getOutput().get(i));
+                        for (int j = 0; j < union.getOutput().size(); j++) {
+                            replaceMap.put(union.getOutput().get(j), union.getRegularChildOutput(i).get(j));
                         }
                         List<NamedExpression> childProjections = project.getProjects().stream()
                                 .map(e -> (NamedExpression) ExpressionUtils.replace(e, replaceMap))
@@ -72,10 +73,16 @@ public class PushProjectThroughUnion extends OneRewriteRuleFactory {
                                     return e;
                                 })
                                 .collect(ImmutableList.toImmutableList());
-                        newChildren.add(new LogicalProject<>(childProjections, child));
+                        Plan newChild = new LogicalProject<>(childProjections, child);
+                        newChildren.add(newChild);
+                        newRegularChildrenOutput.add(childProjections.stream()
+                                .map(NamedExpression::toSlot)
+                                .map(SlotReference.class::cast)
+                                .collect(ImmutableList.toImmutableList()));
                     }
                     List<NamedExpression> newOutput = (List) project.getOutput();
-                    return union.withNewOutputs(newOutput).withChildren(newChildren.build());
+                    return union.withNewOutputs(newOutput)
+                            .withChildrenAndTheirOutputs(newChildren.build(), newRegularChildrenOutput.build());
                 })
                 .toRule(RuleType.PUSH_PROJECT_THROUGH_UNION);
     }

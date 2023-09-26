@@ -21,7 +21,6 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
-import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
@@ -30,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
@@ -73,7 +73,13 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
     @Override
     public Expression visitExistsSubquery(Exists exists, CascadesContext context) {
         AnalyzedResult analyzedResult = analyzeSubquery(exists);
-
+        if (analyzedResult.rootIsLimitZero()) {
+            return BooleanLiteral.of(exists.isNot());
+        }
+        if (analyzedResult.isCorrelated() && analyzedResult.rootIsLimitWithOffset()) {
+            throw new AnalysisException("Unsupported correlated subquery with a LIMIT clause with offset > 0 "
+                    + analyzedResult.getLogicalPlan());
+        }
         return new Exists(analyzedResult.getLogicalPlan(),
                 analyzedResult.getCorrelatedSlots(), exists.isNot());
     }
@@ -102,14 +108,6 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
         checkHasGroupBy(analyzedResult);
 
         return new ScalarSubquery(analyzedResult.getLogicalPlan(), analyzedResult.getCorrelatedSlots());
-    }
-
-    @Override
-    public Expression visitBinaryOperator(BinaryOperator binaryOperator, CascadesContext context) {
-        if (childrenAtLeastOneInOrExistsSub(binaryOperator) && (binaryOperator instanceof ComparisonPredicate)) {
-            throw new AnalysisException("Not support binaryOperator children at least one is in or exists subquery");
-        }
-        return visit(binaryOperator, context);
     }
 
     private boolean childrenAtLeastOneInOrExistsSub(BinaryOperator binaryOperator) {
@@ -168,11 +166,11 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
     }
 
     private AnalyzedResult analyzeSubquery(SubqueryExpr expr) {
-        CascadesContext subqueryContext = CascadesContext.newRewriteContext(cascadesContext, expr.getQueryPlan());
+        CascadesContext subqueryContext = CascadesContext.newContextWithCteContext(
+                cascadesContext, expr.getQueryPlan(), cascadesContext.getCteContext());
         Scope subqueryScope = genScopeWithSubquery(expr);
         subqueryContext.setOuterScope(subqueryScope);
         subqueryContext.newAnalyzer().analyze();
-        cascadesContext.putAllCTEIdToConsumer(subqueryContext.getCteIdToConsumers());
         return new AnalyzedResult((LogicalPlan) subqueryContext.getRewritePlan(),
                 subqueryScope.getCorrelatedSlots());
     }
@@ -227,6 +225,14 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
 
         public boolean rootIsLimit() {
             return logicalPlan instanceof LogicalLimit;
+        }
+
+        public boolean rootIsLimitWithOffset() {
+            return logicalPlan instanceof LogicalLimit && ((LogicalLimit<?>) logicalPlan).getOffset() != 0;
+        }
+
+        public boolean rootIsLimitZero() {
+            return logicalPlan instanceof LogicalLimit && ((LogicalLimit<?>) logicalPlan).getLimit() == 0;
         }
     }
 }

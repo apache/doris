@@ -27,18 +27,18 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
-import org.apache.doris.statistics.TableStatistic;
-import org.apache.doris.statistics.util.StatisticsUtil;
+import org.apache.doris.statistics.TableStats;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
+import java.sql.Date;
+import java.util.ArrayList;
 import java.util.List;
 
 public class ShowTableStatsStmt extends ShowStmt {
@@ -46,20 +46,27 @@ public class ShowTableStatsStmt extends ShowStmt {
     // TODO add more columns
     private static final ImmutableList<String> TITLE_NAMES =
             new ImmutableList.Builder<String>()
+                    .add("updated_rows")
+                    .add("query_times")
                     .add("row_count")
-                    .add("update_time")
-                    .add("last_analyze_time")
+                    .add("method")
+                    .add("type")
+                    .add("updated_time")
+                    .add("columns")
+                    .add("trigger")
                     .build();
 
     private final TableName tableName;
 
     private final PartitionNames partitionNames;
+    private final boolean cached;
 
     private TableIf table;
 
-    public ShowTableStatsStmt(TableName tableName, PartitionNames partitionNames) {
+    public ShowTableStatsStmt(TableName tableName, PartitionNames partitionNames, boolean cached) {
         this.tableName = tableName;
         this.partitionNames = partitionNames;
+        this.cached = cached;
     }
 
     public TableName getTableName() {
@@ -76,8 +83,6 @@ public class ShowTableStatsStmt extends ShowStmt {
                 throw new AnalysisException("Only one partition name could be specified");
             }
         }
-        // disallow external catalog
-        Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
         CatalogIf<DatabaseIf> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(tableName.getCtl());
         if (catalog == null) {
             ErrorReport.reportAnalysisException("Catalog: {} not exists", tableName.getCtl());
@@ -127,13 +132,40 @@ public class ShowTableStatsStmt extends ShowStmt {
         return table.getPartition(partitionName).getId();
     }
 
-    public ShowResultSet constructResultSet(TableStatistic tableStatistic) {
+    public ShowResultSet constructResultSet(TableStats tableStatistic) {
+        if (tableStatistic == null) {
+            return new ShowResultSet(getMetaData(), new ArrayList<>());
+        }
         List<List<String>> result = Lists.newArrayList();
         List<String> row = Lists.newArrayList();
+        row.add(String.valueOf(tableStatistic.updatedRows));
+        row.add(String.valueOf(tableStatistic.queriedTimes.get()));
         row.add(String.valueOf(tableStatistic.rowCount));
-        row.add(String.valueOf(tableStatistic.updateTime));
-        row.add(StatisticsUtil.getReadableTime(tableStatistic.lastAnalyzeTimeInMs));
+        row.add(tableStatistic.analysisMethod.toString());
+        row.add(tableStatistic.analysisType.toString());
+        row.add(new Date(tableStatistic.updatedTime).toString());
+        row.add(tableStatistic.analyzeColumns().toString());
+        row.add(tableStatistic.jobType.toString());
         result.add(row);
         return new ShowResultSet(getMetaData(), result);
+    }
+
+    public ShowResultSet constructResultSet(long rowCount) {
+        List<List<String>> result = Lists.newArrayList();
+        List<String> row = Lists.newArrayList();
+        row.add("");
+        row.add("");
+        row.add(String.valueOf(rowCount));
+        row.add("");
+        row.add("");
+        row.add("");
+        row.add("");
+        row.add("");
+        result.add(row);
+        return new ShowResultSet(getMetaData(), result);
+    }
+
+    public boolean isCached() {
+        return cached;
     }
 }

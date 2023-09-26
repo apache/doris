@@ -153,7 +153,7 @@ eg: user_address 表的 json 数据
     
 ```
     user_address|{"user_id":128787321878,"address":"朝阳区朝阳大厦XXX号","timestamp":1589191587}
- ```
+```
 eg: user_info 表的 json 数据
 ```
     user_info|{"user_id":128787321878,"name":"张三","age":18,"timestamp":1589191587}
@@ -248,10 +248,10 @@ eg: user_info 表的 json 数据
              "address":"朝阳区朝阳大厦XXX号",
              "timestamp":1589191587
          }
-   ```
-   
+```
+
    创建待导入的Doris数据表
-   
+
    ```sql
    CREATE TABLE `example_tbl` (
       `category` varchar(24) NULL COMMENT "",
@@ -274,9 +274,9 @@ eg: user_info 表的 json 数据
        "replication_num" = "1"
    );
    ```
-   
+
    以简单模式导入json数据
-   
+
    ```sql
    CREATE ROUTINE LOAD example_db.test_json_label_1 ON table1
    COLUMNS(category,price,author)
@@ -297,9 +297,9 @@ eg: user_info 表的 json 数据
    	"kafka_offsets" = "0,0,0"
     );
    ```
-   
+
    精准导入json格式数据
-   
+
    ```sql
    CREATE ROUTINE LOAD example_db.test1 ON example_tbl
    COLUMNS(category, author, price, timestamp, dt=from_unixtime(timestamp, '%Y%m%d'))
@@ -389,6 +389,34 @@ eg: user_info 表的 json 数据
 >
 > [https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md](https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md)
 
+**访问阿里云消息队列Kafka集群(接入点类型为SSL)**
+
+```sql
+#上传证书文件地址，地址：https://github.com/AliwareMQ/aliware-kafka-demos/blob/master/kafka-cpp-demo/vpc-ssl/only-4096-ca-cert
+CREATE FILE "ca.pem" PROPERTIES("url" = "http://xxx/only-4096-ca-cert", "catalog" = "kafka");
+
+# 创建任务
+CREATE ROUTINE LOAD test.test_job on test_tbl
+PROPERTIES
+(
+    "desired_concurrent_number"="1",
+    "format" = "json"
+)
+FROM KAFKA
+(
+    "kafka_broker_list"= "xxx.alikafka.aliyuncs.com:9093",
+    "kafka_topic" = "test",
+    "property.group.id" = "test_group",
+    "property.client.id" = "test_group",
+    "property.security.protocol"="ssl",
+    "property.ssl.ca.location"="FILE:ca.pem",
+    "property.security.protocol"="sasl_ssl",
+    "property.sasl.mechanism"="PLAIN",
+    "property.sasl.username"="xxx",
+    "property.sasl.password"="xxx"
+);
+```
+
 **访问 PLAIN 认证的 Kafka 集群**
 
 访问开启 PLAIN 认证的Kafka集群，需要增加以下配置：
@@ -414,7 +442,7 @@ eg: user_info 表的 json 数据
         "property.sasl.username"="admin",
         "property.sasl.password"="admin"
     );
-
+    
     ```
 
 **访问 Kerberos 认证的 Kafka 集群**

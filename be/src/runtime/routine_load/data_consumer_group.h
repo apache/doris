@@ -27,8 +27,8 @@
 #include "common/status.h"
 #include "runtime/routine_load/data_consumer.h"
 #include "util/blocking_queue.hpp"
-#include "util/priority_thread_pool.hpp"
 #include "util/uid_util.h"
+#include "util/work_thread_pool.hpp"
 
 namespace RdKafka {
 class Message;

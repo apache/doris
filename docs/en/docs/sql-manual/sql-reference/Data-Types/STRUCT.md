@@ -40,6 +40,10 @@ STRUCT
 
 Represents value with structure described by multiple fields, which can be viewed as a collection of multiple columns.
 
+Need to manually enable the support, it is disabled by default.
+```
+admin set frontend config("enable_struct_type" = "true");
+```
 It cannot be used as a Key column. Now STRUCT can only used in Duplicate Model Tables.
 
 The names and number of Fields in a Struct is fixed and always Nullable, and a Field typically consists of the following parts.

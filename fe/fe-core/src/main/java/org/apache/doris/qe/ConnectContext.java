@@ -21,11 +21,12 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.telemetry.Telemetry;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.SessionContext;
@@ -40,6 +41,9 @@ import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
+import org.apache.doris.system.Backend;
+import org.apache.doris.task.LoadTaskInfo;
+import org.apache.doris.thrift.TResultSinkType;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionStatus;
@@ -75,10 +79,17 @@ public class ConnectContext {
     protected volatile long stmtId;
     protected volatile long forwardedStmtId;
 
+    // set for http_stream
+    protected volatile TUniqueId loadId;
+    protected volatile long backendId;
+    protected volatile LoadTaskInfo streamLoadInfo;
+
     protected volatile TUniqueId queryId;
     protected volatile String traceId;
     // id for this connection
     protected volatile int connectionId;
+    // Timestamp when the connection is make
+    protected volatile long loginTime;
     // mysql net
     protected volatile MysqlChannel mysqlChannel;
     // state
@@ -166,6 +177,11 @@ public class ConnectContext {
 
     private Map<String, String> resultAttachedInfo;
 
+    private String workloadGroupName = "";
+    private Map<Long, Backend> insertGroupCommitTableToBeMap = new HashMap<>();
+
+    private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCAL;
+
     public void setUserQueryTimeout(int queryTimeout) {
         if (queryTimeout > 0) {
             sessionVariable.setQueryTimeoutS(queryTimeout);
@@ -181,7 +197,7 @@ public class ConnectContext {
     private StatementContext statementContext;
     private Map<String, PrepareStmtContext> preparedStmtCtxs = Maps.newHashMap();
 
-    private List<Table> tables = null;
+    private List<TableIf> tables = null;
 
     private Map<String, ColumnStatistic> totalColumnStatisticMap = new HashMap<>();
 
@@ -209,6 +225,10 @@ public class ConnectContext {
 
     public MysqlSslContext getMysqlSslContext() {
         return mysqlSslContext;
+    }
+
+    public TResultSinkType getResultSinkType() {
+        return resultSinkType;
     }
 
     public void setOrUpdateInsertResult(long txnId, String label, String db, String tbl,
@@ -285,15 +305,19 @@ public class ConnectContext {
         this.preparedStmtCtxs.put(stmtName, ctx);
     }
 
+    public void removePrepareStmt(String stmtName) {
+        this.preparedStmtCtxs.remove(stmtName);
+    }
+
     public PrepareStmtContext getPreparedStmt(String stmtName) {
         return this.preparedStmtCtxs.get(stmtName);
     }
 
-    public List<Table> getTables() {
+    public List<TableIf> getTables() {
         return tables;
     }
 
-    public void setTables(List<Table> tables) {
+    public void setTables(List<TableIf> tables) {
         this.tables = tables;
     }
 
@@ -314,6 +338,30 @@ public class ConnectContext {
 
     public long getStmtId() {
         return stmtId;
+    }
+
+    public long getBackendId() {
+        return backendId;
+    }
+
+    public void setBackendId(long backendId) {
+        this.backendId = backendId;
+    }
+
+    public TUniqueId getLoadId() {
+        return loadId;
+    }
+
+    public void setLoadId(TUniqueId loadId) {
+        this.loadId = loadId;
+    }
+
+    public void setStreamLoadInfo(LoadTaskInfo streamLoadInfo) {
+        this.streamLoadInfo = streamLoadInfo;
+    }
+
+    public LoadTaskInfo getStreamLoadInfo() {
+        return streamLoadInfo;
     }
 
     public void setStmtId(long stmtId) {
@@ -453,6 +501,10 @@ public class ConnectContext {
 
     public void setConnectionId(int connectionId) {
         this.connectionId = connectionId;
+    }
+
+    public void resetLoginTime() {
+        this.loginTime = System.currentTimeMillis();
     }
 
     public MysqlChannel getMysqlChannel() {
@@ -606,6 +658,10 @@ public class ConnectContext {
         this.statementContext = statementContext;
     }
 
+    public void setResultSinkType(TResultSinkType resultSinkType) {
+        this.resultSinkType = resultSinkType;
+    }
+
     // kill operation with no protect.
     public void kill(boolean killConnection) {
         LOG.warn("kill query from {}, kill connection: {}", getMysqlChannel().getRemoteHostPortString(),
@@ -704,6 +760,8 @@ public class ConnectContext {
         if (executor != null && executor.isInsertStmt()) {
             // particular for insert stmt, we can expand other type of timeout in the same way
             return Math.max(sessionVariable.getInsertTimeoutS(), sessionVariable.getQueryTimeoutS());
+        } else if (executor != null && executor.isAnalyzeStmt()) {
+            return sessionVariable.getAnalyzeTimeoutS();
         } else {
             // normal query stmt
             return sessionVariable.getQueryTimeoutS();
@@ -721,18 +779,30 @@ public class ConnectContext {
     public class ThreadInfo {
         public boolean isFull;
 
-        public List<String> toRow(long nowMs) {
+        public List<String> toRow(int connId, long nowMs, boolean showFe) {
             List<String> row = Lists.newArrayList();
+            if (showFe) {
+                row.add(Env.getCurrentEnv().getSelfNode().getHost());
+            }
+            if (connId == connectionId) {
+                row.add("Yes");
+            } else {
+                row.add("");
+            }
             row.add("" + connectionId);
             row.add(ClusterNamespace.getNameFromFullName(qualifiedUser));
             row.add(getMysqlChannel().getRemoteHostPortString());
-            row.add(clusterName);
+            row.add(TimeUtils.longToTimeString(loginTime));
+            row.add(defaultCatalog);
             row.add(ClusterNamespace.getNameFromFullName(currentDb));
             row.add(command.toString());
             row.add("" + (nowMs - startTime) / 1000);
-            row.add("");
-            if (queryId != null) {
-                String sql = QeProcessorImpl.INSTANCE.getCurrentQueryByQueryId(queryId);
+            row.add(state.toString());
+            row.add(DebugUtil.printId(queryId));
+            if (state.getStateType() == QueryState.MysqlStateType.ERR) {
+                row.add(state.getErrorMessage());
+            } else if (executor != null) {
+                String sql = executor.getOriginStmtInString();
                 if (!isFull) {
                     sql = sql.substring(0, Math.min(sql.length(), 100));
                 }
@@ -771,6 +841,22 @@ public class ConnectContext {
 
     public void setStatsErrorEstimator(StatsErrorEstimator statsErrorEstimator) {
         this.statsErrorEstimator = statsErrorEstimator;
+    }
+
+    public void setWorkloadGroupName(String workloadGroupName) {
+        this.workloadGroupName = workloadGroupName;
+    }
+
+    public String getWorkloadGroupName() {
+        return this.workloadGroupName;
+    }
+
+    public void setInsertGroupCommit(long tableId, Backend backend) {
+        insertGroupCommitTableToBeMap.put(tableId, backend);
+    }
+
+    public Backend getInsertGroupCommit(long tableId) {
+        return insertGroupCommitTableToBeMap.get(tableId);
     }
 }
 

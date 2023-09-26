@@ -37,6 +37,7 @@
 #include "common/status.h"
 #include "io/cache/block/block_file_cache_fwd.h"
 #include "io/cache/block/block_file_cache_settings.h"
+#include "io/fs/file_reader.h"
 #include "io/io_common.h"
 #include "util/hash_util.hpp"
 #include "vec/common/uint128.h"
@@ -54,9 +55,10 @@ enum CacheType {
     NORMAL,
     DISPOSABLE,
 };
+
 struct CacheContext {
     CacheContext(const IOContext* io_ctx) {
-        if (io_ctx->read_segment_index) {
+        if (io_ctx->is_index_data) {
             cache_type = CacheType::INDEX;
         } else if (io_ctx->is_disposable) {
             cache_type = CacheType::DISPOSABLE;
@@ -292,6 +294,33 @@ public:
     };
     using QueryFileCacheContextHolderPtr = std::unique_ptr<QueryFileCacheContextHolder>;
     QueryFileCacheContextHolderPtr get_query_context_holder(const TUniqueId& query_id);
+
+private:
+    static inline std::list<std::pair<AccessKeyAndOffset, std::shared_ptr<FileReader>>>
+            s_file_reader_cache;
+    static inline std::unordered_map<AccessKeyAndOffset, decltype(s_file_reader_cache.begin()),
+                                     KeyAndOffsetHash>
+            s_file_name_to_reader;
+    static inline std::mutex s_file_reader_cache_mtx;
+    static inline std::atomic_bool s_read_only {false};
+    static inline uint64_t _max_file_reader_cache_size = 65533;
+
+public:
+    // should be call when BE start
+    static void init();
+
+    static void set_read_only(bool read_only);
+
+    static bool read_only() { return s_read_only; }
+
+    static std::weak_ptr<FileReader> cache_file_reader(const AccessKeyAndOffset& key,
+                                                       std::shared_ptr<FileReader> file_reader);
+
+    static void remove_file_reader(const AccessKeyAndOffset& key);
+
+    // use for test
+    static bool contains_file_reader(const AccessKeyAndOffset& key);
+    static size_t file_reader_cache_size();
 };
 
 using CloudFileCachePtr = IFileCache*;

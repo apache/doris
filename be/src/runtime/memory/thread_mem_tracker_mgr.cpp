@@ -47,7 +47,7 @@ void ThreadMemTrackerMgr::detach_limiter_tracker(
 }
 
 void ThreadMemTrackerMgr::cancel_fragment(const std::string& exceed_msg) {
-    ExecEnv::GetInstance()->fragment_mgr()->cancel(
+    ExecEnv::GetInstance()->fragment_mgr()->cancel_instance(
             _fragment_instance_id, PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED, exceed_msg);
 }
 

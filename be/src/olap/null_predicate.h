@@ -84,6 +84,8 @@ public:
     }
 
     bool evaluate_and(const segment_v2::BloomFilter* bf) const override {
+        // null predicate can not use ngram bf, just return true to accept
+        if (bf->is_ngram_bf()) return true;
         if (_is_null) {
             return bf->test_bytes(nullptr, 0);
         } else {
@@ -92,7 +94,7 @@ public:
         }
     }
 
-    bool can_do_bloom_filter() const override { return _is_null; }
+    bool can_do_bloom_filter(bool ngram) const override { return _is_null && !ngram; }
 
     void evaluate_vec(const vectorized::IColumn& column, uint16_t size, bool* flags) const override;
 

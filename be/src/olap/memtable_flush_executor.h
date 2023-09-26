@@ -26,13 +26,14 @@
 #include <vector>
 
 #include "common/status.h"
+#include "olap/memtable.h"
 #include "util/threadpool.h"
 
 namespace doris {
 
 class DataDir;
 class MemTable;
-enum RowsetTypePB : int;
+class RowsetWriter;
 
 // the statistic of a certain flush handler.
 // use atomic because it may be updated by multi threads
@@ -57,7 +58,7 @@ std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat);
 class FlushToken {
 public:
     explicit FlushToken(std::unique_ptr<ThreadPoolToken> flush_pool_token)
-            : _flush_token(std::move(flush_pool_token)), _flush_status(ErrorCode::OK) {}
+            : _flush_token(std::move(flush_pool_token)), _flush_status(Status::OK()) {}
 
     Status submit(std::unique_ptr<MemTable> mem_table);
 
@@ -71,18 +72,29 @@ public:
     // get flush operations' statistics
     const FlushStatistic& get_stats() const { return _stats; }
 
+    void set_rowset_writer(RowsetWriter* rowset_writer) { _rowset_writer = rowset_writer; }
+
+    const MemTableStat& memtable_stat() { return _memtable_stat; }
+
 private:
     friend class MemtableFlushTask;
 
-    void _flush_memtable(MemTable* mem_table, int64_t submit_task_time);
+    void _flush_memtable(MemTable* mem_table, int32_t segment_id, int64_t submit_task_time);
+
+    Status _do_flush_memtable(MemTable* memtable, int32_t segment_id, int64_t* flush_size);
 
     std::unique_ptr<ThreadPoolToken> _flush_token;
 
     // Records the current flush status of the tablet.
     // Note: Once its value is set to Failed, it cannot return to SUCCESS.
-    std::atomic<int> _flush_status;
+    std::shared_mutex _flush_status_lock;
+    Status _flush_status;
 
     FlushStatistic _stats;
+
+    RowsetWriter* _rowset_writer;
+
+    MemTableStat _memtable_stat;
 };
 
 // MemTableFlushExecutor is responsible for flushing memtables to disk.
@@ -106,7 +118,7 @@ public:
     // because it needs path hash of each data dir.
     void init(const std::vector<DataDir*>& data_dirs);
 
-    Status create_flush_token(std::unique_ptr<FlushToken>* flush_token, RowsetTypePB rowset_type,
+    Status create_flush_token(std::unique_ptr<FlushToken>& flush_token, RowsetWriter* rowset_writer,
                               bool should_serial, bool is_high_priority);
 
 private:

@@ -25,6 +25,7 @@ import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.PartitionNames;
@@ -77,7 +78,6 @@ import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TPrimitiveType;
-import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -94,13 +94,13 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -171,7 +171,6 @@ public class OlapScanNode extends ScanNode {
 
     private boolean useTopnOpt = false;
 
-    private TPushAggOp pushDownAggNoGroupingOp = null;
 
     // List of tablets will be scanned by current olap_scan_node
     private ArrayList<Long> scanTabletIds = Lists.newArrayList();
@@ -224,9 +223,6 @@ public class OlapScanNode extends ScanNode {
                                       this.reasonOfPreAggregation + " " + reason;
     }
 
-    public void setPushDownAggNoGrouping(TPushAggOp pushDownAggNoGroupingOp) {
-        this.pushDownAggNoGroupingOp = pushDownAggNoGroupingOp;
-    }
 
     public boolean isPreAggregation() {
         return isPreAggregation;
@@ -359,8 +355,7 @@ public class OlapScanNode extends ScanNode {
             return;
         }
         Expr vconjunct = convertConjunctsToAndCompoundPredicate(conjuncts).replaceSubPredicate(whereExpr);
-        conjuncts = splitAndCompoundPredicateToConjuncts(vconjunct).stream().filter(Objects::nonNull)
-                .collect(Collectors.toList());
+        conjuncts = splitAndCompoundPredicateToConjuncts(vconjunct).stream().collect(Collectors.toList());
     }
 
     /**
@@ -542,7 +537,7 @@ public class OlapScanNode extends ScanNode {
         // lazy evaluation, since stmt is a prepared statment
         isFromPrepareStmt = analyzer.getPrepareStmt() != null;
         if (!isFromPrepareStmt) {
-            computeColumnFilter();
+            computeColumnsFilter();
             computePartitionInfo();
         }
         computeTupleState(analyzer);
@@ -692,7 +687,8 @@ public class OlapScanNode extends ScanNode {
                 distributionPruner = new HashDistributionPruner(table.getTabletIdsInOrder(),
                         info.getDistributionColumns(),
                         columnFilters,
-                        info.getBucketNum());
+                        info.getBucketNum(),
+                        getSelectedIndexId() == olapTable.getBaseIndexId());
                 return distributionPruner.prune();
             }
             case RANDOM: {
@@ -976,7 +972,7 @@ public class OlapScanNode extends ScanNode {
             tabletCounts = Math.min(tabletCounts, ids.size());
 
             long seek = tableSample.getSeek() != -1
-                    ? tableSample.getSeek() : (long) (Math.random() * ids.size());
+                    ? tableSample.getSeek() : (long) (new SecureRandom().nextDouble() * ids.size());
             for (int i = 0; i < tabletCounts; i++) {
                 int seekTid = (int) ((i + seek) % ids.size());
                 sampleTabletIds.add(ids.get(seekTid));
@@ -1121,7 +1117,7 @@ public class OlapScanNode extends ScanNode {
         // Lazy evaluation
         selectedIndexId = olapTable.getBaseIndexId();
         // Only key columns
-        computeColumnFilter(olapTable.getBaseSchemaKeyColumns());
+        computeColumnsFilter(olapTable.getBaseSchemaKeyColumns());
         computePartitionInfo();
         scanBackendIds.clear();
         scanTabletIds.clear();
@@ -1286,25 +1282,49 @@ public class OlapScanNode extends ScanNode {
         return shouldColoScan;
     }
 
-    public void getColumnDesc(List<TColumn> columnsDesc, List<String> keyColumnNames,
-                        List<TPrimitiveType> keyColumnTypes) {
-        if (selectedIndexId != -1) {
-            for (Column col : olapTable.getSchemaByIndexId(selectedIndexId, true)) {
-                TColumn tColumn = col.toThrift();
-                col.setIndexFlag(tColumn, olapTable);
-                if (columnsDesc != null) {
-                    columnsDesc.add(tColumn);
-                }
-                if ((Util.showHiddenColumns() || (!Util.showHiddenColumns() && col.isVisible())) && col.isKey()) {
-                    if (keyColumnNames != null) {
-                        keyColumnNames.add(col.getName());
+    @Override
+    // If scan is key search, should not enable the shared scan opt to prevent the performance problem
+    // 1. where contain the eq or in expr of key column slot
+    // 2. key column slot is distribution column and first column
+    public boolean isKeySearch() {
+        List<SlotRef> whereSlot = Lists.newArrayList();
+        for (Expr conjunct : conjuncts) {
+            if (conjunct instanceof BinaryPredicate) {
+                BinaryPredicate binaryPredicate = (BinaryPredicate) conjunct;
+                if (binaryPredicate.getOp().isEquivalence()) {
+                    if (binaryPredicate.getChild(0) instanceof SlotRef) {
+                        whereSlot.add((SlotRef) binaryPredicate.getChild(0));
                     }
-                    if (keyColumnTypes != null) {
-                        keyColumnTypes.add(col.getDataType().toThrift());
+                    if (binaryPredicate.getChild(1) instanceof SlotRef) {
+                        whereSlot.add((SlotRef) binaryPredicate.getChild(1));
+                    }
+                }
+            }
+
+            if (conjunct instanceof InPredicate) {
+                InPredicate inPredicate = (InPredicate) conjunct;
+                if (!inPredicate.isNotIn()) {
+                    if (inPredicate.getChild(0) instanceof SlotRef) {
+                        whereSlot.add((SlotRef) inPredicate.getChild(0));
+                    }
+                    if (inPredicate.getChild(1) instanceof SlotRef) {
+                        whereSlot.add((SlotRef) inPredicate.getChild(1));
                     }
                 }
             }
         }
+
+        for (SlotRef slotRef : whereSlot) {
+            String columnName = slotRef.getDesc().getColumn().getName().toLowerCase();
+            if (olapTable != null) {
+                if (olapTable.getDistributionColumnNames().contains(columnName)
+                        && olapTable.getBaseSchema().get(0).getName().toLowerCase().equals(columnName)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     @Override
@@ -1312,7 +1332,7 @@ public class OlapScanNode extends ScanNode {
         List<String> keyColumnNames = new ArrayList<String>();
         List<TPrimitiveType> keyColumnTypes = new ArrayList<TPrimitiveType>();
         List<TColumn> columnsDesc = new ArrayList<TColumn>();
-        getColumnDesc(columnsDesc, keyColumnNames, keyColumnTypes);
+        olapTable.getColumnDesc(selectedIndexId, columnsDesc, keyColumnNames, keyColumnTypes);
         List<TOlapTableIndex> indexDesc = Lists.newArrayList();
 
         // Add extra row id column
@@ -1364,9 +1384,10 @@ public class OlapScanNode extends ScanNode {
         msg.olap_scan_node.setTableName(olapTable.getName());
         msg.olap_scan_node.setEnableUniqueKeyMergeOnWrite(olapTable.getEnableUniqueKeyMergeOnWrite());
 
-        if (pushDownAggNoGroupingOp != null) {
-            msg.olap_scan_node.setPushDownAggTypeOpt(pushDownAggNoGroupingOp);
-        }
+        msg.setPushDownAggTypeOpt(pushDownAggNoGroupingOp);
+
+        msg.olap_scan_node.setPushDownAggTypeOpt(pushDownAggNoGroupingOp);
+        // In TOlapScanNode , pushDownAggNoGroupingOp field is deprecated.
 
         if (outputColumnUniqueIds != null) {
             msg.olap_scan_node.setOutputColumnUniqueIds(outputColumnUniqueIds);
@@ -1581,4 +1602,32 @@ public class OlapScanNode extends ScanNode {
                 olapTable.getId(), selectedIndexId == -1 ? olapTable.getBaseIndexId() : selectedIndexId,
                 scanReplicaIds);
     }
+
+    @Override
+    public boolean pushDownAggNoGrouping(FunctionCallExpr aggExpr) {
+        KeysType type = getOlapTable().getKeysType();
+        if (type == KeysType.UNIQUE_KEYS || type == KeysType.PRIMARY_KEYS) {
+            return false;
+        }
+
+        String aggFunctionName = aggExpr.getFnName().getFunction();
+        if (aggFunctionName.equalsIgnoreCase("COUNT") && type != KeysType.DUP_KEYS) {
+            return false;
+        }
+
+        return true;
+    }
+
+    @Override
+    public boolean pushDownAggNoGroupingCheckCol(FunctionCallExpr aggExpr, Column col) {
+        KeysType type = getOlapTable().getKeysType();
+
+        // The value column of the agg does not support zone_map index.
+        if (type == KeysType.AGG_KEYS && !col.isKey()) {
+            return false;
+        }
+
+        return true;
+    }
 }
+

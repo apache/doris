@@ -17,6 +17,8 @@
 
 package org.apache.doris.statistics;
 
+import com.google.gson.annotations.SerializedName;
+
 import java.util.Objects;
 import java.util.StringJoiner;
 
@@ -26,10 +28,15 @@ public class StatisticsCacheKey {
      * May be index id either, since they are natively same in the code.
      * catalogId and dbId are not included in the hashCode. Because tableId is globally unique.
      */
+    @SerializedName("catalogId")
     public final long catalogId;
+    @SerializedName("dbId")
     public final long dbId;
+    @SerializedName("tableId")
     public final long tableId;
+    @SerializedName("idxId")
     public final long idxId;
+    @SerializedName("colName")
     public final String colName;
 
     private static final String DELIMITER = "-";

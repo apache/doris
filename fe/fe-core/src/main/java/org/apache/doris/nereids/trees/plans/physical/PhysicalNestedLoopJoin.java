@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
 
@@ -115,7 +116,7 @@ public class PhysicalNestedLoopJoin<
     @Override
     public String toString() {
         // TODO: Maybe we could pull up this to the abstract class in the future.
-        return Utils.toSqlString("PhysicalNestedLoopJoin[" + id.asInt() + "]" + getGroupIdAsString(),
+        return Utils.toSqlString("PhysicalNestedLoopJoin[" + id.asInt() + "]" + getGroupIdWithPrefix(),
                 "type", joinType,
                 "otherJoinCondition", otherJoinConjuncts,
                 "isMarkJoin", markJoinSlotReference.isPresent(),
@@ -127,9 +128,13 @@ public class PhysicalNestedLoopJoin<
     @Override
     public PhysicalNestedLoopJoin<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new PhysicalNestedLoopJoin<>(joinType,
+        PhysicalNestedLoopJoin newJoin = new PhysicalNestedLoopJoin<>(joinType,
                 hashJoinConjuncts, otherJoinConjuncts, markJoinSlotReference, Optional.empty(),
                 getLogicalProperties(), physicalProperties, statistics, children.get(0), children.get(1));
+        if (groupExpression.isPresent()) {
+            newJoin.setMutableState(MutableState.KEY_GROUP, groupExpression.get().getOwnerGroup().getGroupId().asInt());
+        }
+        return newJoin;
     }
 
     @Override
@@ -141,11 +146,12 @@ public class PhysicalNestedLoopJoin<
     }
 
     @Override
-    public PhysicalNestedLoopJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> withLogicalProperties(
-            Optional<LogicalProperties> logicalProperties) {
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 2);
         return new PhysicalNestedLoopJoin<>(joinType,
-                hashJoinConjuncts, otherJoinConjuncts, markJoinSlotReference, Optional.empty(),
-                logicalProperties.get(), left(), right());
+                hashJoinConjuncts, otherJoinConjuncts, markJoinSlotReference, groupExpression,
+                logicalProperties.get(), children.get(0), children.get(1));
     }
 
     @Override
@@ -174,5 +180,12 @@ public class PhysicalNestedLoopJoin<
         builder.append("[").append(joinType).append("]");
         otherJoinConjuncts.forEach(expr -> builder.append(expr.shapeInfo()));
         return builder.toString();
+    }
+
+    @Override
+    public PhysicalNestedLoopJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> resetLogicalProperties() {
+        return new PhysicalNestedLoopJoin<>(joinType,
+                hashJoinConjuncts, otherJoinConjuncts, markJoinSlotReference, groupExpression,
+                null, physicalProperties, statistics, left(), right());
     }
 }

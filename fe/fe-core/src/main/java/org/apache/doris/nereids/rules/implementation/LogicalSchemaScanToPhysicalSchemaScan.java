@@ -30,7 +30,7 @@ public class LogicalSchemaScanToPhysicalSchemaScan extends OneImplementationRule
     @Override
     public Rule build() {
         return logicalSchemaScan().then(scan ->
-                new PhysicalSchemaScan(scan.getId(),
+                new PhysicalSchemaScan(scan.getRelationId(),
                         scan.getTable(),
                         scan.getQualifier(),
                         Optional.empty(),

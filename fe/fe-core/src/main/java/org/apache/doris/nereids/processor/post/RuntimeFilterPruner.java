@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
@@ -53,17 +52,6 @@ import java.util.Set;
  * TODO: item 2 is not used since the estimation is not accurate now.
  */
 public class RuntimeFilterPruner extends PlanPostProcessor {
-
-    // *******************************
-    // Physical plans
-    // *******************************
-    @Override
-    public PhysicalHashAggregate visitPhysicalHashAggregate(
-            PhysicalHashAggregate<? extends Plan> agg, CascadesContext context) {
-        agg.child().accept(this, context);
-        context.getRuntimeFilterContext().addEffectiveSrcNode(agg);
-        return agg;
-    }
 
     @Override
     public PhysicalQuickSort visitPhysicalQuickSort(PhysicalQuickSort<? extends Plan> sort, CascadesContext context) {
@@ -129,9 +117,9 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
     }
 
     @Override
-    public PhysicalRelation visitPhysicalScan(PhysicalRelation scan, CascadesContext context) {
+    public PhysicalRelation visitPhysicalRelation(PhysicalRelation scan, CascadesContext context) {
         RuntimeFilterContext rfCtx = context.getRuntimeFilterContext();
-        List<Slot> slots = rfCtx.getTargetOnOlapScanNodeMap().get(scan.getId());
+        List<Slot> slots = rfCtx.getTargetOnOlapScanNodeMap().get(scan.getRelationId());
         if (slots != null) {
             for (Slot slot : slots) {
                 //if this scan node is the target of any effective RF, it is effective source
@@ -165,7 +153,9 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
     /**
      * consider L join R on L.a=R.b
      * runtime-filter: L.a<-R.b is effective,
-     * if R.b.selectivity<1 or b is partly covered by a
+     * if rf could reduce tuples of L,
+     * 1. some L.a distinctive value are not covered by R.b, or
+     * 2. if there is a effective RF applied on R
      *
      * TODO: min-max
      * @param equalTo join condition
@@ -199,8 +189,7 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
         if (probeColumnStat.isUnKnown || buildColumnStat.isUnKnown) {
             return true;
         }
-        return buildColumnStat.selectivity < 1
-                || probeColumnStat.notEnclosed(buildColumnStat)
-                || buildColumnStat.ndv < probeColumnStat.ndv * 0.95;
+        double buildNdvInProbeRange = buildColumnStat.ndvIntersection(probeColumnStat);
+        return probeColumnStat.ndv > buildNdvInProbeRange * (1 + ColumnStatistic.STATS_ERROR);
     }
 }

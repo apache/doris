@@ -61,8 +61,8 @@ Status VUnionNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
     DCHECK(tnode.__isset.union_node);
     // Create const_expr_ctx_lists_ from thrift exprs.
-    auto& const_texpr_lists = tnode.union_node.const_expr_lists;
-    for (auto& texprs : const_texpr_lists) {
+    const auto& const_texpr_lists = tnode.union_node.const_expr_lists;
+    for (const auto& texprs : const_texpr_lists) {
         VExprContextSPtrs ctxs;
         RETURN_IF_ERROR(VExpr::create_expr_trees(texprs, ctxs));
         _const_expr_lists.push_back(ctxs);
@@ -106,6 +106,12 @@ Status VUnionNode::open(RuntimeState* state) {
 
 Status VUnionNode::alloc_resource(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
+
+    std::unique_lock<std::mutex> l(_resource_lock);
+    if (_resource_allocated) {
+        return Status::OK();
+    }
+
     // open const expr lists.
     for (const auto& exprs : _const_expr_lists) {
         RETURN_IF_ERROR(VExpr::open(exprs, state));
@@ -114,7 +120,9 @@ Status VUnionNode::alloc_resource(RuntimeState* state) {
     for (const auto& exprs : _child_expr_lists) {
         RETURN_IF_ERROR(VExpr::open(exprs, state));
     }
-    return ExecNode::alloc_resource(state);
+    RETURN_IF_ERROR(ExecNode::alloc_resource(state));
+    _resource_allocated = true;
+    return Status::OK();
 }
 
 Status VUnionNode::get_next_pass_through(RuntimeState* state, Block* block) {
@@ -151,11 +159,7 @@ Status VUnionNode::get_next_materialized(RuntimeState* state, Block* block) {
     DCHECK(!reached_limit());
     DCHECK_LT(_child_idx, _children.size());
 
-    bool mem_reuse = block->mem_reuse();
-    MutableBlock mblock =
-            mem_reuse ? MutableBlock::build_mutable_block(block)
-                      : MutableBlock(Block(VectorizedUtils::create_columns_with_type_and_name(
-                                _row_descriptor)));
+    MutableBlock mblock = VectorizedUtils::build_mutable_mem_reuse_block(block, _row_descriptor);
 
     Block child_block;
     while (has_more_materialized() && mblock.rows() <= state->batch_size()) {
@@ -202,10 +206,6 @@ Status VUnionNode::get_next_materialized(RuntimeState* state, Block* block) {
         }
     }
 
-    if (!mem_reuse) {
-        block->swap(mblock.to_block());
-    }
-
     DCHECK_LE(_child_idx, _children.size());
     return Status::OK();
 }
@@ -214,11 +214,7 @@ Status VUnionNode::get_next_const(RuntimeState* state, Block* block) {
     DCHECK_EQ(state->per_fragment_instance_idx(), 0);
     DCHECK_LT(_const_expr_list_idx, _const_expr_lists.size());
 
-    bool mem_reuse = block->mem_reuse();
-    MutableBlock mblock =
-            mem_reuse ? MutableBlock::build_mutable_block(block)
-                      : MutableBlock(Block(VectorizedUtils::create_columns_with_type_and_name(
-                                _row_descriptor)));
+    MutableBlock mblock = VectorizedUtils::build_mutable_mem_reuse_block(block, _row_descriptor);
     for (; _const_expr_list_idx < _const_expr_lists.size() && mblock.rows() <= state->batch_size();
          ++_const_expr_list_idx) {
         Block tmp_block;
@@ -237,10 +233,6 @@ Status VUnionNode::get_next_const(RuntimeState* state, Block* block) {
         }
     }
 
-    if (!mem_reuse) {
-        block->swap(mblock.to_block());
-    }
-
     // some insert query like "insert into string_test select 1, repeat('a', 1024 * 1024);"
     // the const expr will be in output expr cause the union node return a empty block. so here we
     // need add one row to make sure the union node exec const expr return at least one row
@@ -257,19 +249,12 @@ Status VUnionNode::materialize_child_block(RuntimeState* state, int child_id,
                                            vectorized::Block* output_block) {
     DCHECK_LT(child_id, _children.size());
     DCHECK(!is_child_passthrough(child_id));
-    bool mem_reuse = output_block->mem_reuse();
-    MutableBlock mblock =
-            mem_reuse ? MutableBlock::build_mutable_block(output_block)
-                      : MutableBlock(Block(VectorizedUtils::create_columns_with_type_and_name(
-                                _row_descriptor)));
-
     if (input_block->rows() > 0) {
+        MutableBlock mblock =
+                VectorizedUtils::build_mutable_mem_reuse_block(output_block, _row_descriptor);
         Block res;
         RETURN_IF_ERROR(materialize_block(input_block, child_id, &res));
         RETURN_IF_ERROR(mblock.merge(res));
-        if (!mem_reuse) {
-            output_block->swap(mblock.to_block());
-        }
     }
     return Status::OK();
 }

@@ -37,11 +37,21 @@ class Closure;
 }
 } // namespace google
 
+namespace arrow {
+class RecordBatch;
+} // namespace arrow
+
 namespace brpc {
 class Controller;
 }
 
 namespace doris {
+
+namespace pipeline {
+class ResultBufferDependency;
+class CancelDependency;
+class ResultQueueDependency;
+} // namespace pipeline
 
 class PFetchDataResult;
 
@@ -67,18 +77,21 @@ public:
     virtual ~BufferControlBlock();
 
     Status init();
-    virtual bool can_sink(); // 只有一个fragment写入，因此can_sink返回true，则一定可以执行sink
-    Status add_batch(std::unique_ptr<TFetchDataResult>& result);
+    // Only one fragment is written, so can_sink returns true, then the sink must be executed
+    virtual bool can_sink();
+    virtual Status add_batch(std::unique_ptr<TFetchDataResult>& result);
+    virtual Status add_arrow_batch(std::shared_ptr<arrow::RecordBatch>& result);
 
-    void get_batch(GetResultBatchCtx* ctx);
+    virtual void get_batch(GetResultBatchCtx* ctx);
+    virtual Status get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* result);
 
     // close buffer block, set _status to exec_status and set _is_close to true;
     // called because data has been read or error happened.
     Status close(Status exec_status);
     // this is called by RPC, called from coordinator
-    Status cancel();
+    virtual Status cancel();
 
-    const TUniqueId& fragment_id() const { return _fragment_id; }
+    [[nodiscard]] const TUniqueId& fragment_id() const { return _fragment_id; }
 
     void set_query_statistics(std::shared_ptr<QueryStatistics> statistics) {
         _query_statistics = statistics;
@@ -101,10 +114,13 @@ public:
     }
 
 protected:
-    virtual bool _get_batch_queue_empty() { return _batch_queue.empty(); }
+    virtual bool _get_batch_queue_empty() {
+        return _fe_result_batch_queue.empty() && _arrow_flight_batch_queue.empty();
+    }
     virtual void _update_batch_queue_empty() {}
 
-    using ResultQueue = std::list<std::unique_ptr<TFetchDataResult>>;
+    using FeResultQueue = std::list<std::unique_ptr<TFetchDataResult>>;
+    using ArrowFlightResultQueue = std::list<std::shared_ptr<arrow::RecordBatch>>;
 
     // result's query id
     TUniqueId _fragment_id;
@@ -116,7 +132,9 @@ protected:
     int64_t _packet_num;
 
     // blocking queue for batch
-    ResultQueue _batch_queue;
+    FeResultQueue _fe_result_batch_queue;
+    ArrowFlightResultQueue _arrow_flight_batch_queue;
+
     // protects all subsequent data in this block
     std::mutex _lock;
     // signal arrival of new batch or the eos/cancelled condition
@@ -141,11 +159,28 @@ public:
         return _get_batch_queue_empty() || _buffer_rows < _buffer_limit || _is_cancelled;
     }
 
+    Status add_batch(std::unique_ptr<TFetchDataResult>& result) override;
+
+    Status add_arrow_batch(std::shared_ptr<arrow::RecordBatch>& result) override;
+
+    void get_batch(GetResultBatchCtx* ctx) override;
+
+    Status get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* result) override;
+
+    Status cancel() override;
+
+    void set_dependency(std::shared_ptr<pipeline::ResultBufferDependency> buffer_dependency,
+                        std::shared_ptr<pipeline::ResultQueueDependency> queue_dependency,
+                        std::shared_ptr<pipeline::CancelDependency> cancel_dependency);
+
 private:
     bool _get_batch_queue_empty() override { return _batch_queue_empty; }
-    void _update_batch_queue_empty() override { _batch_queue_empty = _batch_queue.empty(); }
+    void _update_batch_queue_empty() override;
 
     std::atomic_bool _batch_queue_empty = false;
+    std::shared_ptr<pipeline::ResultBufferDependency> _buffer_dependency = nullptr;
+    std::shared_ptr<pipeline::ResultQueueDependency> _queue_dependency = nullptr;
+    std::shared_ptr<pipeline::CancelDependency> _cancel_dependency = nullptr;
 };
 
 } // namespace doris

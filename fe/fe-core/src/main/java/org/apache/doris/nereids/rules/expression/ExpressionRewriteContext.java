@@ -23,9 +23,11 @@ import org.apache.doris.nereids.CascadesContext;
  * expression rewrite context.
  */
 public class ExpressionRewriteContext {
+
     public final CascadesContext cascadesContext;
 
     public ExpressionRewriteContext(CascadesContext cascadesContext) {
         this.cascadesContext = cascadesContext;
     }
+
 }

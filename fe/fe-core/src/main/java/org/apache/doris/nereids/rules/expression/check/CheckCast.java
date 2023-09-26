@@ -24,6 +24,13 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.JsonType;
+import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
+
+import java.util.List;
 
 /**
  * check cast valid
@@ -38,20 +45,33 @@ public class CheckCast extends AbstractExpressionRewriteRule {
         DataType originalType = cast.child().getDataType();
         DataType targetType = cast.getDataType();
         if (!check(originalType, targetType)) {
-            throw new AnalysisException("cannot cast " + originalType + " to " + targetType);
+            throw new AnalysisException("cannot cast " + originalType.toSql() + " to " + targetType.toSql());
         }
         return cast;
     }
 
     private boolean check(DataType originalType, DataType targetType) {
-        if (originalType.isArrayType() && targetType.isArrayType()) {
+        if (originalType instanceof ArrayType && targetType instanceof ArrayType) {
             return check(((ArrayType) originalType).getItemType(), ((ArrayType) targetType).getItemType());
-        } else if (originalType.isMapType()) {
-            // TODO support map cast check when we support map
-            return false;
-        } else if (originalType.isStructType()) {
-            // TODO support struct cast check when we support struct
-            return false;
+        } else if (originalType instanceof MapType && targetType instanceof MapType) {
+            return check(((MapType) originalType).getKeyType(), ((MapType) targetType).getKeyType())
+                    && check(((MapType) originalType).getValueType(), ((MapType) targetType).getValueType());
+        } else if (originalType instanceof StructType && targetType instanceof StructType) {
+            List<StructField> targetFields = ((StructType) targetType).getFields();
+            List<StructField> originalFields = ((StructType) originalType).getFields();
+            if (targetFields.size() != originalFields.size()) {
+                return false;
+            }
+            for (int i = 0; i < targetFields.size(); i++) {
+                if (!targetFields.get(i).equals(originalFields.get(i))) {
+                    return false;
+                }
+            }
+            return true;
+        } else if (originalType instanceof CharacterType && targetType instanceof StructType) {
+            return true;
+        } else if (originalType instanceof JsonType || targetType instanceof JsonType) {
+            return true;
         } else {
             return checkPrimitiveType(originalType, targetType);
         }
@@ -59,20 +79,16 @@ public class CheckCast extends AbstractExpressionRewriteRule {
 
     /**
      * forbid this original and target type
-     *   1. boolean to date, datev2, datetime, datetimev2
-     *   2. original type is object type
-     *   3. target type is object type
-     *   4. original type is same with target type
-     *   5. target type is null type
+     *   1. original type is object type
+     *   2. target type is object type
+     *   3. original type is same with target type
+     *   4. target type is null type
      */
     private boolean checkPrimitiveType(DataType originalType, DataType targetType) {
         if (!originalType.isPrimitive() || !targetType.isPrimitive()) {
             return false;
         }
         if (originalType.equals(targetType)) {
-            return false;
-        }
-        if (originalType.isBooleanType() && targetType.isDateLikeType()) {
             return false;
         }
         if (originalType.isNullType()) {
@@ -82,6 +98,10 @@ public class CheckCast extends AbstractExpressionRewriteRule {
             return false;
         }
         if (targetType.isNullType()) {
+            return false;
+        }
+        if (targetType.isTimeLikeType() && !(originalType.isIntegralType()
+                || originalType.isStringLikeType() || originalType.isFloatLikeType())) {
             return false;
         }
         return true;

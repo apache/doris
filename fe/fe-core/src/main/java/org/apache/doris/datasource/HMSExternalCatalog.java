@@ -34,7 +34,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.math.NumberUtils;
-import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.CurrentNotificationEventId;
@@ -54,7 +53,7 @@ import java.util.Objects;
 public class HMSExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(HMSExternalCatalog.class);
 
-    private static final int MAX_CLIENT_POOL_SIZE = 8;
+    private static final int MIN_CLIENT_POOL_SIZE = 8;
     protected PooledHiveMetaStoreClient client;
     // Record the latest synced event id when processing hive events
     // Must set to -1 otherwise client.getNextNotification will throw exception
@@ -75,6 +74,13 @@ public class HMSExternalCatalog extends ExternalCatalog {
     public HMSExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
             String comment) {
         super(catalogId, name, InitCatalogLog.Type.HMS, comment);
+        props = PropertyConverter.convertToMetaProperties(props);
+        catalogProperty = new CatalogProperty(resource, props);
+    }
+
+    public HMSExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
+            String comment, InitCatalogLog.Type type) {
+        super(catalogId, name, type, comment);
         props = PropertyConverter.convertToMetaProperties(props);
         catalogProperty = new CatalogProperty(resource, props);
     }
@@ -100,24 +106,28 @@ public class HMSExternalCatalog extends ExternalCatalog {
         if (Strings.isNullOrEmpty(dfsNameservices)) {
             return;
         }
-        String namenodes = catalogProperty.getOrDefault("dfs.ha.namenodes." + dfsNameservices, "");
-        if (Strings.isNullOrEmpty(namenodes)) {
-            throw new DdlException("Missing dfs.ha.namenodes." + dfsNameservices + " property");
-        }
-        String[] names = namenodes.split(",");
-        for (String name : names) {
-            String address = catalogProperty.getOrDefault("dfs.namenode.rpc-address." + dfsNameservices + "." + name,
-                    "");
-            if (Strings.isNullOrEmpty(address)) {
-                throw new DdlException(
-                        "Missing dfs.namenode.rpc-address." + dfsNameservices + "." + name + " property");
+
+        String[] nameservices = dfsNameservices.split(",");
+        for (String dfsservice : nameservices) {
+            String namenodes = catalogProperty.getOrDefault("dfs.ha.namenodes." + dfsservice, "");
+            if (Strings.isNullOrEmpty(namenodes)) {
+                throw new DdlException("Missing dfs.ha.namenodes." + dfsservice + " property");
             }
-        }
-        String failoverProvider = catalogProperty.getOrDefault("dfs.client.failover.proxy.provider." + dfsNameservices,
-                "");
-        if (Strings.isNullOrEmpty(failoverProvider)) {
-            throw new DdlException(
-                    "Missing dfs.client.failover.proxy.provider." + dfsNameservices + " property");
+            String[] names = namenodes.split(",");
+            for (String name : names) {
+                String address = catalogProperty.getOrDefault("dfs.namenode.rpc-address." + dfsservice + "." + name,
+                        "");
+                if (Strings.isNullOrEmpty(address)) {
+                    throw new DdlException(
+                            "Missing dfs.namenode.rpc-address." + dfsservice + "." + name + " property");
+                }
+            }
+            String failoverProvider = catalogProperty.getOrDefault("dfs.client.failover.proxy.provider." + dfsservice,
+                    "");
+            if (Strings.isNullOrEmpty(failoverProvider)) {
+                throw new DdlException(
+                        "Missing dfs.client.failover.proxy.provider." + dfsservice + " property");
+            }
         }
     }
 
@@ -144,9 +154,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
         String authentication = catalogProperty.getOrDefault(
                 HdfsResource.HADOOP_SECURITY_AUTHENTICATION, "");
         if (AuthType.KERBEROS.getDesc().equals(authentication)) {
-            Configuration conf = new Configuration();
-            conf.set(HdfsResource.HADOOP_SECURITY_AUTHENTICATION, authentication);
-            UserGroupInformation.setConfiguration(conf);
+            hiveConf.set(HdfsResource.HADOOP_SECURITY_AUTHENTICATION, authentication);
+            UserGroupInformation.setConfiguration(hiveConf);
             try {
                 /**
                  * Because metastore client is created by using
@@ -161,7 +170,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
             }
         }
 
-        client = new PooledHiveMetaStoreClient(hiveConf, MAX_CLIENT_POOL_SIZE);
+        client = new PooledHiveMetaStoreClient(hiveConf,
+                    Math.max(MIN_CLIENT_POOL_SIZE, Config.max_external_cache_loader_thread_pool_size));
     }
 
     @Override
@@ -259,9 +269,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public void dropDatabase(String dbName) {
+    public void dropDatabaseForReplay(String dbName) {
         LOG.debug("drop database [{}]", dbName);
-        makeSureInitialized();
         Long dbId = dbNameToId.remove(dbName);
         if (dbId == null) {
             LOG.warn("drop database [{}] failed", dbName);
@@ -270,8 +279,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public void createDatabase(long dbId, String dbName) {
-        makeSureInitialized();
+    public void createDatabaseForReplay(long dbId, String dbName) {
         LOG.debug("create database [{}]", dbName);
         dbNameToId.put(dbName, dbId);
         ExternalDatabase<? extends ExternalTable> db = getDbForInit(dbName, dbId, logType);
@@ -288,7 +296,10 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public void setDefaultProps() {
+    public void setDefaultPropsWhenCreating(boolean isReplay) {
+        if (isReplay) {
+            return;
+        }
         if (catalogProperty.getOrDefault(PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "").isEmpty()) {
             // always allow fallback to simple auth, so to support both kerberos and simple auth
             catalogProperty.addProperty(PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "true");
