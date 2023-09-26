@@ -296,6 +296,7 @@ terminal String
     KW_CLUSTERS,
     KW_COLLATE,
     KW_COLLATION,
+    KW_COLOCATE,
     KW_COLUMN,
     KW_COLUMNS,
     KW_COMMENT,
@@ -798,6 +799,7 @@ nonterminal Qualifier opt_set_qualifier;
 nonterminal Operation set_op;
 nonterminal ArrayList<String> opt_common_hints;
 nonterminal String optional_on_ident;
+nonterminal ColocateGroupName colocate_group_name;
 
 nonterminal LoadTask.MergeType opt_merge_type, opt_with_merge_type;
 
@@ -1326,6 +1328,10 @@ alter_stmt ::=
     | KW_ALTER KW_RESOURCE ident_or_text:resourceName opt_properties:properties
     {:
         RESULT = new AlterResourceStmt(resourceName, properties);
+    :}
+    | KW_ALTER KW_COLOCATE KW_GROUP colocate_group_name:colocateGroupName KW_SET LPAREN key_value_map:properties RPAREN
+    {:
+        RESULT = new AlterColocateGroupStmt(colocateGroupName, properties);
     :}
     | KW_ALTER KW_WORKLOAD KW_GROUP ident_or_text:workloadGroupName opt_properties:properties
     {:
@@ -5519,6 +5525,17 @@ table_name ::=
     {: RESULT = new TableName(null, db, tbl); :}
     | ident:ctl DOT ident:db DOT ident:tbl
     {: RESULT = new TableName(ctl, db, tbl); :}
+    ;
+
+colocate_group_name ::=
+    ident:group
+    {:
+        RESULT = new ColocateGroupName(null, group);
+    :}
+    | ident:db DOT ident:group
+    {:
+        RESULT = new ColocateGroupName(db, group);
+    :}
     ;
 
 encryptkey_name ::=

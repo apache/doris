@@ -594,6 +594,11 @@ public class EditLog {
                     env.getColocateTableIndex().replayMarkGroupStable(info);
                     break;
                 }
+                case OperationType.OP_COLOCATE_MOD_REPLICA_ALLOC: {
+                    final ColocatePersistInfo info = (ColocatePersistInfo) journal.getData();
+                    env.getColocateTableIndex().replayModifyReplicaAlloc(info);
+                    break;
+                }
                 case OperationType.OP_MODIFY_TABLE_COLOCATE: {
                     final TablePropertyInfo info = (TablePropertyInfo) journal.getData();
                     env.replayModifyTableColocate(info);
@@ -1495,6 +1500,10 @@ public class EditLog {
         long logId = logEdit(OperationType.OP_TRUNCATE_TABLE, info);
         LOG.info("log truncate table, logId:{}, infos: {}", logId, info);
         Env.getCurrentEnv().getBinlogManager().addTruncateTable(info, logId);
+    }
+
+    public void logColocateModifyRepliaAlloc(ColocatePersistInfo info) {
+        logEdit(OperationType.OP_COLOCATE_MOD_REPLICA_ALLOC, info);
     }
 
     public void logColocateAddTable(ColocatePersistInfo info) {
