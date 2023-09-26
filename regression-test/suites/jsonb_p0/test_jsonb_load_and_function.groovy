@@ -23,6 +23,7 @@ suite("test_jsonb_load_and_function", "p0") {
     def dataFile = "test_jsonb.csv"
 
     sql """ set experimental_enable_nereids_planner = true """
+    sql """ set enable_fallback_to_original_planner = false """
 
     sql "DROP TABLE IF EXISTS ${testTable}"
 
