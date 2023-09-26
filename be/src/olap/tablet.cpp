@@ -2960,7 +2960,6 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                 Slice rowid_slice =
                         Slice(key.get_data() + key_without_seq.get_size() + seq_col_length + 1,
                               rowid_length - 1);
-                // decode rowid
                 const auto* type_info =
                         get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT>();
                 auto rowid_coder = get_key_coder(type_info->type());

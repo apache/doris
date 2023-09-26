@@ -415,7 +415,7 @@ Status Segment::lookup_row_key(const Slice& key, bool with_seq_col, RowLocation*
     }
 
     Slice key_without_seq = Slice(
-            key.get_data(), key.get_size() - (with_seq_col ? seq_col_length : 0) - rowid_length);
+            key.get_data(), key.get_size() - (with_seq_col ? seq_col_length + rowid_length : 0));
 
     DCHECK(_pk_index_reader != nullptr);
     if (!_pk_index_reader->check_present(key_without_seq)) {
@@ -475,6 +475,16 @@ Status Segment::lookup_row_key(const Slice& key, bool with_seq_col, RowLocation*
         if (key_without_seq.compare(sought_key_without_rowid) != 0) {
             return Status::NotFound("Can't find key in the segment");
         }
+    }
+    if (has_rowid) {
+        Slice sought_key_without_seq =
+                Slice(sought_key.get_data(), sought_key.get_size() - seq_col_length - rowid_length);
+        Slice rowid_slice = Slice(
+                sought_key.get_data() + sought_key_without_seq.get_size() + seq_col_length + 1,
+                rowid_length - 1);
+        const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT>();
+        auto rowid_coder = get_key_coder(type_info->type());
+        rowid_coder->decode_ascending(&rowid_slice, rowid_length, (uint8_t*)&row_location->row_id);
     }
 
     return Status::OK();

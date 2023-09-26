@@ -795,7 +795,6 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
                     }
                 }
             }
-            // TODO use cluster keys
             // create short key indexes'
             // for min_max key
             set_min_key(_full_encode_keys(key_columns, 0));

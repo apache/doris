@@ -107,14 +107,16 @@ bool MergeIndexDeleteBitmapCalculatorContext::Comparator::operator()(
     if (cmp_result != 0) {
         return cmp_result > 0;
     }
-    // greater sequence value popped first
-    auto key1_sequence_val = Slice(
-            key1.get_data() + key1.get_size() - _sequence_length - _rowid_length, _sequence_length);
-    auto key2_sequence_val = Slice(
-            key2.get_data() + key2.get_size() - _sequence_length - _rowid_length, _sequence_length);
-    cmp_result = key1_sequence_val.compare(key2_sequence_val);
-    if (cmp_result != 0) {
-        return cmp_result < 0;
+    if (_sequence_length > 0) {
+        // greater sequence value popped first
+        auto key1_sequence_val =
+                Slice(key1.get_data() + key1_without_seq.get_size() + 1, _sequence_length - 1);
+        auto key2_sequence_val =
+                Slice(key2.get_data() + key2_without_seq.get_size() + 1, _sequence_length - 1);
+        cmp_result = key1_sequence_val.compare(key2_sequence_val);
+        if (cmp_result != 0) {
+            return cmp_result < 0;
+        }
     }
     // greater segment id popped first
     return lhs->segment_id() < rhs->segment_id();
