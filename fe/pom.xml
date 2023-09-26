@@ -195,7 +195,7 @@ under the License.
         <doris.home>${fe.dir}/../</doris.home>
         <revision>1.2-SNAPSHOT</revision>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <doris.hive.catalog.shade.version>1.0.1</doris.hive.catalog.shade.version>
+        <doris.hive.catalog.shade.version>1.0.1-zd-SNAPSHOT</doris.hive.catalog.shade.version>
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
         <!--plugin parameters-->
