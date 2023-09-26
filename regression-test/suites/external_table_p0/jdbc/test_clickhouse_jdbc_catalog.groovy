@@ -68,6 +68,20 @@ suite("test_clickhouse_jdbc_catalog", "p0,external,clickhouse,external_docker,ex
         order_qt_final1 """select * from final_test"""
         sql "set jdbc_clickhouse_query_final = false;"
         order_qt_final2 """select * from final_test"""
+        order_qt_func_push """select * from ts where from_unixtime(ts,'yyyyMMdd') >= '2022-01-01';"""
+        explain {
+            sql("select * from ts where from_unixtime(ts,'yyyyMMdd') >= '2022-01-01';")
+            contains """QUERY: SELECT "id", "ts" FROM "doris_test"."ts" WHERE (FROM_UNIXTIME(ts, '%Y%m%d') >= '2022-01-01')"""
+        }
+        explain {
+            sql("select * from ts where nvl(ts,null) >= '2022-01-01';")
+            contains """QUERY: SELECT "id", "ts" FROM "doris_test"."ts"""
+        }
+        order_qt_func_push2 """select * from ts where ts <= unix_timestamp(from_unixtime(ts,'yyyyMMdd'));"""
+        explain {
+            sql("select * from ts where ts <= unix_timestamp(from_unixtime(ts,'yyyy-MM-dd'));")
+            contains """QUERY: SELECT "id", "ts" FROM "doris_test"."ts" WHERE (ts <= toUnixTimestamp(FROM_UNIXTIME(ts, '%Y-%m-%d')))"""
+        }
 
         sql """ drop catalog if exists ${catalog_name} """
     }

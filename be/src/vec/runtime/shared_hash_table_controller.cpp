@@ -23,6 +23,8 @@
 #include <chrono> // IWYU pragma: keep
 #include <utility>
 
+#include "pipeline/exec/hashjoin_build_sink.h"
+
 namespace doris {
 namespace vectorized {
 
@@ -32,18 +34,24 @@ void SharedHashTableController::set_builder_and_consumers(TUniqueId builder, int
     std::lock_guard<std::mutex> lock(_mutex);
     DCHECK(_builder_fragment_ids.find(node_id) == _builder_fragment_ids.cend());
     _builder_fragment_ids.insert({node_id, builder});
+    _dependencies.insert({node_id, {}});
 }
 
 bool SharedHashTableController::should_build_hash_table(const TUniqueId& fragment_instance_id,
                                                         int my_node_id) {
     std::lock_guard<std::mutex> lock(_mutex);
     auto it = _builder_fragment_ids.find(my_node_id);
-    DCHECK(_pipeline_engine_enabled && it != _builder_fragment_ids.cend());
-    if (it != _builder_fragment_ids.cend()) {
-        return it->second == fragment_instance_id;
+    if (_pipeline_engine_enabled) {
+        if (it != _builder_fragment_ids.cend()) {
+            return it->second == fragment_instance_id;
+        }
+        return false;
     }
-    throw Exception(ErrorCode::INTERNAL_ERROR,
-                    "Shared hash table for node {} has not been initialized!", my_node_id);
+
+    if (it == _builder_fragment_ids.cend()) {
+        _builder_fragment_ids.insert({my_node_id, fragment_instance_id});
+        return true;
+    }
     return false;
 }
 
@@ -63,6 +71,9 @@ void SharedHashTableController::signal(int my_node_id, Status status) {
         it->second->status = status;
         _shared_contexts.erase(it);
     }
+    for (auto& dep : _dependencies[my_node_id]) {
+        dep->set_ready_for_write();
+    }
     _cv.notify_all();
 }
 
@@ -72,6 +83,9 @@ void SharedHashTableController::signal(int my_node_id) {
     if (it != _shared_contexts.cend()) {
         it->second->signaled = true;
         _shared_contexts.erase(it);
+    }
+    for (auto& dep : _dependencies[my_node_id]) {
+        dep->set_ready_for_write();
     }
     _cv.notify_all();
 }

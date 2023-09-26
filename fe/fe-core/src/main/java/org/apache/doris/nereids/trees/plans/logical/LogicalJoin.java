@@ -123,17 +123,15 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                 Optional.empty(), Optional.empty(), children);
     }
 
-    /**
-     * Just use in withXXX method.
-     */
     private LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts, List<Expression> otherJoinConjuncts,
             JoinHint hint, Optional<MarkJoinSlotReference> markJoinSlotReference,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             List<Plan> children, JoinReorderContext joinReorderContext) {
+        // Just use in withXXX method. Don't need check/copyOf()
         super(PlanType.LOGICAL_JOIN, groupExpression, logicalProperties, children);
         this.joinType = Objects.requireNonNull(joinType, "joinType can not be null");
-        this.hashJoinConjuncts = ImmutableList.copyOf(hashJoinConjuncts);
-        this.otherJoinConjuncts = ImmutableList.copyOf(otherJoinConjuncts);
+        this.hashJoinConjuncts = hashJoinConjuncts;
+        this.otherJoinConjuncts = otherJoinConjuncts;
         this.hint = Objects.requireNonNull(hint, "hint can not be null");
         this.joinReorderContext.copyFrom(joinReorderContext);
         this.markJoinSlotReference = markJoinSlotReference;

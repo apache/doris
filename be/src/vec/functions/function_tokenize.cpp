@@ -95,13 +95,14 @@ void FunctionTokenize::_do_tokenize(const ColumnString& src_column_string,
             dest_offsets.push_back(dest_pos);
             continue;
         }
-        std::vector<std::wstring> query_tokens =
+        auto reader = doris::segment_v2::InvertedIndexReader::create_reader(
+                &inverted_index_ctx, tokenize_str.to_string());
+
+        std::vector<std::string> query_tokens =
                 doris::segment_v2::InvertedIndexReader::get_analyse_result(
-                        "tokenize", tokenize_str.to_string(),
-                        doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY,
-                        &inverted_index_ctx);
-        for (auto token_ws : query_tokens) {
-            std::string token = lucene_wcstoutf8string(token_ws.data(), token_ws.length());
+                        reader.get(), inverted_index_ctx.analyzer, "tokenize",
+                        doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY);
+        for (auto token : query_tokens) {
             const size_t old_size = column_string_chars.size();
             const size_t split_part_size = token.length();
             if (split_part_size > 0) {
@@ -156,6 +157,11 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
             inverted_index_ctx.parser_type = get_inverted_index_parser_type_from_string(
                     get_parser_string_from_properties(properties));
             inverted_index_ctx.parser_mode = get_parser_mode_string_from_properties(properties);
+            inverted_index_ctx.char_filter_map =
+                    get_parser_char_filter_map_from_properties(properties);
+            auto analyzer =
+                    doris::segment_v2::InvertedIndexReader::create_analyzer(&inverted_index_ctx);
+            inverted_index_ctx.analyzer = analyzer.get();
             _do_tokenize(*col_left, inverted_index_ctx, *dest_nested_column, dest_offsets,
                          dest_nested_null_map);
 

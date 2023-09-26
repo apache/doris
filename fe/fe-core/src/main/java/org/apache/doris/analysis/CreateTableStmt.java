@@ -217,6 +217,37 @@ public class CreateTableStmt extends DdlStmt {
         this.comment = Strings.nullToEmpty(comment);
     }
 
+    // for Nereids
+    public CreateTableStmt(boolean ifNotExists,
+            boolean isExternal,
+            TableName tableName,
+            List<Column> columns,
+            List<Index> indexes,
+            String engineName,
+            KeysDesc keysDesc,
+            PartitionDesc partitionDesc,
+            DistributionDesc distributionDesc,
+            Map<String, String> properties,
+            Map<String, String> extProperties,
+            String comment,
+            List<AlterClause> rollupAlterClauseList,
+            Void unused) {
+        this.ifNotExists = ifNotExists;
+        this.isExternal = isExternal;
+        this.tableName = tableName;
+        this.columns = columns;
+        this.indexes = indexes;
+        this.engineName = engineName;
+        this.keysDesc = keysDesc;
+        this.partitionDesc = partitionDesc;
+        this.distributionDesc = distributionDesc;
+        this.properties = properties;
+        this.extProperties = extProperties;
+        this.columnDefs = Lists.newArrayList();
+        this.comment = Strings.nullToEmpty(comment);
+        this.rollupAlterClauseList = rollupAlterClauseList;
+    }
+
     public void addColumnDef(ColumnDef columnDef) {
         columnDefs.add(columnDef);
     }
@@ -489,10 +520,6 @@ public class CreateTableStmt extends DdlStmt {
             columnDef.analyze(engineName.equals("olap"));
 
             if (columnDef.getType().isComplexType() && engineName.equals("olap")) {
-                if (columnDef.getAggregateType() == AggregateType.REPLACE
-                        && keysDesc.getKeysType() == KeysType.AGG_KEYS) {
-                    throw new AnalysisException("Aggregate table can't support replace array/map/struct value now");
-                }
                 if (columnDef.getAggregateType() != null
                         && columnDef.getAggregateType() != AggregateType.NONE
                         && columnDef.getAggregateType() != AggregateType.REPLACE) {

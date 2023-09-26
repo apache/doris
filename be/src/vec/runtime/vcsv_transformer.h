@@ -26,7 +26,7 @@
 #include <parquet/types.h>
 #include <stdint.h>
 
-#include "vfile_writer_wrapper.h"
+#include "vfile_format_transformer.h"
 
 namespace doris {
 namespace io {
@@ -63,13 +63,12 @@ private:
 
     doris::io::FileWriter* _file_writer;
     // Used to buffer the export data of plain text
-    // TODO(cmy): I simply use a stringstrteam to buffer the data, to avoid calling
+    // TODO(cmy): I simply use a fmt::memmory_buffer to buffer the data, to avoid calling
     // file writer's write() for every single row.
     // But this cannot solve the problem of a row of data that is too large.
     // For example: bitmap_to_string() may return large volume of data.
     // And the speed is relative low, in my test, is about 6.5MB/s.
-    std::stringstream _plain_text_outstream;
-    static const size_t OUTSTREAM_BUFFER_SIZE_BYTES;
+    fmt::memory_buffer _outstream_buffer;
 };
 
 } // namespace doris::vectorized

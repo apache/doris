@@ -23,6 +23,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <shared_mutex>
 #include <unordered_map>
 #include <vector>
 
@@ -47,9 +48,12 @@ class Thread;
 class ResultBufferMgr {
 public:
     ResultBufferMgr();
-    ~ResultBufferMgr();
+    ~ResultBufferMgr() = default;
     // init Result Buffer Mgr, start cancel thread
     Status init();
+
+    void stop();
+
     // create one result sender for this query_id
     // the returned sender do not need release
     // sender is not used when call cancel or unregister
@@ -83,9 +87,11 @@ private:
     void cancel_thread();
 
     // lock for buffer map
-    std::mutex _lock;
+    std::shared_mutex _buffer_map_lock;
     // buffer block map
     BufferMap _buffer_map;
+    // lock for descriptor map
+    std::shared_mutex _row_descriptor_map_lock;
     // for arrow flight
     RowDescriptorMap _row_descriptor_map;
 

@@ -497,11 +497,10 @@ public class DeleteHandler implements Writable {
 
     private void commitJob(DeleteJob job, Database db, Table table, long timeoutMs)
             throws DdlException, QueryStateException {
-        TransactionStatus status = null;
+        TransactionStatus status = TransactionStatus.UNKNOWN;
         try {
-            unprotectedCommitJob(job, db, table, timeoutMs);
-            status = Env.getCurrentGlobalTransactionMgr()
-                    .getTransactionState(db.getId(), job.getTransactionId()).getTransactionStatus();
+            boolean isVisible = unprotectedCommitJob(job, db, table, timeoutMs);
+            status = isVisible ? TransactionStatus.VISIBLE : TransactionStatus.COMMITTED;
         } catch (UserException e) {
             if (cancelJob(job, CancelType.COMMIT_FAIL, e.getMessage())) {
                 throw new DdlException(e.getMessage(), e);

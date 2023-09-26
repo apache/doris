@@ -39,8 +39,8 @@ import java.util.function.Consumer;
 
 public class JdbcMySQLClient extends JdbcClient {
 
-    private static boolean convertDateToNull = false;
-    private static boolean isDoris = false;
+    private boolean convertDateToNull = false;
+    private boolean isDoris = false;
 
     protected JdbcMySQLClient(JdbcClientConfig jdbcClientConfig) {
         super(jdbcClientConfig);
@@ -400,7 +400,8 @@ public class JdbcMySQLClient extends JdbcClient {
                 return ScalarType.createDateV2Type();
             case "DATETIME":
             case "DATETIMEV2": {
-                int scale = Integer.parseInt(upperType.substring(openParen + 1, upperType.length() - 1));
+                int scale = (openParen == -1) ? 6
+                        : Integer.parseInt(upperType.substring(openParen + 1, upperType.length() - 1));
                 if (scale > 6) {
                     scale = 6;
                 }

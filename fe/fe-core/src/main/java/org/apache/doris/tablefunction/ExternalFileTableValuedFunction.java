@@ -18,16 +18,19 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.MapType;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
@@ -43,6 +46,7 @@ import org.apache.doris.planner.external.TVFScanNode;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PFetchTableSchemaRequest;
 import org.apache.doris.proto.Types.PScalarType;
+import org.apache.doris.proto.Types.PStructField;
 import org.apache.doris.proto.Types.PTypeDesc;
 import org.apache.doris.proto.Types.PTypeNode;
 import org.apache.doris.qe.ConnectContext;
@@ -62,6 +66,7 @@ import org.apache.doris.thrift.THdfsParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TTextSerdeType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -88,9 +93,10 @@ import java.util.stream.Collectors;
  */
 public abstract class ExternalFileTableValuedFunction extends TableValuedFunctionIf {
     public static final Logger LOG = LogManager.getLogger(ExternalFileTableValuedFunction.class);
-    protected static final String DEFAULT_COLUMN_SEPARATOR = ",";
+    protected static String DEFAULT_COLUMN_SEPARATOR = ",";
     protected static final String DEFAULT_LINE_DELIMITER = "\n";
     public static final String FORMAT = "format";
+    public static final String TABLE_ID = "table_id";
     public static final String COLUMN_SEPARATOR = "column_separator";
     public static final String LINE_DELIMITER = "line_delimiter";
     protected static final String JSON_ROOT = "json_root";
@@ -101,7 +107,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     protected static final String FUZZY_PARSE = "fuzzy_parse";
     protected static final String TRIM_DOUBLE_QUOTES = "trim_double_quotes";
     protected static final String SKIP_LINES = "skip_lines";
-    protected static final String CSV_SCHEMA = "csv_schema";
+    public static final String CSV_SCHEMA = "csv_schema";
     protected static final String COMPRESS_TYPE = "compress_type";
     public static final String PATH_PARTITION_KEYS = "path_partition_keys";
     // decimal(p,s)
@@ -111,6 +117,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     protected static final ImmutableSet<String> FILE_FORMAT_PROPERTIES = new ImmutableSet.Builder<String>()
             .add(FORMAT)
+            .add(TABLE_ID)
             .add(JSON_ROOT)
             .add(JSON_PATHS)
             .add(STRIP_OUTER_ARRAY)
@@ -122,6 +129,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             .add(TRIM_DOUBLE_QUOTES)
             .add(SKIP_LINES)
             .add(CSV_SCHEMA)
+            .add(COMPRESS_TYPE)
+            .add(PATH_PARTITION_KEYS)
             .build();
 
     // Columns got from file and path(if has)
@@ -134,11 +143,14 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     protected List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
     protected Map<String, String> locationProperties;
+    protected String filePath;
+
 
     private TFileFormatType fileFormatType;
     private TFileCompressType compressionType;
     private String headerType = "";
 
+    private TTextSerdeType textSerdeType = TTextSerdeType.JSON_TEXT_SERDE;
     private String columnSeparator = DEFAULT_COLUMN_SEPARATOR;
     private String lineDelimiter = DEFAULT_LINE_DELIMITER;
     private String jsonRoot = "";
@@ -149,6 +161,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     private boolean fuzzyParse;
     private boolean trimDoubleQuotes;
     private int skipLines;
+    private long tableId;
 
     public abstract TFileType getTFileType();
 
@@ -196,11 +209,17 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
     }
 
+    //The keys in the passed validParams map need to be lowercase.
     protected void parseProperties(Map<String, String> validParams) throws AnalysisException {
-        String formatString = validParams.getOrDefault(FORMAT, "").toLowerCase();
+        String formatString = validParams.getOrDefault(FORMAT, "");
         switch (formatString) {
             case "csv":
                 this.fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
+                break;
+            case "hive_text":
+                this.fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
+                this.DEFAULT_COLUMN_SEPARATOR = "\001";
+                this.textSerdeType = TTextSerdeType.HIVE_TEXT_SERDE;
                 break;
             case "csv_with_names":
                 this.headerType = FeConstants.csv_with_names;
@@ -222,21 +241,26 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             case "avro":
                 this.fileFormatType = TFileFormatType.FORMAT_AVRO;
                 break;
+            case "wal":
+                this.fileFormatType = TFileFormatType.FORMAT_WAL;
+                break;
             default:
                 throw new AnalysisException("format:" + formatString + " is not supported.");
         }
 
-        // TODO Support is needed in the future
-        if (getTFileType() == TFileType.FILE_STREAM && (formatString.equals("csv_with_names")
-                || formatString.equals("csv_with_names_and_types")
-                || formatString.equals("parquet")
-                || formatString.equals("avro")
-                || formatString.equals("orc"))) {
-            throw new AnalysisException("current http_stream does not yet support csv_with_names, "
-                    + "csv_with_names_and_types, parquet, avro and orc");
-        }
+        tableId = Long.valueOf(validParams.getOrDefault(TABLE_ID, "-1")).longValue();
         columnSeparator = validParams.getOrDefault(COLUMN_SEPARATOR, DEFAULT_COLUMN_SEPARATOR);
+        if (Strings.isNullOrEmpty(columnSeparator)) {
+            throw new AnalysisException("column_separator can not be empty.");
+        }
+        columnSeparator = Separator.convertSeparator(columnSeparator);
+
         lineDelimiter = validParams.getOrDefault(LINE_DELIMITER, DEFAULT_LINE_DELIMITER);
+        if (Strings.isNullOrEmpty(lineDelimiter)) {
+            throw new AnalysisException("line_delimiter can not be empty.");
+        }
+        lineDelimiter = Separator.convertSeparator(lineDelimiter);
+
         jsonRoot = validParams.getOrDefault(JSON_ROOT, "");
         jsonPaths = validParams.getOrDefault(JSON_PATHS, "");
         readJsonByLine = Boolean.valueOf(validParams.get(READ_JSON_BY_LINE)).booleanValue();
@@ -245,6 +269,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         fuzzyParse = Boolean.valueOf(validParams.get(FUZZY_PARSE)).booleanValue();
         trimDoubleQuotes = Boolean.valueOf(validParams.get(TRIM_DOUBLE_QUOTES)).booleanValue();
         skipLines = Integer.valueOf(validParams.getOrDefault(SKIP_LINES, "0")).intValue();
+
         try {
             compressionType = Util.getFileCompressType(validParams.getOrDefault(COMPRESS_TYPE, "UNKNOWN"));
         } catch (IllegalArgumentException e) {
@@ -365,11 +390,15 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     @Override
     public List<Column> getTableColumns() throws AnalysisException {
-        if (FeConstants.runningUnitTest) {
-            return Lists.newArrayList();
-        }
         if (!csvSchema.isEmpty()) {
             return csvSchema;
+        }
+        if (FeConstants.runningUnitTest) {
+            Object mockedUtObj = FeConstants.unitTestConstant;
+            if (mockedUtObj instanceof List) {
+                return ((List<Column>) mockedUtObj);
+            }
+            return new ArrayList<>();
         }
         if (this.columns != null) {
             return columns;
@@ -379,6 +408,20 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         Backend be = getBackend();
         if (be == null) {
             throw new AnalysisException("No Alive backends");
+        }
+
+        if (this.fileFormatType == TFileFormatType.FORMAT_WAL) {
+            List<Column> fileColumns = new ArrayList<>();
+            Table table = Env.getCurrentInternalCatalog().getTableByTableId(tableId);
+            List<Column> tableColumns = table.getBaseSchema(false);
+            for (int i = 1; i <= tableColumns.size(); i++) {
+                fileColumns.add(new Column("c" + i, tableColumns.get(i - 1).getDataType(), true));
+            }
+            Column deleteSignColumn = ((OlapTable) table).getDeleteSignColumn();
+            if (deleteSignColumn != null) {
+                fileColumns.add(new Column("c" + (tableColumns.size() + 1), deleteSignColumn.getDataType(), true));
+            }
+            return fileColumns;
         }
 
         TNetworkAddress address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
@@ -457,7 +500,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             ArrayList<StructField> fields = new ArrayList<>();
             for (int i = 0; i < typeNodes.get(start).getStructFieldsCount(); ++i) {
                 Pair<Type, Integer> fieldType = getColumnType(typeNodes, start + parsedNodes);
-                fields.add(new StructField(typeNodes.get(start).getStructFields(i).getName(), fieldType.key()));
+                PStructField structField = typeNodes.get(start).getStructFields(i);
+                fields.add(new StructField(structField.getName(), fieldType.key(), structField.getComment(),
+                                            structField.getContainsNull()));
                 parsedNodes += fieldType.value();
             }
             type = new StructType(fields);
@@ -493,6 +538,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         TFileScanRangeParams fileScanRangeParams = new TFileScanRangeParams();
         fileScanRangeParams.setFormatType(fileFormatType);
         fileScanRangeParams.setProperties(locationProperties);
+        fileScanRangeParams.setTextSerdeType(textSerdeType);
         fileScanRangeParams.setFileAttributes(getFileAttributes());
         ConnectContext ctx = ConnectContext.get();
         fileScanRangeParams.setLoadId(ctx.queryId());

@@ -95,7 +95,6 @@ T pack_fixed(size_t i, size_t keys_size, const ColumnRawPtrs& key_columns, const
                    static_cast<const ColumnVectorHelper*>(key_columns[j])->get_raw_data_begin<1>() +
                            i * key_sizes[j],
                    key_sizes[j]);
-            offset += key_sizes[j];
         }
 
         offset += key_sizes[j];

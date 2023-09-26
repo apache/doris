@@ -67,16 +67,15 @@ Status OrdinalIndexWriter::finish(io::FileWriter* file_writer, ColumnIndexMetaPB
     return Status::OK();
 }
 
-Status OrdinalIndexReader::load(bool use_page_cache, bool kept_in_memory,
-                                const OrdinalIndexPB* index_meta) {
+Status OrdinalIndexReader::load(bool use_page_cache, bool kept_in_memory) {
     // TODO yyq: implement a new once flag to avoid status construct.
-    return _load_once.call([this, use_page_cache, kept_in_memory, index_meta] {
-        return _load(use_page_cache, kept_in_memory, index_meta);
+    return _load_once.call([this, use_page_cache, kept_in_memory] {
+        return _load(use_page_cache, kept_in_memory, std::move(_meta_pb));
     });
 }
 
 Status OrdinalIndexReader::_load(bool use_page_cache, bool kept_in_memory,
-                                 const OrdinalIndexPB* index_meta) {
+                                 std::unique_ptr<OrdinalIndexPB> index_meta) {
     if (index_meta->root_page().is_root_data_page()) {
         // only one data page, no index page
         _num_pages = 1;
@@ -86,15 +85,18 @@ Status OrdinalIndexReader::_load(bool use_page_cache, bool kept_in_memory,
         return Status::OK();
     }
     // need to read index page
-    PageReadOptions opts;
-    opts.file_reader = _file_reader.get();
-    opts.page_pointer = PagePointer(index_meta->root_page().root_page());
-    opts.codec = nullptr; // ordinal index page uses NO_COMPRESSION right now
     OlapReaderStatistics tmp_stats;
-    opts.stats = &tmp_stats;
-    opts.use_page_cache = use_page_cache;
-    opts.kept_in_memory = kept_in_memory;
-    opts.type = INDEX_PAGE;
+    PageReadOptions opts {
+            .use_page_cache = use_page_cache,
+            .kept_in_memory = kept_in_memory,
+            .type = INDEX_PAGE,
+            .file_reader = _file_reader.get(),
+            .page_pointer = PagePointer(index_meta->root_page().root_page()),
+            // ordinal index page uses NO_COMPRESSION right now
+            .codec = nullptr,
+            .stats = &tmp_stats,
+            .io_ctx = io::IOContext {.is_index_data = true},
+    };
 
     // read index page
     PageHandle page_handle;

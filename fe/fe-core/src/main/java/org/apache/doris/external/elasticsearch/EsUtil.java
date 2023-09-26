@@ -154,6 +154,10 @@ public class EsUtil {
         mappings.remove("dynamic_templates");
         // remove `dynamic` field
         mappings.remove("dynamic");
+        // remove `_default` field, we do not parse `_default_` mapping, only explicit mapping.
+        // `_default` _mapping type is deprecated in 7.0 and removed in 8.0
+        // https://www.elastic.co/guide/en/elasticsearch/reference/7.17/removal-of-types.html
+        mappings.remove("_default_");
         // check explicit mapping
         if (mappings.isEmpty()) {
             throw new DorisEsException("Do not support index without explicit mapping.");
