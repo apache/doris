@@ -20,7 +20,6 @@ suite("test_ip_crud") {
     sql """ DROP TABLE IF EXISTS test_unique_ip_crud """
     sql """ DROP TABLE IF EXISTS test_dup_ip_crud """
 
-    // test ip datatype in unique table
     sql """
         CREATE TABLE test_unique_ip_crud (
           `id` int,
