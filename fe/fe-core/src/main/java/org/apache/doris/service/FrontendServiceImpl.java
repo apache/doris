@@ -2071,7 +2071,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             Coordinator coord = new Coordinator(ctx, analyzer, executor.planner());
             coord.setLoadMemLimit(request.getExecMemLimit());
             coord.setQueryType(TQueryType.LOAD);
-            QeProcessorImpl.INSTANCE.registerQuery(request.getLoadId(), coord);
 
             TExecPlanFragmentParams plan = coord.getStreamLoadPlan();
             final long txn_id = parsedStmt.getTransactionId();
@@ -2080,6 +2079,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.getParams().setTableName(parsedStmt.getTbl());
             // The txn_id here is obtained from the NativeInsertStmt
             result.getParams().setTxnConf(new TTxnParams().setTxnId(txn_id));
+            result.getParams().setImportLabel(parsedStmt.getLabel());
             if (parsedStmt.isGroupCommitTvf) {
                 result.getParams().params.setGroupCommit(true);
             }

@@ -122,6 +122,7 @@ public enum RuleType {
     // subquery analyze
     FILTER_SUBQUERY_TO_APPLY(RuleTypeClass.REWRITE),
     PROJECT_SUBQUERY_TO_APPLY(RuleTypeClass.REWRITE),
+    JOIN_SUBQUERY_TO_APPLY(RuleTypeClass.REWRITE),
     ONE_ROW_RELATION_SUBQUERY_TO_APPLY(RuleTypeClass.REWRITE),
     // subquery rewrite rule
     ELIMINATE_LIMIT_UNDER_APPLY(RuleTypeClass.REWRITE),

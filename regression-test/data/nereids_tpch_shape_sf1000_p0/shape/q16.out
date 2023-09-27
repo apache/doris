@@ -8,13 +8,13 @@ PhysicalResultSink
 ----------PhysicalDistribute
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[LEFT_ANTI_JOIN](partsupp.ps_suppkey = supplier.s_suppkey)
+----------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((partsupp.ps_suppkey = supplier.s_suppkey))otherCondition=()
 ------------------PhysicalDistribute
---------------------hashJoin[INNER_JOIN](part.p_partkey = partsupp.ps_partkey)
+--------------------hashJoin[INNER_JOIN] hashCondition=((part.p_partkey = partsupp.ps_partkey))otherCondition=()
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[partsupp]
 ----------------------PhysicalProject
-------------------------filter(( not (p_type like 'MEDIUM POLISHED%'))( not (p_brand = 'Brand#45'))p_size IN (3, 9, 14, 19, 23, 36, 45, 49))
+------------------------filter(( not (p_brand = 'Brand#45')) and ( not (p_type like 'MEDIUM POLISHED%')) and p_size IN (14, 19, 23, 3, 36, 45, 49, 9))
 --------------------------PhysicalOlapScan[part]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
