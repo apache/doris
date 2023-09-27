@@ -570,10 +570,11 @@ suite("test_stream_load_properties", "p0") {
                 if (res[0][0] > 0) {
                     break
                 }
-                if (count >= 50) {
+                if (count >= 60) {
                     log.error("stream load commit can not visible for long time")
                     break
                 }
+                sleep(1000)
                 count++
             }
             
