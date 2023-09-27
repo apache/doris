@@ -18,6 +18,7 @@
 #include <sys/types.h>
 #include <limits>
 #include <ostream>
+#include "common/compiler_util.h"
 
 using std::numeric_limits;
 #include <string>
@@ -1276,11 +1277,33 @@ int FloatToBuffer(float value, int width, char* buffer) {
 }
 
 int FastDoubleToBuffer(double value, char* buffer) {
-    return jkj::dragonbox::to_chars_n(value, buffer) - buffer;
+    int ret = jkj::dragonbox::to_chars_n(value, buffer) - buffer;
+    if (LIKELY(ret > 0))
+        return ret;
+     
+    auto end = fmt::format_to(buffer, "{:.15g}", value);
+    *end = '\0';
+    if (strtod(buffer, nullptr) != value) {
+        end = fmt::format_to(buffer, "{:.17g}", value);
+    }
+    return end - buffer;
 }
 
 int FastFloatToBuffer(float value, char* buffer) {
-    return jkj::dragonbox::to_chars_n(value, buffer) - buffer;
+    int ret = jkj::dragonbox::to_chars_n(value, buffer) - buffer;
+    if (LIKELY(ret > 0))
+        return ret;
+    
+    auto end = fmt::format_to(buffer, "{:.6g}", value);
+    *end = '\0';
+#ifdef _MSC_VER // has no strtof()
+    if (strtod(buffer, nullptr) != value) {
+#else
+    if (strtof(buffer, nullptr) != value) {
+#endif
+        end = fmt::format_to(buffer, "{:.8g}", value);
+    }
+    return end - buffer;
 }
 
 // ----------------------------------------------------------------------
