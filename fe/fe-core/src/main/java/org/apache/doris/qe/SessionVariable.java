@@ -49,6 +49,9 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.io.Serializable;
 import java.lang.reflect.Field;
+import java.security.SecureRandom;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -66,6 +69,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
     public static final String SCAN_QUEUE_MEM_LIMIT = "scan_queue_mem_limit";
     public static final String QUERY_TIMEOUT = "query_timeout";
+    public static final String ANALYZE_TIMEOUT = "analyze_timeout";
 
     public static final String MAX_EXECUTION_TIME = "max_execution_time";
     public static final String INSERT_TIMEOUT = "insert_timeout";
@@ -108,6 +112,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_BUCKET_SHUFFLE_JOIN = "enable_bucket_shuffle_join";
     public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM = "parallel_fragment_exec_instance_num";
     public static final String PARALLEL_PIPELINE_TASK_NUM = "parallel_pipeline_task_num";
+    public static final String ENABLE_SIMPLY_PROFILE = "enable_simply_profile";
     public static final String MAX_INSTANCE_NUM = "max_instance_num";
     public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
     public static final String ENABLE_SPILLING = "enable_spilling";
@@ -338,6 +343,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_MINIDUMP = "enable_minidump";
 
+    public static final String ENABLE_PAGE_CACHE = "enable_page_cache";
+
     public static final String MINIDUMP_PATH = "minidump_path";
 
     public static final String TRACE_NEREIDS = "trace_nereids";
@@ -395,7 +402,19 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_MEMTABLE_ON_SINK_NODE =
             "enable_memtable_on_sink_node";
 
+    public static final String ENABLE_UNIQUE_KEY_PARTIAL_UPDATE = "enable_unique_key_partial_update";
+
     public static final String INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD = "inverted_index_conjunction_opt_threshold";
+
+    public static final String FULL_AUTO_ANALYZE_START_TIME = "full_auto_analyze_start_time";
+
+    public static final String FULL_AUTO_ANALYZE_END_TIME = "full_auto_analyze_end_time";
+
+    public static final String EXPAND_RUNTIME_FILTER_BY_INNER_JION = "expand_runtime_filter_by_inner_join";
+
+    public static final String TEST_QUERY_CACHE_HIT = "test_query_cache_hit";
+
+    public static final String ENABLE_FULL_AUTO_ANALYZE = "enable_full_auto_analyze";
 
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
@@ -410,6 +429,9 @@ public class SessionVariable implements Serializable, Writable {
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
     // if it is setStmt, we needn't collect session origin value
     public boolean isSingleSetVar = false;
+
+    @VariableMgr.VarAttr(name = EXPAND_RUNTIME_FILTER_BY_INNER_JION)
+    public boolean expandRuntimeFilterByInnerJoin = false;
 
     @VariableMgr.VarAttr(name = JDBC_CLICKHOUSE_QUERY_FINAL)
     public boolean jdbcClickhouseQueryFinal = false;
@@ -440,7 +462,11 @@ public class SessionVariable implements Serializable, Writable {
 
     // query timeout in second.
     @VariableMgr.VarAttr(name = QUERY_TIMEOUT)
-    public int queryTimeoutS = 300;
+    public int queryTimeoutS = 900;
+
+    // query timeout in second.
+    @VariableMgr.VarAttr(name = ANALYZE_TIMEOUT, needForward = true)
+    public int analyzeTimeoutS = 43200;
 
     // The global max_execution_time value provides the default for the session value for new connections.
     // The session value applies to SELECT executions executed within the session that include
@@ -597,6 +623,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = PARALLEL_PIPELINE_TASK_NUM, fuzzy = true, needForward = true)
     public int parallelPipelineTaskNum = 0;
 
+    @VariableMgr.VarAttr(name = ENABLE_SIMPLY_PROFILE, fuzzy = true)
+    public boolean enableSimplyProfile = true;
+
     @VariableMgr.VarAttr(name = MAX_INSTANCE_NUM)
     public int maxInstanceNum = 64;
 
@@ -660,7 +689,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean extractWideRangeExpr = true;
 
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_DML, needForward = true)
-    public boolean enableNereidsDML = false;
+    public boolean enableNereidsDML = true;
 
     @VariableMgr.VarAttr(name = ENABLE_STRICT_CONSISTENCY_DML, needForward = true)
     public boolean enableStrictConsistencyDml = false;
@@ -877,7 +906,7 @@ public class SessionVariable implements Serializable, Writable {
     private double broadcastHashtableMemLimitPercentage = 0.2;
 
     @VariableMgr.VarAttr(name = ENABLE_RUNTIME_FILTER_PRUNE, needForward = true)
-    public boolean enableRuntimeFilterPrune = false;
+    public boolean enableRuntimeFilterPrune = true;
 
     /**
      * The client can pass some special information by setting this session variable in the format: "k1:v1;k2:v2".
@@ -1059,6 +1088,15 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_MINIDUMP)
     public boolean enableMinidump = false;
 
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_PAGE_CACHE,
+            description = {"控制是否启用page cache。默认为 true。",
+                "Controls whether to use page cache. "
+                    + "The default value is true."},
+            needForward = true)
+    public boolean enablePageCache = true;
+
     @VariableMgr.VarAttr(name = ENABLE_FOLD_NONDETERMINISTIC_FN)
     public boolean enableFoldNondeterministicFn = false;
 
@@ -1159,10 +1197,37 @@ public class SessionVariable implements Serializable, Writable {
                     + " use a skiplist to optimize the intersection."})
     public int invertedIndexConjunctionOptThreshold = 1000;
 
+    @VariableMgr.VarAttr(name = FULL_AUTO_ANALYZE_START_TIME, needForward = true, checker = "checkAnalyzeTimeFormat",
+            description = {"该参数定义自动ANALYZE例程的开始时间",
+                    "This parameter defines the start time for the automatic ANALYZE routine."},
+            flag = VariableMgr.GLOBAL)
+    public String fullAutoAnalyzeStartTime = "00:00:00";
+
+    @VariableMgr.VarAttr(name = FULL_AUTO_ANALYZE_END_TIME, needForward = true, checker = "checkAnalyzeTimeFormat",
+            description = {"该参数定义自动ANALYZE例程的结束时间",
+                    "This parameter defines the end time for the automatic ANALYZE routine."},
+            flag = VariableMgr.GLOBAL)
+    public String fullAutoAnalyzeEndTime = "02:00:00";
+
+    @VariableMgr.VarAttr(name = ENABLE_UNIQUE_KEY_PARTIAL_UPDATE, needForward = true)
+    public boolean enableUniqueKeyPartialUpdate = false;
+
+    @VariableMgr.VarAttr(name = TEST_QUERY_CACHE_HIT, description = {
+            "用于测试查询缓存是否命中，如果未命中指定类型的缓存，则会报错",
+            "Used to test whether the query cache is hit. "
+                    + "If the specified type of cache is not hit, an error will be reported."},
+            options = {"none", "sql_cache", "partition_cache"})
+    public String testQueryCacheHit = "none";
+
+    @VariableMgr.VarAttr(name = ENABLE_FULL_AUTO_ANALYZE,
+            description = {"该参数控制是否开启自动收集", "Set false to disable auto analyze"},
+            flag = VariableMgr.GLOBAL)
+    public boolean enableFullAutoAnalyze = true;
+
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
     public void initFuzzyModeVariables() {
-        Random random = new Random(System.currentTimeMillis());
+        Random random = new SecureRandom();
         this.parallelExecInstanceNum = random.nextInt(8) + 1;
         this.parallelPipelineTaskNum = random.nextInt(8);
         this.enableCommonExprPushdown = random.nextBoolean();
@@ -1335,6 +1400,10 @@ public class SessionVariable implements Serializable, Writable {
         return queryTimeoutS;
     }
 
+    public int getAnalyzeTimeoutS() {
+        return analyzeTimeoutS;
+    }
+
     public void setEnableTwoPhaseReadOpt(boolean enable) {
         enableTwoPhaseReadOpt = enable;
     }
@@ -1499,7 +1568,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void setMaxScanQueueMemByte(long scanQueueMemByte) {
-        this.maxScanQueueMemByte = Math.min(scanQueueMemByte, maxExecMemByte / 20);
+        this.maxScanQueueMemByte = Math.min(scanQueueMemByte, maxExecMemByte / 2);
     }
 
     public boolean isSqlQuoteShowCreate() {
@@ -1512,6 +1581,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setQueryTimeoutS(int queryTimeoutS) {
         this.queryTimeoutS = queryTimeoutS;
+    }
+
+    public void setAnalyzeTimeoutS(int analyzeTimeoutS) {
+        this.analyzeTimeoutS = analyzeTimeoutS;
     }
 
     public void setMaxExecutionTimeMS(int maxExecutionTimeMS) {
@@ -2165,6 +2238,14 @@ public class SessionVariable implements Serializable, Writable {
         this.truncateCharOrVarcharColumns = truncateCharOrVarcharColumns;
     }
 
+    public boolean isEnableUniqueKeyPartialUpdate() {
+        return enableUniqueKeyPartialUpdate;
+    }
+
+    public void setEnableUniqueKeyPartialUpdate(boolean enableUniqueKeyPartialUpdate) {
+        this.enableUniqueKeyPartialUpdate = enableUniqueKeyPartialUpdate;
+    }
+
     /**
      * Serialize to thrift object.
      * Used for rest api.
@@ -2244,6 +2325,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setExternalAggPartitionBits(externalAggPartitionBits);
 
         tResult.setEnableFileCache(enableFileCache);
+
+        tResult.setEnablePageCache(enablePageCache);
 
         tResult.setFileCacheBasePath(fileCacheBasePath);
 
@@ -2438,6 +2521,9 @@ public class SessionVariable implements Serializable, Writable {
         if (queryOptions.isSetInsertTimeout()) {
             setInsertTimeoutS(queryOptions.getInsertTimeout());
         }
+        if (queryOptions.isSetAnalyzeTimeout()) {
+            setAnalyzeTimeoutS(queryOptions.getAnalyzeTimeout());
+        }
     }
 
     /**
@@ -2449,6 +2535,7 @@ public class SessionVariable implements Serializable, Writable {
         queryOptions.setScanQueueMemLimit(Math.min(maxScanQueueMemByte, maxExecMemByte / 20));
         queryOptions.setQueryTimeout(queryTimeoutS);
         queryOptions.setInsertTimeout(insertTimeoutS);
+        queryOptions.setAnalyzeTimeout(analyzeTimeoutS);
         return queryOptions;
     }
 
@@ -2578,5 +2665,18 @@ public class SessionVariable implements Serializable, Writable {
         }
         return connectContext.getSessionVariable().enableAggState;
     }
-}
 
+    public void checkAnalyzeTimeFormat(String time) {
+        try {
+            DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss");
+            timeFormatter.parse(time);
+        } catch (DateTimeParseException e) {
+            LOG.warn("Parse analyze start/end time format fail", e);
+            throw new UnsupportedOperationException("Expect format: HH:mm:ss");
+        }
+    }
+
+    public boolean getEnableSimplyProfile() {
+        return this.enableSimplyProfile;
+    }
+}

@@ -45,6 +45,7 @@ public class ExecuteEnv {
                 add(new FeDiskInfo("log", Config.sys_log_dir, DiskUtils.df(Config.sys_log_dir)));
                 add(new FeDiskInfo("audit-log", Config.audit_log_dir, DiskUtils.df(Config.audit_log_dir)));
                 add(new FeDiskInfo("temp", Config.tmp_dir, DiskUtils.df(Config.tmp_dir)));
+                add(new FeDiskInfo("deploy", System.getenv("DORIS_HOME"), DiskUtils.df(System.getenv("DORIS_HOME"))));
             }};
     }
 

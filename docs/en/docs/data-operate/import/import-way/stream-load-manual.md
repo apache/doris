@@ -209,6 +209,7 @@ Stream load uses HTTP protocol, so all parameters related to import tasks are se
     2. Trigger the commit operation on the transaction.
     Note 1) requesting to fe and be both works
     Note 2) `{table}` in url can be omit when commit
+  using txn id
   ```shell
   curl -X PUT --location-trusted -u user:passwd  -H "txn_id:18036" -H "txn_operation:commit"  http://fe_host:http_port/api/{db}/{table}/_stream_load_2pc
   {
@@ -216,14 +217,31 @@ Stream load uses HTTP protocol, so all parameters related to import tasks are se
       "msg": "transaction [18036] commit successfully."
   }
   ```
+  using label
+  ```shell
+  curl -X PUT --location-trusted -u user:passwd  -H "label:55c8ffc9-1c40-4d51-b75e-f2265b3602ef" -H "txn_operation:commit"  http://fe_host:http_port/api/{db}/{table}/_stream_load_2pc
+  {
+      "status": "Success",
+      "msg": "label [55c8ffc9-1c40-4d51-b75e-f2265b3602ef] commit successfully."
+  }
+  ```
     3. Trigger an abort operation on a transaction
     Note 1) requesting to fe and be both works
     Note 2) `{table}` in url can be omit when abort
+  using txn id
   ```shell
   curl -X PUT --location-trusted -u user:passwd  -H "txn_id:18037" -H "txn_operation:abort"  http://fe_host:http_port/api/{db}/{table}/_stream_load_2pc
   {
       "status": "Success",
       "msg": "transaction [18037] abort successfully."
+  }
+  ```
+  using label
+  ```shell
+  curl -X PUT --location-trusted -u user:passwd  -H "label:55c8ffc9-1c40-4d51-b75e-f2265b3602ef" -H "txn_operation:abort"  http://fe_host:http_port/api/{db}/{table}/_stream_load_2pc
+  {
+      "status": "Success",
+      "msg": "label [55c8ffc9-1c40-4d51-b75e-f2265b3602ef] abort successfully."
   }
   ```
 
@@ -240,10 +258,11 @@ Stream load uses HTTP protocol, so all parameters related to import tasks are se
   Build MemTable on DataSink node, and send segments to other backends through brpc streaming.
   It reduces duplicate work among replicas, and saves time in data serialization & deserialization.
 - partial_columns
-
+   <version since="2.0">
    Whether to enable partial column updates，Boolean type, True means that use partial column update, the default value is false, this parameter is only allowed to be set when the table model is Unique and Merge on Write is used.
 
    eg: `curl  --location-trusted -u root: -H "partial_columns:true" -H "column_separator:," -H "columns:id,balance,last_access_time" -T /tmp/test.csv http://127.0.0.1:48037/api/db1/user_profile/_stream_load`
+  </version>
 
 ### Use stream load with SQL
 

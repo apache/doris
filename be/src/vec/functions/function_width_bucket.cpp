@@ -98,6 +98,7 @@ private:
         for (size_t i = 0; i < input_rows_count; ++i) {
             auto min_value = min_value_column_concrete.get_data()[i];
             auto max_value = max_value_column_concrete.get_data()[i];
+            auto average_value = (max_value - min_value) / (1.0 * num_buckets);
             if (expr_column_concrete.get_data()[i] < min_value) {
                 continue;
             } else if (expr_column_concrete.get_data()[i] >= max_value) {
@@ -107,8 +108,8 @@ private:
                     continue;
                 }
                 nested_column_concrete.get_data()[i] =
-                        (int64_t)(1 + (expr_column_concrete.get_data()[i] - min_value) /
-                                              ((max_value - min_value) / num_buckets));
+                        (int64_t)(1 +
+                                  (expr_column_concrete.get_data()[i] - min_value) / average_value);
             }
         }
     }

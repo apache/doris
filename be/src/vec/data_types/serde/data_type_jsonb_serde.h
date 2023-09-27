@@ -48,11 +48,16 @@ class DataTypeJsonbSerDe : public DataTypeStringSerDe {
                                   BufferWritable& bw, FormatOptions& options) const override;
 
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                          const FormatOptions& options) const override;
+                                          const FormatOptions& options,
+                                          int nesting_level = 1) const override;
 
     Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
-                                               int* num_deserialized,
-                                               const FormatOptions& options) const override;
+                                               int* num_deserialized, const FormatOptions& options,
+                                               int nesting_level = 1) const override;
+
+    Status write_column_to_orc(const IColumn& column, const NullMap* null_map,
+                               orc::ColumnVectorBatch* orc_col_batch, int start, int end,
+                               std::vector<StringRef>& buffer_list) const override;
 
 private:
     template <bool is_binary_format>

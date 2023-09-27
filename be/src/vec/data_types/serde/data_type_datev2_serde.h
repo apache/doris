@@ -48,11 +48,12 @@ class DataTypeDateV2SerDe : public DataTypeNumberSerDe<UInt32> {
                                   BufferWritable& bw, FormatOptions& options) const override;
 
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                          const FormatOptions& options) const override;
+                                          const FormatOptions& options,
+                                          int nesting_level = 1) const override;
 
     Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
-                                               int* num_deserialized,
-                                               const FormatOptions& options) const override;
+                                               int* num_deserialized, const FormatOptions& options,
+                                               int nesting_level = 1) const override;
 
     void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                arrow::ArrayBuilder* array_builder, int start,
@@ -63,6 +64,10 @@ class DataTypeDateV2SerDe : public DataTypeNumberSerDe<UInt32> {
                                  int row_idx, bool col_const) const override;
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
                                  int row_idx, bool col_const) const override;
+
+    Status write_column_to_orc(const IColumn& column, const NullMap* null_map,
+                               orc::ColumnVectorBatch* orc_col_batch, int start, int end,
+                               std::vector<StringRef>& buffer_list) const override;
 
 private:
     template <bool is_binary_format>

@@ -113,6 +113,7 @@ E(ALREADY_CANCELLED, -237);
 E(TOO_MANY_SEGMENTS, -238);
 E(ALREADY_CLOSED, -239);
 E(SERVICE_UNAVAILABLE, -240);
+E(NEED_SEND_AGAIN, -241);
 E(CE_CMD_PARAMS_ERROR, -300);
 E(CE_BUFFER_TOO_SMALL, -301);
 E(CE_CMD_NOT_VALID, -302);
@@ -285,6 +286,7 @@ constexpr bool capture_stacktrace(int code) {
         && code != ErrorCode::TOO_MANY_VERSION
         && code != ErrorCode::ALREADY_CANCELLED
         && code != ErrorCode::ALREADY_CLOSED
+        && code != ErrorCode::NEED_SEND_AGAIN
         && code != ErrorCode::PUSH_TRANSACTION_ALREADY_EXIST
         && code != ErrorCode::BE_NO_SUITABLE_VERSION
         && code != ErrorCode::CUMULATIVE_NO_SUITABLE_VERSION
@@ -304,6 +306,7 @@ constexpr bool capture_stacktrace(int code) {
         && code != ErrorCode::INVERTED_INDEX_BUILD_WAITTING
         && code != ErrorCode::META_KEY_NOT_FOUND
         && code != ErrorCode::PUSH_VERSION_ALREADY_EXIST
+        && code != ErrorCode::VERSION_NOT_EXIST
         && code != ErrorCode::TABLE_ALREADY_DELETED_ERROR
         && code != ErrorCode::TRANSACTION_NOT_EXIST
         && code != ErrorCode::TRANSACTION_ALREADY_VISIBLE
@@ -347,14 +350,18 @@ public:
         return *this;
     }
 
+    template <bool stacktrace = true>
     Status static create(const TStatus& status) {
-        return Error<true>(status.status_code,
-                           status.error_msgs.empty() ? "" : status.error_msgs[0]);
+        return Error<stacktrace>(
+                status.status_code,
+                "TStatus: " + (status.error_msgs.empty() ? "" : status.error_msgs[0]));
     }
 
+    template <bool stacktrace = true>
     Status static create(const PStatus& pstatus) {
-        return Error<true>(pstatus.status_code(),
-                           pstatus.error_msgs_size() == 0 ? "" : pstatus.error_msgs(0));
+        return Error<stacktrace>(
+                pstatus.status_code(),
+                "PStatus: " + (pstatus.error_msgs_size() == 0 ? "" : pstatus.error_msgs(0)));
     }
 
     template <int code, bool stacktrace = true, typename... Args>
@@ -428,6 +435,7 @@ public:
     ERROR_CTOR(DataQualityError, DATA_QUALITY_ERROR)
     ERROR_CTOR(NotAuthorized, NOT_AUTHORIZED)
     ERROR_CTOR(HttpError, HTTP_ERROR)
+    ERROR_CTOR(NeedSendAgain, NEED_SEND_AGAIN)
 #undef ERROR_CTOR
 
     template <int code>

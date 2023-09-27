@@ -62,7 +62,7 @@ class IColumn;
 } // namespace vectorized
 
 namespace io {
-class IOContext;
+struct IOContext;
 enum class FileCachePolicy : uint8_t;
 } // namespace io
 } // namespace doris
@@ -139,9 +139,27 @@ void PlainCsvTextFieldSplitter::_split_field_multi_char(const Slice& line,
         if (j == value_sep_len - 1) {
             curpos = i - value_sep_len + 1;
 
-            process_value_func(line.data, start, curpos - start, trimming_char, splitted_values);
+            /*
+             * column_separator : "xx"
+             * data.csv :  data1xxxxdata2
+             *
+             * Parse incorrectly:
+             *      data1[xx]xxdata2
+             *      data1x[xx]xdata2
+             *      data1xx[xx]data2
+             * The string "xxxx" is parsed into three "xx" delimiters.
+             *
+             * Parse correctly:
+             *      data1[xx]xxdata2
+             *      data1xx[xx]data2
+             */
 
-            start = i + 1;
+            if (curpos >= start) {
+                process_value_func(line.data, start, curpos - start, trimming_char,
+                                   splitted_values);
+                start = i + 1;
+            }
+
             j = next[j];
         }
     }
@@ -241,8 +259,7 @@ void CsvReader::_init_system_properties() {
 
 void CsvReader::_init_file_description() {
     _file_description.path = _range.path;
-    _file_description.start_offset = _range.start_offset;
-    _file_description.file_size = _range.__isset.file_size ? _range.file_size : 0;
+    _file_description.file_size = _range.__isset.file_size ? _range.file_size : -1;
     if (_range.__isset.fs_name) {
         _file_description.fs_name = _range.fs_name;
     }
@@ -276,13 +293,12 @@ Status CsvReader::init_reader(bool is_load) {
         _skip_lines = 1;
     }
 
-    _file_description.start_offset = start_offset;
-
     if (_params.file_type == TFileType::FILE_STREAM) {
         RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader, _state));
     } else {
-        io::FileReaderOptions reader_options = FileFactory::get_reader_options(_state);
         _file_description.mtime = _range.__isset.modification_time ? _range.modification_time : 0;
+        io::FileReaderOptions reader_options =
+                FileFactory::get_reader_options(_state, _file_description);
         RETURN_IF_ERROR(io::DelegateReader::create_file_reader(
                 _profile, _system_properties, _file_description, reader_options, &_file_system,
                 &_file_reader, io::DelegateReader::AccessMode::SEQUENTIAL, _io_ctx,
@@ -336,6 +352,15 @@ Status CsvReader::init_reader(bool is_load) {
         }
     } else {
         _options.map_key_delim = _params.file_attributes.text_params.mapkv_delimiter[0];
+    }
+    _use_nullable_string_opt.resize(_file_slot_descs.size());
+    for (int i = 0; i < _file_slot_descs.size(); ++i) {
+        auto data_type_ptr = _file_slot_descs[i]->get_data_type_ptr();
+        if (data_type_ptr.get()->get_type_id() == TypeIndex::Nullable &&
+            ((DataTypeNullable*)data_type_ptr.get())->get_nested_type()->get_type_id() ==
+                    TypeIndex::String) {
+            _use_nullable_string_opt[i] = 1;
+        }
     }
 
     if (_params.file_attributes.__isset.trim_double_quotes) {
@@ -593,6 +618,28 @@ Status CsvReader::_create_decompressor() {
     return Status::OK();
 }
 
+template <bool from_json>
+Status CsvReader::deserialize_nullable_string(IColumn& column, Slice& slice) {
+    auto& null_column = assert_cast<ColumnNullable&>(column);
+    if (!(from_json && _options.converted_from_string && slice.trim_quote())) {
+        if (slice.size == 2 && slice[0] == '\\' && slice[1] == 'N') {
+            null_column.insert_data(nullptr, 0);
+            return Status::OK();
+        }
+    }
+    static DataTypeStringSerDe stringSerDe;
+    auto st = stringSerDe.deserialize_one_cell_from_json(null_column.get_nested_column(), slice,
+                                                         _options, 1);
+    if (!st.ok()) {
+        // fill null if fail
+        null_column.insert_data(nullptr, 0); // 0 is meaningless here
+        return Status::OK();
+    }
+    // fill not null if success
+    null_column.get_null_map_data().push_back(0);
+    return Status::OK();
+}
+
 Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
                                      std::vector<MutableColumnPtr>& columns, size_t* rows) {
     bool is_success = false;
@@ -610,28 +657,33 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
                 col_idx < _split_values.size() ? _split_values[col_idx] : _s_null_slice;
         Slice slice {value.data, value.size};
 
+        IColumn* col_ptr = columns[i];
         if (!_is_load) {
-            IColumn* col_ptr = const_cast<IColumn*>(
+            col_ptr = const_cast<IColumn*>(
                     block->get_by_position(_file_slot_idx_map[i]).column.get());
+        }
 
+        if (_use_nullable_string_opt[i]) {
+            // For load task, we always read "string" from file.
+            // So serdes[i] here must be DataTypeNullableSerDe, and DataTypeNullableSerDe -> nested_serde must be DataTypeStringSerDe.
+            // So we use deserialize_nullable_string and stringSerDe to reduce virtual function calls.
+            switch (_text_serde_type) {
+            case TTextSerdeType::JSON_TEXT_SERDE:
+                deserialize_nullable_string<true>(*col_ptr, slice);
+                break;
+            case TTextSerdeType::HIVE_TEXT_SERDE:
+                deserialize_nullable_string<false>(*col_ptr, slice);
+                break;
+            default:
+                break;
+            }
+        } else {
             switch (_text_serde_type) {
             case TTextSerdeType::JSON_TEXT_SERDE:
                 _serdes[i]->deserialize_one_cell_from_json(*col_ptr, slice, _options);
                 break;
             case TTextSerdeType::HIVE_TEXT_SERDE:
                 _serdes[i]->deserialize_one_cell_from_hive_text(*col_ptr, slice, _options);
-                break;
-            default:
-                break;
-            }
-        } else {
-            // For load task, we always read "string" from file.
-            switch (_text_serde_type) {
-            case TTextSerdeType::JSON_TEXT_SERDE:
-                _serdes[i]->deserialize_one_cell_from_json(*columns[i], slice, _options);
-                break;
-            case TTextSerdeType::HIVE_TEXT_SERDE:
-                _serdes[i]->deserialize_one_cell_from_hive_text(*columns[i], slice, _options);
                 break;
             default:
                 break;
@@ -767,9 +819,9 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
         }
     }
 
-    _file_description.start_offset = start_offset;
-    io::FileReaderOptions reader_options = FileFactory::get_reader_options(_state);
     _file_description.mtime = _range.__isset.modification_time ? _range.modification_time : 0;
+    io::FileReaderOptions reader_options =
+            FileFactory::get_reader_options(_state, _file_description);
     if (_params.file_type == TFileType::FILE_STREAM) {
         RETURN_IF_ERROR(FileFactory::create_pipe_reader(_params.load_id, &_file_reader, _state));
     } else {

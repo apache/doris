@@ -99,4 +99,9 @@ public class AnalysisTaskExecutor extends Thread {
     public boolean idle() {
         return executors.getQueue().isEmpty();
     }
+
+    public void clear() {
+        executors.getQueue().clear();
+        taskQueue.clear();
+    }
 }

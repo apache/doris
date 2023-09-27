@@ -28,11 +28,11 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.thrift.TRuntimeFilterType;
@@ -49,51 +49,54 @@ import java.util.Optional;
 public abstract class PhysicalSetOperation extends AbstractPhysicalPlan implements SetOperation {
 
     protected final Qualifier qualifier;
-
     protected final List<NamedExpression> outputs;
+    protected final List<List<SlotReference>> regularChildrenOutputs;
 
     public PhysicalSetOperation(PlanType planType,
             Qualifier qualifier,
             List<NamedExpression> outputs,
+            List<List<SlotReference>> regularChildrenOutputs,
             LogicalProperties logicalProperties,
-            List<Plan> inputs) {
-        super(planType, Optional.empty(), logicalProperties, inputs.toArray(new Plan[0]));
+            List<Plan> children) {
+        super(planType, Optional.empty(), logicalProperties, children.toArray(new Plan[0]));
         this.qualifier = qualifier;
         this.outputs = ImmutableList.copyOf(outputs);
+        this.regularChildrenOutputs = ImmutableList.copyOf(regularChildrenOutputs);
     }
 
     public PhysicalSetOperation(PlanType planType,
             Qualifier qualifier,
             List<NamedExpression> outputs,
+            List<List<SlotReference>> regularChildrenOutputs,
             Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties,
-            List<Plan> inputs) {
-        super(planType, groupExpression, logicalProperties, inputs.toArray(new Plan[0]));
+            List<Plan> children) {
+        super(planType, groupExpression, logicalProperties, children.toArray(new Plan[0]));
         this.qualifier = qualifier;
         this.outputs = ImmutableList.copyOf(outputs);
+        this.regularChildrenOutputs = ImmutableList.copyOf(regularChildrenOutputs);
     }
 
     public PhysicalSetOperation(PlanType planType,
             Qualifier qualifier,
             List<NamedExpression> outputs,
+            List<List<SlotReference>> regularChildrenOutputs,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            PhysicalProperties physicalProperties, Statistics statistics, List<Plan> inputs) {
+            PhysicalProperties physicalProperties, Statistics statistics, List<Plan> children) {
         super(planType, groupExpression, logicalProperties,
-                physicalProperties, statistics, inputs.toArray(new Plan[0]));
+                physicalProperties, statistics, children.toArray(new Plan[0]));
         this.qualifier = qualifier;
         this.outputs = ImmutableList.copyOf(outputs);
+        this.regularChildrenOutputs = ImmutableList.copyOf(regularChildrenOutputs);
+    }
+
+    public List<List<SlotReference>> getRegularChildrenOutputs() {
+        return regularChildrenOutputs;
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitPhysicalSetOperation(this, context);
-    }
-
-    @Override
-    public String toString() {
-        return Utils.toSqlString("PhysicalSetOperation",
-                "qualifier", qualifier,
-                "stats", statistics);
     }
 
     @Override
@@ -105,17 +108,18 @@ public abstract class PhysicalSetOperation extends AbstractPhysicalPlan implemen
             return false;
         }
         PhysicalSetOperation that = (PhysicalSetOperation) o;
-        return Objects.equals(qualifier, that.qualifier);
+        return qualifier == that.qualifier && Objects.equals(outputs, that.outputs) && Objects.equals(
+                regularChildrenOutputs, that.regularChildrenOutputs);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(qualifier);
+        return Objects.hash(qualifier, outputs, regularChildrenOutputs);
     }
 
     @Override
     public List<? extends Expression> getExpressions() {
-        return ImmutableList.of();
+        return regularChildrenOutputs.stream().flatMap(List::stream).collect(ImmutableList.toImmutableList());
     }
 
     @Override
@@ -124,13 +128,8 @@ public abstract class PhysicalSetOperation extends AbstractPhysicalPlan implemen
     }
 
     @Override
-    public List<Slot> getFirstOutput() {
-        return child(0).getOutput();
-    }
-
-    @Override
-    public List<Slot> getChildOutput(int i) {
-        return child(i).getOutput();
+    public List<SlotReference> getRegularChildOutput(int i) {
+        return regularChildrenOutputs.get(i);
     }
 
     @Override
@@ -147,9 +146,8 @@ public abstract class PhysicalSetOperation extends AbstractPhysicalPlan implemen
 
     @Override
     public boolean pushDownRuntimeFilter(CascadesContext context, IdGenerator<RuntimeFilterId> generator,
-                                         AbstractPhysicalJoin builderNode,
-                                         Expression src, Expression probeExpr,
-                                         TRuntimeFilterType type, long buildSideNdv, int exprOrder) {
+            AbstractPhysicalJoin<?, ?> builderNode, Expression src, Expression probeExpr,
+            TRuntimeFilterType type, long buildSideNdv, int exprOrder) {
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
         boolean pushedDown = false;
         for (int i = 0; i < this.children().size(); i++) {
@@ -159,14 +157,14 @@ public abstract class PhysicalSetOperation extends AbstractPhysicalPlan implemen
                 child = (AbstractPhysicalPlan) child.child(0);
             }
             if (child instanceof PhysicalProject) {
-                PhysicalProject project = (PhysicalProject) child;
+                PhysicalProject<?> project = (PhysicalProject<?>) child;
                 int projIndex = -1;
                 Slot probeSlot = RuntimeFilterGenerator.checkTargetChild(probeExpr);
                 if (probeSlot == null) {
                     continue;
                 }
                 for (int j = 0; j < project.getProjects().size(); j++) {
-                    NamedExpression expr = (NamedExpression) project.getProjects().get(j);
+                    NamedExpression expr = project.getProjects().get(j);
                     if (expr.getName().equals(probeSlot.getName())) {
                         projIndex = j;
                         break;
@@ -175,12 +173,12 @@ public abstract class PhysicalSetOperation extends AbstractPhysicalPlan implemen
                 if (projIndex < 0 || projIndex >= project.getProjects().size()) {
                     continue;
                 }
-                NamedExpression newProbeExpr = (NamedExpression) project.getProjects().get(projIndex);
+                NamedExpression newProbeExpr = project.getProjects().get(projIndex);
                 if (newProbeExpr instanceof Alias) {
                     newProbeExpr = (NamedExpression) newProbeExpr.child(0);
                 }
                 Slot newProbeSlot = RuntimeFilterGenerator.checkTargetChild(newProbeExpr);
-                if (!RuntimeFilterGenerator.checkPushDownPreconditions(builderNode, ctx, newProbeSlot)) {
+                if (!RuntimeFilterGenerator.checkPushDownPreconditionsForJoin(builderNode, ctx, newProbeSlot)) {
                     continue;
                 }
                 pushedDown |= child.pushDownRuntimeFilter(context, generator, builderNode, src,

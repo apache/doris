@@ -50,9 +50,11 @@ void DataTypeStringSerDe::serialize_one_cell_to_json(const IColumn& column, int 
     bw.write(value.data, value.size);
 }
 
-Status DataTypeStringSerDe::deserialize_column_from_json_vector(
-        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
-        const FormatOptions& options) const {
+Status DataTypeStringSerDe::deserialize_column_from_json_vector(IColumn& column,
+                                                                std::vector<Slice>& slices,
+                                                                int* num_deserialized,
+                                                                const FormatOptions& options,
+                                                                int nesting_level) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
     return Status::OK();
 }
@@ -80,8 +82,24 @@ static void escape_string(const char* src, size_t& len, char escape_char) {
 }
 
 Status DataTypeStringSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                                           const FormatOptions& options) const {
+                                                           const FormatOptions& options,
+                                                           int nesting_level) const {
     auto& column_data = assert_cast<ColumnString&>(column);
+
+    /*
+     * For strings in the json complex type, we remove double quotes by default.
+     *
+     * Because when querying complex types, such as selecting complexColumn from table,
+     * we will add double quotes to the strings in the complex type.
+     *
+     * For the map<string,int> column, insert { "abc" : 1, "hello",2 }.
+     * If you do not remove the double quotes, it will display {""abc"":1,""hello"": 2 },
+     * remove the double quotes to display { "abc" : 1, "hello",2 }.
+     *
+     */
+    if (nesting_level >= 2) {
+        slice.trim_quote();
+    }
     if (options.escape_char != 0) {
         escape_string(slice.data, slice.size, options.escape_char);
     }
@@ -211,6 +229,23 @@ Status DataTypeStringSerDe::write_column_to_mysql(const IColumn& column,
                                                   MysqlRowBuffer<false>& row_buffer, int row_idx,
                                                   bool col_const) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+}
+
+Status DataTypeStringSerDe::write_column_to_orc(const IColumn& column, const NullMap* null_map,
+                                                orc::ColumnVectorBatch* orc_col_batch, int start,
+                                                int end,
+                                                std::vector<StringRef>& buffer_list) const {
+    auto& col_data = assert_cast<const ColumnString&>(column);
+    orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
+
+    for (size_t row_id = start; row_id < end; row_id++) {
+        const auto& ele = col_data.get_data_at(row_id);
+        cur_batch->data[row_id] = const_cast<char*>(ele.data);
+        cur_batch->length[row_id] = ele.size;
+    }
+
+    cur_batch->numElements = end - start;
+    return Status::OK();
 }
 
 } // namespace vectorized

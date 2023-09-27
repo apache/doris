@@ -10,10 +10,10 @@
 8	{}
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}
 10	{}
-11	\N
+11	{}
 12	{"k3":23, NULL:20, "k4":NULL}
 13	{"null":1}
-15	{"":2, "k2":0}
+15	\N
 16	{NULL:NULL}
 
 -- !select_m --
@@ -30,7 +30,7 @@
 11	\N
 12	\N
 13	\N
-15	0
+15	\N
 16	\N
 17	\N
 18	130
@@ -46,10 +46,10 @@
 8	{}
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}
 10	{}
-11	\N
+11	{}
 12	{"k3":23, NULL:20, "k4":NULL}
 13	{"null":1}
-15	{"":2, "k2":0}
+15	\N
 16	{NULL:NULL}
 17	\N
 18	{"k1":100, "k2":130}
@@ -125,10 +125,10 @@ k22
 8	{}	\N
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	\N
 10	{}	\N
-11	\N	\N
+11	{}	\N
 12	{"k3":23, NULL:20, "k4":NULL}	\N
 13	{"null":1}	\N
-15	{"":2, "k2":0}	\N
+15	\N	\N
 16	{NULL:NULL}	\N
 17	\N	\N
 18	{"k1":100, "k2":130}	100
@@ -144,10 +144,10 @@ k22
 8	{}	\N
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	\N
 10	{}	\N
-11	\N	\N
+11	{}	\N
 12	{"k3":23, NULL:20, "k4":NULL}	\N
 13	{"null":1}	\N
-15	{"":2, "k2":0}	0
+15	\N	\N
 16	{NULL:NULL}	\N
 17	\N	\N
 18	{"k1":100, "k2":130}	130
@@ -163,10 +163,10 @@ k22
 8	{}	\N
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	\N
 10	{}	\N
-11	\N	\N
+11	{}	\N
 12	{"k3":23, NULL:20, "k4":NULL}	\N
 13	{"null":1}	\N
-15	{"":2, "k2":0}	\N
+15	\N	\N
 16	{NULL:NULL}	\N
 17	\N	\N
 18	{"k1":100, "k2":130}	\N
@@ -182,10 +182,10 @@ k22
 8	{}	\N
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	\N
 10	{}	\N
-11	\N	\N
+11	{}	\N
 12	{"k3":23, NULL:20, "k4":NULL}	\N
 13	{"null":1}	\N
-15	{"":2, "k2":0}	\N
+15	\N	\N
 16	{NULL:NULL}	\N
 17	\N	\N
 18	{"k1":100, "k2":130}	\N
@@ -201,10 +201,10 @@ k22
 8	{}	\N
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	\N
 10	{}	\N
-11	\N	\N
+11	{}	\N
 12	{"k3":23, NULL:20, "k4":NULL}	\N
 13	{"null":1}	\N
-15	{"":2, "k2":0}	\N
+15	\N	\N
 16	{NULL:NULL}	\N
 17	\N	\N
 18	{"k1":100, "k2":130}	\N
@@ -220,10 +220,10 @@ k22
 8	{}	\N
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	\N
 10	{}	\N
-11	\N	\N
+11	{}	\N
 12	{"k3":23, NULL:20, "k4":NULL}	\N
 13	{"null":1}	\N
-15	{"":2, "k2":0}	\N
+15	\N	\N
 16	{NULL:NULL}	\N
 17	\N	\N
 18	{"k1":100, "k2":130}	\N
@@ -239,10 +239,10 @@ k22
 8	{}	\N
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	\N
 10	{}	\N
-11	\N	\N
+11	{}	\N
 12	{"k3":23, NULL:20, "k4":NULL}	\N
 13	{"null":1}	\N
-15	{"":2, "k2":0}	\N
+15	\N	\N
 16	{NULL:NULL}	\N
 17	\N	\N
 18	{"k1":100, "k2":130}	\N
@@ -258,10 +258,10 @@ k22
 8	{}	\N
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	\N
 10	{}	\N
-11	\N	\N
+11	{}	\N
 12	{"k3":23, NULL:20, "k4":NULL}	\N
 13	{"null":1}	\N
-15	{"":2, "k2":0}	\N
+15	\N	\N
 16	{NULL:NULL}	\N
 17	\N	\N
 18	{"k1":100, "k2":130}	\N
@@ -277,10 +277,10 @@ k22
 8	{}	\N
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	2
 10	{}	\N
-11	\N	\N
+11	{}	\N
 12	{"k3":23, NULL:20, "k4":NULL}	\N
 13	{"null":1}	\N
-15	{"":2, "k2":0}	\N
+15	\N	\N
 16	{NULL:NULL}	\N
 17	\N	\N
 18	{"k1":100, "k2":130}	\N
@@ -296,10 +296,10 @@ k22
 8	{}	\N
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	90
 10	{}	\N
-11	\N	\N
+11	{}	\N
 12	{"k3":23, NULL:20, "k4":NULL}	\N
 13	{"null":1}	\N
-15	{"":2, "k2":0}	\N
+15	\N	\N
 16	{NULL:NULL}	\N
 17	\N	\N
 18	{"k1":100, "k2":130}	\N
@@ -315,10 +315,10 @@ k22
 8	{}	\N
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	\N
 10	{}	\N
-11	\N	\N
+11	{}	\N
 12	{"k3":23, NULL:20, "k4":NULL}	\N
 13	{"null":1}	1
-15	{"":2, "k2":0}	\N
+15	\N	\N
 16	{NULL:NULL}	\N
 17	\N	\N
 18	{"k1":100, "k2":130}	\N
@@ -334,10 +334,10 @@ k22
 8	{}	\N
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	\N
 10	{}	\N
-11	\N	\N
+11	{}	\N
 12	{"k3":23, NULL:20, "k4":NULL}	\N
 13	{"null":1}	\N
-15	{"":2, "k2":0}	2
+15	\N	\N
 16	{NULL:NULL}	\N
 17	\N	\N
 18	{"k1":100, "k2":130}	\N
@@ -353,10 +353,10 @@ k22
 8	{}	\N
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	\N
 10	{}	\N
-11	\N	\N
+11	{}	\N
 12	{"k3":23, NULL:20, "k4":NULL}	20
 13	{"null":1}	\N
-15	{"":2, "k2":0}	\N
+15	\N	\N
 16	{NULL:NULL}	\N
 17	\N	\N
 18	{"k1":100, "k2":130}	\N
@@ -372,10 +372,10 @@ k22
 8	{}	\N
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	\N
 10	{}	\N
-11	\N	\N
+11	{}	\N
 12	{"k3":23, NULL:20, "k4":NULL}	\N
 13	{"null":1}	\N
-15	{"":2, "k2":0}	\N
+15	\N	\N
 16	{NULL:NULL}	\N
 17	\N	\N
 18	{"k1":100, "k2":130}	\N
@@ -394,10 +394,10 @@ k22
 8	{}	0
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	3
 10	{}	0
-11	\N	\N
+11	{}	0
 12	{"k3":23, NULL:20, "k4":NULL}	3
 13	{"null":1}	1
-15	{"":2, "k2":0}	2
+15	\N	\N
 16	{NULL:NULL}	1
 17	\N	\N
 18	{"k1":100, "k2":130}	2
@@ -428,10 +428,10 @@ false
 8	{}	false
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	false
 10	{}	false
-11	\N	\N
+11	{}	false
 12	{"k3":23, NULL:20, "k4":NULL}	false
 13	{"null":1}	false
-15	{"":2, "k2":0}	false
+15	\N	\N
 16	{NULL:NULL}	false
 17	\N	\N
 18	{"k1":100, "k2":130}	true
@@ -447,10 +447,10 @@ false
 8	{}	false
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	false
 10	{}	false
-11	\N	\N
+11	{}	false
 12	{"k3":23, NULL:20, "k4":NULL}	false
 13	{"null":1}	false
-15	{"":2, "k2":0}	true
+15	\N	\N
 16	{NULL:NULL}	false
 17	\N	\N
 18	{"k1":100, "k2":130}	true
@@ -466,10 +466,10 @@ false
 8	{}	false
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	false
 10	{}	false
-11	\N	\N
+11	{}	false
 12	{"k3":23, NULL:20, "k4":NULL}	false
 13	{"null":1}	false
-15	{"":2, "k2":0}	false
+15	\N	\N
 16	{NULL:NULL}	false
 17	\N	\N
 18	{"k1":100, "k2":130}	false
@@ -485,10 +485,10 @@ false
 8	{}	false
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	false
 10	{}	false
-11	\N	\N
+11	{}	false
 12	{"k3":23, NULL:20, "k4":NULL}	false
 13	{"null":1}	false
-15	{"":2, "k2":0}	false
+15	\N	\N
 16	{NULL:NULL}	false
 17	\N	\N
 18	{"k1":100, "k2":130}	false
@@ -504,10 +504,10 @@ false
 8	{}	false
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	false
 10	{}	false
-11	\N	\N
+11	{}	false
 12	{"k3":23, NULL:20, "k4":NULL}	false
 13	{"null":1}	false
-15	{"":2, "k2":0}	false
+15	\N	\N
 16	{NULL:NULL}	false
 17	\N	\N
 18	{"k1":100, "k2":130}	false
@@ -523,10 +523,10 @@ false
 8	{}	false
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	false
 10	{}	false
-11	\N	\N
+11	{}	false
 12	{"k3":23, NULL:20, "k4":NULL}	false
 13	{"null":1}	false
-15	{"":2, "k2":0}	false
+15	\N	\N
 16	{NULL:NULL}	false
 17	\N	\N
 18	{"k1":100, "k2":130}	false
@@ -542,10 +542,10 @@ false
 8	{}	false
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	false
 10	{}	false
-11	\N	\N
+11	{}	false
 12	{"k3":23, NULL:20, "k4":NULL}	false
 13	{"null":1}	false
-15	{"":2, "k2":0}	false
+15	\N	\N
 16	{NULL:NULL}	false
 17	\N	\N
 18	{"k1":100, "k2":130}	false
@@ -561,10 +561,10 @@ false
 8	{}	false
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	false
 10	{}	false
-11	\N	\N
+11	{}	false
 12	{"k3":23, NULL:20, "k4":NULL}	false
 13	{"null":1}	false
-15	{"":2, "k2":0}	false
+15	\N	\N
 16	{NULL:NULL}	false
 17	\N	\N
 18	{"k1":100, "k2":130}	false
@@ -580,10 +580,10 @@ false
 8	{}	false
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	true
 10	{}	false
-11	\N	\N
+11	{}	false
 12	{"k3":23, NULL:20, "k4":NULL}	false
 13	{"null":1}	false
-15	{"":2, "k2":0}	false
+15	\N	\N
 16	{NULL:NULL}	false
 17	\N	\N
 18	{"k1":100, "k2":130}	false
@@ -599,10 +599,10 @@ false
 8	{}	false
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	true
 10	{}	false
-11	\N	\N
+11	{}	false
 12	{"k3":23, NULL:20, "k4":NULL}	false
 13	{"null":1}	false
-15	{"":2, "k2":0}	false
+15	\N	\N
 16	{NULL:NULL}	false
 17	\N	\N
 18	{"k1":100, "k2":130}	false
@@ -618,10 +618,10 @@ false
 8	{}	false
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	false
 10	{}	false
-11	\N	\N
+11	{}	false
 12	{"k3":23, NULL:20, "k4":NULL}	false
 13	{"null":1}	true
-15	{"":2, "k2":0}	false
+15	\N	\N
 16	{NULL:NULL}	false
 17	\N	\N
 18	{"k1":100, "k2":130}	false
@@ -637,10 +637,10 @@ false
 8	{}	false
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	false
 10	{}	false
-11	\N	\N
+11	{}	false
 12	{"k3":23, NULL:20, "k4":NULL}	false
 13	{"null":1}	false
-15	{"":2, "k2":0}	true
+15	\N	\N
 16	{NULL:NULL}	false
 17	\N	\N
 18	{"k1":100, "k2":130}	false
@@ -656,10 +656,10 @@ false
 8	{}	false
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	false
 10	{}	false
-11	\N	\N
+11	{}	false
 12	{"k3":23, NULL:20, "k4":NULL}	true
 13	{"null":1}	false
-15	{"":2, "k2":0}	false
+15	\N	\N
 16	{NULL:NULL}	true
 17	\N	\N
 18	{"k1":100, "k2":130}	false
@@ -675,10 +675,10 @@ false
 8	{}	false
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	false
 10	{}	false
-11	\N	\N
+11	{}	false
 12	{"k3":23, NULL:20, "k4":NULL}	false
 13	{"null":1}	false
-15	{"":2, "k2":0}	false
+15	\N	\N
 16	{NULL:NULL}	false
 17	\N	\N
 18	{"k1":100, "k2":130}	false
@@ -706,10 +706,10 @@ false
 8	{}	false
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	false
 10	{}	false
-11	\N	\N
+11	{}	false
 12	{"k3":23, NULL:20, "k4":NULL}	true
 13	{"null":1}	false
-15	{"":2, "k2":0}	false
+15	\N	\N
 16	{NULL:NULL}	false
 17	\N	\N
 18	{"k1":100, "k2":130}	false
@@ -725,10 +725,10 @@ false
 8	{}	false
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	false
 10	{}	false
-11	\N	\N
+11	{}	false
 12	{"k3":23, NULL:20, "k4":NULL}	true
 13	{"null":1}	false
-15	{"":2, "k2":0}	false
+15	\N	\N
 16	{NULL:NULL}	false
 17	\N	\N
 18	{"k1":100, "k2":130}	false
@@ -744,10 +744,10 @@ false
 8	{}	false
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	false
 10	{}	false
-11	\N	\N
+11	{}	false
 12	{"k3":23, NULL:20, "k4":NULL}	false
 13	{"null":1}	false
-15	{"":2, "k2":0}	false
+15	\N	\N
 16	{NULL:NULL}	false
 17	\N	\N
 18	{"k1":100, "k2":130}	false
@@ -763,10 +763,10 @@ false
 8	{}	false
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	false
 10	{}	false
-11	\N	\N
+11	{}	false
 12	{"k3":23, NULL:20, "k4":NULL}	false
 13	{"null":1}	false
-15	{"":2, "k2":0}	false
+15	\N	\N
 16	{NULL:NULL}	false
 17	\N	\N
 18	{"k1":100, "k2":130}	false
@@ -782,10 +782,10 @@ false
 8	{}	false
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	false
 10	{}	false
-11	\N	\N
+11	{}	false
 12	{"k3":23, NULL:20, "k4":NULL}	false
 13	{"null":1}	false
-15	{"":2, "k2":0}	false
+15	\N	\N
 16	{NULL:NULL}	false
 17	\N	\N
 18	{"k1":100, "k2":130}	false
@@ -801,10 +801,10 @@ false
 8	{}	false
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	false
 10	{}	false
-11	\N	\N
+11	{}	false
 12	{"k3":23, NULL:20, "k4":NULL}	false
 13	{"null":1}	false
-15	{"":2, "k2":0}	false
+15	\N	\N
 16	{NULL:NULL}	false
 17	\N	\N
 18	{"k1":100, "k2":130}	false
@@ -820,10 +820,10 @@ false
 8	{}	false
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	false
 10	{}	false
-11	\N	\N
+11	{}	false
 12	{"k3":23, NULL:20, "k4":NULL}	false
 13	{"null":1}	false
-15	{"":2, "k2":0}	false
+15	\N	\N
 16	{NULL:NULL}	false
 17	\N	\N
 18	{"k1":100, "k2":130}	false
@@ -839,10 +839,10 @@ false
 8	{}	false
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	true
 10	{}	false
-11	\N	\N
+11	{}	false
 12	{"k3":23, NULL:20, "k4":NULL}	false
 13	{"null":1}	false
-15	{"":2, "k2":0}	false
+15	\N	\N
 16	{NULL:NULL}	false
 17	\N	\N
 18	{"k1":100, "k2":130}	false
@@ -858,10 +858,10 @@ false
 8	{}	false
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	true
 10	{}	false
-11	\N	\N
+11	{}	false
 12	{"k3":23, NULL:20, "k4":NULL}	false
 13	{"null":1}	false
-15	{"":2, "k2":0}	true
+15	\N	\N
 16	{NULL:NULL}	false
 17	\N	\N
 18	{"k1":100, "k2":130}	false
@@ -877,10 +877,10 @@ false
 8	{}	false
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	false
 10	{}	false
-11	\N	\N
+11	{}	false
 12	{"k3":23, NULL:20, "k4":NULL}	false
 13	{"null":1}	false
-15	{"":2, "k2":0}	false
+15	\N	\N
 16	{NULL:NULL}	false
 17	\N	\N
 18	{"k1":100, "k2":130}	false
@@ -896,10 +896,10 @@ false
 8	{}	false
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	true
 10	{}	false
-11	\N	\N
+11	{}	false
 12	{"k3":23, NULL:20, "k4":NULL}	false
 13	{"null":1}	false
-15	{"":2, "k2":0}	false
+15	\N	\N
 16	{NULL:NULL}	false
 17	\N	\N
 18	{"k1":100, "k2":130}	false
@@ -915,10 +915,10 @@ false
 8	{}	false
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	true
 10	{}	false
-11	\N	\N
+11	{}	false
 12	{"k3":23, NULL:20, "k4":NULL}	false
 13	{"null":1}	false
-15	{"":2, "k2":0}	false
+15	\N	\N
 16	{NULL:NULL}	false
 17	\N	\N
 18	{"k1":100, "k2":130}	false
@@ -934,10 +934,10 @@ false
 8	{}	false
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	false
 10	{}	false
-11	\N	\N
+11	{}	false
 12	{"k3":23, NULL:20, "k4":NULL}	false
 13	{"null":1}	true
-15	{"":2, "k2":0}	false
+15	\N	\N
 16	{NULL:NULL}	false
 17	\N	\N
 18	{"k1":100, "k2":130}	false
@@ -953,10 +953,10 @@ false
 8	{}	false
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	true
 10	{}	false
-11	\N	\N
+11	{}	false
 12	{"k3":23, NULL:20, "k4":NULL}	false
 13	{"null":1}	false
-15	{"":2, "k2":0}	true
+15	\N	\N
 16	{NULL:NULL}	false
 17	\N	\N
 18	{"k1":100, "k2":130}	false
@@ -972,10 +972,10 @@ false
 8	{}	false
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	false
 10	{}	false
-11	\N	\N
+11	{}	false
 12	{"k3":23, NULL:20, "k4":NULL}	false
 13	{"null":1}	false
-15	{"":2, "k2":0}	true
+15	\N	\N
 16	{NULL:NULL}	false
 17	\N	\N
 18	{"k1":100, "k2":130}	false
@@ -991,10 +991,10 @@ false
 8	{}	false
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	false
 10	{}	false
-11	\N	\N
+11	{}	false
 12	{"k3":23, NULL:20, "k4":NULL}	false
 13	{"null":1}	false
-15	{"":2, "k2":0}	false
+15	\N	\N
 16	{NULL:NULL}	false
 17	\N	\N
 18	{"k1":100, "k2":130}	false
@@ -1010,10 +1010,10 @@ false
 8	{}	false
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	false
 10	{}	false
-11	\N	\N
+11	{}	false
 12	{"k3":23, NULL:20, "k4":NULL}	true
 13	{"null":1}	false
-15	{"":2, "k2":0}	false
+15	\N	\N
 16	{NULL:NULL}	true
 17	\N	\N
 18	{"k1":100, "k2":130}	false
@@ -1032,10 +1032,10 @@ false
 8	{}	[]
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	["  1,amy  ", " k2 ", " k7 "]
 10	{}	[]
-11	\N	\N
+11	{}	[]
 12	{"k3":23, NULL:20, "k4":NULL}	["k3", NULL, "k4"]
 13	{"null":1}	["null"]
-15	{"":2, "k2":0}	["", "k2"]
+15	\N	\N
 16	{NULL:NULL}	[NULL]
 17	\N	\N
 18	{"k1":100, "k2":130}	["k1", "k2"]
@@ -1054,10 +1054,10 @@ false
 8	{}	[]
 9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	[2, 90, 33]
 10	{}	[]
-11	\N	\N
+11	{}	[]
 12	{"k3":23, NULL:20, "k4":NULL}	[23, 20, NULL]
 13	{"null":1}	[1]
-15	{"":2, "k2":0}	[2, 0]
+15	\N	\N
 16	{NULL:NULL}	[NULL]
 17	\N	\N
 18	{"k1":100, "k2":130}	[100, 130]

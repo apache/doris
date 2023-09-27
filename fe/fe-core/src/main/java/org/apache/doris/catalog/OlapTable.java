@@ -1127,10 +1127,15 @@ public class OlapTable extends Table {
 
     @Override
     public boolean needReAnalyzeTable(TableStats tblStats) {
+        if (tblStats == null) {
+            return true;
+        }
         long rowCount = getRowCount();
-        // TODO: Do we need to analyze an empty table?
-        if (rowCount == 0) {
-            return false;
+        if (!tblStats.analyzeColumns().containsAll(getBaseSchema()
+                .stream()
+                .map(Column::getName)
+                .collect(Collectors.toSet()))) {
+            return true;
         }
         long updateRows = tblStats.updatedRows.get();
         int tblHealth = StatisticsUtil.getTableHealth(rowCount, updateRows);
@@ -1138,18 +1143,26 @@ public class OlapTable extends Table {
     }
 
     @Override
-    public Set<String> findReAnalyzeNeededPartitions() {
-        TableStats tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(getId());
-        if (tableStats == null) {
-            return getPartitionNames().stream().map(this::getPartition)
+    public Map<String, Set<String>> findReAnalyzeNeededPartitions() {
+        TableIf table = this;
+        TableStats tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(table.getId());
+        Set<String> allPartitions = table.getPartitionNames().stream().map(table::getPartition)
                 .filter(Partition::hasData).map(Partition::getName).collect(Collectors.toSet());
+        if (tableStats == null) {
+            return table.getBaseSchema().stream().collect(Collectors.toMap(Column::getName, v -> allPartitions));
         }
-        return getPartitionNames().stream()
-            .map(this::getPartition)
-            .filter(Partition::hasData)
-            .filter(partition ->
-                partition.getVisibleVersionTime() >= tableStats.updatedTime).map(Partition::getName)
-            .collect(Collectors.toSet());
+        Map<String, Set<String>> colToPart = new HashMap<>();
+        for (Column col : table.getBaseSchema()) {
+            long lastUpdateTime = tableStats.findColumnLastUpdateTime(col.getName());
+            Set<String> partitions = table.getPartitionNames().stream()
+                    .map(table::getPartition)
+                    .filter(Partition::hasData)
+                    .filter(partition ->
+                            partition.getVisibleVersionTime() >= lastUpdateTime).map(Partition::getName)
+                    .collect(Collectors.toSet());
+            colToPart.put(col.getName(), partitions);
+        }
+        return colToPart;
     }
 
     @Override
@@ -1553,12 +1566,16 @@ public class OlapTable extends Table {
         return oldPartition;
     }
 
-    public long getDataSize() {
+    public long getDataSize(boolean singleReplica) {
         long dataSize = 0;
         for (Partition partition : getAllPartitions()) {
-            dataSize += partition.getDataSize(false);
+            dataSize += partition.getDataSize(singleReplica);
         }
         return dataSize;
+    }
+
+    public long getDataSize() {
+        return getDataSize(false);
     }
 
     public long getRemoteDataSize() {
@@ -2312,7 +2329,7 @@ public class OlapTable extends Table {
                 Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), connectContext);
                 meta.parseStmt(analyzer);
             } catch (IOException e) {
-                e.printStackTrace();
+                LOG.info(e);
             }
         }
     }

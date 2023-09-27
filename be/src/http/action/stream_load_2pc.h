@@ -33,7 +33,7 @@ public:
     ~StreamLoad2PCAction() override = default;
 
     void handle(HttpRequest* req) override;
-    std::string get_success_info(const std::string txn_id, const std::string txn_operation);
+    std::string get_success_info(const std::string msg, const std::string txn_operation);
 
 private:
     ExecEnv* _exec_env;

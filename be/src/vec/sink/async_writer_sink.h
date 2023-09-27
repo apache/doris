@@ -94,14 +94,14 @@ public:
             if (exec_status.ok() && !state->is_cancelled()) {
                 RETURN_IF_ERROR(_writer->commit_trans());
             }
-            RETURN_IF_ERROR(_writer->close());
+            RETURN_IF_ERROR(_writer->close(exec_status));
         }
         return DataSink::close(state, exec_status);
     }
 
     Status try_close(RuntimeState* state, Status exec_status) override {
         if (state->is_cancelled() || !exec_status.ok()) {
-            _writer->force_close();
+            _writer->force_close(!exec_status.ok() ? exec_status : Status::Cancelled("Cancelled"));
         }
         return Status::OK();
     }

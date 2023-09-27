@@ -161,9 +161,14 @@ dorisBuilder.setFenodes("FE_IP:HTTP_PORT")
          .setUsername("root")
          .setPassword("password");
 
+Properties properties = new Properties();
+// When the upstream is writing json, the configuration needs to be enabled.
+//properties.setProperty("format", "json");
+//properties.setProperty("read_json_by_line", "true");
 DorisExecutionOptions.Builder executionBuilder = DorisExecutionOptions.builder();
 executionBuilder.setLabelPrefix("label-doris") //streamload label prefix
-                 .setDeletable(false);
+                 .setDeletable(false)
+                 .setStreamLoadProp(properties); ;
 
 builder.setDorisReadOptions(DorisReadOptions.builder().build())
          .setDorisExecutionOptions(executionBuilder.build())
@@ -177,6 +182,9 @@ DataStreamSource<Tuple2<String, Integer>> source = env. fromCollection(data);
 
 source.map((MapFunction<Tuple2<String, Integer>, String>) t -> t.f0 + "\t" + t.f1)
        .sinkTo(builder.build());
+
+//mock json string source
+//env.fromElements("{\"name\":\"zhangsan\",\"age\":1}").sinkTo(builder.build());
 ```
 
 **RowData data stream (RowDataSerializer)**
@@ -588,7 +596,7 @@ CREATE TABLE DORIS_SINK(
   'sink.properties.columns' = 'id, name, __DORIS_DELETE_SIGN__'  -- Display the import column of the specified streamload
 );
 
-INSERT INTO KAFKA_SOURCE
+INSERT INTO DORIS_SINK
 SELECT json_value(data,'$.id') as id,
 json_value(data,'$.name') as name, 
 if(op_type='delete',1,0) as __DORIS_DELETE_SIGN__ 

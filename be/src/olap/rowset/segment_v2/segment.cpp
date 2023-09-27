@@ -72,9 +72,7 @@ Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t se
                      const io::FileReaderOptions& reader_options,
                      std::shared_ptr<Segment>* output) {
     io::FileReaderSPtr file_reader;
-    io::FileDescription fd;
-    fd.path = path;
-    RETURN_IF_ERROR(fs->open_file(fd, reader_options, &file_reader));
+    RETURN_IF_ERROR(fs->open_file(path, &file_reader, &reader_options));
     std::shared_ptr<Segment> segment(new Segment(segment_id, rowset_id, tablet_schema));
     segment->_file_reader = std::move(file_reader);
     RETURN_IF_ERROR(segment->_open());
@@ -172,8 +170,8 @@ Status Segment::_parse_footer(SegmentFooterPB* footer) {
 
     uint8_t fixed_buf[12];
     size_t bytes_read = 0;
-    // Block / Whole / Sub file cache will use it while read segment footer
-    io::IOContext io_ctx;
+    // TODO(plat1ko): Support session variable `enable_file_cache`
+    io::IOContext io_ctx {.is_index_data = true};
     RETURN_IF_ERROR(
             _file_reader->read_at(file_size - 12, Slice(fixed_buf, 12), &bytes_read, &io_ctx));
     DCHECK_EQ(bytes_read, 12);
@@ -240,14 +238,17 @@ Status Segment::load_index() {
             return Status::OK();
         } else {
             // read and parse short key index page
-            PageReadOptions opts;
-            opts.file_reader = _file_reader.get();
-            opts.page_pointer = PagePointer(_sk_index_page);
-            opts.codec = nullptr; // short key index page uses NO_COMPRESSION for now
             OlapReaderStatistics tmp_stats;
-            opts.use_page_cache = true;
-            opts.stats = &tmp_stats;
-            opts.type = INDEX_PAGE;
+            PageReadOptions opts {
+                    .use_page_cache = true,
+                    .type = INDEX_PAGE,
+                    .file_reader = _file_reader.get(),
+                    .page_pointer = PagePointer(_sk_index_page),
+                    // short key index page uses NO_COMPRESSION for now
+                    .codec = nullptr,
+                    .stats = &tmp_stats,
+                    .io_ctx = io::IOContext {.is_index_data = true},
+            };
             Slice body;
             PageFooterPB footer;
             RETURN_IF_ERROR(
@@ -278,8 +279,9 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
             continue;
         }
 
-        ColumnReaderOptions opts;
-        opts.kept_in_memory = _tablet_schema->is_in_memory();
+        ColumnReaderOptions opts {
+                .kept_in_memory = _tablet_schema->is_in_memory(),
+        };
         std::unique_ptr<ColumnReader> reader;
         RETURN_IF_ERROR(ColumnReader::create(opts, footer.columns(iter->second), footer.num_rows(),
                                              _file_reader, &reader));
@@ -363,8 +365,11 @@ Status Segment::lookup_row_key(const Slice& key, bool with_seq_col, RowLocation*
     bool exact_match = false;
     std::unique_ptr<segment_v2::IndexedColumnIterator> index_iterator;
     RETURN_IF_ERROR(_pk_index_reader->new_iterator(&index_iterator));
-    RETURN_IF_ERROR(index_iterator->seek_at_or_after(&key_without_seq, &exact_match));
-    if (!has_seq_col && !exact_match) {
+    auto st = index_iterator->seek_at_or_after(&key_without_seq, &exact_match);
+    if (!st.ok() && !st.is<ErrorCode::ENTRY_NOT_FOUND>()) {
+        return st;
+    }
+    if (st.is<ErrorCode::ENTRY_NOT_FOUND>() || (!has_seq_col && !exact_match)) {
         return Status::Error<ErrorCode::KEY_NOT_FOUND>("Can't find key in the segment");
     }
     row_location->row_id = index_iterator->get_current_ordinal();

@@ -382,6 +382,9 @@ public:
             if (check_column<ColumnInt8>(nested_column)) {
                 Impl::template vector<ColumnInt8>(offset_column_data, nested_column,
                                                   nested_null_map, res, null_map);
+            } else if (check_column<ColumnUInt8>(nested_column)) {
+                Impl::template vector<ColumnUInt8>(offset_column_data, nested_column,
+                                                   nested_null_map, res, null_map);
             } else if (check_column<ColumnInt16>(nested_column)) {
                 Impl::template vector<ColumnInt16>(offset_column_data, nested_column,
                                                    nested_null_map, res, null_map);
@@ -391,6 +394,10 @@ public:
             } else if (check_column<ColumnInt64>(nested_column)) {
                 Impl::template vector<ColumnInt64>(offset_column_data, nested_column,
                                                    nested_null_map, res, null_map);
+            } else {
+                return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                            block.get_by_position(arguments[0]).column->get_name(),
+                                            get_name());
             }
         } else {
             return Status::RuntimeError("Illegal column {} of argument of function {}",
@@ -717,13 +724,14 @@ Status execute_bitmap_op_count_null_to_zero(
     return Status::OK();
 }
 
+template <typename FunctionName>
 class FunctionBitmapAndNotCount : public IFunction {
 public:
     using LeftDataType = DataTypeBitMap;
     using RightDataType = DataTypeBitMap;
     using ResultDataType = typename BitmapAndNotCount<LeftDataType, RightDataType>::ResultDataType;
 
-    static constexpr auto name = "bitmap_and_not_count";
+    static constexpr auto name = FunctionName::name;
     static FunctionPtr create() { return std::make_shared<FunctionBitmapAndNotCount>(); }
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 2; }
@@ -834,6 +842,42 @@ struct BitmapContains {
         size_t size = rvec.size();
         for (size_t i = 0; i < size; ++i) {
             res[i] = lval.contains(rvec[i]);
+        }
+    }
+};
+
+struct NameBitmapRemove {
+    static constexpr auto name = "bitmap_remove";
+};
+
+template <typename LeftDataType, typename RightDataType>
+struct BitmapRemove {
+    using ResultDataType = DataTypeBitMap;
+    using T0 = typename LeftDataType::FieldType;
+    using T1 = typename RightDataType::FieldType;
+    using LTData = std::vector<BitmapValue>;
+    using RTData = typename ColumnVector<T1>::Container;
+    using ResTData = std::vector<BitmapValue>;
+
+    static void vector_vector(const LTData& lvec, const RTData& rvec, ResTData& res) {
+        size_t size = lvec.size();
+        for (size_t i = 0; i < size; ++i) {
+            res[i] = lvec[i];
+            res[i].remove(rvec[i]);
+        }
+    }
+    static void vector_scalar(const LTData& lvec, const T1& rval, ResTData& res) {
+        size_t size = lvec.size();
+        for (size_t i = 0; i < size; ++i) {
+            res[i] = lvec[i];
+            res[i].remove(rval);
+        }
+    }
+    static void scalar_vector(const BitmapValue& lval, const RTData& rvec, ResTData& res) {
+        size_t size = rvec.size();
+        for (size_t i = 0; i < size; ++i) {
+            res[i] = lval;
+            res[i].remove(rvec[i]);
         }
     }
 };
@@ -1227,6 +1271,8 @@ using FunctionBitmapAndNot =
         FunctionBinaryToType<DataTypeBitMap, DataTypeBitMap, BitmapAndNot, NameBitmapAndNot>;
 using FunctionBitmapContains =
         FunctionBinaryToType<DataTypeBitMap, DataTypeInt64, BitmapContains, NameBitmapContains>;
+using FunctionBitmapRemove =
+        FunctionBinaryToType<DataTypeBitMap, DataTypeInt64, BitmapRemove, NameBitmapRemove>;
 
 using FunctionBitmapHasAny =
         FunctionBinaryToType<DataTypeBitMap, DataTypeBitMap, BitmapHasAny, NameBitmapHasAny>;
@@ -1252,8 +1298,11 @@ void register_function_bitmap(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionBitmapToString>();
     factory.register_function<FunctionBitmapNot>();
     factory.register_function<FunctionBitmapAndNot>();
-    factory.register_function<FunctionBitmapAndNotCount>();
+    factory.register_alias(NameBitmapAndNot::name, "bitmap_andnot");
+    factory.register_function<FunctionBitmapAndNotCount<NameBitmapAndNotCount>>();
+    factory.register_alias(NameBitmapAndNotCount::name, "bitmap_andnot_count");
     factory.register_function<FunctionBitmapContains>();
+    factory.register_function<FunctionBitmapRemove>();
     factory.register_function<FunctionBitmapHasAny>();
     factory.register_function<FunctionBitmapHasAll>();
     factory.register_function<FunctionSubBitmap>();

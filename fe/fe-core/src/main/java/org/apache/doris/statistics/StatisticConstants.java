@@ -17,6 +17,9 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.system.SystemInfoService;
@@ -35,8 +38,6 @@ public class StatisticConstants {
     public static final int ID_LEN = 4096;
 
     public static final int STATISTICS_CACHE_REFRESH_INTERVAL = 24 * 2;
-
-    public static final int ROW_COUNT_CACHE_VALID_DURATION_IN_HOURS = 12;
 
     /**
      * Bucket count fot column_statistics and analysis_job table.
@@ -59,15 +60,9 @@ public class StatisticConstants {
 
     public static final int HISTOGRAM_MAX_BUCKET_NUM = 128;
 
-    /**
-     * The health of the table indicates the health of the table statistics, rang in [0, 100].
-     * Below this threshold will automatically re-collect statistics. TODO make it in fe.conf
-     */
-    public static final int TABLE_STATS_HEALTH_THRESHOLD = 80;
-
     public static final int ANALYZE_MANAGER_INTERVAL_IN_SECS = 60;
 
-    public static List<String> STATISTICS_DB_BLACK_LIST = new ArrayList<>();
+    public static List<String> SYSTEM_DBS = new ArrayList<>();
 
     public static int ANALYZE_TASK_RETRY_TIMES = 5;
 
@@ -86,10 +81,30 @@ public class StatisticConstants {
     // union more relation than 512 may cause StackOverFlowException in the future.
     public static final int UNION_ALL_LIMIT = 512;
 
+    public static final String FULL_AUTO_ANALYZE_START_TIME = "00:00:00";
+    public static final String FULL_AUTO_ANALYZE_END_TIME = "23:59:59";
+
     static {
-        STATISTICS_DB_BLACK_LIST.add(SystemInfoService.DEFAULT_CLUSTER
+        SYSTEM_DBS.add(SystemInfoService.DEFAULT_CLUSTER
                 + ClusterNamespace.CLUSTER_DELIMITER + FeConstants.INTERNAL_DB_NAME);
-        STATISTICS_DB_BLACK_LIST.add(SystemInfoService.DEFAULT_CLUSTER
+        SYSTEM_DBS.add(SystemInfoService.DEFAULT_CLUSTER
                 + ClusterNamespace.CLUSTER_DELIMITER + "information_schema");
+    }
+
+    public static boolean isSystemTable(TableIf tableIf) {
+        if (tableIf instanceof OlapTable) {
+            OlapTable olapTable = (OlapTable) tableIf;
+            if (StatisticConstants.SYSTEM_DBS.contains(olapTable.getQualifiedDbName())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static boolean shouldIgnoreCol(TableIf tableIf, Column c) {
+        if (isSystemTable(tableIf)) {
+            return true;
+        }
+        return !c.isVisible();
     }
 }
