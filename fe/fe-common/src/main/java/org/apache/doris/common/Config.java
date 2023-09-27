@@ -2125,4 +2125,10 @@ public class Config extends ConfigBase {
                     + "The larger the value, the more uniform the distribution of the hash algorithm, "
                     + "but it will increase the memory overhead."})
     public static int virtual_node_number = 2048;
+
+    @ConfField(description = {
+            "Auto Buckets中最小的buckets数目",
+            "min buckets of auto bucket"
+    })
+    public static int autobucket_min_buckets = 1;
 }
