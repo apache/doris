@@ -243,8 +243,7 @@ public class TypeCoercionUtils {
         if (input.isNullLiteral()) {
             return new NullLiteral(targetType);
         } else if (input.getDataType().equals(targetType) || isSubqueryAndDataTypeIsBitmap(input)
-                || (isVarCharOrStringType(input.getDataType())
-                        && isVarCharOrStringType(targetType))) {
+                || (input.getDataType().isStringLikeType() && targetType.isStringLikeType())) {
             return input;
         } else {
             checkCanCastTo(input.getDataType(), targetType);
@@ -254,10 +253,6 @@ public class TypeCoercionUtils {
 
     private static boolean isSubqueryAndDataTypeIsBitmap(Expression input) {
         return input instanceof SubqueryExpr && input.getDataType().isBitmapType();
-    }
-
-    private static boolean isVarCharOrStringType(DataType dataType) {
-        return dataType instanceof VarcharType || dataType instanceof StringType;
     }
 
     private static boolean canCastTo(DataType input, DataType target) {
@@ -709,7 +704,7 @@ public class TypeCoercionUtils {
         return optionalCommonType
                 .map(commonType -> {
                     List<Expression> newChildren = inPredicate.children().stream()
-                            .map(e -> TypeCoercionUtils.castIfNotMatchType(e, commonType))
+                            .map(e -> TypeCoercionUtils.castIfNotSameType(e, commonType))
                             .collect(Collectors.toList());
                     return inPredicate.withChildren(newChildren);
                 })
@@ -735,7 +730,7 @@ public class TypeCoercionUtils {
                     List<Expression> newChildren
                             = caseWhen.getWhenClauses().stream()
                             .map(wc -> {
-                                Expression valueExpr = TypeCoercionUtils.castIfNotMatchType(
+                                Expression valueExpr = TypeCoercionUtils.castIfNotSameType(
                                         wc.getResult(), commonType);
                                 // we must cast every child to the common type, and then
                                 // FoldConstantRuleOnFe can eliminate some branches and direct
@@ -748,7 +743,7 @@ public class TypeCoercionUtils {
                             .collect(Collectors.toList());
                     caseWhen.getDefaultValue()
                             .map(dv -> {
-                                Expression defaultExpr = TypeCoercionUtils.castIfNotMatchType(dv, commonType);
+                                Expression defaultExpr = TypeCoercionUtils.castIfNotSameType(dv, commonType);
                                 if (!defaultExpr.getDataType().equals(commonType)) {
                                     defaultExpr = new Cast(defaultExpr, commonType);
                                 }
