@@ -272,6 +272,7 @@ public class ColumnType {
                 type = Type.BINARY;
                 break;
             case "string":
+            case "varchar":
                 type = Type.STRING;
                 break;
             default:
