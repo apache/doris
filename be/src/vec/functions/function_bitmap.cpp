@@ -357,7 +357,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         auto res_null_map = ColumnUInt8::create(input_rows_count, 0);
         auto res_data_column = ColumnBitmap::create();
         auto& null_map = res_null_map->get_data();
@@ -502,7 +502,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         auto res_data_column = ColumnInt64::create();
         auto& res = res_data_column->get_data();
         auto data_null_map = ColumnUInt8::create(input_rows_count, 0);
@@ -755,21 +755,19 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         DCHECK_EQ(arguments.size(), 2);
-
-        return execute_bitmap_op_count_null_to_zero(
-                context, block, arguments, result, input_rows_count,
-                std::bind((Status(FunctionBitmapAndNotCount::*)(
-                                  FunctionContext*, Block&, const ColumnNumbers&, size_t, size_t)) &
-                                  FunctionBitmapAndNotCount::execute_impl_internal,
-                          this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3,
-                          std::placeholders::_4, std::placeholders::_5));
+        auto impl_func = [&](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                             size_t result, size_t input_rows_count) {
+            return execute_impl_internal(context, block, arguments, result, input_rows_count);
+        };
+        return execute_bitmap_op_count_null_to_zero(context, block, arguments, result,
+                                                    input_rows_count, impl_func);
     }
 
     Status execute_impl_internal(FunctionContext* context, Block& block,
                                  const ColumnNumbers& arguments, size_t result,
-                                 size_t input_rows_count) {
+                                 size_t input_rows_count) const {
         using ResultType = typename ResultDataType::FieldType;
         using ColVecResult = ColumnVector<ResultType>;
 
@@ -1161,7 +1159,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         DCHECK_EQ(arguments.size(), 3);
         auto res_null_map = ColumnUInt8::create(input_rows_count, 0);
         auto res_data_column = ColumnBitmap::create(input_rows_count);
@@ -1220,7 +1218,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         auto return_nested_type = make_nullable(std::make_shared<DataTypeInt64>());
         auto dest_array_column_ptr = ColumnArray::create(return_nested_type->create_column(),
                                                          ColumnArray::ColumnOffsets::create());
