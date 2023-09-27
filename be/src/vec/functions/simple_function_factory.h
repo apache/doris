@@ -235,7 +235,6 @@ public:
             register_function_to_time_function(instance);
             register_function_time_of_function(instance);
             register_function_string(instance);
-            register_function_running_difference(instance);
             register_function_in(instance);
             register_function_if(instance);
             register_function_nullif(instance);

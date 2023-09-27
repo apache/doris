@@ -1678,26 +1678,6 @@ visible_functions = {
         [['width_bucket'], 'BIGINT', ['DATETIMEV2','DATETIMEV2','DATETIMEV2','BIGINT'], '']
     ],
 
-
-    # runningdifference
-    "RunningDifference": [
-        [['running_difference'], 'SMALLINT', ['TINYINT'], ''],
-        [['running_difference'], 'INT', ['SMALLINT'], ''],
-        [['running_difference'], 'BIGINT', ['INT'], ''],
-        [['running_difference'], 'BIGINT', ['BIGINT'], ''],
-        [['running_difference'], 'LARGEINT', ['LARGEINT'], ''],
-        [['running_difference'], 'DOUBLE', ['FLOAT'], ''],
-        [['running_difference'], 'DOUBLE', ['DOUBLE'], ''],
-        [['running_difference'], 'DECIMALV2', ['DECIMALV2'], ''],
-        [['running_difference'], 'DECIMAL32', ['DECIMAL32'], ''],
-        [['running_difference'], 'DECIMAL64', ['DECIMAL64'], ''],
-        [['running_difference'], 'DECIMAL128', ['DECIMAL128'], ''],
-        [['running_difference'], 'INT', ['DATE'], ''],
-        [['running_difference'], 'INT', ['DATEV2'], ''],
-        [['running_difference'], 'TIME', ['DATETIME'], ''],
-        [['running_difference'], 'TIMEV2', ['DATETIMEV2'], '']
-    ],
-
     # Utility functions
     "Utility": [
         [['convert_to'], 'VARCHAR', ['VARCHAR','VARCHAR'], ''],

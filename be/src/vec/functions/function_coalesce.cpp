@@ -87,7 +87,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         DCHECK_GE(arguments.size(), 1);
         DataTypePtr result_type = block.get_by_position(result).type;
         ColumnNumbers filtered_args;
@@ -226,7 +226,7 @@ public:
     template <typename ColumnType>
     Status insert_result_data(MutableColumnPtr& result_column, ColumnPtr& argument_column,
                               const UInt8* __restrict null_map_data, UInt8* __restrict filled_flag,
-                              const size_t input_rows_count) {
+                              const size_t input_rows_count) const {
         auto* __restrict result_raw_data =
                 reinterpret_cast<ColumnType*>(result_column.get())->get_data().data();
         auto* __restrict column_raw_data =
@@ -245,7 +245,8 @@ public:
 
     Status insert_result_data_bitmap(MutableColumnPtr& result_column, ColumnPtr& argument_column,
                                      const UInt8* __restrict null_map_data,
-                                     UInt8* __restrict filled_flag, const size_t input_rows_count) {
+                                     UInt8* __restrict filled_flag,
+                                     const size_t input_rows_count) const {
         auto* __restrict result_raw_data =
                 reinterpret_cast<ColumnBitmap*>(result_column.get())->get_data().data();
         auto* __restrict column_raw_data =
@@ -268,7 +269,7 @@ public:
                                               ColumnPtr& argument_column,
                                               UInt8* __restrict null_map_data,
                                               UInt8* __restrict filled_flag,
-                                              const size_t input_rows_count) {
+                                              const size_t input_rows_count) const {
         WhichDataType which(data_type->is_nullable()
                                     ? reinterpret_cast<const DataTypeNullable*>(data_type.get())
                                               ->get_nested_type()
