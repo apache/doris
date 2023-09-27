@@ -29,9 +29,6 @@ import org.apache.doris.nereids.util.DateTimeFormatterUtils;
 import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.nereids.util.StandardDateFormat;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import java.time.LocalDateTime;
 import java.time.Year;
 import java.time.temporal.ChronoField;
@@ -44,11 +41,9 @@ public class DateLiteral extends Literal {
     public static final String JAVA_DATE_FORMAT = "yyyy-MM-dd";
 
     // for cast datetime type to date type.
-    private static final LocalDateTime startOfAD = LocalDateTime.of(0, 1, 1, 0, 0, 0);
-    private static final LocalDateTime endOfAD = LocalDateTime.of(9999, 12, 31, 23, 59, 59);
-    private static final Logger LOG = LogManager.getLogger(DateLiteral.class);
-
-    private static final DateLiteral MIN_DATE = new DateLiteral(0000, 1, 1);
+    private static final LocalDateTime START_OF_A_DAY = LocalDateTime.of(0, 1, 1, 0, 0, 0);
+    private static final LocalDateTime END_OF_A_DAY = LocalDateTime.of(9999, 12, 31, 23, 59, 59);
+    private static final DateLiteral MIN_DATE = new DateLiteral(0, 1, 1);
     private static final DateLiteral MAX_DATE = new DateLiteral(9999, 12, 31);
     private static final int[] DAYS_IN_MONTH = new int[] {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
 
@@ -264,7 +259,7 @@ public class DateLiteral extends Literal {
         month = DateUtils.getOrDefault(dateTime, ChronoField.MONTH_OF_YEAR);
         day = DateUtils.getOrDefault(dateTime, ChronoField.DAY_OF_MONTH);
 
-        if (checkRange() || checkDate()) {
+        if (checkDatetime(dateTime) || checkRange() || checkDate()) {
             throw new AnalysisException("date/datetime literal [" + s + "] is out of range");
         }
     }
@@ -284,7 +279,14 @@ public class DateLiteral extends Literal {
     }
 
     protected static boolean isDateOutOfRange(LocalDateTime dateTime) {
-        return dateTime.isBefore(startOfAD) || dateTime.isAfter(endOfAD);
+        return dateTime.isBefore(START_OF_A_DAY) || dateTime.isAfter(END_OF_A_DAY);
+    }
+
+    private boolean checkDatetime(TemporalAccessor dateTime) {
+        return DateUtils.getOrDefault(dateTime, ChronoField.HOUR_OF_DAY) != 0
+                || DateUtils.getOrDefault(dateTime, ChronoField.MINUTE_OF_HOUR) != 0
+                || DateUtils.getOrDefault(dateTime, ChronoField.SECOND_OF_MINUTE) != 0
+                || DateUtils.getOrDefault(dateTime, ChronoField.MICRO_OF_SECOND) != 0;
     }
 
     @Override
