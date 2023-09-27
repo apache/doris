@@ -19,7 +19,6 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 
 import java.util.Objects;
@@ -52,11 +51,6 @@ public class VarcharType extends CharacterType {
         ScalarType catalogDataType = ScalarType.createVarcharType(len);
         catalogDataType.setByteSize(len);
         return catalogDataType;
-    }
-
-    @Override
-    public boolean acceptsType(AbstractDataType other) {
-        return other instanceof VarcharType || other instanceof StringType;
     }
 
     @Override
