@@ -1300,10 +1300,10 @@ inline bool JsonbValue::contains(JsonbValue* rhs) const {
         int lhs_num = ((ArrayVal*)this)->numElem();
         if (rhs->isArray()) {
             int rhs_num = ((ArrayVal*)rhs)->numElem();
-            if(rhs_num > lhs_num) return false;
+            if (rhs_num > lhs_num) return false;
             int contains_num = 0;
             for (int i = 0; i < lhs_num; ++i) {
-                for(int j = 0; j < rhs_num; ++j){
+                for (int j = 0; j < rhs_num; ++j) {
                     if (((ArrayVal*)this)->get(i)->contains(((ArrayVal*)rhs)->get(j))) {
                         contains_num++;
                         break;
