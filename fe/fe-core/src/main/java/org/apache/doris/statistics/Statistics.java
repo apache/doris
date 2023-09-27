@@ -127,9 +127,10 @@ public class Statistics {
         for (Entry<Expression, ColumnStatistic> entry : expressionToColumnStats.entrySet()) {
             ColumnStatistic columnStatistic = entry.getValue();
             if (!checkColumnStatsValid(columnStatistic)) {
+                double ndv = Math.min(columnStatistic.ndv, rowCount);
                 ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(columnStatistic);
-                columnStatisticBuilder.setNdv(Math.min(columnStatistic.ndv, rowCount));
-                columnStatisticBuilder.setNumNulls(Math.min(columnStatistic.numNulls, rowCount));
+                columnStatisticBuilder.setNdv(ndv);
+                columnStatisticBuilder.setNumNulls(Math.min(columnStatistic.numNulls, rowCount - ndv));
                 columnStatisticBuilder.setCount(rowCount);
                 columnStatistic = columnStatisticBuilder.build();
             }
@@ -138,7 +139,8 @@ public class Statistics {
     }
 
     public boolean checkColumnStatsValid(ColumnStatistic columnStatistic) {
-        return columnStatistic.ndv <= rowCount && columnStatistic.numNulls <= rowCount;
+        return columnStatistic.ndv <= rowCount
+                && columnStatistic.numNulls <= rowCount - columnStatistic.ndv;
     }
 
     public Statistics withSel(double sel) {
