@@ -47,10 +47,11 @@ public:
     FileScanLocalState(RuntimeState* state, OperatorXBase* parent)
             : ScanLocalState<FileScanLocalState>(state, parent) {}
 
+    Status init(RuntimeState* state, LocalStateInfo& info) override;
+
+    Status _process_conjuncts() override;
     Status _init_scanners(std::list<vectorized::VScannerSPtr>* scanners) override;
-    void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override {
-        _scan_ranges = scan_ranges;
-    }
+    void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
     int parent_id() { return _parent->id(); }
 
 private:
@@ -61,6 +62,7 @@ private:
     // 2. parquet file meta
     // KVCache<std::string> _kv_cache;
     std::unique_ptr<vectorized::ShardedKVCache> _kv_cache;
+    TupleId _output_tuple_id = -1;
 };
 
 class FileScanOperatorX final : public ScanOperatorX<FileScanLocalState> {
