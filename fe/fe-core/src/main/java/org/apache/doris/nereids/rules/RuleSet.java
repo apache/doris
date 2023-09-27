@@ -83,6 +83,7 @@ import org.apache.doris.nereids.rules.rewrite.PushdownAliasThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushdownExpressionsInHashCondition;
 import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughAggregation;
 import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughPTopN;
 import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughProject;
 import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughRepeat;
 import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughSetOperation;
@@ -137,7 +138,8 @@ public class RuleSet {
             new MergeGenerates(),
             new MergeLimits(),
             new PushdownAliasThroughJoin(),
-            new PushdownFilterThroughWindow()
+            new PushdownFilterThroughWindow(),
+            new PushdownFilterThroughPTopN()
     );
 
     public static final List<Rule> IMPLEMENTATION_RULES = planRuleFactories()
