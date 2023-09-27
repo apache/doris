@@ -91,7 +91,7 @@ public class PushdownFilterThroughPartitionTopN extends OneRewriteRuleFactory {
             } else {
                 return filter.withConjunctsAndChild(upperConjuncts, partitionTopN);
             }
-        }).toRule(RuleType.PUSHDOWN_FILTER_THROUGH_PTOPN);
+        }).toRule(RuleType.PUSHDOWN_FILTER_THROUGH_PARTITION_TOPN);
     }
 
 }
