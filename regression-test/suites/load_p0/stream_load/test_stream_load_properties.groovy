@@ -559,6 +559,7 @@ suite("test_stream_load_properties", "p0") {
 
             do_streamload_2pc.call(txnId, "commit", tableName1)
 
+            def count = 0
             while (true) {
                 def res
                 if (i <= 3) {
@@ -569,6 +570,10 @@ suite("test_stream_load_properties", "p0") {
                 if (res[0][0] > 0) {
                     break;
                 }
+                if (count >= 50) {
+                    log.error("stream load commit can not visible for long time")
+                }
+                count++
             }
             
             if (i <= 3) {
@@ -581,7 +586,8 @@ suite("test_stream_load_properties", "p0") {
         }
     } finally {
         for (String tableName in tables) {
-            sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+            def tableName1 =  "stream_load_" + tableName
+            sql "DROP TABLE IF EXISTS ${tableName1} FORCE"
         }
     }
 
@@ -673,8 +679,7 @@ suite("test_stream_load_properties", "p0") {
         }
     } finally {
         for (String table in tables) {
-            def tableName =  "stream_load_" + table
-            sql "DROP TABLE IF EXISTS ${tableName} FORCE"
+            sql new File("""${context.file.parent}/ddl/${table}_drop.sql""").text
         }
     }
 

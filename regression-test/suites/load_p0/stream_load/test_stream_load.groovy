@@ -1077,11 +1077,16 @@ suite("test_stream_load", "p0") {
 
         do_streamload_2pc.call(label, "commit")
         
+        def count = 0
         while (true) {
             res = sql "select count(*) from ${tableName15}"
             if (res[0][0] > 0) {
                 break;
             }
+            if (count >= 50) {
+                log.error("stream load commit can not visible for long time")
+            }
+            count++
         }
 
         qt_sql_2pc_commit "select * from ${tableName15} order by k1"
