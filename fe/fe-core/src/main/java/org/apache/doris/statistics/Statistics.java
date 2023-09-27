@@ -123,6 +123,26 @@ public class Statistics {
         }
     }
 
+    public void enforceValid() {
+        for (Entry<Expression, ColumnStatistic> entry : expressionToColumnStats.entrySet()) {
+            ColumnStatistic columnStatistic = entry.getValue();
+            if (!checkColumnStatsValid(columnStatistic)) {
+                double ndv = Math.min(columnStatistic.ndv, rowCount);
+                ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(columnStatistic);
+                columnStatisticBuilder.setNdv(ndv);
+                columnStatisticBuilder.setNumNulls(Math.min(columnStatistic.numNulls, rowCount - ndv));
+                columnStatisticBuilder.setCount(rowCount);
+                columnStatistic = columnStatisticBuilder.build();
+            }
+            expressionToColumnStats.put(entry.getKey(), columnStatistic);
+        }
+    }
+
+    public boolean checkColumnStatsValid(ColumnStatistic columnStatistic) {
+        return columnStatistic.ndv <= rowCount
+                && columnStatistic.numNulls <= rowCount - columnStatistic.ndv;
+    }
+
     public Statistics withSel(double sel) {
         sel = StatsMathUtil.minNonNaN(sel, 1);
         return withRowCount(rowCount * sel);
