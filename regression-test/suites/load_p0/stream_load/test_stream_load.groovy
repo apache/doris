@@ -1081,10 +1081,11 @@ suite("test_stream_load", "p0") {
         while (true) {
             res = sql "select count(*) from ${tableName15}"
             if (res[0][0] > 0) {
-                break;
+                break
             }
             if (count >= 50) {
                 log.error("stream load commit can not visible for long time")
+                break
             }
             count++
         }
