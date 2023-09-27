@@ -19,9 +19,11 @@
 
 #include <fmt/format.h>
 
+#include <cstdint>
 #include <memory>
 
 #include "pipeline/exec/es_scan_operator.h"
+#include "pipeline/exec/file_scan_operator.h"
 #include "pipeline/exec/jdbc_scan_operator.h"
 #include "pipeline/exec/meta_scan_operator.h"
 #include "pipeline/exec/olap_scan_operator.h"
@@ -1205,6 +1207,11 @@ TPushAggOp::type ScanLocalState<Derived>::get_push_down_agg_type() {
 }
 
 template <typename Derived>
+int64_t ScanLocalState<Derived>::get_push_down_count() {
+    return _parent->cast<typename Derived::Parent>()._push_down_count;
+}
+
+template <typename Derived>
 int64_t ScanLocalState<Derived>::limit_per_scanner() {
     return _parent->cast<typename Derived::Parent>()._limit_per_scanner;
 }
@@ -1270,6 +1277,9 @@ ScanOperatorX<LocalStateType>::ScanOperatorX(ObjectPool* pool, const TPlanNode& 
         if (tnode.limit > 0 && tnode.limit < 1024) {
             _should_run_serial = true;
         }
+    }
+    if (tnode.__isset.push_down_count) {
+        _push_down_count = tnode.push_down_count;
     }
 }
 
@@ -1436,6 +1446,8 @@ template class ScanOperatorX<OlapScanLocalState>;
 template class ScanLocalState<OlapScanLocalState>;
 template class ScanOperatorX<JDBCScanLocalState>;
 template class ScanLocalState<JDBCScanLocalState>;
+template class ScanOperatorX<FileScanLocalState>;
+template class ScanLocalState<FileScanLocalState>;
 template class ScanOperatorX<EsScanLocalState>;
 template class ScanLocalState<EsScanLocalState>;
 template class ScanLocalState<MetaScanLocalState>;
