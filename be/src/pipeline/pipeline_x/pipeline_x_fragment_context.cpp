@@ -875,12 +875,10 @@ void PipelineXFragmentContext::send_report(bool done) {
         runtime_states[i] = _runtime_states[i].get();
     }
 
-    std::vector<RuntimeState*> empty_vector(0);
-
     _report_status_cb(
-            {true, exec_status, _runtime_state->enable_profile() ? runtime_states : empty_vector,
-             nullptr, nullptr, done || !exec_status.ok(), _query_ctx->coord_addr, _query_id,
-             _fragment_id, TUniqueId(), _backend_num, _runtime_state.get(),
+            {true, exec_status, runtime_states, nullptr, nullptr, done || !exec_status.ok(),
+             _query_ctx->coord_addr, _query_id, _fragment_id, TUniqueId(), _backend_num,
+             _runtime_state.get(),
              std::bind(&PipelineFragmentContext::update_status, this, std::placeholders::_1),
              std::bind(&PipelineFragmentContext::cancel, this, std::placeholders::_1,
                        std::placeholders::_2)});
