@@ -169,10 +169,10 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
 
         sql """switch es6_hide"""
         List<List<String>> tables6 = """show tables""" as List<List<String>>
-        containeHide = false
+        boolean containHide = false
         tables6.forEach {
-            if (it.get(0).contains(".hide")){
-                containeHide = true
+            if (it.get(0) == ".hide"){
+                containHide = true
             }
         }
         assertTrue(containeHide)
@@ -192,7 +192,7 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
         List<List<String>> tables7 = """show tables""" as List<List<String>>
         containeHide = false
         tables7.forEach {
-            if (it.get(0).contains(".hide")){
+            if (it.get(0) == (".hide")){
                 containeHide = true
             }
         }
