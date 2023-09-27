@@ -491,9 +491,6 @@ public class MasterImpl {
             // not remove the task from queue and be will retry
             return;
         }
-        if (request.isSetTabletIdToDeltaNumRows()) {
-            publishVersionTask.setTabletIdToDeltaNumRows(request.getTabletIdToDeltaNumRows());
-        }
         AgentTaskQueue.removeTask(publishVersionTask.getBackendId(),
                                   publishVersionTask.getTaskType(),
                                   publishVersionTask.getSignature());
