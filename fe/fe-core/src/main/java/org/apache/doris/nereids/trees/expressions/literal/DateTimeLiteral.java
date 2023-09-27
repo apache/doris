@@ -147,6 +147,10 @@ public class DateTimeLiteral extends DateLiteral {
         this.day = day;
     }
 
+    public boolean isMidnight() {
+        return hour == 0 && minute == 0 && second == 0 && microSecond == 0;
+    }
+
     @Override
     protected void init(String s) throws AnalysisException {
         try {
