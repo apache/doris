@@ -21,6 +21,7 @@
 
 #include <string>
 
+#include "common/logging.h"
 #include "common/status.h"
 #include "operator.h"
 #include "pipeline/exec/scan_operator.h"
@@ -74,7 +75,11 @@ public:
     FileScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
             : ScanOperatorX<FileScanLocalState>(pool, tnode, descs) {
         _output_tuple_id = tnode.file_scan_node.tuple_id;
+        _id = tnode.node_id;
+        LOG_WARNING("yxc to test FileScanOperatorX").tag("node id", _id);
+        isFileScanOperatorX = true;
     }
+    inline static bool isFileScanOperatorX = false;
 
 private:
     friend class FileScanLocalState;
