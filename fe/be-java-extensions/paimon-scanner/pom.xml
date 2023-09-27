@@ -64,6 +64,7 @@ under the License.
             <artifactId>paimon-format</artifactId>
             <version>${paimon.version}</version>
         </dependency>
+
         <dependency>
             <groupId>org.apache.doris</groupId>
             <artifactId>hive-catalog-shade</artifactId>
