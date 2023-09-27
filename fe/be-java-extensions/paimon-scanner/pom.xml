@@ -49,55 +49,25 @@ under the License.
 
         <dependency>
             <groupId>org.apache.paimon</groupId>
-            <artifactId>paimon-bundle</artifactId>
+            <artifactId>paimon-core</artifactId>
             <version>${paimon.version}</version>
         </dependency>
+
         <dependency>
             <groupId>org.apache.paimon</groupId>
-            <artifactId>paimon-hive-connector-2.3</artifactId>
+            <artifactId>paimon-common</artifactId>
             <version>${paimon.version}</version>
         </dependency>
+
         <dependency>
             <groupId>org.apache.paimon</groupId>
-            <artifactId>paimon-s3</artifactId>
+            <artifactId>paimon-format</artifactId>
             <version>${paimon.version}</version>
         </dependency>
         <dependency>
-            <groupId>org.apache.paimon</groupId>
-            <artifactId>paimon-oss-impl</artifactId>
-            <version>${paimon.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.thrift</groupId>
-            <artifactId>libthrift</artifactId>
-            <version>0.9.3</version>
-        </dependency>
-        <dependency>
-            <groupId>com.facebook.presto.hive</groupId>
-            <artifactId>hive-apache</artifactId>
-            <version>${presto.hive.version}</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>org.slf4j</groupId>
-                    <artifactId>slf4j-log4j12</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.hadoop</groupId>
-            <artifactId>hadoop-client</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.hadoop</groupId>
-            <artifactId>hadoop-common</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.hadoop</groupId>
-            <artifactId>hadoop-hdfs</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>commons-io</groupId>
-            <artifactId>commons-io</artifactId>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>hive-catalog-shade</artifactId>
+            <version>${doris.hive.catalog.shade.version}</version>
         </dependency>
 
     </dependencies>
