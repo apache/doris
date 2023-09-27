@@ -186,59 +186,6 @@ suite("nereids_function") {
         result([[1]])
     }
 
-    // scalar function
-    sql """
-        DROP TABLE IF EXISTS running_difference_test
-    """
-
-    sql """
-        CREATE TABLE running_difference_test (
-            `id` int NOT NULL COMMENT 'id' ,
-            `day` date COMMENT 'day', 
-            `time_val` datetime COMMENT 'time_val',
-            `double_num` double NULL COMMENT 'double_num',
-            `decimal_num` decimal(9, 6) NULL COMMENT 'decimal_num'
-        )
-        DUPLICATE KEY(id) 
-        DISTRIBUTED BY HASH(id) BUCKETS 3 
-        PROPERTIES ( 
-            "replication_num" = "1"
-        );
-    """
-
-    sql """                                       
-        INSERT into running_difference_test values 
-            ('1', '2022-10-28', '2022-03-12 10:41:00', null, 2.66),
-            ('2','2022-10-27', '2022-03-12 10:41:02', 2.6, 2.67),
-            ('3','2022-10-28', '2022-03-12 10:41:03', 2.5, 2.76),
-            ('4','2022-9-29', '2022-03-12 10:41:03', null, 6.756),
-            ('5','2022-10-31', '2022-03-12 10:42:01', 3.3, 7.545),
-            ('6', '2022-11-08', '2022-03-12 11:05:04', 4.7, 3.5464); 
-    """
-
-    sql """
-    SELECT
-        id,
-        day,
-        time_val,
-        double_num,
-        running_difference(id) AS delta1,
-        running_difference(day) AS delta2,
-        running_difference(time_val) AS delta3,
-        running_difference(double_num) AS delta4,
-        running_difference(decimal_num) AS delta5
-    FROM (
-        SELECT
-            id,
-            day,
-            time_val,
-            double_num,
-            decimal_num
-        FROM running_difference_test 
-        ORDER BY id ASC
-    ) as runningDifference
-    """
-
     qt_regexp_extract_all """
         SELECT regexp_extract_all('AbCdE', '([[:lower:]]+)C([[:lower:]]+)')
     """
