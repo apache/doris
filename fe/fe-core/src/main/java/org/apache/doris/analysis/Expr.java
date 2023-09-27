@@ -1334,6 +1334,17 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
     }
 
+    /**
+     * Checks whether comparing predicates' children include bitmap type.
+     */
+    public void checkIncludeBitmap() throws AnalysisException {
+        for (int i = 0; i < children.size(); ++i) {
+            if (children.get(i).getType().isBitmapType()) {
+                throw new AnalysisException("Unsupported bitmap type in expression: " + toSql());
+            }
+        }
+    }
+
     public Expr checkTypeCompatibility(Type targetType) throws AnalysisException {
         if (targetType.getPrimitiveType() != PrimitiveType.ARRAY
                 && targetType.getPrimitiveType() == type.getPrimitiveType()) {
