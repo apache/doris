@@ -556,6 +556,9 @@ public:
     }
 
     void set_dependency(std::shared_ptr<pipeline::ChannelDependency> dependency) {
+        if (!Channel<Parent>::_local_recvr) {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "_local_recvr is null");
+        }
         Channel<Parent>::_local_recvr->set_dependency(dependency);
     }
 

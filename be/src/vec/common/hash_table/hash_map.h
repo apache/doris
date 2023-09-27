@@ -218,7 +218,10 @@ public:
         return *lookup_result_get_mapped(it);
     }
 
-    char* get_null_key_data() { return nullptr; }
+    template <typename MappedType>
+    char* get_null_key_data() {
+        return nullptr;
+    }
     bool has_null_key_data() const { return false; }
 };
 

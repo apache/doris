@@ -170,7 +170,7 @@ bool StreamingAggSinkLocalState::_should_expand_preagg_hash_tables() {
 
     return std::visit(
             [&](auto&& agg_method) -> bool {
-                auto& hash_tbl = agg_method.data;
+                auto& hash_tbl = *agg_method.hash_table;
                 auto [ht_mem, ht_rows] =
                         std::pair {hash_tbl.get_buffer_size_in_bytes(), hash_tbl.size()};
 
@@ -254,7 +254,8 @@ Status StreamingAggSinkLocalState::_pre_agg_with_serialized_key(
     bool ret_flag = false;
     RETURN_IF_ERROR(std::visit(
             [&](auto&& agg_method) -> Status {
-                if (auto& hash_tbl = agg_method.data; hash_tbl.add_elem_size_overflow(rows)) {
+                if (auto& hash_tbl = *agg_method.hash_table;
+                    hash_tbl.add_elem_size_overflow(rows)) {
                     /// If too much memory is used during the pre-aggregation stage,
                     /// it is better to output the data directly without performing further aggregation.
                     const bool used_too_much_memory =

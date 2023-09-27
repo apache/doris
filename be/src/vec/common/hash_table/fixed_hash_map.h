@@ -166,8 +166,10 @@ public:
 
     // fixed hash map never overflow
     bool add_elem_size_overflow(size_t add_size) const { return false; }
-
-    char* get_null_key_data() { return nullptr; }
+    template <typename MappedType>
+    char* get_null_key_data() {
+        return nullptr;
+    }
     bool has_null_key_data() const { return false; }
 };
 

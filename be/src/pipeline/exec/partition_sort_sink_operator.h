@@ -70,7 +70,6 @@ private:
     std::vector<vectorized::PartitionDataPtr> _value_places;
     int _num_partition = 0;
     std::vector<const vectorized::IColumn*> _partition_columns;
-    std::vector<size_t> _hash_values;
     std::unique_ptr<vectorized::PartitionedHashMapVariants> _partitioned_data;
     std::unique_ptr<vectorized::Arena> _agg_arena_pool;
     std::vector<size_t> _partition_key_sz;
@@ -123,16 +122,6 @@ private:
     void _emplace_into_hash_table(const vectorized::ColumnRawPtrs& key_columns,
                                   const vectorized::Block* input_block, int batch_size,
                                   PartitionSortSinkLocalState& local_state);
-    template <typename AggState, typename AggMethod>
-    void _pre_serialize_key_if_need(AggState& state, AggMethod& agg_method,
-                                    const vectorized::ColumnRawPtrs& key_columns,
-                                    const size_t num_rows) {
-        if constexpr (vectorized::ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
-                              AggState>::value) {
-            (agg_method.serialize_keys(key_columns, num_rows));
-            state.set_serialized_keys(agg_method.keys.data());
-        }
-    }
 };
 
 } // namespace pipeline

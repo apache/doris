@@ -262,7 +262,7 @@ void ColumnNullable::serialize_vec(std::vector<StringRef>& keys, size_t num_rows
         keys[i].size += s;
     }
 
-    get_nested_column().serialize_vec_with_null_map(keys, num_rows, arr.data(), max_row_byte_size);
+    get_nested_column().serialize_vec_with_null_map(keys, num_rows, arr.data());
 }
 
 void ColumnNullable::deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
