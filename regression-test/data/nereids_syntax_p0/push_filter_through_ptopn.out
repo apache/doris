@@ -44,7 +44,7 @@ PhysicalResultSink
 ----PhysicalProject
 ------filter((rn <= 2)(T.b = 2))
 --------PhysicalWindow
-----------PhysicalQuickSort
+----------PhysicalPartitionTopN
 ------------PhysicalDistribute
 --------------PhysicalPartitionTopN
 ----------------PhysicalProject
