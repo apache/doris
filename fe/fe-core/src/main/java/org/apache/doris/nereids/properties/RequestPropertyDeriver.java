@@ -35,7 +35,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
@@ -43,7 +42,6 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -240,21 +238,6 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
             addRequestPropertyToChildren(PhysicalProperties.GATHER);
         } else {
             addRequestPropertyToChildren(PhysicalProperties.ANY);
-        }
-        return null;
-    }
-
-    @Override
-    public Void visitPhysicalPartitionTopN(PhysicalPartitionTopN<? extends Plan> partitionTopN, PlanContext context) {
-        if (partitionTopN.getPhase().isTwoPhaseLocal()) {
-            addRequestPropertyToChildren(PhysicalProperties.ANY);
-        } else {
-            Preconditions.checkState(partitionTopN.getPhase().isTwoPhaseGlobal()
-                            || partitionTopN.getPhase().isOnePhaseGlobal(),
-                    "partition topn phase is not two phase global or one phase global");
-            PhysicalProperties properties = PhysicalProperties.createHash(partitionTopN.getPartitionKeys(),
-                    ShuffleType.REQUIRE);
-            addRequestPropertyToChildren(properties);
         }
         return null;
     }
