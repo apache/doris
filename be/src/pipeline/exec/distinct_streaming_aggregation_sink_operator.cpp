@@ -161,7 +161,7 @@ void DistinctStreamingAggSinkLocalState::_emplace_into_hash_table_to_distinct(
                 _pre_serialize_key_if_need(state, agg_method, key_columns, num_rows);
 
                 if constexpr (HashTableTraits<HashTableType>::is_phmap) {
-                    auto keys = state.get_keys(num_rows);
+                    const auto& keys = state.get_keys();
                     if (_hash_values.size() < num_rows) {
                         _hash_values.resize(num_rows);
                     }
@@ -175,9 +175,8 @@ void DistinctStreamingAggSinkLocalState::_emplace_into_hash_table_to_distinct(
                             agg_method.data.prefetch_by_hash(
                                     _hash_values[i + HASH_MAP_PREFETCH_DIST]);
                         }
-                        auto result = state.emplace_with_key(
-                                agg_method.data, state.pack_key_holder(keys[i], *_agg_arena_pool),
-                                _hash_values[i], i);
+                        auto result = state.emplace_with_key(agg_method.data, keys[i],
+                                                             _hash_values[i], i);
                         if (result.is_inserted()) {
                             distinct_row.push_back(i);
                         }
