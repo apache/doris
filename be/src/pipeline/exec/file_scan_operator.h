@@ -49,6 +49,12 @@ public:
     Status _init_scanners(std::list<vectorized::VScannerSPtr>* scanners) override;
     void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override {
         _scan_ranges = scan_ranges;
+        for (auto scan_range : scan_ranges) {
+            CHECK(scan_range.scan_range.ext_scan_range.file_scan_range.__isset.params);
+        }
+        for (auto scan_range : _scan_ranges) {
+            CHECK(scan_range.scan_range.ext_scan_range.file_scan_range.__isset.params);
+        }
     }
     int node_id() const { return _node_id; }
 
