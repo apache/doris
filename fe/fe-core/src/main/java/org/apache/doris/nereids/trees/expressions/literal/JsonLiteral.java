@@ -32,7 +32,6 @@ public class JsonLiteral extends Literal {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    private final JsonNode jsonNode;
     private final String value;
 
     /**
@@ -40,15 +39,17 @@ public class JsonLiteral extends Literal {
      */
     public JsonLiteral(String value) {
         super(JsonType.INSTANCE);
+        JsonNode jsonNode;
         try {
             jsonNode = MAPPER.readTree(value);
         } catch (JsonProcessingException e) {
             throw new AnalysisException("Invalid jsonb literal: '" + value + "'. because " + e.getMessage());
         }
-        if (jsonNode.isMissingNode()) {
+        if (jsonNode == null || jsonNode.isMissingNode()) {
             throw new AnalysisException("Invalid jsonb literal: ''");
+        } else {
+            this.value = jsonNode.toString();
         }
-        this.value = jsonNode.toString();
     }
 
     @Override
@@ -57,8 +58,8 @@ public class JsonLiteral extends Literal {
     }
 
     @Override
-    public JsonNode getValue() {
-        return jsonNode;
+    public String getValue() {
+        return value;
     }
 
     @Override

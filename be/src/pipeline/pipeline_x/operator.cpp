@@ -170,10 +170,10 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
 
     if (rows != 0) {
         auto& mutable_columns = mutable_block.mutable_columns();
-        DCHECK(mutable_columns.size() == _projections.size());
+        DCHECK(mutable_columns.size() == local_state->_projections.size());
         for (int i = 0; i < mutable_columns.size(); ++i) {
             auto result_column_id = -1;
-            RETURN_IF_ERROR(_projections[i]->execute(origin_block, &result_column_id));
+            RETURN_IF_ERROR(local_state->_projections[i]->execute(origin_block, &result_column_id));
             auto column_ptr = origin_block->get_by_position(result_column_id)
                                       .column->convert_to_full_column_if_const();
             //TODO: this is a quick fix, we need a new function like "change_to_nullable" to do it

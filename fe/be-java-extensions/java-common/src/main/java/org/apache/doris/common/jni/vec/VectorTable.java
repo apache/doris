@@ -58,7 +58,7 @@ public class VectorTable {
 
         this.numRows = (int) OffHeap.getLong(null, address);
         address += 8;
-        int metaSize = 1; // number of rows
+        int metaSize = 1; // stores the number of rows + other columns meta data
         for (int i = 0; i < types.length; i++) {
             columns[i] = new VectorColumn(types[i], numRows, address);
             metaSize += types[i].metaSize();
