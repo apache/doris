@@ -190,7 +190,7 @@ public:
     Status execute_generic(Block& block, const ColumnUInt8* cond_col,
                            const ColumnWithTypeAndName& then_col_type_name,
                            const ColumnWithTypeAndName& else_col_type_name, size_t result,
-                           size_t input_row_count) {
+                           size_t input_row_count) const {
         MutableColumnPtr result_column = block.get_by_position(result).type->create_column();
         result_column->reserve(input_row_count);
 
@@ -243,7 +243,8 @@ public:
 
     void execute_basic_type(Block& block, const ColumnUInt8* cond_col,
                             const ColumnWithTypeAndName& then_col,
-                            const ColumnWithTypeAndName& else_col, size_t result, Status& status) {
+                            const ColumnWithTypeAndName& else_col, size_t result,
+                            Status& status) const {
         auto call = [&](const auto& types) -> bool {
             using Types = std::decay_t<decltype(types)>;
             using T0 = typename Types::LeftType;
@@ -291,7 +292,7 @@ public:
                                     const ColumnWithTypeAndName& arg_cond,
                                     const ColumnWithTypeAndName& arg_then,
                                     const ColumnWithTypeAndName& arg_else, size_t result,
-                                    size_t input_rows_count, Status& status) {
+                                    size_t input_rows_count, Status& status) const {
         bool then_is_null = arg_then.column->only_null();
         bool else_is_null = arg_else.column->only_null();
 
@@ -395,7 +396,7 @@ public:
                                         const ColumnWithTypeAndName& arg_cond,
                                         const ColumnWithTypeAndName& arg_then,
                                         const ColumnWithTypeAndName& arg_else, size_t result,
-                                        size_t input_rows_count) {
+                                        size_t input_rows_count) const {
         auto then_type_is_nullable = arg_then.type->is_nullable();
         auto else_type_is_nullable = arg_else.type->is_nullable();
         if (!then_type_is_nullable && !else_type_is_nullable) {
@@ -478,7 +479,7 @@ public:
                                     const ColumnNumbers& arguments,
                                     const ColumnWithTypeAndName& arg_cond,
                                     const ColumnWithTypeAndName& arg_then,
-                                    const ColumnWithTypeAndName& arg_else, size_t result) {
+                                    const ColumnWithTypeAndName& arg_else, size_t result) const {
         bool cond_is_null = arg_cond.column->only_null();
 
         if (cond_is_null) {
@@ -509,7 +510,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         const ColumnWithTypeAndName& arg_then = block.get_by_position(arguments[1]);
         const ColumnWithTypeAndName& arg_else = block.get_by_position(arguments[2]);
 

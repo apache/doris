@@ -21,49 +21,58 @@
 
 #include <string>
 
+#include "common/logging.h"
 #include "common/status.h"
 #include "operator.h"
 #include "pipeline/exec/scan_operator.h"
 #include "pipeline/pipeline_x/operator.h"
+#include "vec/exec/format/format_common.h"
 #include "vec/exec/scan/vscan_node.h"
 
 namespace doris {
 class ExecNode;
-
 namespace vectorized {
-class NewOlapScanner;
-}
+class VFileScanner;
+} // namespace vectorized
 } // namespace doris
 
 namespace doris::pipeline {
 
-class MetaScanOperatorX;
-class MetaScanLocalState final : public ScanLocalState<MetaScanLocalState> {
+class FileScanOperatorX;
+class FileScanLocalState final : public ScanLocalState<FileScanLocalState> {
 public:
-    using Parent = MetaScanOperatorX;
-    using Base = ScanLocalState<MetaScanLocalState>;
-    ENABLE_FACTORY_CREATOR(MetaScanLocalState);
-    MetaScanLocalState(RuntimeState* state, OperatorXBase* parent) : Base(state, parent) {}
+    using Parent = FileScanOperatorX;
+    using Base = ScanLocalState<FileScanLocalState>;
+    ENABLE_FACTORY_CREATOR(FileScanLocalState);
+    FileScanLocalState(RuntimeState* state, OperatorXBase* parent)
+            : ScanLocalState<FileScanLocalState>(state, parent) {}
+
+    Status _init_scanners(std::list<vectorized::VScannerSPtr>* scanners) override;
+    void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override {
+        _scan_ranges = scan_ranges;
+    }
+    int parent_id() { return _parent->id(); }
 
 private:
-    friend class vectorized::NewOlapScanner;
-
-    void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
-    Status _init_scanners(std::list<vectorized::VScannerSPtr>* scanners) override;
-    Status _process_conjuncts() override;
-
     std::vector<TScanRangeParams> _scan_ranges;
+    // A in memory cache to save some common components
+    // of the this scan node. eg:
+    // 1. iceberg delete file
+    // 2. parquet file meta
+    // KVCache<std::string> _kv_cache;
+    std::unique_ptr<vectorized::ShardedKVCache> _kv_cache;
 };
 
-class MetaScanOperatorX final : public ScanOperatorX<MetaScanLocalState> {
+class FileScanOperatorX final : public ScanOperatorX<FileScanLocalState> {
 public:
-    MetaScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    FileScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
+            : ScanOperatorX<FileScanLocalState>(pool, tnode, descs) {
+        _output_tuple_id = tnode.file_scan_node.tuple_id;
+        _id = tnode.node_id;
+    }
 
 private:
-    friend class MetaScanLocalState;
-
-    TupleId _tuple_id;
-    TUserIdentity _user_identity;
+    friend class FileScanLocalState;
 };
 
 } // namespace doris::pipeline

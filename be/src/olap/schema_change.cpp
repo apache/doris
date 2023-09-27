@@ -29,6 +29,7 @@
 #include <tuple>
 
 #include "common/logging.h"
+#include "common/signal_handler.h"
 #include "common/status.h"
 #include "gutil/hash/hash.h"
 #include "gutil/integral_types.h"
@@ -680,6 +681,8 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
         return Status::Error<TABLE_NOT_FOUND>("fail to find base tablet. base_tablet={}",
                                               request.base_tablet_id);
     }
+
+    signal::tablet_id = base_tablet->get_table_id();
 
     // new tablet has to exist
     TabletSharedPtr new_tablet =

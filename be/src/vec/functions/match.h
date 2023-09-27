@@ -66,22 +66,22 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override;
+                        size_t result, size_t input_rows_count) const override;
 
     virtual Status execute_match(const std::string& column_name, const std::string& match_query_str,
                                  size_t input_rows_count, const ColumnString* string_col,
                                  InvertedIndexCtx* inverted_index_ctx,
                                  const ColumnArray::Offsets64* array_offsets,
-                                 ColumnUInt8::Container& result) = 0;
+                                 ColumnUInt8::Container& result) const = 0;
 
-    doris::segment_v2::InvertedIndexQueryType get_query_type_from_fn_name();
+    doris::segment_v2::InvertedIndexQueryType get_query_type_from_fn_name() const;
 
     std::vector<std::string> analyse_data_token(const std::string& column_name,
                                                 InvertedIndexCtx* inverted_index_ctx,
                                                 const ColumnString* string_col,
                                                 int32_t current_block_row_idx,
                                                 const ColumnArray::Offsets64* array_offsets,
-                                                int32_t& current_src_array_offset);
+                                                int32_t& current_src_array_offset) const;
 };
 
 class FunctionMatchAny : public FunctionMatchBase {
@@ -95,7 +95,7 @@ public:
                          size_t input_rows_count, const ColumnString* string_col,
                          InvertedIndexCtx* inverted_index_ctx,
                          const ColumnArray::Offsets64* array_offsets,
-                         ColumnUInt8::Container& result) override;
+                         ColumnUInt8::Container& result) const override;
 };
 
 class FunctionMatchAll : public FunctionMatchBase {
@@ -109,7 +109,7 @@ public:
                          size_t input_rows_count, const ColumnString* string_col,
                          InvertedIndexCtx* inverted_index_ctx,
                          const ColumnArray::Offsets64* array_offsets,
-                         ColumnUInt8::Container& result) override;
+                         ColumnUInt8::Container& result) const override;
 };
 
 class FunctionMatchPhrase : public FunctionMatchBase {
@@ -123,7 +123,7 @@ public:
                          size_t input_rows_count, const ColumnString* string_col,
                          InvertedIndexCtx* inverted_index_ctx,
                          const ColumnArray::Offsets64* array_offsets,
-                         ColumnUInt8::Container& result) override;
+                         ColumnUInt8::Container& result) const override;
 };
 
 class FunctionMatchElementEQ : public FunctionMatchBase {
@@ -137,7 +137,7 @@ public:
                          size_t input_rows_count, const ColumnString* string_col,
                          InvertedIndexCtx* inverted_index_ctx,
                          const ColumnArray::Offsets64* array_offsets,
-                         ColumnUInt8::Container& result) override {
+                         ColumnUInt8::Container& result) const override {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
                 "FunctionMatchElementEQ not support execute_match");
     }
@@ -154,7 +154,7 @@ public:
                          size_t input_rows_count, const ColumnString* string_col,
                          InvertedIndexCtx* inverted_index_ctx,
                          const ColumnArray::Offsets64* array_offsets,
-                         ColumnUInt8::Container& result) override {
+                         ColumnUInt8::Container& result) const override {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
                 "FunctionMatchElementLT not support execute_match");
     }
@@ -171,7 +171,7 @@ public:
                          size_t input_rows_count, const ColumnString* string_col,
                          InvertedIndexCtx* inverted_index_ctx,
                          const ColumnArray::Offsets64* array_offsets,
-                         ColumnUInt8::Container& result) override {
+                         ColumnUInt8::Container& result) const override {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
                 "FunctionMatchElementGT not support execute_match");
     }
@@ -188,7 +188,7 @@ public:
                          size_t input_rows_count, const ColumnString* string_col,
                          InvertedIndexCtx* inverted_index_ctx,
                          const ColumnArray::Offsets64* array_offsets,
-                         ColumnUInt8::Container& result) override {
+                         ColumnUInt8::Container& result) const override {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
                 "FunctionMatchElementLE not support execute_match");
     }
@@ -205,7 +205,7 @@ public:
                          size_t input_rows_count, const ColumnString* string_col,
                          InvertedIndexCtx* inverted_index_ctx,
                          const ColumnArray::Offsets64* array_offsets,
-                         ColumnUInt8::Container& result) override {
+                         ColumnUInt8::Container& result) const override {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
                 "FunctionMatchElementGE not support execute_match");
     }

@@ -54,6 +54,7 @@
 #include "pipeline/exec/es_scan_operator.h"
 #include "pipeline/exec/exchange_sink_operator.h"
 #include "pipeline/exec/exchange_source_operator.h"
+#include "pipeline/exec/file_scan_operator.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/jdbc_scan_operator.h"
@@ -560,6 +561,11 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
     }
     case doris::TPlanNodeType::JDBC_SCAN_NODE: {
         op.reset(new JDBCScanOperatorX(pool, tnode, descs));
+        RETURN_IF_ERROR(cur_pipe->add_operator(op));
+        break;
+    }
+    case doris::TPlanNodeType::FILE_SCAN_NODE: {
+        op.reset(new FileScanOperatorX(pool, tnode, descs));
         RETURN_IF_ERROR(cur_pipe->add_operator(op));
         break;
     }
