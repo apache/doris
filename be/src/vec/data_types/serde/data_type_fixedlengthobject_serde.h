@@ -97,7 +97,7 @@ public:
 
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
                                  int row_idx, bool col_const) const override {
-        return Status::NotSupported("write_column_to_pb with type " + column.get_name());
+        return Status::NotSupported("write_column_to_mysql with type " + column.get_name());
     }
 
     Status write_column_to_orc(const IColumn& column, const NullMap* null_map,

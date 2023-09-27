@@ -57,6 +57,9 @@ add_library(Gutil STATIC ${SOURCE_FILES})
 
 set_target_properties(Gutil PROPERTIES COMPILE_FLAGS "-funsigned-char -Wno-deprecated")
 target_compile_options(Gutil PRIVATE -Wno-char-subscripts -Wno-implicit-fallthrough)
+target_link_libraries(Gutil PRIVATE dragonbox_to_chars)
+target_include_directories(Gutil PRIVATE ${THIRDPARTY_DIR}/include/dragonbox-1.1.3)
+
 # target_link_libraries(Gutil glog protobuf rt)
 
 #set(GUTIL_LIBS
