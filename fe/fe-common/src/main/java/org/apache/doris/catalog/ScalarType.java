@@ -1066,24 +1066,9 @@ public class ScalarType extends Type {
             return createVarcharType(Math.max(t1.len, t2.len));
         }
 
-        if (t1.isDecimalV2() && t2.isDate()
-                || t1.isDate() && t2.isDecimalV2()) {
-            return INVALID;
-        }
-
-        if ((t1.isDecimalV2() && t2.isDateV2())
-                || (t1.isDateV2() && t2.isDecimalV2())) {
-            return INVALID;
-        }
-
-        if ((t1.isDecimalV3() && t2.isDate())
-                || (t1.isDate() && t2.isDecimalV3())) {
-            return INVALID;
-        }
-
-        if ((t1.isDecimalV3() && t2.isDateV2())
-                || (t1.isDateV2() && t2.isDecimalV3())) {
-            return INVALID;
+        if (((t1.isDecimalV3() || t1.isDecimalV2()) && (t2.isDateV2() || t2.isDate()))
+                || ((t2.isDecimalV3() || t2.isDecimalV2()) && (t1.isDateV2() || t1.isDate()))) {
+            return Type.DOUBLE;
         }
 
         if (t1.isDecimalV2() && t2.isDecimalV2()) {
