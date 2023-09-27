@@ -50,17 +50,10 @@ public:
     Status _init_scanners(std::list<vectorized::VScannerSPtr>* scanners) override;
     void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override {
         _scan_ranges = scan_ranges;
-        for (auto scan_range : scan_ranges) {
-            CHECK(scan_range.scan_range.ext_scan_range.file_scan_range.__isset.params);
-        }
-        for (auto scan_range : _scan_ranges) {
-            CHECK(scan_range.scan_range.ext_scan_range.file_scan_range.__isset.params);
-        }
     }
-    int node_id() const { return _node_id; }
+    int parent_id() { return _parent->id(); }
 
 private:
-    int _node_id {-1};
     std::vector<TScanRangeParams> _scan_ranges;
     // A in memory cache to save some common components
     // of the this scan node. eg:
@@ -76,10 +69,7 @@ public:
             : ScanOperatorX<FileScanLocalState>(pool, tnode, descs) {
         _output_tuple_id = tnode.file_scan_node.tuple_id;
         _id = tnode.node_id;
-        LOG_WARNING("yxc to test FileScanOperatorX").tag("node id", _id);
-        isFileScanOperatorX = true;
     }
-    inline static bool isFileScanOperatorX = false;
 
 private:
     friend class FileScanLocalState;

@@ -25,10 +25,8 @@
 #include <ostream>
 #include <vector>
 
-#include "common/logging.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/exec/scan_operator.h"
-#include "pipeline/exec/file_scan_operator.h"
 #include "pipeline/pipeline.h"
 #include "pipeline/task_queue.h"
 #include "pipeline_x_fragment_context.h"
@@ -80,15 +78,6 @@ Status PipelineXTask::prepare(RuntimeState* state, const TPipelineInstanceParams
     std::vector<TScanRangeParams> no_scan_ranges;
     auto scan_ranges = find_with_default(local_params.per_node_scan_ranges,
                                          _operators.front()->id(), no_scan_ranges);
-    if (FileScanOperatorX::isFileScanOperatorX) {
-        // use to test
-        LOG_WARNING("yxc to test ").tag("id()", _operators.front()->id());
-        for (auto scan_range : scan_ranges.get()) {
-            LOG_WARNING("yxc to test  scan range ")
-                    .tag("check",
-                         (bool)scan_range.scan_range.ext_scan_range.file_scan_range.__isset.params);
-        }
-    }
 
     for (int op_idx = _operators.size() - 1; op_idx >= 0; op_idx--) {
         auto& deps = get_upstream_dependency(_operators[op_idx]->id());

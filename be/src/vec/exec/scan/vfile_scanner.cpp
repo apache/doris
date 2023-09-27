@@ -130,8 +130,8 @@ VFileScanner::VFileScanner(RuntimeState* state, pipeline::FileScanLocalState* lo
     }
 
     if (state->get_query_ctx() != nullptr &&
-        state->get_query_ctx()->file_scan_range_params_map.count(local_state->node_id()) > 0) {
-        _params = &(state->get_query_ctx()->file_scan_range_params_map[local_state->node_id()]);
+        state->get_query_ctx()->file_scan_range_params_map.count(local_state->parent_id()) > 0) {
+        _params = &(state->get_query_ctx()->file_scan_range_params_map[local_state->parent_id()]);
     } else {
         CHECK(scan_range.__isset.params);
         _params = &(scan_range.params);
