@@ -1654,7 +1654,7 @@ public class SessionVariable implements Serializable, Writable {
             int size = Env.getCurrentSystemInfo().getMinPipelineExecutorSize();
             int autoInstance = (size + 1) / 2;
             return Math.min(autoInstance, maxInstanceNum);
-        } else if (enablePipelineEngine) {
+        } else if (getEnablePipelineEngine()) {
             return parallelPipelineTaskNum;
         } else {
             return parallelExecInstanceNum;
