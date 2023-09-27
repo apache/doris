@@ -94,7 +94,7 @@ public:
     void cancel(const PPlanFragmentCancelReason& reason = PPlanFragmentCancelReason::INTERNAL_ERROR,
                 const std::string& msg = "") override;
 
-    void send_report(bool);
+    void send_report(bool) override;
 
     void report_profile() override;
 

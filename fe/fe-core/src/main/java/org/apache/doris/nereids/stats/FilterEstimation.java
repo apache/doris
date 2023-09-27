@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Like;
@@ -384,6 +385,22 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             statisticsBuilder.putColumnStatistics(expr, columnStatistic);
         }
         return statisticsBuilder.build();
+    }
+
+    @Override
+    public Statistics visitIsNull(IsNull isNull, EstimationContext context) {
+        ColumnStatistic childStats = ExpressionEstimation.estimate(isNull.child(), context.statistics);
+        if (childStats.isUnKnown()) {
+            return new StatisticsBuilder(context.statistics).build();
+        }
+        double outputRowCount = childStats.numNulls;
+        ColumnStatisticBuilder colBuilder = new ColumnStatisticBuilder(childStats);
+        // do not modify ndv/min/max to make is-not-null work
+        colBuilder.setCount(outputRowCount).setNumNulls(outputRowCount);
+        StatisticsBuilder builder = new StatisticsBuilder(context.statistics);
+        builder.putColumnStatistics(isNull.child(), colBuilder.build());
+        // TODO we do not call updateRowCountOnly() to make is-not-null work. this need refactor
+        return builder.build();
     }
 
     static class EstimationContext {
