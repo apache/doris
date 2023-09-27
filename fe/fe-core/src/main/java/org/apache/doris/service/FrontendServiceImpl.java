@@ -2071,7 +2071,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             Coordinator coord = new Coordinator(ctx, analyzer, executor.planner());
             coord.setLoadMemLimit(request.getExecMemLimit());
             coord.setQueryType(TQueryType.LOAD);
-            QeProcessorImpl.INSTANCE.registerQuery(request.getLoadId(), coord);
 
             TExecPlanFragmentParams plan = coord.getStreamLoadPlan();
             final long txn_id = parsedStmt.getTransactionId();
