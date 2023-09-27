@@ -19,7 +19,7 @@
 # under the License.
 
 name: dbt_doris
-version: 0.3.3
+version: 0.3.4
 config-version: 2
 
 macro-paths: ["macros"]

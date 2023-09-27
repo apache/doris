@@ -22,7 +22,7 @@ from setuptools import find_namespace_packages, setup
 
 package_name = "dbt-doris"
 # make sure this always matches dbt/adapters/{adapter}/__version__.py
-package_version = "0.3.3"
+package_version = "0.3.4"
 dbt_core_version = "1.5.0"
 description = """The doris adapter plugin for dbt """
 
