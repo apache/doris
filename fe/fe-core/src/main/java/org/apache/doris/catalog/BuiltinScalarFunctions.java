@@ -539,7 +539,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(JsonbParseNullableErrorToValue.class, "jsonb_parse_nullable_error_to_value"),
             scalar(JsonbType.class, "jsonb_type"),
             scalar(JsonLength.class, "json_length"),
-            scalar(JsonContains.class, "json_conatins"),
+            scalar(JsonContains.class, "json_contains"),
             scalar(LastDay.class, "last_day"),
             scalar(Least.class, "least"),
             scalar(Left.class, "left"),
