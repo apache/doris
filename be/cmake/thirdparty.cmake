@@ -163,6 +163,7 @@ add_thirdparty(krb5)
 add_thirdparty(com_err)
 add_thirdparty(k5crypto)
 add_thirdparty(gssapi_krb5)
+add_thirdparty(dragonbox_to_chars)
 
 if (OS_MACOSX)
     add_thirdparty(bfd)
