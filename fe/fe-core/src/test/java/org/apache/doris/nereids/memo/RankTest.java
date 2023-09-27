@@ -31,6 +31,9 @@ import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.HashSet;
+import java.util.Set;
+
 public class RankTest extends TestWithFeService {
     @Test
     void test() {
@@ -46,10 +49,12 @@ public class RankTest extends TestWithFeService {
                 .optimize()
                 .getBestPlanTree();
         Memo memo = cascadesContext.getMemo();
+        Set<String> shape = new HashSet<>();
         for (int i = 0; i < memo.getRankSize(); i++) {
-            System.out.println(memo.unrank(memo.rank(i + 1).first).shape(""));
+            shape.add(memo.unrank(memo.rank(i + 1).first).shape(""));
         }
-        Assertions.assertEquals(memo.getRankSize(), 3);
+        System.out.println(shape);
+        Assertions.assertEquals(3, shape.size());
         Assertions.assertEquals(bestPlan.shape(""), memo.unrank(memo.rank(1).first).shape(""));
     }
 }

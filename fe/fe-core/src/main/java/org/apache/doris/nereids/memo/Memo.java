@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -884,6 +885,13 @@ public class Memo {
                             children.get(i).get(c.second.get(i)).second,
                             i);
                 }
+                if (res.isEmpty()) {
+                    Preconditions.checkArgument(
+                            Math.abs(totalCost.getValue() - groupExpression.getCostByProperties(prop)) < 0.0001,
+                            "Please check operator %s, expected cost %s but found %s",
+                            groupExpression.getPlan().shapeInfo(), totalCost.getValue(),
+                            groupExpression.getCostByProperties(prop));
+                }
                 res.add(Pair.of(prefix + c.first, totalCost));
             }
         }
@@ -929,10 +937,13 @@ public class Memo {
     private List<GroupExpression> extractGroupExpressionSatisfyProp(Group group, PhysicalProperties prop) {
         GroupExpression bestExpr = group.getLowestCostPlan(prop).get().second;
         List<GroupExpression> exprs = Lists.newArrayList(bestExpr);
+        Set<GroupExpression> hasVisited = new HashSet<>();
+        hasVisited.add(bestExpr);
         Stream.concat(group.getPhysicalExpressions().stream(), group.getEnforcers().stream())
                 .forEach(groupExpression -> {
                     if (!groupExpression.getInputPropertiesListOrEmpty(prop).isEmpty()
-                            && !groupExpression.equals(bestExpr)) {
+                            && !groupExpression.equals(bestExpr) && !hasVisited.contains(groupExpression)) {
+                        hasVisited.add(groupExpression);
                         exprs.add(groupExpression);
                     }
                 });
@@ -955,14 +966,17 @@ public class Memo {
             return res;
         }
 
-        // return any if exits
+        // return any if exits except RequirePropertiesSupplier and SetOperators
+        // Because PropRegulator could change their input properties
         RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(prop);
         List<List<PhysicalProperties>> requestList = requestPropertyDeriver
                 .getRequestChildrenPropertyList(groupExpression);
         Optional<List<PhysicalProperties>> any = requestList.stream()
                 .filter(e -> e.stream().allMatch(PhysicalProperties.ANY::equals))
                 .findAny();
-        if (any.isPresent() && !(groupExpression.getPlan() instanceof RequirePropertiesSupplier)) {
+        if (any.isPresent()
+                && !(groupExpression.getPlan() instanceof RequirePropertiesSupplier)
+                && !(groupExpression.getPlan() instanceof SetOperation)) {
             res.clear();
             res.add(any.get());
             return res;
@@ -978,20 +992,22 @@ public class Memo {
     }
 
     private int getGroupSize(Group group, PhysicalProperties prop,
-            Map<GroupExpression, List<List<Integer>>> exprSizeCache, Map<Group, Integer> groupSizeCache) {
+            Map<GroupExpression, List<List<Integer>>> exprSizeCache) {
         List<GroupExpression> validGroupExprs = extractGroupExpressionSatisfyProp(group, prop);
         int groupCount = 0;
         for (GroupExpression groupExpression : validGroupExprs) {
-            int exprCount = getExprSize(groupExpression, prop, exprSizeCache, groupSizeCache);
+            int exprCount = getExprSize(groupExpression, prop, exprSizeCache);
             groupCount += exprCount;
+            if (groupCount > 1e2) {
+                break;
+            }
         }
-        groupSizeCache.put(group, groupCount);
         return groupCount;
     }
 
     // return size for each input properties
     private int getExprSize(GroupExpression groupExpression, PhysicalProperties properties,
-            Map<GroupExpression, List<List<Integer>>> exprChildSizeCache, Map<Group, Integer> groupSizeCache) {
+            Map<GroupExpression, List<List<Integer>>> exprChildSizeCache) {
         List<List<Integer>> exprCount = new ArrayList<>();
         if (!groupExpression.getLowestCostTable().containsKey(properties)) {
             exprCount.add(Lists.newArrayList(0));
@@ -1002,10 +1018,8 @@ public class Memo {
             for (List<PhysicalProperties> inputProperties : inputPropertiesList) {
                 List<Integer> groupExprSize = new ArrayList<>();
                 for (int i = 0; i < inputProperties.size(); i++) {
-                    // To avoid reach a circle, we don't allow ranking the same group with the same physical properties.
                     groupExprSize.add(
-                            getGroupSize(groupExpression.child(i), inputProperties.get(i), exprChildSizeCache,
-                                    groupSizeCache));
+                            getGroupSize(groupExpression.child(i), inputProperties.get(i), exprChildSizeCache));
                 }
                 exprCount.add(groupExprSize);
             }
@@ -1017,23 +1031,24 @@ public class Memo {
     }
 
     private PhysicalPlan unrankGroup(Group group, PhysicalProperties prop, long rank,
-            Map<GroupExpression, List<List<Integer>>> exprSizeCache, Map<Group, Integer> groupSizeCache) {
+            Map<GroupExpression, List<List<Integer>>> exprSizeCache) {
         int prefix = 0;
         for (GroupExpression groupExpression : extractGroupExpressionSatisfyProp(group, prop)) {
             int exprCount = exprSizeCache.get(groupExpression).stream()
                     .mapToInt(s -> s.stream().reduce(1, (a, b) -> a * b))
                     .sum();
-            if (exprCount != 0 && rank - prefix <= exprCount) {
+            // rank is start from 0
+            if (exprCount != 0 && rank + 1 - prefix <= exprCount) {
                 return unrankGroupExpression(groupExpression, prop, rank - prefix,
-                        exprSizeCache, groupSizeCache);
+                        exprSizeCache);
             }
             prefix += exprCount;
         }
-        return null;
+        throw new RuntimeException("the group has no plan for prop %s in rank job");
     }
 
     private PhysicalPlan unrankGroupExpression(GroupExpression groupExpression, PhysicalProperties prop, long rank,
-            Map<GroupExpression, List<List<Integer>>> exprSizeCache, Map<Group, Integer> groupSizeCache) {
+            Map<GroupExpression, List<List<Integer>>> exprSizeCache) {
         if (groupExpression.getPlan() instanceof LeafPlan) {
             Preconditions.checkArgument(rank == 0,
                     "leaf plan's %s rank must be 0 but is %d", groupExpression, rank);
@@ -1054,9 +1069,10 @@ public class Memo {
             List<Long> childrenRanks = extractChildRanks(rank, childrenSize);
             List<Plan> childrenPlan = new ArrayList<>();
             for (int j = 0; j < properties.size(); j++) {
-                childrenPlan.add(
-                        unrankGroup(groupExpression.child(j), properties.get(j),
-                                childrenRanks.get(j), exprSizeCache, groupSizeCache));
+                Plan plan = unrankGroup(groupExpression.child(j), properties.get(j),
+                        childrenRanks.get(j), exprSizeCache);
+                Preconditions.checkArgument(plan != null, "rank group get null");
+                childrenPlan.add(plan);
             }
 
             Plan plan = groupExpression.getPlan().withChildren(childrenPlan);
@@ -1064,7 +1080,7 @@ public class Memo {
                     groupExpression.getOutputProperties(prop),
                     groupExpression.getOwnerGroup().getStatistics());
         }
-        return null;
+        throw new RuntimeException("the groupExpr has no plan for prop in rank job");
     }
 
     /**
@@ -1075,21 +1091,18 @@ public class Memo {
      */
     private List<Long> extractChildRanks(long rank, List<Integer> childrenSize) {
         Preconditions.checkArgument(!childrenSize.isEmpty(), "children should not empty in extractChildRanks");
-        int factor = childrenSize.get(0);
         List<Long> indices = new ArrayList<>();
-        for (int i = 1; i < childrenSize.size(); i++) {
+        for (int i = 0; i < childrenSize.size(); i++) {
+            int factor = childrenSize.get(i);
             indices.add(rank % factor);
             rank = rank / factor;
-            factor *= childrenSize.get(i);
         }
-        indices.add(rank % factor);
         return indices;
     }
 
     public PhysicalPlan unrank(long id) {
         Map<GroupExpression, List<List<Integer>>> exprSizeCache = new HashMap<>();
-        Map<Group, Integer> groupSizeCache = new HashMap<>();
-        getGroupSize(getRoot(), PhysicalProperties.GATHER, exprSizeCache, groupSizeCache);
-        return unrankGroup(getRoot(), PhysicalProperties.GATHER, id, exprSizeCache, groupSizeCache);
+        getGroupSize(getRoot(), PhysicalProperties.GATHER, exprSizeCache);
+        return unrankGroup(getRoot(), PhysicalProperties.GATHER, id, exprSizeCache);
     }
 }
