@@ -592,10 +592,10 @@ Status GroupCommitMgr::_group_commit_stream_load(std::shared_ptr<StreamLoadConte
                 ctx->label = load_block_queue->label;
                 ctx->txn_id = load_block_queue->txn_id;
             }
-            RETURN_IF_ERROR(load_block_queue->add_block(future_block));
             if (future_block->rows() > 0) {
                 future_blocks.emplace_back(future_block);
             }
+            RETURN_IF_ERROR(load_block_queue->add_block(future_block));
             first = false;
         }
         ctx->number_unselected_rows = runtime_state->num_rows_load_unselected();
