@@ -53,7 +53,7 @@ namespace doris::signal {
 
 inline thread_local uint64 query_id_hi;
 inline thread_local uint64 query_id_lo;
-inline thread_local uint64 tablet_id = -1;
+inline thread_local uint64 tablet_id = 0;
 
 namespace {
 
