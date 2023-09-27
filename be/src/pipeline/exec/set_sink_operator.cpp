@@ -85,7 +85,7 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Blo
                         [&](auto&& arg) {
                             using HashTableCtxType = std::decay_t<decltype(arg)>;
                             if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                                valid_element_in_hash_tbl = arg.hash_table.size();
+                                valid_element_in_hash_tbl = arg.hash_table->size();
                             }
                         },
                         *local_state._shared_state->hash_table_variants);

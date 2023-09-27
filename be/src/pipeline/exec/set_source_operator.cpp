@@ -118,14 +118,14 @@ template <typename HashTableContext>
 Status SetSourceOperatorX<is_intersect>::_get_data_in_hashtable(
         SetSourceLocalState<is_intersect>& local_state, HashTableContext& hash_table_ctx,
         vectorized::Block* output_block, const int batch_size, SourceState& source_state) {
-    hash_table_ctx.init_once();
     int left_col_len = local_state._left_table_data_types.size();
-    auto& iter = hash_table_ctx.iter;
+    hash_table_ctx.init_iterator();
+    auto& iter = hash_table_ctx.iterator;
     auto block_size = 0;
 
     if constexpr (std::is_same_v<typename HashTableContext::Mapped,
                                  vectorized::RowRefListWithFlags>) {
-        for (; iter != hash_table_ctx.hash_table.end() && block_size < batch_size; ++iter) {
+        for (; iter != hash_table_ctx.hash_table->end() && block_size < batch_size; ++iter) {
             auto& value = iter->get_second();
             auto it = value.begin();
             if constexpr (is_intersect) {
@@ -142,7 +142,7 @@ Status SetSourceOperatorX<is_intersect>::_get_data_in_hashtable(
         return Status::InternalError("Invalid RowRefListType!");
     }
 
-    if (iter == hash_table_ctx.hash_table.end()) {
+    if (iter == hash_table_ctx.hash_table->end()) {
         source_state = SourceState::FINISHED;
     }
     if (!output_block->mem_reuse()) {
