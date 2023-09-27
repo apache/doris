@@ -241,7 +241,7 @@ DataTypePtr FunctionUnaryLogical<Impl, Name>::get_return_type_impl(
 }
 
 template <template <typename> class Impl, typename T>
-bool functionUnaryExecuteType(Block& block, const ColumnNumbers& arguments, size_t result)  {
+bool functionUnaryExecuteType(Block& block, const ColumnNumbers& arguments, size_t result) {
     if (auto col = check_and_get_column<ColumnVector<T>>(
                 block.get_by_position(arguments[0]).column.get())) {
         auto col_res = ColumnUInt8::create();

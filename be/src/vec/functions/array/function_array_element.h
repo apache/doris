@@ -129,7 +129,8 @@ public:
 
 private:
     //=========================== map element===========================//
-    ColumnPtr _get_mapped_idx(const ColumnArray& column, const ColumnWithTypeAndName& argument) const {
+    ColumnPtr _get_mapped_idx(const ColumnArray& column,
+                              const ColumnWithTypeAndName& argument) const {
         auto right_column = make_nullable(argument.column->convert_to_full_column_if_const());
         const ColumnArray::Offsets64& offsets = column.get_offsets();
         ColumnPtr nested_ptr = make_nullable(column.get_data_ptr());

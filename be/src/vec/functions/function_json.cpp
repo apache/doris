@@ -974,7 +974,8 @@ public:
         return true;
     }
 
-    bool json_contains_array(const rapidjson::Value& target, const rapidjson::Value& search_value) const {
+    bool json_contains_array(const rapidjson::Value& target,
+                             const rapidjson::Value& search_value) const {
         if (!target.IsArray() || !search_value.IsArray()) {
             return false;
         }
@@ -1164,7 +1165,8 @@ private:
     // if path is not a valid path expression or contains
     // a * wildcard, return runtime error.
     template <typename T>
-    Status get_parsed_paths_with_status(const T& path_exprs, std::vector<JsonPath>* parsed_paths) const {
+    Status get_parsed_paths_with_status(const T& path_exprs,
+                                        std::vector<JsonPath>* parsed_paths) const {
         if (UNLIKELY(path_exprs.empty())) {
             return Status::RuntimeError("json path empty function {}", get_name());
         }

@@ -137,7 +137,8 @@ private:
 
     template <typename Element, typename Result>
     ColumnPtr _execute_number_expanded(const ColumnArray::Offsets64& offsets,
-                                       const IColumn& nested_column, ColumnPtr nested_null_map) const {
+                                       const IColumn& nested_column,
+                                       ColumnPtr nested_null_map) const {
         using ColVecType = ColumnVectorOrDecimal<Element>;
         using ColVecResult = ColumnVectorOrDecimal<Result>;
         typename ColVecResult::MutablePtr res_nested = nullptr;
