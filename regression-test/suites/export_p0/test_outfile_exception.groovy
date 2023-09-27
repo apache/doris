@@ -27,7 +27,7 @@ suite("test_outfile_exception") {
     String region = getS3Region()
 
     // This is a bucket that doesn't exist
-    String bucket = "test_outfile_exception_no_exists"
+    String bucket = "test-outfile-exception-no-exists"
     
     def tableName = "outfile_exception_test"
     sql """ DROP TABLE IF EXISTS ${tableName} """
