@@ -22,11 +22,8 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
-import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
-import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableSet;
@@ -44,25 +41,10 @@ public class PushdownFilterThroughSetOperation extends OneRewriteRuleFactory {
 
     @Override
     public Rule build() {
-        return logicalFilter(logicalSetOperation()).when(f -> f.child().getQualifier() == Qualifier.ALL).then(f -> {
+        return logicalFilter(logicalSetOperation()).then(f -> {
             LogicalSetOperation setOperation = f.child();
-
-            if (setOperation instanceof LogicalUnion && ((LogicalUnion) setOperation).hasPushedFilter()) {
-                return f;
-            }
-
             List<Plan> newChildren = new ArrayList<>();
-            boolean allOneRowRelation = true;
-            boolean hasOneRowRelation = false;
             for (Plan child : setOperation.children()) {
-                if (child instanceof OneRowRelation) {
-                    // We shouldn't push down the 'filter' to 'oneRowRelation'.
-                    hasOneRowRelation = true;
-                    newChildren.add(child);
-                    continue;
-                } else {
-                    allOneRowRelation = false;
-                }
                 Map<Expression, Expression> replaceMap = new HashMap<>();
                 for (int i = 0; i < setOperation.getOutputs().size(); ++i) {
                     NamedExpression output = setOperation.getOutputs().get(i);
@@ -73,14 +55,7 @@ public class PushdownFilterThroughSetOperation extends OneRewriteRuleFactory {
                         ExpressionUtils.replace(conjunct, replaceMap)).collect(ImmutableSet.toImmutableSet());
                 newChildren.add(new LogicalFilter<>(newFilterPredicates, child));
             }
-            if (allOneRowRelation) {
-                return f;
-            }
 
-            if (hasOneRowRelation) {
-                // If there are some `OneRowRelation` exists, we need to keep the `filter`.
-                return f.withChildren(((LogicalUnion) setOperation).withHasPushedFilter().withChildren(newChildren));
-            }
             return setOperation.withChildren(newChildren);
         }).toRule(RuleType.PUSHDOWN_FILTER_THROUGH_SET_OPERATION);
     }
