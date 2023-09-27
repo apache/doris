@@ -315,7 +315,7 @@ public:
     // 7. insert value  4, 5
     // Then the read schema should be ColA, ColB, ColB' because the delete predicate need ColB to remove related data.
     // Because they have same name, so that the dropped column should not be added to the map, only with unique id.
-    void merge_dropped_columns(std::shared_ptr<TabletSchema> src_schema);
+    void merge_dropped_columns(const TabletSchema& src_schema);
 
     bool is_dropped_column(const TabletColumn& col) const;
 
