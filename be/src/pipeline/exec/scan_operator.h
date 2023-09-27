@@ -134,7 +134,7 @@ public:
 
     [[nodiscard]] virtual int runtime_filter_num() const = 0;
 
-    Status virtual clone_conjunct_ctxs(vectorized::VExprContextSPtrs& conjuncts) = 0;
+    virtual Status clone_conjunct_ctxs(vectorized::VExprContextSPtrs& conjuncts) = 0;
     virtual void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) = 0;
 
     virtual TPushAggOp::type get_push_down_agg_type() = 0;
@@ -351,11 +351,10 @@ protected:
                                const ChangeFixedValueRangeFunc& func, const std::string& fn_name,
                                int slot_ref_child = -1);
 
-    Status _prepare_scanners(const int query_parallel_instance_num);
+    Status _prepare_scanners();
 
     // Submit the scanner to the thread pool and start execution
-    Status _start_scanners(const std::list<vectorized::VScannerSPtr>& scanners,
-                           const int query_parallel_instance_num);
+    Status _start_scanners(const std::list<vectorized::VScannerSPtr>& scanners);
 
     // Every time vconjunct_ctx_ptr is updated, the old ctx will be stored in this vector
     // so that it will be destroyed uniformly at the end of the query.
