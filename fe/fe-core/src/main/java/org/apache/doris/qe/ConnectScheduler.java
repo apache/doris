@@ -81,6 +81,7 @@ public class ConnectScheduler {
             return false;
         }
         context.setConnectionId(nextConnectionId.getAndAdd(1));
+        context.resetLoginTime();
         return true;
     }
 

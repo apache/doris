@@ -33,6 +33,8 @@ Status PartitionSortSourceLocalState::close(RuntimeState* state) {
     if (_closed) {
         return Status::OK();
     }
+    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(_close_timer);
     _shared_state->previous_row = nullptr;
     _shared_state->partition_sorts.clear();
     return PipelineXLocalState<PartitionSortDependency>::close(state);
@@ -42,6 +44,8 @@ Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, vectorized::
                                                SourceState& source_state) {
     RETURN_IF_CANCELLED(state);
     CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    SCOPED_TIMER(local_state._get_next_timer);
     output_block->clear_column_data();
     {
         std::lock_guard<std::mutex> lock(local_state._shared_state->buffer_mutex);
