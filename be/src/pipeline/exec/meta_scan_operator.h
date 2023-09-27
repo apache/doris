@@ -63,7 +63,6 @@ private:
 
     TupleId _tuple_id;
     TUserIdentity _user_identity;
-    TMetaScanNode _scan_params;
 };
 
 } // namespace doris::pipeline
