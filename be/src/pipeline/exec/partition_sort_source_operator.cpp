@@ -45,6 +45,7 @@ Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, vectorized::
     RETURN_IF_CANCELLED(state);
     CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
+    SCOPED_TIMER(local_state._get_next_timer);
     output_block->clear_column_data();
     {
         std::lock_guard<std::mutex> lock(local_state._shared_state->buffer_mutex);

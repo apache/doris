@@ -544,7 +544,7 @@ void AggSinkLocalState<DependencyType, Derived>::_emplace_into_hash_table(
                 };
 
                 if constexpr (HashTableTraits<HashTableType>::is_phmap) {
-                    auto keys = state.get_keys(num_rows);
+                    const auto& keys = state.get_keys();
                     if (_hash_values.size() < num_rows) {
                         _hash_values.resize(num_rows);
                     }
@@ -602,19 +602,12 @@ void AggSinkLocalState<DependencyType, Derived>::_find_in_hash_table(
                 AggState state(key_columns, Base::_shared_state->probe_key_sz, nullptr);
 
                 _pre_serialize_key_if_need(state, agg_method, key_columns, num_rows);
-
+                const auto& keys = state.get_keys();
                 if constexpr (HashTableTraits<HashTableType>::is_phmap) {
-                    if (_hash_values.size() < num_rows) _hash_values.resize(num_rows);
-                    if constexpr (vectorized::ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
-                                          AggState>::value) {
-                        for (size_t i = 0; i < num_rows; ++i) {
-                            _hash_values[i] = agg_method.data.hash(agg_method.keys[i]);
-                        }
-                    } else {
-                        for (size_t i = 0; i < num_rows; ++i) {
-                            _hash_values[i] =
-                                    agg_method.data.hash(state.get_key_holder(i, *_agg_arena_pool));
-                        }
+                    _hash_values.resize(num_rows);
+
+                    for (size_t i = 0; i < num_rows; ++i) {
+                        _hash_values[i] = agg_method.data.hash(keys[i]);
                     }
                 }
 
@@ -627,8 +620,8 @@ void AggSinkLocalState<DependencyType, Derived>::_find_in_hash_table(
                                         _hash_values[i + HASH_MAP_PREFETCH_DIST]);
                             }
 
-                            return state.find_key_with_hash(agg_method.data, _hash_values[i], i,
-                                                            *_agg_arena_pool);
+                            return state.find_key_with_hash(agg_method.data, _hash_values[i],
+                                                            keys[i]);
                         } else {
                             return state.find_key(agg_method.data, i, *_agg_arena_pool);
                         }

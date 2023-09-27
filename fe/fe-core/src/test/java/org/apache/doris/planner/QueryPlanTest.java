@@ -492,7 +492,7 @@ public class QueryPlanTest extends TestWithFeService {
 
         assertSQLPlanOrErrorMsgContains(
                 "select count(*) from test.bitmap_table where id2 = 1;",
-                "Bitmap type dose not support operand: `id2` = 1"
+                "Unsupported bitmap type in expression: `id2` = 1"
         );
 
     }

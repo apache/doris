@@ -354,6 +354,9 @@ public class DataDescription implements InsertStmt.DataDesc {
                     case FORMAT_JSON:
                         this.fileFormat = "json";
                         break;
+                    case FORMAT_WAL:
+                        this.fileFormat = "wal";
+                        break;
                     default:
                         this.fileFormat = "unknown";
                         break;
@@ -1114,6 +1117,7 @@ public class DataDescription implements InsertStmt.DataDesc {
                     && !fileFormat.equalsIgnoreCase(FeConstants.csv)
                     && !fileFormat.equalsIgnoreCase("orc")
                     && !fileFormat.equalsIgnoreCase("json")
+                    && !fileFormat.equalsIgnoreCase("wal")
                     && !fileFormat.equalsIgnoreCase(FeConstants.csv_with_names)
                     && !fileFormat.equalsIgnoreCase(FeConstants.csv_with_names_and_types)
                     && !fileFormat.equalsIgnoreCase("hive_text")) {

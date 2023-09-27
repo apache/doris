@@ -118,7 +118,7 @@ public:
     virtual void add_merge_controller_handler(
             std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {}
 
-    void send_report(bool);
+    virtual void send_report(bool);
 
     virtual void report_profile();
 
@@ -130,7 +130,7 @@ public:
         return _query_ctx->exec_status();
     }
 
-    taskgroup::TaskGroupPipelineTaskEntity* get_task_group_entity() const {
+    [[nodiscard]] taskgroup::TaskGroupPipelineTaskEntity* get_task_group_entity() const {
         return _task_group_entity;
     }
 

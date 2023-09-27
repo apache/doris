@@ -62,6 +62,7 @@
 #include "common/config.h"
 #include "common/consts.h"
 #include "common/logging.h"
+#include "common/signal_handler.h"
 #include "common/status.h"
 #include "gutil/ref_counted.h"
 #include "gutil/strings/stringpiece.h"
@@ -119,6 +120,7 @@
 #include "util/time.h"
 #include "util/trace.h"
 #include "util/uid_util.h"
+#include "util/work_thread_pool.hpp"
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/string_ref.h"
@@ -174,7 +176,11 @@ struct WriteCooldownMetaExecutors {
     };
     // Each executor is a mpsc to ensure uploads of the same tablet meta are not concurrent
     // FIXME(AlexYue): Use mpsc instead of `ThreadPool` with 1 thread
-    std::vector<std::unique_ptr<ThreadPool>> _executors;
+    // We use PriorityThreadPool since it would call status inside it's `shutdown` function.
+    // Consider one situation where the StackTraceCache's singleton is detructed before
+    // this WriteCooldownMetaExecutors's singleton, then invoking the status would also call
+    // StackTraceCache which would then result in heap use after free like #23834
+    std::vector<std::unique_ptr<PriorityThreadPool>> _executors;
     std::unordered_set<int64_t> _pending_tablets;
     std::mutex _latch;
     size_t _executor_nums;
@@ -183,7 +189,7 @@ struct WriteCooldownMetaExecutors {
 WriteCooldownMetaExecutors::WriteCooldownMetaExecutors(size_t executor_nums)
         : _executor_nums(executor_nums) {
     for (size_t i = 0; i < _executor_nums; i++) {
-        std::unique_ptr<ThreadPool> pool;
+        std::unique_ptr<PriorityThreadPool> pool;
         ThreadPoolBuilder("WriteCooldownMetaExecutor")
                 .set_min_threads(1)
                 .set_max_threads(1)
@@ -230,7 +236,7 @@ void WriteCooldownMetaExecutors::WriteCooldownMetaExecutors::submit(TabletShared
         VLOG_DEBUG << "tablet " << t->tablet_id() << " is not cooldown replica";
     };
 
-    _executors[_get_executor_pos(tablet_id)]->submit_func(
+    _executors[_get_executor_pos(tablet_id)]->offer(
             [task = std::move(async_write_task)]() { task(); });
 }
 
@@ -962,10 +968,6 @@ Status Tablet::capture_rs_readers(const std::vector<Version>& version_path,
         rs_splits->push_back(RowSetSplits(std::move(rs_reader)));
     }
     return Status::OK();
-}
-
-bool Tablet::version_for_delete_predicate(const Version& version) {
-    return _tablet_meta->version_for_delete_predicate(version);
 }
 
 bool Tablet::can_do_compaction(size_t path_hash, CompactionType compaction_type) {
@@ -1843,6 +1845,7 @@ std::vector<Version> Tablet::get_all_versions() {
 }
 
 void Tablet::execute_compaction(CompactionType compaction_type) {
+    signal::tablet_id = tablet_id();
     if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
         MonotonicStopWatch watch;
         watch.start();
