@@ -129,7 +129,7 @@ public class Statistics {
             if (!checkColumnStatsValid(columnStatistic)) {
                 ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(columnStatistic);
                 columnStatisticBuilder.setNdv(Math.min(columnStatistic.ndv, rowCount));
-                columnStatisticBuilder.setNumNulls(Math.min(columnStatistic.numNulls, rowCount));
+                columnStatisticBuilder.setNumNulls(Math.min(columnStatistic.numNulls, rowCount - columnStatistic.ndv));
                 columnStatisticBuilder.setCount(rowCount);
                 columnStatistic = columnStatisticBuilder.build();
             }
@@ -138,7 +138,8 @@ public class Statistics {
     }
 
     public boolean checkColumnStatsValid(ColumnStatistic columnStatistic) {
-        return columnStatistic.ndv <= rowCount && columnStatistic.numNulls <= rowCount;
+        return columnStatistic.ndv <= rowCount
+                && columnStatistic.numNulls <= rowCount - columnStatistic.ndv;
     }
 
     public Statistics withSel(double sel) {
