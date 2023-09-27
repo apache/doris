@@ -140,7 +140,7 @@ public class CreatePartitionTopNFromWindow extends OneRewriteRuleFactory {
                 return filter;
             }
             return filter.withChildren(newWindow.get());
-        }).toRule(RuleType.CREATE_PTOPN_FOR_WINDOWN);
+        }).toRule(RuleType.CREATE_PARTITION_TOPN_FOR_WINDOW);
     }
 
     private Set<Expression> extractRelatedConjuncts(Set<Expression> conjuncts, ExprId slotRefID) {

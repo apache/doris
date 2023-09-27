@@ -20,12 +20,14 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 
-import com.google.common.collect.Sets;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSet.Builder;
 
 import java.util.Set;
 
@@ -49,7 +51,7 @@ import java.util.Set;
  *                 any_node
  */
 
-public class PushdownFilterThroughPTopN extends OneRewriteRuleFactory {
+public class PushdownFilterThroughPartitionTopN extends OneRewriteRuleFactory {
 
     @Override
     public Rule build() {
@@ -58,22 +60,26 @@ public class PushdownFilterThroughPTopN extends OneRewriteRuleFactory {
             LogicalPartitionTopN<Plan> partitionTopN = filter.child();
             // follow the similar checking and transformation rule as
             // PushdownFilterThroughWindow
-            Set<Expression> bottomConjuncts = Sets.newHashSet();
-            Set<Expression> upperConjuncts = Sets.newHashSet();
+            Builder<Expression> bottomConjunctsBuilder = ImmutableSet.builder();
+            Builder<Expression> upperConjunctsBuilder = ImmutableSet.builder();
             for (Expression expr : filter.getConjuncts()) {
                 boolean pushed = false;
+                Set<Slot> exprInputSlots = expr.getInputSlots();
                 for (Expression partitionKey : partitionTopN.getPartitionKeys()) {
                     if (partitionKey instanceof SlotReference
-                            && partitionKey.getInputSlots().containsAll(expr.getInputSlots())) {
-                        bottomConjuncts.add(expr);
+                            && exprInputSlots.size() == 1
+                            && partitionKey.getInputSlots().containsAll(exprInputSlots)) {
+                        bottomConjunctsBuilder.add(expr);
                         pushed = true;
                         break;
                     }
                 }
                 if (!pushed) {
-                    upperConjuncts.add(expr);
+                    upperConjunctsBuilder.add(expr);
                 }
             }
+            ImmutableSet<Expression> bottomConjuncts = bottomConjunctsBuilder.build();
+            ImmutableSet<Expression> upperConjuncts = upperConjunctsBuilder.build();
             if (bottomConjuncts.isEmpty()) {
                 return null;
             }
@@ -83,9 +89,7 @@ public class PushdownFilterThroughPTopN extends OneRewriteRuleFactory {
             if (upperConjuncts.isEmpty()) {
                 return partitionTopN;
             } else {
-                LogicalFilter<Plan> upperFilter = (LogicalFilter<Plan>) filter
-                        .withConjuncts(upperConjuncts).withChildren(partitionTopN);
-                return upperFilter;
+                return filter.withConjunctsAndChild(upperConjuncts, partitionTopN);
             }
         }).toRule(RuleType.PUSHDOWN_FILTER_THROUGH_PTOPN);
     }
