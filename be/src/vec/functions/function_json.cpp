@@ -273,6 +273,10 @@ struct GetJsonNumberType {
     using ColumnType = typename NumberType::ColumnType;
     using Container = typename ColumnType::Container;
 
+    static DataTypes get_variadic_argument_types_impl() {
+        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>()};
+    }
+
     static void get_json_impl(rapidjson::Value*& root, const std::string_view& json_string,
                               const std::string_view& path_string, rapidjson::Document& document,
                               typename NumberType::T& res, UInt8& null_map) {
@@ -525,6 +529,9 @@ struct GetJsonString {
             StringOP::push_value_string(std::string_view(ptr, len), index_now, res_data,
                                         res_offsets);
         }
+    }
+    static DataTypes get_variadic_argument_types_impl() {
+        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>()};
     }
 };
 
