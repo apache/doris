@@ -673,7 +673,8 @@ suite("test_stream_load_properties", "p0") {
         }
     } finally {
         for (String table in tables) {
-            sql new File("""${context.file.parent}/ddl/${table}_drop.sql""").text
+            def tableName =  "stream_load_" + table
+            sql "DROP TABLE IF EXISTS ${tableName} FORCE"
         }
     }
 
