@@ -131,12 +131,6 @@ void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
             stream_load_ctx->pipe->cancel(msg);
         }
 
-        // must close stream_mgr to avoid dead lock in Exchange Node
-        FOR_EACH_RUNTIME_STATE(
-                runtime_state->set_is_cancelled(true, msg);
-                runtime_state->set_process_status(_query_ctx->exec_status());
-                _exec_env->vstream_mgr()->cancel(runtime_state->fragment_instance_id());)
-
         // Cancel the result queue manager used by spark doris connector
         // TODO pipeline incomp
         // _exec_env->result_queue_mgr()->update_queue_status(id, Status::Aborted(msg));
@@ -881,12 +875,10 @@ void PipelineXFragmentContext::send_report(bool done) {
         runtime_states[i] = _runtime_states[i].get();
     }
 
-    std::vector<RuntimeState*> empty_vector(0);
-
     _report_status_cb(
-            {true, exec_status, _runtime_state->enable_profile() ? runtime_states : empty_vector,
-             nullptr, nullptr, done || !exec_status.ok(), _query_ctx->coord_addr, _query_id,
-             _fragment_id, TUniqueId(), _backend_num, _runtime_state.get(),
+            {true, exec_status, runtime_states, nullptr, nullptr, done || !exec_status.ok(),
+             _query_ctx->coord_addr, _query_id, _fragment_id, TUniqueId(), _backend_num,
+             _runtime_state.get(),
              std::bind(&PipelineFragmentContext::update_status, this, std::placeholders::_1),
              std::bind(&PipelineFragmentContext::cancel, this, std::placeholders::_1,
                        std::placeholders::_2)});
