@@ -62,19 +62,24 @@ spec:
             #Specify the startup type as k8s to bypass some restrictions of the official image initialization script
             - name: BUILD_TYPE
               value: "k8s"
+            - name: APP_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
             #Initialize the fe of three nodes
             - name: FE_INIT_NUMBER
               value: "3"
-            #ServiceName of bakend_cn node,（if do not have bakend_cn node,do not configure this environment variable）
+            #ServiceName of backend_cn node,（if do not have backend_cn node,do not configure this environment variable）
             - name: CN_SERVICE
               value: "doris-cn-cluster1"
-            #StatefulSetName of bakend_cn node,（if do not have bakend_cn node,do not configure this environment variable)
+            #StatefulSetName of backend_cn node,（if do not have backend_cn node,do not configure this environment variable)
             - name: CN_STATEFULSET
               value: "doris-cn-cluster1"
-            #ServiceName of bakend node,（if do not have bakend node,do not configure this environment variable）
+            #ServiceName of backend node,（if do not have backend node,do not configure this environment variable）
             - name: BE_SERVICE
               value: "doris-be-cluster1"
-            #StatefulSetName of bakend node,（if do not have bakend node,do not configure this environment variable)
+            #StatefulSetName of backend node,（if do not have backend node,do not configure this environment variable)
             - name: BE_STATEFULSET
               value: "doris-be-cluster1"
             #ServiceName of follower node,（if do not have follower node,do not configure this environment variable）
