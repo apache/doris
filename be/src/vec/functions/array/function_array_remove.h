@@ -73,7 +73,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         // For default implementation of nulls args
         ColumnsWithTypeAndName args = {block.get_by_position(arguments[0]),
                                        block.get_by_position(arguments[1])};
@@ -93,7 +93,7 @@ public:
 private:
     template <typename NestedColumnType, typename RightColumnType>
     ColumnPtr _execute_number(const ColumnArray::Offsets64& offsets, const IColumn& nested_column,
-                              const IColumn& right_column, const UInt8* nested_null_map) {
+                              const IColumn& right_column, const UInt8* nested_null_map) const {
         // check array nested column type and get data
         const auto& src_data = reinterpret_cast<const NestedColumnType&>(nested_column).get_data();
 
@@ -163,7 +163,7 @@ private:
     }
 
     ColumnPtr _execute_string(const ColumnArray::Offsets64& offsets, const IColumn& nested_column,
-                              const IColumn& right_column, const UInt8* nested_null_map) {
+                              const IColumn& right_column, const UInt8* nested_null_map) const {
         // check array nested column type and get data
         const auto& src_offs = reinterpret_cast<const ColumnString&>(nested_column).get_offsets();
         const auto& src_chars = reinterpret_cast<const ColumnString&>(nested_column).get_chars();
@@ -253,7 +253,7 @@ private:
     template <typename NestedColumnType>
     ColumnPtr _execute_number_expanded(const ColumnArray::Offsets64& offsets,
                                        const IColumn& nested_column, const IColumn& right_column,
-                                       const UInt8* nested_null_map) {
+                                       const UInt8* nested_null_map) const {
         if (check_column<NestedColumnType>(right_column)) {
             return _execute_number<NestedColumnType, NestedColumnType>(
                     offsets, nested_column, right_column, nested_null_map);
@@ -262,7 +262,7 @@ private:
     }
 
     ColumnPtr _execute_non_nullable(const ColumnsWithTypeAndName& arguments,
-                                    size_t input_rows_count) {
+                                    size_t input_rows_count) const {
         // check array nested column type and get data
         auto left_column = arguments[0].column->convert_to_full_column_if_const();
         const auto& array_column = reinterpret_cast<const ColumnArray&>(*left_column);
