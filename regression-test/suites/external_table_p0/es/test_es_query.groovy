@@ -168,7 +168,7 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
         order_qt_sql69 """select c_bool, c_byte, c_short, c_integer, c_long, c_unsigned_long, c_float, c_half_float, c_double, c_scaled_float, c_date, c_datetime, c_keyword, c_text, c_ip, c_person from test2_20220808"""
 
         sql """switch es6_hide"""
-        List<List<String>> tables6 = sql """show tables""" as List<List<String>>
+        List<List<String>> tables6 = sql """show tables"""
         boolean containHide = false
         tables6.forEach {
             if (it[0] == ".hide"){
@@ -189,7 +189,7 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
         order_qt_sql79 """select c_bool, c_byte, c_short, c_integer, c_long, c_unsigned_long, c_float, c_half_float, c_double, c_scaled_float, c_date, c_datetime, c_keyword, c_text, c_ip, c_person from test2"""
 
         sql """switch es7_hide"""
-        List<List<String>> tables7 = sql """show tables""" as List<List<String>>
+        List<List<String>> tables7 = sql """show tables"""
         boolean containeHide7 = false
         tables7.forEach {
             if (it[0] == (".hide")){
