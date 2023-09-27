@@ -174,8 +174,8 @@ Status VPartitionSortNode::sink(RuntimeState* state, vectorized::Block* input_bl
             _value_places[0]->append_whole_block(input_block, child(0)->row_desc());
         } else {
             //just simply use partition num to check
-            //if is TWO_PAHSE_GLOBAL, must be sort all data thought partition num threshold have been exceeded.
-            if (_topn_phase != TPartTopNPhase::TWO_PAHSE_GLOBAL &&
+            //if is TWO_PHASE_GLOBAL, must be sort all data thought partition num threshold have been exceeded.
+            if (_topn_phase != TPartTopNPhase::TWO_PHASE_GLOBAL &&
                 _num_partition > config::partition_topn_partition_threshold &&
                 child_input_rows < 10000 * _num_partition) {
                 {
