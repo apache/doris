@@ -19,7 +19,6 @@ suite("test_outfile_file_suffix", "p0") {
     // open nereids
     sql """ set enable_nereids_planner=true """
     sql """ set enable_fallback_to_original_planner=false """
-    sql """ set experimental_enable_pipeline_x_engine=true """
 
     String ak = getS3AK()
     String sk = getS3SK()
