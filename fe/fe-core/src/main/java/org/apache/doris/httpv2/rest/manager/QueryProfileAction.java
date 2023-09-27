@@ -268,10 +268,12 @@ public class QueryProfileAction extends RestBaseController {
             @RequestParam(value = IS_ALL_NODE_PARA, required = false, defaultValue = "true") boolean isAllNode) {
         executeCheckPassword(request, response);
 
-        try {
-            checkAuthByUserAndQueryId(queryId);
-        } catch (AuthenticationException e) {
-            return ResponseEntityBuilder.badRequest(e.getMessage());
+        if (!isAllNode) {
+            try {
+                checkAuthByUserAndQueryId(queryId);
+            } catch (AuthenticationException e) {
+                return ResponseEntityBuilder.badRequest(e.getMessage());
+            }
         }
 
         if (format.equals("text")) {
