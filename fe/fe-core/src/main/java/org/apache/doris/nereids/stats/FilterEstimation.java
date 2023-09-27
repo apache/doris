@@ -84,7 +84,9 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
     public Statistics estimate(Expression expression, Statistics statistics) {
         // For a comparison predicate, only when it's left side is a slot and right side is a literal, we would
         // consider is a valid predicate.
-        return expression.accept(this, new EstimationContext(statistics));
+        Statistics stats = expression.accept(this, new EstimationContext(statistics));
+        stats.enforceValid();
+        return stats;
     }
 
     @Override
