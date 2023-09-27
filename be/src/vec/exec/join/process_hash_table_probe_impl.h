@@ -806,8 +806,8 @@ Status ProcessHashTableProbe<JoinOpType>::do_other_join_conjuncts(
                       JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
             orig_columns = _right_col_idx;
         }
-        Block::filter_block(output_block, result_column_id,
-                            is_mark_join ? output_block->columns() : orig_columns);
+        RETURN_IF_ERROR(Block::filter_block(output_block, result_column_id,
+                                            is_mark_join ? output_block->columns() : orig_columns));
     }
 
     return Status::OK();
