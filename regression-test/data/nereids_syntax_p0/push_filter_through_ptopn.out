@@ -32,7 +32,7 @@ PhysicalResultSink
 -- !3 --
 PhysicalResultSink
 --PhysicalDistribute
-----filter((rn <= 2)(T.b = 2))
+----filter((T.b = 2) and (rn <= 2))
 ------PhysicalWindow
 --------PhysicalQuickSort
 ----------PhysicalPartitionTopN
@@ -42,7 +42,7 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------filter((rn <= 2)(T.b = 2))
+------filter((T.b = 2) and (rn <= 2))
 --------PhysicalWindow
 ----------PhysicalPartitionTopN
 ------------PhysicalDistribute
