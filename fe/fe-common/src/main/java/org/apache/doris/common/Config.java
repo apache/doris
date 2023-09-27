@@ -2125,4 +2125,38 @@ public class Config extends ConfigBase {
                     + "The larger the value, the more uniform the distribution of the hash algorithm, "
                     + "but it will increase the memory overhead."})
     public static int virtual_node_number = 2048;
+
+    @ConfField(description = {"控制对大表的自动ANALYZE的最小时间间隔，"
+            + "在该时间间隔内大小超过huge_table_lower_bound_size_in_bytes的表仅ANALYZE一次",
+            "This controls the minimum time interval for automatic ANALYZE on large tables. Within this interval,"
+                    + "tables larger than huge_table_lower_bound_size_in_bytes are analyzed only once."})
+    public static long huge_table_auto_analyze_interval_in_millis = TimeUnit.HOURS.toMillis(12);
+
+    @ConfField(description = {"定义大表的大小下界，在开启enable_auto_sample的情况下，"
+            + "大小超过该值的表将会自动通过采样收集统计信息", "This defines the lower size bound for large tables. "
+            + "When enable_auto_sample is enabled, tables larger than this value will automatically collect "
+            + "statistics through sampling"})
+    public static long huge_table_lower_bound_size_in_bytes = 5L * 1024 * 1024 * 1024;
+
+    @ConfField(description = {"定义开启开启大表自动sample后，对大表的采样比例",
+            "This defines the number of sample percent for large tables when automatic sampling for"
+                    + "large tables is enabled"})
+    public static int huge_table_default_sample_rows = 4194304;
+
+    @ConfField(description = {"是否开启大表自动sample，开启后对于大小超过huge_table_lower_bound_size_in_bytes会自动通过采样收集"
+            + "统计信息", "Whether to enable automatic sampling for large tables, which, when enabled, automatically"
+            + "collects statistics through sampling for tables larger than 'huge_table_lower_bound_size_in_bytes'"})
+    public static boolean enable_auto_sample = false;
+
+    @ConfField(description = {
+            "控制统计信息的自动触发作业执行记录的持久化行数",
+            "Determine the persist number of automatic triggered analyze job execution status"
+    })
+    public static long auto_analyze_job_record_count = 20000;
+
+    @ConfField(description = {
+            "Auto Buckets中最小的buckets数目",
+            "min buckets of auto bucket"
+    })
+    public static int autobucket_min_buckets = 1;
 }
