@@ -294,7 +294,7 @@ Status BlockReader::_agg_key_next_block(Block* block, bool* eof) {
     auto merged_row = 0;
     auto target_columns = block->mutate_columns();
 
-    _insert_data_normal(target_columns);
+    RETURN_IF_ERROR(_insert_data_normal(target_columns));
     target_block_row++;
     _append_agg_data(target_columns);
 
@@ -317,7 +317,7 @@ Status BlockReader::_agg_key_next_block(Block* block, bool* eof) {
             _agg_data_counters.push_back(_last_agg_data_counter);
             _last_agg_data_counter = 0;
 
-            _insert_data_normal(target_columns);
+            RETURN_IF_ERROR(_insert_data_normal(target_columns));
             target_block_row++;
         } else {
             merged_row++;
@@ -347,7 +347,7 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
     }
 
     do {
-        _insert_data_normal(target_columns);
+        RETURN_IF_ERROR(_insert_data_normal(target_columns));
         if (UNLIKELY(_reader_context.record_rowids)) {
             _block_row_locations[target_block_row] = _vcollect_iter.current_row_location();
         }
@@ -417,12 +417,14 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
     return Status::OK();
 }
 
-void BlockReader::_insert_data_normal(MutableColumns& columns) {
+Status BlockReader::_insert_data_normal(MutableColumns& columns) {
     auto block = _next_row.block.get();
-    for (auto idx : _normal_columns_idx) {
+    RETURN_IF_CATCH_EXCEPTION(for (auto idx
+                                   : _normal_columns_idx) {
         columns[_return_columns_loc[idx]]->insert_from(*block->get_by_position(idx).column,
                                                        _next_row.row_pos);
-    }
+    });
+    return Status::OK();
 }
 
 void BlockReader::_append_agg_data(MutableColumns& columns) {

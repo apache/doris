@@ -152,11 +152,36 @@ public:
         offsets.push_back(new_size);
     }
 
+    void check_offset(const ColumnString& src, size_t n) {
+        if (UNLIKELY(src.offsets.get_begin_ptr() > src.offsets.get_end_ptr())) {
+            throw doris::Exception(ErrorCode::IO_ERROR,
+                                   "ColumnString={} has wrong offset, "
+                                   "row_number={},src.offsets start={},src.offsets end={}",
+                                   src.get_name(), n, src.offsets.get_begin_ptr(),
+                                   src.offsets.get_end_ptr());
+        }
+        if (UNLIKELY(n >= src.offsets.size())) {
+            throw doris::Exception(ErrorCode::IO_ERROR,
+                                   "ColumnString={} has wrong offset, "
+                                   "row_number={},src.offsets size={}",
+                                   src.get_name(), n, src.offsets.size());
+        }
+        auto size_to_append = src.offsets[n] - src.offsets[n - 1];
+        if (UNLIKELY(src.offsets[n] < src.offsets[n - 1] || size_to_append > src.chars.size())) {
+            throw doris::Exception(ErrorCode::IO_ERROR,
+                                   "ColumnString={} has wrong offset, "
+                                   "row_number={},src.offsets[n]={},src.offsets[n - 1]={},"
+                                   "size_to_append={},colum byte size={}",
+                                   src.get_name(), n, src.offsets[n], src.offsets[n - 1],
+                                   size_to_append, src.byte_size());
+        }
+    }
+
     void insert_from(const IColumn& src_, size_t n) override {
         const ColumnString& src = assert_cast<const ColumnString&>(src_);
+        check_offset(src, n);
         const size_t size_to_append =
                 src.offsets[n] - src.offsets[n - 1]; /// -1th index is Ok, see PaddedPODArray.
-
         if (!size_to_append) {
             /// shortcut for empty string
             offsets.push_back(chars.size());

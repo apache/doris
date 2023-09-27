@@ -524,10 +524,10 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
         }
         const auto& src_block = _next_row.block;
         assert(src_block->columns() == column_count);
-        for (size_t i = 0; i < column_count; ++i) {
+        RETURN_IF_CATCH_EXCEPTION(for (size_t i = 0; i < column_count; ++i) {
             target_columns[i]->insert_from(*(src_block->get_by_position(i).column),
                                            _next_row.row_pos);
-        }
+        });
         ++target_block_row;
     } while (target_block_row < _reader_context.batch_size);
     return Status::OK();

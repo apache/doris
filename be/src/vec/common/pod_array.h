@@ -340,6 +340,7 @@ public:
     const_iterator cbegin() const { return t_start(); }
     const_iterator cend() const { return t_end(); }
 
+    void* get_begin_ptr() const { return this->c_start; }
     void* get_end_ptr() const { return this->c_end; }
     void set_end_ptr(void* ptr) { this->c_end = (char*)ptr; }
 

@@ -548,7 +548,8 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
         *_cur_add_block_request.mutable_tablet_ids() = {tablets.begin(), tablets.end()};
         _cur_add_block_request.set_is_single_tablet_block(true);
     } else {
-        block->append_to_block_by_selector(_cur_mutable_block.get(), *(payload->first));
+        RETURN_IF_CATCH_EXCEPTION(
+                block->append_to_block_by_selector(_cur_mutable_block.get(), *(payload->first)));
         for (auto tablet_id : payload->second) {
             _cur_add_block_request.add_tablet_ids(tablet_id);
         }
