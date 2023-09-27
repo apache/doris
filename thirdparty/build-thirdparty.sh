@@ -1705,7 +1705,7 @@ build_hadoop_libs() {
 build_dragonbox() {
     check_if_source_exist "${DRAGONBOX_SOURCE}"
     cd "${TP_SOURCE_DIR}/${DRAGONBOX_SOURCE}"
-å
+
     rm -rf "${BUILD_DIR}"
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
