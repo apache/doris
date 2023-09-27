@@ -70,7 +70,7 @@ private:
     friend struct vectorized::HashJoinProbeContext;
 
     int _probe_index = -1;
-    int _ready_probe_index = -1;
+    bool _ready_probe = false;
     bool _probe_eos = false;
     std::atomic<bool> _probe_inited = false;
 
