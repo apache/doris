@@ -823,6 +823,10 @@ public class TypeCoercionUtils {
         Expression left = comparisonPredicate.left();
         Expression right = comparisonPredicate.right();
 
+        if (left.getDataType().isBitmapType() || right.getDataType().isBitmapType()) {
+            throw new AnalysisException("Unsupported bitmap type in expression: " + comparisonPredicate.toSql());
+        }
+
         // same type
         if (left.getDataType().equals(right.getDataType())) {
             return comparisonPredicate.withChildren(left, right);
