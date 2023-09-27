@@ -343,6 +343,7 @@ private:
                 execute_num_right_type<T0, Int32>(block, result, col_left, col_right_untyped) ||
                 execute_num_right_type<T0, Int64>(block, result, col_left, col_right_untyped) ||
                 execute_num_right_type<T0, Int128>(block, result, col_left, col_right_untyped) ||
+                execute_num_right_type<T0, UInt128>(block, result, col_left, col_right_untyped) ||
                 execute_num_right_type<T0, Float32>(block, result, col_left, col_right_untyped) ||
                 execute_num_right_type<T0, Float64>(block, result, col_left, col_right_untyped))
                 return true;
@@ -371,6 +372,8 @@ private:
                                                         col_right_untyped) ||
                 execute_num_const_right_type<T0, Int128>(block, result, col_left_const,
                                                          col_right_untyped) ||
+                execute_num_const_right_type<T0, UInt128>(block, result, col_left_const,
+                                                          col_right_untyped) ||
                 execute_num_const_right_type<T0, Float32>(block, result, col_left_const,
                                                           col_right_untyped) ||
                 execute_num_const_right_type<T0, Float64>(block, result, col_left_const,
@@ -587,6 +590,8 @@ public:
                                                col_right_untyped) ||
                   execute_num_left_type<Int128>(block, result, col_left_untyped,
                                                 col_right_untyped) ||
+                  execute_num_left_type<UInt128>(block, result, col_left_untyped,
+                                                 col_right_untyped) ||
                   execute_num_left_type<Float32>(block, result, col_left_untyped,
                                                  col_right_untyped) ||
                   execute_num_left_type<Float64>(block, result, col_left_untyped,
