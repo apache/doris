@@ -60,8 +60,7 @@ void FileScanLocalState::set_scan_ranges(const std::vector<TScanRangeParams>& sc
         // There is no need for the number of scanners to exceed the number of threads in thread pool.
         _scan_ranges.clear();
         auto range_iter = scan_ranges.begin();
-        for (int i = 0; i < max_scanners && range_iter != scan_ranges.end();
-             ++i, ++range_iter) {
+        for (int i = 0; i < max_scanners && range_iter != scan_ranges.end(); ++i, ++range_iter) {
             _scan_ranges.push_back(*range_iter);
         }
         for (int i = 0; range_iter != scan_ranges.end(); ++i, ++range_iter) {
@@ -73,8 +72,7 @@ void FileScanLocalState::set_scan_ranges(const std::vector<TScanRangeParams>& sc
             ranges.insert(ranges.end(), merged_ranges.begin(), merged_ranges.end());
         }
         _scan_ranges.shrink_to_fit();
-        LOG(INFO) << "Merge " << scan_ranges.size() << " scan ranges to "
-                  << _scan_ranges.size();
+        LOG(INFO) << "Merge " << scan_ranges.size() << " scan ranges to " << _scan_ranges.size();
     }
     if (scan_ranges.size() > 0 &&
         scan_ranges[0].scan_range.ext_scan_range.file_scan_range.__isset.params) {
