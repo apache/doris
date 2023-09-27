@@ -175,7 +175,7 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
                 containHide = true
             }
         }
-        assertTrue(containeHide)
+        assertTrue(containHide)
 
         sql """switch es7"""
         // order_qt_sql71 """show tables"""
@@ -190,13 +190,13 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
 
         sql """switch es7_hide"""
         List<List<String>> tables7 = """show tables""" as List<List<String>>
-        containeHide = false
+        boolean containeHide7 = false
         tables7.forEach {
             if (it[0] == (".hide")){
-                containeHide = true
+                containeHide7 = true
             }
         }
-        assertTrue(containeHide)
+        assertTrue(containeHide7)
 
         sql """switch es8"""
         order_qt_sql81 """select * from test1 where test2='text#1'"""
