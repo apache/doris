@@ -283,7 +283,7 @@ public:
 
     virtual Status add_rows(Block* block, const std::vector<int>& row, bool eos);
 
-    virtual Status send_current_block(bool eos, Status& exec_status);
+    virtual Status send_current_block(bool eos, Status exec_status);
 
     Status send_local_block(Status exec_status, bool eos = false);
 
@@ -292,7 +292,7 @@ public:
     // of close operation, client should call close_wait() to finish channel's close.
     // We split one close operation into two phases in order to make multiple channels
     // can run parallel.
-    Status close(RuntimeState* state, Status& exec_status);
+    Status close(RuntimeState* state, Status exec_status);
 
     // Get close wait's response, to finish channel close operation.
     Status close_wait(RuntimeState* state);
@@ -363,7 +363,7 @@ protected:
     // Serialize _batch into _thrift_batch and send via send_batch().
     // Returns send_batch() status.
     Status send_current_batch(bool eos = false);
-    Status close_internal(Status& exec_status);
+    Status close_internal(Status exec_status);
 
     Parent* _parent;
 
@@ -530,7 +530,7 @@ public:
     }
 
     // send _mutable_block
-    Status send_current_block(bool eos, Status& exec_status) override {
+    Status send_current_block(bool eos, Status exec_status) override {
         if (Channel<Parent>::is_local()) {
             return Channel<Parent>::send_local_block(exec_status, eos);
         }

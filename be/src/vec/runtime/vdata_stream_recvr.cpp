@@ -273,7 +273,7 @@ void VDataStreamRecvr::SenderQueue::decrement_senders(int be_number) {
     }
 }
 
-void VDataStreamRecvr::SenderQueue::cancel(Status& cancel_status) {
+void VDataStreamRecvr::SenderQueue::cancel(Status cancel_status) {
     {
         std::lock_guard<std::mutex> l(_lock);
         if (_is_cancelled) {
@@ -449,7 +449,7 @@ Status VDataStreamRecvr::get_next(Block* block, bool* eos) {
     }
 }
 
-void VDataStreamRecvr::remove_sender(int sender_id, int be_number, Status& exec_status) {
+void VDataStreamRecvr::remove_sender(int sender_id, int be_number, Status exec_status) {
     if (!exec_status.ok()) {
         cancel_stream(exec_status);
         return;
@@ -458,7 +458,7 @@ void VDataStreamRecvr::remove_sender(int sender_id, int be_number, Status& exec_
     _sender_queues[use_sender_id]->decrement_senders(be_number);
 }
 
-void VDataStreamRecvr::cancel_stream(Status& exec_status) {
+void VDataStreamRecvr::cancel_stream(Status exec_status) {
     VLOG_QUERY << "cancel_stream: fragment_instance_id=" << print_id(_fragment_instance_id)
                << exec_status;
 

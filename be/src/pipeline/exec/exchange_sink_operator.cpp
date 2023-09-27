@@ -278,8 +278,8 @@ template <typename ChannelPtrType>
 void ExchangeSinkOperatorX::_handle_eof_channel(RuntimeState* state, ChannelPtrType channel,
                                                 Status st) {
     channel->set_receiver_eof(st);
-    Status ok = Status::OK();
-    channel->close(state, ok);
+    // Chanel will not send RPC to the downstream when eof, so close chanel by OK status.
+    channel->close(state, Status::OK());
 }
 
 Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block,

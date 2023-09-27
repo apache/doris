@@ -48,8 +48,6 @@ namespace doris {
 namespace pipeline {
 class PipelineFragmentContext;
 class PipelineXFragmentContext;
-struct ReportTask;
-class PipelineContextReportExecutor;
 } // namespace pipeline
 class QueryContext;
 class ExecEnv;

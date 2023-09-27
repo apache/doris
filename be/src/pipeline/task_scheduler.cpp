@@ -245,8 +245,8 @@ void TaskScheduler::_do_work(size_t index) {
             // may change from pending FINISH，should called cancel
             // also may change form BLOCK, other task called cancel
 
-            // If pipeline is canceled caused by memory limit, we should send report to FE in order
-            // to cancel all pipeline tasks in this query
+            // If pipeline is canceled, it will report after pipeline closed, and will propagate
+            // errors to downstream through exchange. So, here we needn't send_report.
             // fragment_ctx->send_report(true);
             Status cancel_status = fragment_ctx->get_query_context()->exec_status();
             _try_close_task(task, PipelineTaskState::CANCELED, cancel_status);

@@ -109,7 +109,7 @@ Status Channel<Parent>::init(RuntimeState* state) {
 }
 
 template <typename Parent>
-Status Channel<Parent>::send_current_block(bool eos, Status& exec_status) {
+Status Channel<Parent>::send_current_block(bool eos, Status exec_status) {
     // FIXME: Now, local exchange will cause the performance problem is in a multi-threaded scenario
     // so this feature is turned off here by default. We need to re-examine this logic
     if (is_local()) {
@@ -192,7 +192,6 @@ Status Channel<Parent>::send_remote_block(PBlock* block, bool eos, Status exec_s
 
     _brpc_request.set_eos(eos);
     if (!exec_status.ok()) {
-        // should release exec_status of brpc_request?
         exec_status.to_protobuf(_brpc_request.mutable_exec_status());
     }
     if (block != nullptr) {
@@ -232,8 +231,7 @@ Status Channel<Parent>::add_rows(Block* block, const std::vector<int>& rows, boo
     RETURN_IF_ERROR(
             _serializer.next_serialized_block(block, _ch_cur_pb_block, 1, &serialized, eos, &rows));
     if (serialized) {
-        Status exec_status = Status::OK();
-        RETURN_IF_ERROR(send_current_block(false, exec_status));
+        RETURN_IF_ERROR(send_current_block(false, Status::OK()));
     }
 
     return Status::OK();
@@ -256,7 +254,7 @@ Status Channel<Parent>::close_wait(RuntimeState* state) {
 }
 
 template <typename Parent>
-Status Channel<Parent>::close_internal(Status& exec_status) {
+Status Channel<Parent>::close_internal(Status exec_status) {
     if (!_need_close) {
         return Status::OK();
     }
@@ -290,7 +288,7 @@ Status Channel<Parent>::close_internal(Status& exec_status) {
 }
 
 template <typename Parent>
-Status Channel<Parent>::close(RuntimeState* state, Status& exec_status) {
+Status Channel<Parent>::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return Status::OK();
     }
@@ -502,8 +500,8 @@ template <typename ChannelPtrType>
 void VDataStreamSender::_handle_eof_channel(RuntimeState* state, ChannelPtrType channel,
                                             Status st) {
     channel->set_receiver_eof(st);
-    Status ok = Status::OK();
-    channel->close(state, ok);
+    // Chanel will not send RPC to the downstream when eof, so close chanel by OK status.
+    channel->close(state, Status::OK());
 }
 
 Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {

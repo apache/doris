@@ -179,8 +179,7 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
 
         // must close stream_mgr to avoid dead lock in Exchange Node
         // TODO bug llj  fix this other instance will not cancel
-        Status cancel_status = Status::Cancelled(msg);
-        _exec_env->vstream_mgr()->cancel(_fragment_instance_id, cancel_status);
+        _exec_env->vstream_mgr()->cancel(_fragment_instance_id, Status::Cancelled(msg));
         // Cancel the result queue manager used by spark doris connector
         // TODO pipeline incomp
         // _exec_env->result_queue_mgr()->update_queue_status(id, Status::Aborted(msg));
@@ -724,7 +723,6 @@ void PipelineFragmentContext::close_sink() {
 }
 
 void PipelineFragmentContext::close_if_prepare_failed() {
-    LOG(WARNING) << "close PipelineFragmentContext because prepare failed";
     if (_tasks.empty()) {
         if (_root_plan) {
             _root_plan->close(_runtime_state.get());
