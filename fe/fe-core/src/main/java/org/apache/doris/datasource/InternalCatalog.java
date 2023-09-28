@@ -2522,7 +2522,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     // The table's storage policy has higher priority than partition's policy,
                     // so we'll directly use table's policy when it's set. Otherwise we use the
                     // partition's policy
-                    if (!storagePolicy.empty()) {
+                    if (!storagePolicy.isEmpty()) {
                         partionStoragePolicy = storagePolicy;
                     }
                     Env.getCurrentEnv().getPolicyMgr().checkStoragePolicyExist(partionStoragePolicy);
