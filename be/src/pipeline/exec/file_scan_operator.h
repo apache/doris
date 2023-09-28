@@ -70,8 +70,9 @@ public:
     FileScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
             : ScanOperatorX<FileScanLocalState>(pool, tnode, descs) {
         _output_tuple_id = tnode.file_scan_node.tuple_id;
-        _id = tnode.node_id;
     }
+
+    Status prepare(RuntimeState* state) override;
 
 private:
     friend class FileScanLocalState;
