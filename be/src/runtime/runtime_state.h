@@ -151,10 +151,7 @@ public:
                _query_options.enable_common_expr_pushdown;
     }
 
-    Status query_status() {
-        std::lock_guard<std::mutex> l(_process_status_lock);
-        return _process_status;
-    }
+    Status query_status();
 
     // Appends error to the _error_log if there is space
     bool log_error(const std::string& error);

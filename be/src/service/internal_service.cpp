@@ -556,7 +556,7 @@ void PInternalServiceImpl::cancel_plan_fragment(google::protobuf::RpcController*
         TUniqueId tid;
         tid.__set_hi(request->finst_id().hi());
         tid.__set_lo(request->finst_id().lo());
-
+        signal::set_signal_task_id(tid);
         Status st = Status::OK();
         if (request->has_cancel_reason()) {
             LOG(INFO) << "cancel fragment, fragment_instance_id=" << print_id(tid)
@@ -1184,7 +1184,10 @@ void PInternalServiceImpl::_transmit_block(google::protobuf::RpcController* cont
         if (!st.ok()) {
             LOG(WARNING) << "transmit_block failed, message=" << st
                          << ", fragment_instance_id=" << print_id(request->finst_id())
-                         << ", node=" << request->node_id();
+                         << ", node=" << request->node_id()
+                         << ", from sender_id: " << request->sender_id()
+                         << ", be_number: " << request->be_number()
+                         << ", packet_seq: " << request->packet_seq();
         }
     } else {
         st = extract_st;
