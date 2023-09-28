@@ -23,11 +23,11 @@ suite("test_partition_sort") {
                     dense_rank() over(partition by p_name order by p_color) as dr from part) as t; """
 
     qt_select2 """ select * from (
-                    select p_name, p_color , row_number() over(partition by p_name order by p_color) as rn from part) as t where rn=14; """
+                    select p_name, p_color , row_number() over(partition by p_name order by p_color) as rn from part) as t where rn=14 order by 1,2,3; """
 
-    qt_select3 """ select * from ( select p_name, p_color , rank() over(partition by p_name order by p_color) as rn from part) as t where rn=11; """
+    qt_select3 """ select * from ( select p_name, p_color , rank() over(partition by p_name order by p_color) as rn from part) as t where rn=11 order by 1,2,3; """
 
-    qt_select4 """ select * from ( select p_name, p_color , dense_rank() over(partition by p_name order by p_color) as rn from part) as t where rn=10; """
+    qt_select4 """ select * from ( select p_name, p_color , dense_rank() over(partition by p_name order by p_color) as rn from part) as t where rn=10 order by 1,2,3; """
 
   
 
