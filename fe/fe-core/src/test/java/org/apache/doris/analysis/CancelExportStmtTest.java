@@ -26,7 +26,6 @@ import org.apache.doris.load.ExportFailMsg.CancelType;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportJobState;
 import org.apache.doris.load.ExportMgr;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
@@ -36,7 +35,6 @@ import org.wildfly.common.Assert;
 
 import java.lang.reflect.Method;
 import java.util.List;
-import java.util.Map;
 import java.util.function.Predicate;
 
 public class CancelExportStmtTest extends TestWithFeService {
