@@ -94,6 +94,7 @@ struct TransmitInfo {
     vectorized::PipChannel<Parent>* channel;
     std::unique_ptr<PBlock> block;
     bool eos;
+    Status exec_status;
 };
 
 template <typename Parent>
