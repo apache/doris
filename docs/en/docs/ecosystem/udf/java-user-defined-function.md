@@ -44,22 +44,22 @@ Java UDF provides users with a Java interface written in UDF to facilitate the e
 
 ### Type correspondence
 
-|Type|UDF Argument Type|
-|----|---------|
-|Bool|Boolean|
-|TinyInt|Byte|
-|SmallInt|Short|
-|Int|Integer|
-|BigInt|Long|
-|LargeInt|BigInteger|
-|Float|Float|
-|Double|Double|
-|Date|LocalDate|
-|Datetime|LocalDateTime|
-|String|String|
-|Decimal|BigDecimal|
-|```array<Type>```|```ArrayList<Type>```|
-|```map<Type1,Type2>```|```HashMap<Type1,Type2>```|
+| Type in Doris SQL      | Type in java code          |
+|------------------------|----------------------------|
+| Bool                   | Boolean                    |
+| TinyInt                | Byte                       |
+| SmallInt               | Short                      |
+| Int                    | Integer                    |
+| BigInt                 | Long                       |
+| LargeInt               | BigInteger                 |
+| Float                  | Float                      |
+| Double                 | Double                     |
+| Date                   | LocalDate                  |
+| Datetime               | LocalDateTime              |
+| String                 | String                     |
+| Decimal                | BigDecimal                 |
+| ```array<Type>```      | ```ArrayList<Type>```      |
+| ```map<Type1,Type2>``` | ```HashMap<Type1,Type2>``` |
 
 * Array/Map types can nested basic types, Eg: In Doris: ```array<int>``` corresponds to JAVA UDF Argument Type: ```ArrayList<Integer>```, Others is also.
 ## Write UDF functions
@@ -345,4 +345,4 @@ Examples of Java UDF are provided in the `samples/doris-demo/java-udf-demo/` dir
 2. Currently, users are allowed to specify the maximum heap size of the JVM themselves. The configuration item is jvm_ max_ heap_ size. The configuration item is in the global configuration file 'be.conf' under the installation directory of the BE. The default value is 512M. If data aggregation is required, it is recommended to increase the value to improve performance and reduce the risk of memory overflow.
 3. The udf of char type needs to use the String type when creating a function.
 4. Due to the problem that the jvm loads classes with the same name, do not use multiple classes with the same name as udf implementations at the same time. If you want to update the udf of a class with the same name, you need to restart be to reload the classpath.
-
+5. If querying a simple UDF causes BE to core down and cannot be reproduced in other environments, it may be caused by the machine's JDK version being too low. Please upgrade to the latest version of JDK1.8.

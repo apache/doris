@@ -42,22 +42,22 @@ Java UDF 为用户提供UDF编写的Java接口，以方便用户使用Java语言
 
 ### 类型对应关系
 
-|Type|UDF Argument Type|
-|----|---------|
-|Bool|Boolean|
-|TinyInt|Byte|
-|SmallInt|Short|
-|Int|Integer|
-|BigInt|Long|
-|LargeInt|BigInteger|
-|Float|Float|
-|Double|Double|
-|Date|LocalDate|
-|Datetime|LocalDateTime|
-|String|String|
-|Decimal|BigDecimal|
-|```array<Type>```|```ArrayList<Type>```|
-|```map<Type1,Type2>```|```HashMap<Type1,Type2>```|
+| Doris SQL中的类型         | Java代码中的类型                |
+|-----------------------|---------------------------|
+| Bool                  | Boolean                   |
+| TinyInt               | Byte                      |
+| SmallInt              | Short                     |
+| Int                   | Integer                   |
+| BigInt                | Long                      |
+| LargeInt              | BigInteger                |
+| Float                 | Float                     |
+| Double                | Double                    |
+| Date                  | LocalDate                 |
+| Datetime              | LocalDateTime             |
+| String                | String                    |
+| Decimal               | BigDecimal                |
+| ```array<Type>```     | ```ArrayList<Type>```     |
+| ```map<Type1,Type2>``` | ```HashMap<Type1,Type2>``` |
 
 * array/map类型可以嵌套基本类型，例如Doris: ```array<int>```对应JAVA UDF Argument Type: ```ArrayList<Integer>```, 其他依此类推
 ## 编写 UDF 函数
@@ -345,4 +345,5 @@ UDF 的使用与普通的函数方式一致，唯一的区别在于，内置函�
 2. 当前允许用户自己指定JVM最大堆大小，配置项是jvm_max_heap_size。配置项在BE安装目录下的be.conf全局配置中，默认512M，如果需要聚合数据，建议调大一些，增加性能，减少内存溢出风险。
 3. char类型的udf在create function时需要使用String类型。
 4. 由于jvm加载同名类的问题，不要同时使用多个同名类作为udf实现，如果想更新某个同名类的udf，需要重启be重新加载classpath。
+5. 如果查询简单的UDF导致BE挂掉，并且在其他环境上无法复现，可能是机器的JDK版本太低导致的，请升级JDK1.8的最新版本
 
