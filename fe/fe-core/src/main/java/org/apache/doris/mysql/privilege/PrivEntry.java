@@ -189,28 +189,5 @@ public abstract class PrivEntry implements Comparable<PrivEntry> {
         return 0;
     }
 
-    protected PrivEntry copy() throws AnalysisException, PatternMatcherException {
-        PrivEntry privEntry;
-        if (this instanceof GlobalPrivEntry) {
-            privEntry = GlobalPrivEntry.create(this.getPrivSet().copy());
-        } else if (this instanceof TablePrivEntry) {
-            TablePrivEntry tblPrivEntry = (TablePrivEntry) this;
-            privEntry = TablePrivEntry.create(tblPrivEntry.getOrigCtl(), tblPrivEntry.getOrigDb(),
-                tblPrivEntry.getOrigTbl(), tblPrivEntry.getPrivSet().copy());
-        } else if (this instanceof DbPrivEntry) {
-            DbPrivEntry dbPrivEntry = (DbPrivEntry) this;
-            privEntry = DbPrivEntry.create(dbPrivEntry.getOrigCtl(), dbPrivEntry.getOrigDb(),
-                dbPrivEntry.getPrivSet().copy());
-        } else if (this instanceof CatalogPrivEntry) {
-            CatalogPrivEntry catalogPrivEntry = (CatalogPrivEntry) this;
-            privEntry = CatalogPrivEntry.create(catalogPrivEntry.getOrigCtl(), catalogPrivEntry.getPrivSet().copy());
-        } else if (this instanceof ResourcePrivEntry) {
-            ResourcePrivEntry resourcePrivEntry = (ResourcePrivEntry) this;
-            privEntry = ResourcePrivEntry.create(
-                resourcePrivEntry.getOrigResource(), resourcePrivEntry.getPrivSet().copy());
-        } else {
-            return this;
-        }
-        return privEntry;
-    }
+    protected abstract PrivEntry copy() throws AnalysisException, PatternMatcherException;
 }
