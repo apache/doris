@@ -41,69 +41,6 @@ inline size_t get_bitmap_size(size_t key_number) {
 using Sizes = std::vector<size_t>;
 
 template <typename T>
-T pack_fixed(size_t i, size_t keys_size, const ColumnRawPtrs& key_columns, const Sizes& key_sizes,
-             const ColumnRawPtrs& nullmap_columns) {
-    union {
-        T key;
-        char bytes[sizeof(key)] = {};
-    };
-
-    size_t bitmap_size = get_bitmap_size(nullmap_columns.size());
-    size_t offset = bitmap_size;
-
-    for (size_t j = 0; j < keys_size; ++j) {
-        bool is_null = false;
-
-        if (bitmap_size && nullmap_columns[j] != nullptr) {
-            is_null = nullmap_columns[j]->get_bool(i);
-        }
-
-        if (is_null) {
-            size_t bucket = j / 8;
-            bytes[bucket] |= (1 << (j - bucket * 8));
-            offset += key_sizes[j];
-            continue;
-        }
-
-        switch (key_sizes[j]) {
-        case 1:
-            memcpy(bytes + offset,
-                   static_cast<const ColumnVectorHelper*>(key_columns[j])->get_raw_data_begin<1>() +
-                           i,
-                   1);
-            break;
-        case 2:
-            memcpy(bytes + offset,
-                   static_cast<const ColumnVectorHelper*>(key_columns[j])->get_raw_data_begin<2>() +
-                           i * 2,
-                   2);
-            break;
-        case 4:
-            memcpy(bytes + offset,
-                   static_cast<const ColumnVectorHelper*>(key_columns[j])->get_raw_data_begin<4>() +
-                           i * 4,
-                   4);
-            break;
-        case 8:
-            memcpy(bytes + offset,
-                   static_cast<const ColumnVectorHelper*>(key_columns[j])->get_raw_data_begin<8>() +
-                           i * 8,
-                   8);
-            break;
-        default:
-            memcpy(bytes + offset,
-                   static_cast<const ColumnVectorHelper*>(key_columns[j])->get_raw_data_begin<1>() +
-                           i * key_sizes[j],
-                   key_sizes[j]);
-        }
-
-        offset += key_sizes[j];
-    }
-
-    return key;
-}
-
-template <typename T>
 std::vector<T> pack_fixeds(size_t row_numbers, const ColumnRawPtrs& key_columns,
                            const Sizes& key_sizes, const ColumnRawPtrs& nullmap_columns) {
     size_t bitmap_size = get_bitmap_size(nullmap_columns.size());

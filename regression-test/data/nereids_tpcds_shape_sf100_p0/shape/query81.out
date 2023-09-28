@@ -2,35 +2,36 @@
 -- !ds_shape_81 --
 PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )
-----hashAgg[GLOBAL]
-------PhysicalDistribute
---------hashAgg[LOCAL]
-----------PhysicalProject
-------------hashJoin[INNER_JOIN](catalog_returns.cr_returning_addr_sk = customer_address.ca_address_sk)
---------------PhysicalDistribute
-----------------PhysicalProject
-------------------hashJoin[INNER_JOIN](catalog_returns.cr_returned_date_sk = date_dim.d_date_sk)
---------------------PhysicalProject
-----------------------PhysicalOlapScan[catalog_returns]
---------------------PhysicalDistribute
+----PhysicalProject
+------hashAgg[GLOBAL]
+--------PhysicalDistribute
+----------hashAgg[LOCAL]
+------------PhysicalProject
+--------------hashJoin[INNER_JOIN] hashCondition=((catalog_returns.cr_returning_addr_sk = customer_address.ca_address_sk))otherCondition=()
+----------------PhysicalDistribute
+------------------PhysicalProject
+--------------------hashJoin[INNER_JOIN] hashCondition=((catalog_returns.cr_returned_date_sk = date_dim.d_date_sk))otherCondition=()
 ----------------------PhysicalProject
-------------------------filter((date_dim.d_year = 2002))
---------------------------PhysicalOlapScan[date_dim]
---------------PhysicalDistribute
-----------------PhysicalProject
-------------------PhysicalOlapScan[customer_address]
+------------------------PhysicalOlapScan[catalog_returns]
+----------------------PhysicalDistribute
+------------------------PhysicalProject
+--------------------------filter((date_dim.d_year = 2002))
+----------------------------PhysicalOlapScan[date_dim]
+----------------PhysicalDistribute
+------------------PhysicalProject
+--------------------PhysicalOlapScan[customer_address]
 --PhysicalResultSink
 ----PhysicalTopN
 ------PhysicalDistribute
 --------PhysicalTopN
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN](ctr1.ctr_state = ctr2.ctr_state)(cast(ctr_total_return as DOUBLE) > cast((avg(cast(ctr_total_return as DECIMALV3(38, 4))) * 1.2) as DOUBLE))
---------------hashJoin[INNER_JOIN](ctr1.ctr_customer_sk = customer.c_customer_sk)
+------------hashJoin[INNER_JOIN] hashCondition=((ctr1.ctr_state = ctr2.ctr_state))otherCondition=((cast(ctr_total_return as DOUBLE) > cast((avg(cast(ctr_total_return as DECIMALV3(38, 4))) * 1.2) as DOUBLE)))
+--------------hashJoin[INNER_JOIN] hashCondition=((ctr1.ctr_customer_sk = customer.c_customer_sk))otherCondition=()
 ----------------PhysicalDistribute
 ------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ----------------PhysicalDistribute
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN](customer_address.ca_address_sk = customer.c_current_addr_sk)
+--------------------hashJoin[INNER_JOIN] hashCondition=((customer_address.ca_address_sk = customer.c_current_addr_sk))otherCondition=()
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[customer]
 ----------------------PhysicalDistribute

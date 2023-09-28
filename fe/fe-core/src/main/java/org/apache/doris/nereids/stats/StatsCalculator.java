@@ -220,6 +220,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     private void estimate() {
         Plan plan = groupExpression.getPlan();
         Statistics newStats = plan.accept(this, null);
+        newStats.enforceValid();
         // We ensure that the rowCount remains unchanged in order to make the cost of each plan comparable.
         if (groupExpression.getOwnerGroup().getStatistics() == null) {
             groupExpression.getOwnerGroup().setStatistics(newStats);
@@ -689,7 +690,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         // TODO: for the filter push down window situation, we will prune the row count twice
         //  because we keep the pushed down filter. And it will be calculated twice, one of them in 'PartitionTopN'
         //  and the other is in 'Filter'. It's hard to dismiss.
-        return childStats.updateRowCountOnly(rowCount);
+        return childStats.updateRowCountAndColStats(rowCount);
     }
 
     private Statistics computeLimit(Limit limit) {

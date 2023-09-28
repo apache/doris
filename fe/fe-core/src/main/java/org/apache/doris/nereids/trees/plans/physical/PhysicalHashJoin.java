@@ -48,7 +48,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -274,43 +273,15 @@ public class PhysicalHashJoin<
         return pushedDown;
     }
 
-    private class ExprComparator implements Comparator<Expression> {
-        @Override
-        public int compare(Expression e1, Expression e2) {
-            List<ExprId> ids1 = e1.getInputSlotExprIds()
-                    .stream().sorted(Comparator.comparing(ExprId::asInt))
-                    .collect(Collectors.toList());
-            List<ExprId> ids2 = e2.getInputSlotExprIds()
-                    .stream().sorted(Comparator.comparing(ExprId::asInt))
-                    .collect(Collectors.toList());
-            if (ids1.size() > ids2.size()) {
-                return 1;
-            } else if (ids1.size() < ids2.size()) {
-                return -1;
-            } else {
-                for (int i = 0; i < ids1.size(); i++) {
-                    if (ids1.get(i).asInt() > ids2.get(i).asInt()) {
-                        return 1;
-                    } else if (ids1.get(i).asInt() < ids2.get(i).asInt()) {
-                        return -1;
-                    }
-                }
-                return 0;
-            }
-        }
-    }
-
     @Override
     public String shapeInfo() {
         StringBuilder builder = new StringBuilder();
         builder.append("hashJoin[").append(joinType).append("]");
         // print sorted hash conjuncts for plan check
-        hashJoinConjuncts.stream().sorted(new ExprComparator()).forEach(expr -> {
-            builder.append(expr.shapeInfo());
-        });
-        otherJoinConjuncts.stream().sorted(new ExprComparator()).forEach(expr -> {
-            builder.append(expr.shapeInfo());
-        });
+        builder.append(hashJoinConjuncts.stream().map(conjunct -> conjunct.shapeInfo())
+                .sorted().collect(Collectors.joining(" and ", " hashCondition=(", ")")));
+        builder.append(otherJoinConjuncts.stream().map(cond -> cond.shapeInfo())
+                .sorted().collect(Collectors.joining(" and ", "otherCondition=(", ")")));
         return builder.toString();
     }
 

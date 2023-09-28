@@ -72,6 +72,10 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         this.requestPropertyFromParent = context.getRequiredProperties();
     }
 
+    public RequestPropertyDeriver(PhysicalProperties requestPropertyFromParent) {
+        this.requestPropertyFromParent = requestPropertyFromParent;
+    }
+
     /**
      * get request children property list
      */
