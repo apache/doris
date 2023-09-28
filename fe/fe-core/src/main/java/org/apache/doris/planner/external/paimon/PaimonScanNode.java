@@ -102,6 +102,10 @@ public class PaimonScanNode extends FileQueryScanNode {
         fileDesc.setDbName(((PaimonExternalTable) source.getTargetTable()).getDbName());
         fileDesc.setPaimonOptions(((PaimonExternalCatalog) source.getCatalog()).getPaimonOptionsMap());
         fileDesc.setTableName(source.getTargetTable().getName());
+        fileDesc.setCtlId(source.getCatalog().getId());
+        fileDesc.setDbId(((PaimonExternalTable) source.getTargetTable()).getDbId());
+        fileDesc.setTblId(source.getTargetTable().getId());
+        fileDesc.setLastUpdateTime(source.getTargetTable().getLastUpdateTime());
         tableFormatFileDesc.setPaimonParams(fileDesc);
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
