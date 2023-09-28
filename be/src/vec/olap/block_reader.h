@@ -80,7 +80,7 @@ private:
 
     void _init_agg_state(const ReaderParams& read_params);
 
-    Status _insert_data_normal(MutableColumns& columns);
+    [[nodiscard]] Status _insert_data_normal(MutableColumns& columns);
 
     void _append_agg_data(MutableColumns& columns);
 

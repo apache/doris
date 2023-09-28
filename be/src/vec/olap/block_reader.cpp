@@ -419,11 +419,10 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
 
 Status BlockReader::_insert_data_normal(MutableColumns& columns) {
     auto block = _next_row.block.get();
-    RETURN_IF_CATCH_EXCEPTION(for (auto idx
-                                   : _normal_columns_idx) {
-        columns[_return_columns_loc[idx]]->insert_from(*block->get_by_position(idx).column,
-                                                       _next_row.row_pos);
-    });
+    for (auto idx : _normal_columns_idx) {
+        RETURN_IF_CATCH_EXCEPTION(columns[_return_columns_loc[idx]]->insert_from(
+                *block->get_by_position(idx).column, _next_row.row_pos));
+    }
     return Status::OK();
 }
 
