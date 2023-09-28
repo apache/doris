@@ -271,6 +271,7 @@ DECLARE_mBool(compress_rowbatches);
 DECLARE_mBool(rowbatch_align_tuple_offset);
 // interval between profile reports; in seconds
 DECLARE_mInt32(status_report_interval);
+DECLARE_mInt32(pipeline_status_report_interval);
 // if true, each disk will have a separate thread pool for scanner
 DECLARE_Bool(doris_enable_scanner_thread_pool_per_disk);
 // the timeout of a work thread to wait the blocking priority queue to get a task

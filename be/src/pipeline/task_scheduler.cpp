@@ -231,8 +231,10 @@ void TaskScheduler::_do_work(size_t index) {
         auto check_state = task->get_state();
         if (check_state == PipelineTaskState::PENDING_FINISH) {
             DCHECK(!task->is_pending_finish()) << "must not pending close " << task->debug_string();
+            Status exec_status = fragment_ctx->get_query_context()->exec_status();
             _try_close_task(task,
-                            canceled ? PipelineTaskState::CANCELED : PipelineTaskState::FINISHED);
+                            canceled ? PipelineTaskState::CANCELED : PipelineTaskState::FINISHED,
+                            exec_status);
             continue;
         }
         DCHECK(check_state != PipelineTaskState::FINISHED &&
@@ -243,10 +245,11 @@ void TaskScheduler::_do_work(size_t index) {
             // may change from pending FINISH，should called cancel
             // also may change form BLOCK, other task called cancel
 
-            // If pipeline is canceled caused by memory limit, we should send report to FE in order
-            // to cancel all pipeline tasks in this query
-            fragment_ctx->send_report(true);
-            _try_close_task(task, PipelineTaskState::CANCELED);
+            // If pipeline is canceled, it will report after pipeline closed, and will propagate
+            // errors to downstream through exchange. So, here we needn't send_report.
+            // fragment_ctx->send_report(true);
+            Status cancel_status = fragment_ctx->get_query_context()->exec_status();
+            _try_close_task(task, PipelineTaskState::CANCELED, cancel_status);
             continue;
         }
 
@@ -276,10 +279,10 @@ void TaskScheduler::_do_work(size_t index) {
 
             // exec failed，cancel all fragment instance
             fragment_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, status.to_string());
-            fragment_ctx->send_report(true);
             _try_close_task(task, PipelineTaskState::CANCELED, status);
             continue;
         }
+        fragment_ctx->trigger_report_if_necessary();
 
         if (eos) {
             task->set_eos_time();
