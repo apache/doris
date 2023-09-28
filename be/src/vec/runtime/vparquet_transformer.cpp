@@ -308,7 +308,6 @@ Status VParquetTransformer::_parse_properties() {
         } else {
             builder.enable_dictionary();
         }
-        builder.max_row_group_length(4096);
         _properties = builder.build();
         _arrow_properties = parquet::ArrowWriterProperties::Builder().store_schema()->build();
     } catch (const parquet::ParquetException& e) {
