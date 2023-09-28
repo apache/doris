@@ -261,6 +261,10 @@ public class PartitionInfo implements Writable {
         idToStoragePolicy.put(partitionId, storagePolicy);
     }
 
+    public Map<Long, ReplicaAllocation> getPartitionReplicaAllocations() {
+        return idToReplicaAllocation;
+    }
+
     public ReplicaAllocation getReplicaAllocation(long partitionId) {
         if (!idToReplicaAllocation.containsKey(partitionId)) {
             LOG.debug("failed to get replica allocation for partition: {}", partitionId);

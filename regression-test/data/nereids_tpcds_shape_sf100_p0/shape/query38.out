@@ -12,15 +12,15 @@ PhysicalResultSink
 ------------------PhysicalDistribute
 --------------------hashAgg[LOCAL]
 ----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN](store_sales.ss_customer_sk = customer.c_customer_sk)
+------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_customer_sk = customer.c_customer_sk))otherCondition=()
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
+------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk))otherCondition=()
 --------------------------------PhysicalProject
 ----------------------------------PhysicalOlapScan[store_sales]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
-------------------------------------filter((date_dim.d_month_seq <= 1194)(date_dim.d_month_seq >= 1183))
+------------------------------------filter((date_dim.d_month_seq <= 1194) and (date_dim.d_month_seq >= 1183))
 --------------------------------------PhysicalOlapScan[date_dim]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
@@ -29,15 +29,15 @@ PhysicalResultSink
 ------------------PhysicalDistribute
 --------------------hashAgg[LOCAL]
 ----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN](catalog_sales.cs_bill_customer_sk = customer.c_customer_sk)
+------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_bill_customer_sk = customer.c_customer_sk))otherCondition=()
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)
+------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk))otherCondition=()
 --------------------------------PhysicalProject
 ----------------------------------PhysicalOlapScan[catalog_sales]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
-------------------------------------filter((date_dim.d_month_seq <= 1194)(date_dim.d_month_seq >= 1183))
+------------------------------------filter((date_dim.d_month_seq <= 1194) and (date_dim.d_month_seq >= 1183))
 --------------------------------------PhysicalOlapScan[date_dim]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
@@ -46,15 +46,15 @@ PhysicalResultSink
 ------------------PhysicalDistribute
 --------------------hashAgg[LOCAL]
 ----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN](web_sales.ws_bill_customer_sk = customer.c_customer_sk)
+------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_bill_customer_sk = customer.c_customer_sk))otherCondition=()
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN](web_sales.ws_sold_date_sk = date_dim.d_date_sk)
+------------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk))otherCondition=()
 --------------------------------PhysicalProject
 ----------------------------------PhysicalOlapScan[web_sales]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
-------------------------------------filter((date_dim.d_month_seq <= 1194)(date_dim.d_month_seq >= 1183))
+------------------------------------filter((date_dim.d_month_seq <= 1194) and (date_dim.d_month_seq >= 1183))
 --------------------------------------PhysicalOlapScan[date_dim]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject

@@ -273,6 +273,10 @@ struct GetJsonNumberType {
     using ColumnType = typename NumberType::ColumnType;
     using Container = typename ColumnType::Container;
 
+    static DataTypes get_variadic_argument_types_impl() {
+        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>()};
+    }
+
     static void get_json_impl(rapidjson::Value*& root, const std::string_view& json_string,
                               const std::string_view& path_string, rapidjson::Document& document,
                               typename NumberType::T& res, UInt8& null_map) {
@@ -526,6 +530,9 @@ struct GetJsonString {
                                         res_offsets);
         }
     }
+    static DataTypes get_variadic_argument_types_impl() {
+        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>()};
+    }
 };
 
 template <int flag>
@@ -706,7 +713,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         auto result_column = ColumnString::create();
 
         std::vector<ColumnPtr> column_ptrs; // prevent converted column destruct
@@ -855,7 +862,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         auto result_column = ColumnString::create();
 
         std::vector<ColumnPtr> column_ptrs; // prevent converted column destruct
@@ -894,7 +901,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         const IColumn& col_from = *(block.get_by_position(arguments[0]).column);
 
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
@@ -960,7 +967,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     bool json_contains_object(const rapidjson::Value& target,
-                              const rapidjson::Value& search_value) {
+                              const rapidjson::Value& search_value) const {
         if (!target.IsObject() || !search_value.IsObject()) {
             return false;
         }
@@ -974,7 +981,8 @@ public:
         return true;
     }
 
-    bool json_contains_array(const rapidjson::Value& target, const rapidjson::Value& search_value) {
+    bool json_contains_array(const rapidjson::Value& target,
+                             const rapidjson::Value& search_value) const {
         if (!target.IsArray() || !search_value.IsArray()) {
             return false;
         }
@@ -995,7 +1003,7 @@ public:
         return true;
     }
 
-    bool json_contains(const rapidjson::Value& target, const rapidjson::Value& search_value) {
+    bool json_contains(const rapidjson::Value& target, const rapidjson::Value& search_value) const {
         if (target == search_value) {
             return true;
         }
@@ -1012,7 +1020,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         const IColumn& col_json = *(block.get_by_position(arguments[0]).column);
         const IColumn& col_search = *(block.get_by_position(arguments[1]).column);
         const IColumn& col_path = *(block.get_by_position(arguments[2]).column);
@@ -1085,7 +1093,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         const IColumn& col_from = *(block.get_by_position(arguments[0]).column);
 
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
@@ -1164,7 +1172,8 @@ private:
     // if path is not a valid path expression or contains
     // a * wildcard, return runtime error.
     template <typename T>
-    Status get_parsed_paths_with_status(const T& path_exprs, std::vector<JsonPath>* parsed_paths) {
+    Status get_parsed_paths_with_status(const T& path_exprs,
+                                        std::vector<JsonPath>* parsed_paths) const {
         if (UNLIKELY(path_exprs.empty())) {
             return Status::RuntimeError("json path empty function {}", get_name());
         }
@@ -1202,7 +1211,7 @@ private:
 
     Status get_parsed_path_columns(std::vector<std::vector<std::vector<JsonPath>>>& json_paths,
                                    const std::vector<const ColumnString*>& data_columns,
-                                   size_t input_rows_count) {
+                                   size_t input_rows_count) const {
         for (auto col = 1; col + 1 < data_columns.size() - 1; col += 2) {
             json_paths.emplace_back(std::vector<std::vector<JsonPath>>());
             for (auto row = 0; row < input_rows_count; row++) {
@@ -1251,7 +1260,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         auto result_column = ColumnString::create();
         bool is_nullable = false;
         auto ret_null_map = ColumnUInt8::create(0, 0);
@@ -1297,7 +1306,7 @@ public:
     Status execute_process(const std::vector<const ColumnString*>& data_columns,
                            ColumnString& result_column, size_t input_rows_count,
                            const std::vector<const ColumnUInt8*> nullmaps, bool is_nullable,
-                           ColumnUInt8& ret_null_map) {
+                           ColumnUInt8& ret_null_map) const {
         std::string type_flags = data_columns.back()->get_data_at(0).to_string();
 
         std::vector<rapidjson::Document> objects;
