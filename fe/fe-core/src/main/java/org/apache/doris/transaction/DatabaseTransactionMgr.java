@@ -1793,8 +1793,17 @@ public class DatabaseTransactionMgr {
             }
         }
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
-        LOG.debug("table id to loaded rows:{}", transactionState.getTableIdToNumDeltaRows());
-        transactionState.getTableIdToNumDeltaRows().forEach(analysisManager::updateUpdatedRows);
+        Map<Long, Long> tableIdToTotalNumDeltaRows = transactionState.getTableIdToTotalNumDeltaRows();
+        LOG.debug("table id to loaded rows:{}", tableIdToTotalNumDeltaRows);
+        Map<Long, Long> tableIdToNumDeltaRows = Maps.newHashMap();
+        tableIdToTotalNumDeltaRows
+                        .forEach((tableId, numRows) -> {
+                            OlapTable table = (OlapTable) db.getTableNullable(tableId);
+                            if (table != null) {
+                                tableIdToNumDeltaRows.put(tableId, numRows / table.getReplicaCount());
+                            }
+                        });
+        tableIdToNumDeltaRows.forEach(analysisManager::updateUpdatedRows);
         return true;
     }
 
