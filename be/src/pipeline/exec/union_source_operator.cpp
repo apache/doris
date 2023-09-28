@@ -124,7 +124,7 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     return Status::OK();
 }
 
-std::shared_ptr<DataQueue> UnionSourceLocalState::data_queue() {
+std::shared_ptr<DataQueue> UnionSourceLocalState::create_data_queue() {
     auto& p = _parent->cast<Parent>();
     std::shared_ptr<DataQueue> data_queue = std::make_shared<DataQueue>(p._child_size, _dependency);
     return data_queue;

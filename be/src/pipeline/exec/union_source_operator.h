@@ -78,7 +78,7 @@ public:
     UnionSourceLocalState(RuntimeState* state, OperatorXBase* parent) : Base(state, parent) {};
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
-    std::shared_ptr<DataQueue> data_queue();
+    std::shared_ptr<DataQueue> create_data_queue();
 
 private:
     friend class UnionSourceOperatorX;

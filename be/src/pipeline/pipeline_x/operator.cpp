@@ -37,6 +37,7 @@
 #include "pipeline/exec/jdbc_scan_operator.h"
 #include "pipeline/exec/jdbc_table_sink_operator.h"
 #include "pipeline/exec/meta_scan_operator.h"
+#include "pipeline/exec/multi_cast_data_stream_sink.h"
 #include "pipeline/exec/multi_cast_data_stream_source.h"
 #include "pipeline/exec/nested_loop_join_build_operator.h"
 #include "pipeline/exec/nested_loop_join_probe_operator.h"
@@ -258,19 +259,13 @@ Status DataSinkOperatorXBase::init(const TPlanNode& tnode, RuntimeState* state) 
 }
 
 template <typename LocalStateType>
-Status DataSinkOperatorX<LocalStateType>::setup_local_state(RuntimeState* state,
-                                                            LocalSinkStateInfo& info) {
-    auto local_state = LocalStateType::create_shared(this, state);
-    state->emplace_sink_local_state(id(), local_state);
-    return local_state->init(state, info);
-}
-
-template <typename LocalStateType>
 Status DataSinkOperatorX<LocalStateType>::setup_local_states(
         RuntimeState* state, std::vector<LocalSinkStateInfo>& infos) {
     DCHECK(infos.size() == 1);
     for (auto& info : infos) {
-        RETURN_IF_ERROR(setup_local_state(state, info));
+        auto local_state = LocalStateType::create_shared(this, state);
+        state->emplace_sink_local_state(id(), local_state);
+        RETURN_IF_ERROR(local_state->init(state, info));
     }
     return Status::OK();
 }
@@ -279,12 +274,12 @@ template <>
 Status DataSinkOperatorX<MultiCastDataStreamSinkLocalState>::setup_local_states(
         RuntimeState* state, std::vector<LocalSinkStateInfo>& infos) {
     auto multi_cast_data_streamer =
-            static_cast<MultiCastDataStreamSinkOperatorX*>(this)->multi_cast_data_streamer();
+            static_cast<MultiCastDataStreamSinkOperatorX*>(this)->create_multi_cast_data_streamer();
     for (auto& info : infos) {
         auto local_state = MultiCastDataStreamSinkLocalState::create_shared(this, state);
         state->emplace_sink_local_state(id(), local_state);
         RETURN_IF_ERROR(local_state->init(state, info));
-        local_state->_shared_state->_multi_cast_data_streamer = multi_cast_data_streamer;
+        local_state->_shared_state->multi_cast_data_streamer = multi_cast_data_streamer;
     }
 
     return Status::OK();
@@ -331,7 +326,7 @@ Status OperatorX<UnionSourceLocalState>::setup_local_states(RuntimeState* state,
         RETURN_IF_ERROR(local_state->init(state, info));
         if (child_count != 0) {
             if (!data_queue) {
-                data_queue = local_state->data_queue();
+                data_queue = local_state->create_data_queue();
             }
             local_state->_shared_state->data_queue = data_queue;
         }

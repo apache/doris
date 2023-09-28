@@ -215,4 +215,6 @@ Status AnalyticSinkOperatorX::_insert_range_column(vectorized::Block* block,
     return Status::OK();
 }
 
+template class DataSinkOperatorX<AnalyticSinkLocalState>;
+
 } // namespace doris::pipeline
