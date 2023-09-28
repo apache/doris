@@ -346,3 +346,4 @@ Examples of Java UDF are provided in the `samples/doris-demo/java-udf-demo/` dir
 3. The udf of char type needs to use the String type when creating a function.
 4. Due to the problem that the jvm loads classes with the same name, do not use multiple classes with the same name as udf implementations at the same time. If you want to update the udf of a class with the same name, you need to restart be to reload the classpath.
 5. If querying a simple UDF causes BE to core down and cannot be reproduced in other environments, it may be caused by the machine's JDK version being too low. Please upgrade to the latest version of JDK1.8.
+
