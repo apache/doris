@@ -1498,7 +1498,7 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
                                     rowset_meta->tablet_id(), node_id, true);
     });
     if (!ret) {
-        offer_failed(response, done, _heavy_work_pool);
+        offer_failed(response, closure_guard.release(), _heavy_work_pool);
         return;
     }
     Status::OK().to_protobuf(response->mutable_status());
