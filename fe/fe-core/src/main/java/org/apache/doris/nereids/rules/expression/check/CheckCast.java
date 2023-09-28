@@ -29,6 +29,7 @@ import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
+import org.apache.doris.nereids.types.coercion.PrimitiveType;
 
 import java.util.List;
 
@@ -55,6 +56,9 @@ public class CheckCast extends AbstractExpressionRewriteRule {
             return true;
         }
         if (originalType.equals(targetType)) {
+            return true;
+        }
+        if (originalType instanceof CharacterType && !(targetType instanceof PrimitiveType)) {
             return true;
         }
         if (originalType instanceof ArrayType && targetType instanceof ArrayType) {

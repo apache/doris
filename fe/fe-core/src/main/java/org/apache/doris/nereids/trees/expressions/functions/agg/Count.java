@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
@@ -75,16 +74,6 @@ public class Count extends AggregateFunction
         // for multiple exprs count must be qualified with distinct
         if (arity() > 1 && !distinct) {
             throw new AnalysisException("COUNT must have DISTINCT for multiple arguments: " + this.toSql());
-        }
-    }
-
-    @Override
-    public void checkLegalityAfterRewrite() {
-        // after rewrite, count(distinct bitmap_column) should be rewritten to bitmap_union_count(bitmap_column)
-        for (Expression argument : getArguments()) {
-            if (argument.getDataType().isOnlyMetricType()) {
-                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
-            }
         }
     }
 

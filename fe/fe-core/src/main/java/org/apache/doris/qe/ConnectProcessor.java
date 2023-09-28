@@ -324,6 +324,14 @@ public class ConnectProcessor {
             }
         }
 
+        if (mysqlCommand == MysqlCommand.COM_QUERY
+                && ctx.getSessionVariable().isEnableNereidsPlanner()
+                && stmts.stream().allMatch(QueryStmt.class::isInstance)) {
+            handleQueryException(new AnalysisException("Nereids parse DQL failed. " + originStmt),
+                    originStmt, null, null);
+            return;
+        }
+
         List<String> origSingleStmtList = null;
         // if stmts.size() > 1, split originStmt to multi singleStmts
         if (stmts.size() > 1) {
