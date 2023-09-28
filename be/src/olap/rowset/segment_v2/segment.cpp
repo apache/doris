@@ -284,13 +284,17 @@ Status Segment::load_index() {
 
 Status Segment::_load_index_impl() {
     return _load_index_once.call([this] {
+        bool load_short_key_index = _tablet_schema->keys_type() != UNIQUE_KEYS ||
+                                    _pk_index_meta == nullptr ||
+                                    (_tablet_schema->keys_type() == UNIQUE_KEYS &&
+                                     !_tablet_schema->cluster_key_idxes().empty());
         if (_tablet_schema->keys_type() == UNIQUE_KEYS && _pk_index_meta != nullptr) {
             _pk_index_reader.reset(new PrimaryKeyIndexReader());
             RETURN_IF_ERROR(_pk_index_reader->parse_index(_file_reader, *_pk_index_meta));
             _meta_mem_usage += _pk_index_reader->get_memory_size();
             _segment_meta_mem_tracker->consume(_pk_index_reader->get_memory_size());
-            return Status::OK();
-        } else {
+        }
+        if (load_short_key_index) {
             // read and parse short key index page
             OlapReaderStatistics tmp_stats;
             PageReadOptions opts {
@@ -313,8 +317,9 @@ Status Segment::_load_index_impl() {
             _meta_mem_usage += body.get_size();
             _segment_meta_mem_tracker->consume(body.get_size());
             _sk_index_decoder.reset(new ShortKeyIndexDecoder);
-            return _sk_index_decoder->parse(body, footer.short_key_page_footer());
+            RETURN_IF_ERROR(_sk_index_decoder->parse(body, footer.short_key_page_footer()));
         }
+        return Status::OK();
     });
 }
 
@@ -473,7 +478,7 @@ Status Segment::lookup_row_key(const Slice& key, bool with_seq_col, RowLocation*
                 Slice(sought_key.get_data(), sought_key.get_size() - rowid_length);
         // compare key
         if (key_without_seq.compare(sought_key_without_rowid) != 0) {
-            return Status::NotFound("Can't find key in the segment");
+            return Status::Error<ErrorCode::KEY_NOT_FOUND>("Can't find key in the segment");
         }
     }
     if (has_rowid) {

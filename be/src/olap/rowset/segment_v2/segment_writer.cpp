@@ -1007,12 +1007,19 @@ Status SegmentWriter::finalize_columns_index(uint64_t* index_size) {
 
     *index_size = _file_writer->bytes_appended() - index_start;
     if (_has_key) {
+        bool write_short_key_index = _tablet_schema->keys_type() != UNIQUE_KEYS ||
+                                     (_tablet_schema->keys_type() == UNIQUE_KEYS &&
+                                      !_opts.enable_unique_key_merge_on_write) ||
+                                     (_tablet_schema->keys_type() == UNIQUE_KEYS &&
+                                      _opts.enable_unique_key_merge_on_write &&
+                                      !_tablet_schema->cluster_key_idxes().empty());
         if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
             RETURN_IF_ERROR(_write_primary_key_index());
             // IndexedColumnWriter write data pages mixed with segment data, we should use
             // the stat from primary key index builder.
             *index_size += _primary_key_index_builder->disk_size();
-        } else {
+        }
+        if (write_short_key_index) {
             RETURN_IF_ERROR(_write_short_key_index());
             *index_size = _file_writer->bytes_appended() - index_start;
         }
@@ -1155,12 +1162,14 @@ Status SegmentWriter::_write_raw_data(const std::vector<Slice>& slices) {
 }
 
 Slice SegmentWriter::min_encoded_key() {
-    return (_primary_key_index_builder == nullptr) ? Slice(_min_key.data(), _min_key.size())
-                                                   : _primary_key_index_builder->min_key();
+    return (_primary_key_index_builder == nullptr || !_tablet_schema->cluster_key_idxes().empty())
+                   ? Slice(_min_key.data(), _min_key.size())
+                   : _primary_key_index_builder->min_key();
 }
 Slice SegmentWriter::max_encoded_key() {
-    return (_primary_key_index_builder == nullptr) ? Slice(_max_key.data(), _max_key.size())
-                                                   : _primary_key_index_builder->max_key();
+    return (_primary_key_index_builder == nullptr || !_tablet_schema->cluster_key_idxes().empty())
+                   ? Slice(_max_key.data(), _max_key.size())
+                   : _primary_key_index_builder->max_key();
 }
 
 void SegmentWriter::set_min_max_key(const Slice& key) {
