@@ -579,8 +579,7 @@ public class OutFileClause {
                     }
                     break;
                 default:
-                    throw new AnalysisException("Parquet format does not support column type: "
-                            + resultType.getPrimitiveType());
+                    break;
             }
         }
     }
@@ -638,8 +637,7 @@ public class OutFileClause {
                     }
                     break;
                 default:
-                    throw new AnalysisException("currently parquet do not support column type: "
-                            + expr.getType().getPrimitiveType());
+                    break;
             }
 
             switch (expr.getType().getPrimitiveType()) {
