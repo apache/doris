@@ -12,18 +12,23 @@ PhysicalResultSink
 --------------hashJoin[INNER_JOIN](asceding.rnk = descending.rnk)
 ----------------hashJoin[INNER_JOIN](i2.i_item_sk = descending.item_sk)
 ------------------PhysicalProject
---------------------PhysicalOlapScan[item]
-------------------PhysicalDistribute
---------------------PhysicalProject
-----------------------filter((rnk < 11))
-------------------------PhysicalWindow
---------------------------PhysicalQuickSort
-----------------------------PhysicalDistribute
-------------------------------PhysicalQuickSort
---------------------------------PhysicalPartitionTopN
-----------------------------------PhysicalProject
-------------------------------------NestedLoopJoin[INNER_JOIN](cast(rank_col as DOUBLE) > cast((0.9 * rank_col) as DOUBLE))
+--------------------filter((rnk < 11))
+----------------------PhysicalWindow
+------------------------PhysicalQuickSort
+--------------------------PhysicalDistribute
+----------------------------PhysicalQuickSort
+------------------------------PhysicalPartitionTopN
+--------------------------------PhysicalProject
+----------------------------------NestedLoopJoin[INNER_JOIN](cast(rank_col as DOUBLE) > cast((0.9 * rank_col) as DOUBLE))
+------------------------------------PhysicalProject
 --------------------------------------hashAgg[GLOBAL]
+----------------------------------------PhysicalDistribute
+------------------------------------------hashAgg[LOCAL]
+--------------------------------------------PhysicalProject
+----------------------------------------------filter((ss1.ss_store_sk = 146))
+------------------------------------------------PhysicalOlapScan[store_sales]
+------------------------------------PhysicalDistribute
+--------------------------------------PhysicalAssertNumRows
 ----------------------------------------PhysicalDistribute
 ------------------------------------------hashAgg[LOCAL]
 --------------------------------------------PhysicalProject
@@ -49,12 +54,13 @@ PhysicalResultSink
 ------------------------------PhysicalPartitionTopN
 --------------------------------PhysicalProject
 ----------------------------------NestedLoopJoin[INNER_JOIN](cast(rank_col as DOUBLE) > cast((0.9 * rank_col) as DOUBLE))
-------------------------------------hashAgg[GLOBAL]
---------------------------------------PhysicalDistribute
-----------------------------------------hashAgg[LOCAL]
-------------------------------------------PhysicalProject
---------------------------------------------filter((ss1.ss_store_sk = 146))
-----------------------------------------------PhysicalOlapScan[store_sales]
+------------------------------------PhysicalProject
+--------------------------------------hashAgg[GLOBAL]
+----------------------------------------PhysicalDistribute
+------------------------------------------hashAgg[LOCAL]
+--------------------------------------------PhysicalProject
+----------------------------------------------filter((ss1.ss_store_sk = 146))
+------------------------------------------------PhysicalOlapScan[store_sales]
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalAssertNumRows
 ----------------------------------------PhysicalDistribute
