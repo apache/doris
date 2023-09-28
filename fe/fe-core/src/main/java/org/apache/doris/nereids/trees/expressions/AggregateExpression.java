@@ -119,7 +119,7 @@ public class AggregateExpression extends Expression implements UnaryExpression {
 
     @Override
     protected String getExpressionName() {
-        return normalizeColumnName(function.getName());
+        return normalizeName(function.getName(), DEFAULT_EXPRESSION_NAME);
     }
 
     @Override

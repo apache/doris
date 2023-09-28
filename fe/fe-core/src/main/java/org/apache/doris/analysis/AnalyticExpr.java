@@ -147,7 +147,7 @@ public class AnalyticExpr extends Expr {
 
     @Override
     protected String getExprName() {
-        return Expression.normalizeColumnName(getFnCall().getExprName());
+        return Expression.normalizeName(getFnCall().getExprName(), DEFAULT_EXPR_NAME);
     }
 
     @Override

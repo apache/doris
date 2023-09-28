@@ -56,7 +56,7 @@ public abstract class BoundFunction extends Function implements ComputeSignature
 
     @Override
     protected String getExpressionName() {
-        return normalizeColumnName(getName());
+        return normalizeName(getName(), DEFAULT_EXPRESSION_NAME);
     }
 
     public FunctionSignature getSignature() {

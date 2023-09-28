@@ -140,7 +140,7 @@ public class SelectListItem {
      * Need the position of selectListItem to generate column label
      */
     public String toColumnLabel(int position) {
-        Preconditions.checkState(!isStar());
+        Preconditions.checkState(!isStar(), "select item should not be star when get column label");
         if (alias != null) {
             return alias;
         }

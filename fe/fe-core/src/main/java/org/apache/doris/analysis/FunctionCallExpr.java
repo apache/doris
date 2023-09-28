@@ -312,7 +312,7 @@ public class FunctionCallExpr extends Expr {
 
     @Override
     protected String getExprName() {
-        return Expression.normalizeColumnName(this.getFnName().getFunction());
+        return Expression.normalizeName(this.getFnName().getFunction(), DEFAULT_EXPR_NAME);
     }
 
     public FunctionCallExpr(String functionName, List<Expr> params) {

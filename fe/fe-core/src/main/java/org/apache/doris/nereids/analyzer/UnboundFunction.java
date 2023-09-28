@@ -62,7 +62,7 @@ public class UnboundFunction extends Function implements Unbound, PropagateNulla
 
     @Override
     protected String getExpressionName() {
-        return normalizeColumnName(getName());
+        return Expression.normalizeName(getName(), DEFAULT_EXPRESSION_NAME);
     }
 
     public String getDbName() {

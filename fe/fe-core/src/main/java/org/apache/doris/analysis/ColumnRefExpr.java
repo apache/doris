@@ -56,7 +56,7 @@ public class ColumnRefExpr extends Expr {
 
     @Override
     protected String getExprName() {
-        return Expression.normalizeColumnName(getName());
+        return Expression.normalizeName(getName(), DEFAULT_EXPR_NAME);
     }
 
     public void setName(String name) {

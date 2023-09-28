@@ -54,7 +54,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -84,6 +83,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     public static final String AGG_STATE_SUFFIX = "_state";
     public static final String AGG_UNION_SUFFIX = "_union";
     public static final String AGG_MERGE_SUFFIX = "_merge";
+    public static final String DEFAULT_EXPR_NAME = "__expr";
 
     protected boolean disableTableName = false;
     protected boolean needToMysql = false;
@@ -294,8 +294,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     // Flag to indicate whether to wrap this expr's toSql() in parenthesis. Set by parser.
     // Needed for properly capturing expr precedences in the SQL string.
     protected boolean printSqlInParens = false;
-    protected final String exprName =
-            Expression.normalizeColumnName(this.getClass().getSimpleName());
+    protected final String exprName = Expression.normalizeName(this.getClass().getSimpleName(), DEFAULT_EXPR_NAME);
 
     protected Expr() {
         super();
@@ -340,9 +339,6 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     // Name of expr, this is used by generating column name automatically when there is no
     // alias or is not slotRef
     protected String getExprName() {
-        if (StringUtils.isEmpty(this.exprName)) {
-            return Expression.DEFAULT_COLUMN_NAME;
-        }
         return this.exprName;
     }
 
