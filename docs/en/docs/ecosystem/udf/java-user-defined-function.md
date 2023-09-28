@@ -69,6 +69,7 @@ This section mainly introduces how to develop a Java UDF. Samples for the Java v
 To use Java UDF, the main entry of UDF must be the `evaluate` function. This is consistent with other engines such as Hive. In the example of `AddOne`, we have completed the operation of adding an integer as the UDF.
 
 It is worth mentioning that this example is not only the Java UDF supported by Doris, but also the UDF supported by Hive, that's to say, for users, Hive UDF can be directly migrated to Doris.
+Another point that needs attention is that the input and output parameter types in the Java code should strictly follow the types listed in the above table. Basic types are not supported. (long, int should be written as Long, Integer)
 
 ## Create UDF
 

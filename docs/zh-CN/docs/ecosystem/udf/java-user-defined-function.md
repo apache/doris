@@ -66,6 +66,7 @@ Java UDF 为用户提供UDF编写的Java接口，以方便用户使用Java语言
 
 使用Java代码编写UDF，UDF的主入口必须为 `evaluate` 函数。这一点与Hive等其他引擎保持一致。在本示例中，我们编写了 `AddOne` UDF来完成对整型输入进行加一的操作。
 值得一提的是，本例不只是Doris支持的Java UDF，同时还是Hive支持的UDF，也就是说，对于用户来讲，Hive UDF是可以直接迁移至Doris的。
+另一个需要注意的点，java代码中的输入输出参数类型应严格按照上述表格中所列的类型，不支持基础类型(long, int等等，应该写成Long, Integer)
 
 ## 创建 UDF
 
