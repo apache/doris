@@ -21,6 +21,7 @@
 #include <arrow/result.h>
 #include <arrow/status.h>
 #include <gen_cpp/DataSinks_types.h>
+#include <parquet/arrow/writer.h>
 #include <parquet/file_writer.h>
 #include <parquet/properties.h>
 #include <parquet/types.h>
@@ -100,23 +101,26 @@ public:
     Status open() override;
 
     Status write(const Block& block) override;
+    Status write2(const Block& block);
 
     Status close() override;
 
     int64_t written_len() override;
 
 private:
-    parquet::RowGroupWriter* get_rg_writer();
+    parquet::RowGroupWriter* _get_rg_writer();
+    Status _parse_schema();
+    Status _parse_properties();
+    Status _parse_schema2();
+    arrow::Status _open_file_writer();
 
-    Status parse_schema();
-
-    Status parse_properties();
-
-private:
     std::shared_ptr<ParquetOutputStream> _outstream;
     std::shared_ptr<parquet::WriterProperties> _properties;
+    std::shared_ptr<parquet::ArrowWriterProperties> _arrow_properties;
     std::shared_ptr<parquet::schema::GroupNode> _schema;
     std::unique_ptr<parquet::ParquetFileWriter> _writer;
+    std::unique_ptr<parquet::arrow::FileWriter> _writer2;
+    std::shared_ptr<arrow::Schema> _arrow_schema;
     parquet::RowGroupWriter* _rg_writer;
     const int64_t _max_row_per_group = 10;
 

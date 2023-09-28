@@ -18,6 +18,7 @@
 #include "vec/runtime/vparquet_transformer.h"
 
 #include <arrow/io/type_fwd.h>
+#include <arrow/table.h>
 #include <glog/logging.h>
 #include <math.h>
 #include <parquet/column_writer.h>
@@ -40,6 +41,9 @@
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/types.h"
+#include "util/arrow/block_convertor.h"
+#include "util/arrow/row_batch.h"
+#include "util/arrow/utils.h"
 #include "util/binary_cast.hpp"
 #include "util/mysql_global.h"
 #include "util/types.h"
@@ -294,7 +298,7 @@ VParquetTransformer::VParquetTransformer(doris::io::FileWriter* file_writer,
     _outstream = std::shared_ptr<ParquetOutputStream>(new ParquetOutputStream(file_writer));
 }
 
-Status VParquetTransformer::parse_properties() {
+Status VParquetTransformer::_parse_properties() {
     try {
         parquet::WriterProperties::Builder builder;
         ParquetBuildHelper::build_compression_type(builder, _compression_type);
@@ -304,14 +308,30 @@ Status VParquetTransformer::parse_properties() {
         } else {
             builder.enable_dictionary();
         }
+        builder.max_row_group_length(4096);
         _properties = builder.build();
+        _arrow_properties = parquet::ArrowWriterProperties::Builder().store_schema()->build();
     } catch (const parquet::ParquetException& e) {
         return Status::InternalError("parquet writer parse properties error: {}", e.what());
     }
     return Status::OK();
 }
 
-Status VParquetTransformer::parse_schema() {
+Status VParquetTransformer::_parse_schema2() {
+    std::vector<std::shared_ptr<arrow::Field>> fields;
+    for (size_t i = 0; i < _output_vexpr_ctxs.size(); i++) {
+        std::shared_ptr<arrow::DataType> type;
+        RETURN_IF_ERROR(convert_to_arrow_type(_output_vexpr_ctxs[i]->root()->type(), &type));
+        std::shared_ptr<arrow::Field> field =
+                arrow::field(_parquet_schemas[i].schema_column_name, type,
+                             _output_vexpr_ctxs[i]->root()->is_nullable());
+        fields.emplace_back(field);
+    }
+    _arrow_schema = arrow::schema(std::move(fields));
+    return Status::OK();
+}
+
+Status VParquetTransformer::_parse_schema() {
     parquet::schema::NodeVector fields;
     parquet::Repetition::type parquet_repetition_type;
     parquet::Type::type parquet_physical_type;
@@ -344,7 +364,7 @@ Status VParquetTransformer::parse_schema() {
     return Status::InvalidArgument("Invalid column type: {}", raw_column->get_name());
 
 #define DISPATCH_PARQUET_NUMERIC_WRITER(WRITER, COLUMN_TYPE, NATIVE_TYPE)                         \
-    parquet::RowGroupWriter* rgWriter = get_rg_writer();                                          \
+    parquet::RowGroupWriter* rgWriter = _get_rg_writer();                                         \
     parquet::WRITER* col_writer = static_cast<parquet::WRITER*>(rgWriter->column(i));             \
     if (null_map != nullptr) {                                                                    \
         auto& null_data = assert_cast<const ColumnUInt8&>(*null_map).get_data();                  \
@@ -363,7 +383,7 @@ Status VParquetTransformer::parse_schema() {
     }
 
 #define DISPATCH_PARQUET_COMPLEX_WRITER(COLUMN_TYPE)                                             \
-    parquet::RowGroupWriter* rgWriter = get_rg_writer();                                         \
+    parquet::RowGroupWriter* rgWriter = _get_rg_writer();                                        \
     parquet::ByteArrayWriter* col_writer =                                                       \
             static_cast<parquet::ByteArrayWriter*>(rgWriter->column(i));                         \
     if (null_map != nullptr) {                                                                   \
@@ -395,6 +415,24 @@ Status VParquetTransformer::parse_schema() {
     }
 
 Status VParquetTransformer::write(const Block& block) {
+    if (block.rows() == 0) {
+        return Status::OK();
+    }
+
+    // serialize
+    std::shared_ptr<arrow::RecordBatch> result;
+    convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(), &result);
+
+    auto get_table_res = arrow::Table::FromRecordBatches(result->schema(), {result});
+    if (!get_table_res.ok()) {
+        return Status::InternalError("Error when get arrow table from record batchs");
+    }
+    auto& table = get_table_res.ValueOrDie();
+    RETURN_DORIS_STATUS_IF_ERROR(_writer2->WriteTable(*table, block.rows()));
+    return Status::OK();
+}
+
+Status VParquetTransformer::write2(const Block& block) {
     if (block.rows() == 0) {
         return Status::OK();
     }
@@ -431,7 +469,7 @@ Status VParquetTransformer::write(const Block& block) {
                 break;
             }
             case TYPE_LARGEINT: {
-                parquet::RowGroupWriter* rgWriter = get_rg_writer();
+                parquet::RowGroupWriter* rgWriter = _get_rg_writer();
                 parquet::ByteArrayWriter* col_writer =
                         static_cast<parquet::ByteArrayWriter*>(rgWriter->column(i));
                 parquet::ByteArray value;
@@ -476,7 +514,7 @@ Status VParquetTransformer::write(const Block& block) {
             }
             case TYPE_TINYINT:
             case TYPE_SMALLINT: {
-                parquet::RowGroupWriter* rgWriter = get_rg_writer();
+                parquet::RowGroupWriter* rgWriter = _get_rg_writer();
                 parquet::Int32Writer* col_writer =
                         static_cast<parquet::Int32Writer*>(rgWriter->column(i));
                 if (null_map != nullptr) {
@@ -530,7 +568,7 @@ Status VParquetTransformer::write(const Block& block) {
                 break;
             }
             case TYPE_DATETIME: {
-                parquet::RowGroupWriter* rgWriter = get_rg_writer();
+                parquet::RowGroupWriter* rgWriter = _get_rg_writer();
                 parquet::Int64Writer* col_writer =
                         static_cast<parquet::Int64Writer*>(rgWriter->column(i));
                 uint64_t default_int64 = 0;
@@ -591,7 +629,7 @@ Status VParquetTransformer::write(const Block& block) {
                 break;
             }
             case TYPE_DATE: {
-                parquet::RowGroupWriter* rgWriter = get_rg_writer();
+                parquet::RowGroupWriter* rgWriter = _get_rg_writer();
                 parquet::Int64Writer* col_writer =
                         static_cast<parquet::Int64Writer*>(rgWriter->column(i));
                 uint64_t default_int64 = 0;
@@ -643,7 +681,7 @@ Status VParquetTransformer::write(const Block& block) {
                 break;
             }
             case TYPE_DATEV2: {
-                parquet::RowGroupWriter* rgWriter = get_rg_writer();
+                parquet::RowGroupWriter* rgWriter = _get_rg_writer();
                 parquet::ByteArrayWriter* col_writer =
                         static_cast<parquet::ByteArrayWriter*>(rgWriter->column(i));
                 parquet::ByteArray value;
@@ -683,7 +721,7 @@ Status VParquetTransformer::write(const Block& block) {
                 break;
             }
             case TYPE_DATETIMEV2: {
-                parquet::RowGroupWriter* rgWriter = get_rg_writer();
+                parquet::RowGroupWriter* rgWriter = _get_rg_writer();
                 parquet::ByteArrayWriter* col_writer =
                         static_cast<parquet::ByteArrayWriter*>(rgWriter->column(i));
                 parquet::ByteArray value;
@@ -745,7 +783,7 @@ Status VParquetTransformer::write(const Block& block) {
                 break;
             }
             case TYPE_DECIMALV2: {
-                parquet::RowGroupWriter* rgWriter = get_rg_writer();
+                parquet::RowGroupWriter* rgWriter = _get_rg_writer();
                 parquet::ByteArrayWriter* col_writer =
                         static_cast<parquet::ByteArrayWriter*>(rgWriter->column(i));
                 parquet::ByteArray value;
@@ -787,7 +825,7 @@ Status VParquetTransformer::write(const Block& block) {
                 break;
             }
             case TYPE_DECIMAL32: {
-                parquet::RowGroupWriter* rgWriter = get_rg_writer();
+                parquet::RowGroupWriter* rgWriter = _get_rg_writer();
                 parquet::FixedLenByteArrayWriter* col_writer =
                         static_cast<parquet::FixedLenByteArrayWriter*>(rgWriter->column(i));
                 parquet::FixedLenByteArray value;
@@ -822,7 +860,7 @@ Status VParquetTransformer::write(const Block& block) {
                 break;
             }
             case TYPE_DECIMAL64: {
-                parquet::RowGroupWriter* rgWriter = get_rg_writer();
+                parquet::RowGroupWriter* rgWriter = _get_rg_writer();
                 parquet::FixedLenByteArrayWriter* col_writer =
                         static_cast<parquet::FixedLenByteArrayWriter*>(rgWriter->column(i));
                 parquet::FixedLenByteArray value;
@@ -857,7 +895,7 @@ Status VParquetTransformer::write(const Block& block) {
                 break;
             }
             case TYPE_DECIMAL128I: {
-                parquet::RowGroupWriter* rgWriter = get_rg_writer();
+                parquet::RowGroupWriter* rgWriter = _get_rg_writer();
                 parquet::FixedLenByteArrayWriter* col_writer =
                         static_cast<parquet::FixedLenByteArrayWriter*>(rgWriter->column(i));
                 parquet::FixedLenByteArray value;
@@ -906,22 +944,29 @@ Status VParquetTransformer::write(const Block& block) {
     return Status::OK();
 }
 
+arrow::Status VParquetTransformer::_open_file_writer() {
+    ARROW_ASSIGN_OR_RAISE(
+            _writer2, parquet::arrow::FileWriter::Open(*_arrow_schema, arrow::default_memory_pool(),
+                                                       _outstream, _properties, _arrow_properties));
+    return arrow::Status::OK();
+}
+
 Status VParquetTransformer::open() {
-    RETURN_IF_ERROR(parse_properties());
-    RETURN_IF_ERROR(parse_schema());
+    RETURN_IF_ERROR(_parse_properties());
+    RETURN_IF_ERROR(_parse_schema2());
     try {
-        _writer = parquet::ParquetFileWriter::Open(_outstream, _schema, _properties);
+        RETURN_DORIS_STATUS_IF_ERROR(_open_file_writer());
     } catch (const parquet::ParquetStatusException& e) {
         LOG(WARNING) << "parquet file writer open error: " << e.what();
         return Status::InternalError("parquet file writer open error: {}", e.what());
     }
-    if (_writer == nullptr) {
+    if (_writer2 == nullptr) {
         return Status::InternalError("Failed to create file writer");
     }
     return Status::OK();
 }
 
-parquet::RowGroupWriter* VParquetTransformer::get_rg_writer() {
+parquet::RowGroupWriter* VParquetTransformer::_get_rg_writer() {
     if (_rg_writer == nullptr) {
         _rg_writer = _writer->AppendBufferedRowGroup();
     }
@@ -946,11 +991,12 @@ Status VParquetTransformer::close() {
         if (_writer != nullptr) {
             _writer->Close();
         }
-        arrow::Status st = _outstream->Close();
-        if (!st.ok()) {
-            LOG(WARNING) << "close parquet file error: " << st.ToString();
-            return Status::IOError(st.ToString());
+
+        if (_writer2 != nullptr) {
+            RETURN_DORIS_STATUS_IF_ERROR(_writer2->Close());
         }
+        RETURN_DORIS_STATUS_IF_ERROR(_outstream->Close());
+
     } catch (const std::exception& e) {
         _rg_writer = nullptr;
         LOG(WARNING) << "Parquet writer close error: " << e.what();

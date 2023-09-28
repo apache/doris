@@ -81,15 +81,20 @@ void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const 
                                      end - start,
                                      reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
                 column.get_name(), array_builder->type()->name());
-    } else if constexpr (std::is_same_v<T, Int128> || std::is_same_v<T, UInt128>) {
-        ARROW_BUILDER_TYPE& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
-        size_t fixed_length = sizeof(typename ColumnType::value_type);
-        const uint8_t* data_start =
-                reinterpret_cast<const uint8_t*>(col_data.data()) + start * fixed_length;
-        checkArrowStatus(
-                builder.AppendValues(data_start, end - start,
-                                     reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
-                column.get_name(), array_builder->type()->name());
+    } else if constexpr (std::is_same_v<T, Int128>) {
+        auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
+        for (size_t i = start; i < end; ++i) {
+            auto& data_value = col_data[i];
+            std::string value_str = fmt::format("{}", data_value);
+            if (null_map && (*null_map)[i]) {
+                checkArrowStatus(string_builder.AppendNull(), column.get_name(),
+                                 array_builder->type()->name());
+            } else {
+                checkArrowStatus(string_builder.Append(value_str.data(), value_str.length()),
+                                 column.get_name(), array_builder->type()->name());
+            }
+        }
+    } else if constexpr (std::is_same_v<T, UInt128>) {
     } else {
         ARROW_BUILDER_TYPE& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
         checkArrowStatus(
