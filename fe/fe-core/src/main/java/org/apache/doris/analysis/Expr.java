@@ -37,6 +37,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.mvrewrite.MVExprEquivalent;
 import org.apache.doris.statistics.ExprStats;
@@ -53,6 +54,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -292,6 +294,8 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     // Flag to indicate whether to wrap this expr's toSql() in parenthesis. Set by parser.
     // Needed for properly capturing expr precedences in the SQL string.
     protected boolean printSqlInParens = false;
+    protected final String exprName =
+            Expression.normalizeColumnName(this.getClass().getSimpleName());
 
     protected Expr() {
         super();
@@ -331,6 +335,15 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
 
     public void setId(ExprId id) {
         this.id = id;
+    }
+
+    // Name of expr, this is used by generating column name automatically when there is no
+    // alias or is not slotRef
+    protected String getExprName() {
+        if (StringUtils.isEmpty(this.exprName)) {
+            return Expression.DEFAULT_COLUMN_NAME;
+        }
+        return this.exprName;
     }
 
     public Type getType() {

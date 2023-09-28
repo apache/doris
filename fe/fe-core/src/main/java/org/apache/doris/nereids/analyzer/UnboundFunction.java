@@ -60,6 +60,11 @@ public class UnboundFunction extends Function implements Unbound, PropagateNulla
         return name;
     }
 
+    @Override
+    protected String getExpressionName() {
+        return normalizeColumnName(getName());
+    }
+
     public String getDbName() {
         return dbName;
     }

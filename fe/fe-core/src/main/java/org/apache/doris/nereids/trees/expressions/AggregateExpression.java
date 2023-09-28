@@ -118,6 +118,11 @@ public class AggregateExpression extends Expression implements UnaryExpression {
     }
 
     @Override
+    protected String getExpressionName() {
+        return normalizeColumnName(function.getName());
+    }
+
+    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;

@@ -56,4 +56,9 @@ public abstract class NamedExpression extends Expression {
     public String getQualifiedName() throws UnboundException {
         return Utils.qualifiedName(getQualifier(), getName());
     }
+
+    @Override
+    protected String getExpressionName() {
+        return normalizeColumnName(getName());
+    }
 }

@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.thrift.TColumnRef;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -51,6 +52,11 @@ public class ColumnRefExpr extends Expr {
 
     public String getName() {
         return columnName;
+    }
+
+    @Override
+    protected String getExprName() {
+        return Expression.normalizeColumnName(getName());
     }
 
     public void setName(String name) {
