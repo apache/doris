@@ -22,9 +22,11 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
+import org.apache.doris.load.ExportFailMsg.CancelType;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportJobState;
 import org.apache.doris.load.ExportMgr;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
@@ -32,7 +34,9 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.wildfly.common.Assert;
 
+import java.lang.reflect.Method;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Predicate;
 
 public class CancelExportStmtTest extends TestWithFeService {
@@ -155,19 +159,36 @@ public class CancelExportStmtTest extends TestWithFeService {
         List<ExportJob> exportJobList2 = Lists.newLinkedList();
         ExportJob job1 = new ExportJob();
         ExportJob job2 = new ExportJob();
-        job2.updateState(ExportJobState.CANCELLED, true);
+
+        Method setExportJobState;
+        try {
+            setExportJobState = job1.getClass().getDeclaredMethod("setExportJobState",
+                    ExportJobState.class);
+            setExportJobState.setAccessible(true);
+        } catch (NoSuchMethodException e) {
+            throw new UserException(e);
+        }
+
+
+
+        try {
+            job2.updateExportJobState(ExportJobState.CANCELLED, 0L, Lists.newArrayList(), CancelType.UNKNOWN, "");
+        } catch (Exception e) {
+            throw new UserException(e);
+        }
         ExportJob job3 = new ExportJob();
-        job3.updateState(ExportJobState.EXPORTING, false);
+        try {
+            job3.updateExportJobState(ExportJobState.EXPORTING, 0L, Lists.newArrayList(), CancelType.UNKNOWN, "");
+        } catch (Exception e) {
+            throw new UserException(e);
+        }
         ExportJob job4 = new ExportJob();
-        ExportJob job5 = new ExportJob();
-        job5.updateState(ExportJobState.IN_QUEUE, false);
         exportJobList1.add(job1);
         exportJobList1.add(job2);
         exportJobList1.add(job3);
         exportJobList1.add(job4);
         exportJobList2.add(job1);
         exportJobList2.add(job2);
-        exportJobList2.add(job5);
 
         SlotRef stateSlotRef = new SlotRef(null, "state");
         StringLiteral stateStringLiteral = new StringLiteral("PENDING");

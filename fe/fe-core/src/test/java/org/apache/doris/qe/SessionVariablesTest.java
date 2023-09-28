@@ -31,7 +31,6 @@ import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportJobState;
-import org.apache.doris.task.ExportExportingTask;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -183,8 +182,6 @@ public class SessionVariablesTest extends TestWithFeService {
                 }
             };
 
-            ExportExportingTask task = new ExportExportingTask(job);
-            task.run();
             Assertions.assertTrue(job.isFinalState());
         } catch (Exception e) {
             e.printStackTrace();
@@ -221,8 +218,6 @@ public class SessionVariablesTest extends TestWithFeService {
                 }
             };
 
-            ExportExportingTask task = new ExportExportingTask(job);
-            task.run();
             Assertions.assertTrue(job.isFinalState());
         } catch (Exception e) {
             e.printStackTrace();
