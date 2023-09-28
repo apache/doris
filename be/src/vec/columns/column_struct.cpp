@@ -262,16 +262,6 @@ size_t ColumnStruct::filter(const Filter& filter) {
     return result_size;
 }
 
-Status ColumnStruct::filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
-    auto to = reinterpret_cast<vectorized::ColumnStruct*>(col_ptr);
-    const size_t tuple_size = columns.size();
-    DCHECK_EQ(to->tuple_size(), tuple_size);
-    for (size_t i = 0; i < tuple_size; ++i) {
-        columns[i]->filter_by_selector(sel, sel_size, &to->get_column(i));
-    }
-    return Status::OK();
-}
-
 ColumnPtr ColumnStruct::permute(const Permutation& perm, size_t limit) const {
     const size_t tuple_size = columns.size();
     Columns new_columns(tuple_size);

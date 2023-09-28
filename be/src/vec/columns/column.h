@@ -425,9 +425,12 @@ public:
      *  convert(convert MutablePtr to ImmutablePtr or convert ImmutablePtr to MutablePtr)
      *  happends in filter_by_selector because of mem-reuse logic or ColumnNullable, I think this is meaningless;
      *  So using raw ptr directly here.
+     *  NOTICE: only column_nullable and predict_column now support filter_by_selector
      */
     virtual Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
-        LOG(FATAL) << "column not support filter_by_selector";
+        LOG(FATAL) << get_name()
+                   << " do not support filter_by_selector, only column_nullable and predict_column "
+                      "support";
         __builtin_unreachable();
     }
 
