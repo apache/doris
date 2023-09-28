@@ -232,20 +232,14 @@ public:
         const auto& r = assert_cast<const ColumnArray&>(rhs);
         const size_t nested_row_size = r.size_at(row);
         const size_t r_nested_start_off = r.offset_at(row);
-        const size_t l_nested_start_off = offset_at(self_row);
 
-        get_offsets()[self_row] = get_offsets()[self_row - 1] + nested_row_size;
-        // here we use batch size to avoid many virtual call in nested column
-        data->replace_batch_column_data(r.get_data(), nested_row_size, r_nested_start_off,
-                                        l_nested_start_off);
-    }
-
-    void replace_batch_column_data(const IColumn& rhs, size_t num_rows, size_t row,
-                                   size_t self_row = 0) override {
-        DCHECK(size() > self_row + num_rows);
-        for (auto start_idx = 0; start_idx < num_rows; ++start_idx) {
-            replace_column_data(rhs, row + start_idx, self_row + start_idx);
+        // we should clear data because we call resize() before replace_column_data()
+        if (self_row == 0) {
+            data->clear();
         }
+        get_offsets()[self_row] = get_offsets()[self_row - 1] + nested_row_size;
+        // we make sure call replace_column_data() by order so, here we just insert data for nested
+        data->insert_range_from(r.get_data(), r_nested_start_off, nested_row_size);
     }
 
     void replace_column_data_default(size_t self_row = 0) override {

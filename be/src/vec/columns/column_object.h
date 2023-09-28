@@ -367,11 +367,6 @@ public:
         LOG(FATAL) << "should not call the method in column object";
     }
 
-    void replace_batch_column_data(const IColumn& rhs, size_t rows_num, size_t row,
-                                   size_t self_row = 0) override {
-        LOG(FATAL) << "should not call the method in column object";
-    }
-
     void replace_column_data_default(size_t self_row) override {
         LOG(FATAL) << "should not call the method in column object";
     }
