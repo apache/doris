@@ -32,9 +32,7 @@ namespace doris::pipeline {
 
 JdbcTableSinkOperatorX::JdbcTableSinkOperatorX(const RowDescriptor& row_desc,
                                                const std::vector<TExpr>& t_output_expr)
-        : DataSinkOperatorX(0), _row_desc(row_desc), _t_output_expr(t_output_expr) {
-    _name = "JdbcTableSink";
-}
+        : DataSinkOperatorX(0), _row_desc(row_desc), _t_output_expr(t_output_expr) {}
 
 Status JdbcTableSinkOperatorX::init(const TDataSink& thrift_sink) {
     RETURN_IF_ERROR(DataSinkOperatorX<JdbcTableSinkLocalState>::init(thrift_sink));

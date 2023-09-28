@@ -511,7 +511,8 @@ Status AsyncWriterSink<Writer, Parent>::close(RuntimeState* state, Status exec_s
         return Status::OK();
     }
     COUNTER_SET(_wait_for_dependency_timer, _async_writer_dependency->write_watcher_elapse_time());
-    if (_writer->need_normal_close()) {
+    // if the init failed, the _writer may be nullptr. so here need check
+    if (_writer && _writer->need_normal_close()) {
         if (exec_status.ok() && !state->is_cancelled()) {
             RETURN_IF_ERROR(_writer->commit_trans());
         }
@@ -604,5 +605,6 @@ template class PipelineXSinkLocalState<MultiCastDependency>;
 template class PipelineXLocalState<PartitionSortDependency>;
 
 template class AsyncWriterSink<doris::vectorized::VFileResultWriter, ResultFileSinkOperatorX>;
+template class AsyncWriterSink<doris::vectorized::VJdbcTableWriter, JdbcTableSinkOperatorX>;
 
 } // namespace doris::pipeline
