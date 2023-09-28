@@ -251,13 +251,6 @@ suite("create_table_use_partition_policy") {
     log.info( "test tablets not empty")
     assertTrue(tablets.size() > 0)
     fetchDataSize(sizes, tablets[0])
-    // while (tablets[0][8] == 0) {
-    //     log.info( "test local size is zero, sleep 10s")
-    //     sleep(10000)
-    //     tablets = sql """
-    //     SHOW TABLETS FROM ${tableName} PARTITIONS(p202302)
-    //     """
-    // }
     LocalDataSize1 = sizes[0]
     RemoteDataSize1 = sizes[1]
     log.info( "test local size is not zero")
