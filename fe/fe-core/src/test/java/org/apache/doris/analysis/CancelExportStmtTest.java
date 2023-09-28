@@ -22,7 +22,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
-import org.apache.doris.load.ExportFailMsg.CancelType;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportJobState;
 import org.apache.doris.load.ExportMgr;
@@ -157,30 +156,21 @@ public class CancelExportStmtTest extends TestWithFeService {
         List<ExportJob> exportJobList2 = Lists.newLinkedList();
         ExportJob job1 = new ExportJob();
         ExportJob job2 = new ExportJob();
+        ExportJob job3 = new ExportJob();
+        ExportJob job4 = new ExportJob();
 
-        Method setExportJobState;
+
         try {
-            setExportJobState = job1.getClass().getDeclaredMethod("setExportJobState",
+            Method setExportJobState = job1.getClass().getDeclaredMethod("setExportJobState",
                     ExportJobState.class);
             setExportJobState.setAccessible(true);
-        } catch (NoSuchMethodException e) {
-            throw new UserException(e);
-        }
+            setExportJobState.invoke(job2, ExportJobState.CANCELLED);
+            setExportJobState.invoke(job3, ExportJobState.EXPORTING);
 
-
-
-        try {
-            job2.updateExportJobState(ExportJobState.CANCELLED, 0L, Lists.newArrayList(), CancelType.UNKNOWN, "");
         } catch (Exception e) {
             throw new UserException(e);
         }
-        ExportJob job3 = new ExportJob();
-        try {
-            job3.updateExportJobState(ExportJobState.EXPORTING, 0L, Lists.newArrayList(), CancelType.UNKNOWN, "");
-        } catch (Exception e) {
-            throw new UserException(e);
-        }
-        ExportJob job4 = new ExportJob();
+
         exportJobList1.add(job1);
         exportJobList1.add(job2);
         exportJobList1.add(job3);
