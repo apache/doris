@@ -156,9 +156,9 @@ public class PaimonTableCache {
                 return false;
             }
             PaimonTableCacheKey that = (PaimonTableCacheKey) o;
-            return ctlId == that.ctlId &&
-                    dbId == that.dbId &&
-                    tblId == that.tblId;
+            return ctlId == that.ctlId
+                    && dbId == that.dbId
+                    && tblId == that.tblId;
         }
 
         @Override
