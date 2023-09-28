@@ -42,14 +42,16 @@ ExecEnv::~ExecEnv() {
     destroy();
 }
 
-Status ExecEnv::get_tablet(int64_t tablet_id, BaseTabletSPtr& tablet) {
+Result<BaseTabletSPtr> ExecEnv::get_tablet(int64_t tablet_id) {
+    BaseTabletSPtr tablet;
     // TODO(plat1ko): config::cloud_mode
     std::string err;
     tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, true, &err);
     if (tablet == nullptr) {
-        return Status::InternalError("failed to get tablet: {}, reason: {}", tablet_id, err);
+        return unexpected(
+                Status::InternalError("failed to get tablet: {}, reason: {}", tablet_id, err));
     }
-    return Status::OK();
+    return tablet;
 }
 
 const std::string& ExecEnv::token() const {

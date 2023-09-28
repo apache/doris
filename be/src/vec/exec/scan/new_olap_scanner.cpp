@@ -177,7 +177,7 @@ Status NewOlapScanner::init() {
     TabletSchemaSPtr cached_schema;
     std::string schema_key;
     {
-        RETURN_IF_ERROR(ExecEnv::get_tablet(tablet_id, _tablet));
+        _tablet = DORIS_TRY(ExecEnv::get_tablet(tablet_id));
         TOlapScanNode& olap_scan_node =
                 _parent ? parent->_olap_scan_node : local_state->olap_scan_node();
         if (olap_scan_node.__isset.schema_version && olap_scan_node.__isset.columns_desc &&

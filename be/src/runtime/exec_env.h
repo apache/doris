@@ -130,7 +130,7 @@ public:
     }
 
     // Requires ExenEnv ready
-    static Status get_tablet(int64_t tablet_id, BaseTabletSPtr& tablet);
+    static Result<BaseTabletSPtr> get_tablet(int64_t tablet_id);
 
     static bool ready() { return _s_ready.load(std::memory_order_acquire); }
     const std::string& token() const;

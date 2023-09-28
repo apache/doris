@@ -173,8 +173,7 @@ Status RowsetBuilder::prepare_txn() {
 }
 
 Status RowsetBuilder::init() {
-    RETURN_IF_ERROR(ExecEnv::get_tablet(_req.tablet_id, _tablet));
-
+    _tablet = DORIS_TRY(ExecEnv::get_tablet(_req.tablet_id));
     std::shared_ptr<MowContext> mow_context;
     if (_tablet->enable_unique_key_merge_on_write()) {
         RETURN_IF_ERROR(init_mow_context(mow_context));
