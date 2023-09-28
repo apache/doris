@@ -127,8 +127,9 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             return orStats;
         }
         // should not come here
-        Preconditions.checkArgument(false, "unsupported compound operator: "
-                + predicate.getClass().getName() + " in " + predicate.toSql());
+        Preconditions.checkArgument(false,
+                "unsupported compound operator: %s in %s",
+                predicate.getClass().getName(), predicate.toSql());
         return context.statistics;
     }
 
@@ -386,7 +387,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                                 || child instanceof InPredicate
                                 || child instanceof IsNull
                                 || child instanceof Like,
-                        "Not-predicate meet unexpected child: " + child.toSql());
+                        "Not-predicate meet unexpected child: %s", child.toSql());
                 if (child instanceof Like) {
                     rowCount = context.statistics.getRowCount() - childStats.getRowCount();
                     colBuilder.setNdv(originColStats.ndv - childColStats.ndv);
@@ -671,8 +672,9 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         statsBuilder.setRowCount(context.statistics.getRowCount() * DEFAULT_LIKE_COMPARISON_SELECTIVITY);
         if (like.left() instanceof Slot) {
             ColumnStatistic origin = context.statistics.findColumnStatistics(like.left());
-            Preconditions.checkArgument(origin != null, "col stats not found. slot="
-                    + like.left().toSql() + " in " + like.toSql());
+            Preconditions.checkArgument(origin != null,
+                    "col stats not found. slot=%s in %s",
+                    like.left().toSql(), like.toSql());
             ColumnStatisticBuilder colBuilder = new ColumnStatisticBuilder(origin);
             colBuilder.setNdv(origin.ndv * DEFAULT_LIKE_COMPARISON_SELECTIVITY).setNumNulls(0);
             statsBuilder.putColumnStatistics(like.left(), colBuilder.build());
