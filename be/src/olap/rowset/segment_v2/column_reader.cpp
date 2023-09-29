@@ -975,7 +975,7 @@ Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
         // it has bad impact on primary key query. For example, select * from table where pk = 1, and
         // the table has 2000 columns.
         if (dict_encoding_type == ColumnReader::UNKNOWN_DICT_ENCODING && opts.is_predicate_column) {
-            RETURN_IF_ERROR(seek_to_ordinal(_reader->num_rows() - 1));
+            static_cast<void>(seek_to_ordinal(_reader->num_rows() - 1));
             _is_all_dict_encoding = _page.is_dict_encoding;
             _reader->set_dict_encoding_type(_is_all_dict_encoding
                                                     ? ColumnReader::ALL_DICT_ENCODING
@@ -1158,7 +1158,7 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
                 }
 
                 if (!is_null) {
-                    RETURN_IF_ERROR(
+                    static_cast<void>(
                             _page.data_decoder->seek_to_position_in_page(origin_index + this_run));
                 }
 

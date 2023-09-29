@@ -342,7 +342,7 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
     if (ctx->is_multi_table) {
         // plan the rest of unplanned data
         auto multi_table_pipe = std::static_pointer_cast<io::MultiTablePipe>(ctx->body_sink);
-        HANDLE_ERROR(multi_table_pipe->request_and_exec_plans(), "consuming failed");
+        static_cast<void>(multi_table_pipe->request_and_exec_plans());
         // need memory order
         multi_table_pipe->set_consume_finished();
     }

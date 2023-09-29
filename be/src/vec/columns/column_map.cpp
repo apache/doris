@@ -433,9 +433,9 @@ Status ColumnMap::filter_by_selector(const uint16_t* sel, size_t sel_size, IColu
     }
 
     if (nested_sel_size > 0) {
-        RETURN_IF_ERROR(keys_column->filter_by_selector(nested_sel.get(), nested_sel_size,
+        static_cast<void>(keys_column->filter_by_selector(nested_sel.get(), nested_sel_size,
                                                         &to->get_keys()));
-        RETURN_IF_ERROR(values_column->filter_by_selector(nested_sel.get(), nested_sel_size,
+        static_cast<void>(values_column->filter_by_selector(nested_sel.get(), nested_sel_size,
                                                           &to->get_values()));
     }
     return Status::OK();

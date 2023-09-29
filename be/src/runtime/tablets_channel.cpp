@@ -257,7 +257,7 @@ Status TabletsChannel::close(
 
         // 2. wait all writer finished flush.
         for (auto writer : need_wait_writers) {
-            RETURN_IF_ERROR(writer->wait_flush());
+            static_cast<void>(writer->wait_flush());
         }
 
         // 3. build rowset

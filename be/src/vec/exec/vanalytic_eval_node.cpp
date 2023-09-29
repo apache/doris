@@ -214,7 +214,7 @@ Status VAnalyticEvalNode::prepare(RuntimeState* state) {
                             std::placeholders::_2, std::placeholders::_3, std::placeholders::_4);
 
     for (const auto& ctx : _agg_expr_ctxs) {
-        RETURN_IF_ERROR(VExpr::prepare(ctx, state, child(0)->row_desc()));
+        static_cast<void>(VExpr::prepare(ctx, state, child(0)->row_desc()));
     }
     if (!_partition_by_eq_expr_ctxs.empty() || !_order_by_eq_expr_ctxs.empty()) {
         vector<TTupleId> tuple_ids;
@@ -405,7 +405,7 @@ Status VAnalyticEvalNode::_consumed_block_and_init_partition(RuntimeState* state
     }
     SCOPED_TIMER(_evaluation_timer);
     *next_partition = _init_next_partition(found_partition_end);
-    static_cast<void>(_init_result_columns());
+    RETURN_IF_ERROR(_init_result_columns());
     return Status::OK();
 }
 

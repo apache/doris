@@ -1704,7 +1704,7 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
                     .stats = &stats,
                     .io_ctx = io::IOContext {.reader_type = ReaderType::READER_QUERY},
             };
-            RETURN_IF_ERROR(column_iterator->init(opt));
+            static_cast<void>(column_iterator->init(opt));
             std::vector<segment_v2::rowid_t> single_row_loc {
                     static_cast<segment_v2::rowid_t>(row_loc.ordinal_id())};
             RETURN_IF_ERROR(column_iterator->read_by_rowids(single_row_loc.data(), 1, column));

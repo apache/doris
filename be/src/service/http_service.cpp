@@ -151,10 +151,10 @@ Status HttpService::start() {
                                       tablet_migration_action);
 
     // register pprof actions
-    RETURN_IF_ERROR(PprofActions::setup(_env, _ev_http_server.get(), _pool));
+    static_cast<void>(PprofActions::setup(_env, _ev_http_server.get(), _pool));
 
     // register jeprof actions
-    RETURN_IF_ERROR(JeprofileActions::setup(_env, _ev_http_server.get(), _pool));
+    static_cast<void>(JeprofileActions::setup(_env, _ev_http_server.get(), _pool));
 
     // register metrics
     {

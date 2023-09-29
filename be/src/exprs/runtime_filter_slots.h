@@ -243,7 +243,7 @@ public:
                 if (ret == context->runtime_filters.end()) {
                     return Status::Aborted("invalid runtime filter id: {}", filter_id);
                 }
-                RETURN_IF_ERROR(filter->copy_from_shared_context(ret->second));
+                static_cast<void>(filter->copy_from_shared_context(ret->second));
             }
         }
         return Status::OK();

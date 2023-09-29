@@ -48,7 +48,7 @@ Status WalReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
         return st;
     }
     vectorized::Block tmp_block;
-    RETURN_IF_ERROR(tmp_block.deserialize(pblock));
+    static_cast<void>(tmp_block.deserialize(pblock));
     block->swap(tmp_block);
     *read_rows = block->rows();
     VLOG_DEBUG << "read block rows:" << *read_rows;

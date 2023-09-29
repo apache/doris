@@ -40,7 +40,7 @@ Status DataGenOperator::open(RuntimeState* state) {
 
 Status DataGenOperator::close(RuntimeState* state) {
     RETURN_IF_ERROR(SourceOperator::close(state));
-    RETURN_IF_ERROR(_node->close(state));
+    static_cast<void>(_node->close(state));
     return Status::OK();
 }
 

@@ -679,7 +679,7 @@ Status BetaRowsetWriter::_create_segment_writer_for_segcompaction(
                                                 _context.data_dir, _context.max_rows_per_segment,
                                                 writer_options, _context.mow_context));
     if (_segcompaction_worker.get_file_writer() != nullptr) {
-        RETURN_IF_ERROR(_segcompaction_worker.get_file_writer()->close());
+        static_cast<void>(_segcompaction_worker.get_file_writer()->close());
     }
     _segcompaction_worker.get_file_writer().reset(file_writer.release());
 

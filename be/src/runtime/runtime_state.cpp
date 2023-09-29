@@ -348,7 +348,7 @@ Status RuntimeState::check_query_state(const std::string& msg) {
 const int64_t MAX_ERROR_NUM = 50;
 
 Status RuntimeState::create_error_log_file() {
-    RETURN_IF_ERROR(_exec_env->load_path_mgr()->get_load_error_file_name(
+    static_cast<void>(_exec_env->load_path_mgr()->get_load_error_file_name(
             _db_name, _import_label, _fragment_instance_id, &_error_log_file_path));
     std::string error_log_absolute_path =
             _exec_env->load_path_mgr()->get_load_error_absolute_path(_error_log_file_path);

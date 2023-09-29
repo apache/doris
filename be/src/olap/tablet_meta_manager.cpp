@@ -92,7 +92,7 @@ Status TabletMetaManager::save(DataDir* store, TTabletId tablet_id, TSchemaHash 
                                TabletMetaSharedPtr tablet_meta, const string& header_prefix) {
     std::string key = fmt::format("{}{}_{}", header_prefix, tablet_id, schema_hash);
     std::string value;
-    RETURN_IF_ERROR(tablet_meta->serialize(&value));
+    static_cast<void>(tablet_meta->serialize(&value));
     OlapMeta* meta = store->get_meta();
     VLOG_NOTICE << "save tablet meta"
                 << ", key:" << key << ", meta length:" << value.length();

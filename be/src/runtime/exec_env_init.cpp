@@ -216,21 +216,21 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");
     _broker_client_cache->init_metrics("broker");
-    RETURN_IF_ERROR(_result_mgr->init());
+    static_cast<void>(_result_mgr->init());
     Status status = _load_path_mgr->init();
     if (!status.ok()) {
         LOG(ERROR) << "Load path mgr init failed. " << status;
         return status;
     }
     _broker_mgr->init();
-    RETURN_IF_ERROR(_small_file_mgr->init());
+    static_cast<void>(_small_file_mgr->init());
     status = _scanner_scheduler->init(this);
     if (!status.ok()) {
         LOG(ERROR) << "Scanner scheduler init failed. " << status;
         return status;
     }
 
-    RETURN_IF_ERROR(_init_mem_env());
+    static_cast<void>(_init_mem_env());
 
     RETURN_IF_ERROR(_memtable_memory_limiter->init(MemInfo::mem_limit()));
     RETURN_IF_ERROR(_load_channel_mgr->init(MemInfo::mem_limit()));

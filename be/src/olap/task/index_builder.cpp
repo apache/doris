@@ -238,7 +238,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
             for (auto& writer_sign : inverted_index_writer_signs) {
                 try {
                     if (_inverted_index_builders[writer_sign]) {
-                        RETURN_IF_ERROR(_inverted_index_builders[writer_sign]->finish());
+                        static_cast<void>(_inverted_index_builders[writer_sign]->finish());
                     }
                 } catch (const std::exception& e) {
                     return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(

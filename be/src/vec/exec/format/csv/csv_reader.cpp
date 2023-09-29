@@ -668,10 +668,10 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
             // So we use deserialize_nullable_string and stringSerDe to reduce virtual function calls.
             switch (_text_serde_type) {
             case TTextSerdeType::JSON_TEXT_SERDE:
-                RETURN_IF_ERROR(deserialize_nullable_string<true>(*col_ptr, slice));
+                static_cast<void>(deserialize_nullable_string<true>(*col_ptr, slice));
                 break;
             case TTextSerdeType::HIVE_TEXT_SERDE:
-                RETURN_IF_ERROR(deserialize_nullable_string<false>(*col_ptr, slice));
+                static_cast<void>(deserialize_nullable_string<false>(*col_ptr, slice));
                 break;
             default:
                 break;
@@ -679,11 +679,11 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
         } else {
             switch (_text_serde_type) {
             case TTextSerdeType::JSON_TEXT_SERDE:
-                RETURN_IF_ERROR(
+                static_cast<void>(
                         _serdes[i]->deserialize_one_cell_from_json(*col_ptr, slice, _options));
                 break;
             case TTextSerdeType::HIVE_TEXT_SERDE:
-                RETURN_IF_ERROR(
+                static_cast<void>(
                         _serdes[i]->deserialize_one_cell_from_hive_text(*col_ptr, slice, _options));
                 break;
             default:

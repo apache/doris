@@ -32,7 +32,6 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
-#include "common/status.h"
 #include "olap/tablet.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
@@ -97,15 +96,15 @@ void ScannerScheduler::stop() {
 
 Status ScannerScheduler::init(ExecEnv* env) {
     // 1. scheduling thread pool and scheduling queues
-    RETURN_IF_ERROR(ThreadPoolBuilder("SchedulingThreadPool")
-                            .set_min_threads(QUEUE_NUM)
-                            .set_max_threads(QUEUE_NUM)
-                            .build(&_scheduler_pool));
+    static_cast<void>(ThreadPoolBuilder("SchedulingThreadPool")
+                              .set_min_threads(QUEUE_NUM)
+                              .set_max_threads(QUEUE_NUM)
+                              .build(&_scheduler_pool));
 
     _pending_queues = new BlockingQueue<ScannerContext*>*[QUEUE_NUM];
     for (int i = 0; i < QUEUE_NUM; i++) {
         _pending_queues[i] = new BlockingQueue<ScannerContext*>(INT32_MAX);
-        RETURN_IF_ERROR(_scheduler_pool->submit_func([this, i] { this->_schedule_thread(i); }));
+        static_cast<void>(_scheduler_pool->submit_func([this, i] { this->_schedule_thread(i); }));
     }
 
     // 2. local scan thread pool
@@ -114,7 +113,7 @@ Status ScannerScheduler::init(ExecEnv* env) {
                                    config::doris_scanner_thread_pool_queue_size, "local_scan"));
 
     // 3. remote scan thread pool
-    RETURN_IF_ERROR(
+    static_cast<void>(
             ThreadPoolBuilder("RemoteScanThreadPool")
                     .set_min_threads(config::doris_scanner_thread_pool_thread_num) // 48 default
                     .set_max_threads(
@@ -125,22 +124,22 @@ Status ScannerScheduler::init(ExecEnv* env) {
                     .build(&_remote_scan_thread_pool));
 
     // 4. limited scan thread pool
-    RETURN_IF_ERROR(ThreadPoolBuilder("LimitedScanThreadPool")
-                            .set_min_threads(config::doris_scanner_thread_pool_thread_num)
-                            .set_max_threads(config::doris_scanner_thread_pool_thread_num)
-                            .set_max_queue_size(config::doris_scanner_thread_pool_queue_size)
-                            .build(&_limited_scan_thread_pool));
+    static_cast<void>(ThreadPoolBuilder("LimitedScanThreadPool")
+                              .set_min_threads(config::doris_scanner_thread_pool_thread_num)
+                              .set_max_threads(config::doris_scanner_thread_pool_thread_num)
+                              .set_max_queue_size(config::doris_scanner_thread_pool_queue_size)
+                              .build(&_limited_scan_thread_pool));
 
     // 5. task group local scan
     _task_group_local_scan_queue = std::make_unique<taskgroup::ScanTaskTaskGroupQueue>(
             config::doris_scanner_thread_pool_thread_num);
-    RETURN_IF_ERROR(ThreadPoolBuilder("local_scan_group")
-                            .set_min_threads(config::doris_scanner_thread_pool_thread_num)
-                            .set_max_threads(config::doris_scanner_thread_pool_thread_num)
-                            .set_cgroup_cpu_ctl(env->get_cgroup_cpu_ctl())
-                            .build(&_group_local_scan_thread_pool));
+    static_cast<void>(ThreadPoolBuilder("local_scan_group")
+                              .set_min_threads(config::doris_scanner_thread_pool_thread_num)
+                              .set_max_threads(config::doris_scanner_thread_pool_thread_num)
+                              .set_cgroup_cpu_ctl(env->get_cgroup_cpu_ctl())
+                              .build(&_group_local_scan_thread_pool));
     for (int i = 0; i < config::doris_scanner_thread_pool_thread_num; i++) {
-        RETURN_IF_ERROR(_group_local_scan_thread_pool->submit_func([this] {
+        static_cast<void>(_group_local_scan_thread_pool->submit_func([this] {
             this->_task_group_scanner_scan(this, _task_group_local_scan_queue.get());
         }));
     }

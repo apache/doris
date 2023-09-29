@@ -219,7 +219,7 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
 
     auto filter_id = runtime_filter_desc->filter_id;
     // LOG(INFO) << "entity filter id:" << filter_id;
-    RETURN_IF_ERROR(
+    static_cast<void>(
             cntVal->filter->init_with_desc(&cntVal->runtime_filter_desc, query_options, -1, false));
     _filter_map.emplace(filter_id, CntlValwithLock {cntVal, std::make_unique<SpinLock>()});
     return Status::OK();
@@ -242,7 +242,7 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
 
     auto filter_id = runtime_filter_desc->filter_id;
     // LOG(INFO) << "entity filter id:" << filter_id;
-    RETURN_IF_ERROR(cntVal->filter->init_with_desc(&cntVal->runtime_filter_desc, query_options));
+    static_cast<void>(cntVal->filter->init_with_desc(&cntVal->runtime_filter_desc, query_options));
     _filter_map.emplace(filter_id, CntlValwithLock {cntVal, std::make_unique<SpinLock>()});
     return Status::OK();
 }

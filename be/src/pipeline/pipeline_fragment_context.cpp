@@ -340,7 +340,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
         // if sink
         auto sink = pipeline->sink()->build_operator();
         // TODO pipeline 1 need to add new interface for exec node and operator
-        RETURN_IF_ERROR(sink->init(request.fragment.output_sink));
+        static_cast<void>(sink->init(request.fragment.output_sink));
 
         RETURN_IF_ERROR(pipeline->build_operators());
         auto task = std::make_unique<PipelineTask>(pipeline, _total_tasks++, _runtime_state.get(),
@@ -605,7 +605,7 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         } else {
             OperatorBuilderPtr builder = std::make_shared<EmptySourceOperatorBuilder>(
                     node->child(1)->id(), node->child(1)->row_desc(), node->child(1));
-            RETURN_IF_ERROR(new_pipe->add_operator(builder));
+            static_cast<void>(new_pipe->add_operator(builder));
         }
         OperatorBuilderPtr join_sink =
                 std::make_shared<HashJoinBuildSinkBuilder>(node->id(), join_node);
@@ -810,12 +810,12 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
                     std::make_shared<MultiCastDataStreamerSourceOperatorBuilder>(
                             next_operator_builder_id(), i, multi_cast_data_streamer,
                             thrift_sink.multi_cast_stream_sink.sinks[i]);
-            RETURN_IF_ERROR(new_pipeline->add_operator(source_op));
+            static_cast<void>(new_pipeline->add_operator(source_op));
 
             // 3. create and set sink operator of data stream sender for new pipeline
             OperatorBuilderPtr sink_op_builder = std::make_shared<ExchangeSinkOperatorBuilder>(
                     next_operator_builder_id(), _multi_cast_stream_sink_senders[i].get(), i);
-            RETURN_IF_ERROR(new_pipeline->set_sink(sink_op_builder));
+            static_cast<void>(new_pipeline->set_sink(sink_op_builder));
 
             // 4. init and prepare the data_stream_sender of diff exchange
             TDataSink t;

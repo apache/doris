@@ -115,7 +115,7 @@ Status Compaction::do_compaction(int64_t permits) {
     if (config::enable_compaction_checksum) {
         EngineChecksumTask checksum_task(_tablet->tablet_id(), _tablet->schema_hash(),
                                          _input_rowsets.back()->end_version(), &checksum_before);
-        RETURN_IF_ERROR(checksum_task.execute());
+        static_cast<void>(checksum_task.execute());
     }
 
     _tablet->data_dir()->disks_compaction_score_increment(permits);
@@ -127,7 +127,7 @@ Status Compaction::do_compaction(int64_t permits) {
     if (config::enable_compaction_checksum) {
         EngineChecksumTask checksum_task(_tablet->tablet_id(), _tablet->schema_hash(),
                                          _input_rowsets.back()->end_version(), &checksum_after);
-        RETURN_IF_ERROR(checksum_task.execute());
+        static_cast<void>(checksum_task.execute());
         if (checksum_before != checksum_after) {
             LOG(WARNING) << "Compaction tablet=" << _tablet->tablet_id()
                          << " checksum not consistent"

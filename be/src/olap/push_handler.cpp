@@ -660,8 +660,8 @@ Status PushBrokerReader::_get_next_reader() {
         std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
                 partition_columns;
         std::unordered_map<std::string, vectorized::VExprContextSPtr> missing_columns;
-        RETURN_IF_ERROR(_cur_reader->get_columns(&_name_to_col_type, &_missing_cols));
-        RETURN_IF_ERROR(_cur_reader->set_fill_columns(partition_columns, missing_columns));
+        static_cast<void>(_cur_reader->get_columns(&_name_to_col_type, &_missing_cols));
+        static_cast<void>(_cur_reader->set_fill_columns(partition_columns, missing_columns));
         break;
     }
     default:

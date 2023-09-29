@@ -913,7 +913,7 @@ Status AggSinkOperatorX<LocalStateType>::sink(doris::RuntimeState* state,
     }
     if (source_state == SourceState::FINISHED) {
         if (local_state._shared_state->spill_context.has_data) {
-            RETURN_IF_ERROR(local_state.try_spill_disk(true));
+            static_cast<void>(local_state.try_spill_disk(true));
             RETURN_IF_ERROR(local_state._shared_state->spill_context.prepare_for_reading());
         }
         local_state._dependency->set_ready_for_read();

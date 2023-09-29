@@ -325,7 +325,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                 if (serialized) {
                     auto cur_block = local_state._serializer.get_block()->to_block();
                     if (!cur_block.empty()) {
-                        RETURN_IF_ERROR(local_state._serializer.serialize_block(
+                        static_cast<void>(local_state._serializer.serialize_block(
                                 &cur_block, block_holder->get_block(),
                                 local_state.channels.size()));
                     } else {

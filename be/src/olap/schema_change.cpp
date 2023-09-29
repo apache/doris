@@ -171,7 +171,7 @@ public:
 
                     if (i == rows - 1 || finalized_block.rows() == ALTER_TABLE_BATCH_SIZE) {
                         *merged_rows -= finalized_block.rows();
-                        RETURN_IF_ERROR(rowset_writer->add_block(&finalized_block));
+                        static_cast<void>(rowset_writer->add_block(&finalized_block));
                         finalized_block.clear_column_data();
                     }
                 }
@@ -203,7 +203,7 @@ public:
                         column->insert_from(*row_ref.get_column(idx), row_ref.position);
                     }
                 }
-                RETURN_IF_ERROR(rowset_writer->add_block(&finalized_block));
+                static_cast<void>(rowset_writer->add_block(&finalized_block));
                 finalized_block.clear_column_data();
             }
         }
@@ -798,7 +798,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
                 }
             }
             std::vector<RowsetSharedPtr> empty_vec;
-            RETURN_IF_ERROR(new_tablet->modify_rowsets(empty_vec, rowsets_to_delete));
+            static_cast<void>(new_tablet->modify_rowsets(empty_vec, rowsets_to_delete));
             // inherit cumulative_layer_point from base_tablet
             // check if new_tablet.ce_point > base_tablet.ce_point?
             new_tablet->set_cumulative_layer_point(-1);
@@ -815,7 +815,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             }
 
             // acquire data sources correspond to history versions
-            RETURN_IF_ERROR(base_tablet->capture_rs_readers(versions_to_be_changed, &rs_splits));
+            static_cast<void>(base_tablet->capture_rs_readers(versions_to_be_changed, &rs_splits));
             if (rs_splits.empty()) {
                 res = Status::Error<ALTER_DELTA_DOES_NOT_EXISTS>(
                         "fail to acquire all data sources. version_num={}, data_source_num={}",
@@ -864,7 +864,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
         }
         SchemaChangeParams sc_params;
 
-        RETURN_IF_ERROR(
+        static_cast<void>(
                 DescriptorTbl::create(&sc_params.pool, request.desc_tbl, &sc_params.desc_tbl));
         sc_params.base_tablet = base_tablet;
         sc_params.new_tablet = new_tablet;
@@ -1348,8 +1348,8 @@ Status SchemaChangeHandler::_init_column_mapping(ColumnMapping* column_mapping,
     if (column_schema.is_nullable() && value.length() == 0) {
         column_mapping->default_value->set_null();
     } else {
-        RETURN_IF_ERROR(column_mapping->default_value->from_string(value, column_schema.precision(),
-                                                                   column_schema.frac()));
+        static_cast<void>(column_mapping->default_value->from_string(
+                value, column_schema.precision(), column_schema.frac()));
     }
 
     return Status::OK();

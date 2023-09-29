@@ -510,7 +510,7 @@ Status GroupCommitMgr::_append_row(std::shared_ptr<io::StreamLoadPipe> pipe,
         // TODO append may error when pipe is cancelled
         RETURN_IF_ERROR(pipe->append(std::move(row)));
     }
-    RETURN_IF_ERROR(pipe->finish());
+    static_cast<void>(pipe->finish());
     return Status::OK();
 }
 
@@ -544,7 +544,7 @@ Status GroupCommitMgr::_group_commit_stream_load(std::shared_ptr<StreamLoadConte
         TQueryOptions query_options;
         query_options.query_type = TQueryType::LOAD;
         TQueryGlobals query_globals;
-        RETURN_IF_ERROR(runtime_state->init(load_id, query_options, query_globals, _exec_env));
+        static_cast<void>(runtime_state->init(load_id, query_options, query_globals, _exec_env));
         runtime_state->set_query_mem_tracker(std::make_shared<MemTrackerLimiter>(
                 MemTrackerLimiter::Type::LOAD, fmt::format("Load#Id={}", ctx->id.to_string()), -1));
         DescriptorTbl* desc_tbl = nullptr;

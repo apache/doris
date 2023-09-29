@@ -810,7 +810,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 
         for (size_t i = 0; i < params.local_params.size(); i++) {
             std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
-            RETURN_IF_ERROR(
+            static_cast<void>(
                     _runtimefilter_controller.add_entity(params, params.local_params[i], &handler,
                                                          context->get_runtime_state(UniqueId())));
             context->set_merge_controller_handler(handler);
@@ -889,7 +889,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             g_fragmentmgr_prepare_latency << (duration_ns / 1000);
 
             std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
-            RETURN_IF_ERROR(_runtimefilter_controller.add_entity(
+            static_cast<void>(_runtimefilter_controller.add_entity(
                     params, local_params, &handler, context->get_runtime_state(UniqueId())));
             context->set_merge_controller_handler(handler);
 
