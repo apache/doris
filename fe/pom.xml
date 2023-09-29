@@ -280,7 +280,7 @@ under the License.
         <iceberg.version>1.1.0</iceberg.version>
         <delta.version>3.0.0rc1</delta.version>
         <maxcompute.version>0.45.2-public</maxcompute.version>
-        <avro.version>1.11.2</avro.version>
+        <avro.version>1.11.3</avro.version>
         <arrow.version>13.0.0</arrow.version>
         <!-- hudi -->
         <hudi.version>0.13.1</hudi.version>
