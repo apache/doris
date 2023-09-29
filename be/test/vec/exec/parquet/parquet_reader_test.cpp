@@ -110,12 +110,13 @@ TEST_F(ParquetReaderTest, normal) {
     }
     DescriptorTbl* desc_tbl;
     ObjectPool obj_pool;
-    DescriptorTbl::create(&obj_pool, t_desc_table, &desc_tbl);
+    static_cast<void>(DescriptorTbl::create(&obj_pool, t_desc_table, &desc_tbl));
 
     auto slot_descs = desc_tbl->get_tuple_descriptor(0)->slots();
     io::FileSystemSPtr local_fs = io::LocalFileSystem::create("");
     io::FileReaderSPtr reader;
-    local_fs->open_file("./be/test/exec/test_data/parquet_scanner/type-decoder.parquet", &reader);
+    static_cast<void>(local_fs->open_file(
+            "./be/test/exec/test_data/parquet_scanner/type-decoder.parquet", &reader));
 
     cctz::time_zone ctz;
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
@@ -139,13 +140,13 @@ TEST_F(ParquetReaderTest, normal) {
     runtime_state.init_mem_trackers();
 
     std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
-    p_reader->open();
-    p_reader->init_reader(column_names, missing_column_names, nullptr, {}, nullptr, nullptr,
-                          nullptr, nullptr, nullptr);
+    static_cast<void>(p_reader->open());
+    static_cast<void>(p_reader->init_reader(column_names, missing_column_names, nullptr, {},
+                                            nullptr, nullptr, nullptr, nullptr, nullptr));
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
     std::unordered_map<std::string, VExprContextSPtr> missing_columns;
-    p_reader->set_fill_columns(partition_columns, missing_columns);
+    static_cast<void>(p_reader->set_fill_columns(partition_columns, missing_columns));
     BlockUPtr block = Block::create_unique();
     for (const auto& slot_desc : tuple_desc->slots()) {
         auto data_type =
@@ -156,7 +157,7 @@ TEST_F(ParquetReaderTest, normal) {
     }
     bool eof = false;
     size_t read_row = 0;
-    p_reader->get_next_block(block.get(), &read_row, &eof);
+    static_cast<void>(p_reader->get_next_block(block.get(), &read_row, &eof));
     for (auto& col : block->get_columns_with_type_and_name()) {
         ASSERT_EQ(col.column->size(), 10);
     }

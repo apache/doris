@@ -714,7 +714,7 @@ struct AggSpillContext {
     ~AggSpillContext() {
         for (auto& reader : readers) {
             if (reader) {
-                reader->close();
+                static_cast<void>(reader->close());
                 reader.reset();
             }
         }

@@ -501,7 +501,7 @@ void VDataStreamSender::_handle_eof_channel(RuntimeState* state, ChannelPtrType 
                                             Status st) {
     channel->set_receiver_eof(st);
     // Chanel will not send RPC to the downstream when eof, so close chanel by OK status.
-    channel->close(state, Status::OK());
+    static_cast<void>(channel->close(state, Status::OK()));
 }
 
 Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
@@ -741,7 +741,7 @@ Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
     if (_peak_memory_usage_counter) {
         _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
     }
-    DataSink::close(state, exec_status);
+    static_cast<void>(DataSink::close(state, exec_status));
     return final_st;
 }
 

@@ -356,7 +356,7 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     // update delete_bitmap
     if (tablet_txn_info.unique_key_merge_on_write) {
         std::unique_ptr<RowsetWriter> rowset_writer;
-        tablet->create_transient_rowset_writer(rowset, &rowset_writer);
+        static_cast<void>(tablet->create_transient_rowset_writer(rowset, &rowset_writer));
 
         int64_t t2 = MonotonicMicros();
         RETURN_IF_ERROR(tablet->update_delete_bitmap(rowset, tablet_txn_info.rowset_ids,
@@ -498,7 +498,8 @@ Status TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id,
                         load_info.rowset->rowset_id().to_string(),
                         load_info.rowset->version().to_string());
             } else {
-                RowsetMetaManager::remove(meta, tablet_uid, load_info.rowset->rowset_id());
+                static_cast<void>(
+                        RowsetMetaManager::remove(meta, tablet_uid, load_info.rowset->rowset_id()));
 #ifndef BE_TEST
                 StorageEngine::instance()->add_unused_rowset(load_info.rowset);
 #endif
@@ -560,7 +561,8 @@ void TxnManager::force_rollback_tablet_related_txns(OlapMeta* meta, TTabletId ta
                     LOG(INFO) << " delete transaction from engine "
                               << ", tablet: " << tablet_info.to_string()
                               << ", rowset id: " << load_info.rowset->rowset_id();
-                    RowsetMetaManager::remove(meta, tablet_uid, load_info.rowset->rowset_id());
+                    static_cast<void>(RowsetMetaManager::remove(meta, tablet_uid,
+                                                                load_info.rowset->rowset_id()));
                 }
                 LOG(INFO) << "remove tablet related txn."
                           << " partition_id: " << it->first.first

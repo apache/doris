@@ -88,7 +88,7 @@ arrow::Result<std::shared_ptr<FlightSqlServer>> FlightSqlServer::create() {
 }
 
 FlightSqlServer::~FlightSqlServer() {
-    join();
+    static_cast<void>(join());
 }
 
 arrow::Result<std::unique_ptr<arrow::flight::FlightDataStream>> FlightSqlServer::DoGetStatement(
