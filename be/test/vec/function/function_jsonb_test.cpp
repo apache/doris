@@ -1542,7 +1542,7 @@ TEST(FunctionJsonbTEST, GetJSONSTRINGTest) {
              STRING(R"([{"k1":"v41","k2":400},1,"a",3.14])")}, // complex array
     };
 
-    check_function<DataTypeString, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
 
     // get json from obejct
     data_set = {
@@ -1567,7 +1567,7 @@ TEST(FunctionJsonbTEST, GetJSONSTRINGTest) {
              Null()}, // complex array
     };
 
-    check_function<DataTypeString, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
 
     // get json from array
     data_set = {
@@ -1629,7 +1629,7 @@ TEST(FunctionJsonbTEST, GetJSONSTRINGTest) {
              Null()}, // complex array
     };
 
-    check_function<DataTypeString, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
 
     // get json with path $[0].k1
     data_set = {
@@ -1654,7 +1654,7 @@ TEST(FunctionJsonbTEST, GetJSONSTRINGTest) {
              STRING("v41")}, // complex array
     };
 
-    check_function<DataTypeString, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
 }
 
 TEST(FunctionJsonbTEST, GetJsonIntTest) {
@@ -1684,7 +1684,7 @@ TEST(FunctionJsonbTEST, GetJsonIntTest) {
              Null()}, // complex array
     };
 
-    check_function<DataTypeInt32, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
 
     // get json from obejct
     data_set = {
@@ -1709,7 +1709,7 @@ TEST(FunctionJsonbTEST, GetJsonIntTest) {
              Null()}, // complex array
     };
 
-    check_function<DataTypeInt32, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
 
     // get json from array
     data_set = {
@@ -1770,7 +1770,7 @@ TEST(FunctionJsonbTEST, GetJsonIntTest) {
              Null()}, // complex array
     };
 
-    check_function<DataTypeInt32, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
 
     // get json with path $[0].k1
     data_set = {
@@ -1797,7 +1797,7 @@ TEST(FunctionJsonbTEST, GetJsonIntTest) {
              INT(400)}, // complex array
     };
 
-    check_function<DataTypeInt32, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
 }
 
 TEST(FunctionJsonbTEST, GetJsonBigIntTest) {
@@ -1827,7 +1827,7 @@ TEST(FunctionJsonbTEST, GetJsonBigIntTest) {
              Null()}, // complex array
     };
 
-    check_function<DataTypeInt64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
 
     // get json from obejct
     data_set = {
@@ -1852,7 +1852,7 @@ TEST(FunctionJsonbTEST, GetJsonBigIntTest) {
              Null()}, // complex array
     };
 
-    check_function<DataTypeInt64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
 
     // get json from array
     data_set = {
@@ -1913,7 +1913,7 @@ TEST(FunctionJsonbTEST, GetJsonBigIntTest) {
              Null()}, // complex array
     };
 
-    check_function<DataTypeInt64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
 
     // get json with path $[0].k1
     data_set = {
@@ -1940,7 +1940,7 @@ TEST(FunctionJsonbTEST, GetJsonBigIntTest) {
              BIGINT(400)}, // complex array
     };
 
-    check_function<DataTypeInt64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
 }
 
 TEST(FunctionJsonbTEST, GetJsonDoubleTest) {
@@ -1970,7 +1970,7 @@ TEST(FunctionJsonbTEST, GetJsonDoubleTest) {
              Null()}, // complex array
     };
 
-    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 
     // get json from obejct
     data_set = {
@@ -1994,7 +1994,7 @@ TEST(FunctionJsonbTEST, GetJsonDoubleTest) {
              Null()}, // complex array
     };
 
-    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 
     // get json from array
     data_set = {
@@ -2054,7 +2054,7 @@ TEST(FunctionJsonbTEST, GetJsonDoubleTest) {
              Null()}, // complex array
     };
 
-    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 
     // get json with path $[0].k1
     data_set = {
@@ -2080,6 +2080,6 @@ TEST(FunctionJsonbTEST, GetJsonDoubleTest) {
              DOUBLE(400)}, // complex array
     };
 
-    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
 } // namespace doris::vectorized
