@@ -817,7 +817,7 @@ void PipelineXFragmentContext::close_if_prepare_failed() {
 
 void PipelineXFragmentContext::_close_action() {
     _runtime_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
-    send_report(true);
+    static_cast<void>(send_report(true));
     // all submitted tasks done
     _exec_env->fragment_mgr()->remove_pipeline_context(shared_from_this());
 }
