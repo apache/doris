@@ -239,7 +239,7 @@ Status VPartitionSortNode::open(RuntimeState* state) {
         RETURN_IF_ERROR(sink(state, input_block.get(), eos));
     } while (!eos);
 
-    child(0)->close(state);
+    static_cast<void>(child(0)->close(state));
 
     return Status::OK();
 }

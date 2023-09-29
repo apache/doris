@@ -86,7 +86,7 @@ Status PushHandler::process_streaming_ingestion(TabletSharedPtr tablet, const TP
     Status res = Status::OK();
     _request = request;
 
-    DescriptorTbl::create(&_pool, _request.desc_tbl, &_desc_tbl);
+    static_cast<void>(DescriptorTbl::create(&_pool, _request.desc_tbl, &_desc_tbl));
 
     res = _do_streaming_ingestion(tablet, request, push_type, tablet_info_vec);
 
@@ -95,7 +95,8 @@ Status PushHandler::process_streaming_ingestion(TabletSharedPtr tablet, const TP
             TTabletInfo tablet_info;
             tablet_info.tablet_id = tablet->tablet_id();
             tablet_info.schema_hash = tablet->schema_hash();
-            StorageEngine::instance()->tablet_manager()->report_tablet_info(&tablet_info);
+            static_cast<void>(
+                    StorageEngine::instance()->tablet_manager()->report_tablet_info(&tablet_info));
             tablet_info_vec->push_back(tablet_info);
         }
         LOG(INFO) << "process realtime push successfully. "
@@ -316,7 +317,7 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
             }
 
             reader->print_profile();
-            reader->close();
+            static_cast<void>(reader->close());
         }
 
         if (!rowset_writer->flush().ok()) {
@@ -659,8 +660,8 @@ Status PushBrokerReader::_get_next_reader() {
         std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
                 partition_columns;
         std::unordered_map<std::string, vectorized::VExprContextSPtr> missing_columns;
-        _cur_reader->get_columns(&_name_to_col_type, &_missing_cols);
-        _cur_reader->set_fill_columns(partition_columns, missing_columns);
+        static_cast<void>(_cur_reader->get_columns(&_name_to_col_type, &_missing_cols));
+        static_cast<void>(_cur_reader->set_fill_columns(partition_columns, missing_columns));
         break;
     }
     default:

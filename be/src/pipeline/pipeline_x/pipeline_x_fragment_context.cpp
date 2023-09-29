@@ -213,11 +213,11 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
             request, root_pipeline->output_row_desc(), _runtime_state.get(), *desc_tbl,
             root_pipeline->id()));
     RETURN_IF_ERROR(_sink->init(request.fragment.output_sink));
-    root_pipeline->set_sink(_sink);
+    static_cast<void>(root_pipeline->set_sink(_sink));
 
     // 4. Initialize global states in pipelines.
     for (PipelinePtr& pipeline : _pipelines) {
-        pipeline->sink_x()->set_child(pipeline->operator_xs().back());
+        static_cast<void>(pipeline->sink_x()->set_child(pipeline->operator_xs().back()));
         RETURN_IF_ERROR(pipeline->prepare(_runtime_state.get()));
     }
 
@@ -324,7 +324,7 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
             // 1. create and set the source operator of multi_cast_data_stream_source for new pipeline
             source_op.reset(new MultiCastDataStreamerSourceOperatorX(
                     i, pool, thrift_sink.multi_cast_stream_sink.sinks[i], row_desc, source_id));
-            new_pipeline->add_operator(source_op);
+            static_cast<void>(new_pipeline->add_operator(source_op));
 
             // 2. create and set sink operator of data stream sender for new pipeline
 
@@ -332,7 +332,7 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
             sink_op.reset(new ExchangeSinkOperatorX(
                     state, row_desc, thrift_sink.multi_cast_stream_sink.sinks[i],
                     thrift_sink.multi_cast_stream_sink.destinations[i], false));
-            new_pipeline->set_sink(sink_op);
+            static_cast<void>(new_pipeline->set_sink(sink_op));
 
             // 3. set dependency dag
             _dag[new_pipeline->id()].push_back(cur_pipeline_id);
@@ -364,7 +364,7 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
         _runtime_states[i]->set_query_mem_tracker(_query_ctx->query_mem_tracker);
         _runtime_states[i]->set_tracer(_runtime_state->get_tracer());
 
-        _runtime_states[i]->runtime_filter_mgr()->init();
+        static_cast<void>(_runtime_states[i]->runtime_filter_mgr()->init());
         _runtime_states[i]->set_be_number(local_params.backend_num);
 
         if (request.__isset.backend_id) {
@@ -795,15 +795,16 @@ Status PipelineXFragmentContext::submit() {
 }
 
 void PipelineXFragmentContext::close_sink() {
-    FOR_EACH_RUNTIME_STATE(
-            _sink->close(runtime_state.get(),
-                         _prepared ? Status::RuntimeError("prepare failed") : Status::OK()););
+    FOR_EACH_RUNTIME_STATE(static_cast<void>(_sink->close(
+            runtime_state.get(),
+            _prepared ? Status::RuntimeError("prepare failed") : Status::OK())););
 }
 
 void PipelineXFragmentContext::close_if_prepare_failed() {
     if (_tasks.empty()) {
-        FOR_EACH_RUNTIME_STATE(_root_op->close(runtime_state.get()); _sink->close(
-                runtime_state.get(), Status::RuntimeError("prepare failed"));)
+        FOR_EACH_RUNTIME_STATE(
+                static_cast<void>(_root_op->close(runtime_state.get())); static_cast<void>(
+                        _sink->close(runtime_state.get(), Status::RuntimeError("prepare failed")));)
     }
     for (auto& task : _tasks) {
         for (auto& t : task) {
@@ -816,7 +817,7 @@ void PipelineXFragmentContext::close_if_prepare_failed() {
 
 void PipelineXFragmentContext::_close_action() {
     _runtime_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
-    send_report(true);
+    static_cast<void>(send_report(true));
     // all submitted tasks done
     _exec_env->fragment_mgr()->remove_pipeline_context(shared_from_this());
 }
