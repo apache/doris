@@ -32,8 +32,8 @@ import java.util.Map;
  * For any partition predicate, the evaluate() will always return true.
  */
 public class HiveDefaultPartitionEvaluator implements OnePartitionEvaluator {
-    private long id;
-    private List<Slot> partitionSlots;
+    private final long id;
+    private final List<Slot> partitionSlots;
 
     public HiveDefaultPartitionEvaluator(long id, List<Slot> partitionSlots) {
         this.id = id;

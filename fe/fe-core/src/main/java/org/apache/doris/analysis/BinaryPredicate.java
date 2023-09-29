@@ -474,7 +474,7 @@ public class BinaryPredicate extends Predicate implements Writable {
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         super.analyzeImpl(analyzer);
-
+        this.checkIncludeBitmap();
         // Ignore placeholder
         if (getChild(0) instanceof PlaceHolderExpr || getChild(1) instanceof PlaceHolderExpr) {
             return;

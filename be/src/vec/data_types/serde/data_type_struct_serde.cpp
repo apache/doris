@@ -341,5 +341,33 @@ Status DataTypeStructSerDe::write_column_to_mysql(const IColumn& column,
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
 }
 
+Status DataTypeStructSerDe::write_column_to_orc(const IColumn& column, const NullMap* null_map,
+                                                orc::ColumnVectorBatch* orc_col_batch, int start,
+                                                int end,
+                                                std::vector<StringRef>& buffer_list) const {
+    orc::StructVectorBatch* cur_batch = dynamic_cast<orc::StructVectorBatch*>(orc_col_batch);
+
+    const ColumnStruct& struct_col = assert_cast<const ColumnStruct&>(column);
+    for (size_t row_id = start; row_id < end; row_id++) {
+        if (cur_batch->notNull[row_id] == 1) {
+            for (int i = 0; i < struct_col.tuple_size(); ++i) {
+                elemSerDeSPtrs[i]->write_column_to_orc(struct_col.get_column(i), nullptr,
+                                                       cur_batch->fields[i], row_id, row_id + 1,
+                                                       buffer_list);
+            }
+        } else {
+            // This else is necessary
+            // because we must set notNull when cur_batch->notNull[row_id] == 0
+            for (int j = 0; j < struct_col.tuple_size(); ++j) {
+                cur_batch->fields[j]->hasNulls = true;
+                cur_batch->fields[j]->notNull[row_id] = 0;
+            }
+        }
+    }
+
+    cur_batch->numElements = end - start;
+    return Status::OK();
+}
+
 } // namespace vectorized
 } // namespace doris

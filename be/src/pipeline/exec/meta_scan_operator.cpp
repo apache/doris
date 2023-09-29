@@ -43,14 +43,17 @@ void MetaScanLocalState::set_scan_ranges(const std::vector<TScanRangeParams>& sc
     _scan_ranges = scan_ranges;
 }
 
+Status MetaScanLocalState::_process_conjuncts() {
+    return Status::OK();
+}
+
 MetaScanOperatorX::MetaScanOperatorX(ObjectPool* pool, const TPlanNode& tnode,
                                      const DescriptorTbl& descs)
         : ScanOperatorX<MetaScanLocalState>(pool, tnode, descs),
-          _tuple_id(tnode.meta_scan_node.tuple_id),
-          _scan_params(tnode.meta_scan_node) {
+          _tuple_id(tnode.meta_scan_node.tuple_id) {
     _output_tuple_id = _tuple_id;
-    if (_scan_params.__isset.current_user_ident) {
-        _user_identity = _scan_params.current_user_ident;
+    if (tnode.meta_scan_node.__isset.current_user_ident) {
+        _user_identity = tnode.meta_scan_node.current_user_ident;
     }
 }
 

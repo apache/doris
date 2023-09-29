@@ -8,16 +8,16 @@ PhysicalResultSink
 ----------PhysicalDistribute
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN](lineorder.lo_custkey = customer.c_custkey)
+----------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_custkey = customer.c_custkey))otherCondition=()
 ------------------PhysicalDistribute
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN](lineorder.lo_orderdate = dates.d_datekey)
-------------------------hashJoin[INNER_JOIN](lineorder.lo_suppkey = supplier.s_suppkey)
+----------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_orderdate = dates.d_datekey))otherCondition=()
+------------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_suppkey = supplier.s_suppkey))otherCondition=()
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[lineorder]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
-------------------------------filter(s_city IN ('UNITED KI5', 'UNITED KI1'))
+------------------------------filter(s_city IN ('UNITED KI1', 'UNITED KI5'))
 --------------------------------PhysicalOlapScan[supplier]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
@@ -25,6 +25,6 @@ PhysicalResultSink
 ------------------------------PhysicalOlapScan[dates]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
-----------------------filter(c_city IN ('UNITED KI5', 'UNITED KI1'))
+----------------------filter(c_city IN ('UNITED KI1', 'UNITED KI5'))
 ------------------------PhysicalOlapScan[customer]
 

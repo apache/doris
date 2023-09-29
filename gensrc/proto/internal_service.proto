@@ -49,6 +49,7 @@ message PTransmitDataParams {
     // transfer the RowBatch to the Controller Attachment
     optional bool transfer_by_attachment = 10 [default = false];
     optional PUniqueId query_id = 11;
+    optional PStatus exec_status = 12;
 };
 
 message PTransmitDataResult {

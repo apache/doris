@@ -137,6 +137,13 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
     REGISTER_HOOK_METRIC(fragment_thread_pool_queue_size,
                          [this]() { return _thread_pool->get_queue_size(); });
     CHECK(s.ok()) << s.to_string();
+
+    s = ThreadPoolBuilder("FragmentInstanceReportThreadPool")
+                .set_min_threads(48)
+                .set_max_threads(512)
+                .set_max_queue_size(102400)
+                .build(&_async_report_thread_pool);
+    CHECK(s.ok()) << s.to_string();
 }
 
 FragmentMgr::~FragmentMgr() = default;
@@ -162,6 +169,7 @@ void FragmentMgr::stop() {
         }
         _pipeline_map.clear();
     }
+    _async_report_thread_pool->shutdown();
 }
 
 std::string FragmentMgr::to_http_path(const std::string& file_name) {
@@ -170,6 +178,16 @@ std::string FragmentMgr::to_http_path(const std::string& file_name) {
         << "/api/_download_load?"
         << "token=" << _exec_env->token() << "&file=" << file_name;
     return url.str();
+}
+
+Status FragmentMgr::trigger_pipeline_context_report(
+        const ReportStatusRequest req, std::shared_ptr<pipeline::PipelineFragmentContext>&& ctx) {
+    return _async_report_thread_pool->submit_func([this, req, ctx]() {
+        coordinator_callback(req);
+        if (!req.done) {
+            ctx->refresh_next_report_time();
+        }
+    });
 }
 
 // There can only be one of these callbacks in-flight at any moment, because
@@ -212,7 +230,25 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             params.__set_loaded_rows(req.runtime_state->num_rows_load_total());
             params.__set_loaded_bytes(req.runtime_state->num_bytes_load_total());
         }
-        params.__isset.detailed_report = req.is_pipeline_x;
+        if (req.is_pipeline_x) {
+            params.__isset.detailed_report = true;
+            for (auto* rs : req.runtime_states) {
+                TDetailedReportParams detailed_param;
+                detailed_param.__set_fragment_instance_id(rs->fragment_instance_id());
+                detailed_param.__isset.fragment_instance_id = true;
+
+                if (rs->enable_profile()) {
+                    detailed_param.__isset.profile = true;
+                    detailed_param.__isset.loadChannelProfile = true;
+
+                    rs->runtime_profile()->to_thrift(&detailed_param.profile);
+                    rs->load_channel_profile()->to_thrift(&detailed_param.loadChannelProfile);
+                }
+
+                params.detailed_report.push_back(detailed_param);
+            }
+        }
+
         if (req.profile != nullptr) {
             req.profile->to_thrift(&params.profile);
             if (req.load_channel_profile) {
@@ -220,20 +256,6 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             }
             params.__isset.profile = true;
             params.__isset.loadChannelProfile = true;
-        } else if (!req.runtime_states.empty()) {
-            params.__isset.detailed_report = true;
-            for (auto* rs : req.runtime_states) {
-                TDetailedReportParams detailed_param;
-                detailed_param.__set_fragment_instance_id(rs->fragment_instance_id());
-                detailed_param.__isset.fragment_instance_id = true;
-                detailed_param.__isset.profile = true;
-                detailed_param.__isset.loadChannelProfile = true;
-
-                rs->runtime_profile()->to_thrift(&detailed_param.profile);
-                rs->load_channel_profile()->to_thrift(&detailed_param.loadChannelProfile);
-
-                params.detailed_report.push_back(detailed_param);
-            }
         } else {
             params.__isset.profile = false;
         }
@@ -535,9 +557,11 @@ void FragmentMgr::remove_pipeline_context(
     f_context->instance_ids(ins_ids);
     bool all_done = q_context->countdown(ins_ids.size());
     for (const auto& ins_id : ins_ids) {
+        VLOG_DEBUG << "remove pipeline context " << print_id(ins_id) << ", all_done:" << all_done;
         _pipeline_map.erase(ins_id);
     }
     if (all_done) {
+        LOG(INFO) << "remove query context " << print_id(query_id);
         _query_ctx_map.erase(query_id);
     }
 }
@@ -769,8 +793,9 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         std::shared_ptr<pipeline::PipelineFragmentContext> context =
                 std::make_shared<pipeline::PipelineXFragmentContext>(
                         query_ctx->query_id(), params.fragment_id, query_ctx, _exec_env, cb,
-                        std::bind<void>(std::mem_fn(&FragmentMgr::coordinator_callback), this,
-                                        std::placeholders::_1),
+                        std::bind<Status>(
+                                std::mem_fn(&FragmentMgr::trigger_pipeline_context_report), this,
+                                std::placeholders::_1, std::placeholders::_2),
                         params.group_commit);
         {
             SCOPED_RAW_TIMER(&duration_ns);
@@ -847,8 +872,9 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                     std::make_shared<pipeline::PipelineFragmentContext>(
                             query_ctx->query_id(), fragment_instance_id, params.fragment_id,
                             local_params.backend_num, query_ctx, _exec_env, cb,
-                            std::bind<void>(std::mem_fn(&FragmentMgr::coordinator_callback), this,
-                                            std::placeholders::_1));
+                            std::bind<Status>(
+                                    std::mem_fn(&FragmentMgr::trigger_pipeline_context_report),
+                                    this, std::placeholders::_1, std::placeholders::_2));
             {
                 SCOPED_RAW_TIMER(&duration_ns);
                 auto prepare_st = context->prepare(params, i);

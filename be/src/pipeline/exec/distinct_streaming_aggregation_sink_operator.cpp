@@ -161,7 +161,7 @@ void DistinctStreamingAggSinkLocalState::_emplace_into_hash_table_to_distinct(
                 _pre_serialize_key_if_need(state, agg_method, key_columns, num_rows);
 
                 if constexpr (HashTableTraits<HashTableType>::is_phmap) {
-                    auto keys = state.get_keys(num_rows);
+                    const auto& keys = state.get_keys();
                     if (_hash_values.size() < num_rows) {
                         _hash_values.resize(num_rows);
                     }
@@ -252,6 +252,8 @@ Status DistinctStreamingAggSinkLocalState::close(RuntimeState* state, Status exe
     if (_closed) {
         return Status::OK();
     }
+    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(_close_timer);
     if (_shared_state->data_queue && !_shared_state->data_queue->is_finish()) {
         // finish should be set, if not set here means error.
         _shared_state->data_queue->set_canceled();

@@ -31,7 +31,7 @@ namespace doris {
 class ExecNode;
 
 namespace vectorized {
-class NewOlapScanner;
+class NewEsScanner;
 }
 } // namespace doris
 
@@ -46,7 +46,7 @@ public:
     EsScanLocalState(RuntimeState* state, OperatorXBase* parent) : Base(state, parent) {}
 
 private:
-    friend class vectorized::NewOlapScanner;
+    friend class vectorized::NewEsScanner;
 
     void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
     Status _init_profile() override;

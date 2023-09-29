@@ -1,11 +1,16 @@
 #ifndef __APPLE__
+#if defined(__aarch64__)
+#include <sse2neon.h>
+#elif defined(__x86_64__)
+#include <emmintrin.h>
+#include <immintrin.h>
+#include <smmintrin.h>
+#endif
 #include <byteswap.h>
 #include <endian.h>
 #include <features.h>
-#include <immintrin.h>
 #include <linux/perf_event.h>
 #include <malloc.h>
-#include <mmintrin.h>
 #include <sched.h>
 #include <sys/prctl.h>
 #include <sys/sysinfo.h>

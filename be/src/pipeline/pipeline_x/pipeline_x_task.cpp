@@ -69,8 +69,8 @@ Status PipelineXTask::prepare(RuntimeState* state, const TPipelineInstanceParams
         auto& deps = get_downstream_dependency();
         std::vector<LocalSinkStateInfo> infos;
         for (auto& dep : deps) {
-            infos.push_back(LocalSinkStateInfo {_pipeline->pipeline_profile(),
-                                                local_params.sender_id, dep.get(), tsink});
+            infos.emplace_back(
+                    LocalSinkStateInfo {_parent_profile, local_params.sender_id, dep.get(), tsink});
         }
         RETURN_IF_ERROR(_sink->setup_local_states(state, infos));
     }
@@ -78,16 +78,17 @@ Status PipelineXTask::prepare(RuntimeState* state, const TPipelineInstanceParams
     std::vector<TScanRangeParams> no_scan_ranges;
     auto scan_ranges = find_with_default(local_params.per_node_scan_ranges,
                                          _operators.front()->id(), no_scan_ranges);
+
     for (int op_idx = _operators.size() - 1; op_idx >= 0; op_idx--) {
         auto& deps = get_upstream_dependency(_operators[op_idx]->id());
         std::vector<LocalStateInfo> infos;
         for (auto& dep : deps) {
             LocalStateInfo info {
                     op_idx == _operators.size() - 1
-                            ? _pipeline->pipeline_profile()
+                            ? _parent_profile
                             : state->get_local_state(_operators[op_idx + 1]->id())->profile(),
                     scan_ranges, dep.get()};
-            infos.push_back(info);
+            infos.emplace_back(info);
         }
         RETURN_IF_ERROR(_operators[op_idx]->setup_local_states(state, infos));
     }
