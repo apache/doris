@@ -428,7 +428,7 @@ Assuming that we need to import data from Kafka into tables "test1" and "test2" 
        "max_batch_interval" = "20",
        "max_batch_rows" = "300000",
        "max_batch_size" = "209715200",
-       "strict_mode" = "false"
+       "strict_mode" = "true"
    )
    FROM KAFKA
    (

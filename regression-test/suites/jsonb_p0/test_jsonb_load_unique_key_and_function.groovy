@@ -16,11 +16,15 @@
 // under the License.
 
 suite("test_jsonb_unique_load_and_function", "p0") {
+
+    // TODO: remove it after we add implicit cast check in Nereids
+    sql "set enable_nereids_dml=false"
     // define a sql table
     def testTable = "tbl_test_jsonb_unique"
     def dataFile = "test_jsonb_unique_key.csv"
 
-    sql """ set experimental_enable_nereids_planner = false """
+    sql """ set experimental_enable_nereids_planner = true """
+    sql """ set enable_fallback_to_original_planner = true """
 
     sql "DROP TABLE IF EXISTS ${testTable}"
 

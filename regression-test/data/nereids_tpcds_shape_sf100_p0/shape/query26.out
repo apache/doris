@@ -8,17 +8,17 @@ PhysicalResultSink
 ----------PhysicalDistribute
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN](catalog_sales.cs_item_sk = item.i_item_sk)
+----------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_item_sk = item.i_item_sk))otherCondition=()
 ------------------PhysicalDistribute
---------------------hashJoin[INNER_JOIN](catalog_sales.cs_promo_sk = promotion.p_promo_sk)
+--------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_promo_sk = promotion.p_promo_sk))otherCondition=()
 ----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)
---------------------------hashJoin[INNER_JOIN](catalog_sales.cs_bill_cdemo_sk = customer_demographics.cd_demo_sk)
+------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk))otherCondition=()
+--------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_bill_cdemo_sk = customer_demographics.cd_demo_sk))otherCondition=()
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[catalog_sales]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
---------------------------------filter((customer_demographics.cd_gender = 'M')(customer_demographics.cd_marital_status = 'S')(customer_demographics.cd_education_status = 'Unknown'))
+--------------------------------filter((customer_demographics.cd_education_status = 'Unknown') and (customer_demographics.cd_gender = 'M') and (customer_demographics.cd_marital_status = 'S'))
 ----------------------------------PhysicalOlapScan[customer_demographics]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject

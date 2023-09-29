@@ -689,7 +689,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean extractWideRangeExpr = true;
 
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_DML, needForward = true)
-    public boolean enableNereidsDML = false;
+    public boolean enableNereidsDML = true;
 
     @VariableMgr.VarAttr(name = ENABLE_STRICT_CONSISTENCY_DML, needForward = true)
     public boolean enableStrictConsistencyDml = false;
@@ -1654,7 +1654,7 @@ public class SessionVariable implements Serializable, Writable {
             int size = Env.getCurrentSystemInfo().getMinPipelineExecutorSize();
             int autoInstance = (size + 1) / 2;
             return Math.min(autoInstance, maxInstanceNum);
-        } else if (enablePipelineEngine) {
+        } else if (getEnablePipelineEngine()) {
             return parallelPipelineTaskNum;
         } else {
             return parallelExecInstanceNum;

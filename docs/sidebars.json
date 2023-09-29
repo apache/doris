@@ -924,6 +924,7 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-VIEW",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-STORAGE-POLICY",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-RESOURCE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-COLOCATE-GROUP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-WORKLOAD-GROUP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-SQL-BLOCK-RULE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/PAUSE-JOB",
@@ -1257,6 +1258,7 @@
                                 "admin-manual/http-actions/fe/upload-action",
                                 "admin-manual/http-actions/fe/import-action",
                                 "admin-manual/http-actions/fe/meta-info-action-V2",
+                                "admin-manual/http-actions/fe/debug-point-action",
                                 "admin-manual/http-actions/fe/statistic-action"
                             ]
                         },

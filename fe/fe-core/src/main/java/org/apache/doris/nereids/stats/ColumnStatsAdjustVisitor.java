@@ -30,6 +30,7 @@ import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * table: T(A, B)
@@ -55,7 +56,9 @@ import com.google.common.base.Preconditions;
  * for other expressions(except cast), we also need to adjust their input column stats.
  *
  */
+@Slf4j
 public class ColumnStatsAdjustVisitor extends ExpressionVisitor<ColumnStatistic, Statistics> {
+
     @Override
     public ColumnStatistic visit(Expression expr, Statistics context) {
         expr.children().forEach(child -> child.accept(this, context));
@@ -88,7 +91,7 @@ public class ColumnStatsAdjustVisitor extends ExpressionVisitor<ColumnStatistic,
                     context.addColumnStats(cast.child(), colStats);
                 }
             } catch (Exception e) {
-                e.printStackTrace();
+                log.info("error", e);
                 Preconditions.checkArgument(false, "type conversion failed");
             }
         }

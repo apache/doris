@@ -8,17 +8,17 @@ PhysicalResultSink
 ----------PhysicalDistribute
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN](lineorder.lo_orderdate = dates.d_datekey)
+----------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_orderdate = dates.d_datekey))otherCondition=()
 ------------------PhysicalDistribute
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN](lineorder.lo_suppkey = supplier.s_suppkey)
+----------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_suppkey = supplier.s_suppkey))otherCondition=()
 ------------------------PhysicalDistribute
---------------------------hashJoin[INNER_JOIN](lineorder.lo_partkey = part.p_partkey)
+--------------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_partkey = part.p_partkey))otherCondition=()
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[lineorder]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
---------------------------------filter((part.p_brand >= 'MFGR#2221')(part.p_brand <= 'MFGR#2228'))
+--------------------------------filter((part.p_brand <= 'MFGR#2228') and (part.p_brand >= 'MFGR#2221'))
 ----------------------------------PhysicalOlapScan[part]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject

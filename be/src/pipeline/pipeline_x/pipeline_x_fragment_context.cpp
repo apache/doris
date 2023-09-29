@@ -54,8 +54,11 @@
 #include "pipeline/exec/es_scan_operator.h"
 #include "pipeline/exec/exchange_sink_operator.h"
 #include "pipeline/exec/exchange_source_operator.h"
+#include "pipeline/exec/file_scan_operator.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
+#include "pipeline/exec/jdbc_scan_operator.h"
+#include "pipeline/exec/jdbc_table_sink_operator.h"
 #include "pipeline/exec/meta_scan_operator.h"
 #include "pipeline/exec/multi_cast_data_stream_source.h"
 #include "pipeline/exec/nested_loop_join_build_operator.h"
@@ -116,25 +119,28 @@ PipelineXFragmentContext::~PipelineXFragmentContext() {
         _call_back(nullptr, &st);
     }
     _runtime_state.reset();
-    DCHECK(!_report_thread_active);
 }
 
 void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
                                       const std::string& msg) {
+    LOG_INFO("PipelineXFragmentContext::cancel")
+            .tag("query_id", print_id(_query_id))
+            .tag("fragment_id", _fragment_id)
+            .tag("reason", reason)
+            .tag("error message", msg);
     if (_query_ctx->cancel(true, msg, Status::Cancelled(msg))) {
-        LOG(WARNING) << "PipelineFragmentContext Canceled. reason=" << msg;
+        if (reason != PPlanFragmentCancelReason::LIMIT_REACH) {
+            FOR_EACH_RUNTIME_STATE(LOG(WARNING) << "PipelineXFragmentContext cancel instance: "
+                                                << print_id(runtime_state->fragment_instance_id());)
+        } else {
+            _set_is_report_on_cancel(false); // TODO bug llj
+        }
         // Get pipe from new load stream manager and send cancel to it or the fragment may hang to wait read from pipe
         // For stream load the fragment's query_id == load id, it is set in FE.
         auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(_query_id);
         if (stream_load_ctx != nullptr) {
             stream_load_ctx->pipe->cancel(msg);
         }
-
-        // must close stream_mgr to avoid dead lock in Exchange Node
-        FOR_EACH_RUNTIME_STATE(
-                runtime_state->set_is_cancelled(true, msg);
-                runtime_state->set_process_status(_query_ctx->exec_status());
-                _exec_env->vstream_mgr()->cancel(runtime_state->fragment_instance_id());)
 
         // Cancel the result queue manager used by spark doris connector
         // TODO pipeline incomp
@@ -159,7 +165,7 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
     }
 
     LOG_INFO("PipelineXFragmentContext::prepare")
-            .tag("query_id", _query_id)
+            .tag("query_id", print_id(_query_id))
             .tag("fragment_id", _fragment_id)
             .tag("pthread_id", (uintptr_t)pthread_self());
 
@@ -218,6 +224,8 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
     // 5. Build pipeline tasks and initialize local state.
     RETURN_IF_ERROR(_build_pipeline_tasks(request));
 
+    _init_next_report_time();
+
     _prepared = true;
     return Status::OK();
 }
@@ -249,6 +257,19 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
 
         // TODO: figure out good buffer size based on size of output row
         _sink.reset(new ResultSinkOperatorX(row_desc, output_exprs, thrift_sink.result_sink));
+        break;
+    }
+    case TDataSinkType::JDBC_TABLE_SINK: {
+        if (!thrift_sink.__isset.jdbc_table_sink) {
+            return Status::InternalError("Missing data jdbc sink.");
+        }
+        if (config::enable_java_support) {
+            _sink.reset(new JdbcTableSinkOperatorX(row_desc, output_exprs));
+        } else {
+            return Status::InternalError(
+                    "Jdbc table sink is not enabled, you can change be config "
+                    "enable_java_support to true and restart be.");
+        }
         break;
     }
     case TDataSinkType::RESULT_FILE_SINK: {
@@ -360,6 +381,8 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
         }
 
         _runtime_states[i]->set_desc_tbl(_query_ctx->desc_tbl);
+        _runtime_states[i]->set_per_fragment_instance_idx(local_params.sender_id);
+
         std::map<PipelineId, PipelineXTask*> pipeline_id_to_task;
         for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
             auto task = std::make_unique<PipelineXTask>(_pipelines[pip_idx], _total_tasks++,
@@ -414,64 +437,6 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
     _dag.clear();
 
     return Status::OK();
-}
-
-void PipelineXFragmentContext::report_profile() {
-    FOR_EACH_RUNTIME_STATE(
-            SCOPED_ATTACH_TASK(runtime_state.get());
-            VLOG_FILE << "report_profile(): instance_id=" << runtime_state->fragment_instance_id();
-
-            _report_thread_active = true;
-
-            std::unique_lock<std::mutex> l(_report_thread_lock);
-            // tell Open() that we started
-            _report_thread_started_cv.notify_one();
-
-            // Jitter the reporting time of remote fragments by a random amount between
-            // 0 and the report_interval.  This way, the coordinator doesn't get all the
-            // updates at once so its better for contention as well as smoother progress
-            // reporting.
-            int report_fragment_offset = rand() % config::status_report_interval;
-            // We don't want to wait longer than it takes to run the entire fragment.
-            _stop_report_thread_cv.wait_for(l, std::chrono::seconds(report_fragment_offset));
-            while (_report_thread_active) {
-                if (config::status_report_interval > 0) {
-                    // wait_for can return because the timeout occurred or the condition variable
-                    // was signaled.  We can't rely on its return value to distinguish between the
-                    // two cases (e.g. there is a race here where the wait timed out but before grabbing
-                    // the lock, the condition variable was signaled).  Instead, we will use an external
-                    // flag, _report_thread_active, to coordinate this.
-                    _stop_report_thread_cv.wait_for(
-                            l, std::chrono::seconds(config::status_report_interval));
-                } else {
-                    LOG(WARNING) << "config::status_report_interval is equal to or less than zero, "
-                                    "exiting "
-                                    "reporting thread.";
-                    break;
-                }
-
-                if (VLOG_FILE_IS_ON) {
-                    VLOG_FILE << "Reporting " << (!_report_thread_active ? "final " : " ")
-                              << "profile for instance " << runtime_state->fragment_instance_id();
-                    std::stringstream ss;
-                    runtime_state->runtime_profile()->compute_time_in_profile();
-                    runtime_state->runtime_profile()->pretty_print(&ss);
-                    if (runtime_state->load_channel_profile()) {
-                        // runtime_state->load_channel_profile()->compute_time_in_profile(); // TODO load channel profile add timer
-                        runtime_state->load_channel_profile()->pretty_print(&ss);
-                    }
-                    VLOG_FILE << ss.str();
-                }
-
-                if (!_report_thread_active) {
-                    break;
-                }
-
-                send_report(false);
-            }
-
-            VLOG_FILE
-            << "exiting reporting thread: instance_id=" << runtime_state->fragment_instance_id();)
 }
 
 Status PipelineXFragmentContext::_build_pipelines(ObjectPool* pool,
@@ -558,6 +523,16 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
     switch (tnode.node_type) {
     case TPlanNodeType::OLAP_SCAN_NODE: {
         op.reset(new OlapScanOperatorX(pool, tnode, descs));
+        RETURN_IF_ERROR(cur_pipe->add_operator(op));
+        break;
+    }
+    case doris::TPlanNodeType::JDBC_SCAN_NODE: {
+        op.reset(new JDBCScanOperatorX(pool, tnode, descs));
+        RETURN_IF_ERROR(cur_pipe->add_operator(op));
+        break;
+    }
+    case doris::TPlanNodeType::FILE_SCAN_NODE: {
+        op.reset(new FileScanOperatorX(pool, tnode, descs));
         RETURN_IF_ERROR(cur_pipe->add_operator(op));
         break;
     }
@@ -842,12 +817,11 @@ void PipelineXFragmentContext::close_if_prepare_failed() {
 void PipelineXFragmentContext::_close_action() {
     _runtime_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
     send_report(true);
-    _stop_report_thread();
     // all submitted tasks done
     _exec_env->fragment_mgr()->remove_pipeline_context(shared_from_this());
 }
 
-void PipelineXFragmentContext::send_report(bool done) {
+Status PipelineXFragmentContext::send_report(bool done) {
     Status exec_status = Status::OK();
     {
         std::lock_guard<std::mutex> l(_status_lock);
@@ -857,7 +831,7 @@ void PipelineXFragmentContext::send_report(bool done) {
     // If plan is done successfully, but _is_report_success is false,
     // no need to send report.
     if (!_is_report_success && done && exec_status.ok()) {
-        return;
+        return Status::NeedSendAgain("");
     }
 
     // If both _is_report_success and _is_report_on_cancel are false,
@@ -865,7 +839,7 @@ void PipelineXFragmentContext::send_report(bool done) {
     // This may happen when the query limit reached and
     // a internal cancellation being processed
     if (!_is_report_success && !_is_report_on_cancel) {
-        return;
+        return Status::NeedSendAgain("");
     }
 
     std::vector<RuntimeState*> runtime_states(_runtime_states.size());
@@ -873,15 +847,13 @@ void PipelineXFragmentContext::send_report(bool done) {
         runtime_states[i] = _runtime_states[i].get();
     }
 
-    std::vector<RuntimeState*> empty_vector(0);
-
-    _report_status_cb(
-            {true, exec_status, _runtime_state->enable_profile() ? runtime_states : empty_vector,
-             nullptr, nullptr, done || !exec_status.ok(), _query_ctx->coord_addr, _query_id,
-             _fragment_id, TUniqueId(), _backend_num, _runtime_state.get(),
+    return _report_status_cb(
+            {true, exec_status, runtime_states, nullptr, nullptr, done || !exec_status.ok(),
+             _query_ctx->coord_addr, _query_id, _fragment_id, TUniqueId(), _backend_num,
+             _runtime_state.get(),
              std::bind(&PipelineFragmentContext::update_status, this, std::placeholders::_1),
              std::bind(&PipelineFragmentContext::cancel, this, std::placeholders::_1,
-                       std::placeholders::_2)});
+                       std::placeholders::_2)},
+            shared_from_this());
 }
-
 } // namespace doris::pipeline

@@ -198,6 +198,8 @@ private:
     std::stack<uint16_t> _probe_offset_stack;
     uint64_t _output_null_idx_build_side = 0;
     vectorized::VExprContextSPtrs _join_conjuncts;
+
+    RuntimeProfile::Counter* _loop_join_timer;
 };
 
 class NestedLoopJoinProbeOperatorX final

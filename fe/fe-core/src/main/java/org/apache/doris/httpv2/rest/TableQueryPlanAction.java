@@ -25,6 +25,7 @@ import org.apache.doris.analysis.TableRef;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DorisHttpException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
@@ -116,7 +117,7 @@ public class TableQueryPlanAction extends RestBaseController {
             Table table;
             try {
                 Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
-                table = db.getTableOrMetaException(tblName, Table.TableType.OLAP);
+                table = db.getTableOrMetaException(tblName, TableIf.TableType.OLAP);
             } catch (MetaNotFoundException e) {
                 return ResponseEntityBuilder.okWithCommonError(e.getMessage());
             }
@@ -149,13 +150,13 @@ public class TableQueryPlanAction extends RestBaseController {
      * process the sql syntax and return the resolved pruned tablet
      *
      * @param context context for analyzer
-     * @param sql     the single table select statement
-     * @param result  the acquired results
+     * @param sql the single table select statement
+     * @param result the acquired results
      * @return
      * @throws DorisHttpException
      */
     private void handleQuery(ConnectContext context, String requestDb, String requestTable, String sql,
-                             Map<String, Object> result) throws DorisHttpException {
+            Map<String, Object> result) throws DorisHttpException {
         // use SE to resolve sql
         StmtExecutor stmtExecutor = new StmtExecutor(context, new OriginStatement(sql, 0), false);
         try {

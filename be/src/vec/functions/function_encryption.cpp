@@ -109,7 +109,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         size_t argument_size = arguments.size();
         ColumnPtr argument_columns[argument_size];
         std::vector<const ColumnString::Offsets*> offsets_list(argument_size);
