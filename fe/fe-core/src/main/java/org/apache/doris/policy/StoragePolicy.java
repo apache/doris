@@ -17,6 +17,7 @@
 
 package org.apache.doris.policy;
 
+import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
@@ -237,9 +238,10 @@ public class StoragePolicy extends Policy {
             return false;
         }
         StoragePolicy storagePolicy = (StoragePolicy) checkedPolicyCondition;
-        return (storagePolicy.getStorageResource() == null
-                        || storagePolicy.getStorageResource().equals(this.storageResource))
-                && checkMatched(storagePolicy.getType(), storagePolicy.getPolicyName());
+        // The first if stmt can guarantee that the policy must be one storage policy
+        // and the name of the policy remains globally unique until it is renamed by user.
+        // So we could just compare the policy name to check if there are redundant ones.
+        return StringUtils.equals(storagePolicy.getPolicyName(), this.policyName);
     }
 
     @Override
