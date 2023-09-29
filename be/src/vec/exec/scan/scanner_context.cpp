@@ -346,7 +346,7 @@ Status ScannerContext::_close_and_clear_scanners(Parent* parent, RuntimeState* s
     }
     // Only unfinished scanners here
     for (auto& scanner : _scanners) {
-        scanner->close(state);
+        static_cast<void>(scanner->close(state));
         // Scanners are in ObjPool in ScanNode,
         // so no need to delete them here.
     }
@@ -376,7 +376,7 @@ void ScannerContext::clear_and_join(Parent* parent, RuntimeState* state) {
     }
     // Must wait all running scanners stop running.
     // So that we can make sure to close all scanners.
-    _close_and_clear_scanners(parent, state);
+    static_cast<void>(_close_and_clear_scanners(parent, state));
 
     _blocks_queue.clear();
 }
@@ -468,7 +468,7 @@ void ScannerContext::get_next_batch_of_scanners(std::list<VScannerSPtr>* current
                 _finished_scanner_rows_read.push_back(scanner->get_rows_read());
                 _finished_scanner_wait_worker_time.push_back(
                         scanner->get_scanner_wait_worker_timer());
-                scanner->close(_state);
+                static_cast<void>(scanner->close(_state));
             } else {
                 current_run->push_back(scanner);
                 i++;

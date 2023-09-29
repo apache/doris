@@ -492,7 +492,7 @@ void VDataStreamRecvr::close() {
     }
     // Remove this receiver from the DataStreamMgr that created it.
     // TODO: log error msg
-    _mgr->deregister_recvr(fragment_instance_id(), dest_node_id());
+    static_cast<void>(_mgr->deregister_recvr(fragment_instance_id(), dest_node_id()));
     _mgr = nullptr;
 
     _merger.reset();

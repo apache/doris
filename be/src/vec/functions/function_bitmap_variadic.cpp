@@ -250,8 +250,8 @@ public:
         auto& vec_res = col_res->get_data();
         vec_res.resize(input_rows_count);
 
-        Impl::vector_vector(argument_columns, argument_size, input_rows_count, vec_res,
-                            col_res_nulls);
+        static_cast<void>(Impl::vector_vector(argument_columns, argument_size, input_rows_count,
+                                              vec_res, col_res_nulls));
         if (!use_default_implementation_for_nulls() && result_info.type->is_nullable()) {
             block.replace_by_position(
                     result, ColumnNullable::create(std::move(col_res), std::move(col_res_nulls)));

@@ -197,11 +197,11 @@ Status ResultSinkLocalState::close(RuntimeState* state, Status exec_status) {
             _sender->update_num_written_rows(_writer->get_written_rows());
         }
         _sender->update_max_peak_memory_bytes();
-        _sender->close(final_status);
+        static_cast<void>(_sender->close(final_status));
     }
-    state->exec_env()->result_mgr()->cancel_at_time(
+    static_cast<void>(state->exec_env()->result_mgr()->cancel_at_time(
             time(nullptr) + config::result_buffer_cancelled_interval_time,
-            state->fragment_instance_id());
+            state->fragment_instance_id()));
     RETURN_IF_ERROR(PipelineXSinkLocalState<>::close(state, exec_status));
     return final_status;
 }

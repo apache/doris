@@ -182,11 +182,11 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
         // close sender, this is normal path end
         if (_sender) {
             _sender->update_num_written_rows(_writer == nullptr ? 0 : _writer->get_written_rows());
-            _sender->close(final_status);
+            static_cast<void>(_sender->close(final_status));
         }
-        state->exec_env()->result_mgr()->cancel_at_time(
+        static_cast<void>(state->exec_env()->result_mgr()->cancel_at_time(
                 time(nullptr) + config::result_buffer_cancelled_interval_time,
-                state->fragment_instance_id());
+                state->fragment_instance_id()));
     } else {
         if (final_status.ok()) {
             bool all_receiver_eof = true;
@@ -257,7 +257,7 @@ void ResultFileSinkLocalState::_handle_eof_channel(RuntimeState* state, ChannelP
                                                    Status st) {
     channel->set_receiver_eof(st);
     // Chanel will not send RPC to the downstream when eof, so close chanel by OK status.
-    channel->close(state, Status::OK());
+    static_cast<void>(channel->close(state, Status::OK()));
 }
 
 Status ResultFileSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,

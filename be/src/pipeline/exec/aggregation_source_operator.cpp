@@ -84,12 +84,12 @@ void AggLocalState::_close_with_serialized_key() {
                 auto& data = agg_method.data;
                 data.for_each_mapped([&](auto& mapped) {
                     if (mapped) {
-                        _dependency->destroy_agg_status(mapped);
+                        static_cast<void>(_dependency->destroy_agg_status(mapped));
                         mapped = nullptr;
                     }
                 });
                 if (data.has_null_key_data()) {
-                    _dependency->destroy_agg_status(data.get_null_key_data());
+                    static_cast<void>(_dependency->destroy_agg_status(data.get_null_key_data()));
                 }
             },
             _agg_data->method_variant);
@@ -101,7 +101,7 @@ void AggLocalState::_close_without_key() {
     //but finally call close to destory agg data, if agg data has bitmapValue
     //will be core dump, it's not initialized
     if (_agg_data_created_without_key) {
-        _dependency->destroy_agg_status(_agg_data->without_key);
+        static_cast<void>(_dependency->destroy_agg_status(_agg_data->without_key));
         _agg_data_created_without_key = false;
     }
     _dependency->release_tracker();
