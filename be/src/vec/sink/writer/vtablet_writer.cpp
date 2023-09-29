@@ -1686,7 +1686,7 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
         int result_idx;
         if (_vpartition->is_projection_partition()) {
             // calc the start value of missing partition ranges.
-            RETURN_IF_ERROR(part_func->execute(part_ctx.get(), block.get(), &result_idx));
+            static_cast<void>(part_func->execute(part_ctx.get(), block.get(), &result_idx));
             VLOG_DEBUG << "Partition-calculated block:" << block->dump_data();
             // change the column to compare to transformed.
             _vpartition->set_transformed_slots({(uint16_t)result_idx});

@@ -393,7 +393,7 @@ Status VFileResultWriter::_delete_dir() {
     case TStorageBackendType::HDFS: {
         THdfsParams hdfs_params = parse_properties(_file_opts->broker_properties);
         std::shared_ptr<io::HdfsFileSystem> hdfs_fs = nullptr;
-        static_cast<void>(
+        RETURN_IF_ERROR(
                 io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name, nullptr, &hdfs_fs));
         file_system = hdfs_fs;
         break;
