@@ -1056,7 +1056,7 @@ public class AnalysisManager extends Daemon implements Writable {
                 a -> {
                     // FE is not ready when replaying log and operations triggered by replaying
                     // shouldn't be logged again.
-                    if (Env.getCurrentEnv().isReady() && !Env.isCheckpointThread()) {
+                    if (Env.getCurrentEnv().isReady() && Env.getCurrentEnv().isMaster() && !Env.isCheckpointThread()) {
                         analysisManager.logAutoJob(a);
                     }
                     return null;
