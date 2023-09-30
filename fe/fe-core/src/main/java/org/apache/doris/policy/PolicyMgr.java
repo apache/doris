@@ -127,7 +127,7 @@ public class PolicyMgr implements Writable {
                 // Otherwise two storage policy share one same name but with different resource name
                 // will not be filtered. See github #25025 for more details.
                 storagePolicyExists = getPoliciesByType(PolicyTypeEnum.STORAGE)
-                        .stream().anyMatch(p -> p.getPolicyName().equals(policy.getgetPolicyName()));
+                        .stream().anyMatch(p -> p.getPolicyName().equals(policy.getPolicyName()));
             }
             if (storagePolicyExists || existPolicy(policy)) {
                 if (stmt.isIfNotExists()) {
