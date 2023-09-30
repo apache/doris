@@ -33,7 +33,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -238,10 +237,9 @@ public class StoragePolicy extends Policy {
             return false;
         }
         StoragePolicy storagePolicy = (StoragePolicy) checkedPolicyCondition;
-        // The first if stmt can guarantee that the policy must be one storage policy
-        // and the name of the policy remains globally unique until it is renamed by user.
-        // So we could just compare the policy name to check if there are redundant ones.
-        return StringUtils.equals(storagePolicy.getPolicyName(), this.policyName);
+        return (storagePolicy.getStorageResource() == null
+                        || storagePolicy.getStorageResource().equals(this.storageResource))
+                && checkMatched(storagePolicy.getType(), storagePolicy.getPolicyName());
     }
 
     @Override
