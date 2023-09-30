@@ -57,7 +57,7 @@ struct HashMapCell {
 
     value_type value;
 
-    HashMapCell() {}
+    HashMapCell() = default;
     HashMapCell(const Key& key_, const State&) : value(key_, NoInitTag()) {}
     HashMapCell(const Key& key_, const Mapped& mapped_) : value(key_, mapped_) {}
     HashMapCell(const value_type& value_, const State&) : value(value_) {}
@@ -89,9 +89,6 @@ struct HashMapCell {
 
     /// Do I need to store the zero key separately (that is, can a zero key be inserted into the hash table).
     static constexpr bool need_zero_value_storage = true;
-
-    /// Whether the cell was deleted.
-    bool is_deleted() const { return false; }
 
     void set_mapped(const value_type& value_) { value.second = value_.second; }
 };
@@ -195,14 +192,6 @@ public:
     template <typename Func>
     void for_each_mapped(Func&& func) {
         for (auto& v : *this) func(v.get_second());
-    }
-
-    size_t get_size() {
-        size_t count = 0;
-        for (auto& v : *this) {
-            count += v.get_second().get_row_count();
-        }
-        return count;
     }
 
     mapped_type& ALWAYS_INLINE operator[](Key x) {

@@ -8,32 +8,33 @@ PhysicalResultSink
 ----------PhysicalDistribute
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = d3.d_date_sk)
+----------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_sold_date_sk = d3.d_date_sk))otherCondition=()
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN](store_returns.sr_item_sk = catalog_sales.cs_item_sk)(store_returns.sr_customer_sk = catalog_sales.cs_bill_customer_sk)
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[catalog_sales]
+--------------------hashJoin[INNER_JOIN] hashCondition=((store_returns.sr_customer_sk = catalog_sales.cs_bill_customer_sk) and (store_returns.sr_item_sk = catalog_sales.cs_item_sk))otherCondition=()
 ----------------------PhysicalDistribute
-------------------------hashJoin[INNER_JOIN](store.s_store_sk = store_sales.ss_store_sk)
+------------------------PhysicalProject
+--------------------------PhysicalOlapScan[catalog_sales]
+----------------------PhysicalDistribute
+------------------------hashJoin[INNER_JOIN] hashCondition=((store.s_store_sk = store_sales.ss_store_sk))otherCondition=()
 --------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN](item.i_item_sk = store_sales.ss_item_sk)
+----------------------------hashJoin[INNER_JOIN] hashCondition=((item.i_item_sk = store_sales.ss_item_sk))otherCondition=()
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN](store_returns.sr_returned_date_sk = d2.d_date_sk)
+----------------------------------hashJoin[INNER_JOIN] hashCondition=((store_returns.sr_returned_date_sk = d2.d_date_sk))otherCondition=()
 ------------------------------------PhysicalProject
---------------------------------------hashJoin[INNER_JOIN](store_sales.ss_item_sk = store_returns.sr_item_sk)(store_sales.ss_ticket_number = store_returns.sr_ticket_number)(store_sales.ss_customer_sk = store_returns.sr_customer_sk)
+--------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_customer_sk = store_returns.sr_customer_sk) and (store_sales.ss_item_sk = store_returns.sr_item_sk) and (store_sales.ss_ticket_number = store_returns.sr_ticket_number))otherCondition=()
 ----------------------------------------PhysicalProject
 ------------------------------------------PhysicalOlapScan[store_returns]
-----------------------------------------hashJoin[INNER_JOIN](d1.d_date_sk = store_sales.ss_sold_date_sk)
+----------------------------------------hashJoin[INNER_JOIN] hashCondition=((d1.d_date_sk = store_sales.ss_sold_date_sk))otherCondition=()
 ------------------------------------------PhysicalProject
 --------------------------------------------PhysicalOlapScan[store_sales]
 ------------------------------------------PhysicalDistribute
 --------------------------------------------PhysicalProject
-----------------------------------------------filter((d1.d_year = 2000)(d1.d_moy = 4))
+----------------------------------------------filter((d1.d_moy = 4) and (d1.d_year = 2000))
 ------------------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
-----------------------------------------filter((d2.d_moy <= 10)(d2.d_moy >= 4)(d2.d_year = 2000))
+----------------------------------------filter((d2.d_moy <= 10) and (d2.d_moy >= 4) and (d2.d_year = 2000))
 ------------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
@@ -43,6 +44,6 @@ PhysicalResultSink
 ------------------------------PhysicalOlapScan[store]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
-----------------------filter((d3.d_year = 2000)(d3.d_moy <= 10)(d3.d_moy >= 4))
+----------------------filter((d3.d_moy <= 10) and (d3.d_moy >= 4) and (d3.d_year = 2000))
 ------------------------PhysicalOlapScan[date_dim]
 

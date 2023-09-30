@@ -112,7 +112,7 @@ struct IntegerRoundingComputation {
             return target_scale > 1 ? x * target_scale : x;
         }
         }
-
+        LOG(FATAL) << "__builtin_unreachable";
         __builtin_unreachable();
     }
 
@@ -124,7 +124,7 @@ struct IntegerRoundingComputation {
         case ScaleMode::Negative:
             return compute_impl(x, scale, target_scale);
         }
-
+        LOG(FATAL) << "__builtin_unreachable";
         __builtin_unreachable();
     }
 
@@ -239,6 +239,7 @@ inline float roundWithMode(float x, RoundingMode mode) {
         return truncf(x);
     }
 
+    LOG(FATAL) << "__builtin_unreachable";
     __builtin_unreachable();
 }
 
@@ -254,6 +255,7 @@ inline double roundWithMode(double x, RoundingMode mode) {
         return trunc(x);
     }
 
+    LOG(FATAL) << "__builtin_unreachable";
     __builtin_unreachable();
 }
 
@@ -417,6 +419,7 @@ public:
         case 10000000000000000000ULL:
             return applyImpl<10000000000000000000ULL>(in, out);
         default:
+            LOG(FATAL) << "__builtin_unreachable";
             __builtin_unreachable();
         }
     }
@@ -474,6 +477,7 @@ struct Dispatcher {
 
             return col_res;
         } else {
+            LOG(FATAL) << "__builtin_unreachable";
             __builtin_unreachable();
             return nullptr;
         }
@@ -525,7 +529,7 @@ public:
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t /*input_rows_count*/) override {
+                        size_t result, size_t /*input_rows_count*/) const override {
         const ColumnWithTypeAndName& column = block.get_by_position(arguments[0]);
         Int16 scale_arg = 0;
         if (arguments.size() == 2) {

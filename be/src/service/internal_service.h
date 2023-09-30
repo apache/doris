@@ -82,6 +82,11 @@ public:
                             PFetchTableSchemaResult* result,
                             google::protobuf::Closure* done) override;
 
+    void fetch_arrow_flight_schema(google::protobuf::RpcController* controller,
+                                   const PFetchArrowFlightSchemaRequest* request,
+                                   PFetchArrowFlightSchemaResult* result,
+                                   google::protobuf::Closure* done) override;
+
     void tablet_writer_open(google::protobuf::RpcController* controller,
                             const PTabletWriterOpenRequest* request,
                             PTabletWriterOpenResult* response,
@@ -193,6 +198,11 @@ public:
 
     void glob(google::protobuf::RpcController* controller, const PGlobRequest* request,
               PGlobResponse* response, google::protobuf::Closure* done) override;
+
+    void group_commit_insert(google::protobuf::RpcController* controller,
+                             const PGroupCommitInsertRequest* request,
+                             PGroupCommitInsertResponse* response,
+                             google::protobuf::Closure* done) override;
 
 private:
     void _exec_plan_fragment_in_pthread(google::protobuf::RpcController* controller,

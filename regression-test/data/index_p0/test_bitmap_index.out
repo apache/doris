@@ -113,3 +113,57 @@ default_cluster:regression_test_index_p0.test_bitmap_index_unique		index16		v1		
 -- !sql --
 1	1	1	1	1	1	2022-05-31	2022-05-31T10:00	1	1	true	2022-05-31	2022-05-31T10:00	2022-05-31T10:00:00.111	2022-05-31T10:00:00.111111	1
 
+-- !sql --
+create_time	DATETIME	No	true	\N	
+vid	VARCHAR(64)	No	true	\N	
+report_time	DATETIME	Yes	true	\N	
+block_version	INT	Yes	false	\N	REPLACE
+vehicle_mode	INT	Yes	false	\N	REPLACE
+usage_mode	INT	Yes	false	\N	REPLACE
+
+-- !sql --
+default_cluster:regression_test_index_p0.test_bitmap_index_unique_mor_delete		vid_bitmap_index		vid						BITMAP		
+
+-- !sql --
+2
+
+-- !sql --
+2
+
+-- !sql --
+2
+
+-- !sql --
+2
+
+-- !sql --
+2023-08-25T10:00	123	2023-08-25T10:00	1	1	1
+2023-08-25T11:00	123	2023-08-25T11:00	2	2	2
+
+-- !sql --
+create_time	DATETIME	No	true	\N	
+vid	VARCHAR(64)	No	true	\N	
+report_time	DATETIME	Yes	true	\N	
+block_version	INT	Yes	false	\N	NONE
+vehicle_mode	INT	Yes	false	\N	NONE
+usage_mode	INT	Yes	false	\N	NONE
+
+-- !sql --
+default_cluster:regression_test_index_p0.test_bitmap_index_unique_mow_delete		vid_bitmap_index		vid						BITMAP		
+
+-- !sql --
+2
+
+-- !sql --
+2
+
+-- !sql --
+2
+
+-- !sql --
+2
+
+-- !sql --
+2023-08-25T10:00	123	2023-08-25T10:00	1	1	1
+2023-08-25T11:00	123	2023-08-25T11:00	2	2	2
+

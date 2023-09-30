@@ -58,6 +58,7 @@ enum TPlanNodeType {
   JDBC_SCAN_NODE,
   TEST_EXTERNAL_SCAN_NODE,
   PARTITION_SORT_NODE,
+  GROUP_COMMIT_SCAN_NODE
 }
 
 // phases of an execution node
@@ -118,6 +119,7 @@ enum TFileFormatType {
     FORMAT_AVRO,
     FORMAT_CSV_LZ4BLOCK,
     FORMAT_CSV_SNAPPYBLOCK,
+    FORMAT_WAL,
 }
 
 // In previous versions, the data compression format and file format were stored together, as TFileFormatType,
@@ -338,6 +340,11 @@ struct TTableFormatFileDesc {
     5: optional TTransactionalHiveDesc transactional_hive_params
 }
 
+enum TTextSerdeType {
+    JSON_TEXT_SERDE = 0,
+    HIVE_TEXT_SERDE = 1,
+}
+
 struct TFileScanRangeParams {
     // deprecated, move to TFileScanRange
     1: optional Types.TFileType file_type;
@@ -380,6 +387,7 @@ struct TFileScanRangeParams {
     19: optional map<string, i32> slot_name_to_schema_pos
     20: optional list<Exprs.TExpr> pre_filter_exprs_list
     21: optional Types.TUniqueId load_id
+    22: optional TTextSerdeType  text_serde_type 
 }
 
 struct TFileRangeDesc {
@@ -842,12 +850,20 @@ enum TopNAlgorithm {
    ROW_NUMBER
  }
 
+enum TPartTopNPhase {
+  UNKNOWN,
+  ONE_PAHSE_GLOBAL,
+  TWO_PAHSE_LOCAL,
+  TWO_PAHSE_GLOBAL
+}
+
  struct TPartitionSortNode {
    1: optional list<Exprs.TExpr> partition_exprs
    2: optional TSortInfo sort_info
    3: optional bool has_global_limit
    4: optional TopNAlgorithm top_n_algorithm
    5: optional i64 partition_inner_limit
+   6: optional TPartTopNPhase ptopn_phase
  }
 enum TAnalyticWindowType {
   // Specifies the window as a logical offset
@@ -1095,6 +1111,10 @@ struct TDataGenScanNode {
   2: optional TDataGenFunctionName func_name
 }
 
+struct TGroupCommitScanNode {
+    1: optional i64 table_id;
+}
+
 // This is essentially a union of all messages corresponding to subclasses
 // of PlanNode.
 struct TPlanNode {
@@ -1138,6 +1158,7 @@ struct TPlanNode {
   35: optional TOdbcScanNode odbc_scan_node
   // Runtime filters assigned to this plan node, exist in HashJoinNode and ScanNode
   36: optional list<TRuntimeFilterDesc> runtime_filters
+  37: optional TGroupCommitScanNode group_commit_scan_node
 
   // Use in vec exec engine
   40: optional Exprs.TExpr vconjunct

@@ -55,13 +55,13 @@ Status DataTypeJsonbSerDe::write_column_to_mysql(const IColumn& column,
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
 }
 
-void DataTypeJsonbSerDe::serialize_column_to_text(const IColumn& column, int start_idx, int end_idx,
+void DataTypeJsonbSerDe::serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
                                                   BufferWritable& bw,
                                                   FormatOptions& options) const {
-    SERIALIZE_COLUMN_TO_TEXT()
+    SERIALIZE_COLUMN_TO_JSON()
 }
 
-void DataTypeJsonbSerDe::serialize_one_cell_to_text(const IColumn& column, int row_num,
+void DataTypeJsonbSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
                                                     BufferWritable& bw,
                                                     FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
@@ -74,16 +74,18 @@ void DataTypeJsonbSerDe::serialize_one_cell_to_text(const IColumn& column, int r
     }
 }
 
-Status DataTypeJsonbSerDe::deserialize_column_from_text_vector(IColumn& column,
+Status DataTypeJsonbSerDe::deserialize_column_from_json_vector(IColumn& column,
                                                                std::vector<Slice>& slices,
                                                                int* num_deserialized,
-                                                               const FormatOptions& options) const {
-    DESERIALIZE_COLUMN_FROM_TEXT_VECTOR()
+                                                               const FormatOptions& options,
+                                                               int nesting_level) const {
+    DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
     return Status::OK();
 }
 
-Status DataTypeJsonbSerDe::deserialize_one_cell_from_text(IColumn& column, Slice& slice,
-                                                          const FormatOptions& options) const {
+Status DataTypeJsonbSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
+                                                          const FormatOptions& options,
+                                                          int nesting_level) const {
     JsonBinaryValue value;
     RETURN_IF_ERROR(value.from_json_string(slice.data, slice.size));
 
@@ -109,6 +111,12 @@ void DataTypeJsonbSerDe::write_column_to_arrow(const IColumn& column, const Null
         checkArrowStatus(builder.Append(json_string.data(), json_string.size()), column.get_name(),
                          array_builder->type()->name());
     }
+}
+
+Status DataTypeJsonbSerDe::write_column_to_orc(const IColumn& column, const NullMap* null_map,
+                                               orc::ColumnVectorBatch* orc_col_batch, int start,
+                                               int end, std::vector<StringRef>& buffer_list) const {
+    return Status::NotSupported("write_column_to_orc with type [{}]", column.get_name());
 }
 
 } // namespace vectorized

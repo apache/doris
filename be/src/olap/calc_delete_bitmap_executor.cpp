@@ -50,7 +50,8 @@ Status CalcDeleteBitmapToken::submit(TabletSharedPtr tablet, RowsetSharedPtr cur
         if (!st.ok()) {
             LOG(WARNING) << "failed to calc segment delete bitmap, tablet_id: "
                          << tablet->tablet_id() << " rowset: " << cur_rowset->rowset_id()
-                         << " seg_id: " << cur_segment->id() << " version: " << end_version;
+                         << " seg_id: " << cur_segment->id() << " version: " << end_version
+                         << " error: " << st;
             std::lock_guard wlock(_lock);
             if (_status.ok()) {
                 _status = st;
@@ -77,10 +78,10 @@ Status CalcDeleteBitmapToken::get_delete_bitmap(DeleteBitmapPtr res_bitmap) {
 }
 
 void CalcDeleteBitmapExecutor::init() {
-    ThreadPoolBuilder("TabletCalcDeleteBitmapThreadPool")
-            .set_min_threads(1)
-            .set_max_threads(config::calc_delete_bitmap_max_thread)
-            .build(&_thread_pool);
+    static_cast<void>(ThreadPoolBuilder("TabletCalcDeleteBitmapThreadPool")
+                              .set_min_threads(1)
+                              .set_max_threads(config::calc_delete_bitmap_max_thread)
+                              .build(&_thread_pool));
 }
 
 std::unique_ptr<CalcDeleteBitmapToken> CalcDeleteBitmapExecutor::create_token() {

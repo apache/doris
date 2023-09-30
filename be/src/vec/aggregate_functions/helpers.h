@@ -47,6 +47,56 @@
     M(Decimal128)            \
     M(Decimal128I)
 
+/** If the serialized type is not the default type(string),
+ * aggregation function need to override these functions:
+ * 1. serialize_to_column
+ * 2. streaming_agg_serialize_to_column
+ * 3. deserialize_and_merge_vec
+ * 4. deserialize_and_merge_vec_selected
+ * 5. serialize_without_key_to_column
+ * 6. deserialize_and_merge_from_column
+ */
+#define CHECK_AGG_FUNCTION_SERIALIZED_TYPE(FunctionTemplate)                                       \
+    do {                                                                                           \
+        constexpr bool _is_new_serialized_type =                                                   \
+                !std::is_same_v<decltype(&FunctionTemplate::get_serialized_type),                  \
+                                decltype(&IAggregateFunction::get_serialized_type)>;               \
+        if constexpr (_is_new_serialized_type) {                                                   \
+            static_assert(!std::is_same_v<decltype(&FunctionTemplate::serialize_to_column),        \
+                                          decltype(&IAggregateFunctionHelper<                      \
+                                                   FunctionTemplate>::serialize_to_column)>,       \
+                          "need to override serialize_to_column");                                 \
+            static_assert(                                                                         \
+                    !std::is_same_v<                                                               \
+                            decltype(&FunctionTemplate::streaming_agg_serialize_to_column),        \
+                            decltype(&IAggregateFunction::streaming_agg_serialize_to_column)>,     \
+                    "need to override "                                                            \
+                    "streaming_agg_serialize_to_column");                                          \
+            static_assert(!std::is_same_v<decltype(&FunctionTemplate::deserialize_and_merge_vec),  \
+                                          decltype(&IAggregateFunctionHelper<                      \
+                                                   FunctionTemplate>::deserialize_and_merge_vec)>, \
+                          "need to override deserialize_and_merge_vec");                           \
+            static_assert(                                                                         \
+                    !std::is_same_v<                                                               \
+                            decltype(&FunctionTemplate::deserialize_and_merge_vec_selected),       \
+                            decltype(&IAggregateFunctionHelper<                                    \
+                                     FunctionTemplate>::deserialize_and_merge_vec_selected)>,      \
+                    "need to override "                                                            \
+                    "deserialize_and_merge_vec_selected");                                         \
+            static_assert(                                                                         \
+                    !std::is_same_v<decltype(&FunctionTemplate::serialize_without_key_to_column),  \
+                                    decltype(&IAggregateFunctionHelper<                            \
+                                             FunctionTemplate>::serialize_without_key_to_column)>, \
+                    "need to override serialize_without_key_to_column");                           \
+            static_assert(!std::is_same_v<                                                         \
+                                  decltype(&FunctionTemplate::deserialize_and_merge_from_column),  \
+                                  decltype(&IAggregateFunctionHelper<                              \
+                                           FunctionTemplate>::deserialize_and_merge_from_column)>, \
+                          "need to override "                                                      \
+                          "deserialize_and_merge_from_column");                                    \
+        }                                                                                          \
+    } while (false)
+
 namespace doris::vectorized {
 
 struct creator_without_type {
@@ -57,6 +107,7 @@ struct creator_without_type {
     template <typename AggregateFunctionTemplate>
     static AggregateFunctionPtr creator(const std::string& name, const DataTypes& argument_types,
                                         const bool result_is_nullable) {
+        CHECK_AGG_FUNCTION_SERIALIZED_TYPE(AggregateFunctionTemplate);
         return create<AggregateFunctionTemplate>(argument_types, result_is_nullable);
     }
 
@@ -74,6 +125,8 @@ struct creator_without_type {
                     make_bool_variant(argument_types.size() > 1),
                     make_bool_variant(result_is_nullable));
         }
+
+        CHECK_AGG_FUNCTION_SERIALIZED_TYPE(AggregateFunctionTemplate);
         return AggregateFunctionPtr(result);
     }
 
@@ -85,6 +138,7 @@ struct creator_without_type {
                                                        TArgs&&... args) {
         IAggregateFunction* result(
                 new AggregateFunctionTemplate(std::forward<TArgs>(args)..., argument_types));
+        CHECK_AGG_FUNCTION_SERIALIZED_TYPE(AggregateFunctionTemplate);
         return AggregateFunctionPtr(result);
     }
 };

@@ -37,6 +37,8 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/types.h"
+#include "util/arrow/block_convertor.h"
+#include "vec/core/block.h"
 
 namespace doris {
 
@@ -93,7 +95,7 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
     case TYPE_ARRAY: {
         DCHECK_EQ(type.children.size(), 1);
         std::shared_ptr<arrow::DataType> item_type;
-        convert_to_arrow_type(type.children[0], &item_type);
+        static_cast<void>(convert_to_arrow_type(type.children[0], &item_type));
         *result = std::make_shared<arrow::ListType>(item_type);
         break;
     }
@@ -101,8 +103,8 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
         DCHECK_EQ(type.children.size(), 2);
         std::shared_ptr<arrow::DataType> key_type;
         std::shared_ptr<arrow::DataType> val_type;
-        convert_to_arrow_type(type.children[0], &key_type);
-        convert_to_arrow_type(type.children[1], &val_type);
+        static_cast<void>(convert_to_arrow_type(type.children[0], &key_type));
+        static_cast<void>(convert_to_arrow_type(type.children[1], &val_type));
         *result = std::make_shared<arrow::MapType>(key_type, val_type);
         break;
     }
@@ -111,7 +113,7 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
         std::vector<std::shared_ptr<arrow::Field>> fields;
         for (size_t i = 0; i < type.children.size(); i++) {
             std::shared_ptr<arrow::DataType> field_type;
-            convert_to_arrow_type(type.children[i], &field_type);
+            static_cast<void>(convert_to_arrow_type(type.children[i], &field_type));
             fields.push_back(std::make_shared<arrow::Field>(type.field_names[i], field_type,
                                                             type.contains_nulls[i]));
         }
@@ -186,6 +188,18 @@ Status serialize_record_batch(const arrow::RecordBatch& record_batch, std::strin
         return Status::InternalError("Close failed, reason: {}", a_st.ToString());
     }
     return Status::OK();
+}
+
+Status serialize_arrow_schema(RowDescriptor row_desc, std::shared_ptr<arrow::Schema>* schema,
+                              std::string* result) {
+    std::vector<SlotDescriptor*> slots;
+    for (auto tuple_desc : row_desc.tuple_descriptors()) {
+        slots.insert(slots.end(), tuple_desc->slots().begin(), tuple_desc->slots().end());
+    }
+    auto block = vectorized::Block(slots, 0);
+    std::shared_ptr<arrow::RecordBatch> batch;
+    RETURN_IF_ERROR(convert_to_arrow_batch(block, *schema, arrow::default_memory_pool(), &batch));
+    return serialize_record_batch(*batch, result);
 }
 
 } // namespace doris

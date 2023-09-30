@@ -31,18 +31,13 @@ public:
     using Key = typename ImplTable::key_type;
     using LookupResult = typename Impl::LookupResult;
 
-    using Base::Base;
-    using Base::prefetch;
-
-    using mapped_type = typename Base::mapped_type;
-
     auto& ALWAYS_INLINE operator[](const Key& x) {
         LookupResult it;
-        bool inserted;
+        bool inserted = false;
         this->emplace(x, it, inserted);
 
         if (inserted) {
-            new (lookup_result_get_mapped(it)) mapped_type();
+            new (lookup_result_get_mapped(it)) Base::mapped_type();
         }
 
         return *lookup_result_get_mapped(it);

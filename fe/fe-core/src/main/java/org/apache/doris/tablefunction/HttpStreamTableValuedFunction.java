@@ -37,14 +37,23 @@ public class HttpStreamTableValuedFunction extends ExternalFileTableValuedFuncti
     public static final String NAME = "http_stream";
 
     public HttpStreamTableValuedFunction(Map<String, String> params) throws AnalysisException {
-        Map<String, String> validParams = new CaseInsensitiveMap();
+        Map<String, String> fileParams = new CaseInsensitiveMap();
         for (String key : params.keySet()) {
-            if (!FILE_FORMAT_PROPERTIES.contains(key.toLowerCase())) {
+            String lowerKey = key.toLowerCase();
+            if (!FILE_FORMAT_PROPERTIES.contains(lowerKey)) {
                 throw new AnalysisException(key + " is invalid property");
             }
-            validParams.put(key, params.get(key));
+            fileParams.put(lowerKey, params.get(key).toLowerCase());
         }
-        parseProperties(validParams);
+
+        String formatString = fileParams.getOrDefault(FORMAT, "").toLowerCase();
+        if (formatString.equals("parquet")
+                || formatString.equals("avro")
+                || formatString.equals("orc")) {
+            throw new AnalysisException("current http_stream does not yet support parquet, avro and orc");
+        }
+
+        super.parseProperties(fileParams);
     }
 
     // =========== implement abstract methods of ExternalFileTableValuedFunction =================

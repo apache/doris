@@ -72,16 +72,19 @@ RoutineLoadTaskExecutor::RoutineLoadTaskExecutor(ExecEnv* exec_env)
         return _task_map.size();
     });
 
-    _data_consumer_pool.start_bg_worker();
+    static_cast<void>(_data_consumer_pool.start_bg_worker());
 }
 
 RoutineLoadTaskExecutor::~RoutineLoadTaskExecutor() {
+    LOG(INFO) << _task_map.size() << " not executed tasks left, cleanup";
+    _task_map.clear();
+}
+
+void RoutineLoadTaskExecutor::stop() {
     DEREGISTER_HOOK_METRIC(routine_load_task_count);
     _thread_pool.shutdown();
     _thread_pool.join();
-
-    LOG(INFO) << _task_map.size() << " not executed tasks left, cleanup";
-    _task_map.clear();
+    _data_consumer_pool.stop();
 }
 
 // Create a temp StreamLoadContext and set some kafka connection info in it.
@@ -339,7 +342,7 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
     if (ctx->is_multi_table) {
         // plan the rest of unplanned data
         auto multi_table_pipe = std::static_pointer_cast<io::MultiTablePipe>(ctx->body_sink);
-        multi_table_pipe->request_and_exec_plans();
+        static_cast<void>(multi_table_pipe->request_and_exec_plans());
         // need memory order
         multi_table_pipe->set_consume_finished();
     }

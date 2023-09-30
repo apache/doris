@@ -76,6 +76,8 @@ public class Backend implements Writable {
     private volatile int beRpcPort; // be rpc port
     @SerializedName("brpcPort")
     private volatile int brpcPort = -1;
+    @SerializedName("arrowFlightSqlPort")
+    private volatile int arrowFlightSqlPort = -1;
 
     @SerializedName("lastUpdateMs")
     private volatile long lastUpdateMs;
@@ -133,6 +135,10 @@ public class Backend implements Writable {
     // And once it back to alive, reset this counter.
     // No need to persist, because only master FE handle heartbeat.
     private int heartbeatFailureCounter = 0;
+
+    // Not need serialize this field. If fe restart the state is reset to false. Maybe fe will
+    // send some queries to this BE, it is not an important problem.
+    private AtomicBoolean isShutDown = new AtomicBoolean(false);
 
     public Backend() {
         this.host = "";
@@ -198,6 +204,10 @@ public class Backend implements Writable {
 
     public int getBrpcPort() {
         return brpcPort;
+    }
+
+    public int getArrowFlightSqlPort() {
+        return arrowFlightSqlPort;
     }
 
     public String getHeartbeatErrMsg() {
@@ -285,6 +295,10 @@ public class Backend implements Writable {
         this.brpcPort = brpcPort;
     }
 
+    public void setArrowFlightSqlPort(int arrowFlightSqlPort) {
+        this.arrowFlightSqlPort = arrowFlightSqlPort;
+    }
+
     public void setCpuCores(int cpuCores) {
         this.cpuCores = cpuCores;
     }
@@ -321,6 +335,12 @@ public class Backend implements Writable {
         return lastMissingHeartbeatTime;
     }
 
+    // Backend process epoch, is uesd to tag a beckend process
+    // Currently it is always equal to be start time, even during oplog replay.
+    public long getProcessEpoch() {
+        return lastStartTime;
+    }
+
     public boolean isAlive() {
         return this.isAlive.get();
     }
@@ -330,7 +350,7 @@ public class Backend implements Writable {
     }
 
     public boolean isQueryAvailable() {
-        return isAlive() && !isQueryDisabled();
+        return isAlive() && !isQueryDisabled() && !isShutDown.get();
     }
 
     public boolean isScheduleAvailable() {
@@ -623,7 +643,8 @@ public class Backend implements Writable {
     @Override
     public String toString() {
         return "Backend [id=" + id + ", host=" + host + ", heartbeatPort=" + heartbeatPort + ", alive=" + isAlive.get()
-                + ", lastStartTime=" + TimeUtils.longToTimeString(lastStartTime) + ", tags: " + tagMap + "]";
+                + ", lastStartTime=" + TimeUtils.longToTimeString(lastStartTime) + ", process epoch=" + lastStartTime
+                + ", tags: " + tagMap + "]";
     }
 
     public String getHealthyStatus() {
@@ -659,6 +680,17 @@ public class Backend implements Writable {
                 this.brpcPort = hbResponse.getBrpcPort();
             }
 
+            if (this.arrowFlightSqlPort != hbResponse.getArrowFlightSqlPort() && !FeConstants.runningUnitTest) {
+                isChanged = true;
+                this.arrowFlightSqlPort = hbResponse.getArrowFlightSqlPort();
+            }
+
+            if (this.isShutDown.get() != hbResponse.isShutDown()) {
+                isChanged = true;
+                LOG.info("{} shutdown state is changed", this.toString());
+                this.isShutDown.set(hbResponse.isShutDown());
+            }
+
             if (!this.getNodeRoleTag().value.equals(hbResponse.getNodeRole()) && Tag.validNodeRoleTag(
                     hbResponse.getNodeRole())) {
                 isChanged = true;
@@ -668,13 +700,21 @@ public class Backend implements Writable {
             this.lastUpdateMs = hbResponse.getHbTime();
             if (!isAlive.get()) {
                 isChanged = true;
+                LOG.info("{} is back to alive, update start time from {} to {}, "
+                        + "update be epoch from {} to {}.", this.toString(),
+                        TimeUtils.longToTimeString(lastStartTime),
+                        TimeUtils.longToTimeString(hbResponse.getBeStartTime()),
+                        lastStartTime, hbResponse.getBeStartTime());
                 this.lastStartTime = hbResponse.getBeStartTime();
-                LOG.info("{} is back to alive", this.toString());
                 this.isAlive.set(true);
             }
 
             if (this.lastStartTime != hbResponse.getBeStartTime() && hbResponse.getBeStartTime() > 0) {
-                LOG.info("{} update last start time to {}", this.toString(), hbResponse.getBeStartTime());
+                LOG.info("{} update last start time from {} to {}, "
+                        + "update be epoch from {} to {}.", this.toString(),
+                        TimeUtils.longToTimeString(lastStartTime),
+                        TimeUtils.longToTimeString(hbResponse.getBeStartTime()),
+                        lastStartTime, hbResponse.getBeStartTime());
                 this.lastStartTime = hbResponse.getBeStartTime();
                 isChanged = true;
             }
@@ -771,8 +811,12 @@ public class Backend implements Writable {
         return tagMap;
     }
 
-    public TNetworkAddress getBrpcAdress() {
+    public TNetworkAddress getBrpcAddress() {
         return new TNetworkAddress(getHost(), getBrpcPort());
+    }
+
+    public TNetworkAddress getArrowFlightAddress() {
+        return new TNetworkAddress(getHost(), getArrowFlightSqlPort());
     }
 
     public String getTagMapString() {

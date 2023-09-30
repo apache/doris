@@ -113,6 +113,7 @@ public class BDBJournalCursor implements JournalCursor {
                     JournalEntity entity = new JournalEntity();
                     try {
                         entity.readFields(in);
+                        entity.setDataSize(retData.length);
                     } catch (Exception e) {
                         LOG.error("fail to read journal entity key={}, will exit", currentKey, e);
                         System.exit(-1);

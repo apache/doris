@@ -32,23 +32,35 @@ OPTS="$(getopt \
     -l 'helper:' \
     -l 'image:' \
     -l 'version' \
+    -l 'metadata_failure_recovery' \
+    -l 'console' \
     -- "$@")"
 
 eval set -- "${OPTS}"
 
 RUN_DAEMON=0
+RUN_CONSOLE=0
 HELPER=''
 IMAGE_PATH=''
 IMAGE_TOOL=''
 OPT_VERSION=''
+METADATA_FAILURE_RECOVERY=''
 while true; do
     case "$1" in
     --daemon)
         RUN_DAEMON=1
         shift
         ;;
+    --console)
+        RUN_CONSOLE=1
+        shift
+        ;;
     --version)
         OPT_VERSION="--version"
+        shift
+        ;;
+    --metadata_failure_recovery)
+        METADATA_FAILURE_RECOVERY="-r"
         shift
         ;;
     --helper)
@@ -107,8 +119,14 @@ if [[ -e "${DORIS_HOME}/bin/palo_env.sh" ]]; then
     source "${DORIS_HOME}/bin/palo_env.sh"
 fi
 
+#Due to the machine not being configured with Java home, in this case, when FE cannot start, it is necessary to prompt an error message indicating that it has not yet been configured with Java home.
+
 if [[ -z "${JAVA_HOME}" ]]; then
-    JAVA="$(command -v java)"
+    if ! command -v java &>/dev/null; then
+        JAVA=""
+    else
+        JAVA="$(command -v java)"
+    fi
 else
     JAVA="${JAVA_HOME}/bin/java"
 fi
@@ -176,6 +194,13 @@ for f in "${DORIS_HOME}/lib"/*.jar; do
     CLASSPATH="${f}:${CLASSPATH}"
 done
 
+# add custome_libs to CLASSPATH
+if [[ -d "${DORIS_HOME}/custom_lib" ]]; then
+    for f in "${DORIS_HOME}/custom_lib"/*.jar; do
+        CLASSPATH="${f}:${CLASSPATH}"
+    done
+fi
+
 # make sure the doris-fe.jar is at first order, so that some classed
 # with same qualified name can be loaded priority from doris-fe.jar
 CLASSPATH="${DORIS_FE_JAR}:${CLASSPATH}"
@@ -208,15 +233,17 @@ fi
 
 if [[ "${IMAGE_TOOL}" -eq 1 ]]; then
     if [[ -n "${IMAGE_PATH}" ]]; then
-        ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} org.apache.doris.DorisFE -i "${IMAGE_PATH}"
+        ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} org.apache.doris.DorisFE -i "${IMAGE_PATH} ${METADATA_FAILURE_RECOVERY}"
     else
         echo "Internal Error. USE IMAGE_TOOL like : ./start_fe.sh --image image_path"
     fi
 elif [[ "${RUN_DAEMON}" -eq 1 ]]; then
-    nohup ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:-OmitStackTraceInFastThrow -XX:OnOutOfMemoryError="kill -9 %p" org.apache.doris.DorisFE ${HELPER:+${HELPER}} "$@" >>"${LOG_DIR}/fe.out" 2>&1 </dev/null &
-else
+    nohup ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:-OmitStackTraceInFastThrow -XX:OnOutOfMemoryError="kill -9 %p" org.apache.doris.DorisFE ${HELPER:+${HELPER}} "${METADATA_FAILURE_RECOVERY}" "$@" >>"${LOG_DIR}/fe.out" 2>&1 </dev/null &
+elif [[ "${RUN_CONSOLE}" -eq 1 ]]; then
     export DORIS_LOG_TO_STDERR=1
-    ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:-OmitStackTraceInFastThrow -XX:OnOutOfMemoryError="kill -9 %p" org.apache.doris.DorisFE ${HELPER:+${HELPER}} ${OPT_VERSION:+${OPT_VERSION}} "$@" </dev/null
+    ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:-OmitStackTraceInFastThrow -XX:OnOutOfMemoryError="kill -9 %p" org.apache.doris.DorisFE ${HELPER:+${HELPER}} ${OPT_VERSION:+${OPT_VERSION}} "${METADATA_FAILURE_RECOVERY}" "$@" </dev/null
+else
+    ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:-OmitStackTraceInFastThrow -XX:OnOutOfMemoryError="kill -9 %p" org.apache.doris.DorisFE ${HELPER:+${HELPER}} ${OPT_VERSION:+${OPT_VERSION}} "$@" >>"${LOG_DIR}/fe.out" 2>&1 </dev/null
 fi
 
 echo $! >"${pidfile}"

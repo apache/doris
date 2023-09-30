@@ -899,8 +899,8 @@ private:
 
         *pbuf = 0; // set null-terminator
         StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
-        int64_t val =
-                StringParser::string_to_int<int64_t>(num_buf_, pbuf - num_buf_, &parse_result);
+        int128_t val =
+                StringParser::string_to_int<int128_t>(num_buf_, pbuf - num_buf_, &parse_result);
         if (parse_result != StringParser::PARSE_SUCCESS) {
             VLOG_ROW << "debug string_to_int error for " << num_buf_ << " val=" << val
                      << " parse_result=" << parse_result;
@@ -918,8 +918,11 @@ private:
         } else if (val >= std::numeric_limits<int32_t>::min() &&
                    val <= std::numeric_limits<int32_t>::max()) {
             size = writer_.writeInt32((int32_t)val);
-        } else { // val <= INT64_MAX
-            size = writer_.writeInt64(val);
+        } else if (val >= std::numeric_limits<int64_t>::min() &&
+                   val <= std::numeric_limits<int64_t>::max()) {
+            size = writer_.writeInt64((int64_t)val);
+        } else { // INT128
+            size = writer_.writeInt128(val);
         }
 
         if (size == 0) {

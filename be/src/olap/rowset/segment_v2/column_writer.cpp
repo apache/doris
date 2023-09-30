@@ -221,7 +221,7 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
             length_column.set_index_length(-1); // no short key index
             std::unique_ptr<Field> bigint_field(FieldFactory::create(length_column));
             auto* length_writer =
-                    new ScalarColumnWriter(length_options, std::move(bigint_field), file_writer);
+                    new OffsetColumnWriter(length_options, std::move(bigint_field), file_writer);
 
             // if nullable, create null writer
             ScalarColumnWriter* null_writer = nullptr;
@@ -314,7 +314,7 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
             length_column.set_index_length(-1); // no short key index
             std::unique_ptr<Field> bigint_field(FieldFactory::create(length_column));
             auto* length_writer =
-                    new ScalarColumnWriter(length_options, std::move(bigint_field), file_writer);
+                    new OffsetColumnWriter(length_options, std::move(bigint_field), file_writer);
 
             // create null writer
             if (opts.meta->is_nullable()) {
@@ -709,7 +709,7 @@ Status ScalarColumnWriter::finish_current_page() {
     data_page_footer->set_num_values(_next_rowid - _first_rowid);
     data_page_footer->set_nullmap_size(nullmap.slice().size);
     if (_new_page_callback != nullptr) {
-        _new_page_callback->put_extra_info_in_page(data_page_footer);
+        static_cast<void>(_new_page_callback->put_extra_info_in_page(data_page_footer));
     }
     // trying to compress page body
     OwnedSlice compressed_body;
@@ -730,6 +730,48 @@ Status ScalarColumnWriter::finish_current_page() {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////////////
+// offset column writer
+////////////////////////////////////////////////////////////////////////////////
+
+OffsetColumnWriter::OffsetColumnWriter(const ColumnWriterOptions& opts,
+                                       std::unique_ptr<Field> field, io::FileWriter* file_writer)
+        : ScalarColumnWriter(opts, std::move(field), file_writer) {
+    // now we only explain data in offset column as uint64
+    DCHECK(get_field()->type() == FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT);
+}
+
+OffsetColumnWriter::~OffsetColumnWriter() = default;
+
+Status OffsetColumnWriter::init() {
+    RETURN_IF_ERROR(ScalarColumnWriter::init());
+    register_flush_page_callback(this);
+    _next_offset = 0;
+    return Status::OK();
+}
+
+Status OffsetColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
+    size_t remaining = num_rows;
+    while (remaining > 0) {
+        size_t num_written = remaining;
+        RETURN_IF_ERROR(append_data_in_current_page(ptr, &num_written));
+        // _next_offset after append_data_in_current_page is the offset of next data, which will used in finish_current_page() to set next_array_item_ordinal
+        _next_offset = *(const uint64_t*)(*ptr);
+        remaining -= num_written;
+
+        if (_page_builder->is_page_full()) {
+            // get next data for next array_item_rowid
+            RETURN_IF_ERROR(finish_current_page());
+        }
+    }
+    return Status::OK();
+}
+
+Status OffsetColumnWriter::put_extra_info_in_page(DataPageFooterPB* footer) {
+    footer->set_next_array_item_ordinal(_next_offset);
+    return Status::OK();
+}
 
 StructColumnWriter::StructColumnWriter(
         const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
@@ -853,7 +895,7 @@ Status StructColumnWriter::finish_current_page() {
 ////////////////////////////////////////////////////////////////////////////////
 
 ArrayColumnWriter::ArrayColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
-                                     ScalarColumnWriter* offset_writer,
+                                     OffsetColumnWriter* offset_writer,
                                      ScalarColumnWriter* null_writer,
                                      std::unique_ptr<ColumnWriter> item_writer)
         : ColumnWriter(std::move(field), opts.meta->is_nullable()),
@@ -871,7 +913,6 @@ Status ArrayColumnWriter::init() {
         RETURN_IF_ERROR(_null_writer->init());
     }
     RETURN_IF_ERROR(_item_writer->init());
-    _offset_writer->register_flush_page_callback(this);
     if (_opts.inverted_index) {
         auto writer = dynamic_cast<ScalarColumnWriter*>(_item_writer.get());
         if (writer != nullptr) {
@@ -882,11 +923,6 @@ Status ArrayColumnWriter::init() {
                     writer->_file_writer->fs()));
         }
     }
-    return Status::OK();
-}
-
-Status ArrayColumnWriter::put_extra_info_in_page(DataPageFooterPB* footer) {
-    footer->set_next_array_item_ordinal(_item_writer->get_next_rowid());
     return Status::OK();
 }
 
@@ -925,9 +961,9 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
             // now only support nested type is scala
             if (writer != nullptr) {
                 //NOTE: use array field name as index field, but item_writer size should be used when moving item_data_ptr
-                _inverted_index_builder->add_array_values(
+                static_cast<void>(_inverted_index_builder->add_array_values(
                         _item_writer->get_field()->size(), reinterpret_cast<const void*>(data),
-                        reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows);
+                        reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows));
             }
         }
     }
@@ -1008,7 +1044,7 @@ Status ArrayColumnWriter::finish_current_page() {
 
 /// ============================= MapColumnWriter =====================////
 MapColumnWriter::MapColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
-                                 ScalarColumnWriter* null_writer, ScalarColumnWriter* offset_writer,
+                                 ScalarColumnWriter* null_writer, OffsetColumnWriter* offset_writer,
                                  std::vector<std::unique_ptr<ColumnWriter>>& kv_writers)
         : ColumnWriter(std::move(field), opts.meta->is_nullable()), _opts(opts) {
     CHECK_EQ(kv_writers.size(), 2);
@@ -1028,7 +1064,6 @@ Status MapColumnWriter::init() {
     }
     // here register_flush_page_callback to call this.put_extra_info_in_page()
     // when finish cur data page
-    _offsets_writer->register_flush_page_callback(this);
     for (auto& sub_writer : _kv_writers) {
         RETURN_IF_ERROR(sub_writer->init());
     }
@@ -1136,12 +1171,6 @@ Status MapColumnWriter::append_nulls(size_t num_rows) {
 
 Status MapColumnWriter::finish_current_page() {
     return Status::NotSupported("map writer has no data, can not finish_current_page");
-}
-
-// write this value for column reader to read according offsets
-Status MapColumnWriter::put_extra_info_in_page(DataPageFooterPB* footer) {
-    footer->set_next_array_item_ordinal(_kv_writers[0]->get_next_rowid());
-    return Status::OK();
 }
 
 Status MapColumnWriter::write_inverted_index() {

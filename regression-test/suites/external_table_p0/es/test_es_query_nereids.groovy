@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_es_query_nereids", "p0,external,es,external_docker,external_docker_es") {
-
     String enabled = context.config.otherConfigs.get("enableEsTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -30,7 +29,6 @@ suite("test_es_query_nereids", "p0,external,es,external_docker,external_docker_e
         sql """drop table if exists test_v1_nereids;"""
         sql """drop table if exists test_v2_nereids;"""
         sql """set enable_nereids_planner=true;"""
-        sql """set enable_fallback_to_original_planner=false;"""
 
         // test old create-catalog syntax for compatibility
         sql """
@@ -134,6 +132,9 @@ suite("test_es_query_nereids", "p0,external,es,external_docker,external_docker_e
                 "http_ssl_enabled"="false"
             );
         """
+
+        sql """set enable_fallback_to_original_planner=false;"""
+
         // TODO(ftw): should open these annotation when nereids support es external table
         // order_qt_sql51 """select * from test_v2_nereids where test2='text#1'"""
 

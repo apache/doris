@@ -60,7 +60,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         ColumnPtr expr_ptr =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         ColumnPtr min_value_ptr =
@@ -85,7 +85,7 @@ private:
     template <typename ColumnType>
     void _execute(const IColumn& expr_column, const IColumn& min_value_column,
                   const IColumn& max_value_column, const int64_t num_buckets,
-                  IColumn& nested_column) {
+                  IColumn& nested_column) const {
         const ColumnType& expr_column_concrete = reinterpret_cast<const ColumnType&>(expr_column);
         const ColumnType& min_value_column_concrete =
                 reinterpret_cast<const ColumnType&>(min_value_column);
@@ -98,6 +98,7 @@ private:
         for (size_t i = 0; i < input_rows_count; ++i) {
             auto min_value = min_value_column_concrete.get_data()[i];
             auto max_value = max_value_column_concrete.get_data()[i];
+            auto average_value = (max_value - min_value) / (1.0 * num_buckets);
             if (expr_column_concrete.get_data()[i] < min_value) {
                 continue;
             } else if (expr_column_concrete.get_data()[i] >= max_value) {
@@ -107,15 +108,15 @@ private:
                     continue;
                 }
                 nested_column_concrete.get_data()[i] =
-                        (int64_t)(1 + (expr_column_concrete.get_data()[i] - min_value) /
-                                              ((max_value - min_value) / num_buckets));
+                        (int64_t)(1 +
+                                  (expr_column_concrete.get_data()[i] - min_value) / average_value);
             }
         }
     }
 
     void _execute_by_type(const IColumn& expr_column, const IColumn& min_value_column,
                           const IColumn& max_value_column, const int64_t num_buckets,
-                          IColumn& nested_column_column, DataTypePtr& expr_type) {
+                          IColumn& nested_column_column, DataTypePtr& expr_type) const {
         WhichDataType which(remove_nullable(expr_type));
         if (which.is_int8()) {
             _execute<ColumnInt8>(expr_column, min_value_column, max_value_column, num_buckets,

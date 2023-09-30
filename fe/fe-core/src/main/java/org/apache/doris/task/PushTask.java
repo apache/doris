@@ -40,6 +40,9 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 public class PushTask extends AgentTask {
     private static final Logger LOG = LogManager.getLogger(PushTask.class);
@@ -127,33 +130,36 @@ public class PushTask extends AgentTask {
                 break;
             case DELETE:
                 List<TCondition> tConditions = new ArrayList<TCondition>();
+                Map<String, TColumn> colNameToColDesc = columnsDesc.stream()
+                        .collect(Collectors.toMap(TColumn::getColumnName, Function.identity()));
                 for (Predicate condition : conditions) {
                     TCondition tCondition = new TCondition();
                     ArrayList<String> conditionValues = new ArrayList<String>();
+                    SlotRef slotRef = (SlotRef) condition.getChild(0);
+                    String columnName = slotRef.getColumnName();
+                    tCondition.setColumnName(columnName);
+                    int uniqueId = colNameToColDesc.get(columnName).getColUniqueId();
+                    if (uniqueId >= 0) {
+                        tCondition.setColumnUniqueId(uniqueId);
+                    }
                     if (condition instanceof BinaryPredicate) {
                         BinaryPredicate binaryPredicate = (BinaryPredicate) condition;
-                        String columnName = ((SlotRef) binaryPredicate.getChild(0)).getColumnName();
                         String value = ((LiteralExpr) binaryPredicate.getChild(1)).getStringValue();
                         Operator op = binaryPredicate.getOp();
-                        tCondition.setColumnName(columnName);
                         tCondition.setConditionOp(op.toString());
                         conditionValues.add(value);
                     } else if (condition instanceof IsNullPredicate) {
                         IsNullPredicate isNullPredicate = (IsNullPredicate) condition;
-                        String columnName = ((SlotRef) isNullPredicate.getChild(0)).getColumnName();
                         String op = "IS";
                         String value = "NULL";
                         if (isNullPredicate.isNotNull()) {
                             value = "NOT NULL";
                         }
-                        tCondition.setColumnName(columnName);
                         tCondition.setConditionOp(op);
                         conditionValues.add(value);
                     } else if (condition instanceof InPredicate) {
                         InPredicate inPredicate = (InPredicate) condition;
-                        String columnName = ((SlotRef) inPredicate.getChild(0)).getColumnName();
                         String op = inPredicate.isNotIn() ? "!*=" : "*=";
-                        tCondition.setColumnName(columnName);
                         tCondition.setConditionOp(op);
                         for (int i = 1; i <= inPredicate.getInElementNum(); i++) {
                             conditionValues.add(inPredicate.getChild(i).getStringValue());

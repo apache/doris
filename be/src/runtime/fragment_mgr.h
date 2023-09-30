@@ -75,6 +75,8 @@ public:
     FragmentMgr(ExecEnv* exec_env);
     ~FragmentMgr() override;
 
+    void stop();
+
     // execute one plan fragment
     Status exec_plan_fragment(const TExecPlanFragmentParams& params);
 
@@ -82,9 +84,6 @@ public:
 
     void remove_pipeline_context(
             std::shared_ptr<pipeline::PipelineFragmentContext> pipeline_context);
-
-    void remove_pipeline_context(
-            std::shared_ptr<pipeline::PipelineXFragmentContext> pipeline_context);
 
     // TODO(zc): report this is over
     Status exec_plan_fragment(const TExecPlanFragmentParams& params, const FinishCallback& cb);
@@ -100,6 +99,8 @@ public:
                                   const PPlanFragmentCancelReason& reason,
                                   const std::unique_lock<std::mutex>& state_lock,
                                   const std::string& msg = "");
+    Status trigger_pipeline_context_report(const ReportStatusRequest,
+                                           std::shared_ptr<pipeline::PipelineFragmentContext>&&);
 
     // Pipeline version, cancel a fragment instance.
     void cancel_instance(const TUniqueId& instance_id, const PPlanFragmentCancelReason& reason,
@@ -144,6 +145,11 @@ public:
 
     ThreadPool* get_thread_pool() { return _thread_pool.get(); }
 
+    int32_t running_query_num() {
+        std::unique_lock<std::mutex> ctx_lock(_lock);
+        return _query_ctx_map.size();
+    }
+
 private:
     void cancel_unlocked_impl(const TUniqueId& id, const PPlanFragmentCancelReason& reason,
                               const std::unique_lock<std::mutex>& state_lock, bool is_pipeline,
@@ -160,6 +166,9 @@ private:
 
     void _setup_shared_hashtable_for_broadcast_join(const TPipelineFragmentParams& params,
                                                     const TPipelineInstanceParams& local_params,
+                                                    QueryContext* query_ctx);
+
+    void _setup_shared_hashtable_for_broadcast_join(const TPipelineFragmentParams& params,
                                                     QueryContext* query_ctx);
 
     template <typename Params>
@@ -196,6 +205,7 @@ private:
     UIntGauge* timeout_canceled_fragment_count = nullptr;
 
     RuntimeFilterMergeController _runtimefilter_controller;
+    std::unique_ptr<ThreadPool> _async_report_thread_pool; // used for pipeliine context report
 };
 
 } // namespace doris

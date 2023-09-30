@@ -18,6 +18,7 @@
 package org.apache.doris.scheduler.executor;
 
 import org.apache.doris.scheduler.exception.JobException;
+import org.apache.doris.scheduler.job.ExecutorResult;
 import org.apache.doris.scheduler.job.Job;
 
 /**
@@ -39,6 +40,6 @@ public interface JobExecutor<T> {
      *
      * @return The result of the event job execution.
      */
-    T execute(Job job) throws JobException;
+    ExecutorResult execute(Job job) throws JobException;
 }
 

@@ -56,3 +56,18 @@
 -- !id --
 2
 
+-- !sql --
+INFORMATION_SCHEMA
+db_accessadmin
+db_backupoperator
+db_datareader
+db_datawriter
+db_ddladmin
+db_denydatareader
+db_denydatawriter
+db_owner
+db_securityadmin
+dbo
+guest
+sys
+

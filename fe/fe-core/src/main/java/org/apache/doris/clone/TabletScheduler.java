@@ -19,6 +19,7 @@ package org.apache.doris.clone;
 
 import org.apache.doris.analysis.AdminCancelRebalanceDiskStmt;
 import org.apache.doris.analysis.AdminRebalanceDiskStmt;
+import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Database;
@@ -248,11 +249,10 @@ public class TabletScheduler extends MasterDaemon {
             return AddResult.ALREADY_IN;
         }
 
-        // if this is not a BALANCE task, and not a force add,
+        // if this is not a force add,
         // and number of scheduling tablets exceed the limit,
         // refuse to add.
-        if (tablet.getType() != TabletSchedCtx.Type.BALANCE && !force
-                && (pendingTablets.size() > Config.max_scheduling_tablets
+        if (!force && (pendingTablets.size() > Config.max_scheduling_tablets
                 || runningTablets.size() > Config.max_scheduling_tablets)) {
             return AddResult.LIMIT_EXCEED;
         }
@@ -491,15 +491,20 @@ public class TabletScheduler extends MasterDaemon {
                 throw new SchedException(Status.UNRECOVERABLE, "index does not exist");
             }
 
+            ReplicaAllocation replicaAlloc = null;
             Tablet tablet = idx.getTablet(tabletId);
             Preconditions.checkNotNull(tablet);
-            ReplicaAllocation replicaAlloc = tbl.getPartitionInfo().getReplicaAllocation(partition.getId());
-
             if (isColocateTable) {
                 GroupId groupId = colocateTableIndex.getGroup(tbl.getId());
                 if (groupId == null) {
                     throw new SchedException(Status.UNRECOVERABLE, "colocate group does not exist");
                 }
+                ColocateGroupSchema groupSchema = colocateTableIndex.getGroupSchema(groupId);
+                if (groupSchema == null) {
+                    throw new SchedException(Status.UNRECOVERABLE,
+                            "colocate group schema " + groupId + " does not exist");
+                }
+                replicaAlloc = groupSchema.getReplicaAlloc();
 
                 int tabletOrderIdx = tabletCtx.getTabletOrderIdx();
                 if (tabletOrderIdx == -1) {
@@ -513,6 +518,7 @@ public class TabletScheduler extends MasterDaemon {
                 statusPair = Pair.of(st, Priority.HIGH);
                 tabletCtx.setColocateGroupBackendIds(backendsSet);
             } else {
+                replicaAlloc = tbl.getPartitionInfo().getReplicaAllocation(partition.getId());
                 List<Long> aliveBeIds = infoService.getAllBackendIds(true);
                 statusPair = tablet.getHealthStatusWithPriority(
                         infoService, partition.getVisibleVersion(), replicaAlloc, aliveBeIds);
@@ -1056,14 +1062,11 @@ public class TabletScheduler extends MasterDaemon {
             Replica replica, String reason, boolean force) throws SchedException {
 
         List<Replica> replicas = tabletCtx.getTablet().getReplicas();
-        int matchupReplicaCount = 0;
-        for (Replica tmpReplica : replicas) {
-            if (tmpReplica.getVersion() >= replica.getVersion()) {
-                matchupReplicaCount++;
-            }
-        }
-
-        if (matchupReplicaCount <= 1) {
+        boolean otherCatchup = replicas.stream().anyMatch(
+                r -> r.getId() != replica.getId()
+                && (r.getVersion() > replica.getVersion()
+                        || (r.getVersion() == replica.getVersion() && r.getLastFailedVersion() < 0)));
+        if (!otherCatchup) {
             LOG.info("can not delete only one replica, tabletId = {} replicaId = {}", tabletCtx.getTabletId(),
                      replica.getId());
             throw new SchedException(Status.UNRECOVERABLE, "the only one latest replia can not be dropped, tabletId = "
@@ -1488,14 +1491,18 @@ public class TabletScheduler extends MasterDaemon {
                 return;
             }
 
-            replicaAlloc = tbl.getPartitionInfo().getReplicaAllocation(partition.getId());
             boolean isColocateTable = colocateTableIndex.isColocateTable(tbl.getId());
             if (isColocateTable) {
                 GroupId groupId = colocateTableIndex.getGroup(tbl.getId());
                 if (groupId == null) {
                     return;
                 }
+                ColocateGroupSchema groupSchema = colocateTableIndex.getGroupSchema(groupId);
+                if (groupSchema == null) {
+                    return;
+                }
 
+                replicaAlloc = groupSchema.getReplicaAlloc();
                 int tabletOrderIdx = tabletCtx.getTabletOrderIdx();
                 if (tabletOrderIdx == -1) {
                     tabletOrderIdx = idx.getTabletOrderIdx(tablet.getId());
@@ -1508,6 +1515,7 @@ public class TabletScheduler extends MasterDaemon {
                 statusPair = Pair.of(st, Priority.HIGH);
                 tabletCtx.setColocateGroupBackendIds(backendsSet);
             } else {
+                replicaAlloc = tbl.getPartitionInfo().getReplicaAllocation(partition.getId());
                 List<Long> aliveBeIds = infoService.getAllBackendIds(true);
                 statusPair = tablet.getHealthStatusWithPriority(
                         infoService, partition.getVisibleVersion(), replicaAlloc, aliveBeIds);

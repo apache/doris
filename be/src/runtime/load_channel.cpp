@@ -86,7 +86,12 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
         }
     }
 
-    RETURN_IF_ERROR(channel->open(params));
+    if (params.is_incremental()) {
+        // incremental open would ensure not to open tablet repeatedly
+        RETURN_IF_ERROR(channel->incremental_open(params));
+    } else {
+        RETURN_IF_ERROR(channel->open(params));
+    }
 
     _opened = true;
     _last_updated_time.store(time(nullptr));
@@ -167,10 +172,11 @@ void LoadChannel::_report_profile(PTabletWriterAddBlockResult* response) {
     }
 
     TRuntimeProfileTree tprofile;
-    _profile->to_thrift(&tprofile);
     ThriftSerializer ser(false, 4096);
     uint8_t* buf = nullptr;
     uint32_t len = 0;
+    std::lock_guard<SpinLock> l(_profile_serialize_lock);
+    _profile->to_thrift(&tprofile);
     auto st = ser.serialize(&tprofile, &len, &buf);
     if (st.ok()) {
         response->set_load_channel_profile(std::string((const char*)buf, len));
@@ -190,7 +196,7 @@ bool LoadChannel::is_finished() {
 Status LoadChannel::cancel() {
     std::lock_guard<std::mutex> l(_lock);
     for (auto& it : _tablets_channels) {
-        it.second->cancel();
+        static_cast<void>(it.second->cancel());
     }
     return Status::OK();
 }

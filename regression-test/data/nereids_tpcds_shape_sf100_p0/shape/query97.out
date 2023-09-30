@@ -7,29 +7,29 @@ PhysicalResultSink
 --------PhysicalDistribute
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
---------------hashJoin[FULL_OUTER_JOIN](ssci.customer_sk = csci.customer_sk)(ssci.item_sk = csci.item_sk)
+--------------hashJoin[FULL_OUTER_JOIN] hashCondition=((ssci.customer_sk = csci.customer_sk) and (ssci.item_sk = csci.item_sk))otherCondition=()
 ----------------PhysicalProject
 ------------------hashAgg[GLOBAL]
 --------------------PhysicalDistribute
 ----------------------hashAgg[LOCAL]
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
+--------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk))otherCondition=()
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[store_sales]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
---------------------------------filter((date_dim.d_month_seq >= 1214)(date_dim.d_month_seq <= 1225))
+--------------------------------filter((date_dim.d_month_seq <= 1225) and (date_dim.d_month_seq >= 1214))
 ----------------------------------PhysicalOlapScan[date_dim]
 ----------------PhysicalProject
 ------------------hashAgg[GLOBAL]
 --------------------PhysicalDistribute
 ----------------------hashAgg[LOCAL]
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)
+--------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk))otherCondition=()
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[catalog_sales]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
---------------------------------filter((date_dim.d_month_seq >= 1214)(date_dim.d_month_seq <= 1225))
+--------------------------------filter((date_dim.d_month_seq <= 1225) and (date_dim.d_month_seq >= 1214))
 ----------------------------------PhysicalOlapScan[date_dim]
 

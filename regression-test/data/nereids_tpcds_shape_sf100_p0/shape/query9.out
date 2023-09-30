@@ -23,7 +23,7 @@ PhysicalResultSink
 ----------------------------------------PhysicalDistribute
 ------------------------------------------hashAgg[LOCAL]
 --------------------------------------------PhysicalProject
-----------------------------------------------filter((store_sales.ss_quantity <= 20)(store_sales.ss_quantity >= 1))
+----------------------------------------------filter((store_sales.ss_quantity <= 20) and (store_sales.ss_quantity >= 1))
 ------------------------------------------------PhysicalOlapScan[store_sales]
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
@@ -35,7 +35,7 @@ PhysicalResultSink
 --------------------------------------PhysicalDistribute
 ----------------------------------------hashAgg[LOCAL]
 ------------------------------------------PhysicalProject
---------------------------------------------filter((store_sales.ss_quantity <= 20)(store_sales.ss_quantity >= 1))
+--------------------------------------------filter((store_sales.ss_quantity <= 20) and (store_sales.ss_quantity >= 1))
 ----------------------------------------------PhysicalOlapScan[store_sales]
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalAssertNumRows
@@ -43,7 +43,7 @@ PhysicalResultSink
 ------------------------------------PhysicalDistribute
 --------------------------------------hashAgg[LOCAL]
 ----------------------------------------PhysicalProject
-------------------------------------------filter((store_sales.ss_quantity <= 20)(store_sales.ss_quantity >= 1))
+------------------------------------------filter((store_sales.ss_quantity <= 20) and (store_sales.ss_quantity >= 1))
 --------------------------------------------PhysicalOlapScan[store_sales]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalAssertNumRows
@@ -51,7 +51,7 @@ PhysicalResultSink
 ----------------------------------PhysicalDistribute
 ------------------------------------hashAgg[LOCAL]
 --------------------------------------PhysicalProject
-----------------------------------------filter((store_sales.ss_quantity >= 21)(store_sales.ss_quantity <= 40))
+----------------------------------------filter((store_sales.ss_quantity <= 40) and (store_sales.ss_quantity >= 21))
 ------------------------------------------PhysicalOlapScan[store_sales]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalAssertNumRows
@@ -59,7 +59,7 @@ PhysicalResultSink
 --------------------------------PhysicalDistribute
 ----------------------------------hashAgg[LOCAL]
 ------------------------------------PhysicalProject
---------------------------------------filter((store_sales.ss_quantity <= 40)(store_sales.ss_quantity >= 21))
+--------------------------------------filter((store_sales.ss_quantity <= 40) and (store_sales.ss_quantity >= 21))
 ----------------------------------------PhysicalOlapScan[store_sales]
 ------------------------PhysicalDistribute
 --------------------------PhysicalAssertNumRows
@@ -67,7 +67,7 @@ PhysicalResultSink
 ------------------------------PhysicalDistribute
 --------------------------------hashAgg[LOCAL]
 ----------------------------------PhysicalProject
-------------------------------------filter((store_sales.ss_quantity >= 21)(store_sales.ss_quantity <= 40))
+------------------------------------filter((store_sales.ss_quantity <= 40) and (store_sales.ss_quantity >= 21))
 --------------------------------------PhysicalOlapScan[store_sales]
 ----------------------PhysicalDistribute
 ------------------------PhysicalAssertNumRows
@@ -75,7 +75,7 @@ PhysicalResultSink
 ----------------------------PhysicalDistribute
 ------------------------------hashAgg[LOCAL]
 --------------------------------PhysicalProject
-----------------------------------filter((store_sales.ss_quantity <= 60)(store_sales.ss_quantity >= 41))
+----------------------------------filter((store_sales.ss_quantity <= 60) and (store_sales.ss_quantity >= 41))
 ------------------------------------PhysicalOlapScan[store_sales]
 --------------------PhysicalDistribute
 ----------------------PhysicalAssertNumRows
@@ -83,7 +83,7 @@ PhysicalResultSink
 --------------------------PhysicalDistribute
 ----------------------------hashAgg[LOCAL]
 ------------------------------PhysicalProject
---------------------------------filter((store_sales.ss_quantity <= 60)(store_sales.ss_quantity >= 41))
+--------------------------------filter((store_sales.ss_quantity <= 60) and (store_sales.ss_quantity >= 41))
 ----------------------------------PhysicalOlapScan[store_sales]
 ------------------PhysicalDistribute
 --------------------PhysicalAssertNumRows
@@ -91,7 +91,7 @@ PhysicalResultSink
 ------------------------PhysicalDistribute
 --------------------------hashAgg[LOCAL]
 ----------------------------PhysicalProject
-------------------------------filter((store_sales.ss_quantity <= 60)(store_sales.ss_quantity >= 41))
+------------------------------filter((store_sales.ss_quantity <= 60) and (store_sales.ss_quantity >= 41))
 --------------------------------PhysicalOlapScan[store_sales]
 ----------------PhysicalDistribute
 ------------------PhysicalAssertNumRows
@@ -99,7 +99,7 @@ PhysicalResultSink
 ----------------------PhysicalDistribute
 ------------------------hashAgg[LOCAL]
 --------------------------PhysicalProject
-----------------------------filter((store_sales.ss_quantity <= 80)(store_sales.ss_quantity >= 61))
+----------------------------filter((store_sales.ss_quantity <= 80) and (store_sales.ss_quantity >= 61))
 ------------------------------PhysicalOlapScan[store_sales]
 --------------PhysicalDistribute
 ----------------PhysicalAssertNumRows
@@ -107,7 +107,7 @@ PhysicalResultSink
 --------------------PhysicalDistribute
 ----------------------hashAgg[LOCAL]
 ------------------------PhysicalProject
---------------------------filter((store_sales.ss_quantity >= 61)(store_sales.ss_quantity <= 80))
+--------------------------filter((store_sales.ss_quantity <= 80) and (store_sales.ss_quantity >= 61))
 ----------------------------PhysicalOlapScan[store_sales]
 ------------PhysicalDistribute
 --------------PhysicalAssertNumRows
@@ -115,7 +115,7 @@ PhysicalResultSink
 ------------------PhysicalDistribute
 --------------------hashAgg[LOCAL]
 ----------------------PhysicalProject
-------------------------filter((store_sales.ss_quantity <= 80)(store_sales.ss_quantity >= 61))
+------------------------filter((store_sales.ss_quantity <= 80) and (store_sales.ss_quantity >= 61))
 --------------------------PhysicalOlapScan[store_sales]
 ----------PhysicalDistribute
 ------------PhysicalAssertNumRows
@@ -123,7 +123,7 @@ PhysicalResultSink
 ----------------PhysicalDistribute
 ------------------hashAgg[LOCAL]
 --------------------PhysicalProject
-----------------------filter((store_sales.ss_quantity >= 81)(store_sales.ss_quantity <= 100))
+----------------------filter((store_sales.ss_quantity <= 100) and (store_sales.ss_quantity >= 81))
 ------------------------PhysicalOlapScan[store_sales]
 --------PhysicalDistribute
 ----------PhysicalAssertNumRows
@@ -131,7 +131,7 @@ PhysicalResultSink
 --------------PhysicalDistribute
 ----------------hashAgg[LOCAL]
 ------------------PhysicalProject
---------------------filter((store_sales.ss_quantity <= 100)(store_sales.ss_quantity >= 81))
+--------------------filter((store_sales.ss_quantity <= 100) and (store_sales.ss_quantity >= 81))
 ----------------------PhysicalOlapScan[store_sales]
 ------PhysicalDistribute
 --------PhysicalAssertNumRows
@@ -139,6 +139,6 @@ PhysicalResultSink
 ------------PhysicalDistribute
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
-------------------filter((store_sales.ss_quantity >= 81)(store_sales.ss_quantity <= 100))
+------------------filter((store_sales.ss_quantity <= 100) and (store_sales.ss_quantity >= 81))
 --------------------PhysicalOlapScan[store_sales]
 

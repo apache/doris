@@ -110,9 +110,6 @@ Status VJoinNodeBase::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
     runtime_profile()->add_info_string("JoinType", to_string(_join_op));
     _build_phase_profile = runtime_profile()->create_child("BuildPhase", true, true);
-    _build_get_next_timer = ADD_TIMER(_build_phase_profile, "BuildGetNextTime");
-    _build_timer = ADD_TIMER(_build_phase_profile, "BuildTime");
-    _build_rows_counter = ADD_COUNTER(_build_phase_profile, "BuildRows", TUnit::UNIT);
 
     _probe_phase_profile = runtime_profile()->create_child("ProbePhase", true, true);
     _probe_timer = ADD_TIMER(_probe_phase_profile, "ProbeTime");
@@ -244,13 +241,13 @@ Status VJoinNodeBase::open(RuntimeState* state) {
 
     std::promise<Status> thread_status;
     try {
-        state->exec_env()->join_node_thread_pool()->submit_func(
+        static_cast<void>(state->exec_env()->join_node_thread_pool()->submit_func(
                 [this, state, thread_status_p = &thread_status] {
                     this->_probe_side_open_thread(state, thread_status_p);
-                });
+                }));
     } catch (const std::system_error& e) {
-        LOG(WARNING) << "In VJoinNodeBase::open create thread fail, " << e.what();
-        return Status::InternalError(e.what());
+        return Status::InternalError("In VJoinNodeBase::open create thread fail, reason={}",
+                                     e.what());
     }
 
     // Open the probe-side child so that it may perform any initialisation in parallel.

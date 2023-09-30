@@ -193,89 +193,7 @@ PFilterType get_type(RuntimeFilterType type) {
 }
 
 Status create_literal(const TypeDescriptor& type, const void* data, vectorized::VExprSPtr& expr) {
-    TExprNode node;
-
-    switch (type.type) {
-    case TYPE_BOOLEAN: {
-        create_texpr_literal_node<TYPE_BOOLEAN>(data, &node);
-        break;
-    }
-    case TYPE_TINYINT: {
-        create_texpr_literal_node<TYPE_TINYINT>(data, &node);
-        break;
-    }
-    case TYPE_SMALLINT: {
-        create_texpr_literal_node<TYPE_SMALLINT>(data, &node);
-        break;
-    }
-    case TYPE_INT: {
-        create_texpr_literal_node<TYPE_INT>(data, &node);
-        break;
-    }
-    case TYPE_BIGINT: {
-        create_texpr_literal_node<TYPE_BIGINT>(data, &node);
-        break;
-    }
-    case TYPE_LARGEINT: {
-        create_texpr_literal_node<TYPE_LARGEINT>(data, &node);
-        break;
-    }
-    case TYPE_FLOAT: {
-        create_texpr_literal_node<TYPE_FLOAT>(data, &node);
-        break;
-    }
-    case TYPE_DOUBLE: {
-        create_texpr_literal_node<TYPE_DOUBLE>(data, &node);
-        break;
-    }
-    case TYPE_DATEV2: {
-        create_texpr_literal_node<TYPE_DATEV2>(data, &node);
-        break;
-    }
-    case TYPE_DATETIMEV2: {
-        create_texpr_literal_node<TYPE_DATETIMEV2>(data, &node);
-        break;
-    }
-    case TYPE_DATE: {
-        create_texpr_literal_node<TYPE_DATE>(data, &node);
-        break;
-    }
-    case TYPE_DATETIME: {
-        create_texpr_literal_node<TYPE_DATETIME>(data, &node);
-        break;
-    }
-    case TYPE_DECIMALV2: {
-        create_texpr_literal_node<TYPE_DECIMALV2>(data, &node, type.precision, type.scale);
-        break;
-    }
-    case TYPE_DECIMAL32: {
-        create_texpr_literal_node<TYPE_DECIMAL32>(data, &node, type.precision, type.scale);
-        break;
-    }
-    case TYPE_DECIMAL64: {
-        create_texpr_literal_node<TYPE_DECIMAL64>(data, &node, type.precision, type.scale);
-        break;
-    }
-    case TYPE_DECIMAL128I: {
-        create_texpr_literal_node<TYPE_DECIMAL128I>(data, &node, type.precision, type.scale);
-        break;
-    }
-    case TYPE_CHAR: {
-        create_texpr_literal_node<TYPE_CHAR>(data, &node);
-        break;
-    }
-    case TYPE_VARCHAR: {
-        create_texpr_literal_node<TYPE_VARCHAR>(data, &node);
-        break;
-    }
-    case TYPE_STRING: {
-        create_texpr_literal_node<TYPE_STRING>(data, &node);
-        break;
-    }
-    default:
-        DCHECK(false);
-        return Status::InvalidArgument("Invalid type!");
-    }
+    TExprNode node = create_texpr_node_from(data, type.type, type.precision, type.scale);
 
     try {
         expr = vectorized::VLiteral::create_shared(node);
@@ -313,7 +231,7 @@ Status create_vbin_predicate(const TypeDescriptor& type, TExprOpcode::type opcod
         fn_name.__set_function_name("ge");
         break;
     default:
-        Status::InvalidArgument(
+        return Status::InvalidArgument(
                 strings::Substitute("Invalid opcode for max_min_runtimefilter: '$0'", opcode));
     }
     fn.__set_name(fn_name);
@@ -441,7 +359,7 @@ public:
         _is_bloomfilter = true;
         BloomFilterFuncBase* bf = _context.bloom_filter_func.get();
         // BloomFilter may be not init
-        bf->init_with_fixed_length();
+        static_cast<void>(bf->init_with_fixed_length());
         insert_to_bloom_filter(bf);
         // release in filter
         _context.hybrid_set.reset(create_set(_column_return_type));
@@ -658,11 +576,13 @@ public:
             break;
         }
         case RuntimeFilterType::MINMAX_FILTER: {
-            _context.minmax_func->merge(wrapper->_context.minmax_func.get(), _pool);
+            static_cast<void>(
+                    _context.minmax_func->merge(wrapper->_context.minmax_func.get(), _pool));
             break;
         }
         case RuntimeFilterType::BLOOM_FILTER: {
-            _context.bloom_filter_func->merge(wrapper->_context.bloom_filter_func.get());
+            static_cast<void>(
+                    _context.bloom_filter_func->merge(wrapper->_context.bloom_filter_func.get()));
             break;
         }
         case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
@@ -686,7 +606,8 @@ public:
                     VLOG_DEBUG << " change runtime filter to bloom filter(id=" << _filter_id
                                << ") because: already exist a bloom filter";
                     change_to_bloom_filter();
-                    _context.bloom_filter_func->merge(wrapper->_context.bloom_filter_func.get());
+                    static_cast<void>(_context.bloom_filter_func->merge(
+                            wrapper->_context.bloom_filter_func.get()));
                 }
             } else {
                 if (wrapper->_filter_type ==
@@ -698,13 +619,13 @@ public:
                     wrapper->insert_to_bloom_filter(_context.bloom_filter_func.get());
                     // bloom filter merge bloom filter
                 } else {
-                    _context.bloom_filter_func->merge(wrapper->_context.bloom_filter_func.get());
+                    static_cast<void>(_context.bloom_filter_func->merge(
+                            wrapper->_context.bloom_filter_func.get()));
                 }
             }
             break;
         }
         default:
-            DCHECK(false);
             return Status::InternalError("unknown runtime filter");
         }
         return Status::OK();
@@ -1084,7 +1005,7 @@ private:
 Status IRuntimeFilter::create(RuntimeState* state, ObjectPool* pool, const TRuntimeFilterDesc* desc,
                               const TQueryOptions* query_options, const RuntimeFilterRole role,
                               int node_id, IRuntimeFilter** res, bool build_bf_exactly) {
-    *res = pool->add(new IRuntimeFilter(state, pool));
+    *res = pool->add(new IRuntimeFilter(state, pool, desc));
     (*res)->set_role(role);
     return (*res)->init_with_desc(desc, query_options, node_id, build_bf_exactly);
 }
@@ -1093,7 +1014,7 @@ Status IRuntimeFilter::create(QueryContext* query_ctx, ObjectPool* pool,
                               const TRuntimeFilterDesc* desc, const TQueryOptions* query_options,
                               const RuntimeFilterRole role, int node_id, IRuntimeFilter** res,
                               bool build_bf_exactly) {
-    *res = pool->add(new IRuntimeFilter(query_ctx, pool));
+    *res = pool->add(new IRuntimeFilter(query_ctx, pool, desc));
     (*res)->set_role(role);
     return (*res)->init_with_desc(desc, query_options, node_id, build_bf_exactly);
 }
@@ -1297,25 +1218,10 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     // if node_id == -1 , it shouldn't be a consumer
     DCHECK(node_id >= 0 || (node_id == -1 && !is_consumer()));
 
-    if (desc->type == TRuntimeFilterType::BLOOM) {
-        _runtime_filter_type = RuntimeFilterType::BLOOM_FILTER;
-    } else if (desc->type == TRuntimeFilterType::MIN_MAX) {
-        _runtime_filter_type = RuntimeFilterType::MINMAX_FILTER;
-    } else if (desc->type == TRuntimeFilterType::IN) {
-        _runtime_filter_type = RuntimeFilterType::IN_FILTER;
-    } else if (desc->type == TRuntimeFilterType::IN_OR_BLOOM) {
-        _runtime_filter_type = RuntimeFilterType::IN_OR_BLOOM_FILTER;
-    } else if (desc->type == TRuntimeFilterType::BITMAP) {
-        _runtime_filter_type = RuntimeFilterType::BITMAP_FILTER;
-    } else {
-        return Status::InvalidArgument("unknown filter type");
-    }
-
     _is_broadcast_join = desc->is_broadcast_join;
     _has_local_target = desc->has_local_targets;
     _has_remote_target = desc->has_remote_targets;
     _expr_order = desc->expr_order;
-    _filter_id = desc->filter_id;
     _opt_remote_rf = desc->__isset.opt_remote_rf && desc->opt_remote_rf;
     vectorized::VExprContextSPtr build_ctx;
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(desc->src_expr, build_ctx));
@@ -1469,17 +1375,7 @@ void IRuntimeFilter::init_profile(RuntimeProfile* parent_profile) {
         parent_profile->add_child(_profile.get(), true, nullptr);
         return;
     }
-    {
-        std::lock_guard guard(_profile_mutex);
-        if (_profile_init) {
-            return;
-        }
-        DCHECK(parent_profile != nullptr);
-        _name = fmt::format("RuntimeFilter: (id = {}, type = {})", _filter_id,
-                            to_string(_runtime_filter_type));
-        _profile.reset(new RuntimeProfile(_name));
-        _profile_init = true;
-    }
+    _profile_init = true;
     parent_profile->add_child(_profile.get(), true, nullptr);
     _profile->add_info_string("Info", _format_status());
     if (_runtime_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER) {
@@ -1558,7 +1454,7 @@ void IRuntimeFilter::to_protobuf(PInFilter* filter) {
     }
 
     HybridSetBase::IteratorBase* it;
-    _wrapper->get_in_filter_iterator(&it);
+    static_cast<void>(_wrapper->get_in_filter_iterator(&it));
     DCHECK(it != nullptr);
 
     switch (column_type) {
@@ -1681,7 +1577,7 @@ void IRuntimeFilter::to_protobuf(PInFilter* filter) {
 void IRuntimeFilter::to_protobuf(PMinMaxFilter* filter) {
     void* min_data = nullptr;
     void* max_data = nullptr;
-    _wrapper->get_minmax_filter_desc(&min_data, &max_data);
+    static_cast<void>(_wrapper->get_minmax_filter_desc(&min_data, &max_data));
     DCHECK(min_data != nullptr);
     DCHECK(max_data != nullptr);
     filter->set_column_type(to_proto(_wrapper->column_type()));

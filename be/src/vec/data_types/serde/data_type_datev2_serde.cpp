@@ -27,13 +27,13 @@
 namespace doris {
 namespace vectorized {
 
-void DataTypeDateV2SerDe::serialize_column_to_text(const IColumn& column, int start_idx,
+void DataTypeDateV2SerDe::serialize_column_to_json(const IColumn& column, int start_idx,
                                                    int end_idx, BufferWritable& bw,
                                                    FormatOptions& options) const {
-    SERIALIZE_COLUMN_TO_TEXT()
+    SERIALIZE_COLUMN_TO_JSON()
 }
 
-void DataTypeDateV2SerDe::serialize_one_cell_to_text(const IColumn& column, int row_num,
+void DataTypeDateV2SerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
                                                      BufferWritable& bw,
                                                      FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
@@ -49,15 +49,18 @@ void DataTypeDateV2SerDe::serialize_one_cell_to_text(const IColumn& column, int 
     bw.write(buf, pos - buf - 1);
 }
 
-Status DataTypeDateV2SerDe::deserialize_column_from_text_vector(
-        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
-        const FormatOptions& options) const {
-    DESERIALIZE_COLUMN_FROM_TEXT_VECTOR()
+Status DataTypeDateV2SerDe::deserialize_column_from_json_vector(IColumn& column,
+                                                                std::vector<Slice>& slices,
+                                                                int* num_deserialized,
+                                                                const FormatOptions& options,
+                                                                int nesting_level) const {
+    DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
     return Status::OK();
 }
 
-Status DataTypeDateV2SerDe::deserialize_one_cell_from_text(IColumn& column, Slice& slice,
-                                                           const FormatOptions& options) const {
+Status DataTypeDateV2SerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
+                                                           const FormatOptions& options,
+                                                           int nesting_level) const {
     auto& column_data = assert_cast<ColumnUInt32&>(column);
     UInt32 val = 0;
     if (options.date_olap_format) {
@@ -137,6 +140,51 @@ Status DataTypeDateV2SerDe::write_column_to_mysql(const IColumn& column,
                                                   MysqlRowBuffer<false>& row_buffer, int row_idx,
                                                   bool col_const) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+}
+
+Status DataTypeDateV2SerDe::write_column_to_orc(const IColumn& column, const NullMap* null_map,
+                                                orc::ColumnVectorBatch* orc_col_batch, int start,
+                                                int end,
+                                                std::vector<StringRef>& buffer_list) const {
+    auto& col_data = assert_cast<const ColumnVector<UInt32>&>(column).get_data();
+    orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
+
+    char* ptr = (char*)malloc(BUFFER_UNIT_SIZE);
+    if (!ptr) {
+        return Status::InternalError(
+                "malloc memory error when write largeint column data to orc file.");
+    }
+    StringRef bufferRef;
+    bufferRef.data = ptr;
+    bufferRef.size = BUFFER_UNIT_SIZE;
+    size_t offset = 0;
+    const size_t begin_off = offset;
+
+    for (size_t row_id = start; row_id < end; row_id++) {
+        if (cur_batch->notNull[row_id] == 0) {
+            continue;
+        }
+
+        int len = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(col_data[row_id])
+                          .to_buffer(const_cast<char*>(bufferRef.data) + offset);
+
+        REALLOC_MEMORY_FOR_ORC_WRITER()
+
+        cur_batch->length[row_id] = len;
+        offset += len;
+    }
+
+    size_t data_off = 0;
+    for (size_t row_id = start; row_id < end; row_id++) {
+        if (cur_batch->notNull[row_id] == 1) {
+            cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + begin_off + data_off;
+            data_off += cur_batch->length[row_id];
+        }
+    }
+
+    buffer_list.emplace_back(bufferRef);
+    cur_batch->numElements = end - start;
+    return Status::OK();
 }
 
 } // namespace vectorized

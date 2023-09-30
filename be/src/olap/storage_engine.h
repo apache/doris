@@ -47,6 +47,7 @@
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/tablet.h"
 #include "olap/task/index_builder.h"
+#include "runtime/exec_env.h"
 #include "runtime/heartbeat_flags.h"
 #include "util/countdown_latch.h"
 
@@ -81,9 +82,9 @@ public:
     StorageEngine(const EngineOptions& options);
     ~StorageEngine();
 
-    static Status open(const EngineOptions& options, std::unique_ptr<StorageEngine>* engine_ptr);
+    [[nodiscard]] Status open();
 
-    static StorageEngine* instance() { return _s_instance; }
+    static StorageEngine* instance() { return ExecEnv::GetInstance()->get_storage_engine(); }
 
     Status create_tablet(const TCreateTabletReq& request, RuntimeProfile* profile);
 
@@ -178,6 +179,7 @@ public:
     // option: update disk usage after sweep
     Status start_trash_sweep(double* usage, bool ignore_guard = false);
 
+    // Must call stop() before storage_engine is deconstructed
     void stop();
 
     void get_tablet_rowset_versions(const PGetTabletVersionsRequest* request,
@@ -233,6 +235,11 @@ public:
     RowsetSharedPtr get_quering_rowset(RowsetId rs_id);
 
     void evict_querying_rowset(RowsetId rs_id);
+
+    bool add_broken_path(std::string path);
+    bool remove_broken_path(std::string path);
+
+    std::set<string> get_broken_paths() { return _broken_paths; }
 
 private:
     // Instance should be inited from `static open()`
@@ -325,8 +332,6 @@ private:
     void _remove_unused_remote_files_callback();
     void _cold_data_compaction_producer_callback();
 
-    void _cache_file_cleaner_tasks_producer_callback();
-
     Status _handle_seg_compaction(SegcompactionWorker* worker,
                                   SegCompactionCandidatesSharedPtr segments);
 
@@ -335,6 +340,8 @@ private:
     void _gc_binlogs(int64_t tablet_id, int64_t version);
 
     void _async_publish_callback();
+
+    Status _persist_broken_paths();
 
 private:
     struct CompactionCandidate {
@@ -370,13 +377,15 @@ private:
     std::mutex _store_lock;
     std::mutex _trash_sweep_lock;
     std::map<std::string, DataDir*> _store_map;
+    std::set<std::string> _broken_paths;
+    std::mutex _broken_paths_mutex;
+
     uint32_t _available_storage_medium_type_count;
 
     int32_t _effective_cluster_id;
     bool _is_all_cluster_id_exist;
 
-    static StorageEngine* _s_instance;
-    bool _stopped;
+    std::atomic_bool _stopped {false};
 
     std::mutex _gc_mutex;
     // map<rowset_id(str), RowsetSharedPtr>, if we use RowsetId as the key, we need custom hash func
@@ -485,6 +494,10 @@ private:
     std::mutex _async_publish_mutex;
 
     bool _clear_segment_cache = false;
+
+    std::atomic<bool> _need_clean_trash {false};
+    // next index for create tablet
+    std::map<TStorageMedium::type, int> _store_next_index;
 
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };
