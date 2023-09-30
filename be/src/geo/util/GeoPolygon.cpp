@@ -31,6 +31,10 @@ namespace doris {
 GeoPolygon::GeoPolygon() : _polygon(new S2Polygon()) {}
 GeoPolygon::~GeoPolygon() = default;
 
+GeoPolygon::GeoPolygon(S2Polygon& polygon) {
+    _polygon.reset(polygon.Clone());
+}
+
 static bool is_loop_closed(const std::vector<S2Point>& points) {
     if (points.empty()) {
         return false;

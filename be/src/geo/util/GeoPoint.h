@@ -34,6 +34,7 @@ class GeoPoint : public GeoShape {
 
 public:
     GeoPoint();
+    explicit GeoPoint(S2Point& point);
     ~GeoPoint() override;
 
     static void print_s2point(std::ostream& os, const S2Point& point);

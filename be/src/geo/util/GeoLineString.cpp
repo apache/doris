@@ -28,7 +28,9 @@ namespace doris {
 
 GeoLineString::GeoLineString() = default;
 GeoLineString::~GeoLineString() = default;
-
+GeoLineString::GeoLineString(S2Polyline& polyline) {
+    _polyline.reset(polyline.Clone());
+}
 // remove adjacent duplicate points
 static void remove_duplicate_points(std::vector<S2Point>* points) {
     int lhs = 0;

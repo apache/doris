@@ -1926,6 +1926,8 @@ visible_functions = {
         [['ST_Circle'], 'GEOMETRY', ['DOUBLE', 'DOUBLE', 'DOUBLE'], 'ALWAYS_NULLABLE'],
         [['ST_Contains'], 'BOOLEAN', ['GEOMETRY', 'GEOMETRY'], 'ALWAYS_NULLABLE'],
         [['ST_Intersects'], 'BOOLEAN', ['GEOMETRY', 'GEOMETRY'], 'ALWAYS_NULLABLE'],
+        [['ST_Disjoint'], 'BOOLEAN', ['GEOMETRY', 'GEOMETRY'], 'ALWAYS_NULLABLE'],
+        [['ST_Intersection'],'GEOMETRY',['GEOMETRY', 'GEOMETRY'], 'ALWAYS_NULLABLE'],
         [['ST_Within'], 'BOOLEAN', ['GEOMETRY', 'GEOMETRY'], 'ALWAYS_NULLABLE'],
         [['ST_PointN'], 'GEOMETRY', ['GEOMETRY','INT'], 'ALWAYS_NULLABLE'],
         [['ST_StartPoint'], 'GEOMETRY', ['GEOMETRY'], 'ALWAYS_NULLABLE'],
@@ -1946,8 +1948,8 @@ visible_functions = {
         [['ST_NumPoints'], 'BIGINT', ['GEOMETRY'], 'ALWAYS_NULLABLE'],
         [['St_GeometryType'], 'VARCHAR', ['GEOMETRY'], 'ALWAYS_NULLABLE'],
         [['St_Centroid'], 'GEOMETRY', ['GEOMETRY'], 'ALWAYS_NULLABLE'],
-        [['St_Boundary'], 'GEOMETRY', ['GEOMETRY'], 'ALWAYS_NULLABLE']
-
+        [['St_Boundary'], 'GEOMETRY', ['GEOMETRY'], 'ALWAYS_NULLABLE'],
+        [['St_Simplify'],'GEOMETRY',['GEOMETRY','DOUBLE'],'ALWAYS_NULLABLE'],
     ],
 
     # grouping sets functions

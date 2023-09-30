@@ -30,7 +30,9 @@
 namespace doris {
 GeoPoint::GeoPoint() : _point(new S2Point()) {}
 GeoPoint::~GeoPoint() = default;
-
+GeoPoint::GeoPoint(S2Point& point) {
+    _point.reset();  
+}
 void GeoPoint::print_s2point(std::ostream& os, const S2Point& point) {
     S2LatLng coord(point);
     os << std::setprecision(12) << coord.lng().degrees() << " " << coord.lat().degrees();

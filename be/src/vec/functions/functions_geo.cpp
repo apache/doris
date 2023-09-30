@@ -21,9 +21,12 @@
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <cstddef>
+#include <memory>
 #include <string>
 #include <utility>
 
+#include "common/status.h"
 #include "geo/geo_common.h"
 #include "geo/util/GeoCircle.h"
 #include "geo/util/GeoLineString.h"
@@ -33,6 +36,7 @@
 #include "vec/columns/column.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -1509,6 +1513,94 @@ struct StIntersects {
         return Status::OK();
     }
 };
+//ST_Disjoint
+struct StDisjoint {
+    static constexpr auto NEED_CONTEXT = false;
+    static constexpr auto NAME = "st_disjoint";
+    static const size_t NUM_ARGS = 2;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 2);
+        auto return_type = block.get_data_type(result);
+        MutableColumnPtr res = return_type->create_column();
+
+        auto shape_arg1 =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto shape_arg2 =
+                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        const auto size = shape_arg1->size();
+
+        std::unique_ptr<GeoShape> shape1;
+        std::unique_ptr<GeoShape> shape2;
+
+        std::string buf;
+        for (int row = 0; row < size; ++row) {
+            auto shape_value1 = shape_arg1->get_data_at(row);
+            shape1.reset(GeoShape::from_encoded(shape_value1.data, shape_value1.size));
+            if (shape1 == nullptr) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+
+            auto shape_value2 = shape_arg2->get_data_at(row);
+            shape2.reset(GeoShape::from_encoded(shape_value2.data, shape_value2.size));
+            if (shape2 == nullptr) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+            // just take the revserse value
+            auto disjoint_value = !shape1->intersects(shape2.get());
+
+            res->insert_data(const_cast<const char*>((char*)&disjoint_value), 0);
+        }
+        block.replace_by_position(result, std::move(res));
+
+        return Status::OK();
+    }
+};
+
+//ST_INTERSECTION
+struct StIntersection {
+    static constexpr auto NEED_CONTEXT = false;
+    static constexpr auto NAME = "st_intersection";
+    static const size_t NUM_ARGS = 2;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 2);
+        auto return_type = block.get_data_type(result);
+        MutableColumnPtr res = return_type->create_column();
+
+        auto shape_arg1 =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto shape_arg2 =
+                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        const auto size = shape_arg1->size();
+
+        std::unique_ptr<GeoShape> shape1;
+        std::unique_ptr<GeoShape> shape2;
+        std::string buf;
+        for (int row = 0; row < size; ++row) {
+            auto shape_value1 = shape_arg1->get_data_at(row);
+            shape1.reset(GeoShape::from_encoded(shape_value1.data, shape_value1.size));
+            if (shape1 == nullptr) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+
+            auto shape_value2 = shape_arg2->get_data_at(row);
+            shape2.reset(GeoShape::from_encoded(shape_value2.data, shape_value2.size));
+            if (shape2 == nullptr) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+            std::unique_ptr<GeoShape> shape_res =
+                    GeoShape::intersection(shape1.release(), shape2.release());
+            buf.clear();
+            shape_res->encode_to(&buf);
+            res->insert_data(buf.data(), buf.size());
+        }
+        block.replace_by_position(result, std::move(res));
+        return Status::OK();
+    }
+};
 
 //ST_DWITHIN
 struct StDwithin {
@@ -1552,6 +1644,44 @@ struct StDwithin {
                     shape1->dwithin(shape2.get(), distance->operator[](row).get<Float64>());
 
             res->insert_data(const_cast<const char*>((char*)&dwithin_value), 0);
+        }
+        block.replace_by_position(result, std::move(res));
+        return Status::OK();
+    }
+};
+//ST_SIMPLIFY
+struct StSimplify {
+    static constexpr auto NEED_CONTEXT = false;
+    static constexpr auto NAME = "st_simplify";
+    static const size_t NUM_ARGS = 2;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 2);
+        auto return_type = block.get_data_type(result);
+        auto shape_input =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto tolerance =
+                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+
+        auto size = shape_input->size();
+        MutableColumnPtr res = return_type->create_column();
+        std::unique_ptr<GeoShape> shape;
+        std::string buf;
+        for (int row = 0; row < size; ++row) {
+            auto shape_value = shape_input->get_data_at(row);
+            shape.reset(GeoShape::from_encoded(shape_value.data, shape_value.size));
+            if (shape == nullptr) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+            std::unique_ptr<GeoShape> shape_res =
+                    shape->simplify(tolerance->operator[](row).get<Float64>());
+            if (shape_res == nullptr) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+            buf.clear();
+            shape_res->encode_to(&buf);
+            res->insert_data(buf.data(), buf.size());
         }
         block.replace_by_position(result, std::move(res));
         return Status::OK();
@@ -1637,6 +1767,8 @@ void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<GeoFunction<StBoundary>>();
     factory.register_function<GeoFunction<StClosestPoint>>();
     factory.register_function<GeoFunction<StIntersects, DataTypeUInt8>>();
+    factory.register_function<GeoFunction<StDisjoint, DataTypeUInt8>>();
+    factory.register_function<GeoFunction<StIntersection>>();
     factory.register_function<GeoFunction<StBuffer>>();
     factory.register_function<GeoFunction<StDwithin, DataTypeUInt8>>();
     factory.register_function<GeoFunction<StDimension, DataTypeInt32>>();
@@ -1649,6 +1781,7 @@ void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<GeoFunction<StNumPoints, DataTypeInt64>>();
     factory.register_function<GeoFunction<StGeometryType, DataTypeString>>();
     factory.register_function<GeoFunction<StCentroid>>();
+    factory.register_function<GeoFunction<StSimplify>>();
 }
 
 } // namespace doris::vectorized

@@ -36,6 +36,7 @@ public:
     ~GeoPolygon() override;
 
     [[nodiscard]] bool is_valid() const override;
+    explicit GeoPolygon(S2Polygon& polygon);
 
     [[nodiscard]] bool is_closed() const override;
 

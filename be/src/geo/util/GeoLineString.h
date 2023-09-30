@@ -32,6 +32,7 @@ class GeoLineString : public GeoShape {
 
 public:
     GeoLineString();
+    explicit GeoLineString(S2Polyline& polyline);
     ~GeoLineString() override;
 
     [[nodiscard]] bool is_valid() const override;

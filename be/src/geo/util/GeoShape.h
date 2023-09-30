@@ -122,7 +122,9 @@ public:
                                      std::string end_cap = "ROUND",
                                      std::string side = "BOTH") const;
 
-    std::unique_ptr<GeoShape> simplify();
+    std::unique_ptr<GeoShape> simplify(double tolerance);
+
+    static  std::unique_ptr<GeoShape> intersection(const GeoShape* shape1,const GeoShape* shape2);
 
 protected:
     virtual void encode(std::string* buf, size_t& data_size) = 0;

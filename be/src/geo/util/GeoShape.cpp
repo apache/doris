@@ -18,10 +18,14 @@
 #include "GeoShape.h"
 
 #include <s2/mutable_s2shape_index.h>
+#include <s2/s1angle.h>
 #include <s2/s2boolean_operation.h>
 #include <s2/s2buffer_operation.h>
+#include <s2/s2builder.h>
 #include <s2/s2builderutil_lax_polygon_layer.h>
 #include <s2/s2builderutil_s2polygon_layer.h>
+#include <s2/s2builderutil_s2polyline_layer.h>
+#include <s2/s2builderutil_snap_functions.h>
 #include <s2/s2centroids.h>
 #include <s2/s2closest_edge_query.h>
 #include <s2/s2closest_point_query.h>
@@ -31,6 +35,9 @@
 #include <s2/s2point_vector_shape.h>
 #include <s2/s2polygon.h>
 #include <s2/s2polyline.h>
+#include <s2/s2shape.h>
+
+#include <memory>
 
 #include "GeoCircle.h"
 #include "GeoCollection.h"
@@ -40,6 +47,7 @@
 #include "GeoMultiPolygon.h"
 #include "GeoPoint.h"
 #include "GeoPolygon.h"
+#include "geo/geo_common.h"
 #include "geo/geo_tobinary.h"
 #include "geo/geo_tojson.h"
 #include "geo/geojson_parse.h"
@@ -508,6 +516,70 @@ std::unique_ptr<GeoShape> one_geo_buffer(S2BufferOperation::Options& options,
     return res_polygon;
 }
 
+std::unique_ptr<GeoShape> GeoShape::simplify(double tolerance) {
+    // options.set_snap_function(const S2Builder::SnapFunction& snap_function);
+    switch (type()) {
+    case GEO_SHAPE_ANY:
+    case GEO_SHAPE_POINT: {
+        // return GeoPoint::create_unique(*((GeoPoint*)this)->point());
+    }
+    case GEO_SHAPE_LINE_STRING:
+    case GEO_SHAPE_MULTI_POINT:
+    case GEO_SHAPE_MULTI_LINE_STRING:
+    case GEO_SHAPE_GEOMETRY_COLLECTION: {
+        S2Builder::Options options(
+                s2builderutil::IdentitySnapFunction(S2Earth::KmToAngle(tolerance / 1000)));
+        options.set_simplify_edge_chains(true);
+        S2Builder builder(options);
+        S2Polyline output;
+        s2builderutil::S2PolylineLayer::Options layer_options;
+        layer_options.set_edge_type(S2Builder::EdgeType::DIRECTED);
+        builder.StartLayer(std::make_unique<s2builderutil::S2PolylineLayer>(&output));
+        builder.AddPolyline(*((GeoLineString*)this)->polyline());
+        S2Error error;
+        builder.Build(&error);
+        return GeoLineString::create_unique(output);
+    }
+    case GEO_SHAPE_POLYGON:
+    case GEO_SHAPE_MULTI_POLYGON: {
+        // std::unique_ptr<S2Polygon> simplified = std::make_unique<S2Polygon>();
+        // simplified->InitToSimplified(
+        //         *((GeoPolygon*)this)->polygon(),
+        //         s2builderutil::IdentitySnapFunction(S2Earth::KmToAngle(tolerance/1000)));
+        // // std::unique_ptr<S2Shape> shape = std::make_unique<S2Polygon::Shape>(simplified.get());
+
+        // if (simplified != nullptr) {
+        //     return GeoLineString::create_unique(*simplified.release());
+        // }
+        // simplified->ApproxIntersectWithPolyline(const S2Polyline &in, S1Angle snap_radius)
+        S2Builder::Options options(
+                s2builderutil::IdentitySnapFunction(S2Earth::KmToAngle(tolerance / 1000)));
+        options.set_simplify_edge_chains(true);
+        S2Builder builder(options);
+        S2Polygon output;
+        builder.StartLayer(std::make_unique<s2builderutil::S2PolygonLayer>(&output));
+        builder.AddPolygon(*((GeoPolygon*)this)->polygon());
+        S2Error error;
+        builder.Build(&error);
+        return GeoPolygon::create_unique(output);
+    }
+    case GEO_SHAPE_CIRCLE:
+    default:
+        return nullptr;
+    }
+
+    return nullptr;
+}
+std::unique_ptr<GeoShape> GeoShape::intersection(const GeoShape* shape1, const GeoShape* shape2) {
+    if (shape1->type() == GEO_SHAPE_POLYGON && shape2->type() == GEO_SHAPE_POLYGON) {
+        S2Polygon intersection;
+        intersection.InitToIntersection(*((GeoPolygon*)shape1)->polygon(),
+                                        *((GeoPolygon*)shape2)->polygon());
+        return GeoPolygon::create_unique(intersection);
+    }
+
+    return nullptr;
+}
 std::unique_ptr<GeoShape> GeoShape::buffer(double buffer_radius, double num_seg_quarter_circle,
                                            std::string end_cap, std::string side) const {
     S2BufferOperation::Options options;
