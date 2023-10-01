@@ -286,7 +286,11 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
 }
 
 Status BetaRowset::copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) {
-    DCHECK(is_local());
+    if (is_local() && num_segments() > 0) [[unlikely]] {
+        DCHECK(false) << rowset_id();
+        return Status::NotSupported("cannot copy remote files, rowset_id={}",
+                                    rowset_id().to_string());
+    }
     bool exists = false;
     for (int i = 0; i < num_segments(); ++i) {
         auto dst_path = segment_file_path(dir, new_rowset_id, i);
@@ -295,7 +299,7 @@ Status BetaRowset::copy_files_to(const std::string& dir, const RowsetId& new_row
             return Status::Error<FILE_ALREADY_EXIST>("file already exist: {}", dst_path);
         }
         auto src_path = segment_file_path(i);
-        RETURN_IF_ERROR(io::global_local_filesystem()->copy_dirs(src_path, dst_path));
+        RETURN_IF_ERROR(io::global_local_filesystem()->copy_path(src_path, dst_path));
         for (auto& column : _schema->columns()) {
             // if (column.has_inverted_index()) {
             const TabletIndex* index_meta = _schema->get_inverted_index(column.unique_id());
@@ -306,7 +310,7 @@ Status BetaRowset::copy_files_to(const std::string& dir, const RowsetId& new_row
                 std::string inverted_index_dst_file_path =
                         InvertedIndexDescriptor::get_index_file_name(dst_path,
                                                                      index_meta->index_id());
-                RETURN_IF_ERROR(io::global_local_filesystem()->copy_dirs(
+                RETURN_IF_ERROR(io::global_local_filesystem()->copy_path(
                         inverted_index_src_file_path, inverted_index_dst_file_path));
                 LOG(INFO) << "success to copy file. from=" << inverted_index_src_file_path << ", "
                           << "to=" << inverted_index_dst_file_path;
