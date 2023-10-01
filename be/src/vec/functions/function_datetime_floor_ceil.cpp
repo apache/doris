@@ -672,7 +672,7 @@ struct TimeRound {
 
         //round down/up inside time period(several time-units)
         int64_t count = period;
-        int64_t delta_inside_period = (diff % count + count) % count;
+        int64_t delta_inside_period = diff >= 0 ? diff % count : (diff % count + count) % count;
         int64_t step = diff - delta_inside_period +
                        (Impl::Type == FLOOR        ? 0
                         : delta_inside_period == 0 ? 0
@@ -716,6 +716,7 @@ struct TimeRound {
             ts1.set_int_val(ts2.to_date_int_val() & MASK_SECOND_FLOOR);
         }
     }
+
     template <typename NativeType, typename DateValueType>
     static void time_round(const DateValueType& ts2, DateValueType& ts1) {
         static_assert(Impl::Unit != WEEK);
