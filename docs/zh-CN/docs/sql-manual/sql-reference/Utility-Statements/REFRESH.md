@@ -51,6 +51,13 @@ REFRESH TABLE [catalog_name.][database_name.]table_name;
 
 包括Partition Cache、Schema Cache、File Cache等。
 
+刷新Catalog需要给用户赋SELECT_PRIV,LOAD_PRIV,ALTER_PRIV,CREATE_PRIV,DROP_PRIV权限。
+
+```sql
+# 新建dev账号，如何赋给能执行REFRESH CATALOG的权限
+GRANT SELECT_PRIV,LOAD_PRIV,ALTER_PRIV,CREATE_PRIV,DROP_PRIV on test_db.* TO 'dev'@'%';
+```
+
 ### Example
 
 1. 刷新 hive catalog

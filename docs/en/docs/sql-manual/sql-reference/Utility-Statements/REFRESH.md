@@ -50,6 +50,13 @@ When the Catalog is refreshed, the object-related Cache is forced to be invalida
 
 Including Partition Cache, Schema Cache, File Cache, etc.
 
+Refresh the Catalog requires granting the user SELECT_PRIV, LOAD_PRIV, ALTER_PRIV, CREATE_PRIV, and DROP_PRIV permissions.
+
+```sql
+# Create a new dev account, how to grant permission to execute REFRESH CATALOG
+GRANT SELECT_PRIV,LOAD_PRIV,ALTER_PRIV,CREATE_PRIV,DROP_PRIV on test_db.* TO 'dev'@'%';
+```
+
 ### Example
 
 1. Refresh hive catalog

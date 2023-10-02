@@ -164,6 +164,12 @@ role_list 是需要赋予的角色列表，以逗号分隔，指定的角色必�
     GRANT USAGE_PRIV ON WORKLOAD GROUP 'g1' TO ROLE 'my_role';
     ````
 
+11. 普通用户如果执行FRESH CATALOG通过以下命令赋权
+
+    ```sql
+    GRANT SELECT_PRIV,LOAD_PRIV,ALTER_PRIV,CREATE_PRIV,DROP_PRIV on test_db.* TO 'dev'@'%';
+    ````
+
 ### Keywords
 
 ```

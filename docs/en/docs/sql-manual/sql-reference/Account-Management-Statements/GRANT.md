@@ -149,19 +149,25 @@ role_list is the list of roles to be assigned, separated by commas,the specified
 8. Grant the specified workload group 'g1' to user jack
 
     ```sql
-    GRANT USAGE_PRIV ON WORKLOAD GROUP 'g1' TO 'jack'@'%'.
+    GRANT USAGE_PRIV ON WORKLOAD GROUP 'g1' TO 'jack'@'%';
     ````
 
 9. match all workload groups granted to user jack
 
     ```sql
-    GRANT USAGE_PRIV ON WORKLOAD GROUP '%' TO 'jack'@'%'.
+    GRANT USAGE_PRIV ON WORKLOAD GROUP '%' TO 'jack'@'%';
     ````
 
 10. grant the workload group 'g1' to the role my_role
 
     ```sql
-    GRANT USAGE_PRIV ON WORKLOAD GROUP 'g1' TO ROLE 'my_role'.
+    GRANT USAGE_PRIV ON WORKLOAD GROUP 'g1' TO ROLE 'my_role';
+    ````
+
+11. grant some permissions to general user executes FRESH CATALOG
+
+    ```sql
+    GRANT SELECT_PRIV,LOAD_PRIV,ALTER_PRIV,CREATE_PRIV,DROP_PRIV on test_db.* TO 'dev'@'%';
     ````
 
 ### Keywords
