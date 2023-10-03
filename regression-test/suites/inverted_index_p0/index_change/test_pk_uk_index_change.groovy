@@ -31,6 +31,22 @@ suite("test_pk_uk_index_change", "inverted_index") {
     def delta_time = 1000
     def alter_res = "null"
     def useTime = 0
+
+    def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
+        for(int t = delta_time; t <= OpTimeout; t += delta_time){
+            alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
+            alter_res = alter_res.toString()
+            if(alter_res.contains("FINISHED")) {
+                sleep(3000) // wait change table state to normal
+                logger.info(table_name + " latest alter job finished, detail: " + alter_res)
+                break
+            }
+            useTime = t
+            sleep(delta_time)
+        }
+        assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
+    }
+
     def wait_for_build_index_on_partition_finish = { table_name, OpTimeout ->
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
             alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}";"""
@@ -223,26 +239,7 @@ suite("test_pk_uk_index_change", "inverted_index") {
                     ADD INDEX L_ORDERKEY_idx (L_ORDERKEY) USING INVERTED COMMENT 'L_ORDERKEY index';
             """
 
-            return jobStateResult[0][9]
-
-            def jobStateResult = '';
-            def res = ''
-
-            int max_try_secs = 60
-            while (max_try_secs--) {
-                jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE TableName='${tableNamePk}' ORDER BY createtime DESC LIMIT 1 """
-                res = jobStateResult[0][9]
-                if (res == "FINISHED" || res == "CANCELLED") {
-                    assertEquals("FINISHED", res)
-                    break
-                } else {
-                    Thread.sleep(1000)
-                    if (max_try_secs < 1) {
-                        println "test timeout," + "state:" + res
-                        assertEquals("FINISHED", res)
-                    }
-                }
-            }
+            wait_for_latest_op_on_table_finish(tableNamePk, timeout)
 
             // build inverted index
             sql """ BUILD INDEX L_ORDERKEY_idx ON ${tableNamePk}; """
