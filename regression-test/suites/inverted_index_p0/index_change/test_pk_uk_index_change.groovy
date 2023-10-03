@@ -222,6 +222,28 @@ suite("test_pk_uk_index_change", "inverted_index") {
             sql """ ALTER TABLE ${tableNamePk}
                     ADD INDEX L_ORDERKEY_idx (L_ORDERKEY) USING INVERTED COMMENT 'L_ORDERKEY index';
             """
+
+            return jobStateResult[0][9]
+
+            def jobStateResult = '';
+            def res = ''
+
+            int max_try_secs = 60
+            while (max_try_secs--) {
+                jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE TableName='${tableNamePk}' ORDER BY createtime DESC LIMIT 1 """
+                res = jobStateResult[0][9]
+                if (res == "FINISHED" || res == "CANCELLED") {
+                    assertEquals("FINISHED", res)
+                    break
+                } else {
+                    Thread.sleep(1000)
+                    if (max_try_secs < 1) {
+                        println "test timeout," + "state:" + res
+                        assertEquals("FINISHED", res)
+                    }
+                }
+            }
+
             // build inverted index
             sql """ BUILD INDEX L_ORDERKEY_idx ON ${tableNamePk}; """
             wait_for_build_index_on_partition_finish(tableNamePk, timeout)
