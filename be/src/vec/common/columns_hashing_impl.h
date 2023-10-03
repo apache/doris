@@ -133,12 +133,9 @@ public:
         auto key_holder = static_cast<Derived&>(*this).get_key_holder(row, pool);
         return emplaceImpl(key_holder, data);
     }
-
-    template <typename Data>
-    ALWAYS_INLINE EmplaceResult emplace_key(Data& data, size_t hash_value, size_t row,
-                                            Arena& pool) {
-        auto key_holder = static_cast<Derived&>(*this).get_key_holder(row, pool);
-        return emplaceImpl(key_holder, hash_value, data);
+    template <typename Data, typename KeyHolder>
+    EmplaceResult emplace_with_key(Data& data, KeyHolder&& key, size_t row) {
+        return emplaceImpl(key, data);
     }
 
     template <typename Data, typename KeyHolder>
@@ -173,29 +170,9 @@ public:
         return find_key_impl(key_holder_get_key(key_holder), data);
     }
 
-    template <typename Data>
-    ALWAYS_INLINE FindResult find_key_with_hash(Data& data, size_t hash_value, size_t row,
-                                                Arena& pool) {
-        auto key_holder = static_cast<Derived&>(*this).get_key_holder(row, pool);
-        return find_key_impl(key_holder_get_key(key_holder), hash_value, data);
-    }
-
-    template <typename Data>
-    ALWAYS_INLINE size_t get_hash(const Data& data, size_t row, Arena& pool) {
-        auto key_holder = static_cast<Derived&>(*this).get_key_holder(row, pool);
-        return data.hash(key_holder_get_key(key_holder));
-    }
-
-    template <typename Data>
-    ALWAYS_INLINE void prefetch_by_key(Data& data, size_t row, Arena& pool) {
-        auto key_holder = static_cast<Derived&>(*this).get_key_holder(row, pool);
-        data.prefetch_by_key(key_holder);
-    }
-
-    template <bool READ, typename Data>
-    ALWAYS_INLINE void prefetch_by_key(Data& data, size_t row, Arena& pool) {
-        auto key_holder = static_cast<Derived&>(*this).get_key_holder(row, pool);
-        data.template prefetch_by_key<READ>(key_holder);
+    template <typename Data, typename Key>
+    ALWAYS_INLINE FindResult find_key_with_hash(Data& data, size_t hash_value, Key key) {
+        return find_key_impl(key, hash_value, data);
     }
 
     template <bool READ, typename Data>
@@ -205,11 +182,6 @@ public:
 
     ALWAYS_INLINE auto get_key_holder(size_t row, Arena& pool) {
         return static_cast<Derived&>(*this).get_key_holder(row, pool);
-    }
-
-    template <typename Data, typename KeyHolder>
-    ALWAYS_INLINE EmplaceResult emplace_key(Data& data, size_t hash_value, KeyHolder key_holder) {
-        return emplaceImpl(key_holder, hash_value, data);
     }
 
 protected:

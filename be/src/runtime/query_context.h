@@ -42,7 +42,7 @@
 namespace doris {
 struct ReportStatusRequest {
     bool is_pipeline_x;
-    const Status& status;
+    const Status status;
     std::vector<RuntimeState*> runtime_states;
     RuntimeProfile* profile;
     RuntimeProfile* load_channel_profile;
@@ -97,7 +97,9 @@ public:
 
     // Notice. For load fragments, the fragment_num sent by FE has a small probability of 0.
     // this may be a bug, bug <= 1 in theory it shouldn't cause any problems at this stage.
-    bool countdown(int instance_num) { return fragment_num.fetch_sub(instance_num) <= 1; }
+    bool countdown(int instance_num) {
+        return fragment_num.fetch_sub(instance_num) <= instance_num;
+    }
 
     ExecEnv* exec_env() { return _exec_env; }
 
@@ -137,10 +139,10 @@ public:
         if (_is_cancelled) {
             return false;
         }
+        set_exec_status(new_status);
         _is_cancelled.store(v);
 
         set_ready_to_execute(true);
-        set_exec_status(new_status);
         return true;
     }
 

@@ -37,7 +37,7 @@ TEST_F(ShortKeyIndexTest, builder) {
 
     int num_items = 0;
     for (int i = 1000; i < 10000; i += 2) {
-        builder.add_item(std::to_string(i));
+        static_cast<void>(builder.add_item(std::to_string(i)));
         num_items++;
     }
     std::vector<Slice> slices;

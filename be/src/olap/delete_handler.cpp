@@ -112,7 +112,7 @@ void DeleteHandler::convert_to_sub_pred_v2(DeletePredicatePB* delete_pred,
         for (const auto& condition_str : delete_pred->sub_predicates()) {
             auto* sub_pred = delete_pred->add_sub_predicates_v2();
             TCondition condition;
-            parse_condition(condition_str, &condition);
+            static_cast<void>(parse_condition(condition_str, &condition));
             sub_pred->set_column_unique_id(schema->column(condition.column_name).unique_id());
             sub_pred->set_column_name(condition.column_name);
             sub_pred->set_op(condition.condition_op);

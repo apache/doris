@@ -5,34 +5,36 @@ PhysicalResultSink
 ----PhysicalDistribute
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
+----------hashJoin[INNER_JOIN] hashCondition=((store.s_store_sk = store_sales.ss_store_sk))otherCondition=()
 ------------PhysicalProject
---------------filter((date_dim.d_year = 2001))
-----------------PhysicalOlapScan[date_dim]
+--------------PhysicalOlapScan[store]
 ------------PhysicalDistribute
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN](store.s_store_sk = store_sales.ss_store_sk)
-------------------PhysicalProject
---------------------PhysicalOlapScan[store]
+----------------hashJoin[INNER_JOIN] hashCondition=((customer_demographics.cd_demo_sk = store_sales.ss_cdemo_sk))otherCondition=(((((((customer_demographics.cd_marital_status = 'D') AND (customer_demographics.cd_education_status = 'Unknown')) AND ((store_sales.ss_sales_price >= 100.00) AND (store_sales.ss_sales_price <= 150.00))) AND (household_demographics.hd_dep_count = 3)) OR ((((customer_demographics.cd_marital_status = 'S') AND (customer_demographics.cd_education_status = 'College')) AND ((store_sales.ss_sales_price >= 50.00) AND (store_sales.ss_sales_price <= 100.00))) AND (household_demographics.hd_dep_count = 1))) OR ((((customer_demographics.cd_marital_status = 'M') AND (customer_demographics.cd_education_status = '4 yr Degree')) AND ((store_sales.ss_sales_price >= 150.00) AND (store_sales.ss_sales_price <= 200.00))) AND (household_demographics.hd_dep_count = 1))))
 ------------------PhysicalDistribute
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN](customer_demographics.cd_demo_sk = store_sales.ss_cdemo_sk)((((((customer_demographics.cd_marital_status = 'D') AND (customer_demographics.cd_education_status = 'Unknown')) AND ((store_sales.ss_sales_price >= 100.00) AND (store_sales.ss_sales_price <= 150.00))) AND (household_demographics.hd_dep_count = 3)) OR ((((customer_demographics.cd_marital_status = 'S') AND (customer_demographics.cd_education_status = 'College')) AND ((store_sales.ss_sales_price >= 50.00) AND (store_sales.ss_sales_price <= 100.00))) AND (household_demographics.hd_dep_count = 1))) OR ((((customer_demographics.cd_marital_status = 'M') AND (customer_demographics.cd_education_status = '4 yr Degree')) AND ((store_sales.ss_sales_price >= 150.00) AND (store_sales.ss_sales_price <= 200.00))) AND (household_demographics.hd_dep_count = 1)))
-------------------------PhysicalProject
---------------------------filter(((((customer_demographics.cd_marital_status = 'D') AND (customer_demographics.cd_education_status = 'Unknown')) OR ((customer_demographics.cd_marital_status = 'S') AND (customer_demographics.cd_education_status = 'College'))) OR ((customer_demographics.cd_marital_status = 'M') AND (customer_demographics.cd_education_status = '4 yr Degree'))))
-----------------------------PhysicalOlapScan[customer_demographics]
+----------------------filter(((((customer_demographics.cd_marital_status = 'D') AND (customer_demographics.cd_education_status = 'Unknown')) OR ((customer_demographics.cd_marital_status = 'S') AND (customer_demographics.cd_education_status = 'College'))) OR ((customer_demographics.cd_marital_status = 'M') AND (customer_demographics.cd_education_status = '4 yr Degree'))))
+------------------------PhysicalOlapScan[customer_demographics]
+------------------PhysicalDistribute
+--------------------PhysicalProject
+----------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk))otherCondition=()
 ------------------------PhysicalDistribute
---------------------------hashJoin[INNER_JOIN](store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)
-----------------------------PhysicalProject
-------------------------------filter(((household_demographics.hd_dep_count = 3) OR (household_demographics.hd_dep_count = 1)))
---------------------------------PhysicalOlapScan[household_demographics]
+--------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk))otherCondition=()
+----------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_addr_sk = customer_address.ca_address_sk))otherCondition=((((ca_state IN ('KS', 'MI', 'SD') AND ((store_sales.ss_net_profit >= 100.00) AND (store_sales.ss_net_profit <= 200.00))) OR (ca_state IN ('CO', 'MO', 'ND') AND ((store_sales.ss_net_profit >= 150.00) AND (store_sales.ss_net_profit <= 300.00)))) OR (ca_state IN ('NH', 'OH', 'TX') AND ((store_sales.ss_net_profit >= 50.00) AND (store_sales.ss_net_profit <= 250.00)))))
+------------------------------PhysicalDistribute
+--------------------------------PhysicalProject
+----------------------------------filter(((((store_sales.ss_net_profit >= 100.00) AND (store_sales.ss_net_profit <= 200.00)) OR ((store_sales.ss_net_profit >= 150.00) AND (store_sales.ss_net_profit <= 300.00))) OR ((store_sales.ss_net_profit >= 50.00) AND (store_sales.ss_net_profit <= 250.00))) and ((((store_sales.ss_sales_price >= 100.00) AND (store_sales.ss_sales_price <= 150.00)) OR ((store_sales.ss_sales_price >= 50.00) AND (store_sales.ss_sales_price <= 100.00))) OR ((store_sales.ss_sales_price >= 150.00) AND (store_sales.ss_sales_price <= 200.00))))
+------------------------------------PhysicalOlapScan[store_sales]
+------------------------------PhysicalDistribute
+--------------------------------PhysicalProject
+----------------------------------filter(((ca_state IN ('KS', 'MI', 'SD') OR ca_state IN ('CO', 'MO', 'ND')) OR ca_state IN ('NH', 'OH', 'TX')) and (customer_address.ca_country = 'United States'))
+------------------------------------PhysicalOlapScan[customer_address]
 ----------------------------PhysicalDistribute
-------------------------------hashJoin[INNER_JOIN](store_sales.ss_addr_sk = customer_address.ca_address_sk)(((ca_state IN ('SD', 'KS', 'MI') AND ((store_sales.ss_net_profit >= 100.00) AND (store_sales.ss_net_profit <= 200.00))) OR (ca_state IN ('MO', 'ND', 'CO') AND ((store_sales.ss_net_profit >= 150.00) AND (store_sales.ss_net_profit <= 300.00)))) OR (ca_state IN ('NH', 'OH', 'TX') AND ((store_sales.ss_net_profit >= 50.00) AND (store_sales.ss_net_profit <= 250.00))))
---------------------------------PhysicalDistribute
-----------------------------------PhysicalProject
-------------------------------------filter(((((store_sales.ss_net_profit >= 100.00) AND (store_sales.ss_net_profit <= 200.00)) OR ((store_sales.ss_net_profit >= 150.00) AND (store_sales.ss_net_profit <= 300.00))) OR ((store_sales.ss_net_profit >= 50.00) AND (store_sales.ss_net_profit <= 250.00)))((((store_sales.ss_sales_price >= 100.00) AND (store_sales.ss_sales_price <= 150.00)) OR ((store_sales.ss_sales_price >= 50.00) AND (store_sales.ss_sales_price <= 100.00))) OR ((store_sales.ss_sales_price >= 150.00) AND (store_sales.ss_sales_price <= 200.00))))
---------------------------------------PhysicalOlapScan[store_sales]
---------------------------------PhysicalDistribute
-----------------------------------PhysicalProject
-------------------------------------filter((customer_address.ca_country = 'United States')((ca_state IN ('SD', 'KS', 'MI') OR ca_state IN ('MO', 'ND', 'CO')) OR ca_state IN ('NH', 'OH', 'TX')))
---------------------------------------PhysicalOlapScan[customer_address]
+------------------------------PhysicalProject
+--------------------------------filter((date_dim.d_year = 2001))
+----------------------------------PhysicalOlapScan[date_dim]
+------------------------PhysicalDistribute
+--------------------------PhysicalProject
+----------------------------filter(((household_demographics.hd_dep_count = 3) OR (household_demographics.hd_dep_count = 1)))
+------------------------------PhysicalOlapScan[household_demographics]
 

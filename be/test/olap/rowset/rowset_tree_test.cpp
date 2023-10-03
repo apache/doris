@@ -94,7 +94,7 @@ public:
         RowsetMetaSharedPtr meta_ptr = make_shared<RowsetMeta>();
         meta_ptr->init_from_pb(rs_meta_pb);
         RowsetSharedPtr res_ptr;
-        MockRowset::create_rowset(schema_, meta_ptr, &res_ptr, is_mem_rowset);
+        static_cast<void>(MockRowset::create_rowset(schema_, meta_ptr, &res_ptr, is_mem_rowset));
         return res_ptr;
     }
 
@@ -292,7 +292,7 @@ TEST_F(TestRowsetTree, TestTreeRandomized) {
         tree.FindRowsetsIntersectingInterval(Slice(bound.first), Slice(bound.second), &out);
         for (const auto& e : out) {
             std::vector<KeyBoundsPB> segments_key_bounds;
-            e.first->get_segments_key_bounds(&segments_key_bounds);
+            static_cast<void>(e.first->get_segments_key_bounds(&segments_key_bounds));
             ASSERT_EQ(1, segments_key_bounds.size());
             string min = segments_key_bounds[0].min_key();
             string max = segments_key_bounds[0].max_key();

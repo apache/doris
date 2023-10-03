@@ -198,7 +198,7 @@ class FilterEstimationTest {
         Statistics stat = new Statistics(1000, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics expected = filterEstimation.estimate(or, stat);
-        Assertions.assertEquals(51, expected.getRowCount(), 0.1);
+        Assertions.assertEquals(51.9, expected.getRowCount(), 0.1);
     }
 
     // a > 500 and b < 100 or a > c
@@ -503,7 +503,7 @@ class FilterEstimationTest {
      * filter range has intersection with (c.min, c.max)
      *      rows = 100
      *     a primary key, a.ndv reduced by 1/4
-     *     b normal field, b.ndv=20 =>
+     *     b normal field, b.ndv=20
      *     c.ndv = 10/40 * c.ndv
      */
     @Test
@@ -550,7 +550,7 @@ class FilterEstimationTest {
         Assertions.assertEquals(100, statsA.maxValue);
 
         ColumnStatistic statsB = estimated.findColumnStatistics(b);
-        Assertions.assertEquals(15.6, statsB.ndv, 0.1);
+        Assertions.assertEquals(20, statsB.ndv, 0.1);
         Assertions.assertEquals(0, statsB.minValue);
         Assertions.assertEquals(500, statsB.maxValue);
 
@@ -679,7 +679,7 @@ class FilterEstimationTest {
         Assertions.assertEquals(5, statsA.ndv, 0.1);
         Assertions.assertEquals(0, statsA.minValue);
         Assertions.assertEquals(100, statsA.maxValue);
-        Assertions.assertEquals(4.5, statsB.ndv, 0.1);
+        Assertions.assertEquals(5, statsB.ndv, 0.1);
         Assertions.assertEquals(0, statsB.minValue);
         Assertions.assertEquals(500, statsB.maxValue);
         Assertions.assertEquals(2, statsC.ndv);
@@ -753,7 +753,7 @@ class FilterEstimationTest {
         Assertions.assertEquals(5, statsA.ndv, 0.1);
         Assertions.assertEquals(0, statsA.minValue);
         Assertions.assertEquals(100, statsA.maxValue);
-        Assertions.assertEquals(4.5, statsB.ndv, 0.1);
+        Assertions.assertEquals(5, statsB.ndv, 0.1);
         Assertions.assertEquals(0, statsB.minValue);
         Assertions.assertEquals(500, statsB.maxValue);
         Assertions.assertEquals(2, statsC.ndv);
@@ -819,7 +819,7 @@ class FilterEstimationTest {
         Assertions.assertEquals(75, statsA.ndv);
         Assertions.assertEquals(0, statsA.minValue);
         Assertions.assertEquals(100, statsA.maxValue);
-        Assertions.assertEquals(19.9, statsB.ndv, 0.1);
+        Assertions.assertEquals(20, statsB.ndv, 0.1);
         Assertions.assertEquals(0, statsB.minValue);
         Assertions.assertEquals(500, statsB.maxValue);
         Assertions.assertEquals(30, statsC.ndv);
