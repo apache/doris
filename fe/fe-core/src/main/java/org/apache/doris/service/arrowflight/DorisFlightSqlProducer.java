@@ -22,6 +22,9 @@ package org.apache.doris.service.arrowflight;
 
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.mysql.MysqlCommand;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.service.arrowflight.sessions.FlightSessionsManager;
 
 import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
@@ -67,14 +70,16 @@ import org.apache.logging.log4j.Logger;
 import java.util.Collections;
 import java.util.List;
 
-public class FlightSqlServiceImpl implements FlightSqlProducer, AutoCloseable {
-    private static final Logger LOG = LogManager.getLogger(FlightSqlServiceImpl.class);
+public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable {
+    private static final Logger LOG = LogManager.getLogger(DorisFlightSqlProducer.class);
     private final Location location;
     private final BufferAllocator rootAllocator = new RootAllocator();
     private final SqlInfoBuilder sqlInfoBuilder;
+    private final FlightSessionsManager flightSessionsManager;
 
-    public FlightSqlServiceImpl(final Location location) {
+    public DorisFlightSqlProducer(final Location location, FlightSessionsManager flightSessionsManager) {
         this.location = location;
+        this.flightSessionsManager = flightSessionsManager;
         sqlInfoBuilder = new SqlInfoBuilder();
         sqlInfoBuilder.withFlightSqlServerName("DorisFE")
                 .withFlightSqlServerVersion("1.0")
@@ -103,9 +108,13 @@ public class FlightSqlServiceImpl implements FlightSqlProducer, AutoCloseable {
     @Override
     public FlightInfo getFlightInfoStatement(final CommandStatementQuery request, final CallContext context,
             final FlightDescriptor descriptor) {
+        ConnectContext connectContext = null;
         try {
+            connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
+            // Only for ConnectContext check timeout.
+            connectContext.setCommand(MysqlCommand.COM_QUERY);
             final String query = request.getQuery();
-            final FlightStatementExecutor flightStatementExecutor = new FlightStatementExecutor(query);
+            final FlightStatementExecutor flightStatementExecutor = new FlightStatementExecutor(query, connectContext);
 
             flightStatementExecutor.executeQuery();
 
@@ -123,8 +132,13 @@ public class FlightSqlServiceImpl implements FlightSqlProducer, AutoCloseable {
             if (schema == null) {
                 throw CallStatus.INTERNAL.withDescription("fetch arrow flight schema is null").toRuntimeException();
             }
+            // TODO Set in BE callback after query end, Client client will not callback by default.
+            connectContext.setCommand(MysqlCommand.COM_SLEEP);
             return new FlightInfo(schema, descriptor, endpoints, -1, -1);
         } catch (Exception e) {
+            if (null != connectContext) {
+                connectContext.setCommand(MysqlCommand.COM_SLEEP);
+            }
             LOG.warn("get flight info statement failed, " + e.getMessage(), e);
             throw CallStatus.INTERNAL.withDescription(Util.getRootCauseMessage(e)).withCause(e).toRuntimeException();
         }

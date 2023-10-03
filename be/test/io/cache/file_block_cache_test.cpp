@@ -87,8 +87,8 @@ void download(io::FileBlockSPtr file_segment) {
 
     std::string data(size, '0');
     Slice result(data.data(), size);
-    file_segment->append(result);
-    file_segment->finalize_write();
+    static_cast<void>(file_segment->append(result));
+    static_cast<void>(file_segment->finalize_write());
 }
 
 void complete(const io::FileBlocksHolder& holder) {
@@ -532,7 +532,7 @@ void test_file_cache(io::CacheType cache_type) {
         /// Test LRUCache::restore().
 
         io::LRUFileCache cache2(cache_base_path, settings);
-        cache2.initialize();
+        static_cast<void>(cache2.initialize());
         auto holder1 = cache2.get_or_set(key, 2, 28, context); /// Get [2, 29]
 
         auto segments1 = fromHolder(holder1);
@@ -846,7 +846,7 @@ TEST(LRUFileCache, fd_cache_remove) {
         assert_range(2, segments[0], io::FileBlock::Range(0, 8), io::FileBlock::State::DOWNLOADING);
         download(segments[0]);
         std::unique_ptr<char[]> buffer = std::make_unique<char[]>(9);
-        segments[0]->read_at(Slice(buffer.get(), 9), 0);
+        static_cast<void>(segments[0]->read_at(Slice(buffer.get(), 9), 0));
         EXPECT_TRUE(io::IFileCache::contains_file_reader(std::make_pair(key, 0)));
     }
     {
@@ -858,7 +858,7 @@ TEST(LRUFileCache, fd_cache_remove) {
         assert_range(2, segments[0], io::FileBlock::Range(9, 9), io::FileBlock::State::DOWNLOADING);
         download(segments[0]);
         std::unique_ptr<char[]> buffer = std::make_unique<char[]>(1);
-        segments[0]->read_at(Slice(buffer.get(), 1), 0);
+        static_cast<void>(segments[0]->read_at(Slice(buffer.get(), 1), 0));
         EXPECT_TRUE(io::IFileCache::contains_file_reader(std::make_pair(key, 9)));
     }
     {
@@ -871,7 +871,7 @@ TEST(LRUFileCache, fd_cache_remove) {
                      io::FileBlock::State::DOWNLOADING);
         download(segments[0]);
         std::unique_ptr<char[]> buffer = std::make_unique<char[]>(5);
-        segments[0]->read_at(Slice(buffer.get(), 5), 0);
+        static_cast<void>(segments[0]->read_at(Slice(buffer.get(), 5), 0));
         EXPECT_TRUE(io::IFileCache::contains_file_reader(std::make_pair(key, 10)));
     }
     {
@@ -884,7 +884,7 @@ TEST(LRUFileCache, fd_cache_remove) {
                      io::FileBlock::State::DOWNLOADING);
         download(segments[0]);
         std::unique_ptr<char[]> buffer = std::make_unique<char[]>(10);
-        segments[0]->read_at(Slice(buffer.get(), 10), 0);
+        static_cast<void>(segments[0]->read_at(Slice(buffer.get(), 10), 0));
         EXPECT_TRUE(io::IFileCache::contains_file_reader(std::make_pair(key, 15)));
     }
     EXPECT_FALSE(io::IFileCache::contains_file_reader(std::make_pair(key, 0)));
@@ -926,7 +926,7 @@ TEST(LRUFileCache, fd_cache_evict) {
         assert_range(2, segments[0], io::FileBlock::Range(0, 8), io::FileBlock::State::DOWNLOADING);
         download(segments[0]);
         std::unique_ptr<char[]> buffer = std::make_unique<char[]>(9);
-        segments[0]->read_at(Slice(buffer.get(), 9), 0);
+        static_cast<void>(segments[0]->read_at(Slice(buffer.get(), 9), 0));
         EXPECT_TRUE(io::IFileCache::contains_file_reader(std::make_pair(key, 0)));
     }
     {
@@ -938,7 +938,7 @@ TEST(LRUFileCache, fd_cache_evict) {
         assert_range(2, segments[0], io::FileBlock::Range(9, 9), io::FileBlock::State::DOWNLOADING);
         download(segments[0]);
         std::unique_ptr<char[]> buffer = std::make_unique<char[]>(1);
-        segments[0]->read_at(Slice(buffer.get(), 1), 0);
+        static_cast<void>(segments[0]->read_at(Slice(buffer.get(), 1), 0));
         EXPECT_TRUE(io::IFileCache::contains_file_reader(std::make_pair(key, 9)));
     }
     {
@@ -951,7 +951,7 @@ TEST(LRUFileCache, fd_cache_evict) {
                      io::FileBlock::State::DOWNLOADING);
         download(segments[0]);
         std::unique_ptr<char[]> buffer = std::make_unique<char[]>(5);
-        segments[0]->read_at(Slice(buffer.get(), 5), 0);
+        static_cast<void>(segments[0]->read_at(Slice(buffer.get(), 5), 0));
         EXPECT_TRUE(io::IFileCache::contains_file_reader(std::make_pair(key, 10)));
     }
     EXPECT_FALSE(io::IFileCache::contains_file_reader(std::make_pair(key, 0)));

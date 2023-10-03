@@ -151,8 +151,8 @@ Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderS
                 io::kMaxPipeBufferedBytes /* max_buffered_bytes */, 64 * 1024 /* min_chunk_size */,
                 stream_load_ctx->schema_buffer->pos /* total_length */);
         stream_load_ctx->schema_buffer->flip();
-        pipe->append(stream_load_ctx->schema_buffer);
-        pipe->finish();
+        static_cast<void>(pipe->append(stream_load_ctx->schema_buffer));
+        static_cast<void>(pipe->finish());
         *file_reader = std::move(pipe);
     } else {
         *file_reader = stream_load_ctx->pipe;

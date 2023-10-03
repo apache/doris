@@ -14,13 +14,30 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
 
-#include "vec/functions/function_running_difference.h"
+package org.apache.doris.service.arrowflight.auth2;
 
-namespace doris::vectorized {
+import org.apache.doris.analysis.UserIdentity;
 
-void register_function_running_difference(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionRunningDifference>();
+import org.immutables.value.Value;
+
+/**
+ * Result of Authentication.
+ */
+@Value.Immutable
+public interface FlightAuthResult {
+    String getUserName();
+
+    UserIdentity getUserIdentity();
+
+    String getRemoteIp();
+
+    static FlightAuthResult of(String userName, UserIdentity userIdentity, String remoteIp) {
+        return ImmutableFlightAuthResult.builder()
+                .userName(userName)
+                .userIdentity(userIdentity)
+                .remoteIp(remoteIp)
+                .build();
+    }
 }
-
-} // namespace doris::vectorized

@@ -65,7 +65,8 @@ Status WalManager::init() {
         RETURN_IF_ERROR(scan_wals(wal_dir));
     }
     return Thread::create(
-            "WalMgr", "replay_wal", [this]() { this->replay(); }, &_replay_thread);
+            "WalMgr", "replay_wal", [this]() { static_cast<void>(this->replay()); },
+            &_replay_thread);
 }
 
 Status WalManager::add_wal_path(int64_t db_id, int64_t table_id, int64_t wal_id,

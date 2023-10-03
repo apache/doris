@@ -225,6 +225,8 @@ DEFINE_mBool(compress_rowbatches, "true");
 DEFINE_mBool(rowbatch_align_tuple_offset, "false");
 // interval between profile reports; in seconds
 DEFINE_mInt32(status_report_interval, "5");
+// The pipeline task has a high concurrency, therefore reducing its report frequency
+DEFINE_mInt32(pipeline_status_report_interval, "10");
 // if true, each disk will have a separate thread pool for scanner
 DEFINE_Bool(doris_enable_scanner_thread_pool_per_disk, "true");
 // the timeout of a work thread to wait the blocking priority queue to get a task
@@ -1524,9 +1526,12 @@ Status set_fuzzy_config(const std::string& field, const std::string& value) {
 
 void set_fuzzy_configs() {
     // random value true or false
-    set_fuzzy_config("disable_storage_page_cache", ((rand() % 2) == 0) ? "true" : "false");
-    set_fuzzy_config("enable_system_metrics", ((rand() % 2) == 0) ? "true" : "false");
-    set_fuzzy_config("enable_simdjson_reader", ((rand() % 2) == 0) ? "true" : "false");
+    static_cast<void>(
+            set_fuzzy_config("disable_storage_page_cache", ((rand() % 2) == 0) ? "true" : "false"));
+    static_cast<void>(
+            set_fuzzy_config("enable_system_metrics", ((rand() % 2) == 0) ? "true" : "false"));
+    static_cast<void>(
+            set_fuzzy_config("enable_simdjson_reader", ((rand() % 2) == 0) ? "true" : "false"));
     // random value from 8 to 48
     // s = set_fuzzy_config("doris_scanner_thread_pool_thread_num", std::to_string((rand() % 41) + 8));
     // LOG(INFO) << s.to_string();

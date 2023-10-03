@@ -276,4 +276,48 @@ suite("test_union") {
     sql"""drop table ${new_union_table}"""
 
     qt_union35 """select cast("2016-07-01" as date) union (select cast("2016-07-02 1:10:0" as date)) order by 1"""
+
+
+    sql """ set batch_size=1; """
+    def tblName1 = "test1"
+    sql """ DROP TABLE IF EXISTS ${tblName1} """
+    sql """
+            CREATE TABLE `${tblName1}` (
+            `a_key` varchar(255) NULL ,
+            `d_key` varchar(255) NULL ,
+            `c_key` varchar(32) NULL
+            ) ENGINE=OLAP
+            UNIQUE KEY(`a_key`, `d_key`, `c_key`)
+            DISTRIBUTED BY HASH(`a_key`, `d_key`, `c_key`) BUCKETS 4
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "in_memory" = "false",
+            "storage_format" = "V2",
+            "disable_auto_compaction" = "false"
+            );
+     """
+
+
+     def tblName2 = "test2"
+     sql """ DROP TABLE IF EXISTS ${tblName2} """
+     sql """
+             CREATE TABLE `${tblName2}` (
+             `a_key` varchar(255) NULL ,
+             `d_key` varchar(255) NULL ,
+             `c_key` varchar(32) NULL
+             ) ENGINE=OLAP
+             UNIQUE KEY(`a_key`, `d_key`, `c_key`)
+             DISTRIBUTED BY HASH(`a_key`, `d_key`, `c_key`) BUCKETS 4
+             PROPERTIES (
+             "replication_allocation" = "tag.location.default: 1",
+             "in_memory" = "false",
+             "storage_format" = "V2",
+             "disable_auto_compaction" = "false"
+             );
+      """
+
+      sql """ insert into  ${tblName2} values("1", "2", "3"),("2", "3", "4") """
+      sql """ insert into  ${tblName1} values("1", "2", "3"),("2", "3", "4") """
+
+      qt_sql """ select a_key from (select * from ${tblName1} UNION ALL select * from ${tblName2}) t ORDER BY a_key + 1"""
 }

@@ -763,7 +763,7 @@ public:
     }
 
     void set_time(uint16_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute,
-                  uint8_t second, uint32_t microsecond);
+                  uint8_t second, uint32_t microsecond = 0);
 
     void set_time(uint8_t hour, uint8_t minute, uint8_t second, uint32_t microsecond);
 

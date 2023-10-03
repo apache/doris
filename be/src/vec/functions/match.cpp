@@ -24,7 +24,7 @@ namespace doris::vectorized {
 
 Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
                                        const ColumnNumbers& arguments, size_t result,
-                                       size_t input_rows_count) {
+                                       size_t input_rows_count) const {
     ColumnPtr& column_ptr = block.get_by_position(arguments[1]).column;
     DataTypePtr& type_ptr = block.get_by_position(arguments[1]).type;
     auto match_query_str = type_ptr->to_string(*column_ptr, 0);
@@ -90,7 +90,8 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
     return Status::OK();
 }
 
-inline doris::segment_v2::InvertedIndexQueryType FunctionMatchBase::get_query_type_from_fn_name() {
+inline doris::segment_v2::InvertedIndexQueryType FunctionMatchBase::get_query_type_from_fn_name()
+        const {
     std::string fn_name = get_name();
     if (fn_name == MATCH_ANY_FUNCTION) {
         return doris::segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY;
@@ -105,7 +106,7 @@ inline doris::segment_v2::InvertedIndexQueryType FunctionMatchBase::get_query_ty
 inline std::vector<std::string> FunctionMatchBase::analyse_data_token(
         const std::string& column_name, InvertedIndexCtx* inverted_index_ctx,
         const ColumnString* string_col, int32_t current_block_row_idx,
-        const ColumnArray::Offsets64* array_offsets, int32_t& current_src_array_offset) {
+        const ColumnArray::Offsets64* array_offsets, int32_t& current_src_array_offset) const {
     std::vector<std::string> data_tokens;
     auto query_type = get_query_type_from_fn_name();
     if (array_offsets) {
@@ -137,7 +138,7 @@ Status FunctionMatchAny::execute_match(const std::string& column_name,
                                        const ColumnString* string_col,
                                        InvertedIndexCtx* inverted_index_ctx,
                                        const ColumnArray::Offsets64* array_offsets,
-                                       ColumnUInt8::Container& result) {
+                                       ColumnUInt8::Container& result) const {
     doris::InvertedIndexParserType parser_type = doris::InvertedIndexParserType::PARSER_UNKNOWN;
     if (inverted_index_ctx) {
         parser_type = inverted_index_ctx->parser_type;
@@ -182,7 +183,7 @@ Status FunctionMatchAll::execute_match(const std::string& column_name,
                                        const ColumnString* string_col,
                                        InvertedIndexCtx* inverted_index_ctx,
                                        const ColumnArray::Offsets64* array_offsets,
-                                       ColumnUInt8::Container& result) {
+                                       ColumnUInt8::Container& result) const {
     doris::InvertedIndexParserType parser_type = doris::InvertedIndexParserType::PARSER_UNKNOWN;
     if (inverted_index_ctx) {
         parser_type = inverted_index_ctx->parser_type;
@@ -233,7 +234,7 @@ Status FunctionMatchPhrase::execute_match(const std::string& column_name,
                                           size_t input_rows_count, const ColumnString* string_col,
                                           InvertedIndexCtx* inverted_index_ctx,
                                           const ColumnArray::Offsets64* array_offsets,
-                                          ColumnUInt8::Container& result) {
+                                          ColumnUInt8::Container& result) const {
     doris::InvertedIndexParserType parser_type = doris::InvertedIndexParserType::PARSER_UNKNOWN;
     if (inverted_index_ctx) {
         parser_type = inverted_index_ctx->parser_type;
