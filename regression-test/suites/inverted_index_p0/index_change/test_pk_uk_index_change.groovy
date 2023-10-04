@@ -321,3 +321,4 @@ suite("test_pk_uk_index_change", "inverted_index") {
         wait_for_build_index_on_partition_finish(tableNamePk, timeout)
     }
 }
+
