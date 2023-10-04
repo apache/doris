@@ -264,8 +264,10 @@ public class OperationType {
     public static final short OP_ALTER_CATALOG_NAME = 322;
     public static final short OP_ALTER_CATALOG_PROPS = 323;
     public static final short OP_REFRESH_CATALOG = 324;
+    @Deprecated
     public static final short OP_INIT_CATALOG = 325;
     public static final short OP_REFRESH_EXTERNAL_DB = 326;
+    @Deprecated
     public static final short OP_INIT_EXTERNAL_DB = 327;
     public static final short OP_REFRESH_EXTERNAL_TABLE = 328;
     @Deprecated
@@ -283,12 +285,19 @@ public class OperationType {
 
     public static final short OP_ALTER_MTMV_STMT = 345;
 
+    @Deprecated
     public static final short OP_DROP_EXTERNAL_TABLE = 350;
+    @Deprecated
     public static final short OP_DROP_EXTERNAL_DB = 351;
+    @Deprecated
     public static final short OP_CREATE_EXTERNAL_TABLE = 352;
+    @Deprecated
     public static final short OP_CREATE_EXTERNAL_DB = 353;
+    @Deprecated
     public static final short OP_ADD_EXTERNAL_PARTITIONS = 354;
+    @Deprecated
     public static final short OP_DROP_EXTERNAL_PARTITIONS = 355;
+    @Deprecated
     public static final short OP_REFRESH_EXTERNAL_PARTITIONS = 356;
 
     public static final short OP_ALTER_USER = 400;

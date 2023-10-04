@@ -83,7 +83,7 @@ public class InsertEvent extends MetastoreTableEvent {
              *  the file cache of this table,
              *  but <a href="https://github.com/apache/doris/pull/17932">this PR</a> has fixed it.
              */
-            Env.getCurrentEnv().getCatalogMgr().refreshExternalTable(dbName, tblName, catalogName, true);
+            Env.getCurrentEnv().getCatalogMgr().refreshExternalTable(dbName, tblName, catalogName, true, false);
         } catch (DdlException e) {
             throw new MetastoreNotificationException(
                     debugString("Failed to process event"), e);

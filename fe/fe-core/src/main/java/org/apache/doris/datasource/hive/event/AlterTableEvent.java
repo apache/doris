@@ -99,7 +99,7 @@ public class AlterTableEvent extends MetastoreTableEvent {
         Env.getCurrentEnv().getCatalogMgr()
                 .dropExternalTable(tableBefore.getDbName(), tableBefore.getTableName(), catalogName, true);
         Env.getCurrentEnv().getCatalogMgr()
-                .createExternalTableFromEvent(tableAfter.getDbName(), tableAfter.getTableName(), catalogName, true);
+                .createExternalTable(tableAfter.getDbName(), tableAfter.getTableName(), catalogName, true);
     }
 
     private void processRename() throws DdlException {
@@ -117,7 +117,7 @@ public class AlterTableEvent extends MetastoreTableEvent {
         Env.getCurrentEnv().getCatalogMgr()
                 .dropExternalTable(tableBefore.getDbName(), tableBefore.getTableName(), catalogName, true);
         Env.getCurrentEnv().getCatalogMgr()
-                .createExternalTableFromEvent(tableAfter.getDbName(), tableAfter.getTableName(), catalogName, true);
+                .createExternalTable(tableAfter.getDbName(), tableAfter.getTableName(), catalogName, true);
 
     }
 
@@ -154,7 +154,8 @@ public class AlterTableEvent extends MetastoreTableEvent {
             }
             //The scope of refresh can be narrowed in the future
             Env.getCurrentEnv().getCatalogMgr()
-                    .refreshExternalTable(tableBefore.getDbName(), tableBefore.getTableName(), catalogName, true);
+                    .refreshExternalTable(
+                                tableBefore.getDbName(), tableBefore.getTableName(), catalogName, true, false);
         } catch (Exception e) {
             throw new MetastoreNotificationException(
                     debugString("Failed to process event"), e);

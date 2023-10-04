@@ -25,14 +25,12 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitDatabaseLog;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.MasterCatalogExecutor;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -120,46 +118,11 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     public final synchronized void makeSureInitialized() {
         extCatalog.makeSureInitialized();
         if (!initialized) {
-            if (!Env.getCurrentEnv().isMaster()) {
-                // Forward to master and wait the journal to replay.
-                int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeout();
-                MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor(waitTimeOut * 1000);
-                try {
-                    remoteExecutor.forward(extCatalog.getId(), id);
-                } catch (Exception e) {
-                    Util.logAndThrowRuntimeException(LOG,
-                            String.format("failed to forward init external db %s operation to master", name), e);
-                }
-                return;
-            }
             init();
         }
     }
 
-    public void replayInitDb(InitDatabaseLog log, ExternalCatalog catalog) {
-        Map<String, Long> tmpTableNameToId = Maps.newConcurrentMap();
-        Map<Long, T> tmpIdToTbl = Maps.newConcurrentMap();
-        for (int i = 0; i < log.getRefreshCount(); i++) {
-            T table = getTableForReplay(log.getRefreshTableIds().get(i));
-            tmpTableNameToId.put(table.getName(), table.getId());
-            tmpIdToTbl.put(table.getId(), table);
-        }
-        for (int i = 0; i < log.getCreateCount(); i++) {
-            T table = getExternalTable(log.getCreateTableNames().get(i), log.getCreateTableIds().get(i), catalog);
-            tmpTableNameToId.put(table.getName(), table.getId());
-            tmpIdToTbl.put(table.getId(), table);
-        }
-        tableNameToId = tmpTableNameToId;
-        idToTbl = tmpIdToTbl;
-        lastUpdateTime = log.getLastUpdateTime();
-        initialized = true;
-    }
-
     protected void init() {
-        InitDatabaseLog initDatabaseLog = new InitDatabaseLog();
-        initDatabaseLog.setType(dbLogType);
-        initDatabaseLog.setCatalogId(extCatalog.getId());
-        initDatabaseLog.setDbId(id);
         List<String> tableNames = extCatalog.listTableNames(null, name);
         if (tableNames != null) {
             Map<String, Long> tmpTableNameToId = Maps.newConcurrentMap();
@@ -172,24 +135,19 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                     T table = idToTbl.get(tblId);
                     table.unsetObjectCreated();
                     tmpIdToTbl.put(tblId, table);
-                    initDatabaseLog.addRefreshTable(tblId);
                 } else {
-                    tblId = Env.getCurrentEnv().getNextId();
+                    tblId = Env.getCurrentEnv().getNextExtCtlId();
                     tmpTableNameToId.put(tableName, tblId);
                     T table = getExternalTable(tableName, tblId, extCatalog);
                     tmpIdToTbl.put(tblId, table);
-                    initDatabaseLog.addCreateTable(tblId, tableName);
                 }
             }
             tableNameToId = tmpTableNameToId;
             idToTbl = tmpIdToTbl;
         }
 
-        long currentTime = System.currentTimeMillis();
-        lastUpdateTime = currentTime;
-        initDatabaseLog.setLastUpdateTime(lastUpdateTime);
+        lastUpdateTime = System.currentTimeMillis();
         initialized = true;
-        Env.getCurrentEnv().getEditLog().logInitExternalDb(initDatabaseLog);
     }
 
     protected abstract T getExternalTable(String tableName, long tblId, ExternalCatalog catalog);
@@ -349,8 +307,8 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         throw new NotImplementedException("dropTable() is not implemented");
     }
 
-    public void dropTableForReplay(String tableName) {
-        throw new NotImplementedException("replayDropTableFromEvent() is not implemented");
+    public void dropTableWithoutInit(String tableName) {
+        throw new NotImplementedException("dropTableWithoutInit() is not implemented");
     }
 
     @Override
@@ -359,7 +317,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     }
 
     // Only used for sync hive metastore event
-    public void createTableForReplay(String tableName, long tableId) {
+    public void createTable(String tableName, long tableId) {
         throw new NotImplementedException("createTable() is not implemented");
     }
 

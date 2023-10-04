@@ -36,12 +36,9 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.MasterCatalogExecutor;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -162,18 +159,6 @@ public abstract class ExternalCatalog
     public final synchronized void makeSureInitialized() {
         initLocalObjects();
         if (!initialized) {
-            if (!Env.getCurrentEnv().isMaster()) {
-                // Forward to master and wait the journal to replay.
-                int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeout();
-                MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor(waitTimeOut * 1000);
-                try {
-                    remoteExecutor.forward(id, -1);
-                } catch (Exception e) {
-                    Util.logAndThrowRuntimeException(LOG,
-                            String.format("failed to forward init catalog %s operation to master.", name), e);
-                }
-                return;
-            }
             init();
             initialized = true;
         }
@@ -248,9 +233,6 @@ public abstract class ExternalCatalog
     protected void init() {
         Map<String, Long> tmpDbNameToId = Maps.newConcurrentMap();
         Map<Long, ExternalDatabase<? extends ExternalTable>> tmpIdToDb = Maps.newConcurrentMap();
-        InitCatalogLog initCatalogLog = new InitCatalogLog();
-        initCatalogLog.setCatalogId(id);
-        initCatalogLog.setType(logType);
         List<String> allDatabases = listDatabaseNames();
         Map<String, Boolean> includeDatabaseMap = getIncludeDatabaseMap();
         Map<String, Boolean> excludeDatabaseMap = getExcludeDatabaseMap();
@@ -269,20 +251,16 @@ public abstract class ExternalCatalog
                 ExternalDatabase<? extends ExternalTable> db = idToDb.get(dbId);
                 db.setUnInitialized(invalidCacheInInit);
                 tmpIdToDb.put(dbId, db);
-                initCatalogLog.addRefreshDb(dbId);
             } else {
-                dbId = Env.getCurrentEnv().getNextId();
+                dbId = Env.getCurrentEnv().getNextExtCtlId();
                 tmpDbNameToId.put(dbName, dbId);
                 ExternalDatabase<? extends ExternalTable> db = getDbForInit(dbName, dbId, logType);
                 tmpIdToDb.put(dbId, db);
-                initCatalogLog.addCreateDb(dbId, dbName);
             }
         }
         dbNameToId = tmpDbNameToId;
         idToDb = tmpIdToDb;
         lastUpdateTime = System.currentTimeMillis();
-        initCatalogLog.setLastUpdateTime(lastUpdateTime);
-        Env.getCurrentEnv().getEditLog().logInitCatalog(initCatalogLog);
     }
 
     public void setUninitialized(boolean invalidCache) {
@@ -556,11 +534,11 @@ public abstract class ExternalCatalog
         dbNameToId.put(ClusterNamespace.getNameFromFullName(db.getFullName()), db.getId());
     }
 
-    public void dropDatabaseForReplay(String dbName) {
+    public void dropDatabase(String dbName) {
         throw new NotImplementedException("dropDatabase not implemented");
     }
 
-    public void createDatabaseForReplay(long dbId, String dbName) {
+    public void createDatabase(long dbId, String dbName) {
         throw new NotImplementedException("createDatabase not implemented");
     }
 

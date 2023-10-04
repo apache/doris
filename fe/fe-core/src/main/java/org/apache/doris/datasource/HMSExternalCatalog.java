@@ -255,7 +255,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         CatalogLog log = new CatalogLog();
         log.setCatalogId(hmsExternalCatalog.getId());
         log.setInvalidCache(true);
-        Env.getCurrentEnv().getCatalogMgr().refreshCatalog(log);
+        Env.getCurrentEnv().getCatalogMgr().replayRefreshCatalog(log);
     }
 
     private long getCurrentEventId() {
@@ -269,7 +269,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public void dropDatabaseForReplay(String dbName) {
+    public void dropDatabase(String dbName) {
         LOG.debug("drop database [{}]", dbName);
         Long dbId = dbNameToId.remove(dbName);
         if (dbId == null) {
@@ -279,7 +279,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public void createDatabaseForReplay(long dbId, String dbName) {
+    public void createDatabase(long dbId, String dbName) {
         LOG.debug("create database [{}]", dbName);
         dbNameToId.put(dbName, dbId);
         ExternalDatabase<? extends ExternalTable> db = getDbForInit(dbName, dbId, logType);

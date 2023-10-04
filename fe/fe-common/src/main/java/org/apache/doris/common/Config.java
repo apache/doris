@@ -1870,19 +1870,19 @@ public class Config extends ConfigBase {
     /**
      * If set to true, doris will automatically synchronize hms metadata to the cache in fe.
      */
-    @ConfField(masterOnly = true)
+    @ConfField(masterOnly = false)
     public static boolean enable_hms_events_incremental_sync = false;
 
     /**
      * Maximum number of events to poll in each RPC.
      */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = false)
     public static int hms_events_batch_size_per_rpc = 500;
 
     /**
      * HMS polling interval in milliseconds.
      */
-    @ConfField(masterOnly = true)
+    @ConfField(masterOnly = false)
     public static int hms_events_polling_interval_ms = 10000;
 
     /**

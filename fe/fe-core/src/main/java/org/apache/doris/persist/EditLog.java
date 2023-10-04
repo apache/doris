@@ -49,8 +49,6 @@ import org.apache.doris.cooldown.CooldownConfList;
 import org.apache.doris.cooldown.CooldownDelete;
 import org.apache.doris.datasource.CatalogLog;
 import org.apache.doris.datasource.ExternalObjectLog;
-import org.apache.doris.datasource.InitCatalogLog;
-import org.apache.doris.datasource.InitDatabaseLog;
 import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.journal.Journal;
 import org.apache.doris.journal.JournalCursor;
@@ -1002,8 +1000,6 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_INIT_CATALOG: {
-                    final InitCatalogLog log = (InitCatalogLog) journal.getData();
-                    env.getCatalogMgr().replayInitCatalog(log);
                     break;
                 }
                 case OperationType.OP_REFRESH_EXTERNAL_DB: {
@@ -1012,8 +1008,6 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_INIT_EXTERNAL_DB: {
-                    final InitDatabaseLog log = (InitDatabaseLog) journal.getData();
-                    env.getCatalogMgr().replayInitExternalDb(log);
                     break;
                 }
                 case OperationType.OP_REFRESH_EXTERNAL_TABLE: {
@@ -1021,39 +1015,13 @@ public class EditLog {
                     env.getCatalogMgr().replayRefreshExternalTable(log);
                     break;
                 }
-                case OperationType.OP_DROP_EXTERNAL_TABLE: {
-                    final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
-                    env.getCatalogMgr().replayDropExternalTable(log);
-                    break;
-                }
-                case OperationType.OP_CREATE_EXTERNAL_TABLE: {
-                    final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
-                    env.getCatalogMgr().replayCreateExternalTableFromEvent(log);
-                    break;
-                }
-                case OperationType.OP_DROP_EXTERNAL_DB: {
-                    final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
-                    env.getCatalogMgr().replayDropExternalDatabase(log);
-                    break;
-                }
-                case OperationType.OP_CREATE_EXTERNAL_DB: {
-                    final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
-                    env.getCatalogMgr().replayCreateExternalDatabase(log);
-                    break;
-                }
-                case OperationType.OP_ADD_EXTERNAL_PARTITIONS: {
-                    final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
-                    env.getCatalogMgr().replayAddExternalPartitions(log);
-                    break;
-                }
-                case OperationType.OP_DROP_EXTERNAL_PARTITIONS: {
-                    final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
-                    env.getCatalogMgr().replayDropExternalPartitions(log);
-                    break;
-                }
+                case OperationType.OP_DROP_EXTERNAL_TABLE:
+                case OperationType.OP_CREATE_EXTERNAL_TABLE:
+                case OperationType.OP_DROP_EXTERNAL_DB:
+                case OperationType.OP_CREATE_EXTERNAL_DB:
+                case OperationType.OP_ADD_EXTERNAL_PARTITIONS:
+                case OperationType.OP_DROP_EXTERNAL_PARTITIONS:
                 case OperationType.OP_REFRESH_EXTERNAL_PARTITIONS: {
-                    final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
-                    env.getCatalogMgr().replayRefreshExternalPartitions(log);
                     break;
                 }
                 case OperationType.OP_CREATE_WORKLOAD_GROUP: {
@@ -1867,48 +1835,12 @@ public class EditLog {
         logEdit(OperationType.OP_DROP_MTMV_TASK, new DropMTMVTask(taskIds));
     }
 
-    public void logInitCatalog(InitCatalogLog log) {
-        logEdit(OperationType.OP_INIT_CATALOG, log);
-    }
-
     public void logRefreshExternalDb(ExternalObjectLog log) {
         logEdit(OperationType.OP_REFRESH_EXTERNAL_DB, log);
     }
 
-    public void logInitExternalDb(InitDatabaseLog log) {
-        logEdit(OperationType.OP_INIT_EXTERNAL_DB, log);
-    }
-
     public void logRefreshExternalTable(ExternalObjectLog log) {
         logEdit(OperationType.OP_REFRESH_EXTERNAL_TABLE, log);
-    }
-
-    public void logDropExternalTable(ExternalObjectLog log) {
-        logEdit(OperationType.OP_DROP_EXTERNAL_TABLE, log);
-    }
-
-    public void logCreateExternalTable(ExternalObjectLog log) {
-        logEdit(OperationType.OP_CREATE_EXTERNAL_TABLE, log);
-    }
-
-    public void logDropExternalDatabase(ExternalObjectLog log) {
-        logEdit(OperationType.OP_DROP_EXTERNAL_DB, log);
-    }
-
-    public void logCreateExternalDatabase(ExternalObjectLog log) {
-        logEdit(OperationType.OP_CREATE_EXTERNAL_DB, log);
-    }
-
-    public void logAddExternalPartitions(ExternalObjectLog log) {
-        logEdit(OperationType.OP_ADD_EXTERNAL_PARTITIONS, log);
-    }
-
-    public void logDropExternalPartitions(ExternalObjectLog log) {
-        logEdit(OperationType.OP_DROP_EXTERNAL_PARTITIONS, log);
-    }
-
-    public void logInvalidateExternalPartitions(ExternalObjectLog log) {
-        logEdit(OperationType.OP_REFRESH_EXTERNAL_PARTITIONS, log);
     }
 
     public Journal getJournal() {

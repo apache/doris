@@ -467,6 +467,8 @@ public class Env {
 
     private AtomicLong stmtIdCounter;
 
+    private AtomicLong externalCtlIdCounter;
+
     private WorkloadGroupMgr workloadGroupMgr;
 
     private QueryStats queryStats;
@@ -631,6 +633,7 @@ public class Env {
         this.exportTaskRegister = new ExportTaskRegister(transientTaskManager);
         this.replayedJournalId = new AtomicLong(0L);
         this.stmtIdCounter = new AtomicLong(0L);
+        this.externalCtlIdCounter = new AtomicLong(0L);
         this.isElectable = false;
         this.synchronizedTimeMs = 0;
         this.feType = FrontendNodeType.INIT;
@@ -1558,9 +1561,6 @@ public class Env {
         streamLoadRecordMgr.start();
         getInternalCatalog().getIcebergTableCreationRecordMgr().start();
         new InternalSchemaInitializer().start();
-        if (Config.enable_hms_events_incremental_sync) {
-            metastoreEventsProcessor.start();
-        }
         // start mtmv jobManager
         mtmvJobManager.start();
         getRefreshManager().start();
@@ -1581,6 +1581,10 @@ public class Env {
         domainResolver.start();
         // fe disk updater
         feDiskUpdater.start();
+        // hms event processor
+        if (Config.enable_hms_events_incremental_sync) {
+            metastoreEventsProcessor.start();
+        }
     }
 
     private void transferToNonMaster(FrontendNodeType newType) {
@@ -3608,6 +3612,11 @@ public class Env {
     // counter for prepared statement id
     public long getNextStmtId() {
         return this.stmtIdCounter.getAndIncrement();
+    }
+
+    // counter for external catalog meta
+    public long getNextExtCtlId() {
+        return this.externalCtlIdCounter.getAndIncrement();
     }
 
     public IdGeneratorBuffer getIdGeneratorBuffer(long bufferSize) {
