@@ -381,7 +381,8 @@ public class Coordinator implements CoordInterface {
         }
         // set exec mem limit
         long maxExecMemByte = connectContext.getSessionVariable().getMaxExecMemByte();
-        long memLimit = maxExecMemByte >0 ? maxExecMemByte: Env.getCurrentEnv().getAuth().getExecMemLimit(qualifiedUser);
+        long memLimit = maxExecMemByte > 0 ? maxExecMemByte :
+                Env.getCurrentEnv().getAuth().getExecMemLimit(qualifiedUser);
         if (memLimit > 0) {
             // overwrite the exec_mem_limit from session variable;
             this.queryOptions.setMemLimit(memLimit);
