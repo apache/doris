@@ -2760,6 +2760,13 @@ public class StmtExecutor {
     public OriginStatement getOriginStmt() {
         return originStmt;
     }
+
+    public String getOriginStmtInString() {
+        if (originStmt != null && originStmt.originStmt != null) {
+            return originStmt.originStmt;
+        }
+        return "";
+    }
 }
 
 

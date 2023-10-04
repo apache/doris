@@ -91,10 +91,12 @@ template <PrimitiveType Type>
 Status TypedZoneMapIndexWriter<Type>::flush() {
     // Update segment zone map.
     if (_field->compare(_segment_zone_map.min_value, _page_zone_map.min_value) > 0) {
-        _field->type_info()->direct_copy(_segment_zone_map.min_value, _page_zone_map.min_value);
+        _field->type_info()->direct_copy_may_cut(_segment_zone_map.min_value,
+                                                 _page_zone_map.min_value);
     }
     if (_field->compare(_segment_zone_map.max_value, _page_zone_map.max_value) < 0) {
-        _field->type_info()->direct_copy(_segment_zone_map.max_value, _page_zone_map.max_value);
+        _field->type_info()->direct_copy_may_cut(_segment_zone_map.max_value,
+                                                 _page_zone_map.max_value);
     }
     if (_page_zone_map.has_null) {
         _segment_zone_map.has_null = true;

@@ -287,7 +287,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Round;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RoundBankers;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Rpad;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Rtrim;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.RunningDifference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Second;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondCeil;
@@ -1439,10 +1438,6 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitRtrim(Rtrim rtrim, C context) {
         return visitScalarFunction(rtrim, context);
-    }
-
-    default R visitRunningDifference(RunningDifference runningDifference, C context) {
-        return visitScalarFunction(runningDifference, context);
     }
 
     default R visitSecond(Second second, C context) {

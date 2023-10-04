@@ -195,7 +195,7 @@ TEST(CsvSerde, ScalaDataTypeSerdeCsvTest) {
 
             min_wf->set_to_min();
             max_wf->set_to_max();
-            rand_wf->from_string(pair.second, 0, 0);
+            EXPECT_EQ(rand_wf->from_string(pair.second, 0, 0).ok(), true);
 
             string min_s = min_wf->to_string();
             string max_s = max_wf->to_string();
@@ -251,7 +251,7 @@ TEST(CsvSerde, ScalaDataTypeSerdeCsvTest) {
         std::unique_ptr<WrapperField> rand_wf(
                 WrapperField::create_by_type(FieldType::OLAP_FIELD_TYPE_STRING));
         std::string test_str = generate(128);
-        rand_wf->from_string(test_str, 0, 0);
+        EXPECT_EQ(rand_wf->from_string(test_str, 0, 0).ok(), true);
         Field string_field(test_str);
         ColumnPtr col = nullable_ptr->create_column_const(0, string_field);
         DataTypeSerDe::FormatOptions default_format_option;

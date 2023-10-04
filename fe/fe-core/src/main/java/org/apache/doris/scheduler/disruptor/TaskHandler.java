@@ -125,7 +125,7 @@ public class TaskHandler implements WorkHandler<TaskEvent> {
             jobTask.setIsSuccessful(result.isSuccess());
             if (!result.isSuccess()) {
                 log.warn("Job execute failed, jobId: {}, msg : {}", jobId, result.getExecutorSql());
-                jobTask.setErrorMsg(result.getExecutorSql());
+                jobTask.setErrorMsg(result.getErrorMsg());
                 timerJobManager.pauseJob(jobId);
             }
             jobTask.setExecuteSql(result.getExecutorSql());

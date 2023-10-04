@@ -199,7 +199,8 @@ Status ExecNode::close(RuntimeState* state) {
                   << " already closed";
         return Status::OK();
     }
-    LOG(INFO) << "fragment_instance_id=" << print_id(state->fragment_instance_id()) << " closed";
+    LOG(INFO) << "fragment_instance_id=" << print_id(state->fragment_instance_id()) << ", "
+              << " id=" << _id << " type=" << print_plan_node_type(_type) << " closed";
     _is_closed = true;
 
     Status result;

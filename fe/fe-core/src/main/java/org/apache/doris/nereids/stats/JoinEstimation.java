@@ -142,7 +142,7 @@ public class JoinEstimation {
                 outputRowCount = Math.max(1, outputRowCount * ratio.get());
             }
         }
-        innerJoinStats = crossJoinStats.updateRowCountOnly(outputRowCount);
+        innerJoinStats = crossJoinStats.updateRowCountAndColStats(outputRowCount);
         return innerJoinStats;
     }
 

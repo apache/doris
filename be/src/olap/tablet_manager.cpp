@@ -181,7 +181,7 @@ Status TabletManager::_add_tablet_unlocked(TTabletId tablet_id, const TabletShar
         res = _add_tablet_to_map_unlocked(tablet_id, tablet, update_meta, keep_files,
                                           true /*drop_old*/, profile);
     } else {
-        tablet->set_tablet_state(TABLET_SHUTDOWN);
+        static_cast<void>(tablet->set_tablet_state(TABLET_SHUTDOWN));
         tablet->save_meta();
         COUNTER_UPDATE(ADD_CHILD_TIMER(profile, "SaveMeta", "AddTablet"),
                        static_cast<int64_t>(watch.reset()));
@@ -402,7 +402,7 @@ TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
             // if this is a new alter tablet, has to set its state to not ready
             // because schema change handler depends on it to check whether history data
             // convert finished
-            tablet->set_tablet_state(TabletState::TABLET_NOTREADY);
+            static_cast<void>(tablet->set_tablet_state(TabletState::TABLET_NOTREADY));
         }
         // Add tablet to StorageEngine will make it visible to user
         // Will persist tablet meta
@@ -439,7 +439,7 @@ TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
         }
     } else {
         tablet->delete_all_files();
-        TabletMetaManager::remove(data_dir, new_tablet_id, new_schema_hash);
+        static_cast<void>(TabletMetaManager::remove(data_dir, new_tablet_id, new_schema_hash));
         COUNTER_UPDATE(ADD_CHILD_TIMER(profile, "RemoveTabletFiles", parent_timer_name),
                        static_cast<int64_t>(watch.reset()));
     }
@@ -572,7 +572,7 @@ Status TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, TReplicaId repl
         // If update meta directly here, other thread may override the meta
         // and the tablet will be loaded at restart time.
         // To avoid this exception, we first set the state of the tablet to `SHUTDOWN`.
-        to_drop_tablet->set_tablet_state(TABLET_SHUTDOWN);
+        static_cast<void>(to_drop_tablet->set_tablet_state(TABLET_SHUTDOWN));
         // We must record unused remote rowsets path info to OlapMeta before tablet state is marked as TABLET_SHUTDOWN in OlapMeta,
         // otherwise if BE shutdown after saving tablet state, these remote rowsets path info will lost.
         if (is_drop_table_or_partition) {
@@ -980,7 +980,7 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
     // should change tablet uid when tablet object changed
     tablet_meta->set_tablet_uid(std::move(tablet_uid));
     std::string meta_binary;
-    tablet_meta->serialize(&meta_binary);
+    static_cast<void>(tablet_meta->serialize(&meta_binary));
     RETURN_NOT_OK_STATUS_WITH_WARN(
             load_tablet_from_meta(store, tablet_id, schema_hash, meta_binary, true, force, restore,
                                   true),
@@ -1099,7 +1099,7 @@ Status TabletManager::start_trash_sweep() {
                 if (exists) {
                     // take snapshot of tablet meta
                     auto meta_file_path = fmt::format("{}/{}.hdr", tablet_path, (*it)->tablet_id());
-                    (*it)->tablet_meta()->save(meta_file_path);
+                    static_cast<void>((*it)->tablet_meta()->save(meta_file_path));
                     LOG(INFO) << "start to move tablet to trash. " << tablet_path;
                     Status rm_st = (*it)->data_dir()->move_to_trash(tablet_path);
                     if (!rm_st.ok()) {
@@ -1109,8 +1109,8 @@ Status TabletManager::start_trash_sweep() {
                     }
                 }
                 // remove tablet meta
-                TabletMetaManager::remove((*it)->data_dir(), (*it)->tablet_id(),
-                                          (*it)->schema_hash());
+                static_cast<void>(TabletMetaManager::remove((*it)->data_dir(), (*it)->tablet_id(),
+                                                            (*it)->schema_hash()));
                 LOG(INFO) << "successfully move tablet to trash. "
                           << "tablet_id=" << (*it)->tablet_id()
                           << ", schema_hash=" << (*it)->schema_hash()
@@ -1476,7 +1476,7 @@ std::set<int64_t> TabletManager::check_all_tablet_segment(bool repair) {
                 LOG(WARNING) << "Bad tablet has be removed. tablet_id=" << tablet_id;
             } else {
                 const auto& tablet = it->second;
-                tablet->set_tablet_state(TABLET_SHUTDOWN);
+                static_cast<void>(tablet->set_tablet_state(TABLET_SHUTDOWN));
                 tablet->save_meta();
                 {
                     std::lock_guard<std::shared_mutex> shutdown_tablets_wrlock(

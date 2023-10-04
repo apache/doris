@@ -79,7 +79,7 @@ Status AggDependency::reset_hash_table() {
 
                 hash_table.for_each_mapped([&](auto& mapped) {
                     if (mapped) {
-                        destroy_agg_status(mapped);
+                        static_cast<void>(destroy_agg_status(mapped));
                         mapped = nullptr;
                     }
                 });

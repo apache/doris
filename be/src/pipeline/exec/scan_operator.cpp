@@ -19,9 +19,12 @@
 
 #include <fmt/format.h>
 
+#include <cstdint>
 #include <memory>
 
 #include "pipeline/exec/es_scan_operator.h"
+#include "pipeline/exec/file_scan_operator.h"
+#include "pipeline/exec/jdbc_scan_operator.h"
 #include "pipeline/exec/meta_scan_operator.h"
 #include "pipeline/exec/olap_scan_operator.h"
 #include "pipeline/exec/operator.h"
@@ -171,9 +174,8 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
     RETURN_IF_ERROR(_acquire_runtime_filter());
     RETURN_IF_ERROR(_process_conjuncts());
 
-    auto status = _eos_dependency->read_blocked_by() == nullptr
-                          ? Status::OK()
-                          : _prepare_scanners(state->query_parallel_instance_num());
+    auto status =
+            _eos_dependency->read_blocked_by() == nullptr ? Status::OK() : _prepare_scanners();
     if (_scanner_ctx) {
         DCHECK(_eos_dependency->read_blocked_by() != nullptr && _num_scanners->value() > 0);
         RETURN_IF_ERROR(_scanner_ctx->init());
@@ -368,8 +370,9 @@ Status ScanLocalState<Derived>::_normalize_predicate(
 
             if (pdt == vectorized::VScanNode::PushDownType::UNACCEPTABLE &&
                 TExprNodeType::COMPOUND_PRED == cur_expr->node_type()) {
-                _normalize_compound_predicate(cur_expr, context, &pdt, _is_runtime_filter_predicate,
-                                              in_predicate_checker, eq_predicate_checker);
+                static_cast<void>(_normalize_compound_predicate(
+                        cur_expr, context, &pdt, _is_runtime_filter_predicate, in_predicate_checker,
+                        eq_predicate_checker));
                 output_expr = conjunct_expr_root; // remaining in conjunct tree
                 return Status::OK();
             }
@@ -1006,8 +1009,8 @@ Status ScanLocalState<Derived>::_normalize_compound_predicate(
                                     value_range.mark_runtime_filter_predicate(
                                             _is_runtime_filter_predicate);
                                 }};
-                                _normalize_binary_in_compound_predicate(child_expr, expr_ctx, slot,
-                                                                        value_range, pdt);
+                                static_cast<void>(_normalize_binary_in_compound_predicate(
+                                        child_expr, expr_ctx, slot, value_range, pdt));
                             },
                             active_range);
 
@@ -1028,17 +1031,17 @@ Status ScanLocalState<Derived>::_normalize_compound_predicate(
                                     value_range.mark_runtime_filter_predicate(
                                             _is_runtime_filter_predicate);
                                 }};
-                                _normalize_match_in_compound_predicate(child_expr, expr_ctx, slot,
-                                                                       value_range, pdt);
+                                static_cast<void>(_normalize_match_in_compound_predicate(
+                                        child_expr, expr_ctx, slot, value_range, pdt));
                             },
                             active_range);
 
                     _compound_value_ranges.emplace_back(active_range);
                 }
             } else if (TExprNodeType::COMPOUND_PRED == child_expr->node_type()) {
-                _normalize_compound_predicate(child_expr, expr_ctx, pdt,
-                                              _is_runtime_filter_predicate, in_predicate_checker,
-                                              eq_predicate_checker);
+                static_cast<void>(_normalize_compound_predicate(
+                        child_expr, expr_ctx, pdt, _is_runtime_filter_predicate,
+                        in_predicate_checker, eq_predicate_checker));
             }
         }
     }
@@ -1162,21 +1165,21 @@ Status ScanLocalState<Derived>::_normalize_match_predicate(
 }
 
 template <typename Derived>
-Status ScanLocalState<Derived>::_prepare_scanners(const int query_parallel_instance_num) {
+Status ScanLocalState<Derived>::_prepare_scanners() {
     std::list<vectorized::VScannerSPtr> scanners;
     RETURN_IF_ERROR(_init_scanners(&scanners));
     if (scanners.empty()) {
         _eos_dependency->set_ready_for_read();
     } else {
         COUNTER_SET(_num_scanners, static_cast<int64_t>(scanners.size()));
-        RETURN_IF_ERROR(_start_scanners(scanners, query_parallel_instance_num));
+        RETURN_IF_ERROR(_start_scanners(scanners));
     }
     return Status::OK();
 }
 
 template <typename Derived>
-Status ScanLocalState<Derived>::_start_scanners(const std::list<vectorized::VScannerSPtr>& scanners,
-                                                const int query_parallel_instance_num) {
+Status ScanLocalState<Derived>::_start_scanners(
+        const std::list<vectorized::VScannerSPtr>& scanners) {
     auto& p = _parent->cast<typename Derived::Parent>();
     _scanner_ctx = PipScannerContext::create_shared(state(), this, p._output_tuple_desc, scanners,
                                                     p.limit(), state()->scan_queue_mem_limit(),
@@ -1202,6 +1205,11 @@ const TupleDescriptor* ScanLocalState<Derived>::output_tuple_desc() const {
 template <typename Derived>
 TPushAggOp::type ScanLocalState<Derived>::get_push_down_agg_type() {
     return _parent->cast<typename Derived::Parent>()._push_down_agg_type;
+}
+
+template <typename Derived>
+int64_t ScanLocalState<Derived>::get_push_down_count() {
+    return _parent->cast<typename Derived::Parent>()._push_down_count;
 }
 
 template <typename Derived>
@@ -1270,6 +1278,9 @@ ScanOperatorX<LocalStateType>::ScanOperatorX(ObjectPool* pool, const TPlanNode& 
         if (tnode.limit > 0 && tnode.limit < 1024) {
             _should_run_serial = true;
         }
+    }
+    if (tnode.__isset.push_down_count) {
+        _push_down_count = tnode.push_down_count;
     }
 }
 
@@ -1434,6 +1445,10 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
 
 template class ScanOperatorX<OlapScanLocalState>;
 template class ScanLocalState<OlapScanLocalState>;
+template class ScanOperatorX<JDBCScanLocalState>;
+template class ScanLocalState<JDBCScanLocalState>;
+template class ScanOperatorX<FileScanLocalState>;
+template class ScanLocalState<FileScanLocalState>;
 template class ScanOperatorX<EsScanLocalState>;
 template class ScanLocalState<EsScanLocalState>;
 template class ScanLocalState<MetaScanLocalState>;

@@ -266,7 +266,8 @@ public class EsRestClient {
                 if (response.isSuccessful()) {
                     return response.body().string();
                 } else {
-                    LOG.warn("request response code: {}, body: {}", response.code(), response.body().string());
+                    LOG.warn("request response code: {}, body: {}", response.code(), response.message());
+                    scratchExceptionForThrow = new DorisEsException(response.message());
                 }
             } catch (IOException e) {
                 LOG.warn("request node [{}] [{}] failures {}, try next nodes", currentNode, path, e);

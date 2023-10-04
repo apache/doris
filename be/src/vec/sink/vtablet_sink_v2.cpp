@@ -344,7 +344,7 @@ Status VOlapTableSinkV2::_write_memtable(std::shared_ptr<vectorized::Block> bloc
             }
         }
         DeltaWriterV2* delta_writer = nullptr;
-        DeltaWriterV2::open(&req, streams, &delta_writer, _profile);
+        static_cast<void>(DeltaWriterV2::open(&req, streams, &delta_writer, _profile));
         return delta_writer;
     });
     {
@@ -388,7 +388,7 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
         {
             SCOPED_TIMER(_close_writer_timer);
             // close all delta writers if this is the last user
-            _delta_writer_for_tablet->close();
+            static_cast<void>(_delta_writer_for_tablet->close());
             _delta_writer_for_tablet.reset();
         }
 
@@ -403,7 +403,7 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
             SCOPED_TIMER(_close_load_timer);
             for (const auto& [_, streams] : _streams_for_node) {
                 for (const auto& stream : *streams) {
-                    stream->close_wait();
+                    static_cast<void>(stream->close_wait());
                 }
             }
         }
@@ -436,11 +436,11 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
         LOG(INFO) << "finished to close olap table sink. load_id=" << print_id(_load_id)
                   << ", txn_id=" << _txn_id;
     } else {
-        _cancel(status);
+        static_cast<void>(_cancel(status));
     }
 
     _close_status = status;
-    DataSink::close(state, exec_status);
+    static_cast<void>(DataSink::close(state, exec_status));
     return status;
 }
 
