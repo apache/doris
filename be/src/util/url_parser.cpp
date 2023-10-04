@@ -118,7 +118,7 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
         StringRef host_start = protocol_end.substring(start_pos);
         // Find first '?'.
         int32_t query_start_pos = _s_question_search.search(&host_start);
-        if(query_start_pos > 0){
+        if (query_start_pos > 0) {
             host_start = host_start.substring(0, query_start_pos);
         }
         // Find ':' to strip out port.
