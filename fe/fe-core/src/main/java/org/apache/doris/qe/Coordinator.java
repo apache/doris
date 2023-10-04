@@ -380,11 +380,12 @@ public class Coordinator implements CoordInterface {
             this.queryOptions.setResourceLimit(resourceLimit);
         }
         // set exec mem limit
-        long memLimit = Env.getCurrentEnv().getAuth().getExecMemLimit(qualifiedUser);
+        long maxExecMemByte = connectContext.getSessionVariable().getMaxExecMemByte();
+        long memLimit = maxExecMemByte >0 ? maxExecMemByte: Env.getCurrentEnv().getAuth().getExecMemLimit(qualifiedUser);
         if (memLimit > 0) {
             // overwrite the exec_mem_limit from session variable;
             this.queryOptions.setMemLimit(memLimit);
-            this.queryOptions.setMaxReservation(memLimit);
+e            this.queryOptions.setMaxReservation(memLimit);
             this.queryOptions.setInitialReservationTotalClaims(memLimit);
             this.queryOptions.setBufferPoolLimit(memLimit);
         }
