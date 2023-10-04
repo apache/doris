@@ -385,7 +385,7 @@ public class Coordinator implements CoordInterface {
         if (memLimit > 0) {
             // overwrite the exec_mem_limit from session variable;
             this.queryOptions.setMemLimit(memLimit);
-e            this.queryOptions.setMaxReservation(memLimit);
+            this.queryOptions.setMaxReservation(memLimit);
             this.queryOptions.setInitialReservationTotalClaims(memLimit);
             this.queryOptions.setBufferPoolLimit(memLimit);
         }
