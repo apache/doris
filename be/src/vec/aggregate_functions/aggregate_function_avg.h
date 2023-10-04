@@ -135,6 +135,9 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
+#ifdef __clang__
+#pragma clang fp reassociate(on)
+#endif
         const auto& column = assert_cast<const ColVecType&>(*columns[0]);
         if constexpr (IsDecimalNumber<T>) {
             this->data(place).sum += column.get_data()[row_num].value;
