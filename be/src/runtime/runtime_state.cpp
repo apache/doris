@@ -305,6 +305,13 @@ void RuntimeState::get_unreported_errors(std::vector<std::string>* new_errors) {
     }
 }
 
+Status RuntimeState::query_status() {
+    auto st = _query_ctx->exec_status();
+    RETURN_IF_ERROR(st);
+    std::lock_guard<std::mutex> l(_process_status_lock);
+    return _process_status;
+}
+
 bool RuntimeState::is_cancelled() const {
     return _is_cancelled.load() || (_query_ctx && _query_ctx->is_cancelled());
 }

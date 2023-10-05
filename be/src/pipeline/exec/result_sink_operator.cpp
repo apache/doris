@@ -181,7 +181,7 @@ Status ResultSinkLocalState::close(RuntimeState* state, Status exec_status) {
     COUNTER_UPDATE(profile()->total_time_counter(),
                    _cancel_dependency->write_watcher_elapse_time());
     SCOPED_TIMER(profile()->total_time_counter());
-    Status final_status = Status::OK();
+    Status final_status = exec_status;
     if (_writer) {
         // close the writer
         Status st = _writer->close();
