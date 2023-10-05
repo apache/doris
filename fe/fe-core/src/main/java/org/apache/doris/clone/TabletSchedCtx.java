@@ -1225,7 +1225,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         }
 
         if (tabletStatus == TabletStatus.NEED_FURTHER_REPAIR) {
-            value -= 30 * 60 * 1000L;  // 30 min
+            value -= 3600 * 1000L;  // 1 hour
         }
 
         return value;
