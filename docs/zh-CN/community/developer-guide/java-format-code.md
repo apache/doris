@@ -46,7 +46,8 @@ standard java package
 
 通过 mvn spotless:check 检查项目代码时发现错误，接着使用 mvn spotless:apply 进行代码格式化；再次检查时，格式化错误消失。
 
-
+提示：我们使用增量代码格式，spotless 仅适用于自“origin/master”以来已更改的文件。如果提示“No such reference”错误，请在调用 Spotless 之前调用“git fetch origin master”。
+请参考 [how-can-i-enforce-formatting-gradually-aka-ratchet](https://github.com/diffplug/spotless/tree/main/plugin-maven#how-can-i-enforce-formatting-gradually-aka-ratchet)。
 
 ## Remove unused header
 
