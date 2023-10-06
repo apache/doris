@@ -39,7 +39,6 @@ import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.collect.Sets;
-import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
