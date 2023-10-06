@@ -1221,7 +1221,11 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
         // repair tasks always prior than balance
         if (type == Type.BALANCE) {
-            value += 10 * 24 * 3600L;
+            value += 5 * 3600 * 1000L;  // 5 hour
+        }
+
+        if (tabletStatus == TabletStatus.NEED_FURTHER_REPAIR) {
+            value -= 3600 * 1000L;  // 1 hour
         }
 
         return value;
