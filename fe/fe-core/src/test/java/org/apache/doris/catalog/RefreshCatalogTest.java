@@ -88,8 +88,8 @@ public class RefreshCatalogTest extends TestWithFeService {
         long l3 = test1.getLastUpdateTime();
         Assertions.assertTrue(l3 == l2);
         Assertions.assertTrue(table.isObjectCreated());
-        test1.getDbNullable("db1").getTables();
-        Assertions.assertFalse(table.isObjectCreated());
+        TestExternalTable table1 = (TestExternalTable) test1.getDbNullable("db1").getTableNullable("tbl11");
+        Assertions.assertFalse(table1.isObjectCreated());
         try {
             DdlExecutor.execute(Env.getCurrentEnv(), refreshCatalogStmt);
         } catch (Exception e) {
