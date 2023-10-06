@@ -87,9 +87,7 @@ public abstract class ExternalCatalog
     // save properties of this catalog, such as hive meta store url.
     @SerializedName(value = "catalogProperty")
     protected CatalogProperty catalogProperty;
-    @SerializedName(value = "initialized")
     private boolean initialized = false;
-    @SerializedName(value = "idToDb")
     protected Map<Long, ExternalDatabase<? extends ExternalTable>> idToDb = Maps.newConcurrentMap();
     @SerializedName(value = "lastUpdateTime")
     protected long lastUpdateTime;
@@ -244,19 +242,10 @@ public abstract class ExternalCatalog
             if (!includeDatabaseMap.isEmpty() && !includeDatabaseMap.containsKey(dbName)) {
                 continue;
             }
-            long dbId;
-            if (dbNameToId != null && dbNameToId.containsKey(dbName)) {
-                dbId = dbNameToId.get(dbName);
-                tmpDbNameToId.put(dbName, dbId);
-                ExternalDatabase<? extends ExternalTable> db = idToDb.get(dbId);
-                db.setUnInitialized(invalidCacheInInit);
-                tmpIdToDb.put(dbId, db);
-            } else {
-                dbId = Env.getCurrentEnv().getNextExtCtlId();
-                tmpDbNameToId.put(dbName, dbId);
-                ExternalDatabase<? extends ExternalTable> db = getDbForInit(dbName, dbId, logType);
-                tmpIdToDb.put(dbId, db);
-            }
+            long dbId = Env.getCurrentEnv().getNextExtCtlId();
+            tmpDbNameToId.put(dbName, dbId);
+            ExternalDatabase<? extends ExternalTable> db = getDbForInit(dbName, dbId, logType);
+            tmpIdToDb.put(dbId, db);
         }
         dbNameToId = tmpDbNameToId;
         idToDb = tmpIdToDb;

@@ -140,9 +140,8 @@ public class MetastoreEventsProcessor extends MasterDaemon {
             CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
             if (catalog instanceof HMSExternalCatalog) {
                 HMSExternalCatalog hmsExternalCatalog = (HMSExternalCatalog) catalog;
-                List<NotificationEvent> events = Collections.emptyList();
                 try {
-                    events = getNextHMSEvents(hmsExternalCatalog);
+                    List<NotificationEvent> events = getNextHMSEvents(hmsExternalCatalog);
                     if (!events.isEmpty()) {
                         LOG.info("Events size are {} on catalog [{}]", events.size(),
                                 hmsExternalCatalog.getName());

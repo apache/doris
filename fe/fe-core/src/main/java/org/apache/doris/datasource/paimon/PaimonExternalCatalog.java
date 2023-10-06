@@ -53,11 +53,6 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
         super(catalogId, name, InitCatalogLog.Type.PAIMON, comment);
     }
 
-    @Override
-    protected void init() {
-        super.init();
-    }
-
     public Catalog getCatalog() {
         makeSureInitialized();
         return catalog;
