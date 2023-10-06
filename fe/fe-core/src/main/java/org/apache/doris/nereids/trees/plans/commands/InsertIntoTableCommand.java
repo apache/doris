@@ -45,10 +45,13 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.txn.Transaction;
 import org.apache.doris.planner.OlapTableSink;
+import org.apache.doris.planner.external.TVFScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TTxnParams;
+import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.base.Preconditions;
@@ -166,7 +169,18 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         state.addTableIndexes(physicalOlapTableSink.getTargetTable());
 
         executor.setProfileType(ProfileType.LOAD);
-
+        if (ctx.getTxnEntry() == null) {
+            TransactionEntry transactionEntry = new TransactionEntry(new TTxnParams().setTxnId(txn.getTxnId()),
+                    physicalOlapTableSink.getDatabase(), physicalOlapTableSink.getTargetTable());
+            transactionEntry.setLabel(label);
+            ctx.setTxnEntry(transactionEntry);
+        }
+        executor.setPlanner(planner);
+        TVFScanNode planRoot = (TVFScanNode) planner.getFragments().get(0).getPlanRoot();
+        if ("HttpStreamTableValuedFunction".equals(planRoot.getTvfName())) {
+            LOG.info("exec http_stream by nereids, query id: {}, txn id: {}", ctx.queryId(), txn.getTxnId());
+            return;
+        }
         LOG.info("Nereids start to execute the insert command, query id: {}, txn id: {}",
                 ctx.queryId(), txn.getTxnId());
 

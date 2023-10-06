@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.nereids.trees.expressions.functions.table.Hdfs;
+import org.apache.doris.nereids.trees.expressions.functions.table.HttpStream;
 import org.apache.doris.nereids.trees.expressions.functions.table.Local;
 import org.apache.doris.nereids.trees.expressions.functions.table.Numbers;
 import org.apache.doris.nereids.trees.expressions.functions.table.S3;
@@ -35,7 +36,8 @@ public class BuiltinTableValuedFunctions implements FunctionHelper {
             tableValued(Numbers.class, "numbers"),
             tableValued(Hdfs.class, "hdfs"),
             tableValued(S3.class, "s3"),
-            tableValued(Local.class, "local")
+            tableValued(Local.class, "local"),
+            tableValued(HttpStream.class, "http_stream")
     );
 
     public static final BuiltinTableValuedFunctions INSTANCE = new BuiltinTableValuedFunctions();

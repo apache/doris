@@ -2735,6 +2735,36 @@ public class StmtExecutor {
         return resultRows;
     }
 
+    public void genPlan(TUniqueId queryId) throws Exception {
+        try {
+            executeByNereids(queryId);
+        } catch (NereidsException | ParseException e) {
+            if (context.getMinidump() != null) {
+                MinidumpUtils.saveMinidumpString(context.getMinidump(), DebugUtil.printId(context.queryId()));
+            }
+            // try to fall back to legacy planner
+            LOG.debug("nereids cannot process statement\n" + originStmt.originStmt
+                    + "\n because of " + e.getMessage(), e);
+            if (e instanceof NereidsException && !context.getSessionVariable().enableFallbackToOriginalPlanner) {
+                LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
+                throw ((NereidsException) e).getException();
+            }
+            LOG.debug("fall back to legacy planner on statement:\n{}", originStmt.originStmt);
+            // Due to executing Nereids, it needs to be reset
+            parsedStmt = null;
+            planner = null;
+            context.getState().setNereids(false);
+            context.setTxnEntry(null);
+            context.setQueryId(queryId);
+            context.setStartTime();
+            profile.getSummaryProfile().setQueryBeginTime();
+            context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
+            analyze(context.getSessionVariable().toThrift());
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     public SummaryProfile getSummaryProfile() {
         return profile.getSummaryProfile();
     }

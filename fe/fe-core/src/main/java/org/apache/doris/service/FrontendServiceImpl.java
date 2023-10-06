@@ -24,12 +24,9 @@ import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.LabelName;
-import org.apache.doris.analysis.NativeInsertStmt;
 import org.apache.doris.analysis.PartitionExprUtil;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.SetType;
-import org.apache.doris.analysis.SqlParser;
-import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TypeDef;
@@ -69,7 +66,6 @@ import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.annotation.LogException;
-import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.cooldown.CooldownDelete;
 import org.apache.doris.datasource.CatalogIf;
@@ -87,7 +83,6 @@ import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.qe.MasterCatalogExecutor;
-import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
@@ -174,7 +169,6 @@ import org.apache.doris.thrift.TPrivilegeCtrl;
 import org.apache.doris.thrift.TPrivilegeHier;
 import org.apache.doris.thrift.TPrivilegeStatus;
 import org.apache.doris.thrift.TPrivilegeType;
-import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryStatsResult;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TReplicaInfo;
@@ -224,7 +218,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
-import java.io.StringReader;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
@@ -2031,11 +2024,35 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
+    private TExecPlanFragmentParams initHttpStreamPlan(TStreamLoadPutRequest request, ConnectContext ctx)
+            throws UserException {
+        String originStmt = request.getLoadSql();
+
+        TExecPlanFragmentParams plan;
+        try {
+            StmtExecutor executor = new StmtExecutor(ctx, originStmt);
+            executor.genPlan(ctx.queryId());
+
+            ctx.setExecutor(executor);
+            Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
+            Coordinator coord = new Coordinator(ctx, analyzer, executor.planner());
+            coord.setLoadMemLimit(request.getExecMemLimit());
+            coord.setQueryType(TQueryType.LOAD);
+
+            plan = coord.getStreamLoadPlan();
+        } catch (UserException e) {
+            LOG.warn("exec sql error", e);
+            throw new UserException("exec sql error" + e);
+        } catch (Throwable e) {
+            LOG.warn("exec sql error catch unknown result.", e);
+            throw new UserException("exec sql error catch unknown result." + e);
+        }
+        return plan;
+    }
 
     private void httpStreamPutImpl(TStreamLoadPutRequest request, TStreamLoadPutResult result)
             throws UserException {
         LOG.info("receive http stream put request");
-        String originStmt = request.getLoadSql();
         String cluster = request.getCluster();
         if (Strings.isNullOrEmpty(cluster)) {
             cluster = SystemInfoService.DEFAULT_CLUSTER;
@@ -2047,51 +2064,41 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTbl(),
                     request.getUserIp(), PrivPredicate.LOAD);
         }
+        ctx.setThreadLocalInfo();
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setQueryId(request.getLoadId());
         ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
         ctx.setCurrentUserIdentity(UserIdentity.ROOT);
         ctx.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
         ctx.setBackendId(request.getBackendId());
-        ctx.setThreadLocalInfo();
-        SqlScanner input = new SqlScanner(new StringReader(originStmt), ctx.getSessionVariable().getSqlMode());
-        SqlParser parser = new SqlParser(input);
+
         try {
-            NativeInsertStmt parsedStmt = (NativeInsertStmt) SqlParserUtils.getFirstStmt(parser);
-            parsedStmt.setOrigStmt(new OriginStatement(originStmt, 0));
-            parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
-            if (request.isGroupCommit() && parsedStmt.getLabel() != null) {
+            TExecPlanFragmentParams plan = initHttpStreamPlan(request, ctx);
+            if (request.isGroupCommit() && ctx.getTxnEntry().getLabel() != null) {
                 throw new AnalysisException("label and group_commit can't be set at the same time");
             }
-            StmtExecutor executor = new StmtExecutor(ctx, parsedStmt);
-            ctx.setExecutor(executor);
-            TQueryOptions tQueryOptions = ctx.getSessionVariable().toThrift();
-            executor.analyze(tQueryOptions);
-            Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
-            Coordinator coord = new Coordinator(ctx, analyzer, executor.planner());
-            coord.setLoadMemLimit(request.getExecMemLimit());
-            coord.setQueryType(TQueryType.LOAD);
-
-            TExecPlanFragmentParams plan = coord.getStreamLoadPlan();
-            final long txn_id = parsedStmt.getTransactionId();
+            final long txn_id = ctx.getTxnEntry().getTxnConf().getTxnId();
             result.setParams(plan);
-            result.getParams().setDbName(parsedStmt.getDbName());
-            result.getParams().setTableName(parsedStmt.getTbl());
-            // The txn_id here is obtained from the NativeInsertStmt
+            result.getParams().setDbName(ctx.getTxnEntry().getDb().getFullName());
+            result.getParams().setTableName(ctx.getTxnEntry().getTable().getName());
+            // The txn_id here is obtained from the InsertStmt
             result.getParams().setTxnConf(new TTxnParams().setTxnId(txn_id));
-            result.getParams().setImportLabel(parsedStmt.getLabel());
-            if (parsedStmt.isGroupCommitTvf) {
-                result.getParams().params.setGroupCommit(true);
-            }
-            result.setDbId(parsedStmt.getTargetTable().getDatabase().getId());
-            result.setTableId(parsedStmt.getTargetTable().getId());
-            result.setBaseSchemaVersion(((OlapTable) parsedStmt.getTargetTable()).getBaseSchemaVersion());
+            result.getParams().setImportLabel(ctx.getTxnEntry().getLabel());
+            // TODO Due to the support for Nereids, this judgment should not be made here
+            // if (parsedStmt.isGroupCommitTvf) {
+            //    result.getParams().params.setGroupCommit(true);
+            // }
+            result.setDbId(ctx.getTxnEntry().getDb().getId());
+            result.setTableId(ctx.getTxnEntry().getTable().getId());
+            result.setBaseSchemaVersion(((OlapTable) ctx.getTxnEntry().getTable()).getBaseSchemaVersion());
         } catch (UserException e) {
             LOG.warn("exec sql error", e);
             throw new UserException("exec sql error" + e);
         } catch (Throwable e) {
             LOG.warn("exec sql error catch unknown result.", e);
             throw new UserException("exec sql error catch unknown result." + e);
+        } finally {
+            ConnectContext.remove();
         }
     }
 

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.visitor;
 
 import org.apache.doris.nereids.trees.expressions.functions.table.Hdfs;
+import org.apache.doris.nereids.trees.expressions.functions.table.HttpStream;
 import org.apache.doris.nereids.trees.expressions.functions.table.Local;
 import org.apache.doris.nereids.trees.expressions.functions.table.Numbers;
 import org.apache.doris.nereids.trees.expressions.functions.table.S3;
@@ -33,6 +34,10 @@ public interface TableValuedFunctionVisitor<R, C> {
 
     default R visitHdfs(Hdfs hdfs, C context) {
         return visitTableValuedFunction(hdfs, context);
+    }
+
+    default R visitHttpStream(HttpStream httpStream, C context) {
+        return visitTableValuedFunction(httpStream, context);
     }
 
     default R visitLocal(Local local, C context) {
