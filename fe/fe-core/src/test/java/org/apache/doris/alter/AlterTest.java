@@ -695,11 +695,6 @@ public class AlterTest {
         alterTable(stmt, true);
         Assert.assertEquals(oldDataProperty, tblRemote.getPartitionInfo().getDataProperty(p1.getId()));
 
-        // Make the partition visible so alter policy would check if it's legal
-        for (Partition partition : partitionList) {
-            partition.setVisibleVersion(2L);
-        }
-
         // alter remote_storage to one another one which points to another resource
         stmt = "alter table test.tbl_remote modify partition (p2, p3, p4) set ('storage_policy' = 'testPolicyAnotherResource')";
         alterTable(stmt, true);
