@@ -2542,6 +2542,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                             storeRowColumn, binlogConfigForTask,
                             dataProperty.isStorageMediumSpecified());
                     olapTable.addPartition(partition);
+                    olapTable.getPartitionInfo().getDataProperty(partition.getId())
+                            .setStoragePolicy(partionStoragePolicy);
                 }
             } else {
                 throw new DdlException("Unsupported partition method: " + partitionInfo.getType().name());

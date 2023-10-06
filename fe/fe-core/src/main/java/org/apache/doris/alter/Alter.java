@@ -828,6 +828,7 @@ public class Alter {
                 // check currentStoragePolicy resource exist.
                 Env.getCurrentEnv().getPolicyMgr().checkStoragePolicyExist(currentStoragePolicy);
                 partitionInfo.setStoragePolicy(partition.getId(), currentStoragePolicy);
+                dataProperty.setStoragePolicy(currentStoragePolicy);
             }
 
             // 4.4 analyze new properties
