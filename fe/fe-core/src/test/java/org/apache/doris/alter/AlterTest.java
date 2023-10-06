@@ -726,7 +726,6 @@ public class AlterTest {
         DateLiteral dateLiteral = new DateLiteral("2100-05-09 00:00:00", Type.DATETIME);
         long cooldownTimeMs = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
         DataProperty oldDataPropertyWithPolicy = new DataProperty(TStorageMedium.SSD, cooldownTimeMs, "testPolicy");
-        DataProperty oldDataPropertyWithoutPolicy = new DataProperty(TStorageMedium.SSD);
         List<Partition> partitionList = Lists.newArrayList(p1, p3, p4);
         for (Partition partition : partitionList) {
             Assert.assertEquals(tblRemote.getPartitionInfo().getStoragePolicy(partition.getId()), "");
