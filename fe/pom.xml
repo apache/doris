@@ -95,10 +95,6 @@ under the License.
                 </executions>
             </plugin>
             <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-checkstyle-plugin</artifactId>
-            </plugin>
-            <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>license-maven-plugin</artifactId>
                 <version>2.0.0</version>
@@ -110,6 +106,50 @@ under the License.
                         </goals>
                     </execution>
                 </executions>
+            </plugin>
+            <plugin>
+                <groupId>com.diffplug.spotless</groupId>
+                <artifactId>spotless-maven-plugin</artifactId>
+                <version>2.35.0</version>
+                <configuration>
+                    <java>
+                        <eclipse>
+                            <!--suppress MavenModelInspection -->
+                            <file>${maven.multiModuleProjectDirectory}/check/spotless/spotless.xml</file>
+                        </eclipse>
+                        <licenseHeader>
+                            <!--suppress MavenModelInspection -->
+                            <file>${maven.multiModuleProjectDirectory}/check/spotless/copyright.txt</file>
+                        </licenseHeader>
+                    </java>
+                    <pom>
+                        <sortPom>
+                            <encoding>UTF-8</encoding>
+                            <nrOfIndentSpace>4</nrOfIndentSpace>
+                            <keepBlankLines>true</keepBlankLines>
+                            <indentBlankLines>true</indentBlankLines>
+                            <indentSchemaLocation>false</indentSchemaLocation>
+                            <spaceBeforeCloseEmptyElement>true</spaceBeforeCloseEmptyElement>
+                            <sortModules>false</sortModules>
+                            <sortExecutions>false</sortExecutions>
+                            <predefinedSortOrder>custom_1</predefinedSortOrder>
+                            <expandEmptyElements>false</expandEmptyElements>
+                            <sortProperties>false</sortProperties>
+                        </sortPom>
+                        <replace>
+                            <name>Leading blank line</name>
+                            <search>--&gt;
+                                &lt;project</search>
+                            <replacement>--&gt;
+
+                                &lt;project</replacement>
+                        </replace>
+                    </pom>
+                    <upToDateChecking>
+                        <enabled>true</enabled>
+                        <indexFile>${maven.multiModuleProjectDirectory}/check/spotless/custom-index-file</indexFile> <!-- optional, default is ${project.build.directory}/spotless-index -->
+                    </upToDateChecking>
+                </configuration>
             </plugin>
         </plugins>
         <pluginManagement>
@@ -135,40 +175,6 @@ under the License.
                             <phase>clean</phase>
                             <goals>
                                 <goal>clean</goal>
-                            </goals>
-                        </execution>
-                    </executions>
-                </plugin>
-                <plugin>
-                    <groupId>org.apache.maven.plugins</groupId>
-                    <artifactId>maven-checkstyle-plugin</artifactId>
-                    <version>3.1.2</version>
-                    <dependencies>
-                        <dependency>
-                            <groupId>com.puppycrawl.tools</groupId>
-                            <artifactId>checkstyle</artifactId>
-                            <version>9.3</version>
-                        </dependency>
-                    </dependencies>
-                    <configuration>
-                        <configLocation>check/checkstyle/checkstyle.xml</configLocation>
-                        <suppressionsLocation>check/checkstyle/suppressions.xml</suppressionsLocation>
-                        <encoding>UTF-8</encoding>
-                        <consoleOutput>true</consoleOutput>
-                        <failsOnError>true</failsOnError>
-                        <linkXRef>false</linkXRef>
-                        <includeTestSourceDirectory>true</includeTestSourceDirectory>
-                        <excludes>
-                            **/apache/doris/thrift/*,
-                            **/apache/parquet/**/*
-                        </excludes>
-                    </configuration>
-                    <executions>
-                        <execution>
-                            <id>validate</id>
-                            <phase>validate</phase>
-                            <goals>
-                                <goal>check</goal>
                             </goals>
                         </execution>
                     </executions>
@@ -1570,14 +1576,6 @@ under the License.
         </dependency>
 
     </dependencies>
-    <reporting>
-        <plugins>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-checkstyle-plugin</artifactId>
-            </plugin>
-        </plugins>
-    </reporting>
     <repositories>
         <!--todo waiting hive-catalog release-->
         <repository>

@@ -22,8 +22,8 @@ on:
   pull_request:
 
 jobs:
-  java-checkstyle:
-    name: "CheckStyle"
+  java-spotless:
+    name: "Spotless"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -48,8 +48,7 @@ jobs:
         with:
           maven-version: 3.8.4
 
-      - name: Run java checkstyle
+      - name: Run java spotless
         if: steps.filter.outputs.fe_changes == 'true'
         run:
-          cd fe && mvn clean checkstyle:check
-
+          cd fe && mvn clean spotless:check
