@@ -44,14 +44,22 @@ public class StatisticRange {
 
     private final DataType dataType;
 
+    private final boolean isEmpty;
+
     public StatisticRange(double low, LiteralExpr lowExpr, double high, LiteralExpr highExpr,
                           double distinctValues, DataType dataType) {
+        this(low, lowExpr, high, highExpr, distinctValues, dataType, false);
+    }
+
+    private StatisticRange(double low, LiteralExpr lowExpr, double high, LiteralExpr highExpr,
+                          double distinctValues, DataType dataType, boolean isEmpty) {
         this.low = low;
         this.lowExpr = lowExpr;
         this.high = high;
         this.highExpr = highExpr;
         this.distinctValues = distinctValues;
         this.dataType = dataType;
+        this.isEmpty = isEmpty;
     }
 
     public LiteralExpr getLowExpr() {
@@ -100,15 +108,24 @@ public class StatisticRange {
     }
 
     public static StatisticRange empty(DataType dataType) {
-        return new StatisticRange(Double.NaN, null, Double.NaN, null, 0, dataType);
+        return new StatisticRange(Double.NEGATIVE_INFINITY, null, Double.POSITIVE_INFINITY,
+                null, 0, dataType, true);
     }
 
     public boolean isEmpty() {
-        return Double.isNaN(low) && Double.isNaN(high);
+        return isEmpty;
     }
 
     public boolean isBothInfinite() {
         return Double.isInfinite(low) && Double.isInfinite(high);
+    }
+
+    public boolean isInfinite() {
+        return Double.isInfinite(low) || Double.isInfinite(high);
+    }
+
+    public boolean isFinite() {
+        return Double.isFinite(low) && Double.isFinite(high);
     }
 
     public static StatisticRange from(ColumnStatistic colStats, DataType dataType) {

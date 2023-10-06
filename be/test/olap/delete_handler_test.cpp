@@ -311,8 +311,8 @@ protected:
         // Remove all dir.
         tablet.reset();
         dup_tablet.reset();
-        StorageEngine::instance()->tablet_manager()->drop_tablet(_create_tablet.tablet_id,
-                                                                 _create_tablet.replica_id, false);
+        static_cast<void>(StorageEngine::instance()->tablet_manager()->drop_tablet(
+                _create_tablet.tablet_id, _create_tablet.replica_id, false));
         EXPECT_TRUE(
                 io::global_local_filesystem()->delete_directory(config::storage_root_path).ok());
     }
@@ -510,8 +510,8 @@ protected:
     void TearDown() {
         // Remove all dir.
         tablet.reset();
-        k_engine->tablet_manager()->drop_tablet(_create_tablet.tablet_id, _create_tablet.replica_id,
-                                                false);
+        static_cast<void>(k_engine->tablet_manager()->drop_tablet(
+                _create_tablet.tablet_id, _create_tablet.replica_id, false));
         EXPECT_TRUE(
                 io::global_local_filesystem()->delete_directory(config::storage_root_path).ok());
     }
@@ -881,8 +881,9 @@ protected:
         EXPECT_TRUE(tablet != nullptr);
         _tablet_path = tablet->tablet_path();
 
-        _data_row_cursor.init(tablet->tablet_schema());
-        _data_row_cursor.allocate_memory_for_string_type(tablet->tablet_schema());
+        static_cast<void>(_data_row_cursor.init(tablet->tablet_schema()));
+        static_cast<void>(
+                _data_row_cursor.allocate_memory_for_string_type(tablet->tablet_schema()));
         _json_rowset_meta = R"({
             "rowset_id": 540081,
             "tablet_id": 15673,
@@ -909,8 +910,8 @@ protected:
         // Remove all dir.
         tablet.reset();
         _delete_handler.finalize();
-        StorageEngine::instance()->tablet_manager()->drop_tablet(_create_tablet.tablet_id,
-                                                                 _create_tablet.replica_id, false);
+        static_cast<void>(StorageEngine::instance()->tablet_manager()->drop_tablet(
+                _create_tablet.tablet_id, _create_tablet.replica_id, false));
         EXPECT_TRUE(
                 io::global_local_filesystem()->delete_directory(config::storage_root_path).ok());
     }
@@ -934,7 +935,7 @@ protected:
         rsm->set_delete_predicate(del_pred);
         rsm->set_tablet_schema(tablet->tablet_schema());
         RowsetSharedPtr rowset = std::make_shared<BetaRowset>(tablet->tablet_schema(), "", rsm);
-        tablet->add_rowset(rowset);
+        static_cast<void>(tablet->add_rowset(rowset));
     }
 
     std::vector<RowsetMetaSharedPtr> get_delete_predicates() {

@@ -72,7 +72,7 @@ RoutineLoadTaskExecutor::RoutineLoadTaskExecutor(ExecEnv* exec_env)
         return _task_map.size();
     });
 
-    _data_consumer_pool.start_bg_worker();
+    static_cast<void>(_data_consumer_pool.start_bg_worker());
 }
 
 RoutineLoadTaskExecutor::~RoutineLoadTaskExecutor() {

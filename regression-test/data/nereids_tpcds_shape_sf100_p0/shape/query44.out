@@ -20,12 +20,13 @@ PhysicalResultSink
 ------------------------------PhysicalPartitionTopN
 --------------------------------PhysicalProject
 ----------------------------------NestedLoopJoin[INNER_JOIN](cast(rank_col as DOUBLE) > cast((0.9 * rank_col) as DOUBLE))
-------------------------------------hashAgg[GLOBAL]
---------------------------------------PhysicalDistribute
-----------------------------------------hashAgg[LOCAL]
-------------------------------------------PhysicalProject
---------------------------------------------filter((ss1.ss_store_sk = 146))
-----------------------------------------------PhysicalOlapScan[store_sales]
+------------------------------------PhysicalProject
+--------------------------------------hashAgg[GLOBAL]
+----------------------------------------PhysicalDistribute
+------------------------------------------hashAgg[LOCAL]
+--------------------------------------------PhysicalProject
+----------------------------------------------filter((ss1.ss_store_sk = 146))
+------------------------------------------------PhysicalOlapScan[store_sales]
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalAssertNumRows
 ----------------------------------------PhysicalDistribute
@@ -50,12 +51,13 @@ PhysicalResultSink
 ------------------------------PhysicalPartitionTopN
 --------------------------------PhysicalProject
 ----------------------------------NestedLoopJoin[INNER_JOIN](cast(rank_col as DOUBLE) > cast((0.9 * rank_col) as DOUBLE))
-------------------------------------hashAgg[GLOBAL]
---------------------------------------PhysicalDistribute
-----------------------------------------hashAgg[LOCAL]
-------------------------------------------PhysicalProject
---------------------------------------------filter((ss1.ss_store_sk = 146))
-----------------------------------------------PhysicalOlapScan[store_sales]
+------------------------------------PhysicalProject
+--------------------------------------hashAgg[GLOBAL]
+----------------------------------------PhysicalDistribute
+------------------------------------------hashAgg[LOCAL]
+--------------------------------------------PhysicalProject
+----------------------------------------------filter((ss1.ss_store_sk = 146))
+------------------------------------------------PhysicalOlapScan[store_sales]
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalAssertNumRows
 ----------------------------------------PhysicalDistribute
