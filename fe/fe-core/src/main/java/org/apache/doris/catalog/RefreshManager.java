@@ -132,7 +132,7 @@ public class RefreshManager {
         ((ExternalDatabase) db).setUnInitialized(invalidCache);
         ExternalObjectLog log = new ExternalObjectLog();
         log.setCatalogId(catalog.getId());
-        log.setDbId(db.getId());
+        log.setDbName(db.getFullName());
         log.setInvalidCache(invalidCache);
         Env.getCurrentEnv().getEditLog().logRefreshExternalDb(log);
     }

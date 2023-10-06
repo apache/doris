@@ -432,33 +432,6 @@ public abstract class ExternalCatalog
         Env.getCurrentEnv().getAccessManager().removeAccessController(name);
     }
 
-    public void replayInitCatalog(InitCatalogLog log) {
-        Map<String, Long> tmpDbNameToId = Maps.newConcurrentMap();
-        Map<Long,  ExternalDatabase<? extends ExternalTable>> tmpIdToDb = Maps.newConcurrentMap();
-        for (int i = 0; i < log.getRefreshCount(); i++) {
-            ExternalDatabase<? extends ExternalTable> db = getDbForReplay(log.getRefreshDbIds().get(i));
-            db.setUnInitialized(invalidCacheInInit);
-            tmpDbNameToId.put(db.getFullName(), db.getId());
-            tmpIdToDb.put(db.getId(), db);
-        }
-        for (int i = 0; i < log.getCreateCount(); i++) {
-            ExternalDatabase<? extends ExternalTable> db =
-                    getDbForInit(log.getCreateDbNames().get(i), log.getCreateDbIds().get(i), log.getType());
-            if (db != null) {
-                tmpDbNameToId.put(db.getFullName(), db.getId());
-                tmpIdToDb.put(db.getId(), db);
-            }
-        }
-        dbNameToId = tmpDbNameToId;
-        idToDb = tmpIdToDb;
-        lastUpdateTime = log.getLastUpdateTime();
-        initialized = true;
-    }
-
-    public  ExternalDatabase<? extends ExternalTable> getDbForReplay(long dbId) {
-        return idToDb.get(dbId);
-    }
-
     protected ExternalDatabase<? extends ExternalTable> getDbForInit(String dbName, long dbId,
                                                                      InitCatalogLog.Type logType) {
         switch (logType) {

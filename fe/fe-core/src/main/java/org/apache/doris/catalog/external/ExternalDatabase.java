@@ -152,10 +152,6 @@ public abstract class ExternalDatabase<T extends ExternalTable>
 
     protected abstract T getExternalTable(String tableName, long tblId, ExternalCatalog catalog);
 
-    public T getTableForReplay(long tableId) {
-        return idToTbl.get(tableId);
-    }
-
     @Override
     public void readLock() {
         this.rwLock.readLock().lock();

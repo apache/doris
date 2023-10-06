@@ -599,8 +599,10 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         writeLock();
         try {
             ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
-            ExternalDatabase db = catalog.getDbForReplay(log.getDbId());
-            db.setUnInitialized(log.isInvalidCache());
+            ExternalDatabase db = catalog.getDbNullable(log.getDbName());
+            if (db != null) {
+                db.setUnInitialized(log.isInvalidCache());
+            }
         } finally {
             writeUnlock();
         }
@@ -635,11 +637,12 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             ((ExternalTable) table).unsetObjectCreated();
         }
         Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(catalog.getId(), dbName, tableName);
+        // if needLog is false, no need to write edit log.
         if (needLog) {
             ExternalObjectLog log = new ExternalObjectLog();
             log.setCatalogId(catalog.getId());
-            log.setDbId(db.getId());
-            log.setTableId(table.getId());
+            log.setDbName(db.getFullName());
+            log.setTableName(table.getName());
             Env.getCurrentEnv().getEditLog().logRefreshExternalTable(log);
         }
     }
@@ -650,14 +653,14 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             LOG.warn("No catalog found with id:[{}], it may have been dropped.", log.getCatalogId());
             return;
         }
-        ExternalDatabase db = catalog.getDbForReplay(log.getDbId());
+        ExternalDatabase db = catalog.getDbNullable(log.getDbName());
         if (db == null) {
-            LOG.warn("No db found with id:[{}], it may have been dropped.", log.getDbId());
+            LOG.warn("No db found with name:[{}], it may have been dropped.", log.getDbName());
             return;
         }
-        ExternalTable table = db.getTableForReplay(log.getTableId());
+        ExternalTable table = db.getTableNullable(log.getTableName());
         if (table == null) {
-            LOG.warn("No table found with id:[{}], it may have been dropped.", log.getTableId());
+            LOG.warn("No table found with name:[{}], it may have been dropped.", log.getTableName());
             return;
         }
         table.unsetObjectCreated();
