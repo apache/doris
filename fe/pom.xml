@@ -1464,7 +1464,7 @@ under the License.
                 <artifactId>spotless-maven-plugin</artifactId>
                 <version>2.22.8</version>
                 <configuration>
-                    <ratchetFrom>upstream/master</ratchetFrom>
+                    <ratchetFrom>origin/master</ratchetFrom>
                     <java>
                         <eclipse>
                             <!--suppress MavenModelInspection -->

@@ -27,10 +27,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           persist-credentials: false
           submodules: recursive
+          fetch-depth: 0
 
       - name: Paths Filter
         uses: ./.github/actions/paths-filter
