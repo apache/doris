@@ -180,7 +180,9 @@ public class ColumnDefinition {
         } else if (type.isArrayType() && !defaultValue.isPresent()) {
             defaultValue = Optional.of(DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE);
         }
-        if (defaultValue.isPresent() && type.toCatalogDataType().isScalarType()) {
+        if (defaultValue.isPresent()
+                && defaultValue.get().getValue() != null
+                && type.toCatalogDataType().isScalarType()) {
             try {
                 ColumnDef.validateDefaultValue(type.toCatalogDataType(),
                         defaultValue.get().getValue(), defaultValue.get().getDefaultValueExprDef());
