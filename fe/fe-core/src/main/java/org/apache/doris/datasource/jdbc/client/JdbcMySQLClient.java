@@ -176,12 +176,17 @@ public class JdbcMySQLClient extends JdbcClient {
         List<Column> dorisTableSchema = Lists.newArrayListWithCapacity(jdbcTableSchema.size());
         for (JdbcFieldSchema field : jdbcTableSchema) {
             DefaultValueExprDef defaultValueExprDef = null;
-            if (field.getDefaultValue() != null
-                    && field.getDefaultValue().toLowerCase().startsWith("current_timestamp")) {
-                long precision = field.getDefaultValue().toLowerCase().contains("(")
-                        ? Long.parseLong(field.getDefaultValue().toLowerCase()
-                        .split("\\(")[1].split("\\)")[0]) : 0;
-                defaultValueExprDef = new DefaultValueExprDef("now", precision);
+            if (field.getDefaultValue() != null) {
+                String colDefaultValue = field.getDefaultValue().toLowerCase();
+                // current_timestamp()
+                if (colDefaultValue.startsWith("current_timestamp")) {
+                    long precision = 0;
+                    if (colDefaultValue.contains("(")) {
+                        String substring = colDefaultValue.substring(18, colDefaultValue.length() - 1).trim();
+                        precision = substring.isEmpty() ? 0 : Long.parseLong(substring);
+                    }
+                    defaultValueExprDef = new DefaultValueExprDef("now", precision);
+                }
             }
             dorisTableSchema.add(new Column(field.getColumnName(),
                     jdbcTypeToDoris(field), field.isKey(), null,
