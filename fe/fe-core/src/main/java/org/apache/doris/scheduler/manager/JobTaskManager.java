@@ -80,10 +80,9 @@ public class JobTaskManager implements Writable {
                 Env.getCurrentEnv().getEditLog().logDeleteJobTask(oldTask);
             }
         }
-        if (!persist) {
-            return;
+        if (persist) {
+            Env.getCurrentEnv().getEditLog().logCreateJobTask(jobTask);
         }
-        Env.getCurrentEnv().getEditLog().logCreateJobTask(jobTask);
     }
 
     public List<JobTask> getJobTasks(Long jobId) {
