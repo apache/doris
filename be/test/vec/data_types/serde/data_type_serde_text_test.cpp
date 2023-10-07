@@ -163,7 +163,9 @@ TEST(TextSerde, ScalaDataTypeSerdeTextTest) {
                 }
                 EXPECT_EQ(st.ok(), true);
                 // serialize
-                serde->serialize_one_cell_to_json(*col, i, buffer_writer, default_format_option);
+                st = serde->serialize_one_cell_to_json(*col, i, buffer_writer,
+                                                       default_format_option);
+                EXPECT_EQ(st.ok(), true);
                 buffer_writer.commit();
                 EXPECT_EQ(ser_col->get_data_at(ser_col->size() - 1).to_string(),
                           std::get<2>(type_pair)[i]);
@@ -220,11 +222,14 @@ TEST(TextSerde, ScalaDataTypeSerdeTextTest) {
             auto ser_col = ColumnString::create();
             ser_col->reserve(3);
             VectorBufferWriter buffer_writer(*ser_col.get());
-            serde->serialize_one_cell_to_json(*col, 0, buffer_writer, formatOptions);
+            st = serde->serialize_one_cell_to_json(*col, 0, buffer_writer, formatOptions);
+            EXPECT_EQ(st.ok(), true);
             buffer_writer.commit();
-            serde->serialize_one_cell_to_json(*col, 1, buffer_writer, formatOptions);
+            st = serde->serialize_one_cell_to_json(*col, 1, buffer_writer, formatOptions);
+            EXPECT_EQ(st.ok(), true);
             buffer_writer.commit();
-            serde->serialize_one_cell_to_json(*col, 2, buffer_writer, formatOptions);
+            st = serde->serialize_one_cell_to_json(*col, 2, buffer_writer, formatOptions);
+            EXPECT_EQ(st.ok(), true);
             buffer_writer.commit();
             rtrim(min_s);
             rtrim(max_s);
@@ -258,7 +263,9 @@ TEST(TextSerde, ScalaDataTypeSerdeTextTest) {
         auto ser_col = ColumnString::create();
         ser_col->reserve(1);
         VectorBufferWriter buffer_writer(*ser_col.get());
-        serde->serialize_one_cell_to_json(*col, 0, buffer_writer, default_format_option);
+        Status st =
+                serde->serialize_one_cell_to_json(*col, 0, buffer_writer, default_format_option);
+        EXPECT_EQ(st.ok(), true);
         buffer_writer.commit();
         StringRef rand_s_d = ser_col->get_data_at(0);
         EXPECT_EQ(rand_wf->to_string(), rand_s_d.to_string());
@@ -412,7 +419,9 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                         auto ser_col = ColumnString::create();
                         ser_col->reserve(1);
                         VectorBufferWriter buffer_writer(*ser_col.get());
-                        serde->serialize_one_cell_to_json(*col, i, buffer_writer, formatOptions);
+                        st = serde->serialize_one_cell_to_json(*col, i, buffer_writer,
+                                                               formatOptions);
+                        EXPECT_EQ(st.ok(), true);
                         buffer_writer.commit();
                         StringRef rand_s_d = ser_col->get_data_at(0);
                         std::cout << "test : " << rand_s_d << std::endl;
@@ -427,7 +436,9 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                     auto ser_col = ColumnString::create();
                     ser_col->reserve(1);
                     VectorBufferWriter buffer_writer(*ser_col.get());
-                    serde->serialize_one_cell_to_json(*col2, i, buffer_writer, formatOptions);
+                    status = serde->serialize_one_cell_to_json(*col2, i, buffer_writer,
+                                                               formatOptions);
+                    EXPECT_EQ(status.ok(), true);
                     buffer_writer.commit();
                     StringRef rand_s_d = ser_col->get_data_at(0);
                     std::cout << "test from string: " << rand_s_d << std::endl;
@@ -448,7 +459,9 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                         auto ser_col = ColumnString::create();
                         ser_col->reserve(1);
                         VectorBufferWriter buffer_writer(*ser_col.get());
-                        serde_1->serialize_one_cell_to_json(*col3, i, buffer_writer, formatOptions);
+                        st = serde_1->serialize_one_cell_to_json(*col3, i, buffer_writer,
+                                                                 formatOptions);
+                        EXPECT_EQ(st.ok(), true);
                         buffer_writer.commit();
                         StringRef rand_s_d = ser_col->get_data_at(0);
                         EXPECT_EQ(expect_str_1, rand_s_d.to_string());
@@ -551,7 +564,8 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                     auto ser_col = ColumnString::create();
                     ser_col->reserve(1);
                     VectorBufferWriter buffer_writer(*ser_col.get());
-                    serde->serialize_one_cell_to_json(*col, 0, buffer_writer, formatOptions);
+                    st = serde->serialize_one_cell_to_json(*col, 0, buffer_writer, formatOptions);
+                    EXPECT_EQ(st.ok(), true);
                     buffer_writer.commit();
                     StringRef rand_s_d = ser_col->get_data_at(0);
                     EXPECT_EQ(expect_str, rand_s_d.to_string());
@@ -565,8 +579,9 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                     auto ser_col = ColumnString::create();
                     ser_col->reserve(1);
                     VectorBufferWriter buffer_writer(*ser_col.get());
-                    serde->serialize_one_cell_to_json(*col2, col2->size() - 1, buffer_writer,
-                                                      formatOptions);
+                    stat = serde->serialize_one_cell_to_json(*col2, col2->size() - 1, buffer_writer,
+                                                             formatOptions);
+                    EXPECT_EQ(stat.ok(), true);
                     buffer_writer.commit();
                     StringRef rand_s_d = ser_col->get_data_at(0);
                     std::cout << "test from string: " << rand_s_d.to_string() << std::endl;
@@ -636,7 +651,8 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                     auto ser_col = ColumnString::create();
                     ser_col->reserve(1);
                     VectorBufferWriter buffer_writer(*ser_col.get());
-                    serde->serialize_one_cell_to_json(*col, 0, buffer_writer, formatOptions);
+                    st = serde->serialize_one_cell_to_json(*col, 0, buffer_writer, formatOptions);
+                    EXPECT_EQ(st.ok(), true);
                     buffer_writer.commit();
                     StringRef rand_s_d = ser_col->get_data_at(0);
                     EXPECT_EQ(expect_str, rand_s_d.to_string());
@@ -712,7 +728,9 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                         auto ser_col = ColumnString::create();
                         ser_col->reserve(1);
                         VectorBufferWriter buffer_writer(*ser_col.get());
-                        serde->serialize_one_cell_to_json(*col, 0, buffer_writer, formatOptions);
+                        st = serde->serialize_one_cell_to_json(*col, 0, buffer_writer,
+                                                               formatOptions);
+                        EXPECT_EQ(st.ok(), true);
                         buffer_writer.commit();
                         StringRef rand_s_d = ser_col->get_data_at(0);
                         std::cout << "test : " << rand_s_d << std::endl;
@@ -731,7 +749,9 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                         auto ser_col = ColumnString::create();
                         ser_col->reserve(1);
                         VectorBufferWriter buffer_writer(*ser_col.get());
-                        serde->serialize_one_cell_to_json(*col2, 0, buffer_writer, formatOptions);
+                        status = serde->serialize_one_cell_to_json(*col2, 0, buffer_writer,
+                                                                   formatOptions);
+                        EXPECT_EQ(status.ok(), true);
                         buffer_writer.commit();
                         StringRef rand_s_d = ser_col->get_data_at(0);
                         std::cout << "test from string: " << rand_s_d << std::endl;
@@ -754,7 +774,9 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                         auto ser_col = ColumnString::create();
                         ser_col->reserve(1);
                         VectorBufferWriter buffer_writer(*ser_col.get());
-                        serde_1->serialize_one_cell_to_json(*col3, 0, buffer_writer, formatOptions);
+                        st = serde_1->serialize_one_cell_to_json(*col3, 0, buffer_writer,
+                                                                 formatOptions);
+                        EXPECT_EQ(st.ok(), true);
                         buffer_writer.commit();
                         StringRef rand_s_d = ser_col->get_data_at(0);
                         EXPECT_EQ(expect_str_1, rand_s_d.to_string());
@@ -860,7 +882,9 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                         auto ser_col = ColumnString::create();
                         ser_col->reserve(1);
                         VectorBufferWriter buffer_writer(*ser_col.get());
-                        serde->serialize_one_cell_to_json(*col, 0, buffer_writer, formatOptions);
+                        st = serde->serialize_one_cell_to_json(*col, 0, buffer_writer,
+                                                               formatOptions);
+                        EXPECT_EQ(st.ok(), true);
                         buffer_writer.commit();
                         StringRef rand_s_d = ser_col->get_data_at(0);
                         std::cout << "test : " << rand_s_d << std::endl;
@@ -879,7 +903,9 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                         auto ser_col = ColumnString::create();
                         ser_col->reserve(1);
                         VectorBufferWriter buffer_writer(*ser_col.get());
-                        serde->serialize_one_cell_to_json(*col2, 0, buffer_writer, formatOptions);
+                        status = serde->serialize_one_cell_to_json(*col2, 0, buffer_writer,
+                                                                   formatOptions);
+                        EXPECT_EQ(status.ok(), true);
                         buffer_writer.commit();
                         StringRef rand_s_d = ser_col->get_data_at(0);
                         std::cout << "test from string: " << rand_s_d << std::endl;
@@ -902,7 +928,9 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                         auto ser_col = ColumnString::create();
                         ser_col->reserve(1);
                         VectorBufferWriter buffer_writer(*ser_col.get());
-                        serde_1->serialize_one_cell_to_json(*col3, 0, buffer_writer, formatOptions);
+                        st = serde_1->serialize_one_cell_to_json(*col3, 0, buffer_writer,
+                                                                 formatOptions);
+                        EXPECT_EQ(st.ok(), true);
                         buffer_writer.commit();
                         StringRef rand_s_d = ser_col->get_data_at(0);
                         EXPECT_EQ(expect_str_1, rand_s_d.to_string());
@@ -1072,7 +1100,9 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                         auto ser_col = ColumnString::create();
                         ser_col->reserve(1);
                         VectorBufferWriter buffer_writer(*ser_col.get());
-                        serde->serialize_one_cell_to_json(*col, 0, buffer_writer, formatOptions);
+                        st = serde->serialize_one_cell_to_json(*col, 0, buffer_writer,
+                                                               formatOptions);
+                        EXPECT_EQ(st.ok(), true);
                         buffer_writer.commit();
                         StringRef rand_s_d = ser_col->get_data_at(0);
                         std::cout << "test : " << rand_s_d << std::endl;
@@ -1091,7 +1121,9 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                         auto ser_col = ColumnString::create();
                         ser_col->reserve(1);
                         VectorBufferWriter buffer_writer(*ser_col.get());
-                        serde->serialize_one_cell_to_json(*col2, 0, buffer_writer, formatOptions);
+                        status = serde->serialize_one_cell_to_json(*col2, 0, buffer_writer,
+                                                                   formatOptions);
+                        EXPECT_EQ(status.ok(), true);
                         buffer_writer.commit();
                         StringRef rand_s_d = ser_col->get_data_at(0);
                         std::cout << "test from string: " << rand_s_d << std::endl;
@@ -1114,7 +1146,9 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                         auto ser_col = ColumnString::create();
                         ser_col->reserve(1);
                         VectorBufferWriter buffer_writer(*ser_col.get());
-                        serde_1->serialize_one_cell_to_json(*col3, 0, buffer_writer, formatOptions);
+                        st = serde_1->serialize_one_cell_to_json(*col3, 0, buffer_writer,
+                                                                 formatOptions);
+                        EXPECT_EQ(st.ok(), true);
                         buffer_writer.commit();
                         StringRef rand_s_d = ser_col->get_data_at(0);
                         EXPECT_EQ(expect_str_1, rand_s_d.to_string());
@@ -1207,7 +1241,9 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                         auto ser_col = ColumnString::create();
                         ser_col->reserve(1);
                         VectorBufferWriter buffer_writer(*ser_col.get());
-                        serde->serialize_one_cell_to_json(*col, 0, buffer_writer, formatOptions);
+                        st = serde->serialize_one_cell_to_json(*col, 0, buffer_writer,
+                                                               formatOptions);
+                        EXPECT_EQ(st.ok(), true);
                         buffer_writer.commit();
                         StringRef rand_s_d = ser_col->get_data_at(0);
                         std::cout << "test : " << rand_s_d << std::endl;
@@ -1226,7 +1262,9 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                         auto ser_col = ColumnString::create();
                         ser_col->reserve(1);
                         VectorBufferWriter buffer_writer(*ser_col.get());
-                        serde->serialize_one_cell_to_json(*col2, 0, buffer_writer, formatOptions);
+                        status = serde->serialize_one_cell_to_json(*col2, 0, buffer_writer,
+                                                                   formatOptions);
+                        EXPECT_EQ(status.ok(), true);
                         buffer_writer.commit();
                         StringRef rand_s_d = ser_col->get_data_at(0);
                         std::cout << "test from string: " << rand_s_d << std::endl;
@@ -1249,7 +1287,9 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                         auto ser_col = ColumnString::create();
                         ser_col->reserve(1);
                         VectorBufferWriter buffer_writer(*ser_col.get());
-                        serde_1->serialize_one_cell_to_json(*col3, 0, buffer_writer, formatOptions);
+                        st = serde_1->serialize_one_cell_to_json(*col3, 0, buffer_writer,
+                                                                 formatOptions);
+                        EXPECT_EQ(st.ok(), true);
                         buffer_writer.commit();
                         StringRef rand_s_d = ser_col->get_data_at(0);
                         EXPECT_EQ(expect_str_1, rand_s_d.to_string());
