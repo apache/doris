@@ -1309,12 +1309,12 @@ Status SegmentIterator::_lookup_ordinal(const StorageReadOptions::KeyRange& key_
         // If client want to read upper_bound, the include_upper is true. So we
         // should get the first ordinal at which key is larger than upper_bound.
         // So we call _lookup_ordinal with include_upper's negate
-        RETURN_IF_ERROR(_lookup_ordinal(*key_range.upper_key, !key_range.include_upper,
-                                        num_rows(), &upper_rowid));
+        RETURN_IF_ERROR(_lookup_ordinal(*key_range.upper_key, !key_range.include_upper, num_rows(),
+                                        &upper_rowid));
     }
     if (upper_rowid > 0 && key_range.lower_key != nullptr) {
-        RETURN_IF_ERROR(_lookup_ordinal(*key_range.lower_key, key_range.include_lower,
-                                        upper_rowid, &lower_rowid));
+        RETURN_IF_ERROR(_lookup_ordinal(*key_range.lower_key, key_range.include_lower, upper_rowid,
+                                        &lower_rowid));
     }
     DCHECK(lower_rowid <= upper_rowid);
 
@@ -1431,7 +1431,8 @@ Status SegmentIterator::_lookup_ordinal_from_pk_index(const RowCursor& key, bool
         RETURN_IF_ERROR(index_iterator->next_batch(&num_read, index_column));
         DCHECK(num_to_read == num_read);
 
-        Slice sought_key = Slice(index_column->get_data_at(0).data, index_column->get_data_at(0).size);
+        Slice sought_key =
+                Slice(index_column->get_data_at(0).data, index_column->get_data_at(0).size);
         Slice sought_key_without_rowid =
                 Slice(sought_key.get_data(), sought_key.get_size() - rowid_length);
         // compare key
