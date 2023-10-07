@@ -260,7 +260,6 @@ public class JoinEstimation {
             return innerJoinStats.withRowCountAndEnforceValid(rowCount);
         } else {
             StatisticsBuilder builder;
-            double originalRowCount = leftStats.getRowCount();
             if (join.getJoinType().isLeftSemiOrAntiJoin()) {
                 builder = new StatisticsBuilder(leftStats);
                 builder.setRowCount(rowCount);
@@ -268,7 +267,6 @@ public class JoinEstimation {
                 //right semi or anti
                 builder = new StatisticsBuilder(rightStats);
                 builder.setRowCount(rowCount);
-                originalRowCount = rightStats.getRowCount();
             }
             Statistics outputStats = builder.build();
             outputStats.enforceValid();
