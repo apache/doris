@@ -115,7 +115,7 @@ Status Compaction::do_compaction(int64_t permits) {
     if (config::enable_compaction_checksum) {
         EngineChecksumTask checksum_task(_tablet->tablet_id(), _tablet->schema_hash(),
                                          _input_rowsets.back()->end_version(), &checksum_before);
-        checksum_task.execute();
+        static_cast<void>(checksum_task.execute());
     }
 
     _tablet->data_dir()->disks_compaction_score_increment(permits);
@@ -127,12 +127,15 @@ Status Compaction::do_compaction(int64_t permits) {
     if (config::enable_compaction_checksum) {
         EngineChecksumTask checksum_task(_tablet->tablet_id(), _tablet->schema_hash(),
                                          _input_rowsets.back()->end_version(), &checksum_after);
-        checksum_task.execute();
+        static_cast<void>(checksum_task.execute());
         if (checksum_before != checksum_after) {
             LOG(WARNING) << "Compaction tablet=" << _tablet->tablet_id()
                          << " checksum not consistent"
                          << ", before=" << checksum_before << ", checksum_after=" << checksum_after;
         }
+    }
+    if (st.ok()) {
+        _load_segment_to_cache();
     }
     return st;
 }
@@ -171,7 +174,7 @@ bool Compaction::is_rowset_tidy(std::string& pre_max_key, const RowsetSharedPtr&
     // check segment size
     auto beta_rowset = reinterpret_cast<BetaRowset*>(rhs.get());
     std::vector<size_t> segments_size;
-    beta_rowset->get_segments_size(&segments_size);
+    static_cast<void>(beta_rowset->get_segments_size(&segments_size));
     for (auto segment_size : segments_size) {
         // is segment is too small, need to do compaction
         if (segment_size < min_tidy_size) {
@@ -207,7 +210,7 @@ Status Compaction::do_compact_ordered_rowsets() {
         seg_id += rowset->num_segments();
 
         std::vector<KeyBoundsPB> key_bounds;
-        rowset->get_segments_key_bounds(&key_bounds);
+        static_cast<void>(rowset->get_segments_key_bounds(&key_bounds));
         segment_key_bounds.insert(segment_key_bounds.end(), key_bounds.begin(), key_bounds.end());
     }
     // build output rowset
@@ -401,7 +404,11 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     if (_input_row_num > 0 && stats.rowid_conversion && config::inverted_index_compaction_enable) {
         OlapStopWatch inverted_watch;
         // translation vec
-        // <<dest_idx_num, desc_docId>>
+        // <<dest_idx_num, dest_docId>>
+        // the first level vector: index indicates src segment.
+        // the second level vector: index indicates row id of source segment,
+        // value indicates row id of destination segment.
+        // <UINT32_MAX, UINT32_MAX> indicates current row not exist.
         std::vector<std::vector<std::pair<uint32_t, uint32_t>>> trans_vec =
                 stats.rowid_conversion->get_rowid_conversion_map();
 
@@ -511,6 +518,8 @@ Status Compaction::do_compaction_impl(int64_t permits) {
               << ", disk=" << _tablet->data_dir()->path() << ", segments=" << _input_num_segments
               << ", input_row_num=" << _input_row_num
               << ", output_row_num=" << _output_rowset->num_rows()
+              << ", filtered_row_num=" << stats.filtered_rows
+              << ", merged_row_num=" << stats.merged_rows
               << ". elapsed time=" << watch.get_elapse_second()
               << "s. cumulative_compaction_policy=" << cumu_policy->name()
               << ", compact_row_per_second=" << int(_input_row_num / watch.get_elapse_second());
@@ -823,6 +832,18 @@ int64_t Compaction::get_compaction_permits() {
         permits += rowset->rowset_meta()->get_compaction_score();
     }
     return permits;
+}
+
+void Compaction::_load_segment_to_cache() {
+    // Load new rowset's segments to cache.
+    SegmentCacheHandle handle;
+    auto st = SegmentLoader::instance()->load_segments(
+            std::static_pointer_cast<BetaRowset>(_output_rowset), &handle, true);
+    if (!st.ok()) {
+        LOG(WARNING) << "failed to load segment to cache! output rowset version="
+                     << _output_rowset->start_version() << "-" << _output_rowset->end_version()
+                     << ".";
+    }
 }
 
 #ifdef BE_TEST

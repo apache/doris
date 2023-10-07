@@ -79,7 +79,7 @@ Status RuntimeFilterBuild<Parent>::operator()(RuntimeState* state) {
     if (!runtime_filter_slots.empty() && !_parent->build_blocks().empty()) {
         SCOPED_TIMER(_parent->push_compute_timer());
         for (auto& build_block : _parent->build_blocks()) {
-            runtime_filter_slots.insert(&build_block);
+            static_cast<void>(runtime_filter_slots.insert(&build_block));
         }
     }
     {
@@ -133,6 +133,9 @@ Status VNestedLoopJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status VNestedLoopJoinNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(VJoinNodeBase::prepare(state));
+    _build_get_next_timer = ADD_TIMER(_build_phase_profile, "BuildGetNextTime");
+    _build_timer = ADD_TIMER(_build_phase_profile, "BuildTime");
+    _build_rows_counter = ADD_COUNTER(_build_phase_profile, "BuildRows", TUnit::UNIT);
     // pre-compute the tuple index of build tuples in the output row
     int num_build_tuples = child(1)->row_desc().tuple_descriptors().size();
 
@@ -186,7 +189,7 @@ Status VNestedLoopJoinNode::_materialize_build_side(RuntimeState* state) {
                               std::placeholders::_3)));
         }
 
-        sink(state, &block, eos);
+        static_cast<void>(sink(state, &block, eos));
 
         if (eos) {
             break;
@@ -212,7 +215,7 @@ Status VNestedLoopJoinNode::sink(doris::RuntimeState* state, vectorized::Block* 
 
     if (eos) {
         COUNTER_UPDATE(_build_rows_counter, _build_rows);
-        RuntimeFilterBuild<VNestedLoopJoinNode>(this)(state);
+        static_cast<void>(RuntimeFilterBuild<VNestedLoopJoinNode>(this)(state));
 
         // optimize `in bitmap`, see https://github.com/apache/doris/issues/14338
         if (_is_output_left_side_only &&
@@ -267,7 +270,7 @@ Status VNestedLoopJoinNode::get_next(RuntimeState* state, Block* block, bool* eo
     RETURN_IF_CANCELLED(state);
     while (need_more_input_data()) {
         RETURN_IF_ERROR(_fresh_left_block(state));
-        push(state, &_left_block, _left_side_eos);
+        static_cast<void>(push(state, &_left_block, _left_side_eos));
     }
 
     return pull(state, block, eos);
@@ -494,7 +497,7 @@ void VNestedLoopJoinNode::_finalize_current_phase(MutableBlock& mutable_block, s
             DCHECK_LE(_left_block_start_pos + _left_side_process_count, _left_block.rows());
             for (int j = _left_block_start_pos;
                  j < _left_block_start_pos + _left_side_process_count; ++j) {
-                mark_data.emplace_back(IsSemi != _cur_probe_row_visited_flags[j]);
+                mark_data.emplace_back(IsSemi == _cur_probe_row_visited_flags[j]);
             }
             for (size_t i = 0; i < _num_probe_side_columns; ++i) {
                 const ColumnWithTypeAndName src_column = _left_block.get_by_position(i);
@@ -636,7 +639,7 @@ Status VNestedLoopJoinNode::open(RuntimeState* state) {
     RETURN_IF_CANCELLED(state);
     // We can close the right child to release its resources because its input has been
     // fully consumed.
-    child(1)->close(state);
+    static_cast<void>(child(1)->close(state));
     return Status::OK();
 }
 

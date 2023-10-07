@@ -49,6 +49,7 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     RETURN_IF_ERROR(JoinBuildSinkLocalState::init(state, info));
     SCOPED_TIMER(profile()->total_time_counter());
     SCOPED_TIMER(_open_timer);
+    _shared_hash_table_dependency = SharedHashTableDependency::create_shared(_parent->id());
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
     _shared_state->join_op_variants = p._join_op_variants;
     _shared_state->probe_key_sz = p._build_key_sz;
@@ -75,6 +76,10 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
         } else {
             profile()->add_info_string("ShareHashTableEnabled", "false");
         }
+    }
+    if (!_should_build_hash_table) {
+        _shared_hash_table_dependency->block_writing();
+        p._shared_hashtable_controller->append_dependency(p.id(), _shared_hash_table_dependency);
     }
 
     _memory_usage_counter = ADD_LABEL_COUNTER(profile(), "MemoryUsage");
@@ -409,15 +414,6 @@ Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
         _build_expr_ctxs.push_back(ctx);
 
         const auto vexpr = _build_expr_ctxs.back()->root();
-        const auto& data_type = vexpr->data_type();
-
-        if (!data_type->have_maximum_size_of_value()) {
-            break;
-        }
-
-        auto is_null = data_type->is_nullable();
-        _build_key_sz.push_back(data_type->get_maximum_size_of_value_in_memory() -
-                                (is_null ? 1 : 0));
 
         bool null_aware = eq_join_conjunct.__isset.opcode &&
                           eq_join_conjunct.opcode == TExprOpcode::EQ_FOR_NULL;
@@ -430,6 +426,17 @@ Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
                 (_build_expr_ctxs.back()->root()->is_nullable() && build_stores_null));
     }
 
+    for (const auto& expr : _build_expr_ctxs) {
+        const auto& data_type = expr->root()->data_type();
+        if (!data_type->have_maximum_size_of_value()) {
+            break;
+        }
+
+        auto is_null = data_type->is_nullable();
+        _build_key_sz.push_back(data_type->get_maximum_size_of_value_in_memory() -
+                                (is_null ? 1 : 0));
+    }
+
     return Status::OK();
 }
 
@@ -439,10 +446,9 @@ Status HashJoinBuildSinkOperatorX::open(RuntimeState* state) {
 
 Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
                                         SourceState source_state) {
-    auto& local_state = state->get_sink_local_state(id())->cast<HashJoinBuildSinkLocalState>();
+    CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
-    SCOPED_TIMER(local_state._build_timer);
 
     // make one block for each 4 gigabytes
     constexpr static auto BUILD_BLOCK_MAX_SIZE = 4 * 1024UL * 1024UL * 1024UL;
@@ -588,6 +594,12 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
 
     local_state.init_short_circuit_for_probe();
     if (source_state == SourceState::FINISHED) {
+        // Since the comparison of null values is meaningless, null aware left anti join should not output null
+        // when the build side is not empty.
+        if (!local_state._shared_state->build_blocks->empty() &&
+            _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
+            local_state._shared_state->probe_ignore_null = true;
+        }
         local_state._dependency->set_ready_for_read();
     }
 

@@ -8,33 +8,36 @@ PhysicalResultSink
 ----------PhysicalDistribute
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[LEFT_OUTER_JOIN](catalog_returns.cr_item_sk = catalog_sales.cs_item_sk)(catalog_returns.cr_order_number = catalog_sales.cs_order_number)
-------------------PhysicalDistribute
---------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN](warehouse.w_warehouse_sk = inventory.inv_warehouse_sk)
+----------------hashJoin[INNER_JOIN] hashCondition=((warehouse.w_warehouse_sk = inventory.inv_warehouse_sk))otherCondition=()
+------------------PhysicalProject
+--------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_item_sk = inventory.inv_item_sk) and (inventory.inv_date_sk = d2.d_date_sk))otherCondition=((inventory.inv_quantity_on_hand < catalog_sales.cs_quantity))
+----------------------PhysicalDistribute
+------------------------PhysicalOlapScan[inventory]
+----------------------PhysicalDistribute
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN](inventory.inv_date_sk = d2.d_date_sk)(d1.d_week_seq = d2.d_week_seq)
-----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_item_sk = inventory.inv_item_sk)(inventory.inv_quantity_on_hand < catalog_sales.cs_quantity)
---------------------------------PhysicalOlapScan[inventory]
+--------------------------hashJoin[INNER_JOIN] hashCondition=((d1.d_week_seq = d2.d_week_seq))otherCondition=()
+----------------------------PhysicalDistribute
+------------------------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((catalog_returns.cr_item_sk = catalog_sales.cs_item_sk) and (catalog_returns.cr_order_number = catalog_sales.cs_order_number))otherCondition=()
+--------------------------------PhysicalProject
+----------------------------------PhysicalOlapScan[catalog_returns]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
-------------------------------------hashJoin[LEFT_OUTER_JOIN](catalog_sales.cs_promo_sk = promotion.p_promo_sk)
+------------------------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((catalog_sales.cs_promo_sk = promotion.p_promo_sk))otherCondition=()
 --------------------------------------PhysicalProject
-----------------------------------------hashJoin[INNER_JOIN](item.i_item_sk = catalog_sales.cs_item_sk)
+----------------------------------------hashJoin[INNER_JOIN] hashCondition=((item.i_item_sk = catalog_sales.cs_item_sk))otherCondition=()
 ------------------------------------------PhysicalDistribute
 --------------------------------------------PhysicalProject
-----------------------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_ship_date_sk = d3.d_date_sk)(d3.d_date > cast((cast(d_date as BIGINT) + 5) as DATEV2))
+----------------------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_ship_date_sk = d3.d_date_sk))otherCondition=((d3.d_date > cast((cast(d_date as BIGINT) + 5) as DATEV2)))
 ------------------------------------------------PhysicalDistribute
---------------------------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_bill_cdemo_sk = customer_demographics.cd_demo_sk)
+--------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_bill_cdemo_sk = customer_demographics.cd_demo_sk))otherCondition=()
 ----------------------------------------------------PhysicalDistribute
-------------------------------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = d1.d_date_sk)
---------------------------------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_bill_hdemo_sk = household_demographics.hd_demo_sk)
+------------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_sold_date_sk = d1.d_date_sk))otherCondition=()
+--------------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_bill_hdemo_sk = household_demographics.hd_demo_sk))otherCondition=()
 ----------------------------------------------------------PhysicalProject
 ------------------------------------------------------------PhysicalOlapScan[catalog_sales]
 ----------------------------------------------------------PhysicalDistribute
 ------------------------------------------------------------PhysicalProject
---------------------------------------------------------------filter((cast(hd_buy_potential as VARCHAR(*)) = '501-1000'))
+--------------------------------------------------------------filter((household_demographics.hd_buy_potential = '501-1000'))
 ----------------------------------------------------------------PhysicalOlapScan[household_demographics]
 --------------------------------------------------------PhysicalDistribute
 ----------------------------------------------------------PhysicalProject
@@ -42,7 +45,7 @@ PhysicalResultSink
 --------------------------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------------------------------PhysicalDistribute
 ------------------------------------------------------PhysicalProject
---------------------------------------------------------filter((cast(cd_marital_status as VARCHAR(*)) = 'W'))
+--------------------------------------------------------filter((customer_demographics.cd_marital_status = 'W'))
 ----------------------------------------------------------PhysicalOlapScan[customer_demographics]
 ------------------------------------------------PhysicalDistribute
 --------------------------------------------------PhysicalProject
@@ -56,10 +59,7 @@ PhysicalResultSink
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
 --------------------------------PhysicalOlapScan[date_dim]
-------------------------PhysicalDistribute
---------------------------PhysicalProject
-----------------------------PhysicalOlapScan[warehouse]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
-----------------------PhysicalOlapScan[catalog_returns]
+----------------------PhysicalOlapScan[warehouse]
 

@@ -30,6 +30,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -43,6 +44,7 @@ class RuntimeState;
 } // namespace doris
 
 namespace doris::vectorized {
+using namespace doris::segment_v2;
 
 VMatchPredicate::VMatchPredicate(const TExprNode& node) : VExpr(node) {
     _inverted_index_ctx = std::make_shared<InvertedIndexCtx>();
@@ -50,7 +52,11 @@ VMatchPredicate::VMatchPredicate(const TExprNode& node) : VExpr(node) {
             get_inverted_index_parser_type_from_string(node.match_predicate.parser_type);
     _inverted_index_ctx->parser_mode = node.match_predicate.parser_mode;
     _inverted_index_ctx->char_filter_map = node.match_predicate.char_filter_map;
+    _analyzer = InvertedIndexReader::create_analyzer(_inverted_index_ctx.get());
+    _inverted_index_ctx->analyzer = _analyzer.get();
 }
+
+VMatchPredicate::~VMatchPredicate() = default;
 
 Status VMatchPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
                                 VExprContext* context) {
@@ -86,10 +92,15 @@ Status VMatchPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
 
 Status VMatchPredicate::open(RuntimeState* state, VExprContext* context,
                              FunctionContext::FunctionStateScope scope) {
-    RETURN_IF_ERROR(VExpr::open(state, context, scope));
+    for (int i = 0; i < _children.size(); ++i) {
+        RETURN_IF_ERROR(_children[i]->open(state, context, scope));
+    }
     RETURN_IF_ERROR(VExpr::init_function_context(context, scope, _function));
     if (scope == FunctionContext::THREAD_LOCAL || scope == FunctionContext::FRAGMENT_LOCAL) {
         context->fn_context(_fn_context_index)->set_function_state(scope, _inverted_index_ctx);
+    }
+    if (scope == FunctionContext::FRAGMENT_LOCAL) {
+        RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
     }
     return Status::OK();
 }

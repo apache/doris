@@ -84,12 +84,12 @@ void AggLocalState::_close_with_serialized_key() {
                 auto& data = agg_method.data;
                 data.for_each_mapped([&](auto& mapped) {
                     if (mapped) {
-                        _dependency->destroy_agg_status(mapped);
+                        static_cast<void>(_dependency->destroy_agg_status(mapped));
                         mapped = nullptr;
                     }
                 });
                 if (data.has_null_key_data()) {
-                    _dependency->destroy_agg_status(data.get_null_key_data());
+                    static_cast<void>(_dependency->destroy_agg_status(data.get_null_key_data()));
                 }
             },
             _agg_data->method_variant);
@@ -101,7 +101,7 @@ void AggLocalState::_close_without_key() {
     //but finally call close to destory agg data, if agg data has bitmapValue
     //will be core dump, it's not initialized
     if (_agg_data_created_without_key) {
-        _dependency->destroy_agg_status(_agg_data->without_key);
+        static_cast<void>(_dependency->destroy_agg_status(_agg_data->without_key));
         _agg_data_created_without_key = false;
     }
     _dependency->release_tracker();
@@ -502,7 +502,7 @@ AggSourceOperatorX::AggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
 
 Status AggSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                      SourceState& source_state) {
-    auto& local_state = state->get_local_state(id())->cast<AggLocalState>();
+    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     RETURN_IF_ERROR(local_state._executor.get_result(state, block, source_state));
     local_state.make_nullable_output_key(block);
@@ -554,7 +554,8 @@ Status AggLocalState::close(RuntimeState* state) {
 }
 
 Dependency* AggSourceOperatorX::wait_for_dependency(RuntimeState* state) {
-    return state->get_local_state(Base::id())->cast<AggLocalState>()._dependency->read_blocked_by();
+    CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
+    return local_state._dependency->read_blocked_by();
 }
 
 } // namespace pipeline

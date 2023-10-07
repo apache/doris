@@ -103,10 +103,10 @@ void EvHttpServer::start() {
     // bind to
     auto s = _bind();
     CHECK(s.ok()) << s.to_string();
-    ThreadPoolBuilder("EvHttpServer")
-            .set_min_threads(_num_workers)
-            .set_max_threads(_num_workers)
-            .build(&_workers);
+    static_cast<void>(ThreadPoolBuilder("EvHttpServer")
+                              .set_min_threads(_num_workers)
+                              .set_max_threads(_num_workers)
+                              .build(&_workers));
 
     evthread_use_pthreads();
     _event_bases.resize(_num_workers);

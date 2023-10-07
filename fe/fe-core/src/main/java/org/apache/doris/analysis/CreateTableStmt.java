@@ -122,7 +122,7 @@ public class CreateTableStmt extends DdlStmt {
         } else {
             long partitionSize = ParseUtil
                     .analyzeDataVolumn(newProperties.get(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE));
-            distributionDesc.setBuckets(AutoBucketUtils.getBucketsNum(partitionSize));
+            distributionDesc.setBuckets(AutoBucketUtils.getBucketsNum(partitionSize, Config.autobucket_min_buckets));
         }
 
         return newProperties;
@@ -520,10 +520,6 @@ public class CreateTableStmt extends DdlStmt {
             columnDef.analyze(engineName.equals("olap"));
 
             if (columnDef.getType().isComplexType() && engineName.equals("olap")) {
-                if (columnDef.getAggregateType() == AggregateType.REPLACE
-                        && keysDesc.getKeysType() == KeysType.AGG_KEYS) {
-                    throw new AnalysisException("Aggregate table can't support replace array/map/struct value now");
-                }
                 if (columnDef.getAggregateType() != null
                         && columnDef.getAggregateType() != AggregateType.NONE
                         && columnDef.getAggregateType() != AggregateType.REPLACE) {

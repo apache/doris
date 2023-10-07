@@ -63,7 +63,7 @@ public class QueryPlanTest extends TestWithFeService {
     protected void runBeforeAll() throws Exception {
         // disable bucket shuffle join
         Deencapsulation.setField(connectContext.getSessionVariable(), "enableBucketShuffleJoin", false);
-
+        connectContext.getSessionVariable().setEnableRuntimeFilterPrune(false);
         // create database
         createDatabase("test");
         connectContext.getSessionVariable().setEnableNereidsPlanner(false);
@@ -492,7 +492,7 @@ public class QueryPlanTest extends TestWithFeService {
 
         assertSQLPlanOrErrorMsgContains(
                 "select count(*) from test.bitmap_table where id2 = 1;",
-                "Bitmap type dose not support operand: `id2` = 1"
+                "Unsupported bitmap type in expression: `id2` = 1"
         );
 
     }

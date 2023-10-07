@@ -5,9 +5,9 @@ PhysicalResultSink
 ----PhysicalDistribute
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN](lineorder.lo_orderdate = dates.d_datekey)
+----------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_orderdate = dates.d_datekey))otherCondition=()
 ------------PhysicalProject
---------------filter((lineorder.lo_quantity <= 35)(lineorder.lo_discount <= 6)(lineorder.lo_discount >= 4)(lineorder.lo_quantity >= 26))
+--------------filter((lineorder.lo_discount <= 6) and (lineorder.lo_discount >= 4) and (lineorder.lo_quantity <= 35) and (lineorder.lo_quantity >= 26))
 ----------------PhysicalOlapScan[lineorder]
 ------------PhysicalDistribute
 --------------PhysicalProject

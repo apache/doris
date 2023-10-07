@@ -125,7 +125,7 @@ HashJoinProbeContext::HashJoinProbeContext(HashJoinNode* join_node)
           _probe_block(&join_node->_probe_block),
           _probe_columns(&join_node->_probe_columns),
           _probe_index(&join_node->_probe_index),
-          _ready_probe_index(&join_node->_ready_probe_index),
+          _ready_probe(&join_node->_ready_probe),
           _probe_key_sz(join_node->_probe_key_sz),
           _left_output_slot_flags(&join_node->_left_output_slot_flags),
           _right_output_slot_flags(&join_node->_right_output_slot_flags),
@@ -154,7 +154,7 @@ HashJoinProbeContext::HashJoinProbeContext(pipeline::HashJoinProbeLocalState* lo
           _probe_block(&local_state->_probe_block),
           _probe_columns(&local_state->_probe_columns),
           _probe_index(&local_state->_probe_index),
-          _ready_probe_index(&local_state->_ready_probe_index),
+          _ready_probe(&local_state->_ready_probe),
           _probe_key_sz(local_state->_shared_state->probe_key_sz),
           _left_output_slot_flags(&local_state->join_probe()->_left_output_slot_flags),
           _right_output_slot_flags(&local_state->join_probe()->_right_output_slot_flags),
@@ -335,9 +335,12 @@ Status HashJoinNode::prepare(RuntimeState* state) {
 
     // Build phase
     auto record_profile = _should_build_hash_table ? _build_phase_profile : faker_runtime_profile();
-    _build_table_timer = ADD_CHILD_TIMER(_build_phase_profile, "BuildTableTime", "BuildTime");
+    _build_get_next_timer = ADD_TIMER(record_profile, "BuildGetNextTime");
+    _build_timer = ADD_TIMER(record_profile, "BuildTime");
+    _build_rows_counter = ADD_COUNTER(record_profile, "BuildRows", TUnit::UNIT);
+    _build_table_timer = ADD_CHILD_TIMER(record_profile, "BuildTableTime", "BuildTime");
     _build_side_merge_block_timer =
-            ADD_CHILD_TIMER(_build_phase_profile, "BuildSideMergeBlockTime", "BuildTime");
+            ADD_CHILD_TIMER(record_profile, "BuildSideMergeBlockTime", "BuildTime");
     _build_table_insert_timer = ADD_TIMER(record_profile, "BuildTableInsertTime");
     _build_expr_call_timer = ADD_TIMER(record_profile, "BuildExprCallTime");
     _build_table_expanse_timer = ADD_TIMER(record_profile, "BuildTableExpanseTime");
@@ -420,7 +423,7 @@ bool HashJoinNode::need_more_input_data() const {
 
 void HashJoinNode::prepare_for_next() {
     _probe_index = 0;
-    _ready_probe_index = 0;
+    _ready_probe = false;
     _prepare_probe_block();
 }
 
@@ -526,30 +529,18 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
                         if constexpr (!std::is_same_v<HashTableProbeType, std::monostate>) {
                             using HashTableCtxType = std::decay_t<decltype(arg)>;
                             if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                                if (_have_other_join_conjunct) {
-                                    st = process_hashtable_ctx
-                                                 .template do_process_with_other_join_conjuncts<
-                                                         need_null_map_for_probe, ignore_null>(
-                                                         arg,
-                                                         need_null_map_for_probe
-                                                                 ? &_null_map_column->get_data()
-                                                                 : nullptr,
-                                                         mutable_join_block, &temp_block,
-                                                         _probe_block.rows(), _is_mark_join);
-                                } else {
-                                    st = process_hashtable_ctx.template do_process<
-                                            need_null_map_for_probe, ignore_null>(
-                                            arg,
-                                            need_null_map_for_probe ? &_null_map_column->get_data()
-                                                                    : nullptr,
-                                            mutable_join_block, &temp_block, _probe_block.rows(),
-                                            _is_mark_join);
-                                }
+                                st = process_hashtable_ctx.template process<need_null_map_for_probe,
+                                                                            ignore_null>(
+                                        arg,
+                                        need_null_map_for_probe ? &_null_map_column->get_data()
+                                                                : nullptr,
+                                        mutable_join_block, &temp_block, _probe_block.rows(),
+                                        _is_mark_join, _have_other_join_conjunct);
                             } else {
-                                LOG(FATAL) << "FATAL: uninited hash table";
+                                st = Status::InternalError("uninited hash table");
                             }
                         } else {
-                            LOG(FATAL) << "FATAL: uninited hash table probe";
+                            st = Status::InternalError("uninited hash table probe");
                         }
                     },
                     *_hash_table_variants, *_process_hashtable_ctx_variants,
@@ -567,10 +558,10 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
                                 st = process_hashtable_ctx.process_data_in_hashtable(
                                         arg, mutable_join_block, &temp_block, eos);
                             } else {
-                                LOG(FATAL) << "FATAL: uninited hash table";
+                                st = Status::InternalError("uninited hash table");
                             }
                         } else {
-                            LOG(FATAL) << "FATAL: uninited hash table probe";
+                            st = Status::InternalError("uninited hash table probe");
                         }
                     },
                     *_hash_table_variants, *_process_hashtable_ctx_variants);
@@ -935,8 +926,7 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
     } else if (!_should_build_hash_table) {
         DCHECK(_shared_hashtable_controller != nullptr);
         DCHECK(_shared_hash_table_context != nullptr);
-        auto wait_timer =
-                ADD_CHILD_TIMER(_build_phase_profile, "WaitForSharedHashTableTime", "BuildTime");
+        auto wait_timer = ADD_TIMER(_build_phase_profile, "WaitForSharedHashTableTime");
         SCOPED_TIMER(wait_timer);
         RETURN_IF_ERROR(
                 _shared_hashtable_controller->wait_for_signal(state, _shared_hash_table_context));

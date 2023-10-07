@@ -403,9 +403,20 @@ int main(int argc, char** argv) {
         LOG(FATAL) << "parse config storage path failed, path=" << doris::config::storage_root_path;
         exit(-1);
     }
+    std::set<std::string> broken_paths;
+    doris::parse_conf_broken_store_paths(doris::config::broken_storage_path, &broken_paths);
+
     auto it = paths.begin();
     for (; it != paths.end();) {
-        if (!doris::check_datapath_rw(it->path)) {
+        if (broken_paths.count(it->path) > 0) {
+            if (doris::config::ignore_broken_disk) {
+                LOG(WARNING) << "ignore broken disk, path = " << it->path;
+                it = paths.erase(it);
+            } else {
+                LOG(FATAL) << "a broken disk is found " << it->path;
+                exit(-1);
+            }
+        } else if (!doris::check_datapath_rw(it->path)) {
             if (doris::config::ignore_broken_disk) {
                 LOG(WARNING) << "read write test file failed, path=" << it->path;
                 it = paths.erase(it);
@@ -472,7 +483,7 @@ int main(int argc, char** argv) {
 
     // init exec env
     auto exec_env(doris::ExecEnv::GetInstance());
-    status = doris::ExecEnv::init(doris::ExecEnv::GetInstance(), paths);
+    status = doris::ExecEnv::init(doris::ExecEnv::GetInstance(), paths, broken_paths);
     if (status != Status::OK()) {
         LOG(FATAL) << "failed to init doris storage engine, res=" << status;
         exit(-1);
@@ -536,7 +547,7 @@ int main(int argc, char** argv) {
     // 5. arrow flight service
     std::shared_ptr<doris::flight::FlightSqlServer> flight_server =
             std::move(doris::flight::FlightSqlServer::create()).ValueOrDie();
-    status = flight_server->init(doris::config::arrow_flight_port);
+    status = flight_server->init(doris::config::arrow_flight_sql_port);
 
     // 6. start daemon thread to do clean or gc jobs
     doris::Daemon daemon;

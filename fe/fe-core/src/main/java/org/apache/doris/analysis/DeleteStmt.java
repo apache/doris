@@ -202,7 +202,7 @@ public class DeleteStmt extends DdlStmt {
                 new InsertSource(selectStmt),
                 null,
                 isPartialUpdate,
-                false);
+                NativeInsertStmt.InsertType.DELETE);
         ((NativeInsertStmt) insertStmt).setIsFromDeleteOrUpdateStmt(true);
     }
 

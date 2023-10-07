@@ -184,14 +184,14 @@ suite("test_analyze") {
     assert contains_expected_table(show_result)
 
     sql """
-        DROP ANALYZE JOB ${a_result_3[0][4]}
+        DROP ANALYZE JOB ${a_result_3[0][0]}
     """
 
     show_result = sql """
         SHOW ANALYZE
     """
 
-    assert stats_job_removed(show_result, a_result_3[0][4])
+    assert stats_job_removed(show_result, a_result_3[0][0])
 
     sql """
         ANALYZE DATABASE ${db} WITH SAMPLE ROWS 5 WITH PERIOD 100000
@@ -1035,5 +1035,26 @@ PARTITION `p599` VALUES IN (599)
         SELECT * FROM analyze_test_with_schema_update;
     """
 
+    sql """
+        DROP TABLE IF EXISTS two_thousand_partition_table_test
+    """
+
+    sql """
+        CREATE TABLE two_thousand_partition_table_test (col1 int(11451) not null)
+        DUPLICATE KEY(col1)
+          PARTITION BY RANGE(`col1`)
+                  (
+                  from (0) to (1000001) INTERVAL 500
+                  )
+        DISTRIBUTED BY HASH(col1)
+        BUCKETS 3
+        PROPERTIES(
+            "replication_num"="1"
+        );
+    """
+
+    sql """
+        ANALYZE TABLE two_thousand_partition_table_test WITH SYNC;
+    """
 
 }

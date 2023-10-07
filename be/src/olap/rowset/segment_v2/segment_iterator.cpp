@@ -1405,6 +1405,8 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
     // If common expr pushdown exists, and expr column is not contained in lazy materialization columns,
     // add to second read column, which will be read after lazy materialization
     if (_schema->column_ids().size() > pred_column_ids.size()) {
+        // pred_column_ids maybe empty, so that could not set _lazy_materialization_read = true here
+        // has to check there is at least one predicate column
         for (auto cid : _schema->column_ids()) {
             if (!_is_pred_column[cid]) {
                 if (_is_need_vec_eval || _is_need_short_eval) {
@@ -1449,11 +1451,15 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
                 auto cid = _schema->column_id(i);
                 if (pred_id_set.find(cid) != pred_id_set.end()) {
                     _first_read_column_ids.push_back(cid);
-                } else if (non_pred_set.find(cid) != non_pred_set.end()) {
-                    _first_read_column_ids.push_back(cid);
-                    // when _lazy_materialization_read = false, non-predicate column should also be filtered by sel idx, so we regard it as pred columns
-                    _is_pred_column[cid] = true;
                 }
+                // In the past, if schema columns > pred columns, the _lazy_materialization_read maybe == false, but
+                // we make sure using _lazy_materialization_read= true now, so these logic may never happens. I comment
+                // these lines and we could delete them in the future to make the code more clear.
+                // else if (non_pred_set.find(cid) != non_pred_set.end()) {
+                //    _first_read_column_ids.push_back(cid);
+                //    // when _lazy_materialization_read = false, non-predicate column should also be filtered by sel idx, so we regard it as pred columns
+                //    _is_pred_column[cid] = true;
+                // }
             }
         } else if (_is_need_expr_eval) {
             DCHECK(!_is_need_vec_eval && !_is_need_short_eval);
@@ -1602,8 +1608,10 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
             _opts.stats->block_first_read_seek_num += 1;
             if (_opts.runtime_state && _opts.runtime_state->enable_profile()) {
                 SCOPED_RAW_TIMER(&_opts.stats->block_first_read_seek_ns);
+                RETURN_IF_ERROR(_seek_columns(_first_read_column_ids, _cur_rowid));
+            } else {
+                RETURN_IF_ERROR(_seek_columns(_first_read_column_ids, _cur_rowid));
             }
-            RETURN_IF_ERROR(_seek_columns(_first_read_column_ids, _cur_rowid));
         }
         size_t rows_to_read = range_to - range_from;
         RETURN_IF_ERROR(

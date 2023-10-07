@@ -24,6 +24,7 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <memory>
 
+#include "data_type_string_serde.h"
 #include "util/jsonb_document.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
@@ -95,8 +96,9 @@ Status DataTypeNullableSerDe::deserialize_one_cell_from_hive_text(IColumn& colum
         return Status::OK();
     }
 
-    auto st = nested_serde->deserialize_one_cell_from_hive_text(null_column.get_nested_column(),
-                                                                slice, options, nesting_level);
+    Status st = nested_serde->deserialize_one_cell_from_hive_text(null_column.get_nested_column(),
+                                                                  slice, options, nesting_level);
+
     if (!st.ok()) {
         // fill null if fail
         null_column.insert_data(nullptr, 0); // 0 is meaningless here
@@ -302,6 +304,27 @@ Status DataTypeNullableSerDe::write_column_to_mysql(const IColumn& column,
                                                     MysqlRowBuffer<false>& row_buffer, int row_idx,
                                                     bool col_const) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+}
+
+Status DataTypeNullableSerDe::write_column_to_orc(const IColumn& column, const NullMap* null_map,
+                                                  orc::ColumnVectorBatch* orc_col_batch, int start,
+                                                  int end,
+                                                  std::vector<StringRef>& buffer_list) const {
+    const auto& column_nullable = assert_cast<const ColumnNullable&>(column);
+    orc_col_batch->hasNulls = true;
+
+    auto& null_map_tmp = column_nullable.get_null_map_data();
+    auto orc_null_map = revert_null_map(&null_map_tmp, start, end);
+    // orc_col_batch->notNull.data() must add 'start' (+ start),
+    // because orc_col_batch->notNull.data() begins at 0
+    // orc_null_map.data() do not need add 'start' (+ start),
+    // because orc_null_map begins at start and only has (end - start) elements
+    memcpy(orc_col_batch->notNull.data() + start, orc_null_map.data(), end - start);
+
+    static_cast<void>(nested_serde->write_column_to_orc(column_nullable.get_nested_column(),
+                                                        &column_nullable.get_null_map_data(),
+                                                        orc_col_batch, start, end, buffer_list));
+    return Status::OK();
 }
 
 } // namespace vectorized

@@ -30,6 +30,8 @@ suite("ds_rf83") {
     sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_pipeline_engine=true'
+    sql 'set enable_runtime_filter_prune=false'
+    sql 'set expand_runtime_filter_by_inner_join=false'
     String stmt = '''
     explain physical plan
     with sr_items as
@@ -117,5 +119,5 @@ suite("ds_rf83") {
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
     
-     assertEquals("RF13[item_id->[i_item_id],RF12[d_date->[d_date],RF11[d_date_sk->[cr_returned_date_sk],RF10[i_item_sk->[cr_item_sk],RF9[d_week_seq->[d_week_seq],RF8[item_id->[i_item_id],RF7[d_date->[d_date],RF6[d_date_sk->[sr_returned_date_sk],RF5[i_item_sk->[sr_item_sk],RF4[d_week_seq->[d_week_seq],RF3[d_date->[d_date],RF2[d_date_sk->[wr_returned_date_sk],RF1[i_item_sk->[wr_item_sk],RF0[d_week_seq->[d_week_seq]", getRuntimeFilters(plan))
+     assertEquals("RF13[item_id->[i_item_id],RF12[cr_item_sk->[i_item_sk],RF11[d_date_sk->[cr_returned_date_sk],RF10[d_date->[d_date],RF9[d_week_seq->[d_week_seq],RF8[item_id->[i_item_id],RF7[i_item_sk->[sr_item_sk],RF6[d_date_sk->[sr_returned_date_sk],RF5[d_date->[d_date],RF4[d_week_seq->[d_week_seq],RF3[wr_item_sk->[i_item_sk],RF2[d_date_sk->[wr_returned_date_sk],RF1[d_date->[d_date],RF0[d_week_seq->[d_week_seq]", getRuntimeFilters(plan))
 }

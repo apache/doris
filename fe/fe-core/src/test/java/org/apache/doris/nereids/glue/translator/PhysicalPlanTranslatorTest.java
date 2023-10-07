@@ -66,7 +66,7 @@ public class PhysicalPlanTranslatorTest {
         LogicalProperties t1Properties = new LogicalProperties(() -> t1Output);
         PhysicalOlapScan scan = new PhysicalOlapScan(StatementScopeIdGenerator.newRelationId(), t1, qualifier, t1.getBaseIndexId(),
                 Collections.emptyList(), Collections.emptyList(), null, PreAggStatus.on(),
-                ImmutableList.of(), Optional.empty(), t1Properties);
+                ImmutableList.of(), Optional.empty(), t1Properties, Optional.empty());
         Literal t1FilterRight = new IntegerLiteral(1);
         Expression t1FilterExpr = new GreaterThan(col1, t1FilterRight);
         PhysicalFilter<PhysicalOlapScan> filter =

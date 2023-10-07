@@ -146,7 +146,7 @@ FROM data_source [data_source_properties]
 
   1. `desired_concurrent_number`
 
-     期望的并发度。一个例行导入作业会被分成多个子任务执行。这个参数指定一个作业最多有多少任务可以同时执行。必须大于0。默认为3。
+     期望的并发度。一个例行导入作业会被分成多个子任务执行。这个参数指定一个作业最多有多少任务可以同时执行。必须大于0。默认为5。
 
      这个并发度并不是实际的并发度，实际的并发度，会通过集群的节点数、负载情况，以及数据源的情况综合考虑。
 
@@ -430,7 +430,7 @@ FROM data_source [data_source_properties]
        "max_batch_interval" = "20",
        "max_batch_rows" = "300000",
        "max_batch_size" = "209715200",
-       "strict_mode" = "false"
+       "strict_mode" = "true"
    )
    FROM KAFKA
    (

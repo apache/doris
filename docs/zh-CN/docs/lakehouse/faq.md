@@ -80,6 +80,10 @@ under the License.
             
         </configuration>
     ```
+7. 在使用Broker Load时，配置了Kerberos，如果报错`Cannot locate default realm.`。
+
+   将 `-Djava.security.krb5.conf=/your-path` 配置项添加到Broker Load启动脚本的 `start_broker.sh` 的 `JAVA_OPTS`里。
+
 
 ## JDBC Catalog
 
@@ -204,6 +208,21 @@ under the License.
       <value>org.apache.hadoop.hive.metastore.SerDeStorageSchemaReader</value>
    </property> 
    ```
+
+10. 报错：java.security.InvalidAlgorithmParameterException: the trustAnchors parameter must be non-empty
+
+    FE日志中完整报错信息如下：
+    ```
+    org.apache.doris.common.UserException: errCode = 2, detailMessage = S3 list path failed. path=s3://bucket/part-*,msg=errors while get file status listStatus on s3://bucket: com.amazonaws.SdkClientException: Unable to execute HTTP request: Unexpected error: java.security.InvalidAlgorithmParameterException: the trustAnchors parameter must be non-empty: Unable to execute HTTP request: Unexpected error: java.security.InvalidAlgorithmParameterException: the trustAnchors parameter must be non-empty
+    org.apache.doris.common.UserException: errCode = 2, detailMessage = S3 list path exception. path=s3://bucket/part-*, err: errCode = 2, detailMessage = S3 list path failed. path=s3://bucket/part-*,msg=errors while get file status listStatus on s3://bucket: com.amazonaws.SdkClientException: Unable to execute HTTP request: Unexpected error: java.security.InvalidAlgorithmParameterException: the trustAnchors parameter must be non-empty: Unable to execute HTTP request: Unexpected error: java.security.InvalidAlgorithmParameterException: the trustAnchors parameter must be non-empty
+    org.apache.hadoop.fs.s3a.AWSClientIOException: listStatus on s3://bucket: com.amazonaws.SdkClientException: Unable to execute HTTP request: Unexpected error: java.security.InvalidAlgorithmParameterException: the trustAnchors parameter must be non-empty: Unable to execute HTTP request: Unexpected error: java.security.InvalidAlgorithmParameterException: the trustAnchors parameter must be non-empty
+    Caused by: com.amazonaws.SdkClientException: Unable to execute HTTP request: Unexpected error: java.security.InvalidAlgorithmParameterException: the trustAnchors parameter must be non-empty
+    Caused by: javax.net.ssl.SSLException: Unexpected error: java.security.InvalidAlgorithmParameterException: the trustAnchors parameter must be non-empty
+    Caused by: java.lang.RuntimeException: Unexpected error: java.security.InvalidAlgorithmParameterException: the trustAnchors parameter must be non-empty
+    Caused by: java.security.InvalidAlgorithmParameterException: the trustAnchors parameter must be non-empty
+    ```
+
+    尝试更新FE节点CA证书，使用 `update-ca-trust（CentOS/RockyLinux）`，然后重启FE进程即可。
 
 ## HDFS
 

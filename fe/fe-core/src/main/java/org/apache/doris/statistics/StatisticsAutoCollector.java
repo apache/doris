@@ -58,11 +58,11 @@ public class StatisticsAutoCollector extends StatisticsCollector {
 
     @Override
     protected void collect() {
-        if (!StatisticsUtil.checkAnalyzeTime(LocalTime.now(TimeUtils.getTimeZone().toZoneId()))) {
+        if (!StatisticsUtil.inAnalyzeTime(LocalTime.now(TimeUtils.getTimeZone().toZoneId()))) {
             analysisTaskExecutor.clear();
             return;
         }
-        if (Config.enable_full_auto_analyze) {
+        if (StatisticsUtil.enableAutoAnalyze()) {
             analyzeAll();
         }
     }
@@ -76,7 +76,7 @@ public class StatisticsAutoCollector extends StatisticsCollector {
             }
             Collection<DatabaseIf> dbs = ctl.getAllDbs();
             for (DatabaseIf<TableIf> databaseIf : dbs) {
-                if (StatisticConstants.STATISTICS_DB_BLACK_LIST.contains(databaseIf.getFullName())) {
+                if (StatisticConstants.SYSTEM_DBS.contains(databaseIf.getFullName())) {
                     continue;
                 }
                 analyzeDb(databaseIf);
@@ -115,7 +115,7 @@ public class StatisticsAutoCollector extends StatisticsCollector {
         if (!(table instanceof OlapTable || table instanceof ExternalTable)) {
             return true;
         }
-        if (table.getDataSize() < Config.huge_table_lower_bound_size_in_bytes) {
+        if (table.getDataSize(true) < Config.huge_table_lower_bound_size_in_bytes) {
             return false;
         }
         TableStats tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(table.getId());
@@ -124,7 +124,7 @@ public class StatisticsAutoCollector extends StatisticsCollector {
 
     protected void createAnalyzeJobForTbl(DatabaseIf<? extends TableIf> db,
             List<AnalysisInfo> analysisInfos, TableIf table) {
-        AnalysisMethod analysisMethod = table.getDataSize() > Config.huge_table_lower_bound_size_in_bytes
+        AnalysisMethod analysisMethod = table.getDataSize(true) > Config.huge_table_lower_bound_size_in_bytes
                 ? AnalysisMethod.SAMPLE : AnalysisMethod.FULL;
         TableName tableName = new TableName(db.getCatalog().getName(), db.getFullName(),
                 table.getName());
@@ -141,7 +141,7 @@ public class StatisticsAutoCollector extends StatisticsCollector {
                 .setAnalysisType(AnalysisInfo.AnalysisType.FUNDAMENTALS)
                 .setAnalysisMode(AnalysisInfo.AnalysisMode.INCREMENTAL)
                 .setAnalysisMethod(analysisMethod)
-                .setSamplePercent(Config.huge_table_default_sample_rows)
+                .setSampleRows(Config.huge_table_default_sample_rows)
                 .setScheduleType(ScheduleType.AUTOMATIC)
                 .setState(AnalysisState.PENDING)
                 .setTaskIds(new ArrayList<>())
@@ -157,7 +157,7 @@ public class StatisticsAutoCollector extends StatisticsCollector {
         AnalysisManager analysisManager = Env.getServingEnv().getAnalysisManager();
         TableStats tblStats = analysisManager.findTableStatsStatus(table.getId());
 
-        if (!(tblStats == null || table.needReAnalyzeTable(tblStats))) {
+        if (!table.needReAnalyzeTable(tblStats)) {
             return null;
         }
 
