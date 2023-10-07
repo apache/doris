@@ -88,7 +88,7 @@ public class EsTable extends Table {
     private int maxDocValueFields = DEFAULT_MAX_DOCVALUE_FIELDS;
 
     // Whether to enable the discovery of es nodes, You can disable it if you are in network isolation
-    private boolean nodesDiscovery = Boolean.parseBoolean(EsResource.NODES_DISCOVERY_DEFAULT_VALUE);;
+    private boolean nodesDiscovery = Boolean.parseBoolean(EsResource.NODES_DISCOVERY_DEFAULT_VALUE);
 
     // Whether to use ssl call es, be and fe access through trust
     private boolean httpSslEnabled = Boolean.parseBoolean(EsResource.HTTP_SSL_ENABLED_DEFAULT_VALUE);
