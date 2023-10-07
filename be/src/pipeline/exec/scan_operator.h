@@ -19,6 +19,7 @@
 
 #include <stdint.h>
 
+#include <cstdint>
 #include <string>
 
 #include "common/status.h"
@@ -101,6 +102,11 @@ public:
         if (_scanner_ctx->get_num_running_scanners() == 0 && _scanner_ctx->should_be_scheduled()) {
             _scanner_ctx->reschedule_scanner_ctx();
         }
+        if (config::enable_fuzzy_mode && !_ready_for_read &&
+            _read_dependency_watcher.elapsed_time() > SLOW_DEPENDENCY_THRESHOLD) {
+            LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
+                         << id();
+        }
         return _ready_for_read ? nullptr : this;
     }
 
@@ -129,10 +135,12 @@ public:
 
     [[nodiscard]] virtual int runtime_filter_num() const = 0;
 
-    Status virtual clone_conjunct_ctxs(vectorized::VExprContextSPtrs& conjuncts) = 0;
+    virtual Status clone_conjunct_ctxs(vectorized::VExprContextSPtrs& conjuncts) = 0;
     virtual void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) = 0;
 
     virtual TPushAggOp::type get_push_down_agg_type() = 0;
+
+    virtual int64_t get_push_down_count() = 0;
 
     [[nodiscard]] std::string get_name() { return _parent->get_name(); }
 
@@ -189,7 +197,7 @@ template <typename Derived>
 class ScanLocalState : public ScanLocalStateBase {
     ENABLE_FACTORY_CREATOR(ScanLocalState);
     ScanLocalState(RuntimeState* state, OperatorXBase* parent);
-    virtual ~ScanLocalState() = default;
+    ~ScanLocalState() override = default;
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status open(RuntimeState* state) override;
@@ -214,6 +222,8 @@ class ScanLocalState : public ScanLocalStateBase {
     virtual void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override {}
 
     TPushAggOp::type get_push_down_agg_type() override;
+
+    int64_t get_push_down_count() override;
 
 protected:
     template <typename LocalStateType>
@@ -346,11 +356,10 @@ protected:
                                const ChangeFixedValueRangeFunc& func, const std::string& fn_name,
                                int slot_ref_child = -1);
 
-    Status _prepare_scanners(const int query_parallel_instance_num);
+    Status _prepare_scanners();
 
     // Submit the scanner to the thread pool and start execution
-    Status _start_scanners(const std::list<vectorized::VScannerSPtr>& scanners,
-                           const int query_parallel_instance_num);
+    Status _start_scanners(const std::list<vectorized::VScannerSPtr>& scanners);
 
     // Every time vconjunct_ctx_ptr is updated, the old ctx will be stored in this vector
     // so that it will be destroyed uniformly at the end of the query.
@@ -423,6 +432,7 @@ public:
 
     TPushAggOp::type get_push_down_agg_type() { return _push_down_agg_type; }
 
+    int64_t get_push_down_count() const { return _push_down_count; }
     using OperatorX<LocalStateType>::id;
 
 protected:
@@ -460,6 +470,9 @@ protected:
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
 
     TPushAggOp::type _push_down_agg_type;
+
+    // Record the value of the aggregate function 'count' from doris's be
+    int64_t _push_down_count = -1;
 };
 
 } // namespace doris::pipeline

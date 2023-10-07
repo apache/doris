@@ -15,7 +15,7 @@
 -- specific language governing permissions and limitations
 -- under the License.
 
-SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=false) */ c_nation, s_nation, d_year,
+SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=true) */ c_nation, s_nation, d_year,
 SUM(lo_revenue)  AS  REVENUE
 FROM customer, lineorder, supplier, date
 WHERE lo_custkey = c_custkey

@@ -112,7 +112,8 @@ public:
                 // open index searcher into cache
                 auto index_file_name = InvertedIndexDescriptor::get_index_file_name(
                         _segment_file_name, _index_meta->index_id());
-                InvertedIndexSearcherCache::instance()->insert(_fs, _directory, index_file_name);
+                static_cast<void>(InvertedIndexSearcherCache::instance()->insert(_fs, _directory,
+                                                                                 index_file_name));
             }
         }
     }

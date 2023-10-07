@@ -34,6 +34,7 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "pipeline/exec/exchange_sink_operator.h"
+#include "pipeline/exec/result_file_sink_operator.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
@@ -108,33 +109,38 @@ Status Channel<Parent>::init(RuntimeState* state) {
 }
 
 template <typename Parent>
-Status Channel<Parent>::send_current_block(bool eos) {
+Status Channel<Parent>::send_current_block(bool eos, Status exec_status) {
     // FIXME: Now, local exchange will cause the performance problem is in a multi-threaded scenario
     // so this feature is turned off here by default. We need to re-examine this logic
     if (is_local()) {
-        return send_local_block(eos);
+        return send_local_block(exec_status, eos);
     }
     SCOPED_CONSUME_MEM_TRACKER(_parent->mem_tracker());
     if (eos) {
         RETURN_IF_ERROR(_serializer.serialize_block(_ch_cur_pb_block, 1));
     }
-    RETURN_IF_ERROR(send_block(_ch_cur_pb_block, eos));
+    RETURN_IF_ERROR(send_remote_block(_ch_cur_pb_block, eos, exec_status));
     ch_roll_pb_block();
     return Status::OK();
 }
 
 template <typename Parent>
-Status Channel<Parent>::send_local_block(bool eos) {
-    SCOPED_TIMER(_parent->local_send_timer());
+Status Channel<Parent>::send_local_block(Status exec_status, bool eos) {
+    if constexpr (!std::is_same_v<pipeline::ResultFileSinkLocalState, Parent>) {
+        SCOPED_TIMER(_parent->local_send_timer());
+    }
     Block block = _serializer.get_block()->to_block();
     _serializer.get_block()->set_muatable_columns(block.clone_empty_columns());
     if (_recvr_is_valid()) {
-        COUNTER_UPDATE(_parent->local_bytes_send_counter(), block.bytes());
-        COUNTER_UPDATE(_parent->local_sent_rows(), block.rows());
-        COUNTER_UPDATE(_parent->blocks_sent_counter(), 1);
+        if constexpr (!std::is_same_v<pipeline::ResultFileSinkLocalState, Parent>) {
+            COUNTER_UPDATE(_parent->local_bytes_send_counter(), block.bytes());
+            COUNTER_UPDATE(_parent->local_sent_rows(), block.rows());
+            COUNTER_UPDATE(_parent->blocks_sent_counter(), 1);
+        }
+
         _local_recvr->add_block(&block, _parent->sender_id(), true);
         if (eos) {
-            _local_recvr->remove_sender(_parent->sender_id(), _be_number);
+            _local_recvr->remove_sender(_parent->sender_id(), _be_number, exec_status);
         }
         return Status::OK();
     } else {
@@ -145,11 +151,15 @@ Status Channel<Parent>::send_local_block(bool eos) {
 
 template <typename Parent>
 Status Channel<Parent>::send_local_block(Block* block) {
-    SCOPED_TIMER(_parent->local_send_timer());
+    if constexpr (!std::is_same_v<pipeline::ResultFileSinkLocalState, Parent>) {
+        SCOPED_TIMER(_parent->local_send_timer());
+    }
     if (_recvr_is_valid()) {
-        COUNTER_UPDATE(_parent->local_bytes_send_counter(), block->bytes());
-        COUNTER_UPDATE(_parent->local_sent_rows(), block->rows());
-        COUNTER_UPDATE(_parent->blocks_sent_counter(), 1);
+        if constexpr (!std::is_same_v<pipeline::ResultFileSinkLocalState, Parent>) {
+            COUNTER_UPDATE(_parent->local_bytes_send_counter(), block->bytes());
+            COUNTER_UPDATE(_parent->local_sent_rows(), block->rows());
+            COUNTER_UPDATE(_parent->blocks_sent_counter(), 1);
+        }
         _local_recvr->add_block(block, _parent->sender_id(), false);
         return Status::OK();
     } else {
@@ -158,9 +168,12 @@ Status Channel<Parent>::send_local_block(Block* block) {
 }
 
 template <typename Parent>
-Status Channel<Parent>::send_block(PBlock* block, bool eos) {
-    SCOPED_TIMER(_parent->brpc_send_timer());
-    COUNTER_UPDATE(_parent->blocks_sent_counter(), 1);
+Status Channel<Parent>::send_remote_block(PBlock* block, bool eos, Status exec_status) {
+    if constexpr (!std::is_same_v<pipeline::ResultFileSinkLocalState, Parent>) {
+        SCOPED_TIMER(_parent->brpc_send_timer());
+        COUNTER_UPDATE(_parent->blocks_sent_counter(), 1);
+    }
+
     if (_closure == nullptr) {
         _closure = new RefCountClosure<PTransmitDataResult>();
         _closure->ref();
@@ -169,7 +182,7 @@ Status Channel<Parent>::send_block(PBlock* block, bool eos) {
         SCOPED_TRACK_MEMORY_TO_UNKNOWN();
         _closure->cntl.Reset();
     }
-    VLOG_ROW << "Channel<Parent>::send_batch() instance_id=" << _fragment_instance_id
+    VLOG_ROW << "Channel<Parent>::send_batch() instance_id=" << print_id(_fragment_instance_id)
              << " dest_node=" << _dest_node_id << " to_host=" << _brpc_dest_addr.hostname
              << " _packet_seq=" << _packet_seq << " row_desc=" << _row_desc.debug_string();
     if (_is_transfer_chain && (_send_query_statistics_with_every_batch || eos)) {
@@ -178,6 +191,9 @@ Status Channel<Parent>::send_block(PBlock* block, bool eos) {
     }
 
     _brpc_request.set_eos(eos);
+    if (!exec_status.ok()) {
+        exec_status.to_protobuf(_brpc_request.mutable_exec_status());
+    }
     if (block != nullptr) {
         _brpc_request.set_allocated_block(block);
     }
@@ -191,7 +207,7 @@ Status Channel<Parent>::send_block(PBlock* block, bool eos) {
 
     {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
-        if (enable_http_send_block(_brpc_request, _parent->transfer_large_data_by_brpc())) {
+        if (enable_http_send_block(_brpc_request, config::transfer_large_data_by_brpc)) {
             RETURN_IF_ERROR(transmit_block_http(_state->exec_env(), _closure, _brpc_request,
                                                 _brpc_dest_addr));
         } else {
@@ -215,7 +231,7 @@ Status Channel<Parent>::add_rows(Block* block, const std::vector<int>& rows, boo
     RETURN_IF_ERROR(
             _serializer.next_serialized_block(block, _ch_cur_pb_block, 1, &serialized, eos, &rows));
     if (serialized) {
-        RETURN_IF_ERROR(send_current_block(false));
+        RETURN_IF_ERROR(send_current_block(false, Status::OK()));
     }
 
     return Status::OK();
@@ -238,29 +254,29 @@ Status Channel<Parent>::close_wait(RuntimeState* state) {
 }
 
 template <typename Parent>
-Status Channel<Parent>::close_internal() {
+Status Channel<Parent>::close_internal(Status exec_status) {
     if (!_need_close) {
         return Status::OK();
     }
-    VLOG_RPC << "Channel::close() instance_id=" << _fragment_instance_id
+    VLOG_RPC << "Channel::close_internal() instance_id=" << print_id(_fragment_instance_id)
              << " dest_node=" << _dest_node_id << " #rows= "
              << ((_serializer.get_block() == nullptr) ? 0 : _serializer.get_block()->rows())
-             << " receiver status: " << _receiver_status;
+             << " receiver status: " << _receiver_status << ", exec_status: " << exec_status;
     if (is_receiver_eof()) {
         _serializer.reset_block();
         return Status::OK();
     }
     Status status;
     if (_serializer.get_block() != nullptr && _serializer.get_block()->rows() > 0) {
-        status = send_current_block(true);
+        status = send_current_block(true, exec_status);
     } else {
         SCOPED_CONSUME_MEM_TRACKER(_parent->mem_tracker());
         if (is_local()) {
             if (_recvr_is_valid()) {
-                _local_recvr->remove_sender(_parent->sender_id(), _be_number);
+                _local_recvr->remove_sender(_parent->sender_id(), _be_number, exec_status);
             }
         } else {
-            status = send_block((PBlock*)nullptr, true);
+            status = send_remote_block((PBlock*)nullptr, true, exec_status);
         }
     }
     // Don't wait for the last packet to finish, left it to close_wait.
@@ -272,13 +288,13 @@ Status Channel<Parent>::close_internal() {
 }
 
 template <typename Parent>
-Status Channel<Parent>::close(RuntimeState* state) {
+Status Channel<Parent>::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return Status::OK();
     }
     _closed = true;
 
-    Status st = close_internal();
+    Status st = close_internal(exec_status);
     if (!st.ok()) {
         state->log_error(st.to_string());
     }
@@ -450,7 +466,7 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
     _split_block_distribute_by_channel_timer =
             ADD_TIMER(profile(), "SplitBlockDistributeByChannelTime");
     _merge_block_timer = ADD_TIMER(profile(), "MergeBlockTime");
-    _blocks_sent_counter = ADD_COUNTER(profile(), "BlocksSent", TUnit::UNIT);
+    _blocks_sent_counter = ADD_COUNTER_WITH_LEVEL(profile(), "BlocksSent", TUnit::UNIT, 1);
     _overall_throughput = profile()->add_derived_counter(
             "OverallThroughput", TUnit::BYTES_PER_SECOND,
             std::bind<int64_t>(&RuntimeProfile::units_per_second, _bytes_sent_counter,
@@ -484,7 +500,8 @@ template <typename ChannelPtrType>
 void VDataStreamSender::_handle_eof_channel(RuntimeState* state, ChannelPtrType channel,
                                             Status st) {
     channel->set_receiver_eof(st);
-    channel->close(state);
+    // Chanel will not send RPC to the downstream when eof, so close chanel by OK status.
+    static_cast<void>(channel->close(state, Status::OK()));
 }
 
 Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
@@ -538,7 +555,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                                 status = channel->send_local_block(&cur_block);
                             } else {
                                 SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-                                status = channel->send_block(block_holder, eos);
+                                status = channel->send_broadcast_block(block_holder, nullptr, eos);
                             }
                             HANDLE_CHANNEL_STATUS(state, channel, status);
                         }
@@ -565,7 +582,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                             status = channel->send_local_block(&cur_block);
                         } else {
                             SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-                            status = channel->send_block(_cur_pb_block, false);
+                            status = channel->send_remote_block(_cur_pb_block, false);
                         }
                         HANDLE_CHANNEL_STATUS(state, channel, status);
                     }
@@ -587,7 +604,8 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                 SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
                 RETURN_IF_ERROR(
                         _serializer.serialize_block(block, current_channel->ch_cur_pb_block()));
-                auto status = current_channel->send_block(current_channel->ch_cur_pb_block(), eos);
+                auto status =
+                        current_channel->send_remote_block(current_channel->ch_cur_pb_block(), eos);
                 HANDLE_CHANNEL_STATUS(state, current_channel, status);
                 current_channel->ch_roll_pb_block();
             }
@@ -669,7 +687,7 @@ Status VDataStreamSender::try_close(RuntimeState* state, Status exec_status) {
     _serializer.reset_block();
     Status final_st = Status::OK();
     for (int i = 0; i < _channels.size(); ++i) {
-        Status st = _channels[i]->close(state);
+        Status st = _channels[i]->close(state, exec_status);
         if (!st.ok() && final_st.ok()) {
             final_st = st;
         }
@@ -698,7 +716,7 @@ Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
                             status = channel->send_local_block(&block);
                         } else {
                             SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-                            status = channel->send_block(_cur_pb_block, false);
+                            status = channel->send_remote_block(_cur_pb_block, false);
                         }
                         HANDLE_CHANNEL_STATUS(state, channel, status);
                     }
@@ -706,7 +724,7 @@ Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
             }
         }
         for (int i = 0; i < _channels.size(); ++i) {
-            Status st = _channels[i]->close(state);
+            Status st = _channels[i]->close(state, exec_status);
             if (!st.ok() && final_st.ok()) {
                 final_st = st;
             }
@@ -723,7 +741,7 @@ Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
     if (_peak_memory_usage_counter) {
         _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
     }
-    DataSink::close(state, exec_status);
+    static_cast<void>(DataSink::close(state, exec_status));
     return final_st;
 }
 
@@ -744,12 +762,16 @@ Status BlockSerializer<Parent>::next_serialized_block(Block* block, PBlock* dest
         SCOPED_CONSUME_MEM_TRACKER(_parent->mem_tracker());
         if (rows) {
             if (rows->size() > 0) {
-                SCOPED_TIMER(_parent->split_block_distribute_by_channel_timer());
+                if constexpr (!std::is_same_v<pipeline::ResultFileSinkLocalState, Parent>) {
+                    SCOPED_TIMER(_parent->split_block_distribute_by_channel_timer());
+                }
                 const int* begin = &(*rows)[0];
                 _mutable_block->add_rows(block, begin, begin + rows->size());
             }
         } else if (!block->empty()) {
-            SCOPED_TIMER(_parent->merge_block_timer());
+            if constexpr (!std::is_same_v<pipeline::ResultFileSinkLocalState, Parent>) {
+                SCOPED_TIMER(_parent->merge_block_timer());
+            }
             RETURN_IF_ERROR(_mutable_block->merge(*block));
         }
     }
@@ -779,7 +801,7 @@ Status BlockSerializer<Parent>::serialize_block(PBlock* dest, int num_receivers)
 
 template <typename Parent>
 Status BlockSerializer<Parent>::serialize_block(const Block* src, PBlock* dest, int num_receivers) {
-    {
+    if constexpr (!std::is_same_v<pipeline::ResultFileSinkLocalState, Parent>) {
         SCOPED_TIMER(_parent->_serialize_batch_timer);
         dest->Clear();
         size_t uncompressed_bytes = 0, compressed_bytes = 0;
@@ -845,6 +867,8 @@ bool VDataStreamSender::channel_all_can_write() {
 
 template class Channel<pipeline::ExchangeSinkLocalState>;
 template class Channel<VDataStreamSender>;
+template class Channel<pipeline::ResultFileSinkLocalState>;
+template class BlockSerializer<pipeline::ResultFileSinkLocalState>;
 template class BlockSerializer<pipeline::ExchangeSinkLocalState>;
 template class BlockSerializer<VDataStreamSender>;
 

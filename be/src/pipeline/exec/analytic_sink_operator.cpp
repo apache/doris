@@ -103,7 +103,7 @@ Status AnalyticSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) 
 
 Status AnalyticSinkOperatorX::prepare(RuntimeState* state) {
     for (const auto& ctx : _agg_expr_ctxs) {
-        vectorized::VExpr::prepare(ctx, state, _child_x->row_desc());
+        static_cast<void>(vectorized::VExpr::prepare(ctx, state, _child_x->row_desc()));
     }
     if (!_partition_by_eq_expr_ctxs.empty() || !_order_by_eq_expr_ctxs.empty()) {
         vector<TTupleId> tuple_ids;
@@ -214,5 +214,7 @@ Status AnalyticSinkOperatorX::_insert_range_column(vectorized::Block* block,
     dst_column->insert_range_from(*column, 0, length);
     return Status::OK();
 }
+
+template class DataSinkOperatorX<AnalyticSinkLocalState>;
 
 } // namespace doris::pipeline

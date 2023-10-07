@@ -1,5 +1,5 @@
 -- tables: lineitem,part
-SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=false) */ sum(l_extendedprice * (1 - l_discount)) AS revenue
+SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=true) */ sum(l_extendedprice * (1 - l_discount)) AS revenue
 FROM
   lineitem,
   part

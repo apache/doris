@@ -233,6 +233,9 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
     if (!_blocks_queue.empty()) {
         *block = std::move(_blocks_queue.front());
         _blocks_queue.pop_front();
+
+        RETURN_IF_ERROR(validate_block_schema((*block).get()));
+
         auto block_bytes = (*block)->allocated_bytes();
         _cur_bytes_in_queue -= block_bytes;
 
@@ -240,6 +243,32 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
         return Status::OK();
     } else {
         *eos = _is_finished;
+    }
+    return Status::OK();
+}
+
+Status ScannerContext::validate_block_schema(Block* block) {
+    size_t index = 0;
+    for (auto& slot : _output_tuple_desc->slots()) {
+        if (!slot->need_materialize()) {
+            continue;
+        }
+        auto& data = block->get_by_position(index++);
+        if (data.column->is_nullable() != data.type->is_nullable()) {
+            return Status::Error<ErrorCode::INVALID_SCHEMA>(
+                    "column(name: {}) nullable({}) does not match type nullable({}), slot(id: {}, "
+                    "name:{})",
+                    data.name, data.column->is_nullable(), data.type->is_nullable(), slot->id(),
+                    slot->col_name());
+        }
+
+        if (data.column->is_nullable() != slot->is_nullable()) {
+            return Status::Error<ErrorCode::INVALID_SCHEMA>(
+                    "column(name: {}) nullable({}) does not match slot(id: {}, name: {}) "
+                    "nullable({})",
+                    data.name, data.column->is_nullable(), slot->id(), slot->col_name(),
+                    slot->is_nullable());
+        }
     }
     return Status::OK();
 }
@@ -317,7 +346,7 @@ Status ScannerContext::_close_and_clear_scanners(Parent* parent, RuntimeState* s
     }
     // Only unfinished scanners here
     for (auto& scanner : _scanners) {
-        scanner->close(state);
+        static_cast<void>(scanner->close(state));
         // Scanners are in ObjPool in ScanNode,
         // so no need to delete them here.
     }
@@ -347,7 +376,7 @@ void ScannerContext::clear_and_join(Parent* parent, RuntimeState* state) {
     }
     // Must wait all running scanners stop running.
     // So that we can make sure to close all scanners.
-    _close_and_clear_scanners(parent, state);
+    static_cast<void>(_close_and_clear_scanners(parent, state));
 
     _blocks_queue.clear();
 }
@@ -439,7 +468,7 @@ void ScannerContext::get_next_batch_of_scanners(std::list<VScannerSPtr>* current
                 _finished_scanner_rows_read.push_back(scanner->get_rows_read());
                 _finished_scanner_wait_worker_time.push_back(
                         scanner->get_scanner_wait_worker_timer());
-                scanner->close(_state);
+                static_cast<void>(scanner->close(_state));
             } else {
                 current_run->push_back(scanner);
                 i++;

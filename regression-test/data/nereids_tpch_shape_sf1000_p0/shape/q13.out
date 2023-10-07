@@ -10,7 +10,7 @@ PhysicalResultSink
 --------------PhysicalProject
 ----------------hashAgg[LOCAL]
 ------------------PhysicalProject
---------------------hashJoin[RIGHT_OUTER_JOIN](customer.c_custkey = orders.o_custkey)
+--------------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((customer.c_custkey = orders.o_custkey))otherCondition=()
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
 --------------------------filter(( not (o_comment like '%special%requests%')))

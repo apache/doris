@@ -30,7 +30,7 @@ import com.google.gson.reflect.TypeToken;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.quartz.CronExpression;
+import org.apache.logging.log4j.core.util.CronExpression;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -73,6 +73,8 @@ public class AnalysisInfo implements Writable {
     }
 
     public enum ScheduleType {
+        // Job created by AutoCollector is also `ONCE` type, this is because it runs once only and should be removed
+        // when its information is expired
         ONCE,
         PERIOD,
         AUTOMATIC

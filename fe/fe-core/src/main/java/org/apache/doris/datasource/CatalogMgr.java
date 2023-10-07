@@ -289,7 +289,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 LOG.warn("Non catalog {} is found.", stmt.getCatalogName());
                 return;
             }
-            CatalogIf catalog = nameToCatalog.get(stmt.getCatalogName());
+            CatalogIf<DatabaseIf<TableIf>> catalog = nameToCatalog.get(stmt.getCatalogName());
             if (catalog == null) {
                 throw new DdlException("No catalog found with name: " + stmt.getCatalogName());
             }
@@ -299,7 +299,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
             lastDBOfCatalog.remove(stmt.getCatalogName());
             Env.getCurrentEnv().getQueryStats().clear(catalog.getId());
-
         } finally {
             writeUnlock();
         }

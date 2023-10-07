@@ -39,10 +39,10 @@ const static std::string HEADER_JSON = "application/json";
 void TabletMigrationAction::_init_migration_action() {
     int32_t max_thread_num = config::max_tablet_migration_threads;
     int32_t min_thread_num = config::min_tablet_migration_threads;
-    ThreadPoolBuilder("MigrationTaskThreadPool")
-            .set_min_threads(min_thread_num)
-            .set_max_threads(max_thread_num)
-            .build(&_migration_thread_pool);
+    static_cast<void>(ThreadPoolBuilder("MigrationTaskThreadPool")
+                              .set_min_threads(min_thread_num)
+                              .set_max_threads(max_thread_num)
+                              .build(&_migration_thread_pool));
 }
 
 void TabletMigrationAction::handle(HttpRequest* req) {

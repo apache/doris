@@ -46,7 +46,10 @@ import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonInsert;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonObject;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonReplace;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonSet;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
@@ -80,6 +83,7 @@ import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.NullType;
@@ -233,6 +237,8 @@ public class TypeCoercionUtils {
                 returnType = expected.defaultConcreteType();
             } else if (expected instanceof DateTimeType) {
                 returnType = DateTimeType.INSTANCE;
+            } else if (expected instanceof JsonType) {
+                returnType = JsonType.INSTANCE;
             }
         } else if (input.isDateType()) {
             if (expected instanceof DateTimeType) {
@@ -339,8 +345,7 @@ public class TypeCoercionUtils {
         if (input.isNullLiteral()) {
             return new NullLiteral(targetType);
         } else if (input.getDataType().equals(targetType) || isSubqueryAndDataTypeIsBitmap(input)
-                || (isVarCharOrStringType(input.getDataType())
-                        && isVarCharOrStringType(targetType))) {
+                || (input.getDataType().isStringLikeType()) && targetType.isStringLikeType()) {
             return input;
         } else {
             checkCanCastTo(input.getDataType(), targetType);
@@ -350,10 +355,6 @@ public class TypeCoercionUtils {
 
     private static boolean isSubqueryAndDataTypeIsBitmap(Expression input) {
         return input instanceof SubqueryExpr && input.getDataType().isBitmapType();
-    }
-
-    private static boolean isVarCharOrStringType(DataType dataType) {
-        return dataType instanceof VarcharType || dataType instanceof StringType;
     }
 
     private static boolean canCastTo(DataType input, DataType target) {
@@ -528,6 +529,11 @@ public class TypeCoercionUtils {
         // this moved from translate phase to here, because we need to add the type info before cast all args to string
         if (boundFunction instanceof JsonArray || boundFunction instanceof JsonObject) {
             boundFunction = TypeCoercionUtils.fillJsonTypeArgument(boundFunction, boundFunction instanceof JsonObject);
+        }
+        if (boundFunction instanceof JsonInsert
+                || boundFunction instanceof JsonReplace
+                || boundFunction instanceof JsonSet) {
+            boundFunction = TypeCoercionUtils.fillJsonValueModifyTypeArgument(boundFunction);
         }
         if (boundFunction instanceof CreateMap) {
             return processCreateMap((CreateMap) boundFunction);
@@ -857,7 +863,7 @@ public class TypeCoercionUtils {
         return optionalCommonType
                 .map(commonType -> {
                     List<Expression> newChildren = inPredicate.children().stream()
-                            .map(e -> TypeCoercionUtils.castIfNotMatchType(e, commonType))
+                            .map(e -> TypeCoercionUtils.castIfNotSameType(e, commonType))
                             .collect(Collectors.toList());
                     return inPredicate.withChildren(newChildren);
                 })
@@ -886,7 +892,7 @@ public class TypeCoercionUtils {
                     List<Expression> newChildren
                             = caseWhen.getWhenClauses().stream()
                             .map(wc -> {
-                                Expression valueExpr = TypeCoercionUtils.castIfNotMatchType(
+                                Expression valueExpr = TypeCoercionUtils.castIfNotSameType(
                                         wc.getResult(), commonType);
                                 // we must cast every child to the common type, and then
                                 // FoldConstantRuleOnFe can eliminate some branches and direct
@@ -899,7 +905,7 @@ public class TypeCoercionUtils {
                             .collect(Collectors.toList());
                     caseWhen.getDefaultValue()
                             .map(dv -> {
-                                Expression defaultExpr = TypeCoercionUtils.castIfNotMatchType(dv, commonType);
+                                Expression defaultExpr = TypeCoercionUtils.castIfNotSameType(dv, commonType);
                                 if (!defaultExpr.getDataType().equals(commonType)) {
                                     defaultExpr = new Cast(defaultExpr, commonType);
                                 }
@@ -1428,6 +1434,38 @@ public class TypeCoercionUtils {
         } catch (Throwable t) {
             throw new AnalysisException(t.getMessage());
         }
+    }
+
+    /**
+     * add json type info as the last argument of the function.
+     * used for json_insert, json_replace, json_set.
+     *
+     * @param function function need to add json type info
+     * @return function already processed
+     */
+    public static BoundFunction fillJsonValueModifyTypeArgument(BoundFunction function) {
+        List<Expression> arguments = function.getArguments();
+        List<Expression> newArguments = Lists.newArrayList();
+        StringBuilder jsonTypeStr = new StringBuilder();
+        for (int i = 0; i < arguments.size(); i++) {
+            Expression argument = arguments.get(i);
+            Type type = argument.getDataType().toCatalogDataType();
+            int jsonType = FunctionCallExpr.computeJsonDataType(type);
+            jsonTypeStr.append(jsonType);
+
+            if (i > 0 && (i & 1) == 0 && type.isNull()) {
+                newArguments.add(new StringLiteral("NULL"));
+            } else {
+                newArguments.add(argument);
+            }
+        }
+        if (arguments.isEmpty()) {
+            newArguments.add(new StringLiteral(""));
+        } else {
+            // add json type string to the last
+            newArguments.add(new StringLiteral(jsonTypeStr.toString()));
+        }
+        return (BoundFunction) function.withChildren(newArguments);
     }
 
     private static Expression processDecimalV3BinaryArithmetic(BinaryArithmetic binaryArithmetic,

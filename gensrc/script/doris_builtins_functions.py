@@ -790,7 +790,7 @@ visible_functions = {
         [['array_pushback'], 'ARRAY_DECIMAL128', ['ARRAY_DECIMAL128', 'DECIMAL128'], 'ALWAYS_NULLABLE'],
         [['array_pushback'], 'ARRAY_VARCHAR',    ['ARRAY_VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['array_pushback'], 'ARRAY_STRING',     ['ARRAY_STRING', 'STRING'], 'ALWAYS_NULLABLE'],
-    
+
         [['array_with_constant'], 'ARRAY_BOOLEAN', ['BIGINT', 'BOOLEAN'], 'ALWAYS_NOT_NULLABLE'],
         [['array_with_constant'], 'ARRAY_TINYINT', ['BIGINT', 'TINYINT'], 'ALWAYS_NOT_NULLABLE'],
         [['array_with_constant'], 'ARRAY_SMALLINT', ['BIGINT','SMALLINT'], 'ALWAYS_NOT_NULLABLE'],
@@ -1678,26 +1678,6 @@ visible_functions = {
         [['width_bucket'], 'BIGINT', ['DATETIMEV2','DATETIMEV2','DATETIMEV2','BIGINT'], '']
     ],
 
-
-    # runningdifference
-    "RunningDifference": [
-        [['running_difference'], 'SMALLINT', ['TINYINT'], ''],
-        [['running_difference'], 'INT', ['SMALLINT'], ''],
-        [['running_difference'], 'BIGINT', ['INT'], ''],
-        [['running_difference'], 'BIGINT', ['BIGINT'], ''],
-        [['running_difference'], 'LARGEINT', ['LARGEINT'], ''],
-        [['running_difference'], 'DOUBLE', ['FLOAT'], ''],
-        [['running_difference'], 'DOUBLE', ['DOUBLE'], ''],
-        [['running_difference'], 'DECIMALV2', ['DECIMALV2'], ''],
-        [['running_difference'], 'DECIMAL32', ['DECIMAL32'], ''],
-        [['running_difference'], 'DECIMAL64', ['DECIMAL64'], ''],
-        [['running_difference'], 'DECIMAL128', ['DECIMAL128'], ''],
-        [['running_difference'], 'INT', ['DATE'], ''],
-        [['running_difference'], 'INT', ['DATEV2'], ''],
-        [['running_difference'], 'TIME', ['DATETIME'], ''],
-        [['running_difference'], 'TIMEV2', ['DATETIMEV2'], '']
-    ],
-
     # Utility functions
     "Utility": [
         [['convert_to'], 'VARCHAR', ['VARCHAR','VARCHAR'], ''],
@@ -1801,6 +1781,14 @@ visible_functions = {
         [['get_json_string'], 'STRING', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
         [['get_json_bigint'], 'BIGINT', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['get_json_bigint'], 'BIGINT', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
+        [['get_json_string'], 'STRING', ['JSONB', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['get_json_string'], 'STRING', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
+        [['get_json_int'], 'INT', ['JSONB', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['get_json_int'], 'INT', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
+        [['get_json_double'], 'DOUBLE', ['JSONB', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['get_json_double'], 'DOUBLE', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
+        [['get_json_bigint'], 'BIGINT', ['JSONB', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['get_json_bigint'], 'BIGINT', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
 
         [['json_array'], 'VARCHAR', ['VARCHAR', '...'], 'ALWAYS_NOT_NULLABLE'],
         [['json_object'], 'VARCHAR', ['VARCHAR', '...'], 'ALWAYS_NOT_NULLABLE'],
@@ -1808,7 +1796,10 @@ visible_functions = {
         [['json_valid'], 'INT', ['VARCHAR'], 'ALWAYS_NULLABLE'],
         [['json_contains'], 'BOOLEAN', ['VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['json_unquote'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
-        [['json_extract'], 'VARCHAR', ['VARCHAR', 'VARCHAR', '...'], '']
+        [['json_extract'], 'VARCHAR', ['VARCHAR', 'VARCHAR', '...'], ''],
+        [['json_insert'], 'VARCHAR', ['VARCHAR', 'VARCHAR', '...'], ''],
+        [['json_replace'], 'VARCHAR', ['VARCHAR', 'VARCHAR', '...'], ''],
+        [['json_set'], 'VARCHAR', ['VARCHAR', 'VARCHAR', '...'], '']
     ],
 
 
@@ -1834,7 +1825,7 @@ visible_functions = {
         [['bitmap_hash'], 'BITMAP', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
         [['bitmap_hash64'], 'BITMAP', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
         [['bitmap_count'], 'BIGINT', ['BITMAP'], 'ALWAYS_NOT_NULLABLE'],
-        [['bitmap_and_not_count'], 'BIGINT', ['BITMAP','BITMAP'], ''],
+        [['bitmap_and_not_count', 'bitmap_andnot_count'], 'BIGINT', ['BITMAP','BITMAP'], ''],
         [['bitmap_empty'], 'BITMAP', [], 'ALWAYS_NOT_NULLABLE'],
         [['bitmap_or'], 'BITMAP', ['BITMAP','BITMAP','...'], ''],
         [['bitmap_or'], 'BITMAP', ['BITMAP','BITMAP'], ''],
@@ -1845,7 +1836,7 @@ visible_functions = {
         [['bitmap_not'], 'BITMAP', ['BITMAP','BITMAP'], ''],
         [['bitmap_and'], 'BITMAP', ['BITMAP','BITMAP','...'], ''],
         [['bitmap_and'], 'BITMAP', ['BITMAP','BITMAP'], ''],
-        [['bitmap_and_not'], 'BITMAP', ['BITMAP','BITMAP'], ''],
+        [['bitmap_and_not', 'bitmap_andnot'], 'BITMAP', ['BITMAP','BITMAP'], ''],
         [['bitmap_to_string'], 'STRING', ['BITMAP'], ''],
         [['bitmap_from_string'], 'BITMAP', ['VARCHAR'], 'ALWAYS_NULLABLE'],
         [['bitmap_from_string'], 'BITMAP', ['STRING'], 'ALWAYS_NULLABLE'],

@@ -116,7 +116,6 @@ public:
         if (!types.empty()) {
             function_variadic_set.insert(name);
         }
-
         std::string key_str = name;
         if (!types.empty()) {
             for (const auto& type : types) {
@@ -137,7 +136,7 @@ public:
 
     template <class Function>
     void register_function(std::string name) {
-        function_creators[name] = &createDefaultFunction<Function>;
+        register_function(name, &createDefaultFunction<Function>);
     }
 
     void register_alias(const std::string& name, const std::string& alias) {
@@ -235,7 +234,6 @@ public:
             register_function_to_time_function(instance);
             register_function_time_of_function(instance);
             register_function_string(instance);
-            register_function_running_difference(instance);
             register_function_in(instance);
             register_function_if(instance);
             register_function_nullif(instance);

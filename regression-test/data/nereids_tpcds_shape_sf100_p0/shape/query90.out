@@ -9,20 +9,20 @@ PhysicalResultSink
 ------------PhysicalDistribute
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN](web_sales.ws_ship_hdemo_sk = household_demographics.hd_demo_sk)
+------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_ship_hdemo_sk = household_demographics.hd_demo_sk))otherCondition=()
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN](web_sales.ws_sold_time_sk = time_dim.t_time_sk)
---------------------------hashJoin[INNER_JOIN](web_sales.ws_web_page_sk = web_page.wp_web_page_sk)
+------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_time_sk = time_dim.t_time_sk))otherCondition=()
+--------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_web_page_sk = web_page.wp_web_page_sk))otherCondition=()
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[web_sales]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
---------------------------------filter((web_page.wp_char_count >= 5000)(web_page.wp_char_count <= 5200))
+--------------------------------filter((web_page.wp_char_count <= 5200) and (web_page.wp_char_count >= 5000))
 ----------------------------------PhysicalOlapScan[web_page]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
-------------------------------filter((time_dim.t_hour >= 10)(time_dim.t_hour <= 11))
+------------------------------filter((time_dim.t_hour <= 11) and (time_dim.t_hour >= 10))
 --------------------------------PhysicalOlapScan[time_dim]
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
@@ -33,20 +33,20 @@ PhysicalResultSink
 --------------PhysicalDistribute
 ----------------hashAgg[LOCAL]
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN](web_sales.ws_ship_hdemo_sk = household_demographics.hd_demo_sk)
+--------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_ship_hdemo_sk = household_demographics.hd_demo_sk))otherCondition=()
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN](web_sales.ws_sold_time_sk = time_dim.t_time_sk)
-----------------------------hashJoin[INNER_JOIN](web_sales.ws_web_page_sk = web_page.wp_web_page_sk)
+--------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_time_sk = time_dim.t_time_sk))otherCondition=()
+----------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_web_page_sk = web_page.wp_web_page_sk))otherCondition=()
 ------------------------------PhysicalProject
 --------------------------------PhysicalOlapScan[web_sales]
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
-----------------------------------filter((web_page.wp_char_count >= 5000)(web_page.wp_char_count <= 5200))
+----------------------------------filter((web_page.wp_char_count <= 5200) and (web_page.wp_char_count >= 5000))
 ------------------------------------PhysicalOlapScan[web_page]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
---------------------------------filter((time_dim.t_hour >= 16)(time_dim.t_hour <= 17))
+--------------------------------filter((time_dim.t_hour <= 17) and (time_dim.t_hour >= 16))
 ----------------------------------PhysicalOlapScan[time_dim]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject

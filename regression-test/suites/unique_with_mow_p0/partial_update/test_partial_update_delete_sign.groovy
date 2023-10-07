@@ -116,4 +116,72 @@ suite('test_partial_update_delete_sign') {
     // skip_delete_bitmap=false, skip_delete_sign=true
     qt_2 "select k1,c1,c2,c3,c4,__DORIS_DELETE_SIGN__ from ${tableName2} order by k1,c1,c2,c3,c4,__DORIS_DELETE_SIGN__;"
     sql "drop table if exists ${tableName2};"
+
+
+    // partial update a row that has been deleted by delete sign(table without sequence column)
+    sql "set skip_delete_sign=false;"
+    sql "set skip_storage_engine_merge=false;"
+    sql "set skip_delete_bitmap=false;"
+    sql "sync"
+    def tableName3 = "test_partial_update_delete_sign3"
+    sql "DROP TABLE IF EXISTS ${tableName3};"
+    sql """ create table ${tableName3} (
+        k int,
+        v1 int,
+        v2 int
+    ) ENGINE=OLAP unique key (k)
+    distributed by hash(k) buckets 1
+    properties("replication_num" = "1",
+    "enable_unique_key_merge_on_write" = "true"); """
+    sql "insert into ${tableName3} values(1,1,1);"
+    qt_1 "select * from ${tableName3} order by k;"
+    sql "insert into ${tableName3}(k,v1,v2,__DORIS_DELETE_SIGN__) values(1,1,1,1);"
+    qt_2 "select * from ${tableName3} order by k;"
+    streamLoad {
+        table "${tableName3}"
+
+        set 'column_separator', ','
+        set 'format', 'csv'
+        set 'partial_columns', 'true'
+        set 'columns', 'k,v1'
+
+        file 'test_partial_update_delete_sign_data.csv'
+        time 10000 // limit inflight 10s
+    }
+    sql "sync"
+    qt_3 "select * from ${tableName3} order by k;"
+    sql "drop table if exists ${tableName3};"
+
+
+    // partial update a row that has been deleted by delete sign(table with sequence column)
+    def tableName4 = "test_partial_update_delete_sign4"
+    sql "DROP TABLE IF EXISTS ${tableName4};"
+    sql """ create table ${tableName4} (
+        k int,
+        v1 int,
+        v2 int,
+        c int
+    ) ENGINE=OLAP unique key (k)
+    distributed by hash(k) buckets 1
+    properties("replication_num" = "1",
+    "enable_unique_key_merge_on_write" = "true",
+    "function_column.sequence_col" = "c"); """
+    sql "insert into ${tableName4} values(1,1,1,1);"
+    qt_1 "select * from ${tableName4} order by k;"
+    sql "insert into ${tableName4}(k,v1,v2,c,__DORIS_DELETE_SIGN__) values(1,1,1,1,1);"
+    qt_2 "select * from ${tableName4} order by k;"
+    streamLoad {
+        table "${tableName4}"
+
+        set 'column_separator', ','
+        set 'format', 'csv'
+        set 'partial_columns', 'true'
+        set 'columns', 'k,v1'
+
+        file 'test_partial_update_delete_sign_data.csv'
+        time 10000 // limit inflight 10s
+    }
+    sql "sync"
+    qt_3 "select * from ${tableName4} order by k;"
+    sql "drop table if exists ${tableName4};"
 }

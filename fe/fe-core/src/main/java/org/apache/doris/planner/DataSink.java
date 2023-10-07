@@ -24,6 +24,7 @@ import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.util.ProfileStatistics;
 import org.apache.doris.planner.external.odbc.OdbcTableSink;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TExplainLevel;
@@ -39,13 +40,22 @@ public abstract class DataSink {
     protected PlanFragment fragment;
 
     /**
-     * Return an explain string for the DataSink. Each line of the explain will be prefixed
+     * Return an explain string for the DataSink. Each line of the explain will be
+     * prefixed
      * by "prefix"
      *
      * @param prefix each explain line will be started with the given prefix
      * @return
      */
     public abstract String getExplainString(String prefix, TExplainLevel explainLevel);
+
+    public String getExplainStringToProfile(String prefix, TExplainLevel explainLevel, ProfileStatistics statistics,
+            int fragmentIdx) {
+        String dataSinkString = getExplainString(prefix, explainLevel);
+        StringBuilder expBuilder = new StringBuilder();
+        statistics.getDataSinkInfo(fragmentIdx, prefix + "  ", expBuilder);
+        return dataSinkString + "\n" + expBuilder.toString();
+    }
 
     protected abstract TDataSink toThrift();
 

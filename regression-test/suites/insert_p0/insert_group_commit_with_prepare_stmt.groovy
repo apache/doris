@@ -25,7 +25,7 @@ suite("insert_group_commit_with_prepare_stmt") {
 
     def getRowCount = { expectedRowCount ->
         def retry = 0
-        while (retry < 10) {
+        while (retry < 30) {
             sleep(4000)
             def rowCount = sql "select count(*) from ${table}"
             logger.info("rowCount: " + rowCount + ", retry: " + retry)

@@ -540,7 +540,7 @@ suite("test_http_stream", "p0") {
         streamLoad {
             set 'version', '1'
             set 'sql', """
-                    insert into ${db}.${tableName12} (id, name) select c1, c2 from http_stream("format"="csv", "line_delimiter"="||")
+                    insert into ${db}.${tableName12} (id, name) select c1, c2 from http_stream("format"="csv", "line_delimiter"="||", "column_separator" = ",")
                     """
             time 10000
             file 'test_http_stream_line_delimiter.csv'
@@ -600,231 +600,43 @@ suite("test_http_stream", "p0") {
         try_sql "DROP TABLE IF EXISTS ${tableName13}"
     }
 
-    // 14. test parquet orc case
-    def tableName14 = "test_parquet_orc_case"
+    // 14. test label 
+    def tableName14 = "test_http_stream_label"
+    def label = UUID.randomUUID().toString().replaceAll("-", "")
+
     try {
-        sql """ DROP TABLE IF EXISTS ${tableName14} """
         sql """
-            CREATE TABLE IF NOT EXISTS ${tableName14} (
-                `WatchId` char(128),
-                `JavaEnable` smallint,
-                `Title` string,
-                `GoodEvent` smallint,
-                `EventTime` datetime,
-                `EventDate` date,
-                `CounterId` bigint,
-                `ClientIp` bigint,
-                `ClientIp6` char(50),
-                `RegionId` bigint,
-                `UserId` string,
-                `CounterClass` tinyint,
-                `Os` smallint,
-                `UserAgent` smallint,
-                `Url` string,
-                `Referer` string,
-                `Urldomain` string,
-                `RefererDomain` string,
-                `Refresh` smallint,
-                `IsRobot` smallint,
-                `RefererCategories` string,
-                `UrlCategories` string,
-                `UrlRegions` string,
-                `RefererRegions` string,
-                `ResolutionWidth` int,
-                `ResolutionHeight` int,
-                `ResolutionDepth` smallint,
-                `FlashMajor` smallint,
-                `FlashMinor` smallint,
-                `FlashMinor2` string,
-                `NetMajor` smallint,
-                `NetMinor` smallint,
-                `UserAgentMajor` int,
-                `UserAgentMinor` char(4),
-                `CookieEnable` smallint,
-                `JavascriptEnable` smallint,
-                `IsMobile` smallint,
-                `MobilePhone` smallint,
-                `MobilePhoneModel` string,
-                `Params` string,
-                `IpNetworkId` bigint,
-                `TraficSourceId` tinyint,
-                `SearchEngineId` int,
-                `SearchPhrase` string,
-                `AdvEngineId` smallint,
-                `IsArtifical` smallint,
-                `WindowClientWidth` int,
-                `WindowClientHeight` int,
-                `ClientTimeZone` smallint,
-                `ClientEventTime` datetime,
-                `SilverLightVersion1` smallint,
-                `SilverlightVersion2` smallint,
-                `SilverlightVersion3` bigint,
-                `SilverlightVersion4` int,
-                `PageCharset` string,
-                `CodeVersion` bigint,
-                `IsLink` smallint,
-                `IsDownload` smallint,
-                `IsNotBounce` smallint,
-                `FUniqId` string,
-                `Hid` bigint,
-                `IsOldCounter` smallint,
-                `IsEvent` smallint,
-                `IsParameter` smallint,
-                `DontCountHits` smallint,
-                `WithHash` smallint,
-                `HitColor` char(2),
-                `UtcEventTime` datetime,
-                `Age` smallint,
-                `Sex` smallint,
-                `Income` smallint,
-                `Interests` int,
-                `Robotness` smallint,
-                `GeneralInterests` string,
-                `RemoteIp` bigint,
-                `RemoteIp6` char(50),
-                `WindowName` int,
-                `OpenerName` int,
-                `historylength` smallint,
-                `BrowserLanguage` char(4),
-                `BrowserCountry` char(4),
-                `SocialNetwork` string,
-                `SocialAction` string,
-                `HttpError` int,
-                `SendTiming` int,
-                `DnsTiming` int,
-                `ConnectTiming` int,
-                `ResponseStartTiming` int,
-                `ResponseEndTiming` int,
-                `FetchTiming` int,
-                `RedirectTiming` int,
-                `DomInteractiveTiming` int,
-                `DomContentLoadedTiming` int,
-                `DomCompleteTiming` int,
-                `LoadEventStartTiming` int,
-                `LoadEventEndTiming` int,
-                `NsToDomContentLoadedTiming` int,
-                `FirstPaintTiming` int,
-                `RedirectCount` tinyint,
-                `SocialSourceNetworkId` smallint,
-                `SocialSourcePage` string,
-                `ParamPrice` bigint,
-                `ParamOrderId` string,
-                `ParamCurrency` char(6),
-                `ParamCurrencyId` int,
-                `GoalsReached` string,
-                `OpenStatServiceName` string,
-                `OpenStatCampaignId` string,
-                `OpenStatAdId` string,
-                `OpenStatSourceId` string,
-                `UtmSource` string,
-                `UtmMedium` string,
-                `UtmCampaign` string,
-                `UtmContent` string,
-                `UtmTerm` string,
-                `FromTag` string,
-                `HasGclId` smallint,
-                `RefererHash` string,
-                `UrlHash` string,
-                `ClId` bigint,
-                `YclId` string,
-                `ShareService` string,
-                `ShareUrl` string,
-                `ShareTitle` string,
-                `ParsedParamsKey1` string,
-                `ParsedParamsKey2` string,
-                `ParsedParamsKey3` string,
-                `ParsedParamsKey4` string,
-                `ParsedParamsKey5` string,
-                `ParsedParamsValueDouble` double,
-                `IsLandId` char(40),
-                `RequestNum` bigint,
-                `RequestTry` smallint
-            ) ENGINE=OLAP
-            DUPLICATE KEY(`WatchId`, `JavaEnable`)
-            DISTRIBUTED BY HASH(`WatchId`, `JavaEnable`) BUCKETS 3
-            PROPERTIES ("replication_num" = "1");
+        CREATE TABLE IF NOT EXISTS ${tableName14} (
+            id int,
+            name CHAR(10)
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+          "replication_num" = "1"
+        )
         """
 
-        // streamLoad {
-        //     set 'version', '1'
-        //     set 'sql', """
-        //             insert into ${db}.${tableName14} select * from http_stream("format"="parquet")
-        //             """
-        //     time 10000
-        //     set 'format', 'parquet'
-        //     file 'test_http_stream_parquet_case.parquet'
-        //     check { result, exception, startTime, endTime ->
-        //         if (exception != null) {
-        //             throw exception
-        //         }
-        //         log.info("http_stream result: ${result}".toString())
-        //         def json = parseJson(result)
-        //         assertEquals("success", json.Status.toLowerCase())
-        //     }
-        // }
-        // qt_sql13 "select * from ${tableName14} order by WatchId"
-        sql """truncate table ${tableName14}"""
+        streamLoad {
+            set 'version', '1'
+            set 'sql', """
+                    insert into ${db}.${tableName14} WITH LABEL ${label} select c1, c2 from http_stream("format"="csv", "column_separator"="--")
+                    """
+            time 10000
+            file 'test_http_stream_column_separator.csv'
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("http_stream result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals(label, json.Label.toLowerCase())
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(11, json.NumberTotalRows)
+                assertEquals(0, json.NumberFilteredRows)
+            }
+        }
 
-        // streamLoad {
-        //     set 'version', '1'
-        //     set 'sql', """
-        //             insert into ${db}.${tableName14} select * from http_stream("format"="parquet")
-        //             """
-        //     time 10000
-        //     set 'format', 'parquet'
-        //     file 'test_http_stream_parquet_case.parquet'
-        //     check { result, exception, startTime, endTime ->
-        //         if (exception != null) {
-        //             throw exception
-        //         }
-        //         log.info("http_stream result: ${result}".toString())
-        //         def json = parseJson(result)
-        //         assertEquals("success", json.Status.toLowerCase())
-        //     }
-        // }
-        // qt_sql13 "select * from ${tableName14} order by WatchId"
-        sql """truncate table ${tableName14}"""
-
-        // streamLoad {
-        //     set 'version', '1'
-        //     set 'sql', """
-        //             insert into ${db}.${tableName14} select * from http_stream("format"="parquet")
-        //             """
-        //     time 10000
-        //     set 'format', 'parquet'
-        //     file 'test_http_stream_parquet_case.parquet'
-        //     check { result, exception, startTime, endTime ->
-        //         if (exception != null) {
-        //             throw exception
-        //         }
-        //         log.info("http_stream result: ${result}".toString())
-        //         def json = parseJson(result)
-        //         assertEquals("success", json.Status.toLowerCase())
-        //     }
-        // }
-        // qt_sql13 "select * from ${tableName14} order by WatchId"
-        sql """truncate table ${tableName14}"""
-
-        // streamLoad {
-        //     set 'version', '1'
-        //     set 'sql', """
-        //             insert into ${db}.${tableName14} select * from http_stream("format"="orc")
-        //             """
-        //     time 10000
-        //     set 'format', 'orc'
-        //     file 'test_http_stream_orc_case.orc'
-        //     check { result, exception, startTime, endTime ->
-        //         if (exception != null) {
-        //             throw exception
-        //         }
-        //         log.info("http_stream result: ${result}".toString())
-        //         def json = parseJson(result)
-        //         assertEquals("success", json.Status.toLowerCase())
-        //     }
-        // }
-        // qt_sql13 "select * from ${tableName14} order by WatchId"
-        sql """truncate table ${tableName14}"""
-
+        qt_sql14 "select id, name from ${tableName14} order by id"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName14}"
     }

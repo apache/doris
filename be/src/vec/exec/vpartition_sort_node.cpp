@@ -112,20 +112,12 @@ void VPartitionSortNode::_emplace_into_hash_table(const ColumnRawPtrs& key_colum
                 _pre_serialize_key_if_need(state, agg_method, key_columns, num_rows);
 
                 //PHHashMap
+                const auto& keys = state.get_keys();
                 if constexpr (HashTableTraits<HashTableType>::is_phmap) {
-                    if (_hash_values.size() < num_rows) {
-                        _hash_values.resize(num_rows);
-                    }
-                    if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
-                                          AggState>::value) {
-                        for (size_t i = 0; i < num_rows; ++i) {
-                            _hash_values[i] = agg_method.data.hash(agg_method.keys[i]);
-                        }
-                    } else {
-                        for (size_t i = 0; i < num_rows; ++i) {
-                            _hash_values[i] =
-                                    agg_method.data.hash(state.get_key_holder(i, *_agg_arena_pool));
-                        }
+                    _hash_values.resize(num_rows);
+
+                    for (size_t i = 0; i < num_rows; ++i) {
+                        _hash_values[i] = agg_method.data.hash(keys[i]);
                     }
                 }
 
@@ -138,10 +130,10 @@ void VPartitionSortNode::_emplace_into_hash_table(const ColumnRawPtrs& key_colum
                                 agg_method.data.prefetch_by_hash(
                                         _hash_values[row + HASH_MAP_PREFETCH_DIST]);
                             }
-                            return state.emplace_key(agg_method.data, _hash_values[row], row,
-                                                     *_agg_arena_pool);
+                            return state.emplace_with_key(agg_method.data, keys[row],
+                                                          _hash_values[row], row);
                         } else {
-                            return state.emplace_key(agg_method.data, row, *_agg_arena_pool);
+                            return state.emplace_with_key(agg_method.data, keys[row], row);
                         }
                     }();
 
@@ -247,7 +239,7 @@ Status VPartitionSortNode::open(RuntimeState* state) {
         RETURN_IF_ERROR(sink(state, input_block.get(), eos));
     } while (!eos);
 
-    child(0)->close(state);
+    static_cast<void>(child(0)->close(state));
 
     return Status::OK();
 }

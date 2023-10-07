@@ -390,7 +390,7 @@ public class Config extends ConfigBase {
     @ConfField(description = {"FE MySQL server 的端口号", "The port of FE MySQL server"})
     public static int query_port = 9030;
 
-    @ConfField(description = {"FE Arrow-Flight-SQL server 的端口号", "The port of FE Arrow-Flight-SQ server"})
+    @ConfField(description = {"FE Arrow-Flight-SQL server 的端口号", "The port of FE Arrow-Flight-SQL server"})
     public static int arrow_flight_sql_port = -1;
 
     @ConfField(description = {"MySQL 服务的 IO 线程数", "The number of IO threads in MySQL service"})
@@ -930,6 +930,18 @@ public class Config extends ConfigBase {
     public static long tablet_repair_delay_factor_second = 60;
 
     /**
+     * clone a tablet, further repair timeout.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long tablet_further_repair_timeout_second = 20 * 60;
+
+    /**
+     * clone a tablet, further repair max times.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int tablet_further_repair_max_times = 5;
+
+    /**
      * the default slot number per path for hdd in tablet scheduler
      * TODO(cmy): remove this config and dynamically adjust it by clone task statistic
      */
@@ -1292,6 +1304,10 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static boolean enable_bdbje_debug_mode = false;
+
+    @ConfField(mutable = false, masterOnly = true, description = {"是否开启debug point模式，测试使用",
+            "is enable debug points, use in test."})
+    public static boolean enable_debug_points = false;
 
     /**
      * This config is used to try skip broker when access bos or other cloud storage via broker
@@ -2079,15 +2095,6 @@ public class Config extends ConfigBase {
     public static int hive_stats_partition_sample_size = 3000;
 
     @ConfField
-    public static boolean enable_full_auto_analyze = true;
-
-    @ConfField
-    public static String full_auto_analyze_start_time = "00:00:00";
-
-    @ConfField
-    public static String full_auto_analyze_end_time = "02:00:00";
-
-    @ConfField
     public static int statistics_sql_parallel_exec_instance_num = 1;
 
     @ConfField
@@ -2183,10 +2190,10 @@ public class Config extends ConfigBase {
             + "statistics through sampling"})
     public static long huge_table_lower_bound_size_in_bytes = 5L * 1024 * 1024 * 1024;
 
-    @ConfField(description = {"定义开启开启大表自动sample后，对大表的采样行数",
-            "This defines the number of sample rows for large tables when automatic sampling for"
+    @ConfField(description = {"定义开启开启大表自动sample后，对大表的采样比例",
+            "This defines the number of sample percent for large tables when automatic sampling for"
                     + "large tables is enabled"})
-    public static int huge_table_default_sample_rows = 20_0000;
+    public static int huge_table_default_sample_rows = 4194304;
 
     @ConfField(description = {"是否开启大表自动sample，开启后对于大小超过huge_table_lower_bound_size_in_bytes会自动通过采样收集"
             + "统计信息", "Whether to enable automatic sampling for large tables, which, when enabled, automatically"
@@ -2198,5 +2205,21 @@ public class Config extends ConfigBase {
             "Determine the persist number of automatic triggered analyze job execution status"
     })
     public static long auto_analyze_job_record_count = 20000;
+
+    @ConfField(description = {
+            "Auto Buckets中最小的buckets数目",
+            "min buckets of auto bucket"
+    })
+    public static int autobucket_min_buckets = 1;
+
+    @ConfField(description = {"Arrow Flight Server中所有用户token的缓存上限，超过后LRU淘汰，默认值为2000",
+            "The cache limit of all user tokens in Arrow Flight Server. which will be eliminated by"
+            + "LRU rules after exceeding the limit, the default value is 2000."})
+    public static int arrow_flight_token_cache_size = 2000;
+
+    @ConfField(description = {"Arrow Flight Server中用户token的存活时间，自上次写入后过期时间，单位分钟，默认值为4320，即3天",
+            "The alive time of the user token in Arrow Flight Server, expire after write, unit minutes,"
+            + "the default value is 4320, which is 3 days"})
+    public static int arrow_flight_token_alive_time = 4320;
 
 }

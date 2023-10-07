@@ -89,9 +89,6 @@ public:
 
 private:
     std::unique_ptr<orc::ColumnVectorBatch> _create_row_batch(size_t sz);
-    Status _write_one_col(const TypeDescriptor& type, orc::ColumnVectorBatch* orc_col_batch,
-                          const ColumnPtr& raw_column, size_t start_row_id, size_t end_row_id,
-                          std::vector<StringRef>* buffer_list);
 
     doris::io::FileWriter* _file_writer;
     std::unique_ptr<orc::OutputStream> _output_stream;

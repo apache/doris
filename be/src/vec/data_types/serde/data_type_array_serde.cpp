@@ -108,10 +108,17 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_json(IColumn& column, Slice
     slices.emplace_back(slice);
     size_t slice_size = slice.size;
     // pre add total slice can reduce lasted element check.
+    char quote_char = 0;
     for (int idx = 0; idx < slice_size; ++idx) {
         char c = slice[idx];
         if (c == '"' || c == '\'') {
-            has_quote = !has_quote;
+            if (!has_quote) {
+                quote_char = c;
+                has_quote = !has_quote;
+            } else if (has_quote && quote_char == c) {
+                quote_char = 0;
+                has_quote = !has_quote;
+            }
         } else if (!has_quote && (c == '[' || c == '{')) {
             ++nested_level;
         } else if (!has_quote && (c == ']' || c == '}')) {
@@ -313,6 +320,35 @@ Status DataTypeArraySerDe::write_column_to_mysql(const IColumn& column,
                                                  MysqlRowBuffer<false>& row_buffer, int row_idx,
                                                  bool col_const) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+}
+
+Status DataTypeArraySerDe::write_column_to_orc(const IColumn& column, const NullMap* null_map,
+                                               orc::ColumnVectorBatch* orc_col_batch, int start,
+                                               int end, std::vector<StringRef>& buffer_list) const {
+    orc::ListVectorBatch* cur_batch = dynamic_cast<orc::ListVectorBatch*>(orc_col_batch);
+    cur_batch->offsets[0] = 0;
+
+    const ColumnArray& array_col = assert_cast<const ColumnArray&>(column);
+    const IColumn& nested_column = array_col.get_data();
+    auto& offsets = array_col.get_offsets();
+
+    cur_batch->elements->resize(nested_column.size());
+    for (size_t row_id = start; row_id < end; row_id++) {
+        size_t offset = offsets[row_id - 1];
+        size_t next_offset = offsets[row_id];
+
+        if (cur_batch->notNull[row_id] == 1) {
+            static_cast<void>(nested_serde->write_column_to_orc(nested_column, nullptr,
+                                                                cur_batch->elements.get(), offset,
+                                                                next_offset, buffer_list));
+        }
+
+        cur_batch->offsets[row_id + 1] = next_offset;
+    }
+    cur_batch->elements->numElements = nested_column.size();
+
+    cur_batch->numElements = end - start;
+    return Status::OK();
 }
 
 } // namespace vectorized
