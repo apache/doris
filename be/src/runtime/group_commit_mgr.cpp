@@ -27,6 +27,7 @@
 #include "common/object_pool.h"
 #include "exec/data_sink.h"
 #include "io/fs/stream_load_pipe.h"
+#include "olap/wal_manager.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/runtime_state.h"
@@ -185,16 +186,17 @@ Status GroupCommitTable::get_first_block_load_queue(
 Status GroupCommitTable::_create_group_commit_load(
         int64_t table_id, std::shared_ptr<LoadBlockQueue>& load_block_queue) {
     TStreamLoadPutRequest request;
-    std::stringstream ss;
-    ss << "insert into " << table_id << " select * from group_commit(\"table_id\"=\"" << table_id
-       << "\")";
-    request.__set_load_sql(ss.str());
     UniqueId load_id = UniqueId::gen_uid();
     TUniqueId tload_id;
     tload_id.__set_hi(load_id.hi);
     tload_id.__set_lo(load_id.lo);
+    std::regex reg("-");
+    std::string label = "group_commit_" + std::regex_replace(load_id.to_string(), reg, "_");
+    std::stringstream ss;
+    ss << "insert into " << table_id << " WITH LABEL " << label
+       << " select * from group_commit(\"table_id\"=\"" << table_id << "\")";
+    request.__set_load_sql(ss.str());
     request.__set_loadId(tload_id);
-    std::string label = "group_commit_" + load_id.to_string();
     request.__set_label(label);
     request.__set_token("group_commit"); // this is a fake, fe not check it now
     request.__set_max_filter_ratio(1.0);
@@ -243,6 +245,7 @@ Status GroupCommitTable::_create_group_commit_load(
         std::unique_lock l(_lock);
         _load_block_queues.emplace(instance_id, load_block_queue);
     }
+    params.__set_import_label(label);
     st = _exec_plan_fragment(_db_id, table_id, label, txn_id, is_pipeline, params, pipeline_params);
     if (!st.ok()) {
         _finish_group_commit_load(_db_id, table_id, label, txn_id, instance_id, st, true, nullptr);
@@ -308,9 +311,27 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
                      << ", instance_id=" << print_id(instance_id)
                      << ", executor status=" << status.to_string()
                      << ", request commit status=" << st.to_string();
+        if (!prepare_failed) {
+            RETURN_IF_ERROR(_exec_env->wal_mgr()->add_wal_path(_db_id, table_id, txn_id, label));
+            std::string wal_path;
+            RETURN_IF_ERROR(_exec_env->wal_mgr()->get_wal_path(txn_id, wal_path));
+            RETURN_IF_ERROR(_exec_env->wal_mgr()->add_recover_wal(
+                    std::to_string(db_id), std::to_string(table_id),
+                    std::vector<std::string> {wal_path}));
+        }
         return st;
     }
     // TODO handle execute and commit error
+    if (!prepare_failed && !result_status.ok()) {
+        RETURN_IF_ERROR(_exec_env->wal_mgr()->add_wal_path(_db_id, table_id, txn_id, label));
+        std::string wal_path;
+        RETURN_IF_ERROR(_exec_env->wal_mgr()->get_wal_path(txn_id, wal_path));
+        RETURN_IF_ERROR(_exec_env->wal_mgr()->add_recover_wal(std::to_string(db_id),
+                                                              std::to_string(table_id),
+                                                              std::vector<std::string> {wal_path}));
+    } else {
+        RETURN_IF_ERROR(_exec_env->wal_mgr()->delete_wal(txn_id));
+    }
     std::stringstream ss;
     ss << "finish group commit, db_id=" << db_id << ", table_id=" << table_id << ", label=" << label
        << ", txn_id=" << txn_id << ", instance_id=" << print_id(instance_id);

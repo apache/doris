@@ -234,6 +234,8 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
             return new DateV2Literal(desc);
         } else if (targetType.isDateTimeV2Type()) {
             return new DateTimeV2Literal((DateTimeV2Type) targetType, desc);
+        } else if (targetType.isJsonType()) {
+            return new JsonLiteral(desc);
         }
         throw new AnalysisException("cannot cast " + desc + " from type " + this.dataType + " to type " + targetType);
     }
@@ -277,6 +279,8 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
             return new DateTimeLiteral(stringValue);
         } else if (dataType.isDateTimeV2Type()) {
             return new DateTimeV2Literal(stringValue);
+        } else if (dataType.isJsonType()) {
+            return new JsonLiteral(stringValue);
         } else {
             throw new AnalysisException("Unsupported convert the " + literalExpr.getType()
                     + " of legacy literal to nereids literal");
