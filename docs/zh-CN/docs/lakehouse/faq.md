@@ -253,16 +253,7 @@ under the License.
         `dfs.client.hedged.read.threadpool.size` 表示用于 Hedged Read 的线程数，这些线程由一个 HDFS Client 共享。通常情况下，针对一个 HDFS 集群，BE 节点会共享一个 HDFS Client。
 
         `dfs.client.hedged.read.threshold.millis` 是读取阈值，单位毫秒。当一个读请求超过这个阈值未返回时，会触发 Hedged Read。
-
-    - 在 be.conf 中配置参数
-
-        ```
-        enable_hdfs_hedged_read = true
-        hdfs_hedged_read_thread_num = 128
-        hdfs_hedged_read_threshold_time = 500
-        ```
-
-        这种方式会在BE节点全局开启 Hedged Read（默认不开启）。并忽略在创建 Catalog 时设置的 Hedged Read 属性。
+   
 
     开启后，可以在 Query Profile 中看到相关参数：
 

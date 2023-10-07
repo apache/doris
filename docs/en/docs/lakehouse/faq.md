@@ -259,16 +259,6 @@ under the License.
 
          `dfs.client.hedged.read.threshold.millis` is the read threshold in milliseconds. When a read request exceeds this threshold and is not returned, Hedged Read will be triggered.
 
-     - Configure parameters in be.conf
-
-         ```
-         enable_hdfs_hedged_read = true
-         hdfs_hedged_read_thread_num = 128
-         hdfs_hedged_read_threshold_time = 500
-         ```
-
-         This method will enable Hedged Read globally on BE nodes (not enabled by default). And ignore the Hedged Read property set when creating the Catalog.
-
      After enabling it, you can see related parameters in Query Profile:
 
      `TotalHedgedRead`: The number of Hedged Reads initiated.
