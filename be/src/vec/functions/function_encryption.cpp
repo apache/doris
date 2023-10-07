@@ -138,8 +138,9 @@ public:
             chars_list[i] = &col_str->get_chars();
         }
 
-        Impl::vector_vector(offsets_list, chars_list, input_rows_count, result_data, result_offset,
-                            result_null_map->get_data());
+        static_cast<void>(Impl::vector_vector(offsets_list, chars_list, input_rows_count,
+                                              result_data, result_offset,
+                                              result_null_map->get_data()));
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(result_data_column), std::move(result_null_map));
         return Status::OK();

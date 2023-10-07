@@ -519,7 +519,7 @@ public:
             SAFE_CREATE(RETURN_IF_STATUS_ERROR(status,
                                                this->data(place).init_udaf(_fn, _local_location)),
                         {
-                            this->data(place).destroy();
+                            static_cast<void>(this->data(place).destroy());
                             this->data(place).~Data();
                         });
             _first_created = false;
@@ -530,7 +530,7 @@ public:
     // To avoid multiple times JNI call, Here will destroy all data at once
     void destroy(AggregateDataPtr __restrict place) const noexcept override {
         if (place == _exec_place) {
-            this->data(_exec_place).destroy();
+            static_cast<void>(this->data(_exec_place).destroy());
             this->data(_exec_place).~Data();
             _first_created = true;
         }

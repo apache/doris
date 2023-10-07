@@ -112,7 +112,7 @@ Status VMetaScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
             }
         }
         // fill block
-        _fill_block_with_remote_data(columns);
+        static_cast<void>(_fill_block_with_remote_data(columns));
         if (_meta_eos == true) {
             if (block->rows() == 0) {
                 *eof = true;

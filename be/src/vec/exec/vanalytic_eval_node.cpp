@@ -206,7 +206,7 @@ Status VAnalyticEvalNode::prepare(RuntimeState* state) {
     }
     _fn_place_ptr = _agg_arena_pool->aligned_alloc(_total_size_of_aggregate_states,
                                                    _align_aggregate_states);
-    RETURN_IF_CATCH_EXCEPTION(_create_agg_status());
+    RETURN_IF_CATCH_EXCEPTION(static_cast<void>(_create_agg_status()));
     _executor.insert_result =
             std::bind<void>(&VAnalyticEvalNode::_insert_result_info, this, std::placeholders::_1);
     _executor.execute =
@@ -214,7 +214,7 @@ Status VAnalyticEvalNode::prepare(RuntimeState* state) {
                             std::placeholders::_2, std::placeholders::_3, std::placeholders::_4);
 
     for (const auto& ctx : _agg_expr_ctxs) {
-        VExpr::prepare(ctx, state, child(0)->row_desc());
+        static_cast<void>(VExpr::prepare(ctx, state, child(0)->row_desc()));
     }
     if (!_partition_by_eq_expr_ctxs.empty() || !_order_by_eq_expr_ctxs.empty()) {
         vector<TTupleId> tuple_ids;
@@ -276,9 +276,9 @@ Status VAnalyticEvalNode::pull(doris::RuntimeState* /*state*/, vectorized::Block
             return Status::OK();
         }
         _next_partition = _init_next_partition(_found_partition_end);
-        _init_result_columns();
+        static_cast<void>(_init_result_columns());
         size_t current_block_rows = _input_blocks[_output_block_index].rows();
-        _executor.get_next(current_block_rows);
+        static_cast<void>(_executor.get_next(current_block_rows));
         if (_window_end_position == current_block_rows) {
             break;
         }
@@ -297,7 +297,7 @@ void VAnalyticEvalNode::release_resource(RuntimeState* state) {
         agg_function->close(state);
     }
 
-    _destroy_agg_status();
+    static_cast<void>(_destroy_agg_status());
     _release_mem();
     return ExecNode::release_resource(state);
 }
@@ -375,7 +375,7 @@ Status VAnalyticEvalNode::_get_next_for_rows(size_t current_block_rows) {
             range_end = _current_row_position +
                         1; //going on calculate,add up data, no need to reset state
         } else {
-            _reset_agg_status();
+            static_cast<void>(_reset_agg_status());
             if (!_window.__isset
                          .window_start) { //[preceding, offset]        --unbound: [preceding, following]
                 range_start = _partition_by_start.pos;
@@ -611,7 +611,7 @@ bool VAnalyticEvalNode::_init_next_partition(BlockRowPos found_partition_end) {
         _partition_by_start = _partition_by_end;
         _partition_by_end = found_partition_end;
         _current_row_position = _partition_by_start.pos;
-        _reset_agg_status();
+        static_cast<void>(_reset_agg_status());
         return true;
     }
     return false;
