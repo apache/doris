@@ -274,12 +274,7 @@ Status PipelineTask::execute(bool* eos) {
         {
             SCOPED_TIMER(_get_block_timer);
             _get_block_counter->update(1);
-            auto status = _root->get_block(_state, block, _data_state);
-            if (status.is<777>()) {
-                LOG(FATAL) << "Scan block nullptr error: can read:" << source_can_read()
-                           << " query id:" << print_id(_state->query_id());
-            }
-            RETURN_IF_ERROR(status);
+            RETURN_IF_ERROR(_root->get_block(_state, block, _data_state));
         }
         *eos = _data_state == SourceState::FINISHED;
 

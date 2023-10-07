@@ -264,9 +264,6 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
         return Status::OK();
     }
 
-    if (scan_block == nullptr) {
-        return Status::Error<777>("not pointer in scan pipline");
-    }
     // get scanner's block memory
     block->swap(*scan_block);
     _scanner_ctx->return_free_block(std::move(scan_block));
