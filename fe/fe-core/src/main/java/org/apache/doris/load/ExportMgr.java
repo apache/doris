@@ -31,7 +31,6 @@ import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.util.ListComparator;
-import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -58,7 +57,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
-public class ExportMgr extends MasterDaemon {
+public class ExportMgr {
     private static final Logger LOG = LogManager.getLogger(ExportJob.class);
 
     // lock for export job
@@ -85,15 +84,6 @@ public class ExportMgr extends MasterDaemon {
 
     private void writeUnlock() {
         lock.writeLock().unlock();
-    }
-
-    @Override
-    public synchronized void start() {
-        super.start();
-    }
-
-    @Override
-    protected void runAfterCatalogReady() {
     }
 
     public List<ExportJob> getJobs() {
