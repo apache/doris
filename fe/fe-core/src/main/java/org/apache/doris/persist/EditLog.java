@@ -605,6 +605,11 @@ public class EditLog {
                     env.getColocateTableIndex().replayMarkGroupStable(info);
                     break;
                 }
+                case OperationType.OP_COLOCATE_MOD_REPLICA_ALLOC: {
+                    final ColocatePersistInfo info = (ColocatePersistInfo) journal.getData();
+                    env.getColocateTableIndex().replayModifyReplicaAlloc(info);
+                    break;
+                }
                 case OperationType.OP_MODIFY_TABLE_COLOCATE: {
                     final TablePropertyInfo info = (TablePropertyInfo) journal.getData();
                     env.replayModifyTableColocate(info);
@@ -1131,6 +1136,10 @@ public class EditLog {
                     env.getAnalysisManager().replayPersistSysJob((AnalysisInfo) journal.getData());
                     break;
                 }
+                case OperationType.OP_DELETE_TABLE_STATS: {
+                    env.getAnalysisManager().replayTableStatsDeletion((TableStatsDeletionLog) journal.getData());
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1551,6 +1560,10 @@ public class EditLog {
         long logId = logEdit(OperationType.OP_TRUNCATE_TABLE, info);
         LOG.info("log truncate table, logId:{}, infos: {}", logId, info);
         Env.getCurrentEnv().getBinlogManager().addTruncateTable(info, logId);
+    }
+
+    public void logColocateModifyRepliaAlloc(ColocatePersistInfo info) {
+        logEdit(OperationType.OP_COLOCATE_MOD_REPLICA_ALLOC, info);
     }
 
     public void logColocateAddTable(ColocatePersistInfo info) {
@@ -1981,4 +1994,7 @@ public class EditLog {
         logEdit(OperationType.OP_PERSIST_AUTO_JOB, analysisInfo);
     }
 
+    public void logDeleteTableStats(TableStatsDeletionLog log) {
+        logEdit(OperationType.OP_DELETE_TABLE_STATS, log);
+    }
 }

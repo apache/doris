@@ -1425,7 +1425,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public Expression visitCast(DorisParser.CastContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             DataType dataType = ((DataType) typedVisit(ctx.dataType())).conversion();
-            Expression cast = new Cast(getExpression(ctx.expression()), dataType);
+            Expression cast = new Cast(getExpression(ctx.expression()), dataType, true);
             return processCast(cast, dataType);
         });
     }
@@ -1470,7 +1470,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public Expression visitConvertType(DorisParser.ConvertTypeContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             DataType dataType = ((DataType) typedVisit(ctx.type)).conversion();
-            Expression cast = new Cast(getExpression(ctx.argument), dataType);
+            Expression cast = new Cast(getExpression(ctx.argument), dataType, true);
             return processCast(cast, dataType);
         });
     }

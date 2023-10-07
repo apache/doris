@@ -41,6 +41,7 @@ suite("test_s3_load", "load_p0") {
     ]
 
     def uniqTables = [
+            "mow_tbl_basic",
             "uniq_tbl_basic"
     ]
 
@@ -371,6 +372,80 @@ suite("test_s3_load", "load_p0") {
                 "", "", "", "", "ORDER BY k01"))
     }
 
+    /*========================================================== json ==========================================================*/
+
+    for (String table : basicTables) {
+        attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/basic_data.json",
+                "${table}", "", "", "FORMAT AS \"json\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
+                "", "", "", "", "PROPERTIES(\"strip_outer_array\" = \"true\", \"fuzzy_parse\" = \"true\")"))
+    }
+
+    attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/basic_data.json",
+            "agg_tbl_basic", "", "", "FORMAT AS \"json\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
+            "", "", "SET (k19=to_bitmap(k04),k20=HLL_HASH(k04),k21=TO_QUANTILE_STATE(k04,1.0),kd19=to_bitmap(k05),kd20=HLL_HASH(k05),kd21=TO_QUANTILE_STATE(k05,1.0))", "", "PROPERTIES(\"strip_outer_array\" = \"true\", \"fuzzy_parse\" = \"true\")"))
+
+    for (String table : arrayTables) {
+        attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/basic_array_data.json",
+                "${table}", "", "", "FORMAT AS \"json\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17)",
+                "", "", "", "", "PROPERTIES(\"strip_outer_array\" = \"true\", \"fuzzy_parse\" = \"true\")"))
+    }
+
+    for (String table : basicTables) {
+        attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/basic_data_by_line.json",
+                "${table}", "", "", "FORMAT AS \"JSON\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
+                "", "", "", "", "PROPERTIES(\"read_json_by_line\" = \"true\")"))
+    }
+
+    attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/basic_data_by_line.json",
+            "agg_tbl_basic", "", "", "FORMAT AS \"JSON\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
+            "", "", "SET (k19=to_bitmap(k04),k20=HLL_HASH(k04),k21=TO_QUANTILE_STATE(k04,1.0),kd19=to_bitmap(k05),kd20=HLL_HASH(k05),kd21=TO_QUANTILE_STATE(k05,1.0))", "", "PROPERTIES(\"read_json_by_line\" = \"true\")"))
+
+    for (String table : arrayTables) {
+        attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/basic_array_data_by_line.json",
+                "${table}", "", "", "FORMAT AS \"JSON\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17)",
+                "", "", "", "", "PROPERTIES(\"read_json_by_line\" = \"true\")"))
+    }
+
+    for (String table : basicTables) {
+        attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/basic_data.parq",
+                "${table}", "", "", "FORMAT AS \"parquet\"", "(K00,K01,K02,K03,K04,K05,K06,K07,K08,K09,K10,K11,K12,K13,K14,K15,K16,K17,K18)",
+                "", "", "", "", ""))
+    }
+
+    attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/basic_data.parq",
+            "agg_tbl_basic", "", "", "FORMAT AS \"PARQUET\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
+            "", "", "SET (k19=to_bitmap(k04),k20=HLL_HASH(k04),k21=TO_QUANTILE_STATE(k04,1.0),kd19=to_bitmap(k05),kd20=HLL_HASH(k05),kd21=TO_QUANTILE_STATE(k05,1.0))", "", ""))
+
+//    for (String table : arrayTables) {
+//        attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/basic_array_data.parq",
+//                "${table}", "", "", "FORMAT AS \"parquet\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17)",
+//                "", "", "", "", ""))
+//    }
+
+    for (String table : basicTables) {
+        attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/basic_data.orc",
+                "${table}", "", "", "FORMAT AS \"orc\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
+                "", "", "", "", ""))
+    }
+
+    attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/basic_data.orc",
+            "agg_tbl_basic", "", "", "FORMAT AS \"ORC\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
+            "", "", "SET (k19=to_bitmap(k04),k20=HLL_HASH(k04),k21=TO_QUANTILE_STATE(k04,1.0),kd19=to_bitmap(k05),kd20=HLL_HASH(k05),kd21=TO_QUANTILE_STATE(k05,1.0))", "", ""))
+
+//    for (String table : arrayTables) {
+//        attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/basic_array_data.parq",
+//                "${table}", "", "", "FORMAT AS \"parquet\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17)",
+//                "", "", "", "", ""))
+//    }
+
+    for(String table : uniqTables) {
+        def attributes = new LoadAttributes("s3://doris-build-1308700295/regression/load/data/basic_data_delete.csv",
+                "${table}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \"|\"", "", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18,__DEL__)",
+                "", "", "", "", "DELETE ON __DEL__=true")
+        attributes.dataDesc.mergeType = "MERGE"
+        attributesList.add(attributes)
+    }
+
     def ak = getS3AK()
     def sk = getS3SK()
 
@@ -387,6 +462,7 @@ suite("test_s3_load", "load_p0") {
 
         def sql_str = """
             LOAD LABEL $label (
+                $attributes.dataDesc.mergeType
                 DATA INFILE("$attributes.dataDesc.path")
                 INTO TABLE $attributes.dataDesc.tableName
                 $attributes.dataDesc.columnTermClause
@@ -411,10 +487,7 @@ suite("test_s3_load", "load_p0") {
         logger.info("submit sql: ${sql_str}");
         sql """${sql_str}"""
         logger.info("Submit load with lable: $label, table: $attributes.dataDesc.tableName, path: $attributes.dataDesc.path")
-        ++i
-    }
 
-    for (LoadAttributes attributes : attributesList) {
         def max_try_milli_secs = 600000
         while (max_try_milli_secs > 0) {
             String[][] result = sql """ show load where label="$attributes.label" order by createtime desc limit 1; """
@@ -439,7 +512,36 @@ suite("test_s3_load", "load_p0") {
                 assertTrue(false, "load Timeout: $attributes.label")
             }
         }
+        qt_select """ select count(*) from $attributes.dataDesc.tableName """
+        ++i
     }
+
+//    for (LoadAttributes attributes : attributesList) {
+//        def max_try_milli_secs = 600000
+//        while (max_try_milli_secs > 0) {
+//            String[][] result = sql """ show load where label="$attributes.label" order by createtime desc limit 1; """
+//            if (result[0][2].equals("FINISHED")) {
+//                if (attributes.isExceptFailed) {
+//                    assertTrue(false, "load should be failed but was success: $result")
+//                }
+//                logger.info("Load FINISHED " + attributes.label + ": $result")
+//                break
+//            }
+//            if (result[0][2].equals("CANCELLED")) {
+//                if (attributes.isExceptFailed) {
+//                    logger.info("Load FINISHED " + attributes.label)
+//                    break
+//                }
+//                assertTrue(false, "load failed: $result")
+//                break
+//            }
+//            Thread.sleep(1000)
+//            max_try_milli_secs -= 1000
+//            if (max_try_milli_secs <= 0) {
+//                assertTrue(false, "load Timeout: $attributes.label")
+//            }
+//        }
+//    }
 
     for(String tbl : tables) {
         qt_select """ select count(*) from ${tbl} """
@@ -447,6 +549,7 @@ suite("test_s3_load", "load_p0") {
 }
 
 class DataDesc {
+    public String mergeType = ""
     public String path
     public String tableName
     public String lineTermClause

@@ -929,6 +929,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             Env.getCurrentEnv().getEditLog().logDropTable(info);
             Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getCurrentCatalog().getId(),
                     db.getId(), table.getId());
+            Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
         } finally {
             db.writeUnlock();
         }
@@ -1615,17 +1616,19 @@ public class InternalCatalog implements CatalogIf<Database> {
 
                         List<Column> oldSchema = indexIdToMeta.get(indexId).getSchema();
                         List<Column> newSchema = entry.getValue().getSchema();
-                        oldSchema.sort((Column a, Column b) -> a.getUniqueId() - b.getUniqueId());
-                        newSchema.sort((Column a, Column b) -> a.getUniqueId() - b.getUniqueId());
                         if (oldSchema.size() != newSchema.size()) {
                             LOG.warn("schema column size diff, old schema {}, new schema {}", oldSchema, newSchema);
                             metaChanged = true;
                             break;
                         } else {
-                            for (int i = 0; i < oldSchema.size(); ++i) {
-                                if (!oldSchema.get(i).equals(newSchema.get(i))) {
-                                    LOG.warn("schema diff, old schema {}, new schema {}",
-                                            oldSchema.get(i), newSchema.get(i));
+                            List<Column> oldSchemaCopy = Lists.newArrayList(oldSchema);
+                            List<Column> newSchemaCopy = Lists.newArrayList(newSchema);
+                            oldSchemaCopy.sort((Column a, Column b) -> a.getUniqueId() - b.getUniqueId());
+                            newSchemaCopy.sort((Column a, Column b) -> a.getUniqueId() - b.getUniqueId());
+                            for (int i = 0; i < oldSchemaCopy.size(); ++i) {
+                                if (!oldSchemaCopy.get(i).equals(newSchemaCopy.get(i))) {
+                                    LOG.warn("schema diff, old schema {}, new schema {}", oldSchemaCopy.get(i),
+                                            newSchemaCopy.get(i));
                                     metaChanged = true;
                                     break;
                                 }
@@ -3014,15 +3017,18 @@ public class InternalCatalog implements CatalogIf<Database> {
 
                 List<Column> oldSchema = copiedTbl.getFullSchema();
                 List<Column> newSchema = olapTable.getFullSchema();
-                oldSchema.sort((Column a, Column b) -> a.getUniqueId() - b.getUniqueId());
-                newSchema.sort((Column a, Column b) -> a.getUniqueId() - b.getUniqueId());
                 if (oldSchema.size() != newSchema.size()) {
                     LOG.warn("schema column size diff, old schema {}, new schema {}", oldSchema, newSchema);
                     metaChanged = true;
                 } else {
-                    for (int i = 0; i < oldSchema.size(); ++i) {
-                        if (!oldSchema.get(i).equals(newSchema.get(i))) {
-                            LOG.warn("schema diff, old schema {}, new schema {}", oldSchema.get(i), newSchema.get(i));
+                    List<Column> oldSchemaCopy = Lists.newArrayList(oldSchema);
+                    List<Column> newSchemaCopy = Lists.newArrayList(newSchema);
+                    oldSchemaCopy.sort((Column a, Column b) -> a.getUniqueId() - b.getUniqueId());
+                    newSchemaCopy.sort((Column a, Column b) -> a.getUniqueId() - b.getUniqueId());
+                    for (int i = 0; i < oldSchemaCopy.size(); ++i) {
+                        if (!oldSchemaCopy.get(i).equals(newSchemaCopy.get(i))) {
+                            LOG.warn("schema diff, old schema {}, new schema {}", oldSchemaCopy.get(i),
+                                    newSchemaCopy.get(i));
                             metaChanged = true;
                             break;
                         }
@@ -3192,7 +3198,7 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     @Override
-    public Collection<DatabaseIf> getAllDbs() {
+    public Collection<DatabaseIf<? extends TableIf>> getAllDbs() {
         return new HashSet<>(idToDb.values());
     }
 

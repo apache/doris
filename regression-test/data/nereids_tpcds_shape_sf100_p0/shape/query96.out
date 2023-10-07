@@ -7,15 +7,15 @@ PhysicalResultSink
 --------PhysicalDistribute
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN](store_sales.ss_store_sk = store.s_store_sk)
+--------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk))otherCondition=()
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN](store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)
---------------------hashJoin[INNER_JOIN](store_sales.ss_sold_time_sk = time_dim.t_time_sk)
+------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk))otherCondition=()
+--------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_time_sk = time_dim.t_time_sk))otherCondition=()
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[store_sales]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
---------------------------filter((time_dim.t_minute >= 30)(time_dim.t_hour = 8))
+--------------------------filter((time_dim.t_hour = 8) and (time_dim.t_minute >= 30))
 ----------------------------PhysicalOlapScan[time_dim]
 --------------------PhysicalDistribute
 ----------------------PhysicalProject

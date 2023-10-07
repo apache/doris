@@ -73,6 +73,8 @@ public class AnalysisInfo implements Writable {
     }
 
     public enum ScheduleType {
+        // Job created by AutoCollector is also `ONCE` type, this is because it runs once only and should be removed
+        // when its information is expired
         ONCE,
         PERIOD,
         AUTOMATIC

@@ -59,7 +59,7 @@ public class DateTimeV2Literal extends DateTimeLiteral {
 
     private void roundMicroSecond(int scale) {
         Preconditions.checkArgument(scale >= 0 && scale <= DateTimeV2Type.MAX_SCALE,
-                "invalid datetime v2 scale: " + scale);
+                "invalid datetime v2 scale: %s", scale);
         double factor = Math.pow(10, 6 - scale);
 
         this.microSecond = Math.round(this.microSecond / factor) * (int) factor;
@@ -187,11 +187,8 @@ public class DateTimeV2Literal extends DateTimeLiteral {
     }
 
     public DateTimeV2Literal roundFloor(int newScale) {
-        long newMicroSecond = Double.valueOf(
-                        microSecond / (int) (Math.pow(10, 6 - newScale)) * (Math.pow(10, 6 - newScale)))
-                .longValue();
-        return new DateTimeV2Literal(DateTimeV2Type.of(newScale), year, month, day, hour, minute,
-                second, newMicroSecond);
+        // use roundMicroSecond in constructor
+        return new DateTimeV2Literal(DateTimeV2Type.of(newScale), year, month, day, hour, minute, second, microSecond);
     }
 
     public static Expression fromJavaDateType(LocalDateTime dateTime) {

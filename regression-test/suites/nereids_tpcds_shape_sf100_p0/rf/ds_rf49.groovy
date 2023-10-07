@@ -181,5 +181,5 @@ suite("ds_rf49") {
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
     
-     assertEquals("RF1[ws_order_number->[wr_order_number],RF2[item->[wr_item_sk],RF0[d_date_sk->[ws_sold_date_sk],RF4[cs_order_number->[cr_order_number],RF5[item->[cr_item_sk],RF3[d_date_sk->[cs_sold_date_sk],RF7[ss_ticket_number->[sr_ticket_number],RF8[item->[sr_item_sk],RF6[d_date_sk->[ss_sold_date_sk]", getRuntimeFilters(plan))
+     assertEquals("RF1[ws_order_number->[wr_order_number],RF2[ws_item_sk->[wr_item_sk],RF0[d_date_sk->[ws_sold_date_sk],RF4[cs_order_number->[cr_order_number],RF5[cs_item_sk->[cr_item_sk],RF3[d_date_sk->[cs_sold_date_sk],RF7[ss_ticket_number->[sr_ticket_number],RF8[ss_item_sk->[sr_item_sk],RF6[d_date_sk->[ss_sold_date_sk]", getRuntimeFilters(plan))
 }

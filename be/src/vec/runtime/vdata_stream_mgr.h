@@ -63,7 +63,7 @@ public:
 
     Status transmit_block(const PTransmitDataParams* request, ::google::protobuf::Closure** done);
 
-    void cancel(const TUniqueId& fragment_instance_id);
+    void cancel(const TUniqueId& fragment_instance_id, Status exec_status);
 
 private:
     std::mutex _lock;
