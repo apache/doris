@@ -1023,7 +1023,7 @@ public class OlapQueryCacheTest {
             cache.rewriteSelectStmt(null);
             LOG.warn("Sub nokey={}", cache.getNokeyStmt().toSql());
             Assert.assertEquals(cache.getNokeyStmt().toSql(),
-                    "SELECT <slot 7> `eventdate` AS `eventdate`, <slot 8> sum(`pv`) AS `sum(``pv``)` FROM ("
+                    "SELECT <slot 7> `eventdate` AS `eventdate`, <slot 8> sum(`pv`) AS `__sum_1` FROM ("
                             + "SELECT <slot 3> `eventdate` AS `eventdate`, <slot 4> count(`userid`) AS `pv` FROM "
                             + "`testCluster:testDb`.`appevent` WHERE `eventid` = 1"
                             + " GROUP BY `eventdate`) tbl GROUP BY `eventdate`");
@@ -1045,7 +1045,7 @@ public class OlapQueryCacheTest {
             sql = ca.getRewriteStmt().toSql();
             LOG.warn("Sub rewrite={}", sql);
             Assert.assertEquals(sql,
-                    "SELECT <slot 7> `eventdate` AS `eventdate`, <slot 8> sum(`pv`) AS `sum(``pv``)` FROM ("
+                    "SELECT <slot 7> `eventdate` AS `eventdate`, <slot 8> sum(`pv`) AS `__sum_1` FROM ("
                             + "SELECT <slot 3> `eventdate` AS `eventdate`, <slot 4> count(`userid`) AS `pv` FROM "
                             + "`testCluster:testDb`.`appevent` WHERE "
                             + "`eventdate` > '2020-01-13' AND `eventdate` < '2020-01-16' AND `eventid` = 1 GROUP BY "
