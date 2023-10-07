@@ -97,13 +97,13 @@ PROPERTIES(
 ```
 CREATE RESOURCE "remote_hdfs" PROPERTIES (
         "type"="hdfs",
-        "fs.defaultFS"="127.0.0.1:8120",
+        "fs.defaultFS"="fs_host:default_fs_port",
         "hadoop.username"="hive",
         "hadoop.password"="hive",
         "dfs.nameservices" = "my_ha",
         "dfs.ha.namenodes.my_ha" = "my_namenode1, my_namenode2",
-        "dfs.namenode.rpc-address.my_ha.my_namenode1" = "127.0.0.1:10000",
-        "dfs.namenode.rpc-address.my_ha.my_namenode2" = "127.0.0.1:10000",
+        "dfs.namenode.rpc-address.my_ha.my_namenode1" = "nn1_host:rpc_port",
+        "dfs.namenode.rpc-address.my_ha.my_namenode2" = "nn2_host:rpc_port",
         "dfs.client.failover.proxy.provider" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
     );
 

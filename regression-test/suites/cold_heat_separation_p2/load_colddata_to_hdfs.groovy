@@ -18,6 +18,10 @@ import groovy.json.JsonSlurper
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("load_colddata_to_hdfs") {
+    if (!enableHdfs()) {
+      logger.info("skip this case because hdfs is not enabled");
+    }
+
     def fetchBeHttp = { check_func, meta_url ->
         def i = meta_url.indexOf("/api")
         String endPoint = meta_url.substring(0, i)
