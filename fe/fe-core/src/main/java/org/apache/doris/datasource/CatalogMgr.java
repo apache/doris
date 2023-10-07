@@ -389,7 +389,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                         row.add(String.valueOf(catalog.getId()));
                         row.add(name);
                         row.add(catalog.getType());
-                        if (currentCtlg != null && name.equals(currentCtlg)) {
+                        if (name.equals(currentCtlg)) {
                             row.add(YES);
                         } else {
                             row.add("");
