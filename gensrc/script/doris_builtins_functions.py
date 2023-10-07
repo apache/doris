@@ -939,8 +939,6 @@ visible_functions = {
         [['datediff'], 'INT', ['DATETIME', 'DATETIME'], 'ALWAYS_NULLABLE'],
         [['timediff'], 'TIME', ['DATETIME', 'DATETIME'], 'ALWAYS_NULLABLE'],
 
-        [['str_to_date'], 'DATETIME', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
-        [['str_to_date'], 'DATETIME', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
         [['date_format'], 'VARCHAR', ['DATETIME', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['date_format'], 'VARCHAR', ['DATE', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['date', 'to_date'], 'DATE', ['DATETIME'], 'ALWAYS_NULLABLE'],
@@ -1104,6 +1102,10 @@ visible_functions = {
         [['datediff'], 'INT', ['DATEV2', 'DATEV2'], ''],
         [['timediff'], 'TIMEV2', ['DATEV2', 'DATEV2'], ''],
 
+        [['str_to_date'], 'DATETIMEV2', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['str_to_date'], 'DATETIMEV2', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
+        [['str_to_date'], 'DATEV2', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['str_to_date'], 'DATEV2', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
         [['date_format'], 'VARCHAR', ['DATETIMEV2', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['date_format'], 'VARCHAR', ['DATEV2', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['date', 'to_date', 'datev2', 'to_datev2'], 'DATEV2', ['DATETIMEV2'], 'ALWAYS_NULLABLE'],
