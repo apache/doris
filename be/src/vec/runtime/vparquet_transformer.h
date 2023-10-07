@@ -96,33 +96,26 @@ public:
                         const bool& parquet_disable_dictionary,
                         const TParquetVersion::type& parquet_version, bool output_object_data);
 
-    ~VParquetTransformer() = default;
+    ~VParquetTransformer() override = default;
 
     Status open() override;
 
     Status write(const Block& block) override;
-    Status write2(const Block& block);
 
     Status close() override;
 
     int64_t written_len() override;
 
 private:
-    parquet::RowGroupWriter* _get_rg_writer();
-    Status _parse_schema();
     Status _parse_properties();
-    Status _parse_schema2();
+    Status _parse_schema();
     arrow::Status _open_file_writer();
 
     std::shared_ptr<ParquetOutputStream> _outstream;
-    std::shared_ptr<parquet::WriterProperties> _properties;
+    std::shared_ptr<parquet::WriterProperties> _parquet_writer_properties;
     std::shared_ptr<parquet::ArrowWriterProperties> _arrow_properties;
-    std::shared_ptr<parquet::schema::GroupNode> _schema;
-    std::unique_ptr<parquet::ParquetFileWriter> _writer;
-    std::unique_ptr<parquet::arrow::FileWriter> _writer2;
+    std::unique_ptr<parquet::arrow::FileWriter> _writer;
     std::shared_ptr<arrow::Schema> _arrow_schema;
-    parquet::RowGroupWriter* _rg_writer;
-    const int64_t _max_row_per_group = 10;
 
     const std::vector<TParquetSchema>& _parquet_schemas;
     const TParquetCompressionType::type& _compression_type;
