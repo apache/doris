@@ -136,6 +136,7 @@ public class TimerJobManager implements Closeable, Writable {
         jobMap.remove(job.getJobId());
         log.info(new LogBuilder(LogKey.SCHEDULER_JOB, job.getJobId())
                 .add("msg", "replay delete scheduler job").build());
+        Env.getCurrentEnv().getJobTaskManager().deleteJobTasks(job.getJobId());
     }
 
     private void checkIsJobNameUsed(String dbName, String jobName, JobCategory jobCategory) throws DdlException {
