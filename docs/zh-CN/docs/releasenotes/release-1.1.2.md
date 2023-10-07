@@ -41,7 +41,7 @@ MemTracker 是一个用于分析内存使用情况的统计工具，在 1.1.1 �
 
 `GET /rest/v2/manager/query/kill/{query_id}`
 
-具体使用参考文档 [Query Profile Action](https://doris.apache.org/zh-CN/docs/dev/admin-manual/http-actions/fe/manager/query-profile-action?_highlight=current&_highlight=query#request)
+具体使用参考文档 [Query Profile Action](https://doris.apache.org/zh-CN/docs/dev/admin-manual/http-actions/fe/query-profile-action)
 
 ### 支持读写 Emoji 表情通过 ODBC 外表
 

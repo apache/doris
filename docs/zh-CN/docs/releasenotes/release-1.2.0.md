@@ -53,7 +53,7 @@ GitHub下载：[https://github.com/apache/doris/releases](https://github.com/apa
 
 从历史版本升级到 1.2.0 版本，需完整更新 fe、be 下的 bin 和 lib 目录。
 
-其他升级注意事项，请完整阅读本发版通告最后一节“升级注意事项”以及安装部署文档 [https://doris.apache.org/zh-CN/docs/dev/install/install-deploy](https://doris.apache.org/zh-CN/docs/dev/install/install-deploy)  和集群升级文档 [https://doris.apache.org/zh-CN/docs/dev/admin-manual/cluster-management/upgrade](https://doris.apache.org/zh-CN/docs/dev/admin-manual/cluster-management/upgrade)
+其他升级注意事项，请完整阅读本发版通告最后一节“升级注意事项”以及安装部署文档 [https://doris.apache.org/zh-CN/docs/dev/install/standard-deployment](https://doris.apache.org/zh-CN/docs/dev/install/install-deploy) 和集群升级文档 [https://doris.apache.org/zh-CN/docs/dev/admin-manual/cluster-management/upgrade](https://doris.apache.org/zh-CN/docs/dev/admin-manual/cluster-management/upgrade)
 
 # 重要更新
 
@@ -157,7 +157,7 @@ Multi-Catalog 多源数据目录功能的目标在于能够帮助用户更方便
 
 远程 UDF 支持通过 RPC 的方式访问远程用户自定义函数服务，从而彻底消除用户编写 UDF 的语言限制，用户可以使用任意编程语言实现自定义函数，完成复杂的数据分析工作。
 
-文档：[https://doris.apache.org/zh-CN/docs/ecosystem/udf/remote-user-defined-function](https://doris.apache.org/zh-CN/docs/ecosystem/udf/remote-user-defined-function)
+文档：[https://doris.apache.org/zh-CN/docs/dev/ecosystem/udaf/remote-user-defined-aggregation-function](https://doris.apache.org/zh-CN/docs/dev/ecosystem/udaf/remote-user-defined-aggregation-function)
 
 示例：[https://github.com/apache/doris/tree/master/samples/doris-demo](https://github.com/apache/doris/tree/master/samples/doris-demo)
 
@@ -300,8 +300,6 @@ PARTITION BY RANGE(event_time)(
 文档：[https://doris.apache.org/zh-CN/docs/dev/data-table/basic-usage](https://doris.apache.org/zh-CN/docs/dev/data-table/basic-usage)
 
 ### 7. OUTFILE 支持 ORC 格式导出，并且支持多字节分隔符。
-
-文档：[https://doris.apache.org/zh-CN/docs/dev/sql-manual/sql-reference/Data-Manipulation-Statements/OUTFILE](https://doris.apache.org/zh-CN/docs/dev/sql-manual/sql-reference/Data-Manipulation-Statements/OUTFILE)
 
 文档：[https://doris.apache.org/zh-CN/docs/dev/sql-manual/sql-reference/Data-Manipulation-Statements/OUTFILE](https://doris.apache.org/zh-CN/docs/dev/sql-manual/sql-reference/Data-Manipulation-Statements/OUTFILE)
 
@@ -463,7 +461,7 @@ chunk_reserved_bytes_limit=10%
 
 - 支持普通用户通过 http 命令获取 query profile。
 
-文档：[https://doris.apache.org/zh-CN/docs/dev/admin-manual/http-actions/fe/manager/query-profile-action](https://doris.apache.org/zh-CN/docs/dev/admin-manual/http-actions/fe/manager/query-profile-action)
+文档：[https://doris.apache.org/zh-CN/docs/dev/admin-manual/http-actions/fe/query-profile-action](https://doris.apache.org/zh-CN/docs/dev/admin-manual/http-actions/fe/query-profile-action)
 
 - 优化了 sequence 列的指定方式，可以直接指定列名。
 
