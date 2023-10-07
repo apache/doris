@@ -134,7 +134,10 @@ public:
 
     std::string db;
     int64_t db_id = -1;
+    int64_t wal_id = -1;
     std::string table;
+    int64_t table_id = -1;
+    int64_t schema_version = -1;
     std::string label;
     // optional
     std::string sub_label;
@@ -173,6 +176,7 @@ public:
     bool use_streaming = false;
     TFileFormatType::type format = TFileFormatType::FORMAT_CSV_PLAIN;
     TFileCompressType::type compress_type = TFileCompressType::UNKNOWN;
+    bool group_commit = false;
 
     std::shared_ptr<MessageBodySink> body_sink;
     std::shared_ptr<io::StreamLoadPipe> pipe;

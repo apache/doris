@@ -2206,4 +2206,9 @@ public class Config extends ConfigBase {
     })
     public static long auto_analyze_job_record_count = 20000;
 
+    @ConfField(description = {
+            "Auto Buckets中最小的buckets数目",
+            "min buckets of auto bucket"
+    })
+    public static int autobucket_min_buckets = 1;
 }

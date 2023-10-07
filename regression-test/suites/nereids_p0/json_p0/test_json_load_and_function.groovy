@@ -20,6 +20,10 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 suite("test_json_load_and_function", "p0") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
+
+    // TODO: remove it after we add implicit cast check in Nereids
+    sql "set enable_nereids_dml=false"
+
     // define a sql table
     def testTable = "tbl_test_json"
     def dataFile = "test_json.csv"

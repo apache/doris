@@ -22,10 +22,10 @@ import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TFileType;
 
+import org.apache.commons.collections.map.CaseInsensitiveMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -37,16 +37,16 @@ public class HttpStreamTableValuedFunction extends ExternalFileTableValuedFuncti
     public static final String NAME = "http_stream";
 
     public HttpStreamTableValuedFunction(Map<String, String> params) throws AnalysisException {
-        Map<String, String> fileParams = new HashMap<>();
+        Map<String, String> fileParams = new CaseInsensitiveMap();
         for (String key : params.keySet()) {
             String lowerKey = key.toLowerCase();
             if (!FILE_FORMAT_PROPERTIES.contains(lowerKey)) {
                 throw new AnalysisException(key + " is invalid property");
             }
-            fileParams.put(lowerKey, params.get(key));
+            fileParams.put(lowerKey, params.get(key).toLowerCase());
         }
 
-        String formatString = fileParams.getOrDefault(FORMAT, "");
+        String formatString = fileParams.getOrDefault(FORMAT, "").toLowerCase();
         if (formatString.equals("parquet")
                 || formatString.equals("avro")
                 || formatString.equals("orc")) {
