@@ -167,10 +167,19 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
         order_qt_sql68 """select c_bool, c_byte, c_short, c_integer, c_long, c_unsigned_long, c_float, c_half_float, c_double, c_scaled_float, c_date, c_datetime, c_keyword, c_text, c_ip, c_person from test1"""
         order_qt_sql69 """select c_bool, c_byte, c_short, c_integer, c_long, c_unsigned_long, c_float, c_half_float, c_double, c_scaled_float, c_date, c_datetime, c_keyword, c_text, c_ip, c_person from test2_20220808"""
 
+        List<List<String>> tables6N = sql """show tables"""
+        boolean notContainHide = true
+        tables6N.forEach {
+            if (it[0] == ".hide"){
+                notContainHide = false
+            }
+        }
+        assertTrue(notContainHide)
+
         sql """switch es6_hide"""
-        List<List<String>> tables6 = sql """show tables"""
+        List<List<String>> tables6Y = sql """show tables"""
         boolean containHide = false
-        tables6.forEach {
+        tables6Y.forEach {
             if (it[0] == ".hide"){
                 containHide = true
             }
@@ -188,10 +197,19 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
         order_qt_sql78 """select c_bool, c_byte, c_short, c_integer, c_long, c_unsigned_long, c_float, c_half_float, c_double, c_scaled_float, c_date, c_datetime, c_keyword, c_text, c_ip, c_person from test1"""
         order_qt_sql79 """select c_bool, c_byte, c_short, c_integer, c_long, c_unsigned_long, c_float, c_half_float, c_double, c_scaled_float, c_date, c_datetime, c_keyword, c_text, c_ip, c_person from test2"""
 
+        List<List<String>> tables7N = sql """show tables"""
+        boolean notContainHide7 = true
+        tables7N.forEach {
+            if (it[0] == ".hide"){
+                notContainHide7 = false
+            }
+        }
+        assertTrue(notContainHide7)
+
         sql """switch es7_hide"""
-        List<List<String>> tables7 = sql """show tables"""
+        List<List<String>> tables7Y = sql """show tables"""
         boolean containeHide7 = false
-        tables7.forEach {
+        tables7Y.forEach {
             if (it[0] == (".hide")){
                 containeHide7 = true
             }
