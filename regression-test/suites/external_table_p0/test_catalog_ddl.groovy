@@ -16,12 +16,12 @@
 // under the License.
 
 suite("test_catalog_ddl", "p0,external") {
-        String ddl1 = "test_ddl_ctr1";
+        String catalog1 = "test_ddl_ctr1";
         // This is only for testing catalog ddl syntax
-        sql """drop catalog if exists ${ddl1};"""
+        sql """drop catalog if exists ${catalog1};"""
 
         sql """
-            create catalog if not exists ${ddl1} comment 'create_comment' properties(
+            create catalog if not exists ${catalog1} comment 'create_comment' properties(
             "type"="es",
             "hosts"="http://10.10.10.10:8888",
             "nodes_discovery"="false",
@@ -29,19 +29,19 @@ suite("test_catalog_ddl", "p0,external") {
             );
         """
 
-        def result = sql """show create catalog ${ddl1};"""
+        def result = sql """show create catalog ${catalog1};"""
         assertEquals(result.size(), 1)
         assertTrue(result[0][1].contains("COMMENT \"create_comment\""))
 
         // can not update comment by property
-        sql """ALTER CATALOG ${ddl1} SET PROPERTIES ("comment" = "prop_comment");"""
-        result = sql """show create catalog ${ddl1};"""
+        sql """ALTER CATALOG ${catalog1} SET PROPERTIES ("comment" = "prop_comment");"""
+        result = sql """show create catalog ${catalog1};"""
         assertEquals(result.size(), 1)
         assertTrue(result[0][1].contains("COMMENT \"create_comment\""))
 
         //update comment
-        sql """ALTER CATALOG ${ddl1} MODIFY COMMENT "alter_comment";"""
-        result = sql """show create catalog ${ddl1};"""
+        sql """ALTER CATALOG ${catalog1} MODIFY COMMENT "alter_comment";"""
+        result = sql """show create catalog ${catalog1};"""
         assertEquals(result.size(), 1)
         assertTrue(result[0][1].contains("COMMENT \"alter_comment\""))
 }
