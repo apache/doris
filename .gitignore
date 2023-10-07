@@ -122,13 +122,5 @@ lru_cache_test
 /fe/fe-core/src/test/resources/real-help-resource.zip
 /ui/dist
 
-# repository
-repository/*
-**/repository
-
-# thirdparties
-**/thirdparties/
-
 # other
 compile_commands.json
-.nvim.lua
