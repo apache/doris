@@ -134,7 +134,7 @@ under the License.
         <hudi.version>0.13.1</hudi.version>
         <presto.hadoop.version>2.7.4-11</presto.hadoop.version>
         <presto.hive.version>3.0.0-8</presto.hive.version>
-        
+
         <parquet.version>1.13.1</parquet.version>
         <commons-collections.version>3.2.2</commons-collections.version>
         <commons-compress.version>1.22</commons-compress.version>
@@ -211,13 +211,13 @@ under the License.
                 <artifactId>opentelemetry-api</artifactId>
                 <version>${opentelemetry.version}</version>
             </dependency>
-            
+
             <dependency>
                 <groupId>io.opentelemetry</groupId>
                 <artifactId>opentelemetry-sdk</artifactId>
                 <version>${opentelemetry.version}</version>
             </dependency>
-            
+
             <dependency>
                 <groupId>io.opentelemetry</groupId>
                 <artifactId>opentelemetry-exporter-otlp</artifactId>
@@ -375,7 +375,7 @@ under the License.
                 <artifactId>zookeeper</artifactId>
                 <version>${zookeeper.version}</version>
             </dependency>
-            
+
             <dependency>
                 <groupId>${project.groupId}</groupId>
                 <artifactId>fe-common</artifactId>
@@ -398,13 +398,13 @@ under the License.
                 <artifactId>commons-cli</artifactId>
                 <version>${commons-cli.version}</version>
             </dependency>
-            
+
             <dependency>
                 <groupId>commons-fileupload</groupId>
                 <artifactId>commons-fileupload</artifactId>
                 <version>${commons-filerupload.version}</version>
             </dependency>
-            
+
             <!-- https://mvnrepository.com/artifact/commons-codec/commons-codec -->
             <dependency>
                 <groupId>commons-codec</groupId>
@@ -929,7 +929,7 @@ under the License.
                 <version>${spark.version}</version>
                 <scope>provided</scope>
             </dependency>
-            
+
             <dependency>
                 <groupId>org.apache.hadoop</groupId>
                 <artifactId>hadoop-hdfs</artifactId>
@@ -1026,7 +1026,7 @@ under the License.
                 <artifactId>jettison</artifactId>
                 <version>${jettison.version}</version>
             </dependency>
-            
+
             <!-- https://mvnrepository.com/artifact/org.apache.iceberg/iceberg-core -->
             <dependency>
                 <groupId>org.apache.iceberg</groupId>
@@ -1094,7 +1094,7 @@ under the License.
                 <artifactId>aspectjrt</artifactId>
                 <version>${aspectj.version}</version>
             </dependency>
-            
+
             <!-- https://mvnrepository.com/artifact/org.apache.hudi/hudi-hadoop-mr -->
             <dependency>
                 <groupId>org.apache.hudi</groupId>
@@ -1106,7 +1106,7 @@ under the License.
                 <artifactId>parquet-avro</artifactId>
                 <version>${parquet.version}</version>
             </dependency>
-            
+
             <dependency>
                 <groupId>org.apache.parquet</groupId>
                 <artifactId>parquet-column</artifactId>
@@ -1378,7 +1378,7 @@ under the License.
             <groupId>org.awaitility</groupId>
             <artifactId>awaitility</artifactId>
         </dependency>
-        
+
     </dependencies>
     <build>
         <pluginManagement>
@@ -1551,7 +1551,7 @@ under the License.
                             <encoding>UTF-8</encoding>
                             <nrOfIndentSpace>4</nrOfIndentSpace>
                             <keepBlankLines>true</keepBlankLines>
-                            <indentBlankLines>true</indentBlankLines>
+                            <indentBlankLines>false</indentBlankLines>
                             <indentSchemaLocation>false</indentSchemaLocation>
                             <spaceBeforeCloseEmptyElement>true</spaceBeforeCloseEmptyElement>
                             <sortModules>false</sortModules>
