@@ -551,7 +551,7 @@ struct TimeRoundOpt {
             static constexpr uint64_t MASK_SECOND_FLOOR =
                     0b1111111111111111111111111111111111111111111100000000000000000000;
             // Optimize the performance of the datetimev2 type on the floor operation.
-            // Now supports unit hour
+            // Now supports unit hour minute seconde
             if constexpr (Impl::Unit == HOUR && !std::is_same_v<DateValueType, VecDateTimeValue>) {
                 int hour = ts2.hour();
                 int new_hour = hour / period * period;
