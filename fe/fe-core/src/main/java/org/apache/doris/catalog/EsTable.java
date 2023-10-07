@@ -80,24 +80,24 @@ public class EsTable extends Table {
     private EsTablePartitions esTablePartitions;
 
     // Whether to enable docvalues scan optimization for fetching fields more fast, default to true
-    private boolean enableDocValueScan = true;
+    private boolean enableDocValueScan = Boolean.parseBoolean(EsResource.DOC_VALUE_SCAN_DEFAULT_VALUE);
     // Whether to enable sniffing keyword for filtering more reasonable, default to true
-    private boolean enableKeywordSniff = true;
+    private boolean enableKeywordSniff = Boolean.parseBoolean(EsResource.KEYWORD_SNIFF_DEFAULT_VALUE);
     // if the number of fields which value extracted from `doc_value` exceeding this max limitation
     // would downgrade to extract value from `stored_fields`
     private int maxDocValueFields = DEFAULT_MAX_DOCVALUE_FIELDS;
 
     // Whether to enable the discovery of es nodes, You can disable it if you are in network isolation
-    private boolean nodesDiscovery = true;
+    private boolean nodesDiscovery = Boolean.parseBoolean(EsResource.NODES_DISCOVERY_DEFAULT_VALUE);;
 
     // Whether to use ssl call es, be and fe access through trust
-    private boolean httpSslEnabled = false;
+    private boolean httpSslEnabled = Boolean.parseBoolean(EsResource.HTTP_SSL_ENABLED_DEFAULT_VALUE);
 
     // Whether pushdown like expr, like will trans to wildcard query, consumes too many es cpu resources
-    private boolean likePushDown = true;
+    private boolean likePushDown = Boolean.parseBoolean(EsResource.LIKE_PUSH_DOWN_DEFAULT_VALUE);
 
     // Whether to include hidden index, default to false
-    private boolean includeHiddenIndex = false;
+    private boolean includeHiddenIndex = Boolean.parseBoolean(EsResource.INCLUDE_HIDDEN_INDEX_DEFAULT_VALUE);
 
     // tableContext is used for being convenient to persist some configuration parameters uniformly
     private Map<String, String> tableContext = new HashMap<>();
