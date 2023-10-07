@@ -138,6 +138,13 @@ if [[ ! -x "${JAVA}" ]]; then
     exit 1
 fi
 
+for var in http_proxy HTTP_PROXY https_proxy  HTTPS_PROXY ; do
+    if [[ -n ${!var} ]]; then
+        echo "env '${var}' = '${!var}', need unset it using 'unset ${var}'"
+        exit 1
+    fi
+done
+
 # get jdk version, return version as an Integer.
 # 1.8 => 8, 13.0 => 13
 jdk_version() {
