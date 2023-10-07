@@ -163,7 +163,9 @@ TEST(TextSerde, ScalaDataTypeSerdeTextTest) {
                 }
                 EXPECT_EQ(st.ok(), true);
                 // serialize
-                serde->serialize_one_cell_to_json(*col, i, buffer_writer, default_format_option);
+                st = serde->serialize_one_cell_to_json(*col, i, buffer_writer,
+                                                       default_format_option);
+                EXPECT_EQ(st.ok(), true);
                 buffer_writer.commit();
                 EXPECT_EQ(ser_col->get_data_at(ser_col->size() - 1).to_string(),
                           std::get<2>(type_pair)[i]);
@@ -220,11 +222,14 @@ TEST(TextSerde, ScalaDataTypeSerdeTextTest) {
             auto ser_col = ColumnString::create();
             ser_col->reserve(3);
             VectorBufferWriter buffer_writer(*ser_col.get());
-            serde->serialize_one_cell_to_json(*col, 0, buffer_writer, formatOptions);
+            st = serde->serialize_one_cell_to_json(*col, 0, buffer_writer, formatOptions);
+            EXPECT_EQ(st.ok(), true);
             buffer_writer.commit();
-            serde->serialize_one_cell_to_json(*col, 1, buffer_writer, formatOptions);
+            st = serde->serialize_one_cell_to_json(*col, 1, buffer_writer, formatOptions);
+            EXPECT_EQ(st.ok(), true);
             buffer_writer.commit();
-            serde->serialize_one_cell_to_json(*col, 2, buffer_writer, formatOptions);
+            st = serde->serialize_one_cell_to_json(*col, 2, buffer_writer, formatOptions);
+            EXPECT_EQ(st.ok(), true);
             buffer_writer.commit();
             rtrim(min_s);
             rtrim(max_s);
@@ -258,7 +263,9 @@ TEST(TextSerde, ScalaDataTypeSerdeTextTest) {
         auto ser_col = ColumnString::create();
         ser_col->reserve(1);
         VectorBufferWriter buffer_writer(*ser_col.get());
-        serde->serialize_one_cell_to_json(*col, 0, buffer_writer, default_format_option);
+        Status st =
+                serde->serialize_one_cell_to_json(*col, 0, buffer_writer, default_format_option);
+        EXPECT_EQ(st.ok(), true);
         buffer_writer.commit();
         StringRef rand_s_d = ser_col->get_data_at(0);
         EXPECT_EQ(rand_wf->to_string(), rand_s_d.to_string());
@@ -276,54 +283,54 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_BOOL,
                                   {"[0, 1,-1,1]", "[true, false]", "[1,true,t]",
                                    "[1, false], [,], [1,true,t]", "[,]"},
-                                  {"[0, 1, NULL, 1]", "[1, 0]", "[1, 1, NULL]",
-                                   "[1, NULL, NULL, 1, NULL]", "[]"},
-                                  {"[0, 1, NULL, 1]", "[1, 0]", "[1, 1, NULL]",
-                                   "[1, NULL, NULL, 1, NULL]", "[]"}),
+                                  {"[0, 1, null, 1]", "[1, 0]", "[1, 1, null]",
+                                   "[1, null, null, 1, null]", "[]"},
+                                  {"[0, 1, null, 1]", "[1, 0]", "[1, 1, null]",
+                                   "[1, null, null, 1, null]", "[]"}),
                 FieldType_RandStr(
                         FieldType::OLAP_FIELD_TYPE_TINYINT,
                         {"[1111, 12, ]", "[ed, 2,]", "[],[]", "[[]]", "[,1 , 3]"},
-                        {"[NULL, 12, NULL]", "[NULL, 2, NULL]", "[NULL]", "[NULL]", "[]"},
-                        {"[NULL, 12, NULL]", "[NULL, 2, NULL]", "[NULL]", "[NULL]", "[]"}),
+                        {"[null, 12, null]", "[null, 2, null]", "[null]", "[null]", "[]"},
+                        {"[null, 12, null]", "[null, 2, null]", "[null]", "[null]", "[]"}),
                 FieldType_RandStr(
                         FieldType::OLAP_FIELD_TYPE_FLOAT,
                         {"[0.33, 0.67, 0]", "[3.40282e+38, 3.40282e+38+1]", "[\"3.40282e+38+1\"]",
                          "[\"3.14\", 0.77]"},
-                        {"[0.33, 0.67, 0]", "[3.40282e+38, NULL]", "[NULL]", "[NULL, 0.77]"},
-                        {"[0.33, 0.67, 0]", "[3.40282e+38, NULL]", "[NULL]", "[3.14, 0.77]"}),
+                        {"[0.33, 0.67, 0]", "[3.40282e+38, null]", "[null]", "[null, 0.77]"},
+                        {"[0.33, 0.67, 0]", "[3.40282e+38, null]", "[null]", "[3.14, 0.77]"}),
                 FieldType_RandStr(
                         FieldType::OLAP_FIELD_TYPE_DOUBLE,
                         {"[3.1415926, 0.878787878, 12.44456475432]",
                          "[2343.12345465746, 2.22507e-308, 2.22507e-308-1, \"2.22507e-308\"]"},
                         {"[3.1415926, 0.878787878, 12.44456475432]",
-                         "[2343.12345465746, 2.22507e-308, NULL, NULL]"},
+                         "[2343.12345465746, 2.22507e-308, null, null]"},
                         {"[3.1415926, 0.878787878, 12.44456475432]",
-                         "[2343.12345465746, 2.22507e-308, NULL, 2.22507e-308]"}),
+                         "[2343.12345465746, 2.22507e-308, null, 2.22507e-308]"}),
                 FieldType_RandStr(
                         FieldType::OLAP_FIELD_TYPE_STRING,
                         {"[\"hello\", \"world\"]", "['a', 'b', 'c']",
                          "[\"42\",1412341,true,42.43,3.40282e+38+1,alpha:beta:gamma,Earth#42:"
                          "Control#86:Bob#31,17:true:Abe "
                          "Linkedin,BLUE,\"\\N\",\"\u0001\u0002\u0003,\\u0001bc\"]",
-                         "[\"heeeee\",null,\"NULL\",\"\\N\",null,\"sssssssss\"]"},
+                         "[\"heeeee\",null,\"null\",\"\\N\",null,\"sssssssss\"]"},
                         // last : ["42",1412341,true,42.43,3.40282e+38+1,alpha:beta:gamma,Earth#42:Control#86:Bob#31,17:true:Abe Linkedin,BLUE,"\N",",\u0001bc"]
                         {"[hello, world]", "[a, b, c]",
                          "[42, 1412341, true, 42.43, 3.40282e+38+1, alpha:beta:gamma, "
                          "Earth#42:Control#86:Bob#31, 17:true:Abe Linkedin, BLUE, \\N, "
                          "\x1\x2\x3,\\u0001bc]",
-                         "[heeeee, NULL, NULL, \\N, NULL, sssssssss]"},
+                         "[heeeee, null, null, \\N, null, sssssssss]"},
                         {"[hello, world]", "[a, b, c]",
                          "[42, 1412341, true, 42.43, 3.40282e+38+1, alpha:beta:gamma, "
                          "Earth#42:Control#86:Bob#31, 17:true:Abe Linkedin, BLUE, \\N, "
                          "\x1\x2\x3,\\u0001bc]",
-                         "[heeeee, NULL, NULL, \\N, NULL, sssssssss]"}),
+                         "[heeeee, null, null, \\N, null, sssssssss]"}),
                 FieldType_RandStr(
                         FieldType::OLAP_FIELD_TYPE_DATE,
                         {"[\\\"2022-07-13\\\",\"2022-07-13 12:30:00\"]",
                          "[2022-07-13 12:30:00, \"2022-07-13\"]",
                          "[2022-07-13 12:30:00.000, 2022-07-13]"},
-                        {"[NULL, NULL]", "[2022-07-13, NULL]", "[2022-07-13, 2022-07-13]"},
-                        {"[NULL, 2022-07-13]", "[2022-07-13, 2022-07-13]",
+                        {"[null, null]", "[2022-07-13, null]", "[2022-07-13, 2022-07-13]"},
+                        {"[null, 2022-07-13]", "[2022-07-13, 2022-07-13]",
                          "[2022-07-13, 2022-07-13]"}),
                 FieldType_RandStr(
                         FieldType::OLAP_FIELD_TYPE_DATETIME,
@@ -333,11 +340,11 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                                 "\\N",
                                 "[null,null,null]",
                         },
-                        {"[NULL, NULL]", "[2022-07-13 12:30:00, NULL, 2022-07-13 12:30:00]", "NULL",
-                         "[NULL, NULL, NULL]"},
+                        {"[null, null]", "[2022-07-13 12:30:00, null, 2022-07-13 12:30:00]", "\\N",
+                         "[null, null, null]"},
                         {"[2022-07-13 00:00:00, 2022-07-13 12:30:00]",
-                         "[2022-07-13 12:30:00, 2022-07-13 00:00:00, 2022-07-13 12:30:00]", "NULL",
-                         "[NULL, NULL, NULL]"}),
+                         "[2022-07-13 12:30:00, 2022-07-13 00:00:00, 2022-07-13 12:30:00]", "\\N",
+                         "[null, null, null]"}),
                 FieldType_RandStr(
                         FieldType::OLAP_FIELD_TYPE_DECIMAL,
                         {"[4, 5.5, 6.67]",
@@ -350,14 +357,14 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                          "[\\1234567890123456789.01234567\\]"},
                         {"[4.000000000, 5.500000000, 6.670000000]",
                          "[12345678901234567.012345678, 123456789012345678.012345670, "
-                         "12345678901234567.012345678, NULL, NULL]",
-                         "[NULL, NULL, NULL, NULL, NULL]", "[NULL]"},
+                         "12345678901234567.012345678, null, null]",
+                         "[null, null, null, null, null]", "[null]"},
                         {"[4.000000000, 5.500000000, 6.670000000]",
                          "[12345678901234567.012345678, 123456789012345678.012345670, "
-                         "12345678901234567.012345678, NULL, NULL]",
+                         "12345678901234567.012345678, null, null]",
                          "[12345678901234567.012345678, 123456789012345678.012345670, "
-                         "12345678901234567.012345678, NULL, NULL]",
-                         "[NULL]"}),
+                         "12345678901234567.012345678, null, null]",
+                         "[null]"}),
         };
         // array type
         for (auto type_pair : nested_field_types) {
@@ -412,7 +419,9 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                         auto ser_col = ColumnString::create();
                         ser_col->reserve(1);
                         VectorBufferWriter buffer_writer(*ser_col.get());
-                        serde->serialize_one_cell_to_json(*col, i, buffer_writer, formatOptions);
+                        st = serde->serialize_one_cell_to_json(*col, i, buffer_writer,
+                                                               formatOptions);
+                        EXPECT_EQ(st.ok(), true);
                         buffer_writer.commit();
                         StringRef rand_s_d = ser_col->get_data_at(0);
                         std::cout << "test : " << rand_s_d << std::endl;
@@ -427,7 +436,9 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                     auto ser_col = ColumnString::create();
                     ser_col->reserve(1);
                     VectorBufferWriter buffer_writer(*ser_col.get());
-                    serde->serialize_one_cell_to_json(*col2, i, buffer_writer, formatOptions);
+                    status = serde->serialize_one_cell_to_json(*col2, i, buffer_writer,
+                                                               formatOptions);
+                    EXPECT_EQ(status.ok(), true);
                     buffer_writer.commit();
                     StringRef rand_s_d = ser_col->get_data_at(0);
                     std::cout << "test from string: " << rand_s_d << std::endl;
@@ -448,7 +459,9 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                         auto ser_col = ColumnString::create();
                         ser_col->reserve(1);
                         VectorBufferWriter buffer_writer(*ser_col.get());
-                        serde_1->serialize_one_cell_to_json(*col3, i, buffer_writer, formatOptions);
+                        st = serde_1->serialize_one_cell_to_json(*col3, i, buffer_writer,
+                                                                 formatOptions);
+                        EXPECT_EQ(st.ok(), true);
                         buffer_writer.commit();
                         StringRef rand_s_d = ser_col->get_data_at(0);
                         EXPECT_EQ(expect_str_1, rand_s_d.to_string());
@@ -468,54 +481,54 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                                   FieldType::OLAP_FIELD_TYPE_STRING,
                                   {"{1: \"amory is 7\", 0: \" doris be better \", -1: \"wrong,\"}",
                                    "{\"1\": \"amory is 7\", \"0\": 1}"},
-                                  {"{1:amory is 7, 0: doris be better , NULL:wrong,}",
-                                   "{NULL:amory is 7, NULL:1}"}),
+                                  {"{1:amory is 7, 0: doris be better , null:wrong,}",
+                                   "{null:amory is 7, null:1}"}),
                 FieldType_RandStr(
                         FieldType::OLAP_FIELD_TYPE_STRING, FieldType::OLAP_FIELD_TYPE_DOUBLE,
-                        {"{\" ,.amory\": 111.2343, \"\": 112., 'dggs': 13.14 , NULL: 12.2222222, "
-                         ": NULL\\}",
-                         "{\"\": NULL, null: 12.44}", "{{}}", "{{}", "}}", "{}, {}", "\\N",
+                        {"{\" ,.amory\": 111.2343, \"\": 112., 'dggs': 13.14 , null: 12.2222222, "
+                         ": null\\}",
+                         "{\"\": null, null: 12.44}", "{{}}", "{{}", "}}", "{}, {}", "\\N",
                          "{null:null,\"null\":null}",
                          "{\"hello "
-                         "world\":0.2222222,\"hello2\":null,null:1111.1,\"NULL\":null,\"null\":"
+                         "world\":0.2222222,\"hello2\":null,null:1111.1,\"null\":null,\"null\":"
                          "null,\"null\":0.1}"},
-                        {"{ ,.amory:111.2343, \"\":112, dggs:13.14, NULL:12.2222222, :NULL}",
-                         "{\"\":NULL, NULL:12.44}", "{}", "{}", "NULL", "{}", "NULL",
-                         "{NULL:NULL, null:NULL}",
-                         "{hello world:0.2222222, hello2:NULL, NULL:1111.1, NULL:NULL, null:NULL, "
+                        {"{ ,.amory:111.2343, \"\":112, dggs:13.14, null:12.2222222, :null}",
+                         "{\"\":null, null:12.44}", "{}", "{}", "\\N", "{}", "\\N",
+                         "{null:null, null:null}",
+                         "{hello world:0.2222222, hello2:null, null:1111.1, null:null, null:null, "
                          "null:0.1}"}),
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_FLOAT,
                                   FieldType::OLAP_FIELD_TYPE_DOUBLE,
                                   {"{0.33: 3.1415926,3.1415926: 22}", "{3.14, 15926: 22}", "{3.14}",
                                    "{222:3444},", "{4.12, 677: 455: 356, 67.6:67.7}",
                                    "{null:null,null:1.0,1.0:null}"},
-                                  {"{0.33:3.1415926, 3.1415925:22}", "{NULL:22}", "{}", "NULL",
-                                   "{NULL:NULL, 67.6:67.7}", "{NULL:NULL, NULL:1, 1:NULL}"}),
+                                  {"{0.33:3.1415926, 3.1415925:22}", "{null:22}", "{}", "\\N",
+                                   "{null:null, 67.6:67.7}", "{null:null, null:1, 1:null}"}),
                 FieldType_RandStr(
                         FieldType::OLAP_FIELD_TYPE_DATE, FieldType::OLAP_FIELD_TYPE_DATETIME,
                         {"{2022-07-13: 2022-07-13 12:30:00, 2022-07-13 12:30:00: 2022-07-13 "
-                         "12:30:00, 2022-07-13 12:30:00.000: 2022-07-13 12:30:00.000, NULL: NULL, "
+                         "12:30:00, 2022-07-13 12:30:00.000: 2022-07-13 12:30:00.000, null: null, "
                          "2022-07-13:'2022-07-13 12:30:00'}",
                          // escaped char ':'
                          "{2022-07-13 12\\:30\\:00: 2022-07-13, 2022-07-13 12\\:30\\:00.000: "
                          "2022-07-13 12:30:00.000, 2022-07-13:\'2022-07-13 12:30:00\'}",
                          "\\N"},
-                        {"{2022-07-13:2022-07-13 12:30:00, 2022-07-13:NULL, 2022-07-13:NULL, "
-                         "NULL:NULL, 2022-07-13:NULL}",
+                        {"{2022-07-13:2022-07-13 12:30:00, 2022-07-13:null, 2022-07-13:null, "
+                         "null:null, 2022-07-13:null}",
                          "{2022-07-13:2022-07-13 00:00:00, 2022-07-13:2022-07-13 12:30:00, "
-                         "2022-07-13:NULL}",
-                         "NULL"}),
+                         "2022-07-13:null}",
+                         "\\N"}),
                 FieldType_RandStr(
                         FieldType::OLAP_FIELD_TYPE_DATETIME, FieldType::OLAP_FIELD_TYPE_DECIMAL,
-                        {"{2022-07-13 12:30:00: 12.45675432, 2022-07-13: 12.45675432, NULL: NULL}",
+                        {"{2022-07-13 12:30:00: 12.45675432, 2022-07-13: 12.45675432, null: null}",
                          "{\"2022-07-13 12:30:00\": \"12.45675432\"}",
                          "{2022-07-13 12\\:30\\:00:12.45675432, 2022-07-13#12:30:00: 12.45675432}",
                          "{2022-07-13 12\\:30\\:00.0000:12.45675432, null:12.34}"},
                         {"{2022-07-13 12:00:00:30.000000000, 2022-07-13 00:00:00:12.456754320, "
-                         "NULL:NULL}",
-                         "{NULL:NULL}",
+                         "null:null}",
+                         "{null:null}",
                          "{2022-07-13 12:30:00:12.456754320, 2022-07-13 12:00:00:30.000000000}",
-                         "{2022-07-13 12:30:00:12.456754320, NULL:12.340000000}"}),
+                         "{2022-07-13 12:30:00:12.456754320, null:12.340000000}"}),
         };
 
         for (auto type_pair : nested_field_types) {
@@ -551,7 +564,8 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                     auto ser_col = ColumnString::create();
                     ser_col->reserve(1);
                     VectorBufferWriter buffer_writer(*ser_col.get());
-                    serde->serialize_one_cell_to_json(*col, 0, buffer_writer, formatOptions);
+                    st = serde->serialize_one_cell_to_json(*col, 0, buffer_writer, formatOptions);
+                    EXPECT_EQ(st.ok(), true);
                     buffer_writer.commit();
                     StringRef rand_s_d = ser_col->get_data_at(0);
                     EXPECT_EQ(expect_str, rand_s_d.to_string());
@@ -565,8 +579,9 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                     auto ser_col = ColumnString::create();
                     ser_col->reserve(1);
                     VectorBufferWriter buffer_writer(*ser_col.get());
-                    serde->serialize_one_cell_to_json(*col2, col2->size() - 1, buffer_writer,
-                                                      formatOptions);
+                    stat = serde->serialize_one_cell_to_json(*col2, col2->size() - 1, buffer_writer,
+                                                             formatOptions);
+                    EXPECT_EQ(stat.ok(), true);
                     buffer_writer.commit();
                     StringRef rand_s_d = ser_col->get_data_at(0);
                     std::cout << "test from string: " << rand_s_d.to_string() << std::endl;
@@ -581,26 +596,26 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                 FieldType_RandStr(
                         FieldType::OLAP_FIELD_TYPE_DATE, FieldType::OLAP_FIELD_TYPE_DATETIME,
                         {"{2022-07-13: 2022-07-13 12:30:00, 2022-07-13 12:30:00: 2022-07-13 "
-                         "12:30:00, 2022-07-13 12:30:00.000: 2022-07-13 12:30:00.000, NULL: NULL, "
+                         "12:30:00, 2022-07-13 12:30:00.000: 2022-07-13 12:30:00.000, null: null, "
                          "2022-07-13:'2022-07-13 12:30:00'}",
                          // escaped char ':'
                          "{2022-07-13 12\\:30\\:00: 2022-07-13, 2022-07-13 12\\:30\\:00.000: "
                          "2022-07-13 12:30:00.000, 2022-07-13:\'2022-07-13 12:30:00\'}"},
-                        {"{2022-07-13:2022-07-13 12:30:00, 2022-07-13:NULL, 2022-07-13:NULL, "
-                         "NULL:NULL, 2022-07-13:2022-07-13 12:30:00}",
+                        {"{2022-07-13:2022-07-13 12:30:00, 2022-07-13:null, 2022-07-13:null, "
+                         "null:null, 2022-07-13:2022-07-13 12:30:00}",
                          "{2022-07-13:2022-07-13 00:00:00, 2022-07-13:2022-07-13 12:30:00, "
                          "2022-07-13:2022-07-13 12:30:00}"}),
                 FieldType_RandStr(
                         FieldType::OLAP_FIELD_TYPE_DATETIME, FieldType::OLAP_FIELD_TYPE_DECIMAL,
-                        {"{2022-07-13 12:30:00: 12.45675432, 2022-07-13: 12.45675432, NULL: NULL}",
+                        {"{2022-07-13 12:30:00: 12.45675432, 2022-07-13: 12.45675432, null: null}",
                          "{\"2022-07-13 12:30:00\": \"12.45675432\"}",
                          "{2022-07-13 12\\:30\\:00:12.45675432, 2022-07-13#12:30:00: 12.45675432}",
                          "{2022-07-13 12\\:30\\:00.0000:12.45675432, null:12.34}"},
                         {"{2022-07-13 12:00:00:30.000000000, 2022-07-13 00:00:00:12.456754320, "
-                         "NULL:NULL}",
+                         "null:null}",
                          "{2022-07-13 12:30:00:12.456754320}",
                          "{2022-07-13 12:30:00:12.456754320, 2022-07-13 12:00:00:30.000000000}",
-                         "{2022-07-13 12:30:00:12.456754320, NULL:12.340000000}"}),
+                         "{2022-07-13 12:30:00:12.456754320, null:12.340000000}"}),
         };
         for (auto type_pair : field_types) {
             auto key_type = std::get<0>(type_pair);
@@ -636,7 +651,8 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                     auto ser_col = ColumnString::create();
                     ser_col->reserve(1);
                     VectorBufferWriter buffer_writer(*ser_col.get());
-                    serde->serialize_one_cell_to_json(*col, 0, buffer_writer, formatOptions);
+                    st = serde->serialize_one_cell_to_json(*col, 0, buffer_writer, formatOptions);
+                    EXPECT_EQ(st.ok(), true);
                     buffer_writer.commit();
                     StringRef rand_s_d = ser_col->get_data_at(0);
                     EXPECT_EQ(expect_str, rand_s_d.to_string());
@@ -657,10 +673,10 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                 FieldType_RandStr(
                         FieldType::OLAP_FIELD_TYPE_STRING,
                         {"[[Hello, World],[This, is, a, nested, array],null,[null,null,aaaa]]"},
-                        {"[[Hello, World], [This, is, a, nested, array], NULL, [NULL, NULL, "
+                        {"[[Hello, World], [This, is, a, nested, array], null, [null, null, "
                          "aaaa]]"},
-                        {"[NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL]"},
-                        {"[[Hello, World], [This, is, a, nested, array], NULL, [NULL, NULL, "
+                        {"[null, null, null, null, null, null, null, null, null, null, null]"},
+                        {"[[Hello, World], [This, is, a, nested, array], null, [null, null, "
                          "aaaa]]"}),
                 FieldType_RandStr(
                         FieldType::OLAP_FIELD_TYPE_STRING,
@@ -712,7 +728,9 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                         auto ser_col = ColumnString::create();
                         ser_col->reserve(1);
                         VectorBufferWriter buffer_writer(*ser_col.get());
-                        serde->serialize_one_cell_to_json(*col, 0, buffer_writer, formatOptions);
+                        st = serde->serialize_one_cell_to_json(*col, 0, buffer_writer,
+                                                               formatOptions);
+                        EXPECT_EQ(st.ok(), true);
                         buffer_writer.commit();
                         StringRef rand_s_d = ser_col->get_data_at(0);
                         std::cout << "test : " << rand_s_d << std::endl;
@@ -731,7 +749,9 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                         auto ser_col = ColumnString::create();
                         ser_col->reserve(1);
                         VectorBufferWriter buffer_writer(*ser_col.get());
-                        serde->serialize_one_cell_to_json(*col2, 0, buffer_writer, formatOptions);
+                        status = serde->serialize_one_cell_to_json(*col2, 0, buffer_writer,
+                                                                   formatOptions);
+                        EXPECT_EQ(status.ok(), true);
                         buffer_writer.commit();
                         StringRef rand_s_d = ser_col->get_data_at(0);
                         std::cout << "test from string: " << rand_s_d << std::endl;
@@ -754,7 +774,9 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                         auto ser_col = ColumnString::create();
                         ser_col->reserve(1);
                         VectorBufferWriter buffer_writer(*ser_col.get());
-                        serde_1->serialize_one_cell_to_json(*col3, 0, buffer_writer, formatOptions);
+                        st = serde_1->serialize_one_cell_to_json(*col3, 0, buffer_writer,
+                                                                 formatOptions);
+                        EXPECT_EQ(st.ok(), true);
                         buffer_writer.commit();
                         StringRef rand_s_d = ser_col->get_data_at(0);
                         EXPECT_EQ(expect_str_1, rand_s_d.to_string());
@@ -782,7 +804,7 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                  "3050124830713523,\"mKH57V-YmwCNFq-vs8-vUIX\":0.36446683035480754},{\"HfhEMX-"
                  "oAMBJCC-YIC-hCqN\":0.8131454631693608,\"xrnTFd-ikONWik-T7J-sL8J\":0."
                  "37509722558990855,\"SVyEes-77mlzIr-N6c-DkYw\":0.4703053945053086,"
-                 "\"NULL\":0.1,\"\\N\":0.1,null:null}, {NULL:0.1, NULL:NULL, \"NULL\":0}]"},
+                 "\"null\":0.1,\"null\":0.1,null:null}, {null:0.1, null:null, \"null\":0}]"},
                 {"[{2cKtIM-L1mOcEm-udR-HcB2:0.23929040957798242, "
                  "eof2UN-Is0EEuA-H5D-hE58:0.42373055809540094, "
                  "FwUSOB-R8rtK9W-BVG-8wYZ:0.7680704548628841}, "
@@ -797,8 +819,8 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                  "mKH57V-YmwCNFq-vs8-vUIX:0.36446683035480754}, "
                  "{HfhEMX-oAMBJCC-YIC-hCqN:0.8131454631693608, "
                  "xrnTFd-ikONWik-T7J-sL8J:0.37509722558990855, "
-                 "SVyEes-77mlzIr-N6c-DkYw:0.4703053945053086, NULL:0.1, \\N:0.1, NULL:NULL}, "
-                 "{NULL:0.1, NULL:NULL, NULL:0}]"},
+                 "SVyEes-77mlzIr-N6c-DkYw:0.4703053945053086, null:0.1, null:0.1, null:null}, "
+                 "{null:0.1, null:null, null:0}]"},
                 {""},
                 {"[{2cKtIM-L1mOcEm-udR-HcB2:0.23929040957798242, "
                  "eof2UN-Is0EEuA-H5D-hE58:0.42373055809540094, "
@@ -815,7 +837,7 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                  "{HfhEMX-oAMBJCC-YIC-hCqN:0.8131454631693608, "
                  "xrnTFd-ikONWik-T7J-sL8J:0.37509722558990855, "
                  "SVyEes-77mlzIr-N6c-DkYw:0.4703053945053086, "
-                 "NULL:0.1, \\N:0.1, NULL:NULL}, {NULL:0.1, NULL:NULL, NULL:0}]"})};
+                 "null:0.1, null:0.1, null:null}, {null:0.1, null:null, null:0}]"})};
         for (auto type_pair : nested_field_types) {
             auto key_type = std::get<0>(type_pair);
             DataTypePtr nested_key_data_type_ptr =
@@ -860,7 +882,9 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                         auto ser_col = ColumnString::create();
                         ser_col->reserve(1);
                         VectorBufferWriter buffer_writer(*ser_col.get());
-                        serde->serialize_one_cell_to_json(*col, 0, buffer_writer, formatOptions);
+                        st = serde->serialize_one_cell_to_json(*col, 0, buffer_writer,
+                                                               formatOptions);
+                        EXPECT_EQ(st.ok(), true);
                         buffer_writer.commit();
                         StringRef rand_s_d = ser_col->get_data_at(0);
                         std::cout << "test : " << rand_s_d << std::endl;
@@ -879,7 +903,9 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                         auto ser_col = ColumnString::create();
                         ser_col->reserve(1);
                         VectorBufferWriter buffer_writer(*ser_col.get());
-                        serde->serialize_one_cell_to_json(*col2, 0, buffer_writer, formatOptions);
+                        status = serde->serialize_one_cell_to_json(*col2, 0, buffer_writer,
+                                                                   formatOptions);
+                        EXPECT_EQ(status.ok(), true);
                         buffer_writer.commit();
                         StringRef rand_s_d = ser_col->get_data_at(0);
                         std::cout << "test from string: " << rand_s_d << std::endl;
@@ -902,7 +928,9 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                         auto ser_col = ColumnString::create();
                         ser_col->reserve(1);
                         VectorBufferWriter buffer_writer(*ser_col.get());
-                        serde_1->serialize_one_cell_to_json(*col3, 0, buffer_writer, formatOptions);
+                        st = serde_1->serialize_one_cell_to_json(*col3, 0, buffer_writer,
+                                                                 formatOptions);
+                        EXPECT_EQ(st.ok(), true);
                         buffer_writer.commit();
                         StringRef rand_s_d = ser_col->get_data_at(0);
                         EXPECT_EQ(expect_str_1, rand_s_d.to_string());
@@ -1072,7 +1100,9 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                         auto ser_col = ColumnString::create();
                         ser_col->reserve(1);
                         VectorBufferWriter buffer_writer(*ser_col.get());
-                        serde->serialize_one_cell_to_json(*col, 0, buffer_writer, formatOptions);
+                        st = serde->serialize_one_cell_to_json(*col, 0, buffer_writer,
+                                                               formatOptions);
+                        EXPECT_EQ(st.ok(), true);
                         buffer_writer.commit();
                         StringRef rand_s_d = ser_col->get_data_at(0);
                         std::cout << "test : " << rand_s_d << std::endl;
@@ -1091,7 +1121,9 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                         auto ser_col = ColumnString::create();
                         ser_col->reserve(1);
                         VectorBufferWriter buffer_writer(*ser_col.get());
-                        serde->serialize_one_cell_to_json(*col2, 0, buffer_writer, formatOptions);
+                        status = serde->serialize_one_cell_to_json(*col2, 0, buffer_writer,
+                                                                   formatOptions);
+                        EXPECT_EQ(status.ok(), true);
                         buffer_writer.commit();
                         StringRef rand_s_d = ser_col->get_data_at(0);
                         std::cout << "test from string: " << rand_s_d << std::endl;
@@ -1114,7 +1146,9 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                         auto ser_col = ColumnString::create();
                         ser_col->reserve(1);
                         VectorBufferWriter buffer_writer(*ser_col.get());
-                        serde_1->serialize_one_cell_to_json(*col3, 0, buffer_writer, formatOptions);
+                        st = serde_1->serialize_one_cell_to_json(*col3, 0, buffer_writer,
+                                                                 formatOptions);
+                        EXPECT_EQ(st.ok(), true);
                         buffer_writer.commit();
                         StringRef rand_s_d = ser_col->get_data_at(0);
                         EXPECT_EQ(expect_str_1, rand_s_d.to_string());
@@ -1207,7 +1241,9 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                         auto ser_col = ColumnString::create();
                         ser_col->reserve(1);
                         VectorBufferWriter buffer_writer(*ser_col.get());
-                        serde->serialize_one_cell_to_json(*col, 0, buffer_writer, formatOptions);
+                        st = serde->serialize_one_cell_to_json(*col, 0, buffer_writer,
+                                                               formatOptions);
+                        EXPECT_EQ(st.ok(), true);
                         buffer_writer.commit();
                         StringRef rand_s_d = ser_col->get_data_at(0);
                         std::cout << "test : " << rand_s_d << std::endl;
@@ -1226,7 +1262,9 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                         auto ser_col = ColumnString::create();
                         ser_col->reserve(1);
                         VectorBufferWriter buffer_writer(*ser_col.get());
-                        serde->serialize_one_cell_to_json(*col2, 0, buffer_writer, formatOptions);
+                        status = serde->serialize_one_cell_to_json(*col2, 0, buffer_writer,
+                                                                   formatOptions);
+                        EXPECT_EQ(status.ok(), true);
                         buffer_writer.commit();
                         StringRef rand_s_d = ser_col->get_data_at(0);
                         std::cout << "test from string: " << rand_s_d << std::endl;
@@ -1249,7 +1287,9 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                         auto ser_col = ColumnString::create();
                         ser_col->reserve(1);
                         VectorBufferWriter buffer_writer(*ser_col.get());
-                        serde_1->serialize_one_cell_to_json(*col3, 0, buffer_writer, formatOptions);
+                        st = serde_1->serialize_one_cell_to_json(*col3, 0, buffer_writer,
+                                                                 formatOptions);
+                        EXPECT_EQ(st.ok(), true);
                         buffer_writer.commit();
                         StringRef rand_s_d = ser_col->get_data_at(0);
                         EXPECT_EQ(expect_str_1, rand_s_d.to_string());
