@@ -55,7 +55,6 @@ ScannerContext::ScannerContext(doris::RuntimeState* state_, doris::vectorized::V
           _process_status(Status::OK()),
           _batch_size(state_->batch_size()),
           limit(limit_),
-          _max_bytes_in_queue(max_bytes_in_blocks_queue_ * num_parallel_instances),
           _scanner_scheduler(state_->exec_env()->scanner_scheduler()),
           _scanners(scanners_),
           _num_parallel_instances(num_parallel_instances) {
