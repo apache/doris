@@ -46,6 +46,7 @@ OPTS=$(getopt \
 
 eval set -- "${OPTS}"
 HELP=0
+SCALE_FACTOR=100
 
 if [[ $# == 0 ]]; then
     usage
@@ -90,11 +91,25 @@ echo "FE_HOST: ${FE_HOST}"
 echo "FE_QUERY_PORT: ${FE_QUERY_PORT}"
 echo "USER: ${USER}"
 echo "DB: ${DB}"
+echo "SF: ${SCALE_FACTOR}"
 
 mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -e "DROP DATABASE IF EXISTS ${DB}"
 mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -e "CREATE DATABASE ${DB}"
 
-echo "Run SQLs from ${CURDIR}/../ddl/create-tpcds-tables.sql"
-mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-tpcds-tables.sql
+if [[ ${SCALE_FACTOR} -eq 1 ]]; then
+    echo "Run SQLs from ${CURDIR}/../ddl/create-tpcds-tables.sql"
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-tpcds-tables-sf1.sql
+elif [[ ${SCALE_FACTOR} -eq 100 ]]; then
+    echo "Run SQLs from ${CURDIR}/../ddl/create-tpcds-tables-sf100.sql"
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-tpcds-tables-sf100.sql
+elif [[ ${SCALE_FACTOR} -eq 1000 ]]; then
+    echo "Run SQLs from ${CURDIR}/../ddl/create-tpcds-tables-sf1000.sql"
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-tpcds-tables-sf1000.sql
+elif [[ ${SCALE_FACTOR} -eq 10000 ]]; then
+    echo "Run SQLs from ${CURDIR}/../ddl/create-tpcds-tables-sf10000.sql"
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-tpcds-tables-sf10000.sql
+else
+    echo "${SCALE_FACTOR} scale is NOT supported currently"
+fi
 
 echo "tpcds tables has been created"
