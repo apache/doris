@@ -304,11 +304,11 @@ public class ExportCommand extends Command implements ForwardWithSync {
         exportJob.setQualifiedUser(ctx.getQualifiedUser());
         exportJob.setUserIdentity(ctx.getCurrentUserIdentity());
 
-        Optional<SessionVariable> optionalSessionVariable = Optional.ofNullable(
-                ConnectContext.get().getSessionVariable());
-        exportJob.setSessionVariables(optionalSessionVariable.orElse(VariableMgr.getDefaultSessionVariable()));
-        exportJob.setTimeoutSecond(optionalSessionVariable.orElse(VariableMgr.getDefaultSessionVariable())
-                .getQueryTimeoutS());
+        // Must copy session variable, because session variable may be changed during export job running.
+        SessionVariable clonedSessionVariable = VariableMgr.cloneSessionVariable(Optional.ofNullable(
+                ConnectContext.get().getSessionVariable()).orElse(VariableMgr.getDefaultSessionVariable()));
+        exportJob.setSessionVariables(clonedSessionVariable);
+        exportJob.setTimeoutSecond(clonedSessionVariable.getQueryTimeoutS());
 
         // exportJob generate outfile sql
         exportJob.generateOutfileLogicalPlans(RelationUtil.getQualifierName(ctx, this.nameParts));
