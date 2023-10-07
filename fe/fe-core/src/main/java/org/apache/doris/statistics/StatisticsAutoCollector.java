@@ -118,7 +118,7 @@ public class StatisticsAutoCollector extends StatisticsCollector {
         if (table.getDataSize(true) < Config.huge_table_lower_bound_size_in_bytes) {
             return false;
         }
-        TableStats tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(table.getId());
+        TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(table.getId());
         return System.currentTimeMillis() - tableStats.updatedTime < Config.huge_table_auto_analyze_interval_in_millis;
     }
 
@@ -155,7 +155,7 @@ public class StatisticsAutoCollector extends StatisticsCollector {
         TableIf table = StatisticsUtil
                 .findTable(jobInfo.catalogName, jobInfo.dbName, jobInfo.tblName);
         AnalysisManager analysisManager = Env.getServingEnv().getAnalysisManager();
-        TableStats tblStats = analysisManager.findTableStatsStatus(table.getId());
+        TableStatsMeta tblStats = analysisManager.findTableStatsStatus(table.getId());
 
         if (!table.needReAnalyzeTable(tblStats)) {
             return null;
