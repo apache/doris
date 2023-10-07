@@ -29,7 +29,6 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.TreeNode;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.thrift.TExprNode;
 
