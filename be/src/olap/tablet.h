@@ -161,7 +161,7 @@ public:
 
     const RowsetSharedPtr rowset_with_max_version() const;
 
-    static TabletSchemaSPtr tablet_schema_with_max_schema_version(
+    static TabletSchemaSPtr tablet_schema_with_merged_max_schema_version(
             const std::vector<RowsetMetaSharedPtr>& rowset_metas);
 
     Status add_inc_rowset(const RowsetSharedPtr& rowset);

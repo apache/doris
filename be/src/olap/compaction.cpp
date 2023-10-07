@@ -249,7 +249,7 @@ void Compaction::build_basic_info() {
     std::vector<RowsetMetaSharedPtr> rowset_metas(_input_rowsets.size());
     std::transform(_input_rowsets.begin(), _input_rowsets.end(), rowset_metas.begin(),
                    [](const RowsetSharedPtr& rowset) { return rowset->rowset_meta(); });
-    _cur_tablet_schema = _tablet->tablet_schema_with_max_schema_version(rowset_metas);
+    _cur_tablet_schema = _tablet->tablet_schema_with_merged_max_schema_version(rowset_metas);
 }
 
 bool Compaction::handle_ordered_data_compaction() {

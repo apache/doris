@@ -1209,9 +1209,10 @@ void ColumnObject::ensure_root_node_type(const DataTypePtr& expected_root_type) 
     if (!root.get_least_common_type()->equals(*expected_root_type)) {
         // make sure the root type is alawys as expected
         ColumnPtr casted_column;
-        schema_util::cast_column(ColumnWithTypeAndName {root.get_finalized_column_ptr(),
-                                                        root.get_least_common_type(), ""},
-                                 expected_root_type, &casted_column);
+        static_cast<void>(
+                schema_util::cast_column(ColumnWithTypeAndName {root.get_finalized_column_ptr(),
+                                                                root.get_least_common_type(), ""},
+                                         expected_root_type, &casted_column));
         root.data[0] = casted_column;
         root.data_types[0] = expected_root_type;
         root.least_common_type = Subcolumn::LeastCommonType {expected_root_type};

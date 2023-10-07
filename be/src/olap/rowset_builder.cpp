@@ -307,7 +307,7 @@ Status RowsetBuilder::commit_txn() {
         // Eg. rowset schema:       A(int),    B(float),  C(int), D(int)
         // _tabelt->tablet_schema:  A(bigint), B(double)
         //  => update_schema:       A(bigint), B(double), C(int), D(int)
-        RowsetWriterContext& rw_ctx = _rowset_writer->mutable_context();
+        const RowsetWriterContext& rw_ctx = _rowset_writer->context();
         TabletSchemaSPtr update_schema = std::make_shared<TabletSchema>();
         vectorized::schema_util::get_least_common_schema(
                 {_tablet->tablet_schema(), rw_ctx.tablet_schema}, update_schema);

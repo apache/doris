@@ -277,7 +277,8 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
     if (_tablet_meta->all_rs_metas().empty() || !_tablet_meta->all_rs_metas()[0]->tablet_schema()) {
         _max_version_schema = _tablet_meta->tablet_schema();
     } else {
-        _max_version_schema = tablet_schema_with_max_schema_version(_tablet_meta->all_rs_metas());
+        _max_version_schema =
+                tablet_schema_with_merged_max_schema_version(_tablet_meta->all_rs_metas());
     }
     DCHECK(_max_version_schema);
 }
@@ -629,7 +630,7 @@ const RowsetSharedPtr Tablet::rowset_with_max_version() const {
     return iter->second;
 }
 
-TabletSchemaSPtr Tablet::tablet_schema_with_max_schema_version(
+TabletSchemaSPtr Tablet::tablet_schema_with_merged_max_schema_version(
         const std::vector<RowsetMetaSharedPtr>& rowset_metas) {
     RowsetMetaSharedPtr max_schema_version_rs = *std::max_element(
             rowset_metas.begin(), rowset_metas.end(),

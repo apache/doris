@@ -548,6 +548,24 @@ bool BetaRowsetWriter::_is_segment_overlapping(
     return false;
 }
 
+// update tablet schema when meet variant columns, before commit_txn
+// Eg. rowset schema:       A(int),    B(float),  C(int), D(int)
+// _tabelt->tablet_schema:  A(bigint), B(double)
+//  => update_schema:       A(bigint), B(double), C(int), D(int)
+void BetaRowsetWriter::update_rowset_schema(TabletSchemaSPtr flush_schema) {
+    std::lock_guard<std::mutex> lock(*(_context.schema_lock));
+    TabletSchemaSPtr update_schema = std::make_shared<TabletSchema>();
+    vectorized::schema_util::get_least_common_schema({_context.tablet_schema, flush_schema},
+                                                     update_schema);
+    CHECK_GE(update_schema->num_columns(), flush_schema->num_columns())
+            << "Rowset merge schema columns count is " << update_schema->num_columns()
+            << ", but flush_schema is larger " << flush_schema->num_columns()
+            << " update_schema: " << update_schema->dump_structure()
+            << " flush_schema: " << flush_schema->dump_structure();
+    _context.tablet_schema.swap(update_schema);
+    VLOG_DEBUG << "dump rs schema: " << _context.tablet_schema->dump_structure();
+}
+
 void BetaRowsetWriter::_build_rowset_meta_with_spec_field(
         RowsetMetaSharedPtr rowset_meta, const RowsetMetaSharedPtr& spec_rowset_meta) {
     rowset_meta->set_num_rows(spec_rowset_meta->num_rows());
@@ -857,25 +875,7 @@ Status BetaRowsetWriter::expand_variant_to_subcolumns(vectorized::Block& block,
         flush_schema->mutable_columns()[variant_pos].set_path_info(full_root_path);
         VLOG_DEBUG << "set root_path : " << full_root_path.get_path();
     }
-
-    {
-        // Update rowset schema, tablet's tablet schema will be updated when build Rowset
-        // Eg. flush schema:    A(int),    B(float),  C(int), D(int)
-        // ctx.tablet_schema:  A(bigint), B(double)
-        // => update_schema:   A(bigint), B(double), C(int), D(int)
-        std::lock_guard<std::mutex> lock(*(_context.schema_lock));
-        TabletSchemaSPtr update_schema = std::make_shared<TabletSchema>();
-        vectorized::schema_util::get_least_common_schema({_context.tablet_schema, flush_schema},
-                                                         update_schema);
-        CHECK_GE(update_schema->num_columns(), flush_schema->num_columns())
-                << "Rowset merge schema columns count is " << update_schema->num_columns()
-                << ", but flush_schema is larger " << flush_schema->num_columns()
-                << " update_schema: " << update_schema->dump_structure()
-                << " flush_schema: " << flush_schema->dump_structure();
-        _context.tablet_schema.swap(update_schema);
-        VLOG_DEBUG << "dump rs schema: " << _context.tablet_schema->dump_structure();
-    }
-
+    update_rowset_schema(flush_schema);
     block.swap(flush_block);
     VLOG_DEBUG << "dump block: " << block.dump_data();
     VLOG_DEBUG << "dump flush schema: " << flush_schema->dump_structure();

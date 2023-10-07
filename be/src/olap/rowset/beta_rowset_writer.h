@@ -103,7 +103,7 @@ public:
 
     RowsetId rowset_id() override { return _context.rowset_id; }
 
-    RowsetWriterContext& mutable_context() override { return _context; }
+    const RowsetWriterContext& context() const override { return _context; }
 
     RowsetTypePB type() const override { return RowsetTypePB::BETA_ROWSET; }
 
@@ -171,6 +171,7 @@ private:
     // The expanded D, E, F is dynamic part of the block
     // The flushed Block columns should match exactly from the same type of frontend meta
     Status expand_variant_to_subcolumns(vectorized::Block& block, TabletSchemaSPtr& flush_schema);
+    void update_rowset_schema(TabletSchemaSPtr flush_schema);
 
     // build a tmp rowset for load segment to calc delete_bitmap
     // for this segment
