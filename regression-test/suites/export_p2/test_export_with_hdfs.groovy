@@ -97,8 +97,8 @@ suite("test_export_with_hdfs", "p2") {
         // check data correctness
         order_qt_select """ select * from hdfs(
                 "uri" = "${outfile_url}0.${file_suffix}",
-                "fs.defaultFS" = "${fs}",
                 "hadoop.username" = "${user_name}",
+                "column_separator" = ",",
                 "format" = "${format}");
             """
     }

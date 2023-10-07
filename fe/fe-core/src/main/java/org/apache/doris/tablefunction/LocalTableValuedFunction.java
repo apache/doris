@@ -31,8 +31,6 @@ import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Maps;
-import org.apache.commons.collections.map.CaseInsensitiveMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -46,42 +44,31 @@ import java.util.concurrent.TimeUnit;
  */
 public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
     private static final Logger LOG = LogManager.getLogger(LocalTableValuedFunction.class);
-
     public static final String NAME = "local";
-    public static final String FILE_PATH = "file_path";
-    public static final String BACKEND_ID = "backend_id";
+    public static final String PROP_FILE_PATH = "file_path";
+    public static final String PROP_BACKEND_ID = "backend_id";
 
     private static final ImmutableSet<String> LOCATION_PROPERTIES = new ImmutableSet.Builder<String>()
-            .add(FILE_PATH)
-            .add(BACKEND_ID)
+            .add(PROP_FILE_PATH)
+            .add(PROP_BACKEND_ID)
             .build();
 
     private long backendId;
 
-    public LocalTableValuedFunction(Map<String, String> params) throws AnalysisException {
-        Map<String, String> fileParams = new CaseInsensitiveMap();
-        locationProperties = Maps.newHashMap();
-        for (String key : params.keySet()) {
-            String lowerKey = key.toLowerCase();
-            if (FILE_FORMAT_PROPERTIES.contains(lowerKey)) {
-                fileParams.put(lowerKey, params.get(key));
-            } else if (LOCATION_PROPERTIES.contains(lowerKey)) {
-                locationProperties.put(lowerKey, params.get(key));
-            } else {
-                throw new AnalysisException(key + " is invalid property");
-            }
-        }
+    public LocalTableValuedFunction(Map<String, String> properties) throws AnalysisException {
+        // 1. analyze common properties
+        Map<String, String> otherProps = super.parseCommonProperties(properties);
 
+        // 2. analyze location properties
         for (String key : LOCATION_PROPERTIES) {
-            if (!locationProperties.containsKey(key)) {
-                throw new AnalysisException(String.format("Configuration '%s' is required.", key));
+            if (!otherProps.containsKey(key)) {
+                throw new AnalysisException(String.format("Property '%s' is required.", key));
             }
         }
+        filePath = otherProps.get(PROP_FILE_PATH);
+        backendId = Long.parseLong(otherProps.get(PROP_BACKEND_ID));
 
-        filePath = locationProperties.get(FILE_PATH);
-        backendId = Long.parseLong(locationProperties.get(BACKEND_ID));
-        super.parseProperties(fileParams);
-
+        // 3. parse file
         getFileListFromBackend();
     }
 

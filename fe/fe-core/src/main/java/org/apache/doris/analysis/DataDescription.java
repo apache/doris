@@ -28,8 +28,8 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.loadv2.LoadTask;
@@ -1110,13 +1110,13 @@ public class DataDescription implements InsertStmt.DataDesc {
         // file format
         // note(tsy): for historical reason, file format here must be string type rather than TFileFormatType
         if (fileFormat != null) {
-            if (!fileFormat.equalsIgnoreCase("parquet")
-                    && !fileFormat.equalsIgnoreCase(FeConstants.csv)
-                    && !fileFormat.equalsIgnoreCase("orc")
-                    && !fileFormat.equalsIgnoreCase("json")
-                    && !fileFormat.equalsIgnoreCase(FeConstants.csv_with_names)
-                    && !fileFormat.equalsIgnoreCase(FeConstants.csv_with_names_and_types)
-                    && !fileFormat.equalsIgnoreCase("hive_text")) {
+            if (!fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_PARQUET)
+                    && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_CSV)
+                    && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_CSV_WITH_NAMES)
+                    && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_CSV_WITH_NAMES_AND_TYPES)
+                    && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_ORC)
+                    && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_JSON)
+                    && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_HIVE_TEXT)) {
                 throw new AnalysisException("File Format Type " + fileFormat + " is invalid.");
             }
         }
