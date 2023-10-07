@@ -38,6 +38,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.mvrewrite.MVExprEquivalent;
 import org.apache.doris.statistics.ExprStats;
@@ -294,7 +295,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     // Flag to indicate whether to wrap this expr's toSql() in parenthesis. Set by parser.
     // Needed for properly capturing expr precedences in the SQL string.
     protected boolean printSqlInParens = false;
-    protected final String exprName = Expression.normalizeName(this.getClass().getSimpleName(), DEFAULT_EXPR_NAME);
+    protected final String exprName = Utils.normalizeName(this.getClass().getSimpleName(), DEFAULT_EXPR_NAME);
 
     protected Expr() {
         super();

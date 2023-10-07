@@ -59,6 +59,6 @@ public abstract class NamedExpression extends Expression {
 
     @Override
     protected String getExpressionName() {
-        return normalizeName(getName(), DEFAULT_EXPRESSION_NAME);
+        return Utils.normalizeName(getName(), DEFAULT_EXPRESSION_NAME);
     }
 }

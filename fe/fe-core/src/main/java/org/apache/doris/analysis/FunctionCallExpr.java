@@ -39,6 +39,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -312,7 +313,7 @@ public class FunctionCallExpr extends Expr {
 
     @Override
     protected String getExprName() {
-        return Expression.normalizeName(this.getFnName().getFunction(), DEFAULT_EXPR_NAME);
+        return Utils.normalizeName(this.getFnName().getFunction(), DEFAULT_EXPR_NAME);
     }
 
     public FunctionCallExpr(String functionName, List<Expr> params) {

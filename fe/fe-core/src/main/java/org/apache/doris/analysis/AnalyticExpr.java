@@ -30,6 +30,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.thrift.TExprNode;
 
 import com.google.common.base.Joiner;
@@ -147,7 +148,7 @@ public class AnalyticExpr extends Expr {
 
     @Override
     protected String getExprName() {
-        return Expression.normalizeName(getFnCall().getExprName(), DEFAULT_EXPR_NAME);
+        return Utils.normalizeName(getFnCall().getExprName(), DEFAULT_EXPR_NAME);
     }
 
     @Override
