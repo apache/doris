@@ -221,7 +221,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
 
         // plus 5 for uncompressed data
         long uncompressedPartitionSize = getNextPartitionSize(partitionSizeArray) * 5;
-        return AutoBucketUtils.getBucketsNum(uncompressedPartitionSize);
+        return AutoBucketUtils.getBucketsNum(uncompressedPartitionSize, Config.autobucket_min_buckets);
     }
 
     private ArrayList<AddPartitionClause> getAddPartitionClause(Database db, OlapTable olapTable,

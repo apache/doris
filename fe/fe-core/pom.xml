@@ -482,10 +482,6 @@ under the License.
         </dependency>
         <dependency>
             <groupId>io.grpc</groupId>
-            <artifactId>grpc-netty-shaded</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>io.grpc</groupId>
             <artifactId>grpc-protobuf</artifactId>
         </dependency>
         <dependency>
@@ -762,6 +758,10 @@ under the License.
         <dependency>
             <groupId>org.apache.arrow</groupId>
             <artifactId>flight-sql</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.immutables</groupId>
+            <artifactId>value</artifactId>
         </dependency>
     </dependencies>
     <repositories>

@@ -224,7 +224,7 @@ public class HudiJniScanner extends JniScanner {
             while (readRowNumbers < fetchSize && recordIterator.hasNext()) {
                 columnValue.reset(recordIterator.next());
                 for (int i = 0; i < numFields; i++) {
-                    columnValue.reset(i, columnTypes[i].getPrecision(), columnTypes[i].getScale());
+                    columnValue.reset(i, columnTypes[i]);
                     appendData(i, columnValue);
                 }
                 readRowNumbers++;

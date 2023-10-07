@@ -95,7 +95,7 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
     case TYPE_ARRAY: {
         DCHECK_EQ(type.children.size(), 1);
         std::shared_ptr<arrow::DataType> item_type;
-        convert_to_arrow_type(type.children[0], &item_type);
+        static_cast<void>(convert_to_arrow_type(type.children[0], &item_type));
         *result = std::make_shared<arrow::ListType>(item_type);
         break;
     }
@@ -103,8 +103,8 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
         DCHECK_EQ(type.children.size(), 2);
         std::shared_ptr<arrow::DataType> key_type;
         std::shared_ptr<arrow::DataType> val_type;
-        convert_to_arrow_type(type.children[0], &key_type);
-        convert_to_arrow_type(type.children[1], &val_type);
+        static_cast<void>(convert_to_arrow_type(type.children[0], &key_type));
+        static_cast<void>(convert_to_arrow_type(type.children[1], &val_type));
         *result = std::make_shared<arrow::MapType>(key_type, val_type);
         break;
     }
@@ -113,7 +113,7 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
         std::vector<std::shared_ptr<arrow::Field>> fields;
         for (size_t i = 0; i < type.children.size(); i++) {
             std::shared_ptr<arrow::DataType> field_type;
-            convert_to_arrow_type(type.children[i], &field_type);
+            static_cast<void>(convert_to_arrow_type(type.children[i], &field_type));
             fields.push_back(std::make_shared<arrow::Field>(type.field_names[i], field_type,
                                                             type.contains_nulls[i]));
         }

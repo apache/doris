@@ -88,7 +88,7 @@ public abstract class BulkLoadJob extends LoadJob {
 
     // sessionVariable's name -> sessionVariable's value
     // we persist these sessionVariables due to the session is not available when replaying the job.
-    private Map<String, String> sessionVariables = Maps.newHashMap();
+    protected Map<String, String> sessionVariables = Maps.newHashMap();
 
     public BulkLoadJob(EtlJobType jobType) {
         super(jobType);

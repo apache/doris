@@ -314,6 +314,7 @@ under the License.
         <woodstox.version>6.5.1</woodstox.version>
         <kerby.version>2.0.3</kerby.version>
         <jettison.version>1.5.4</jettison.version>
+        <immutables.version>2.9.3</immutables.version>
         <vesoft.client.version>3.0.0</vesoft.client.version>
         <!--todo waiting release-->
         <quartz.version>2.3.2</quartz.version>
@@ -891,11 +892,6 @@ under the License.
                 <groupId>org.objenesis</groupId>
                 <artifactId>objenesis</artifactId>
                 <version>${objenesis.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.grpc</groupId>
-                <artifactId>grpc-netty-shaded</artifactId>
-                <version>${grpc.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.grpc</groupId>
@@ -1528,6 +1524,12 @@ under the License.
                 <groupId>org.apache.arrow</groupId>
                 <artifactId>arrow-jdbc</artifactId>
                 <version>${arrow.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.immutables</groupId>
+                <artifactId>value</artifactId>
+                <version>${immutables.version}</version>
+                <scope>provided</scope>
             </dependency>
         </dependencies>
     </dependencyManagement>

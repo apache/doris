@@ -29,6 +29,7 @@ OperatorPtr PartitionSortSinkOperatorBuilder::build_operator() {
 
 Status PartitionSortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(PipelineXSinkLocalState<PartitionSortDependency>::init(state, info));
+    SCOPED_TIMER(profile()->total_time_counter());
     auto& p = _parent->cast<PartitionSortSinkOperatorX>();
     RETURN_IF_ERROR(p._vsort_exec_exprs.clone(state, _vsort_exec_exprs));
     _partition_expr_ctxs.resize(p._partition_expr_ctxs.size());
@@ -182,20 +183,12 @@ void PartitionSortSinkOperatorX::_emplace_into_hash_table(
                 _pre_serialize_key_if_need(state, agg_method, key_columns, num_rows);
 
                 //PHHashMap
+                const auto& keys = state.get_keys();
                 if constexpr (HashTableTraits<HashTableType>::is_phmap) {
-                    if (local_state._hash_values.size() < num_rows) {
-                        local_state._hash_values.resize(num_rows);
-                    }
-                    if constexpr (vectorized::ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
-                                          AggState>::value) {
-                        for (size_t i = 0; i < num_rows; ++i) {
-                            local_state._hash_values[i] = agg_method.data.hash(agg_method.keys[i]);
-                        }
-                    } else {
-                        for (size_t i = 0; i < num_rows; ++i) {
-                            local_state._hash_values[i] = agg_method.data.hash(
-                                    state.get_key_holder(i, *local_state._agg_arena_pool));
-                        }
+                    local_state._hash_values.resize(num_rows);
+
+                    for (size_t i = 0; i < num_rows; ++i) {
+                        local_state._hash_values[i] = agg_method.data.hash(keys[i]);
                     }
                 }
 
@@ -208,11 +201,10 @@ void PartitionSortSinkOperatorX::_emplace_into_hash_table(
                                 agg_method.data.prefetch_by_hash(
                                         local_state._hash_values[row + HASH_MAP_PREFETCH_DIST]);
                             }
-                            return state.emplace_key(agg_method.data, local_state._hash_values[row],
-                                                     row, *local_state._agg_arena_pool);
+                            return state.emplace_with_key(agg_method.data, keys[row],
+                                                          local_state._hash_values[row], row);
                         } else {
-                            return state.emplace_key(agg_method.data, row,
-                                                     *local_state._agg_arena_pool);
+                            return state.emplace_with_key(agg_method.data, keys[row], row);
                         }
                     }();
 

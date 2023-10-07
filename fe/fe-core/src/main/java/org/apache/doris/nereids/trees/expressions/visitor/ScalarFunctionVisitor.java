@@ -180,9 +180,12 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Instr;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtract;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonInsert;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonObject;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonQuote;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonReplace;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonSet;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonUnQuote;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExistsPath;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtract;
@@ -284,7 +287,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Round;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RoundBankers;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Rpad;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Rtrim;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.RunningDifference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Second;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondCeil;
@@ -1062,6 +1064,18 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(jsonExtract, context);
     }
 
+    default R visitJsonInsert(JsonInsert jsonInsert, C context) {
+        return visitScalarFunction(jsonInsert, context);
+    }
+
+    default R visitJsonReplace(JsonReplace jsonReplace, C context) {
+        return visitScalarFunction(jsonReplace, context);
+    }
+
+    default R visitJsonSet(JsonSet jsonSet, C context) {
+        return visitScalarFunction(jsonSet, context);
+    }
+
     default R visitJsonQuote(JsonQuote jsonQuote, C context) {
         return visitScalarFunction(jsonQuote, context);
     }
@@ -1424,10 +1438,6 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitRtrim(Rtrim rtrim, C context) {
         return visitScalarFunction(rtrim, context);
-    }
-
-    default R visitRunningDifference(RunningDifference runningDifference, C context) {
-        return visitScalarFunction(runningDifference, context);
     }
 
     default R visitSecond(Second second, C context) {

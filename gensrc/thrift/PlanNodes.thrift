@@ -119,6 +119,7 @@ enum TFileFormatType {
     FORMAT_AVRO,
     FORMAT_CSV_LZ4BLOCK,
     FORMAT_CSV_SNAPPYBLOCK,
+    FORMAT_WAL,
 }
 
 // In previous versions, the data compression format and file format were stored together, as TFileFormatType,
@@ -849,12 +850,20 @@ enum TopNAlgorithm {
    ROW_NUMBER
  }
 
+enum TPartTopNPhase {
+  UNKNOWN,
+  ONE_PAHSE_GLOBAL,
+  TWO_PAHSE_LOCAL,
+  TWO_PAHSE_GLOBAL
+}
+
  struct TPartitionSortNode {
    1: optional list<Exprs.TExpr> partition_exprs
    2: optional TSortInfo sort_info
    3: optional bool has_global_limit
    4: optional TopNAlgorithm top_n_algorithm
    5: optional i64 partition_inner_limit
+   6: optional TPartTopNPhase ptopn_phase
  }
 enum TAnalyticWindowType {
   // Specifies the window as a logical offset

@@ -80,8 +80,6 @@ public:
         _ready_for_read = true;
     }
 
-    bool is_ready_for_read() { return _ready_for_read; }
-
     // Notify downstream pipeline tasks this dependency is blocked.
     virtual void block_reading() { _ready_for_read = false; }
 
@@ -113,7 +111,7 @@ protected:
 class WriteDependency : public Dependency {
 public:
     WriteDependency(int id, std::string name) : Dependency(id, name), _ready_for_write(true) {}
-    virtual ~WriteDependency() = default;
+    ~WriteDependency() override = default;
 
     bool is_write_dependency() override { return true; }
 
@@ -430,7 +428,7 @@ private:
 
 struct MultiCastSharedState {
 public:
-    std::shared_ptr<pipeline::MultiCastDataStreamer> _multi_cast_data_streamer;
+    std::shared_ptr<pipeline::MultiCastDataStreamer> multi_cast_data_streamer;
 };
 
 class MultiCastDependency final : public WriteDependency {
@@ -440,7 +438,7 @@ public:
     ~MultiCastDependency() override = default;
     void* shared_state() override { return (void*)&_multi_cast_state; };
     MultiCastDependency* can_read(const int consumer_id) {
-        if (_multi_cast_state._multi_cast_data_streamer->can_read(consumer_id)) {
+        if (_multi_cast_state.multi_cast_data_streamer->can_read(consumer_id)) {
             return nullptr;
         } else {
             return this;
@@ -530,6 +528,7 @@ struct HashJoinSharedState : public JoinSharedState {
     size_t build_exprs_size = 0;
     std::shared_ptr<std::vector<vectorized::Block>> build_blocks =
             std::make_shared<std::vector<vectorized::Block>>();
+    bool probe_ignore_null = false;
 };
 
 class HashJoinDependency final : public WriteDependency {

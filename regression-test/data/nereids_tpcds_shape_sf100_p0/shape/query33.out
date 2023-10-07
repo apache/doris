@@ -9,7 +9,7 @@ PhysicalResultSink
 ------------hashAgg[LOCAL]
 --------------PhysicalUnion
 ----------------PhysicalProject
-------------------hashJoin[RIGHT_SEMI_JOIN](item.i_manufact_id = item.i_manufact_id)
+------------------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((item.i_manufact_id = item.i_manufact_id))otherCondition=()
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
 ------------------------filter((item.i_category = 'Home'))
@@ -18,13 +18,13 @@ PhysicalResultSink
 ----------------------PhysicalDistribute
 ------------------------hashAgg[LOCAL]
 --------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN](store_sales.ss_item_sk = item.i_item_sk)
+----------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk))otherCondition=()
 ------------------------------PhysicalDistribute
---------------------------------hashJoin[INNER_JOIN](store_sales.ss_addr_sk = customer_address.ca_address_sk)
-----------------------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
+--------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_addr_sk = customer_address.ca_address_sk))otherCondition=()
+----------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk))otherCondition=()
 ------------------------------------PhysicalOlapScan[store_sales]
 ------------------------------------PhysicalDistribute
---------------------------------------filter((date_dim.d_moy = 1)(date_dim.d_year = 2002))
+--------------------------------------filter((date_dim.d_moy = 1) and (date_dim.d_year = 2002))
 ----------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------------PhysicalDistribute
 ------------------------------------filter((customer_address.ca_gmt_offset = -5.00))
@@ -32,7 +32,7 @@ PhysicalResultSink
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalOlapScan[item]
 ----------------PhysicalProject
-------------------hashJoin[RIGHT_SEMI_JOIN](item.i_manufact_id = item.i_manufact_id)
+------------------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((item.i_manufact_id = item.i_manufact_id))otherCondition=()
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
 ------------------------filter((item.i_category = 'Home'))
@@ -41,14 +41,14 @@ PhysicalResultSink
 ----------------------PhysicalDistribute
 ------------------------hashAgg[LOCAL]
 --------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN](catalog_sales.cs_item_sk = item.i_item_sk)
+----------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_item_sk = item.i_item_sk))otherCondition=()
 ------------------------------PhysicalDistribute
---------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_bill_addr_sk = customer_address.ca_address_sk)
+--------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_bill_addr_sk = customer_address.ca_address_sk))otherCondition=()
 ----------------------------------PhysicalDistribute
-------------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)
+------------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk))otherCondition=()
 --------------------------------------PhysicalOlapScan[catalog_sales]
 --------------------------------------PhysicalDistribute
-----------------------------------------filter((date_dim.d_moy = 1)(date_dim.d_year = 2002))
+----------------------------------------filter((date_dim.d_moy = 1) and (date_dim.d_year = 2002))
 ------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------------PhysicalDistribute
 ------------------------------------filter((customer_address.ca_gmt_offset = -5.00))
@@ -56,7 +56,7 @@ PhysicalResultSink
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalOlapScan[item]
 ----------------PhysicalProject
-------------------hashJoin[RIGHT_SEMI_JOIN](item.i_manufact_id = item.i_manufact_id)
+------------------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((item.i_manufact_id = item.i_manufact_id))otherCondition=()
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
 ------------------------filter((item.i_category = 'Home'))
@@ -65,15 +65,15 @@ PhysicalResultSink
 ----------------------PhysicalDistribute
 ------------------------hashAgg[LOCAL]
 --------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN](web_sales.ws_item_sk = item.i_item_sk)
+----------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_item_sk = item.i_item_sk))otherCondition=()
 ------------------------------PhysicalOlapScan[item]
 ------------------------------PhysicalDistribute
---------------------------------hashJoin[INNER_JOIN](web_sales.ws_bill_addr_sk = customer_address.ca_address_sk)
+--------------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_bill_addr_sk = customer_address.ca_address_sk))otherCondition=()
 ----------------------------------PhysicalDistribute
-------------------------------------hashJoin[INNER_JOIN](web_sales.ws_sold_date_sk = date_dim.d_date_sk)
+------------------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk))otherCondition=()
 --------------------------------------PhysicalOlapScan[web_sales]
 --------------------------------------PhysicalDistribute
-----------------------------------------filter((date_dim.d_moy = 1)(date_dim.d_year = 2002))
+----------------------------------------filter((date_dim.d_moy = 1) and (date_dim.d_year = 2002))
 ------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------------PhysicalDistribute
 ------------------------------------filter((customer_address.ca_gmt_offset = -5.00))

@@ -359,7 +359,8 @@ inline std::string push_down_agg_to_string(const TPushAggOp::type& op) {
 
 Status OlapScanLocalState::_build_key_ranges_and_filters() {
     auto& p = _parent->cast<OlapScanOperatorX>();
-    if (p._push_down_agg_type == TPushAggOp::NONE) {
+    if (p._push_down_agg_type == TPushAggOp::NONE ||
+        p._push_down_agg_type == TPushAggOp::COUNT_ON_INDEX) {
         const std::vector<std::string>& column_names = p._olap_scan_node.key_column_name;
         const std::vector<TPrimitiveType::type>& column_types = p._olap_scan_node.key_column_type;
         DCHECK(column_types.size() == column_names.size());
