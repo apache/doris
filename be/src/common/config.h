@@ -271,6 +271,7 @@ DECLARE_mBool(compress_rowbatches);
 DECLARE_mBool(rowbatch_align_tuple_offset);
 // interval between profile reports; in seconds
 DECLARE_mInt32(status_report_interval);
+DECLARE_mInt32(pipeline_status_report_interval);
 // if true, each disk will have a separate thread pool for scanner
 DECLARE_Bool(doris_enable_scanner_thread_pool_per_disk);
 // the timeout of a work thread to wait the blocking priority queue to get a task
@@ -790,12 +791,10 @@ DECLARE_mInt32(mem_tracker_consume_min_size_bytes);
 // In most cases, it does not need to be modified.
 DECLARE_mDouble(tablet_version_graph_orphan_vertex_ratio);
 
-// share brpc streams when memtable_on_sink_node = true
-DECLARE_Bool(share_load_streams);
 // share delta writers when memtable_on_sink_node = true
 DECLARE_Bool(share_delta_writers);
-// number of brpc stream per OlapTableSinkV2 (per load if share_load_streams = true)
-DECLARE_Int32(num_streams_per_sink);
+// number of brpc stream per load
+DECLARE_Int32(num_streams_per_load);
 // timeout for open stream sink rpc in ms
 DECLARE_Int64(open_stream_sink_timeout_ms);
 
@@ -1159,6 +1158,12 @@ DECLARE_Int32(grace_shutdown_wait_seconds);
 // BitmapValue serialize version.
 DECLARE_Int16(bitmap_serialize_version);
 
+// group commit insert config
+DECLARE_String(group_commit_replay_wal_dir);
+DECLARE_Int32(group_commit_replay_wal_retry_num);
+DECLARE_Int32(group_commit_replay_wal_retry_interval_seconds);
+DECLARE_Int32(group_commit_sync_wal_batch);
+
 // This config can be set to limit thread number in group commit insert thread pool.
 DECLARE_mInt32(group_commit_insert_threads);
 
@@ -1175,6 +1180,7 @@ DECLARE_mBool(exit_on_exception);
 
 // cgroup
 DECLARE_String(doris_cgroup_cpu_path);
+DECLARE_Bool(enable_cpu_hard_limit);
 
 #ifdef BE_TEST
 // test s3

@@ -1259,10 +1259,10 @@ public:
     }
 
     static std::string empty_bitmap() {
-        static BitmapValue btmap;
+        static BitmapValue bitmap;
         std::string buf;
-        buf.resize(btmap.getSizeInBytes());
-        btmap.write_to((char*)buf.c_str());
+        buf.resize(bitmap.getSizeInBytes());
+        bitmap.write_to(buf.data());
         return buf;
     }
 

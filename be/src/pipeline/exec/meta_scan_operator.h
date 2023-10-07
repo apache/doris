@@ -50,6 +50,7 @@ private:
 
     void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
     Status _init_scanners(std::list<vectorized::VScannerSPtr>* scanners) override;
+    Status _process_conjuncts() override;
 
     std::vector<TScanRangeParams> _scan_ranges;
 };
@@ -63,7 +64,6 @@ private:
 
     TupleId _tuple_id;
     TUserIdentity _user_identity;
-    TMetaScanNode _scan_params;
 };
 
 } // namespace doris::pipeline

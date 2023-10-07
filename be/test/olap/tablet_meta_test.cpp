@@ -44,7 +44,7 @@ TEST(TabletMetaTest, SaveAndParse) {
         new_tablet_meta._preferred_rowset_type = BETA_ROWSET;
     }
     TabletMeta new_tablet_meta;
-    new_tablet_meta.create_from_file(meta_path);
+    static_cast<void>(new_tablet_meta.create_from_file(meta_path));
 
     EXPECT_EQ(old_tablet_meta, new_tablet_meta);
 }
@@ -67,9 +67,9 @@ TEST(TabletMetaTest, TestReviseMeta) {
         meta_ptr->init_from_pb(rs_meta_pb);
         RowsetSharedPtr rowset_ptr;
         TabletSchemaSPtr schema = std::make_shared<TabletSchema>();
-        MockRowset::create_rowset(schema, meta_ptr, &rowset_ptr, false);
+        static_cast<void>(MockRowset::create_rowset(schema, meta_ptr, &rowset_ptr, false));
         src_rowsets.push_back(rowset_ptr);
-        tablet_meta.add_rs_meta(rowset_ptr->rowset_meta());
+        static_cast<void>(tablet_meta.add_rs_meta(rowset_ptr->rowset_meta()));
     }
     ASSERT_EQ(4, tablet_meta.all_rs_metas().size());
 
