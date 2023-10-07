@@ -292,6 +292,7 @@ constexpr bool capture_stacktrace(int code) {
         && code != ErrorCode::CUMULATIVE_NO_SUITABLE_VERSION
         && code != ErrorCode::FULL_NO_SUITABLE_VERSION
         && code != ErrorCode::PUBLISH_VERSION_NOT_CONTINUOUS
+        && code != ErrorCode::PUBLISH_TIMEOUT
         && code != ErrorCode::ROWSET_RENAME_FILE_FAILED
         && code != ErrorCode::SEGCOMPACTION_INIT_READER
         && code != ErrorCode::SEGCOMPACTION_INIT_WRITER
