@@ -209,7 +209,7 @@ if [[ -z "${JAVA_HOME}" ]]; then
     exit 1
 fi
 
-for var in http_proxy HTTP_PROXY https_proxy  HTTPS_PROXY ; do
+for var in http_proxy HTTP_PROXY https_proxy HTTPS_PROXY; do
     if [[ -n ${!var} ]]; then
         echo "env '${var}' = '${!var}', need unset it using 'unset ${var}'"
         exit 1
