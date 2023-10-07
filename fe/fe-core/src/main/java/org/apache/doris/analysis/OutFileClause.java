@@ -486,7 +486,9 @@ public class OutFileClause {
     }
 
     private void analyzeForParquetFormat(List<Expr> resultExprs, List<String> colLabels) throws AnalysisException {
-        genParquetColumnName(resultExprs, colLabels);
+        if (this.parquetSchemas.isEmpty()) {
+            genParquetColumnName(resultExprs, colLabels);
+        }
         // check schema number
         if (resultExprs.size() != this.parquetSchemas.size()) {
             throw new AnalysisException("Parquet schema number does not equal to select item number");
