@@ -32,11 +32,10 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Sets;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -49,7 +48,7 @@ public class EliminateFilter implements RewriteRuleFactory {
                 filter -> filter.getConjuncts().stream().anyMatch(BooleanLiteral.class::isInstance))
                 .thenApply(ctx -> {
                     LogicalFilter<Plan> filter = ctx.root;
-                    Set<Expression> newConjuncts = Sets.newHashSetWithExpectedSize(filter.getConjuncts().size());
+                    ImmutableSet.Builder newConjuncts = ImmutableSet.builder();
                     for (Expression expression : filter.getConjuncts()) {
                         if (expression == BooleanLiteral.FALSE) {
                             return new LogicalEmptyRelation(ctx.statementContext.getNextRelationId(),
@@ -58,10 +57,12 @@ public class EliminateFilter implements RewriteRuleFactory {
                             newConjuncts.add(expression);
                         }
                     }
-                    if (newConjuncts.isEmpty()) {
+
+                    ImmutableSet<Expression> conjuncts = newConjuncts.build();
+                    if (conjuncts.isEmpty()) {
                         return filter.child();
                     } else {
-                        return new LogicalFilter<>(newConjuncts, filter.child());
+                        return new LogicalFilter<>(conjuncts, filter.child());
                     }
                 })
                 .toRule(RuleType.ELIMINATE_FILTER),
@@ -71,7 +72,7 @@ public class EliminateFilter implements RewriteRuleFactory {
                             filter.child().getOutputs().stream().filter(e -> e instanceof Alias)
                                     .collect(Collectors.toMap(NamedExpression::toSlot, e -> ((Alias) e).child()));
 
-                    Set<Expression> newConjuncts = Sets.newHashSet();
+                    ImmutableSet.Builder newConjuncts = ImmutableSet.builder();
                     ExpressionRewriteContext context =
                             new ExpressionRewriteContext(ctx.cascadesContext);
                     for (Expression expression : filter.getConjuncts()) {
@@ -87,10 +88,11 @@ public class EliminateFilter implements RewriteRuleFactory {
                         }
                     }
 
-                    if (newConjuncts.isEmpty()) {
+                    ImmutableSet<Expression> conjuncts = newConjuncts.build();
+                    if (conjuncts.isEmpty()) {
                         return filter.child();
                     } else {
-                        return new LogicalFilter<>(newConjuncts, filter.child());
+                        return new LogicalFilter<>(conjuncts, filter.child());
                     }
                 })
                 .toRule(RuleType.ELIMINATE_FILTER_ON_ONE_RELATION));
