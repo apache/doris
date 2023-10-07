@@ -56,11 +56,11 @@ Status DataTypeMapSerDe::serialize_one_cell_to_json(const IColumn& column, int r
             bw.write(&options.collection_delim, 1);
             bw.write(" ", 1);
         }
-        key_serde->serialize_one_cell_to_json(nested_keys_column, i, bw, options,
-                                              nesting_level + 1);
+        RETURN_IF_ERROR(key_serde->serialize_one_cell_to_json(nested_keys_column, i, bw, options,
+                                                              nesting_level + 1));
         bw.write(&options.map_key_delim, 1);
-        value_serde->serialize_one_cell_to_json(nested_values_column, i, bw, options,
-                                                nesting_level + 1);
+        RETURN_IF_ERROR(value_serde->serialize_one_cell_to_json(nested_values_column, i, bw,
+                                                                options, nesting_level + 1));
     }
     bw.write("}", 1);
     return Status::OK();

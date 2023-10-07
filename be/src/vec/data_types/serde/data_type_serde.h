@@ -227,7 +227,11 @@ public:
     virtual void serialize_one_cell_to_hive_text(const IColumn& column, int row_num,
                                                  BufferWritable& bw, FormatOptions& options,
                                                  int nesting_level = 1) const {
-        serialize_one_cell_to_json(column, row_num, bw, options);
+        Status st = serialize_one_cell_to_json(column, row_num, bw, options);
+        if (!st.ok()) {
+            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                                   "serialize_one_cell_to_json error: {}", st.to_string());
+        }
     }
 
     // Protobuf serializer and deserializer

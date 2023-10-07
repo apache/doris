@@ -18,6 +18,7 @@
 #include "data_type_struct_serde.h"
 
 #include "arrow/array/builder_nested.h"
+#include "common/status.h"
 #include "util/jsonb_document.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
@@ -60,8 +61,8 @@ Status DataTypeStructSerDe::serialize_one_cell_to_json(const IColumn& column, in
             bw.write(',');
             bw.write(' ');
         }
-        elemSerDeSPtrs[i]->serialize_one_cell_to_json(struct_column.get_column(i), row_num, bw,
-                                                      options, nesting_level + 1);
+        RETURN_IF_ERROR(elemSerDeSPtrs[i]->serialize_one_cell_to_json(
+                struct_column.get_column(i), row_num, bw, options, nesting_level + 1));
     }
     bw.write('}');
     return Status::OK();

@@ -66,8 +66,8 @@ Status DataTypeNullableSerDe::serialize_one_cell_to_json(const IColumn& column, 
             bw.write(NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str(), 2);
         }
     } else {
-        nested_serde->serialize_one_cell_to_json(col_null.get_nested_column(), row_num, bw, options,
-                                                 nesting_level);
+        RETURN_IF_ERROR(nested_serde->serialize_one_cell_to_json(
+                col_null.get_nested_column(), row_num, bw, options, nesting_level));
     }
     return Status::OK();
 }
