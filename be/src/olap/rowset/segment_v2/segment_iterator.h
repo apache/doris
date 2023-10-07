@@ -162,7 +162,10 @@ private:
     [[nodiscard]] Status _prepare_seek(const StorageReadOptions::KeyRange& key_range);
     [[nodiscard]] Status _lookup_ordinal(const RowCursor& key, bool is_include, rowid_t upper_bound,
                                          rowid_t* rowid);
+    [[nodiscard]] Status _lookup_ordinal(const StorageReadOptions::KeyRange& key_range,
+                                         RowRanges* result_ranges);
     // lookup the ordinal of given key from short key index
+    // the returned rowid is rowid in primary index, not the rowid encoded in primary key
     [[nodiscard]] Status _lookup_ordinal_from_sk_index(const RowCursor& key, bool is_include,
                                                        rowid_t upper_bound, rowid_t* rowid);
     // lookup the ordinal of given key from primary key index

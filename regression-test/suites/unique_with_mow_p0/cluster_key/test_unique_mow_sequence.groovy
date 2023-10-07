@@ -72,7 +72,7 @@ suite("test_unique_mow_sequence") {
         sql "sync"
 
         // TODO
-        /*order_qt_sql "select * from $tableName where c_custkey < 6;"
+        order_qt_sql "select * from $tableName where c_custkey < 6;"
 
         order_qt_sql "select * from $tableName where c_custkey > 2995;"
 
@@ -82,5 +82,5 @@ suite("test_unique_mow_sequence") {
 
         qt_sql "select * from $tableName where c_custkey = 3001;"
 
-        qt_sql "select * from $tableName where c_custkey = 0;"*/
+        qt_sql "select * from $tableName where c_custkey = 0;"
 }
