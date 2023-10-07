@@ -1503,5 +1503,5 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 
 #### `enable_java_support`
 
-* Description: BE Whether to enable the use of java-jni. When enabled, mutual calls between c++ and java are allowed. Currently supports hudi, udf, jdbc, max-compute, paimon, preload, avro
+* Description: BE Whether to enable the use of java-jni. When enabled, mutual calls between c++ and java are allowed. Currently supports hudi, java-udf, jdbc, max-compute, paimon, preload, avro
 * Default value: true
