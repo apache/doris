@@ -176,7 +176,8 @@ Status MergeIndexDeleteBitmapCalculator::calculate_one(RowLocation& loc) {
                 Slice rowid_slice =
                         Slice(cur_key.get_data() + key_without_seq.get_size() + _seq_col_length + 1,
                               _rowid_length - 1);
-                _rowid_coder->decode_ascending(&rowid_slice, _rowid_length, (uint8_t*)&loc.row_id);
+                RETURN_IF_ERROR(_rowid_coder->decode_ascending(&rowid_slice, _rowid_length,
+                                                               (uint8_t*)&loc.row_id));
             }
             auto st = cur_ctx->advance();
             if (st.ok()) {

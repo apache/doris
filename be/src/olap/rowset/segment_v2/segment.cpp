@@ -489,7 +489,8 @@ Status Segment::lookup_row_key(const Slice& key, bool with_seq_col, RowLocation*
                 rowid_length - 1);
         const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT>();
         auto rowid_coder = get_key_coder(type_info->type());
-        rowid_coder->decode_ascending(&rowid_slice, rowid_length, (uint8_t*)&row_location->row_id);
+        RETURN_IF_ERROR(rowid_coder->decode_ascending(&rowid_slice, rowid_length,
+                                                      (uint8_t*)&row_location->row_id));
     }
 
     return Status::OK();

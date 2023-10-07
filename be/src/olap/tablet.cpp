@@ -2963,7 +2963,8 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                 const auto* type_info =
                         get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT>();
                 auto rowid_coder = get_key_coder(type_info->type());
-                rowid_coder->decode_ascending(&rowid_slice, rowid_length, (uint8_t*)&row_id);
+                RETURN_IF_ERROR(rowid_coder->decode_ascending(&rowid_slice, rowid_length,
+                                                              (uint8_t*)&row_id));
             }
             // same row in segments should be filtered
             if (delete_bitmap->contains({rowset_id, seg->id(), DeleteBitmap::TEMP_VERSION_COMMON},
