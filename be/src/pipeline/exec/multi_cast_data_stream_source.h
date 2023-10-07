@@ -116,7 +116,7 @@ public:
     MultiCastDataStreamerSourceOperatorX(const int consumer_id, ObjectPool* pool,
                                          const TDataStreamSink& sink,
                                          const RowDescriptor& row_descriptor, int id)
-            : Base(pool, id),
+            : Base(pool, sink.dest_node_id, id),
               _consumer_id(consumer_id),
               _t_data_stream_sink(sink),
               _row_descriptor(row_descriptor) {

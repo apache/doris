@@ -297,14 +297,12 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
         DCHECK(thrift_sink.__isset.multi_cast_stream_sink);
         DCHECK_GT(thrift_sink.multi_cast_stream_sink.sinks.size(), 0);
         // TODO: figure out good buffer size based on size of output row
-        /// TODO: Here is a magic number, and we will refactor this part later.
-        static int sink_count = 120000;
-        auto sink_id = sink_count++;
+        auto sink_id = next_operator_id();
         auto sender_size = thrift_sink.multi_cast_stream_sink.sinks.size();
         // one sink has multiple sources.
         std::vector<int> sources;
         for (int i = 0; i < sender_size; ++i) {
-            auto source_id = sink_count++;
+            auto source_id = next_operator_id();
             sources.push_back(source_id);
         }
 
@@ -657,7 +655,7 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
             PipelinePtr build_side_pipe = add_pipeline();
             _dag[downstream_pipeline_id].push_back(build_side_pipe->id());
             DataSinkOperatorXPtr sink;
-            sink.reset(new UnionSinkOperatorX(i, father_id + 1000 * (i + 1), pool, tnode, descs));
+            sink.reset(new UnionSinkOperatorX(i, next_operator_id(), pool, tnode, descs));
             RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
             RETURN_IF_ERROR(build_side_pipe->sink_x()->init(tnode, _runtime_state.get()));
             if (_union_child_pipelines.find(father_id) == _union_child_pipelines.end()) {
