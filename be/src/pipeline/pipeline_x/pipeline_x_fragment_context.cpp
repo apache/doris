@@ -313,27 +313,36 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
                 thrift_sink.multi_cast_stream_sink, row_desc));
         for (int i = 0; i < sender_size; ++i) {
             auto new_pipeline = add_pipeline();
-            auto _row_desc =
-                    !thrift_sink.multi_cast_stream_sink.sinks[i].output_exprs.empty()
-                            ? RowDescriptor(
-                                      state->desc_tbl(),
-                                      {thrift_sink.multi_cast_stream_sink.sinks[i].output_tuple_id},
-                                      {false})
-                            : _sink->row_desc();
+            RowDescriptor* _row_desc = nullptr;
+            {
+                auto& tmp_row_desc =
+                        !thrift_sink.multi_cast_stream_sink.sinks[i].output_exprs.empty()
+                                ? RowDescriptor(state->desc_tbl(),
+                                                {thrift_sink.multi_cast_stream_sink.sinks[i]
+                                                         .output_tuple_id},
+                                                {false})
+                                : _sink->row_desc();
+                _row_desc = pool->add(new RowDescriptor(tmp_row_desc));
+            }
             auto source_id = sources[i];
             OperatorXPtr source_op;
             // 1. create and set the source operator of multi_cast_data_stream_source for new pipeline
             source_op.reset(new MultiCastDataStreamerSourceOperatorX(
                     i, pool, thrift_sink.multi_cast_stream_sink.sinks[i], row_desc, source_id));
             static_cast<void>(new_pipeline->add_operator(source_op));
-
             // 2. create and set sink operator of data stream sender for new pipeline
 
             DataSinkOperatorXPtr sink_op;
             sink_op.reset(new ExchangeSinkOperatorX(
-                    state, row_desc, thrift_sink.multi_cast_stream_sink.sinks[i],
+                    state, *_row_desc, thrift_sink.multi_cast_stream_sink.sinks[i],
                     thrift_sink.multi_cast_stream_sink.destinations[i], false));
+
             static_cast<void>(new_pipeline->set_sink(sink_op));
+            {
+                TDataSink* t = pool->add(new TDataSink());
+                t->stream_sink = thrift_sink.multi_cast_stream_sink.sinks[i];
+                RETURN_IF_ERROR(sink_op->init(*t));
+            }
 
             // 3. set dependency dag
             _dag[new_pipeline->id()].push_back(cur_pipeline_id);
