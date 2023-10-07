@@ -19,10 +19,7 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.UnaryNode;
-import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
@@ -35,7 +32,7 @@ import java.util.List;
 /**
  * rule to eliminate limit node by replace to other nodes.
  */
-public class ReplaceLimitNode implements RewriteRuleFactory {
+public class LimitSortToTopN implements RewriteRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
@@ -47,8 +44,8 @@ public class ReplaceLimitNode implements RewriteRuleFactory {
                                     limit.getLimit(),
                                     limit.getOffset(),
                                     sort.child(0));
-                        }).toRule(RuleType.PUSH_LIMIT_INTO_SORT),
-                //limit->proj->sort ==> proj->topN
+                        }).toRule(RuleType.LIMIT_SORT_TO_TOP_N),
+                // limit -> proj -> sort ==> proj -> topN
                 logicalLimit(logicalProject(logicalSort()))
                         .then(limit -> {
                             LogicalProject<LogicalSort<Plan>> project = limit.child();
@@ -58,15 +55,7 @@ public class ReplaceLimitNode implements RewriteRuleFactory {
                                     limit.getOffset(),
                                     sort.child(0));
                             return project.withChildren(Lists.newArrayList(topN));
-                        }).toRule(RuleType.PUSH_LIMIT_INTO_SORT),
-                logicalLimit(logicalOneRowRelation())
-                        .then(limit -> limit.getLimit() > 0 && limit.getOffset() == 0
-                                ? limit.child() : new LogicalEmptyRelation(StatementScopeIdGenerator.newRelationId(),
-                                limit.child().getOutput()))
-                        .toRule(RuleType.ELIMINATE_LIMIT_ON_ONE_ROW_RELATION),
-                logicalLimit(logicalEmptyRelation())
-                        .then(UnaryNode::child)
-                        .toRule(RuleType.ELIMINATE_LIMIT_ON_EMPTY_RELATION)
+                        }).toRule(RuleType.LIMIT_SORT_TO_TOP_N)
         );
     }
 }
