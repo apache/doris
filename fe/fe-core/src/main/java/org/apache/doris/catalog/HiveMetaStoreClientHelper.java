@@ -700,10 +700,7 @@ public class HiveMetaStoreClientHelper {
                 break;
         }
         if (lowerCaseType.startsWith("array")) {
-            if (lowerCaseType.indexOf("<") == 5 && lowerCaseType.lastIndexOf(">") == lowerCaseType.length() - 1) {
-                Type innerType = hiveTypeToDorisType(lowerCaseType.substring(6, lowerCaseType.length() - 1));
-                return ArrayType.create(innerType, true);
-            }
+            return Type.UNSUPPORTED;
         }
         if (lowerCaseType.startsWith("char")) {
             ScalarType type = ScalarType.createType(PrimitiveType.CHAR);
