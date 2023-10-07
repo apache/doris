@@ -3113,6 +3113,10 @@ public class Env {
             sb.append("\"").append(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION).append("\" = \"");
             sb.append(replicaAlloc.toCreateStmt()).append("\"");
 
+            // min load replica num
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_MIN_LOAD_REPLICA_NUM).append("\" = \"");
+            sb.append(olapTable.getMinLoadReplicaNum()).append("\"");
+
             // bloom filter
             Set<String> bfColumnNames = olapTable.getCopiedBfColumns();
             if (bfColumnNames != null) {
@@ -4648,6 +4652,7 @@ public class Env {
             tableProperty.modifyTableProperties(properties);
         }
         tableProperty.buildInMemory()
+                .buildMinLoadReplicaNum()
                 .buildStoragePolicy()
                 .buildIsBeingSynced()
                 .buildCompactionPolicy()
