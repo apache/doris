@@ -122,13 +122,13 @@ lru_cache_test
 /fe/fe-core/src/test/resources/real-help-resource.zip
 /ui/dist
 
-# ignore pom.xml
-/**/pom.xml
-/pom.xml
+# repository
+repository/*
+**/repository
 
+# thirdparties
+**/thirdparties/
 
-# ignore repository
-*~/*
-./**/'~'/
-./**/repository/
-repository/
+# other
+compile_commands.json
+.nvim.lua
