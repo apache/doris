@@ -225,7 +225,7 @@ curl http://be_host:webserver_port/metrics?type=json
 |`doris_be_disks_total_capacity`| | 字节 | 定数据目录所在磁盘的总容量| 配合 `doris_be_disks_avail_capacity` 计算磁盘使用率 | P0 |
 |`doris_be_engine_requests_total`| | Num | BE 上各类任务执行状态的累计值| |
 || {status="failed",type="xxx"}  | Num | xxx 类型的任务的失败次数的累计值| |
-|| {status="failed",type="xxx"} | Num | xxx 类型的任务的总次数的累计值。| 可以按需监控各类任务的失败次数 | P0 |
+|| {status="total",type="xxx"} | Num | xxx 类型的任务的总次数的累计值。| 可以按需监控各类任务的失败次数 | P0 |
 || `{status="skip",type="report_all_tablets"}` | Num | xxx 类型任务被跳过执行的次数的累计值 | |
 |`doris_be_fragment_endpoint_count`| | Num| 同 | FIXME: 同 `doris_be_data_stream_receiver_count` 数目。并且向量化引擎缺失 |
 |`doris_be_fragment_request_duration_us`| | 微秒| 所有 fragment intance 的执行时间累计 | 通过斜率观测 instance 的执行耗时 | P0 |

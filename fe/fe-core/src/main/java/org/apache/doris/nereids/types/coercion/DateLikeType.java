@@ -27,6 +27,7 @@ import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 
+import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 
@@ -49,11 +50,15 @@ public abstract class DateLikeType extends PrimitiveType {
             return 0;
         }
         if (Double.isInfinite(high) || Double.isInfinite(low)) {
-            return high - low;
+            return Double.POSITIVE_INFINITY;
         }
-        LocalDate to = toLocalDate(high);
-        LocalDate from = toLocalDate(low);
-        return ChronoUnit.DAYS.between(from, to);
+        try {
+            LocalDate to = toLocalDate(high);
+            LocalDate from = toLocalDate(low);
+            return ChronoUnit.DAYS.between(from, to);
+        } catch (DateTimeException e) {
+            return Double.POSITIVE_INFINITY;
+        }
     }
 
     /**
