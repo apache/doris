@@ -47,8 +47,6 @@ class MultiCastDataStreamSinkLocalState final
     ENABLE_FACTORY_CREATOR(MultiCastDataStreamSinkLocalState);
     MultiCastDataStreamSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : Base(parent, state) {}
-
-    Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     friend class MultiCastDataStreamSinkOperatorX;
     friend class DataSinkOperatorX<MultiCastDataStreamSinkLocalState>;
     using Base = PipelineXSinkLocalState<MultiCastDependency>;
@@ -72,11 +70,6 @@ public:
               _row_desc(row_desc),
               _cast_sender_count(cast_sender_count) {}
     ~MultiCastDataStreamSinkOperatorX() override = default;
-    Status init(const TDataSink& tsink) override { return Status::OK(); }
-
-    Status open(doris::RuntimeState* state) override { return Status::OK(); };
-
-    Status prepare(RuntimeState* state) override { return Status::OK(); }
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override {
