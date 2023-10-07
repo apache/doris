@@ -650,7 +650,8 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
                     query_ctx->set_task_group(tg);
                     LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
                               << " use task group: " << tg->debug_string()
-                              << " query_cpu_hard_limit: " << query_cpu_hard_limit;
+                              << " query_cpu_hard_limit: " << query_cpu_hard_limit
+                              << " cpu_share:" << task_group_info.cpu_share;
                     if (query_cpu_hard_limit > 0 && _exec_env->get_cgroup_cpu_ctl() != nullptr) {
                         _exec_env->get_cgroup_cpu_ctl()->update_cpu_hard_limit(
                                 query_cpu_hard_limit);

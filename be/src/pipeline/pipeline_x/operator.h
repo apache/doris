@@ -419,8 +419,6 @@ public:
     Status prepare(RuntimeState* state) override { return Status::OK(); }
     Status open(RuntimeState* state) override { return Status::OK(); }
 
-    virtual Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) = 0;
-
     virtual Status setup_local_states(RuntimeState* state,
                                       std::vector<LocalSinkStateInfo>& infos) = 0;
 
@@ -528,8 +526,6 @@ public:
     DataSinkOperatorX(const int id, std::vector<int> sources)
             : DataSinkOperatorXBase(id, sources) {}
     ~DataSinkOperatorX() override = default;
-
-    Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override;
 
     Status setup_local_states(RuntimeState* state, std::vector<LocalSinkStateInfo>& infos) override;
     void get_dependency(std::vector<DependencySPtr>& dependency) override;

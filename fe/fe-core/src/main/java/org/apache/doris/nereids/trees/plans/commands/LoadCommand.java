@@ -25,6 +25,8 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.Profile;
+import org.apache.doris.common.util.FileFormatConstants;
+import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
@@ -52,7 +54,6 @@ import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryStateException;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.tablefunction.HdfsTableValuedFunction;
 import org.apache.doris.tablefunction.S3TableValuedFunction;
 
@@ -269,7 +270,7 @@ public class LoadCommand extends Command implements ForwardWithSync {
     }
 
     private static boolean isCsvType(Map<String, String> tvfProperties) {
-        return tvfProperties.get(ExternalFileTableValuedFunction.FORMAT).equalsIgnoreCase("csv");
+        return tvfProperties.get(FileFormatConstants.PROP_FORMAT).equalsIgnoreCase("csv");
     }
 
     /**
@@ -296,11 +297,11 @@ public class LoadCommand extends Command implements ForwardWithSync {
 
         Map<String, String> sourceProperties = dataDesc.getProperties();
         if (dataDesc.getFileFieldNames().isEmpty() && isCsvType(tvfProperties)) {
-            String csvSchemaStr = sourceProperties.get(ExternalFileTableValuedFunction.CSV_SCHEMA);
+            String csvSchemaStr = sourceProperties.get(FileFormatConstants.PROP_CSV_SCHEMA);
             if (csvSchemaStr != null) {
-                tvfProperties.put(ExternalFileTableValuedFunction.CSV_SCHEMA, csvSchemaStr);
+                tvfProperties.put(FileFormatConstants.PROP_CSV_SCHEMA, csvSchemaStr);
                 List<Column> csvSchema = new ArrayList<>();
-                ExternalFileTableValuedFunction.parseCsvSchema(csvSchema, sourceProperties);
+                FileFormatUtils.parseCsvSchema(csvSchema, csvSchemaStr);
                 List<NamedExpression> csvColumns = new ArrayList<>();
                 for (Column csvColumn : csvSchema) {
                     csvColumns.add(new UnboundSlot(csvColumn.getName()));
@@ -440,12 +441,12 @@ public class LoadCommand extends Command implements ForwardWithSync {
         String fileFormat = dataDesc.getFormatDesc().getFileFormat().orElse("csv");
         if ("csv".equalsIgnoreCase(fileFormat)) {
             dataDesc.getFormatDesc().getColumnSeparator().ifPresent(sep ->
-                    tvfProperties.put(ExternalFileTableValuedFunction.COLUMN_SEPARATOR, sep.getSeparator()));
+                    tvfProperties.put(FileFormatConstants.PROP_COLUMN_SEPARATOR, sep.getSeparator()));
             dataDesc.getFormatDesc().getLineDelimiter().ifPresent(sep ->
-                    tvfProperties.put(ExternalFileTableValuedFunction.LINE_DELIMITER, sep.getSeparator()));
+                    tvfProperties.put(FileFormatConstants.PROP_LINE_DELIMITER, sep.getSeparator()));
         }
         // TODO: resolve and put ExternalFileTableValuedFunction params
-        tvfProperties.put(ExternalFileTableValuedFunction.FORMAT, fileFormat);
+        tvfProperties.put(FileFormatConstants.PROP_FORMAT, fileFormat);
 
         List<String> filePaths = dataDesc.getFilePaths();
         // TODO: support multi location by union
@@ -454,7 +455,7 @@ public class LoadCommand extends Command implements ForwardWithSync {
             S3Properties.convertToStdProperties(tvfProperties);
             tvfProperties.keySet().removeIf(S3Properties.Env.FS_KEYS::contains);
             // TODO: check file path by s3 fs list status
-            tvfProperties.put(S3TableValuedFunction.S3_URI, listFilePath);
+            tvfProperties.put(S3TableValuedFunction.PROP_URI, listFilePath);
         }
 
         final Map<String, String> dataDescProps = dataDesc.getProperties();
@@ -463,7 +464,7 @@ public class LoadCommand extends Command implements ForwardWithSync {
         }
         List<String> columnsFromPath = dataDesc.getColumnsFromPath();
         if (columnsFromPath != null && !columnsFromPath.isEmpty()) {
-            tvfProperties.put(ExternalFileTableValuedFunction.PATH_PARTITION_KEYS,
+            tvfProperties.put(FileFormatConstants.PROP_PATH_PARTITION_KEYS,
                     String.join(",", columnsFromPath));
         }
         return tvfProperties;
