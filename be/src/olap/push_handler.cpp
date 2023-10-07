@@ -139,7 +139,6 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
         TabletSchema tablet_schema;
         tablet_schema.copy_from(*tablet->tablet_schema());
         if (!request.columns_desc.empty() && request.columns_desc[0].col_unique_id >= 0) {
-            // TODO(lhy) handle variant
             tablet_schema.clear_columns();
             for (const auto& column_desc : request.columns_desc) {
                 tablet_schema.append_column(TabletColumn(column_desc));

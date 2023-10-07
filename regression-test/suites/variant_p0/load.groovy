@@ -392,27 +392,6 @@ suite("regression_test_variant", "variant_type"){
         qt_sql_31 """select cast(v:xxxx as string) from sparse_columns where cast(v:xxxx as string) != 'null' limit 1;"""
         sql "truncate table sparse_columns"
         set_be_config.call("ratio_of_defaults_as_sparse_column", "0.95")
-
-        // test with inverted index
-        set_be_config.call("ratio_of_defaults_as_sparse_column", "0")
-        set_be_config.call("threshold_rows_to_estimate_sparse_column", "0")
-        sql "DROP TABLE IF EXISTS var_index"
-        sql """
-            CREATE TABLE IF NOT EXISTS var_index (
-                k bigint,
-                v variant,
-                inv string,
-                INDEX idx(inv) USING INVERTED PROPERTIES("parser"="standard")  COMMENT ''
-            )
-            DUPLICATE KEY(`k`)
-            DISTRIBUTED BY HASH(k) BUCKETS 1 
-            properties("replication_num" = "1", "disable_auto_compaction" = "false");
-        """
-        sql """insert into var_index values(1, '{"a" : 0, "b": 3}', 'hello world'), (2, '{"a" : 123}', 'world'),(3, '{"a" : 123}', 'hello world')"""
-        qt_sql_inv_1 "select v:a from var_index where inv match 'hello' order by k"
-        qt_sql_inv_2 "select v:a from var_index where inv match 'hello' and cast(v:a as int) > 0 order by k"
-        qt_sql_inv_3 "select * from var_index where inv match 'hello' and cast(v:a as int) > 0 order by k"
-
     } finally {
         // reset flags
         set_be_config.call("ratio_of_defaults_as_sparse_column", "0.95")

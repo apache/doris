@@ -29,6 +29,8 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_object.h"
 #include "vec/columns/subcolumn_tree.h"
+#include "vec/data_types/data_type_object.h"
+#include "vec/data_types/data_type_string.h"
 #include "vec/json/path_in_data.h"
 
 namespace doris {
@@ -59,7 +61,12 @@ using SubcolumnColumnReaders = vectorized::SubcolumnsTree<SubcolumnReader>;
 // Reader for hierarchical data for variant, merge with root(sparse encoded columns)
 class HierarchicalDataReader : public ColumnIterator {
 public:
-    HierarchicalDataReader(const TabletColumn& col) : _col(col) {}
+    HierarchicalDataReader(const vectorized::PathInData& path, bool output_as_raw_json = false)
+            : _path(path), _output_as_raw_json(output_as_raw_json) {}
+
+    static Status create(std::unique_ptr<ColumnIterator>* reader,
+                         const SubcolumnColumnReaders::Node* target_node,
+                         const SubcolumnColumnReaders::Node* root, bool output_as_raw_json = false);
 
     Status init(const ColumnIteratorOptions& opts) override;
 
@@ -80,9 +87,10 @@ public:
 
 private:
     SubstreamReaderTree _substream_reader;
-    const TabletColumn& _col;
     std::unique_ptr<StreamReader> _root_reader;
     size_t _rows_read = 0;
+    vectorized::PathInData _path;
+    bool _output_as_raw_json = false;
 
     template <typename NodeFunction>
     Status tranverse(NodeFunction&& node_func) {
@@ -98,9 +106,6 @@ private:
         // for (const SubstreamCache::Node* node : _attatched_nodes) {
         //     RETURN_IF_ERROR(node_func(node));
         // }
-
-        // TODO use _col
-        (void)_col.name();
         auto& variant = assert_cast<vectorized::ColumnObject&>(*dst);
 
         // read data
@@ -118,7 +123,7 @@ private:
         auto& container_variant = assert_cast<vectorized::ColumnObject&>(*container);
 
         // add root first
-        if (_col.path_info().get_parts().size() == 1) {
+        if (_path.get_parts().size() == 1) {
             auto& root_var = assert_cast<vectorized::ColumnObject&>(*_root_reader->column);
             auto column = root_var.get_root();
             auto type = root_var.get_root_type();
@@ -136,10 +141,23 @@ private:
             return Status::OK();
         }));
 
-        // TODO select v:b -> v.b / v.b.c but v.d maybe in v
+        if (_output_as_raw_json) {
+            auto col_to = vectorized::ColumnString::create();
+            col_to->reserve(nrows * 2);
+            vectorized::VectorBufferWriter write_buffer(*col_to.get());
+            auto type = std::make_shared<vectorized::DataTypeObject>();
+            for (size_t i = 0; i < nrows; ++i) {
+                type->to_string(container_variant, i, write_buffer);
+                write_buffer.commit();
+            }
+            CHECK(variant.empty());
+            variant.create_root(std::make_shared<vectorized::DataTypeString>(), std::move(col_to));
+        } else {
+            // TODO select v:b -> v.b / v.b.c but v.d maybe in v
+            // copy container variant to dst variant, todo avoid copy
+            variant.insert_range_from(container_variant, 0, nrows);
+        }
 
-        // copy container variant to dst variant, todo avoid copy
-        variant.insert_range_from(container_variant, 0, nrows);
         variant.set_num_rows(nrows);
         _rows_read += nrows;
         variant.finalize();

@@ -31,6 +31,35 @@
 namespace doris {
 namespace segment_v2 {
 
+Status HierarchicalDataReader::create(std::unique_ptr<ColumnIterator>* reader,
+                                      const SubcolumnColumnReaders::Node* node,
+                                      const SubcolumnColumnReaders::Node* root,
+                                      bool output_as_raw_json) {
+    // None leave node need merge with root
+    auto* stream_iter = new HierarchicalDataReader(node->path, output_as_raw_json);
+    std::vector<const SubcolumnColumnReaders::Node*> leaves;
+    vectorized::PathsInData leaves_paths;
+    SubcolumnColumnReaders::get_leaves_of_node(node, leaves, leaves_paths);
+    for (size_t i = 0; i < leaves_paths.size(); ++i) {
+        if (leaves_paths[i] == root->path) {
+            // use set_root to share instead
+            continue;
+        }
+        stream_iter->add_stream(leaves[i]);
+    }
+    // Make sure the root node is in strem_cache, so that child can merge data with root
+    // Eg. {"a" : "b" : {"c" : 1}}, access the `a.b` path and merge with root path so that
+    // we could make sure the data could be fully merged, since some column may not be extracted but remains in root
+    // like {"a" : "b" : {"e" : 1.1}} in jsonb format
+    ColumnIterator* it;
+    RETURN_IF_ERROR(root->data.reader->new_iterator(&it));
+    stream_iter->set_root(std::make_unique<StreamReader>(
+            root->data.file_column_type->create_column(), std::unique_ptr<ColumnIterator>(it),
+            root->data.file_column_type));
+    reader->reset(stream_iter);
+    return Status::OK();
+}
+
 Status HierarchicalDataReader::init(const ColumnIteratorOptions& opts) {
     RETURN_IF_ERROR(tranverse([&](SubstreamReaderTree::Node& node) {
         RETURN_IF_ERROR(node.data.iterator->init(opts));
@@ -106,8 +135,7 @@ Status HierarchicalDataReader::add_stream(const SubcolumnColumnReaders::Node* no
     if (!added) {
         return Status::InternalError("Failed to add node path {}", node->path.get_path());
     }
-    VLOG_DEBUG << fmt::format("Add substream {} for {}", node->path.get_path(),
-                              _col.path_info().get_path());
+    VLOG_DEBUG << fmt::format("Add substream {} for {}", node->path.get_path(), _path.get_path());
     return Status::OK();
 }
 
