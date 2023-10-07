@@ -56,6 +56,10 @@ public class ArraySortBy extends ScalarFunction
         }
     }
 
+    public ArraySortBy(Expression arg1, Expression arg2) {
+        super("array_sortby", arg1, arg2);
+    }
+
     @Override
     public ArraySortBy withChildren(List<Expression> children) {
         return new ArraySortBy(children);
