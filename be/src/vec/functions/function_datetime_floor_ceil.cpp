@@ -524,12 +524,17 @@ template <typename Impl, typename DateValueType>
 struct TimeRoundOpt {
     constexpr static bool can_use_optimize(int period) {
         if constexpr (!std::is_same_v<DateValueType, VecDateTimeValue> && Impl::Type == FLOOR) {
-            if constexpr (Impl::Unit == YEAR || Impl::Unit == MONTH || Impl::Unit == DAY ||
-                          Impl::Unit == MINUTE || Impl::Unit == SECOND) {
+            if constexpr (Impl::Unit == YEAR || Impl::Unit == MONTH || Impl::Unit == DAY) {
                 return period == 1;
             }
             if constexpr (Impl::Unit == HOUR) {
                 return period <= 23 && 24 % period == 0;
+            }
+            if constexpr (Impl::Unit == MINUTE) {
+                return period <= 59 && 60 % period == 0;
+            }
+            if constexpr (Impl::Unit == SECOND) {
+                return period <= 59 && 60 % period == 0;
             }
         }
         return false;
@@ -541,7 +546,10 @@ struct TimeRoundOpt {
         } else {
             static constexpr uint64_t MASK_HOUR_FLOOR =
                     0b1111111111111111111111111111111100000000000000000000000000000000;
-
+            static constexpr uint64_t MASK_MINUTE_FLOOR =
+                    0b1111111111111111111111111111111111111100000000000000000000000000;
+            static constexpr uint64_t MASK_SECOND_FLOOR =
+                    0b1111111111111111111111111111111111111111111100000000000000000000;
             // Optimize the performance of the datetimev2 type on the floor operation.
             // Now supports unit hour
             if constexpr (Impl::Unit == HOUR && !std::is_same_v<DateValueType, VecDateTimeValue>) {
@@ -552,6 +560,26 @@ struct TimeRoundOpt {
                 }
                 ts1.set_int_val(ts2.to_date_int_val() & MASK_HOUR_FLOOR);
                 ts1.template set_time_unit<TimeUnit::HOUR>(new_hour);
+            }
+            if constexpr (Impl::Unit == MINUTE &&
+                          !std::is_same_v<DateValueType, VecDateTimeValue>) {
+                int minute = ts2.minute();
+                int new_minute = minute / period * period;
+                if (new_minute >= 60) {
+                    new_minute = new_minute % 24;
+                }
+                ts1.set_int_val(ts2.to_date_int_val() & MASK_MINUTE_FLOOR);
+                ts1.template set_time_unit<TimeUnit::MINUTE>(new_minute);
+            }
+            if constexpr (Impl::Unit == SECOND &&
+                          !std::is_same_v<DateValueType, VecDateTimeValue>) {
+                int second = ts2.second();
+                int new_second = second / period * period;
+                if (new_second >= 60) {
+                    new_second = new_second % 24;
+                }
+                ts1.set_int_val(ts2.to_date_int_val() & MASK_SECOND_FLOOR);
+                ts1.template set_time_unit<TimeUnit::SECOND>(new_second);
             }
         }
     }
@@ -567,6 +595,7 @@ struct TimeRoundOpt {
             ts1.set_time(ts2.year(), ts2.month(), ts2.day(), 0, 0, 0);
         }
 
+        // only DateTimeV2ValueType type have hour minute second
         if constexpr (std::is_same_v<DateValueType, DateV2Value<DateTimeV2ValueType>>) {
             static constexpr uint64_t MASK_HOUR_FLOOR =
                     0b1111111111111111111111111111111100000000000000000000000000000000;
