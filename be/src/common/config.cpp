@@ -1104,6 +1104,7 @@ DEFINE_Bool(exit_on_exception, "false");
 
 // cgroup
 DEFINE_String(doris_cgroup_cpu_path, "");
+DEFINE_Bool(enable_cpu_hard_limit, "false");
 
 // clang-format off
 #ifdef BE_TEST

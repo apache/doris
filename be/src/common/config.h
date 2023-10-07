@@ -1180,6 +1180,7 @@ DECLARE_mBool(exit_on_exception);
 
 // cgroup
 DECLARE_String(doris_cgroup_cpu_path);
+DECLARE_Bool(enable_cpu_hard_limit);
 
 #ifdef BE_TEST
 // test s3
