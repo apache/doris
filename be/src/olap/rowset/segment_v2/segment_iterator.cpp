@@ -370,8 +370,10 @@ Status SegmentIterator::_get_row_ranges_by_keys() {
         return Status::OK();
     }
 
-    RowRanges result_ranges;
+    // pre-condition: _row_ranges == [0, num_rows)
+    size_t pre_size = _row_bitmap.cardinality();
     if (_segment->_tablet_schema->cluster_key_idxes().empty()) {
+        RowRanges result_ranges;
         for (auto& key_range : _opts.key_ranges) {
             rowid_t lower_rowid = 0;
             rowid_t upper_rowid = num_rows();
@@ -390,15 +392,15 @@ Status SegmentIterator::_get_row_ranges_by_keys() {
             auto row_range = RowRanges::create_single(lower_rowid, upper_rowid);
             RowRanges::ranges_union(result_ranges, row_range, &result_ranges);
         }
+        _row_bitmap = RowRanges::ranges_to_roaring(result_ranges);
     } else {
+        roaring::Roaring row_bitmap;
         for (auto& key_range : _opts.key_ranges) {
             RETURN_IF_ERROR(_prepare_seek(key_range));
-            RETURN_IF_ERROR(_lookup_ordinal(key_range, &result_ranges));
+            RETURN_IF_ERROR(_lookup_ordinal(key_range, &row_bitmap));
         }
+        _row_bitmap = row_bitmap;
     }
-    // pre-condition: _row_ranges == [0, num_rows)
-    size_t pre_size = _row_bitmap.cardinality();
-    _row_bitmap = RowRanges::ranges_to_roaring(result_ranges);
     _opts.stats->rows_key_range_filtered += (pre_size - _row_bitmap.cardinality());
 
     return Status::OK();
@@ -1297,7 +1299,7 @@ Status SegmentIterator::_lookup_ordinal_from_sk_index(const RowCursor& key, bool
 }
 
 Status SegmentIterator::_lookup_ordinal(const StorageReadOptions::KeyRange& key_range,
-                                        RowRanges* result_ranges) {
+                                        roaring::Roaring* row_bitmap) {
     rowid_t lower_rowid = 0;
     rowid_t upper_rowid = num_rows();
     DCHECK(_segment->_tablet_schema->keys_type() == UNIQUE_KEYS &&
@@ -1332,8 +1334,8 @@ Status SegmentIterator::_lookup_ordinal(const StorageReadOptions::KeyRange& key_
     auto rowid_coder = get_key_coder(type_info->type());
 
     size_t num_read = 1;
-    for (auto i = lower_rowid; i < upper_rowid; ++i) {
-        Status st = index_iterator->seek_to_ordinal(i);
+    for (auto cur_rowid = lower_rowid; cur_rowid < upper_rowid; ++cur_rowid) {
+        Status st = index_iterator->seek_to_ordinal(cur_rowid);
         if (st.ok()) {
             auto index_column = index_type->create_column();
             RETURN_IF_ERROR(index_iterator->next_batch(&num_read, index_column));
@@ -1345,8 +1347,7 @@ Status SegmentIterator::_lookup_ordinal(const StorageReadOptions::KeyRange& key_
                                       rowid_length - 1);
             RETURN_IF_ERROR(
                     rowid_coder->decode_ascending(&rowid_slice, rowid_length, (uint8_t*)&rowid));
-            auto row_range = RowRanges::create_single(rowid, rowid + 1);
-            RowRanges::ranges_union(*result_ranges, row_range, result_ranges);
+            row_bitmap->add(rowid);
         } else if (st.is<ENTRY_NOT_FOUND>()) {
             // to the end
             return Status::OK();
