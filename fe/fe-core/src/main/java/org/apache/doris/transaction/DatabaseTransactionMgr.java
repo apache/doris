@@ -698,11 +698,7 @@ public class DatabaseTransactionMgr {
         } finally {
             writeUnlock();
             // after state transform
-            try {
-                transactionState.afterStateTransform(TransactionStatus.COMMITTED, txnOperated);
-            } catch (Throwable e) {
-                LOG.warn("afterStateTransform txn {} failed. exception: ", transactionState, e);
-            }
+            transactionState.afterStateTransform(TransactionStatus.COMMITTED, txnOperated);
         }
 
         // update nextVersion because of the failure of persistent transaction resulting in error version
@@ -1067,8 +1063,8 @@ public class DatabaseTransactionMgr {
                 writeUnlock();
                 try {
                     transactionState.afterStateTransform(TransactionStatus.VISIBLE, txnOperated);
-                } catch (Throwable e) {
-                    LOG.warn("afterStateTransform txn {} failed. exception: ", transactionState, e);
+                } catch (UserException e) {
+                    LOG.warn("afterStateTransform txn {} failed. msg: {}", transactionId, e.getMessage());
                 }
             }
             updateCatalogAfterVisible(transactionState, db);

@@ -70,7 +70,6 @@ public class RuntimeProfile {
 
     private Boolean isDone = false;
     private Boolean isCancel = false;
-    private boolean enableSimplyProfile = false;
 
     public RuntimeProfile(String name) {
         this();
@@ -488,10 +487,6 @@ public class RuntimeProfile {
 
     public void computeTimeInProfile() {
         computeTimeInProfile(this.counterTotalTime.getValue());
-    }
-
-    public void setProfileLevel(boolean isSimpleProfile) {
-        this.enableSimplyProfile = isSimpleProfile;
     }
 
     private void computeTimeInProfile(long total) {
