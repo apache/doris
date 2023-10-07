@@ -629,7 +629,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String labelName = ctx.lableName.getText();
         Map<String, String> properties = visitPropertyItemList(ctx.properties);
         String commentSpec = ctx.commentSpec() == null ? "" : ctx.commentSpec().STRING_LITERAL().getText();
-        String comment = escapeBackSlash(commentSpec.substring(1, commentSpec.length() - 1));
+        String comment =
+                LogicalPlanBuilderAssistant.escapeBackSlash(commentSpec.substring(1, commentSpec.length() - 1));
         return new LoadCommand(labelName, dataDescriptions.build(), bulkDesc, properties, comment);
     }
 
