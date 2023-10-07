@@ -65,7 +65,7 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
             + "MAX(`${colName}`) AS max, "
             + "${dataSizeFunction} AS data_size, "
             + "NOW() "
-            + "FROM `${catalogName}`.`${dbName}`.`${tblName}` ${sampleExpr}";
+            + "FROM `${catalogName}`.`${dbName}`.`${tblName}`";
 
     private static final String ANALYZE_PARTITION_TEMPLATE = " SELECT "
             + "CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}', '-', ${partId}) AS id, "
@@ -277,7 +277,6 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
         commonParams.put("catalogName", catalog.getName());
         commonParams.put("dbName", db.getFullName());
         commonParams.put("tblName", tbl.getName());
-        commonParams.put("sampleExpr", getSampleExpression());
         commonParams.put("countExpr", getCountExpression());
         if (col != null) {
             commonParams.put("type", col.getType().toString());
