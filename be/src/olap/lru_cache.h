@@ -15,6 +15,7 @@
 #include <atomic>
 #include <cstddef>
 #include <functional>
+#include <list>
 #include <memory>
 #include <set>
 #include <string>
@@ -28,30 +29,6 @@
 #include "util/slice.h"
 
 namespace doris {
-
-#define OLAP_CACHE_STRING_TO_BUF(cur, str, r_len)                  \
-    do {                                                           \
-        if (r_len > str.size()) {                                  \
-            memcpy(cur, str.c_str(), str.size());                  \
-            r_len -= str.size();                                   \
-            cur += str.size();                                     \
-        } else {                                                   \
-            LOG(WARNING) << "construct cache key buf not enough."; \
-            return CacheKey(nullptr, 0);                           \
-        }                                                          \
-    } while (0)
-
-#define OLAP_CACHE_NUMERIC_TO_BUF(cur, numeric, r_len)             \
-    do {                                                           \
-        if (r_len > sizeof(numeric)) {                             \
-            memcpy(cur, &numeric, sizeof(numeric));                \
-            r_len -= sizeof(numeric);                              \
-            cur += sizeof(numeric);                                \
-        } else {                                                   \
-            LOG(WARNING) << "construct cache key buf not enough."; \
-            return CacheKey(nullptr, 0);                           \
-        }                                                          \
-    } while (0)
 
 class Cache;
 
@@ -238,9 +215,21 @@ private:
     DISALLOW_COPY_AND_ASSIGN(Cache);
 };
 
+struct RefCountBase {
+    uint32_t refs;
+
+    void ref() { ++refs; }
+
+    bool unref() {
+        DCHECK(refs > 0);
+        refs--;
+        return refs == 0;
+    }
+};
+
 // An entry is a variable length heap-allocated structure.  Entries
 // are kept in a circular doubly linked list ordered by access time.
-struct LRUHandle {
+struct LRUHandle : RefCountBase {
     void* value;
     void (*deleter)(const CacheKey&, void* value);
     struct LRUHandle* next_hash = nullptr; // next entry in hash table
@@ -251,11 +240,9 @@ struct LRUHandle {
     size_t total_size; // including key length
     size_t bytes;      // Used by LRUCacheType::NUMBER, LRUCacheType::SIZE equal to total_size.
     bool in_cache;     // Whether entry is in the cache.
-    uint32_t refs;
-    uint32_t hash; // Hash of key(); used for fast sharding and comparisons
+    uint32_t hash;     // Hash of key(); used for fast sharding and comparisons
     CachePriority priority = CachePriority::NORMAL;
     MemTrackerLimiter* mem_tracker;
-    LRUCacheType type;
     char key_data[1]; // Beginning of key
 
     [[nodiscard]] CacheKey key() const {
@@ -323,6 +310,175 @@ private:
 // when need to free space, can first evict the begin of the set,
 // because the begin element's timestamp is the oldest.
 using LRUHandleSortedSet = std::set<std::pair<int64_t, LRUHandle*>>;
+
+template <typename Derived, typename HandleType>
+struct BaseReplacer {
+    inline void insert(HandleType* handle, std::function<void(HandleType*)> callback) {
+        static_cast<Derived*>(this)->insert_impl(handle, callback);
+    }
+
+    inline void remove(HandleType* handle) { static_cast<Derived*>(this)->remove_impl(handle); }
+
+    inline void pin(HandleType* handle) { static_cast<Derived*>(this)->pin_impl(handle); }
+
+    inline bool unpin(HandleType* handle) {
+        return static_cast<Derived*>(this)->unpin_impl(handle);
+    }
+
+    template <bool lazy_mode>
+    inline void prune_if(CacheValuePredicate pred, std::function<void(HandleType*)> callback) {
+        static_cast<Derived*>(this)->prune_impl<lazy_mode>(pred, callback);
+    }
+
+    size_t usage;
+    size_t capacity;
+};
+
+class LRUReplacer : public BaseReplacer<LRUReplacer, LRUHandle> {
+public:
+    virtual ~LRUReplacer() = default;
+
+    virtual void insert_impl(LRUHandle* e, std::function<void(LRUHandle*)> callback);
+
+    void remove_impl(LRUHandle* handle);
+
+    void pin_impl(LRUHandle* handle);
+
+    bool unpin_impl(LRUHandle* handle);
+
+    template <bool lazy_mode>
+    inline void prune_impl(CacheValuePredicate pred, std::function<void(LRUHandle*)> callback) {
+        auto prune_func = [this, pred, callback](LRUHandle* lru_list) {
+            LRUHandle* e = lru_list->next;
+            while (e != lru_list) {
+                LRUHandle* next = e->next;
+                if (pred(e->value)) {
+                    // LRU list contains elements which may be evicted
+                    DCHECK(e->in_cache);
+                    DCHECK(e->refs == 1);
+                    lru_remove(e);
+                    this->usage -= e->total_size;
+                    callback(e);
+                    e = next;
+                    continue;
+                }
+                if constexpr (lazy_mode) {
+                    break;
+                }
+                e = next;
+            }
+        };
+        prune_func(&_lru_normal);
+        prune_func(&_lru_durable);
+    }
+
+protected:
+    virtual void lru_append(LRUHandle* e);
+    virtual void lru_remove(LRUHandle* e);
+
+private:
+    // Dummy head of LRU list.
+    // Entries have refs==1 and in_cache==true.
+    // _lru_normal.prev is newest entry, _lru_normal.next is oldest entry.
+    LRUHandle _lru_normal;
+    // _lru_durable.prev is newest entry, _lru_durable.next is oldest entry.
+    LRUHandle _lru_durable;
+};
+
+class TimeStampLRUReplacer final : public LRUReplacer {
+public:
+    void insert_impl(LRUHandle* e, std::function<void(LRUHandle*)> callback) override;
+
+    template <bool lazy_mode>
+    inline void prune_impl(CacheValuePredicate pred, std::function<void(LRUHandle*)> callback) {
+        auto prune_func = [this, pred, callback](LRUHandleSortedSet& sorted_set) {
+            for (auto it = sorted_set.begin(); it != sorted_set.end();) {
+                if (pred(it->second->value)) {
+                    auto* e = it->second;
+                    it = sorted_set.erase(it);
+                    this->usage -= e->total_size;
+                    callback(e);
+                    continue;
+                }
+                if constexpr (lazy_mode) {
+                    break;
+                }
+                ++it;
+            }
+        };
+        prune_func(&_sorted_normal_entries_with_timestamp);
+        prune_func(&_sorted_durable_entries_with_timestamp);
+    }
+
+protected:
+    void lru_append(LRUHandle* e) override;
+    void lru_remove(LRUHandle* e) override;
+
+private:
+    LRUHandleSortedSet _sorted_normal_entries_with_timestamp;
+    LRUHandleSortedSet _sorted_durable_entries_with_timestamp;
+
+    CacheValueTimeExtractor _cache_value_time_extractor;
+};
+
+template <typename Replacer, typename HandleType, LRUCacheType cache_type = LRUCacheType::SIZE,
+          typename KvHolder = HandleTable>
+class LRUCacheBase {
+public:
+    // Like Cache methods, but with an extra "hash" parameter.
+    HandleType* insert(const CacheKey& key, uint32_t hash, void* value, size_t charge,
+                       void (*deleter)(const CacheKey& key, void* value),
+                       MemTrackerLimiter* tracker, CachePriority priority = CachePriority::NORMAL,
+                       size_t bytes = -1);
+    HandleType* lookup(const CacheKey& key, uint32_t hash);
+    void release(HandleType* handle);
+    void erase(const CacheKey& key, uint32_t hash);
+
+    template <bool lazy_mode>
+    inline int64_t prune_if(CacheValuePredicate pred) {
+        std::list<HandleType*> to_removed_list;
+        {
+            std::lock_guard l(_mutex);
+            _replacer->prune_if<lazy_mode>(pred, [this, &to_removed_list](HandleType* e) {
+                _entry_removed_cb(e);
+                to_removed_list.push_back(e);
+            });
+        }
+        int64_t pruned_count = 0;
+        for (auto* e : to_removed_list) {
+            ++pruned_count;
+            e->free();
+        }
+        return pruned_count;
+    }
+
+    template <bool lazy_mode = false>
+    inline int64_t prune() {
+        return prune_if<lazy_mode>([](const void* val) { return true; });
+    }
+
+    [[nodiscard]] uint64_t get_lookup_count() const { return _lookup_count; }
+    [[nodiscard]] uint64_t get_hit_count() const { return _hit_count; }
+    [[nodiscard]] size_t get_usage() const { return _replacer->usage; }
+    [[nodiscard]] size_t get_capacity() const { return _replacer->capacity; }
+
+private:
+    inline void _entry_removed_cb(HandleType* e) {
+        bool removed = _handle_table.remove(e);
+        DCHECK(removed);
+        e->in_cache = false;
+        e->unref();
+    }
+
+    std::unique_ptr<Replacer> _replacer;
+    KvHolder _handle_table;
+
+    // _mutex protects the following state.
+    doris::Mutex _mutex;
+
+    uint64_t _lookup_count = 0;
+    uint64_t _hit_count = 0;
+};
 
 // A single shard of sharded cache.
 class LRUCache {
@@ -422,7 +578,6 @@ public:
 private:
     void update_cache_metrics() const;
 
-private:
     static uint32_t _hash_slice(const CacheKey& s);
     uint32_t _shard(uint32_t hash) const {
         return _num_shard_bits > 0 ? (hash >> (32 - _num_shard_bits)) : 0;

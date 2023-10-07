@@ -11,6 +11,7 @@
 #include <new>
 #include <sstream>
 #include <string>
+#include <type_traits>
 
 #include "gutil/bits.h"
 #include "runtime/thread_context.h"
@@ -67,7 +68,7 @@ uint32_t CacheKey::hash(const char* data, size_t n, uint32_t seed) const {
     return h;
 }
 
-Cache::~Cache() {}
+Cache::~Cache() = default;
 
 HandleTable::~HandleTable() {
     delete[] _list;
@@ -248,6 +249,255 @@ Cache::Handle* LRUCache::lookup(const CacheKey& key, uint32_t hash) {
     return reinterpret_cast<Cache::Handle*>(e);
 }
 
+#define CACHE_BASE_PARAMS \
+    template <typename Replacer, typename HandleType, LRUCacheType cache_type, typename KvHolder>
+
+#define CACHE_BASE_TYPE LRUCacheBase<Replacer, HandleType, cache_type, KvHolder>
+
+CACHE_BASE_PARAMS
+HandleType* CACHE_BASE_TYPE::lookup(const CacheKey& key, uint32_t hash) {
+    std::lock_guard l(_mutex);
+    ++_lookup_count;
+    auto* e = _handle_table.lookup(key, hash);
+    if (e != nullptr) {
+        _replacer->pin(e);
+        e->ref();
+        ++_hit_count;
+    }
+    return e;
+}
+
+CACHE_BASE_PARAMS
+void CACHE_BASE_TYPE::release(HandleType* handle) {
+    if (handle == nullptr) {
+        return;
+    }
+    bool no_ref = false;
+    {
+        std::lock_guard l(_mutex);
+        handle->unref();
+        if (_replacer->unpin(handle)) {
+            // should release
+            bool removed = _handle_table.remove(handle);
+            DCHECK(removed);
+            // TODO: decrease usage
+            no_ref = true;
+        }
+    }
+    if (no_ref) {
+        // free the handle out of mutex block
+        handle->free();
+    }
+}
+
+CACHE_BASE_PARAMS
+HandleType* CACHE_BASE_TYPE::insert(const CacheKey& key, uint32_t hash, void* value, size_t charge,
+                                    void (*deleter)(const CacheKey&, void*),
+                                    MemTrackerLimiter* tracker, CachePriority priority,
+                                    size_t bytes) {
+    size_t handle_size = sizeof(HandleType) - 1 + key.size();
+
+    LRUHandle* e = reinterpret_cast<LRUHandle*>(malloc(handle_size));
+    e->value = value;
+    e->deleter = deleter;
+    e->charge = charge;
+    e->key_length = key.size();
+    if constexpr (cache_type == LRUCacheType::SIZE) {
+        e->total_size = handle_size + charge;
+        e->bytes = e->total_size;
+    } else {
+        e->total_size = 1;
+        DCHECK_NE(bytes, -1);
+        e->bytes = handle_size + bytes;
+    }
+    e->hash = hash;
+    // ref by cache and returned handle
+    e->refs = 2;
+    e->next = e->prev = nullptr;
+    e->in_cache = true;
+    e->priority = priority;
+    e->mem_tracker = tracker;
+    memcpy(e->key_data, key.data(), key.size());
+
+    // The memory of the parameter value should be recorded in the tls mem tracker,
+    // transfer the memory ownership of the value to ShardedLRUCache::_mem_tracker.
+    THREAD_MEM_TRACKER_TRANSFER_TO(e->bytes, tracker);
+    DorisMetrics::instance()->lru_cache_memory_bytes->increment(e->bytes);
+
+    std::list<HandleType*> to_removed_list;
+    {
+        std::lock_guard l(_mutex);
+        auto* old = _handle_table.insert(e);
+        if (old != nullptr) {
+            old->in_cache = false;
+            if (old->unref()) {
+                _replacer->remove(old);
+                to_removed_list.push_back(old);
+            }
+        }
+        _replacer->insert(e, [this, &to_removed_list](HandleType* e) {
+            _entry_removed_cb(e);
+            to_removed_list.push_back(e);
+        });
+    }
+
+    for (auto* h : to_removed_list) {
+        h->free();
+    }
+    return e;
+}
+
+CACHE_BASE_PARAMS
+void CACHE_BASE_TYPE::erase(const CacheKey& key, uint32_t hash) {
+    HandleType* e;
+    bool no_ref = false;
+    {
+        std::lock_guard l(_mutex);
+        e = _handle_table.remove(key, hash);
+        do {
+            if (e == nullptr) {
+                break;
+            }
+            no_ref = e->unref();
+            if (!no_ref) {
+                break;
+            }
+            if (e->in_cache) {
+                _replacer->remove(e);
+            }
+        } while (false);
+    }
+    if (no_ref) {
+        e->free();
+    }
+}
+
+template class LRUCacheBase<LRUReplacer, LRUHandle>;
+template class LRUCacheBase<LRUReplacer, LRUHandle, LRUCacheType::NUMBER>;
+template class LRUCacheBase<TimeStampLRUReplacer, LRUHandle>;
+template class LRUCacheBase<TimeStampLRUReplacer, LRUHandle, LRUCacheType::NUMBER>;
+
+#undef CACHE_BASE_PARAMS
+#undef CACHE_BASE_TYPE
+
+void LRUReplacer::insert_impl(LRUHandle* e, std::function<void(LRUHandle*)> callback) {
+    auto evict_func = [this, e, callback](LRUHandle* lru_list) {
+        while ((this->usage + e->total_size > this->capacity) && lru_list->next != lru_list) {
+            LRUHandle* old = _lru_normal.next;
+            lru_remove(old);
+            this->usage -= old->total_size;
+            callback(old);
+        }
+    };
+    // 1. evict normal cache entries
+    evict_func(&_lru_normal);
+    // 2. evict durable cache entries if need
+    evict_func(&_lru_durable);
+    this->usage += e->total_size;
+}
+
+void LRUReplacer::remove_impl(LRUHandle* handle) {
+    DCHECK(handle->in_cache);
+    lru_remove(handle);
+    this->usage -= handle->total_size;
+}
+
+void LRUReplacer::pin_impl(LRUHandle* handle) {
+    DCHECK(handle->in_cache);
+    if (handle->refs == 1) {
+        // only in LRU free list, remove it from list
+        lru_remove(handle);
+    }
+}
+
+bool LRUReplacer::unpin_impl(LRUHandle* handle) {
+    if (handle->refs == 0) {
+        this->usage -= handle->total_size;
+        return false;
+    }
+    if (handle->in_cache && handle->refs == 1) {
+        // only exists in cache
+        if (this->usage > this->capacity) {
+            this->usage -= handle->total_size;
+            return true;
+        }
+        // put it to LRU free list
+        lru_append(handle);
+    }
+    return false;
+}
+
+void LRUReplacer::lru_append(LRUHandle* e) {
+    // Make "e" newest entry by inserting just before *list
+    LRUHandle* list;
+    if (e->priority == CachePriority::NORMAL) {
+        list = &_lru_normal;
+    } else {
+        list = &_lru_durable;
+    }
+    e->next = list;
+    e->prev = list->prev;
+    e->prev->next = e;
+    e->next->prev = e;
+}
+
+void LRUReplacer::lru_remove(LRUHandle* e) {
+    e->next->prev = e->prev;
+    e->prev->next = e->next;
+    e->prev = e->next = nullptr;
+}
+
+void TimeStampLRUReplacer::insert_impl(LRUHandle* e, std::function<void(LRUHandle*)> callback) {
+    auto evict_func = [this, e, callback](LRUHandleSortedSet& sorted_set) {
+        while ((this->usage + e->total_size > this->capacity) && !sorted_set.empty()) {
+            auto entry_pair = sorted_set.begin();
+            LRUHandle* remove_handle = entry_pair->second;
+            DCHECK_NOTNULL(remove_handle);
+            sorted_set.erase(entry_pair);
+            this->usage -= remove_handle->total_size;
+            callback(remove_handle);
+        }
+    };
+    // 1. evict normal cache entries
+    evict_func(_sorted_normal_entries_with_timestamp);
+    // 2. evict durable cache entries if need
+    evict_func(_sorted_durable_entries_with_timestamp);
+    this->usage += e->total_size;
+}
+
+void TimeStampLRUReplacer::lru_append(LRUHandle* e) {
+    LRUHandleSortedSet sorted_set;
+    if (e->priority == CachePriority::NORMAL) {
+        sorted_set = _sorted_normal_entries_with_timestamp;
+    } else {
+        sorted_set = _sorted_durable_entries_with_timestamp;
+    }
+    // check timestamp
+    // means evict entry will depends on the timestamp asc set,
+    // the timestamp is updated by higher level caller,
+    // and the timestamp of hit entry is different with the insert entry,
+    // that is why need check timestamp to evict entry,
+    // in order to keep the survival time of hit entries
+    // longer than the entries just inserted,
+    // so use asc set to sorted these entries's timestamp and LRUHandle*
+    sorted_set.insert(std::make_pair(_cache_value_time_extractor(e->value), e));
+}
+
+void TimeStampLRUReplacer::lru_remove(LRUHandle* e) {
+    LRUHandleSortedSet sorted_set;
+    if (e->priority == CachePriority::NORMAL) {
+        sorted_set = _sorted_normal_entries_with_timestamp;
+    } else {
+        sorted_set = _sorted_normal_entries_with_timestamp;
+    }
+
+    const auto& pair = std::make_pair(_cache_value_time_extractor(e->value), e);
+    auto found_it = sorted_set.find(pair);
+    if (found_it != sorted_set.end()) {
+        sorted_set.erase(found_it);
+    }
+}
+
 void LRUCache::release(Cache::Handle* handle) {
     if (handle == nullptr) {
         return;
@@ -366,7 +616,6 @@ Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value,
     e->in_cache = true;
     e->priority = priority;
     e->mem_tracker = tracker;
-    e->type = _type;
     memcpy(e->key_data, key.data(), key.size());
     // The memory of the parameter value should be recorded in the tls mem tracker,
     // transfer the memory ownership of the value to ShardedLRUCache::_mem_tracker.
@@ -707,7 +956,7 @@ void TwoQueueLRUCache::_evict_from_lru(size_t total_size, LRUHandle** to_remove_
             old->next = *to_remove_head;
             *to_remove_head = old;
             _in_size -= old->total_size;
-        } else if (_am_size > _km && _lru_normal.next != &_lru_normal) {
+        } else if (_am_size > _km && _lru_durable.next != &_lru_durable) {
             // evict from am
             LRUHandle* old = _lru_durable.next;
             DCHECK(old->priority == CachePriority::DURABLE);
