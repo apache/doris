@@ -18,6 +18,7 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
@@ -43,6 +44,7 @@ import org.apache.doris.planner.external.TVFScanNode;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PFetchTableSchemaRequest;
 import org.apache.doris.proto.Types.PScalarType;
+import org.apache.doris.proto.Types.PStructField;
 import org.apache.doris.proto.Types.PTypeDesc;
 import org.apache.doris.proto.Types.PTypeNode;
 import org.apache.doris.qe.ConnectContext;
@@ -102,7 +104,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     protected static final String FUZZY_PARSE = "fuzzy_parse";
     protected static final String TRIM_DOUBLE_QUOTES = "trim_double_quotes";
     protected static final String SKIP_LINES = "skip_lines";
-    protected static final String CSV_SCHEMA = "csv_schema";
+    public static final String CSV_SCHEMA = "csv_schema";
     protected static final String COMPRESS_TYPE = "compress_type";
     public static final String PATH_PARTITION_KEYS = "path_partition_keys";
     // decimal(p,s)
@@ -239,7 +241,17 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
 
         columnSeparator = validParams.getOrDefault(COLUMN_SEPARATOR, DEFAULT_COLUMN_SEPARATOR);
+        if (Strings.isNullOrEmpty(columnSeparator)) {
+            throw new AnalysisException("column_separator can not be empty.");
+        }
+        columnSeparator = Separator.convertSeparator(columnSeparator);
+
         lineDelimiter = validParams.getOrDefault(LINE_DELIMITER, DEFAULT_LINE_DELIMITER);
+        if (Strings.isNullOrEmpty(lineDelimiter)) {
+            throw new AnalysisException("line_delimiter can not be empty.");
+        }
+        lineDelimiter = Separator.convertSeparator(lineDelimiter);
+
         jsonRoot = validParams.getOrDefault(JSON_ROOT, "");
         jsonPaths = validParams.getOrDefault(JSON_PATHS, "");
         readJsonByLine = Boolean.valueOf(validParams.get(READ_JSON_BY_LINE)).booleanValue();
@@ -248,6 +260,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         fuzzyParse = Boolean.valueOf(validParams.get(FUZZY_PARSE)).booleanValue();
         trimDoubleQuotes = Boolean.valueOf(validParams.get(TRIM_DOUBLE_QUOTES)).booleanValue();
         skipLines = Integer.valueOf(validParams.getOrDefault(SKIP_LINES, "0")).intValue();
+
         try {
             compressionType = Util.getFileCompressType(validParams.getOrDefault(COMPRESS_TYPE, "UNKNOWN"));
         } catch (IllegalArgumentException e) {
@@ -368,11 +381,15 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     @Override
     public List<Column> getTableColumns() throws AnalysisException {
-        if (FeConstants.runningUnitTest) {
-            return Lists.newArrayList();
-        }
         if (!csvSchema.isEmpty()) {
             return csvSchema;
+        }
+        if (FeConstants.runningUnitTest) {
+            Object mockedUtObj = FeConstants.unitTestConstant;
+            if (mockedUtObj instanceof List) {
+                return ((List<Column>) mockedUtObj);
+            }
+            return new ArrayList<>();
         }
         if (this.columns != null) {
             return columns;
@@ -460,7 +477,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             ArrayList<StructField> fields = new ArrayList<>();
             for (int i = 0; i < typeNodes.get(start).getStructFieldsCount(); ++i) {
                 Pair<Type, Integer> fieldType = getColumnType(typeNodes, start + parsedNodes);
-                fields.add(new StructField(typeNodes.get(start).getStructFields(i).getName(), fieldType.key()));
+                PStructField structField = typeNodes.get(start).getStructFields(i);
+                fields.add(new StructField(structField.getName(), fieldType.key(), structField.getComment(),
+                                            structField.getContainsNull()));
                 parsedNodes += fieldType.value();
             }
             type = new StructType(fields);

@@ -236,6 +236,11 @@ public:
 
     void evict_querying_rowset(RowsetId rs_id);
 
+    bool add_broken_path(std::string path);
+    bool remove_broken_path(std::string path);
+
+    std::set<string> get_broken_paths() { return _broken_paths; }
+
 private:
     // Instance should be inited from `static open()`
     // MUST NOT be called in other circumstances.
@@ -336,6 +341,8 @@ private:
 
     void _async_publish_callback();
 
+    Status _persist_broken_paths();
+
 private:
     struct CompactionCandidate {
         CompactionCandidate(uint32_t nicumulative_compaction_, int64_t tablet_id_, uint32_t index_)
@@ -370,6 +377,9 @@ private:
     std::mutex _store_lock;
     std::mutex _trash_sweep_lock;
     std::map<std::string, DataDir*> _store_map;
+    std::set<std::string> _broken_paths;
+    std::mutex _broken_paths_mutex;
+
     uint32_t _available_storage_medium_type_count;
 
     int32_t _effective_cluster_id;
@@ -486,6 +496,8 @@ private:
     bool _clear_segment_cache = false;
 
     std::atomic<bool> _need_clean_trash {false};
+    // next index for create tablet
+    std::map<TStorageMedium::type, int> _store_next_index;
 
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };

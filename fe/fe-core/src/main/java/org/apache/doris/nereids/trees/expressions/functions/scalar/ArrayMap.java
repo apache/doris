@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
@@ -45,7 +46,7 @@ public class ArrayMap extends ScalarFunction
     /**
      * constructor with arguments.
      */
-    public ArrayMap(Expression... arg) {
+    public ArrayMap(Expression arg) {
         super("array_map", arg);
     }
 
@@ -66,6 +67,13 @@ public class ArrayMap extends ScalarFunction
         Preconditions.checkArgument(children.get(0) instanceof Lambda,
                 "The first arg of array_map must be lambda");
         return ArrayType.of(((Lambda) children.get(0)).getRetType(), true);
+    }
+
+    @Override
+    public boolean nullable() {
+        return ((Lambda) children.get(0)).getLambdaArguments().stream()
+            .map(ArrayItemReference::getArrayExpression)
+            .anyMatch(Expression::nullable);
     }
 
     @Override

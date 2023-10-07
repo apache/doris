@@ -24,6 +24,7 @@
 #include <chrono> // IWYU pragma: keep
 #include <map>
 #include <memory>
+#include <mutex>
 #include <ostream>
 #include <set>
 #include <shared_mutex>
@@ -71,11 +72,13 @@ void TabletPublishStatistics::record_in_bvar() {
 EnginePublishVersionTask::EnginePublishVersionTask(
         const TPublishVersionRequest& publish_version_req, std::set<TTabletId>* error_tablet_ids,
         std::map<TTabletId, TVersion>* succ_tablets,
-        std::vector<std::tuple<int64_t, int64_t, int64_t>>* discontinuous_version_tablets)
+        std::vector<std::tuple<int64_t, int64_t, int64_t>>* discontinuous_version_tablets,
+        std::map<TTabletId, int64_t>* tablet_id_to_num_delta_rows)
         : _publish_version_req(publish_version_req),
           _error_tablet_ids(error_tablet_ids),
           _succ_tablets(succ_tablets),
-          _discontinuous_version_tablets(discontinuous_version_tablets) {}
+          _discontinuous_version_tablets(discontinuous_version_tablets),
+          _tablet_id_to_num_delta_rows(tablet_id_to_num_delta_rows) {}
 
 void EnginePublishVersionTask::add_error_tablet_id(int64_t tablet_id) {
     std::lock_guard<std::mutex> lck(_tablet_ids_mutex);
@@ -186,6 +189,9 @@ Status EnginePublishVersionTask::finish() {
                     continue;
                 }
             }
+            auto rowset_meta_ptr = rowset->rowset_meta();
+            _tablet_id_to_num_delta_rows->insert(
+                    {rowset_meta_ptr->tablet_id(), rowset_meta_ptr->num_rows()});
             auto tablet_publish_txn_ptr = std::make_shared<TabletPublishTxnTask>(
                     this, tablet, rowset, partition_id, transaction_id, version, tablet_info);
             auto submit_st = token->submit_func([=]() { tablet_publish_txn_ptr->handle(); });
@@ -265,14 +271,12 @@ TabletPublishTxnTask::TabletPublishTxnTask(EnginePublishVersionTask* engine_task
 }
 
 void TabletPublishTxnTask::handle() {
-    _stats.schedule_time_us = MonotonicMicros() - _stats.submit_time_us;
-    if (!_rowset->start_publish()) {
-        LOG(WARNING) << "publish is running. rowset_id=" << _rowset->rowset_id()
-                     << ", tablet_id=" << _tablet->tablet_id() << ", txn_id=" << _transaction_id;
-        _engine_publish_version_task->add_error_tablet_id(_tablet_info.tablet_id);
-        return;
+    std::unique_lock<std::mutex> rowset_update_lock(_tablet->get_rowset_update_lock(),
+                                                    std::defer_lock);
+    if (_tablet->enable_unique_key_merge_on_write()) {
+        rowset_update_lock.lock();
     }
-    Defer defer {[&] { _rowset->finish_publish(); }};
+    _stats.schedule_time_us = MonotonicMicros() - _stats.submit_time_us;
     auto publish_status = StorageEngine::instance()->txn_manager()->publish_txn(
             _partition_id, _tablet, _transaction_id, _version, &_stats);
     if (!publish_status.ok()) {
@@ -306,6 +310,7 @@ void TabletPublishTxnTask::handle() {
 }
 
 void AsyncTabletPublishTask::handle() {
+    std::lock_guard<std::mutex> wrlock(_tablet->get_rowset_update_lock());
     _stats.schedule_time_us = MonotonicMicros() - _stats.submit_time_us;
     std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
     StorageEngine::instance()->txn_manager()->get_txn_related_tablets(
@@ -315,12 +320,6 @@ void AsyncTabletPublishTask::handle() {
         return;
     }
     RowsetSharedPtr rowset = iter->second;
-    if (!rowset->start_publish()) {
-        LOG(WARNING) << "publish is running. rowset_id=" << rowset->rowset_id()
-                     << ", tablet_id=" << _tablet->tablet_id() << ", txn_id=" << _transaction_id;
-        return;
-    }
-    Defer defer {[&] { rowset->finish_publish(); }};
     Version version(_version, _version);
     auto publish_status = StorageEngine::instance()->txn_manager()->publish_txn(
             _partition_id, _tablet, _transaction_id, version, &_stats);

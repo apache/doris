@@ -137,7 +137,6 @@ private:
 private:
     friend class SegmentIterator;
     io::FileReaderSPtr _file_reader;
-
     uint32_t _segment_id;
     uint32_t _num_rows;
     int64_t _meta_mem_usage;

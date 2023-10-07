@@ -180,7 +180,8 @@ Status VCollectIterator::build_heap(std::vector<RowsetReaderSharedPtr>& rs_reade
         auto level1_iter = std::make_unique<Level1Iterator>(std::move(_children), _reader, _merge,
                                                             _is_reverse, _skip_same);
         _children.clear();
-        RETURN_IF_ERROR(level1_iter->init_level0_iterators_for_union());
+        level1_iter->init_level0_iterators_for_union();
+        RETURN_IF_ERROR(level1_iter->ensure_first_row_ref());
         _inner_iter = std::move(level1_iter);
     }
     RETURN_IF_NOT_EOF_AND_OK(_inner_iter->init());
@@ -463,7 +464,8 @@ Status VCollectIterator::Level0Iterator::init(bool get_data_by_ref) {
         _block = std::make_shared<Block>(_schema.create_block(
                 _reader->_return_columns, _reader->_tablet_columns_convert_to_null_set));
     }
-    auto st = _refresh_current_row();
+
+    auto st = refresh_current_row();
     if (_get_data_by_ref && _block_view.size()) {
         _ref = _block_view[0];
     } else {
@@ -478,35 +480,29 @@ Status VCollectIterator::Level0Iterator::init(bool get_data_by_ref) {
 //     collect_iter->next(&_next_row);
 // }
 // so first child load first row and other child row_pos = -1
-Status VCollectIterator::Level0Iterator::init_for_union(bool is_first_child, bool get_data_by_ref) {
+void VCollectIterator::Level0Iterator::init_for_union(bool get_data_by_ref) {
     _get_data_by_ref = get_data_by_ref && _rs_reader->support_return_data_by_ref();
-    if (!_get_data_by_ref) {
-        _block = std::make_shared<Block>(_schema.create_block(
-                _reader->_return_columns, _reader->_tablet_columns_convert_to_null_set));
-    }
-    auto st = _refresh_current_row();
-    if (_get_data_by_ref && _block_view.size()) {
-        if (is_first_child) {
-            _ref = _block_view[0];
-        } else {
-            _ref = _block_view[-1];
-        }
-    } else {
-        if (is_first_child) {
-            _ref = {_block, 0, false};
-        } else {
-            _ref = {_block, -1, false};
-        }
-    }
-    return st;
+}
+
+Status VCollectIterator::Level0Iterator::ensure_first_row_ref() {
+    DCHECK(!_get_data_by_ref);
+    auto s = refresh_current_row();
+    _ref = {_block, 0, false};
+
+    return s;
 }
 
 int64_t VCollectIterator::Level0Iterator::version() const {
     return _rs_reader->version().second;
 }
 
-Status VCollectIterator::Level0Iterator::_refresh_current_row() {
+Status VCollectIterator::Level0Iterator::refresh_current_row() {
     do {
+        if (_block == nullptr && !_get_data_by_ref) {
+            _block = std::make_shared<Block>(_schema.create_block(
+                    _reader->_return_columns, _reader->_tablet_columns_convert_to_null_set));
+        }
+
         if (!_is_empty() && _current_valid()) {
             return Status::OK();
         } else {
@@ -526,6 +522,7 @@ Status VCollectIterator::Level0Iterator::_refresh_current_row() {
     } while (!_is_empty());
     _ref.row_pos = -1;
     _current = -1;
+    _rs_reader = nullptr;
     return Status::Error<END_OF_FILE>("");
 }
 
@@ -536,7 +533,7 @@ Status VCollectIterator::Level0Iterator::next(IteratorRowRef* ref) {
         _ref.row_pos++;
     }
 
-    RETURN_IF_ERROR(_refresh_current_row());
+    RETURN_IF_ERROR(refresh_current_row());
 
     if (_get_data_by_ref) {
         _ref = _block_view[_current];
@@ -553,6 +550,9 @@ Status VCollectIterator::Level0Iterator::next(Block* block) {
         _ref.reset();
         return Status::OK();
     } else {
+        if (_rs_reader == nullptr) {
+            return Status::Error<END_OF_FILE>("");
+        }
         auto res = _rs_reader->next_block(block);
         if (!res.ok() && !res.is<END_OF_FILE>()) {
             return res;
@@ -683,24 +683,30 @@ Status VCollectIterator::Level1Iterator::init(bool get_data_by_ref) {
     return Status::OK();
 }
 
-Status VCollectIterator::Level1Iterator::init_level0_iterators_for_union() {
-    bool have_multiple_child = false;
-    bool is_first_child = true;
+Status VCollectIterator::Level1Iterator::ensure_first_row_ref() {
     for (auto iter = _children.begin(); iter != _children.end();) {
-        auto s = (*iter)->init_for_union(is_first_child, have_multiple_child);
+        auto s = (*iter)->ensure_first_row_ref();
         if (!s.ok()) {
             iter = _children.erase(iter);
             if (!s.is<END_OF_FILE>()) {
                 return s;
             }
         } else {
-            have_multiple_child = true;
-            is_first_child = false;
-            ++iter;
+            // we get a real row
+            break;
         }
     }
 
     return Status::OK();
+}
+
+void VCollectIterator::Level1Iterator::init_level0_iterators_for_union() {
+    bool have_multiple_child = false;
+    for (auto iter = _children.begin(); iter != _children.end();) {
+        (*iter)->init_for_union(have_multiple_child);
+        have_multiple_child = true;
+        ++iter;
+    }
 }
 
 Status VCollectIterator::Level1Iterator::_merge_next(IteratorRowRef* ref) {
@@ -789,10 +795,13 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
         // clear block column data
         if (pre_row_ref.row_pos + continuous_row_in_block == pre_row_ref.block->rows()) {
             const auto& src_block = pre_row_ref.block;
-            for (size_t i = 0; i < column_count; ++i) {
-                target_columns[i]->insert_range_from(*(src_block->get_by_position(i).column),
-                                                     pre_row_ref.row_pos, continuous_row_in_block);
-            }
+            RETURN_IF_CATCH_EXCEPTION({
+                for (size_t i = 0; i < column_count; ++i) {
+                    target_columns[i]->insert_range_from(*(src_block->get_by_position(i).column),
+                                                         pre_row_ref.row_pos,
+                                                         continuous_row_in_block);
+                }
+            });
             continuous_row_in_block = 0;
             pre_row_ref.reset();
         }

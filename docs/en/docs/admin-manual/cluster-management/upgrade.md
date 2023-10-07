@@ -144,6 +144,7 @@ admin set frontend config("disable_tablet_scheduler" = "true");
     http_port = 18030
     rpc_port = 19020
     query_port = 19030
+    arrow_flight_sql_port = 19040
     edit_log_port = 19010
     ...
     ```

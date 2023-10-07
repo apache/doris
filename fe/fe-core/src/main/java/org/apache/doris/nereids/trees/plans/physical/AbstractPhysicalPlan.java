@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
@@ -116,16 +117,31 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
                 && RuntimeFilterGenerator.hasRemoteTarget(builderNode, scan)) {
             type = TRuntimeFilterType.BLOOM;
         }
-        org.apache.doris.nereids.trees.plans.physical.RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
-                src, ImmutableList.of(olapScanSlot), type, exprOrder, builderNode, buildSideNdv);
-        ctx.addJoinToTargetMap(builderNode, olapScanSlot.getExprId());
-        ctx.setTargetExprIdToFilter(olapScanSlot.getExprId(), filter);
-        ctx.setTargetsOnScanNode(aliasTransferMap.get(probeExpr).first.getRelationId(), olapScanSlot);
+        org.apache.doris.nereids.trees.plans.physical.RuntimeFilter filter =
+                ctx.getRuntimeFilterBySrcAndType(src, type, builderNode);
+        if (filter != null) {
+            filter.addTargetSlot(olapScanSlot);
+            filter.addTargetExpressoin(olapScanSlot);
+        } else {
+            filter = new RuntimeFilter(generator.getNextId(),
+                    src, ImmutableList.of(olapScanSlot), type, exprOrder, builderNode, buildSideNdv);
+            ctx.addJoinToTargetMap(builderNode, olapScanSlot.getExprId());
+            ctx.setTargetExprIdToFilter(olapScanSlot.getExprId(), filter);
+            ctx.setTargetsOnScanNode(aliasTransferMap.get(probeExpr).first.getRelationId(), olapScanSlot);
+            ctx.setRuntimeFilterIdentityToFilter(src, type, builderNode, filter);
+        }
         return true;
     }
 
     @Override
     public Plan getExplainPlan(ConnectContext ctx) {
         return this;
+    }
+
+    public <T extends AbstractPhysicalPlan> T copyStatsAndGroupIdFrom(T from) {
+        T newPlan = (T) withPhysicalPropertiesAndStats(
+                from.getPhysicalProperties(), from.getStats());
+        newPlan.setMutableState(MutableState.KEY_GROUP, from.getGroupIdAsString());
+        return newPlan;
     }
 }

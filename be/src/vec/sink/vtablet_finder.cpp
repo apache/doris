@@ -40,10 +40,9 @@
 #include "vec/data_types/data_type.h"
 #include "vec/functions/simple_function_factory.h"
 
-namespace doris {
-namespace stream_load {
+namespace doris::vectorized {
 
-Status OlapTabletFinder::find_tablet(RuntimeState* state, vectorized::Block* block, int row_index,
+Status OlapTabletFinder::find_tablet(RuntimeState* state, Block* block, int row_index,
                                      const VOlapTablePartition** partition, uint32_t& tablet_index,
                                      bool& stop_processing, bool& is_continue,
                                      bool* missing_partition) {
@@ -99,5 +98,4 @@ Status OlapTabletFinder::find_tablet(RuntimeState* state, vectorized::Block* blo
     return status;
 }
 
-} // namespace stream_load
-} // namespace doris
+} // namespace doris::vectorized

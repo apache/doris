@@ -430,6 +430,21 @@ TEST(function_bitmap_test, function_bitmap_and_not_count) {
 
     check_function<DataTypeInt64, true>(func_name, input_types, data_set);
 }
+TEST(function_bitmap_test, function_bitmap_and_not_count_alias) {
+    std::string func_name = "bitmap_andnot_count";
+    InputTypeSet input_types = {TypeIndex::BitMap, TypeIndex::BitMap};
+    BitmapValue bitmap1({1, 2, 3});
+    BitmapValue bitmap2({3, 4, std::numeric_limits<uint64_t>::min()});
+    BitmapValue bitmap3({33, 5, std::numeric_limits<uint64_t>::max()});
+    BitmapValue empty_bitmap;
+
+    DataSet data_set = {{{&bitmap1, &empty_bitmap}, (int64_t)3}, //1,2,3
+                        {{&bitmap2, Null()}, (int64_t)0},
+                        {{&bitmap2, &bitmap3}, (int64_t)3},  //0,3,4
+                        {{&bitmap1, &bitmap2}, (int64_t)2}}; //1,2
+
+    check_function<DataTypeInt64, true>(func_name, input_types, data_set);
+}
 TEST(function_bitmap_test, function_bitmap_has_all) {
     std::string func_name = "bitmap_has_all";
     InputTypeSet input_types = {TypeIndex::BitMap, TypeIndex::BitMap};

@@ -424,7 +424,9 @@ void RuntimeState::emplace_local_state(
 
 std::shared_ptr<doris::pipeline::PipelineXLocalStateBase> RuntimeState::get_local_state(int id) {
     std::unique_lock<std::mutex> l(_local_state_lock);
-    DCHECK(_op_id_to_local_state.find(id) != _op_id_to_local_state.end());
+    if (_op_id_to_local_state.find(id) == _op_id_to_local_state.end()) {
+        return nullptr;
+    }
     return _op_id_to_local_state[id];
 }
 
@@ -437,7 +439,9 @@ void RuntimeState::emplace_sink_local_state(
 std::shared_ptr<doris::pipeline::PipelineXSinkLocalStateBase> RuntimeState::get_sink_local_state(
         int id) {
     std::unique_lock<std::mutex> l(_local_sink_state_lock);
-    DCHECK(_op_id_to_sink_local_state.find(id) != _op_id_to_sink_local_state.end());
+    if (_op_id_to_sink_local_state.find(id) == _op_id_to_sink_local_state.end()) {
+        return nullptr;
+    }
     return _op_id_to_sink_local_state[id];
 }
 
