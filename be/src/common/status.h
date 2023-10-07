@@ -377,8 +377,8 @@ public:
         }
 #ifdef ENABLE_STACKTRACE
         if constexpr (stacktrace && capture_stacktrace(code)) {
-            // Delete the first four frame pointers, which are inside the StackTrace and Status.
-            status._err_msg->_stack = get_stack_trace(4);
+            // Delete the first one frame pointers, which are inside the status.h
+            status._err_msg->_stack = get_stack_trace(1);
             LOG(WARNING) << "meet error status: " << status; // may print too many stacks.
         }
 #endif
