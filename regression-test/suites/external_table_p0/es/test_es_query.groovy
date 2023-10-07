@@ -167,6 +167,6 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
         order_qt_sql85 """select * from test1 where esquery(test2, '{"match":{"test2":"text#1"}}')"""
         order_qt_sql86 """select c_bool, c_byte, c_short, c_integer, c_long, c_unsigned_long, c_float, c_half_float, c_double, c_scaled_float, c_date, c_datetime, c_keyword, c_text, c_ip, c_person from test1"""
         order_qt_sql87 """select c_bool, c_byte, c_short, c_integer, c_long, c_unsigned_long, c_float, c_half_float, c_double, c_scaled_float, c_date, c_datetime, c_keyword, c_text, c_ip, c_person from test2"""
-
+        order_qt_sql88 """select * from test3_20231005"""
     }
 }
