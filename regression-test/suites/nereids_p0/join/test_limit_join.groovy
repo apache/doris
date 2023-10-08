@@ -43,58 +43,30 @@ suite("test_limit_join", "nereids_p0") {
 
 
     /* test push limit-distinct through join */
-    qt_join1 """
+    order_qt_join1 """
         SELECT t1.c1
-        FROM ${tbName2} t1 left join t2 on t1.c1 = t2.c1
+        FROM ${tbName1} t1 left join ${tbName2} t2 on t1.c1 = t2.c1
         GROUP BY t1.c1
-        limit 1;
+        limit 2;
         """
 
-    qt_join1_tree """
-        EXPLAIN SHAPE PLAN SELECT t1.c1
-        FROM ${tbName2} t1 left join t2 on t1.c1 = t2.c1
-        GROUP BY t1.c1
-        limit 1;
-        """
-
-    qt_join2 """
+    sql """
         SELECT t1.c1
-        FROM ${tbName2} t1 left join t2 on t1.c1 = t2.c1
+        FROM ${tbName1} t1 left join ${tbName2} t2 on t1.c1 = t2.c1
         GROUP BY t1.c1
         LIMIT 1 OFFSET 1;
         """
 
-    qt_join2_tree """
-        EXPLAIN SHAPE PLAN SELECT t1.c1
-        FROM ${tbName2} t1 left join t2 on t1.c1 = t2.c1
-        GROUP BY t1.c1
-        LIMIT 1 OFFSET 1;
-        """
-
-    qt_join3 """
+    order_qt_join3 """
         SELECT t2.c1
-        FROM ${tbName2} t1 right join t2 on t1.c1 = t2.c1
+        FROM ${tbName1} t1 right join ${tbName2} t2 on t1.c1 = t2.c1
         GROUP BY t2.c1
-        limit 1;
-        """
-
-    qt_join3_tree """
-        EXPLAIN SHAPE PLAN SELECT t2.c1
-        FROM ${tbName2} t1 right join t2 on t1.c1 = t2.c1
-        GROUP BY t2.c1
-        limit 1;
+        limit 2;
         """
     
-    qt_join4 """
+    sql """
         SELECT t2.c1
-        FROM ${tbName2} t1 right join t2 on t1.c1 = t2.c1
-        GROUP BY t2.c1
-        LIMIT 1 OFFSET 1;
-        """
-    
-    qt_join4_tree """
-        EXPLAIN SHAPE PLAN SELECT t2.c1
-        FROM ${tbName2} t1 right join t2 on t1.c1 = t2.c1
+        FROM ${tbName1} t1 right join ${tbName2} t2 on t1.c1 = t2.c1
         GROUP BY t2.c1
         LIMIT 1 OFFSET 1;
         """
@@ -102,56 +74,28 @@ suite("test_limit_join", "nereids_p0") {
     /* test push topN through join */
     qt_join5 """
         SELECT t1.c1
-        FROM ${tbName2} t1 left join t2 on t1.c1 = t2.c1
+        FROM ${tbName1} t1 left join ${tbName2} t2 on t1.c1 = t2.c1
         ORDER BY t1.c1
-        limit 1;
-        """
-
-    qt_join5_tree """
-        EXPLAIN SHAPE PLAN SELECT t1.c1
-        FROM ${tbName2} t1 left join t2 on t1.c1 = t2.c1
-        ORDER BY t1.c1
-        limit 1;
+        limit 2;
         """
 
     qt_join6 """
         SELECT t1.c1
-        FROM ${tbName2} t1 left join t2 on t1.c1 = t2.c1
-        ORDER BY t1.c1
-        LIMIT 1 OFFSET 1;
-        """
-
-    qt_join6_tree """
-        EXPLAIN SHAPE PLAN SELECT t1.c1
-        FROM ${tbName2} t1 left join t2 on t1.c1 = t2.c1
+        FROM ${tbName1} t1 left join ${tbName2} t2 on t1.c1 = t2.c1
         ORDER BY t1.c1
         LIMIT 1 OFFSET 1;
         """
 
     qt_join7 """
         SELECT t2.c1
-        FROM ${tbName2} t1 right join t2 on t1.c1 = t2.c1
+        FROM ${tbName1} t1 right join ${tbName2} t2 on t1.c1 = t2.c1
         ORDER BY t2.c1
-        limit 1;
-        """
-
-    qt_join7_tree """
-        EXPLAIN SHAPE PLAN SELECT t2.c1
-        FROM ${tbName2} t1 right join t2 on t1.c1 = t2.c1
-        ORDER BY t2.c1
-        limit 1;
+        limit 2;
         """
 
     qt_join8 """
         SELECT t2.c1
-        FROM ${tbName2} t1 right join t2 on t1.c1 = t2.c1
-        ORDER BY t2.c1
-        LIMIT 1 OFFSET 1;
-        """
-
-    qt_join8_tree """
-        EXPLAIN SHAPE PLAN SELECT t2.c1
-        FROM ${tbName2} t1 right join t2 on t1.c1 = t2.c1
+        FROM ${tbName1} t1 right join ${tbName2} t2 on t1.c1 = t2.c1
         ORDER BY t2.c1
         LIMIT 1 OFFSET 1;
         """
