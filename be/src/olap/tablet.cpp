@@ -153,7 +153,7 @@ static bvar::Adder<uint64_t> g_tablet_pk_not_found("doris_pk", "lookup_not_found
 static bvar::PerSecond<bvar::Adder<uint64_t>> g_tablet_pk_not_found_per_second(
         "doris_pk", "lookup_not_found_per_second", &g_tablet_pk_not_found, 60);
 
-const std::chrono::seconds TRACE_TABLET_LOCK_THRESHOLD = 10s;
+const std::chrono::seconds TRACE_TABLET_LOCK_THRESHOLD = 3s;
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(flush_bytes, MetricUnit::BYTES);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(flush_finish_count, MetricUnit::OPERATIONS);
@@ -3314,8 +3314,10 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset,
     RowsetIdUnorderedSet rowset_ids_to_del;
     int64_t cur_version = rowset->start_version();
 
+    OlapStopWatch watch;
     std::vector<segment_v2::SegmentSharedPtr> segments;
     static_cast<void>(_load_rowset_segments(rowset, &segments));
+    auto t1 = watch.get_elapse_time_us();
 
     {
         std::shared_lock meta_rlock(_meta_lock);
@@ -3328,6 +3330,8 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset,
         }
         cur_rowset_ids = all_rs_id(cur_version - 1);
     }
+    auto t2 = watch.get_elapse_time_us();
+
     _rowset_ids_difference(cur_rowset_ids, pre_rowset_ids, &rowset_ids_to_add, &rowset_ids_to_del);
     for (const auto& to_del : rowset_ids_to_del) {
         delete_bitmap->remove({to_del, 0, 0}, {to_del, UINT32_MAX, INT64_MAX});
@@ -3338,13 +3342,23 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset,
         std::shared_lock meta_rlock(_meta_lock);
         specified_rowsets = get_rowset_by_ids(&rowset_ids_to_add);
     }
+    auto t3 = watch.get_elapse_time_us();
 
-    OlapStopWatch watch;
     auto token = StorageEngine::instance()->calc_delete_bitmap_executor()->create_token();
     RETURN_IF_ERROR(calc_delete_bitmap(rowset, segments, specified_rowsets, delete_bitmap,
                                        cur_version - 1, token.get(), rowset_writer));
     RETURN_IF_ERROR(token->wait());
     RETURN_IF_ERROR(token->get_delete_bitmap(delete_bitmap));
+
+    std::stringstream ss;
+    if (watch.get_elapse_time_us() < 1 * 1000 * 1000) {
+        ss << "cost: " << watch.get_elapse_time_us() - t3 << "(us)";
+    } else {
+        ss << "cost(us): (load segments: " << t1 << ", get all rsid: " << t2 - t1
+           << ", get rowsets: " << t3 - t2
+           << ", calc delete bitmap: " << watch.get_elapse_time_us() - t3 << ")";
+    }
+
     size_t total_rows = std::accumulate(
             segments.begin(), segments.end(), 0,
             [](size_t sum, const segment_v2::SegmentSharedPtr& s) { return sum += s->num_rows(); });
@@ -3352,7 +3366,7 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset,
               << ", rowset_ids to add: " << rowset_ids_to_add.size()
               << ", rowset_ids to del: " << rowset_ids_to_del.size()
               << ", cur max_version: " << cur_version << ", transaction_id: " << txn_id
-              << ", cost: " << watch.get_elapse_time_us() << "(us), total rows: " << total_rows;
+              << "," << ss.str() << " , total rows: " << total_rows;
 
     if (config::enable_merge_on_write_correctness_check && rowset->num_rows() != 0) {
         // only do correctness check if the rowset has at least one row written
