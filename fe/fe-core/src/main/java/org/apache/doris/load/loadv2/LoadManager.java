@@ -242,23 +242,29 @@ public class LoadManager implements Writable {
         String state = stmt.getState();
         PatternMatcher matcher = PatternMatcherWrapper.createMysqlPattern(label,
                 CaseSensibility.LABEL.getCaseSensibility());
-        matchLoadJobs.addAll(loadJobs.stream().filter(job -> {
-            if (stmt.getOperator() != null) {
-                // compound
-                boolean labelFilter =
-                        label.contains("%") ? matcher.match(job.getLabel()) : job.getLabel().equalsIgnoreCase(label);
-                boolean stateFilter = job.getState().name().equalsIgnoreCase(state);
-                return Operator.AND.equals(stmt.getOperator()) ? labelFilter && stateFilter :
-                        labelFilter || stateFilter;
-            }
-            if (StringUtils.isNotEmpty(label)) {
-                return label.contains("%") ? matcher.match(job.getLabel()) : job.getLabel().equalsIgnoreCase(label);
-            }
-            if (StringUtils.isNotEmpty(state)) {
-                return job.getState().name().equalsIgnoreCase(state);
-            }
-            return false;
-        }).collect(Collectors.toList()));
+        matchLoadJobs.addAll(
+            loadJobs.stream()
+                    .filter(job -> job.getState() != JobState.CANCELLED)
+                    .filter(job -> {
+                        if (stmt.getOperator() != null) {
+                            // compound
+                            boolean labelFilter =
+                                    label.contains("%") ? matcher.match(job.getLabel())
+                                            : job.getLabel().equalsIgnoreCase(label);
+                            boolean stateFilter = job.getState().name().equalsIgnoreCase(state);
+                            return Operator.AND.equals(stmt.getOperator()) ? labelFilter && stateFilter :
+                                    labelFilter || stateFilter;
+                        }
+                        if (StringUtils.isNotEmpty(label)) {
+                            return label.contains("%") ? matcher.match(job.getLabel())
+                                    : job.getLabel().equalsIgnoreCase(label);
+                        }
+                        if (StringUtils.isNotEmpty(state)) {
+                            return job.getState().name().equalsIgnoreCase(state);
+                        }
+                        return false;
+                    }).collect(Collectors.toList())
+        );
     }
 
     /**
