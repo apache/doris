@@ -2757,7 +2757,7 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
                               const std::vector<RowsetSharedPtr>& specified_rowsets,
                               RowLocation* row_location, uint32_t version,
                               std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
-                              RowsetSharedPtr* rowset) {
+                              RowsetSharedPtr* rowset, bool with_rowid) {
     SCOPED_BVAR_LATENCY(g_tablet_lookup_rowkey_latency);
     size_t seq_col_length = 0;
     if (_tablet_meta->tablet_schema()->has_sequence_col() && with_seq_col) {
@@ -2767,7 +2767,7 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
                          1;
     }
     size_t rowid_length = 0;
-    if (!_schema->cluster_key_idxes().empty()) {
+    if (with_rowid && !_schema->cluster_key_idxes().empty()) {
         rowid_length = sizeof(uint32_t) + 1;
     }
     Slice key_without_seq =
@@ -2781,8 +2781,9 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
         DCHECK_EQ(segments_key_bounds.size(), num_segments);
         std::vector<uint32_t> picked_segments;
         for (int i = num_segments - 1; i >= 0; i--) {
-            // rowid_length > 0 means the key bounds is short key, not primary key
-            if (rowid_length == 0) {
+            // If mow table has cluster keys, the key bounds is short keys, not primary keys
+            // use PrimaryKeyIndexMetaPB in primary key index?
+            if (_schema->cluster_key_idxes().empty()) {
                 if (key_without_seq.compare(segments_key_bounds[i].max_key()) > 0 ||
                     key_without_seq.compare(segments_key_bounds[i].min_key()) < 0) {
                     continue;
@@ -2803,7 +2804,7 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
         DCHECK_EQ(segments.size(), num_segments);
 
         for (auto id : picked_segments) {
-            Status s = segments[id]->lookup_row_key(encoded_key, with_seq_col, &loc);
+            Status s = segments[id]->lookup_row_key(encoded_key, with_seq_col, with_rowid, &loc);
             if (s.is<KEY_NOT_FOUND>()) {
                 continue;
             }

@@ -406,7 +406,8 @@ Status Segment::new_inverted_index_iterator(const TabletColumn& tablet_column,
     return Status::OK();
 }
 
-Status Segment::lookup_row_key(const Slice& key, bool with_seq_col, RowLocation* row_location) {
+Status Segment::lookup_row_key(const Slice& key, bool with_seq_col, bool with_rowid,
+                               RowLocation* row_location) {
     RETURN_IF_ERROR(load_pk_index_and_bf());
     bool has_seq_col = _tablet_schema->has_sequence_col();
     bool has_rowid = !_tablet_schema->cluster_key_idxes().empty();
@@ -419,8 +420,9 @@ Status Segment::lookup_row_key(const Slice& key, bool with_seq_col, RowLocation*
         rowid_length = sizeof(uint32_t) + 1;
     }
 
-    Slice key_without_seq = Slice(
-            key.get_data(), key.get_size() - (with_seq_col ? seq_col_length + rowid_length : 0));
+    Slice key_without_seq =
+            Slice(key.get_data(), key.get_size() - (with_seq_col ? seq_col_length : 0) -
+                                          (with_rowid ? rowid_length : 0));
 
     DCHECK(_pk_index_reader != nullptr);
     if (!_pk_index_reader->check_present(key_without_seq)) {
