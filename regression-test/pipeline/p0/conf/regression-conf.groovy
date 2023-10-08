@@ -86,6 +86,12 @@ enableHiveTest=false
 hms_port=7141
 hiveServerPort=10000
 
+// kafka test config
+// to enable kafka test, you need firstly to start kafka container
+// See `docker/thirdparties/start-thirdparties-docker.sh`
+enableKafkaTest=true
+kafka_port=19193
+
 enableEsTest=false
 es_6_port=19200
 es_7_port=29200

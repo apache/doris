@@ -24,18 +24,18 @@ defaultDb = "regression_test"
 // init cmd like: select @@session.tx_read_only
 // at each time we connect.
 // add allowLoadLocalInfile so that the jdbc can execute mysql load data from client.
-jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
-targetJdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
+jdbcUrl = "jdbc:mysql://127.0.0.1:9239/?useLocalSessionState=true&allowLoadLocalInfile=true"
+targetJdbcUrl = "jdbc:mysql://127.0.0.1:9239/?useLocalSessionState=true&allowLoadLocalInfile=true"
 jdbcUser = "root"
 jdbcPassword = ""
 
-feSourceThriftAddress = "127.0.0.1:9020"
-feTargetThriftAddress = "127.0.0.1:9020"
+feSourceThriftAddress = "127.0.0.1:9229"
+feTargetThriftAddress = "127.0.0.1:9229"
 syncerAddress = "127.0.0.1:9190"
 feSyncerUser = "root"
 feSyncerPassword = ""
 
-feHttpAddress = "127.0.0.1:8030"
+feHttpAddress = "127.0.0.1:8239"
 feHttpUser = "root"
 feHttpPassword = ""
 
@@ -105,7 +105,7 @@ hiveServerPort=10000
 // kafka test config
 // to enable kafka test, you need firstly to start kafka container
 // See `docker/thirdparties/start-thirdparties-docker.sh`
-enableKafkaTest=true
+enableKafkaTest=false
 kafka_port=19193
 
 // elasticsearch catalog test config
@@ -161,4 +161,4 @@ max_failure_num=0
 // used for exporting test
 s3ExportBucketName = ""
 
-externalEnvIp="127.0.0.1"
+externalEnvIp="172.30.0.96"
