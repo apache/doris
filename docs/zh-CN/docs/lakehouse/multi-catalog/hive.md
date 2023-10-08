@@ -382,7 +382,7 @@ CREATE CATALOG hive PROPERTIES (
 
 ## 使用 broker 访问 HMS
 
-创建 HMS Catalog 时增加如下配置，Hive 外表文件分片和文件扫描将会由名为 `test_broekr` 的 broker 完成
+创建 HMS Catalog 时增加如下配置，Hive 外表文件分片和文件扫描将会由名为 `test_broker` 的 broker 完成
 
 ```sql
 "broker.name" = "test_broker"

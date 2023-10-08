@@ -106,10 +106,10 @@ struct TBrokerListPathRequest {
 }
 
 struct TBrokerIsSplittableRequest {
-    1: required TBrokerVersion version;
-    2: required string path;
-    3: required string inputFormat;
-    4: required map<string,string> properties;
+    1: optional TBrokerVersion version;
+    2: optional string path;
+    3: optional string inputFormat;
+    4: optional map<string,string> properties;
 }
 
 struct TBrokerDeletePathRequest {

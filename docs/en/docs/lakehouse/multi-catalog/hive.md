@@ -403,7 +403,7 @@ The variable default is false.
 
 ## Access HMS with broker
 
-Add following setting when creating an HMS catalog, file splitting and scanning for Hive external table will be completed by broker named `test_broekr`
+Add following setting when creating an HMS catalog, file splitting and scanning for Hive external table will be completed by broker named `test_broker`
 
 ```sql
 "broker.name" = "test_broker"
