@@ -566,7 +566,7 @@ struct TimeRoundOpt {
                 int minute = ts2.minute();
                 int new_minute = minute / period * period;
                 if (new_minute >= 60) {
-                    new_minute = new_minute % 24;
+                    new_minute = new_minute % 60;
                 }
                 ts1.set_int_val(ts2.to_date_int_val() & MASK_MINUTE_FLOOR);
                 ts1.template set_time_unit<TimeUnit::MINUTE>(new_minute);
@@ -576,7 +576,7 @@ struct TimeRoundOpt {
                 int second = ts2.second();
                 int new_second = second / period * period;
                 if (new_second >= 60) {
-                    new_second = new_second % 24;
+                    new_second = new_second % 60;
                 }
                 ts1.set_int_val(ts2.to_date_int_val() & MASK_SECOND_FLOOR);
                 ts1.template set_time_unit<TimeUnit::SECOND>(new_second);
