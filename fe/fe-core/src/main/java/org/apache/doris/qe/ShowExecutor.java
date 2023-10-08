@@ -455,7 +455,7 @@ public class ShowExecutor {
                 .listConnection(ctx.getQualifiedUser(), showStmt.isFull());
         long nowMs = System.currentTimeMillis();
         for (ConnectContext.ThreadInfo info : threadInfos) {
-            rowSet.add(info.toRow(nowMs));
+            rowSet.add(info.toRow(ctx.getConnectionId(), nowMs));
         }
 
         resultSet = new ShowResultSet(showStmt.getMetaData(), rowSet);
