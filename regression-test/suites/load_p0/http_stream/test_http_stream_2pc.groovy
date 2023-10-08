@@ -72,7 +72,6 @@ suite("test_http_stream_2pc", "p0") {
         assertEquals(code, 0)
         assertEquals("success", json2pc.status.toLowerCase())
 
-        sql """sync"""
         qt_sql1 "select id, name from ${tableName1} order by id"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName1}"
