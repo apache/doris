@@ -442,14 +442,14 @@ if  [[ "${RUN_TRINO}" -eq 1 ]]; then
     fi
 fi
 
-if [[ "${RUN_MYSQL}" -eq 1 ]]; then
-    # mysql 5.7
-    cp "${ROOT}"/docker-compose/mairadb/mariadb-10.yaml.tpl "${ROOT}"/docker-compose/mairadb/mariadb-10.yaml
-    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/mairadb/mariadb-10.yaml
-    sudo docker compose -f "${ROOT}"/docker-compose/mairadb/mariadb-10.yaml --env-file "${ROOT}"/docker-compose/mairadb/mariadb-10.env down
+if [[ "${RUN_MARIADB}" -eq 1 ]]; then
+    # mariadb
+    cp "${ROOT}"/docker-compose/mariadb/mariadb-10.yaml.tpl "${ROOT}"/docker-compose/mariadb/mariadb-10.yaml
+    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/mariadb/mariadb-10.yaml
+    sudo docker compose -f "${ROOT}"/docker-compose/mariadb/mariadb-10.yaml --env-file "${ROOT}"/docker-compose/mariadb/mariadb-10.env down
     if [[ "${STOP}" -ne 1 ]]; then
         sudo mkdir -p "${ROOT}"/docker-compose/mariadb/data/
         sudo rm "${ROOT}"/docker-compose/mariadb/data/* -rf
-        sudo docker compose -f "${ROOT}"/docker-compose/mairadb/mariadb-10.yaml --env-file "${ROOT}"/docker-compose/mairadb/mariadb-10.env up -d
+        sudo docker compose -f "${ROOT}"/docker-compose/mariadb/mariadb-10.yaml --env-file "${ROOT}"/docker-compose/mariadb/mariadb-10.env up -d
     fi
 fi
