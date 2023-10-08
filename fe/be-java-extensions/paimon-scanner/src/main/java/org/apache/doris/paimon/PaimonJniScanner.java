@@ -21,13 +21,10 @@ import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ScanPredicate;
 import org.apache.doris.common.jni.vec.TableSchema;
+import org.apache.doris.paimon.PaimonTableCache.PaimonTableCacheKey;
+import org.apache.doris.paimon.PaimonTableCache.TableExt;
 
-import org.apache.paimon.catalog.Catalog;
-import org.apache.paimon.catalog.CatalogContext;
-import org.apache.paimon.catalog.CatalogFactory;
-import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.InternalRow;
-import org.apache.paimon.options.Options;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.table.Table;
@@ -57,12 +54,21 @@ public class PaimonJniScanner extends JniScanner {
     private final PaimonColumnValue columnValue = new PaimonColumnValue();
     private List<String> paimonAllFieldNames;
 
+    private long ctlId;
+    private long dbId;
+    private long tblId;
+    private long lastUpdateTime;
+
     public PaimonJniScanner(int batchSize, Map<String, String> params) {
         LOG.debug("params:{}", params);
         paimonSplit = params.get("paimon_split");
         paimonPredicate = params.get("paimon_predicate");
         dbName = params.get("db_name");
         tblName = params.get("table_name");
+        ctlId = Long.parseLong(params.get("ctl_id"));
+        dbId = Long.parseLong(params.get("db_id"));
+        tblId = Long.parseLong(params.get("tbl_id"));
+        lastUpdateTime = Long.parseLong(params.get("last_update_time"));
         super.batchSize = batchSize;
         super.fields = params.get("paimon_column_names").split(",");
         super.predicates = new ScanPredicate[0];
@@ -153,21 +159,17 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     private void initTable() {
-        try {
-            Catalog catalog = createCatalog();
-            table = catalog.getTable(Identifier.create(dbName, tblName));
-            paimonAllFieldNames = PaimonScannerUtils.fieldNames(table.rowType());
-            LOG.info("paimonAllFieldNames:{}", paimonAllFieldNames);
-        } catch (Catalog.TableNotExistException e) {
-            LOG.warn("failed to create paimon external catalog ", e);
-            throw new RuntimeException(e);
+        PaimonTableCacheKey key = new PaimonTableCacheKey(ctlId, dbId, tblId, paimonOptionParams, dbName, tblName);
+        TableExt tableExt = PaimonTableCache.getTable(key);
+        if (tableExt.getCreateTime() < lastUpdateTime) {
+            LOG.warn("invalidate cacha table:{}, localTime:{}, remoteTime:{}", key, tableExt.getCreateTime(),
+                    lastUpdateTime);
+            PaimonTableCache.invalidateTableCache(key);
+            tableExt = PaimonTableCache.getTable(key);
         }
+        this.table = tableExt.getTable();
+        paimonAllFieldNames = PaimonScannerUtils.fieldNames(this.table.rowType());
+        LOG.info("paimonAllFieldNames:{}", paimonAllFieldNames);
     }
 
-    private Catalog createCatalog() {
-        Options options = new Options();
-        paimonOptionParams.entrySet().stream().forEach(kv -> options.set(kv.getKey(), kv.getValue()));
-        CatalogContext context = CatalogContext.create(options);
-        return CatalogFactory.createCatalog(context);
-    }
 }
