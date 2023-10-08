@@ -372,7 +372,9 @@ Status SegmentIterator::_get_row_ranges_by_keys() {
 
     // pre-condition: _row_ranges == [0, num_rows)
     size_t pre_size = _row_bitmap.cardinality();
-    if (_segment->_tablet_schema->cluster_key_idxes().empty()) {
+    if (_segment->_tablet_schema->keys_type() != KeysType::UNIQUE_KEYS ||
+        (_segment->_tablet_schema->keys_type() == KeysType::UNIQUE_KEYS &&
+         _segment->_tablet_schema->cluster_key_idxes().empty())) {
         RowRanges result_ranges;
         for (auto& key_range : _opts.key_ranges) {
             rowid_t lower_rowid = 0;
