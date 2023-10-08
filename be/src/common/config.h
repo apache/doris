@@ -148,7 +148,7 @@ DECLARE_mInt32(max_fill_rate);
 DECLARE_mInt32(double_resize_threshold);
 
 // Expand the hash table before inserting data, the maximum expansion size.
-// There are fewer duplicate keys, reducing the number of resize hash tables
+// There are fewer duplicate keys, reducing the number of resized hash tables
 // There are many duplicate keys, and the hash table filled bucket is far less than the hash table build bucket.
 DECLARE_mInt64(hash_table_pre_expanse_max_rows);
 
