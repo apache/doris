@@ -368,7 +368,7 @@ Status ColumnNullable::filter_by_selector(const uint16_t* sel, size_t sel_size, 
                                 ->get_data();
     DCHECK(res_nullmap.empty());
     for (size_t i = 0; i < sel_size; i++) {
-        res_nullmap[i] = get_null_map_data()[i];
+        res_nullmap[i] = get_null_map_data()[sel[i]];
     }
     return Status::OK();
 }
