@@ -138,6 +138,7 @@ suite("test_routine_load","p0,external,external_docker,external_docker_routine_l
                     if (state == "NEED_SCHEDULE") {
                         continue;
                     }
+                    log.info(res[0][17].toString());
                     assertEquals(res[0][8].toString(), "RUNNING")
                     break;
                 }
