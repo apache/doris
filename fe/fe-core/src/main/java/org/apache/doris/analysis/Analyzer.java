@@ -2460,8 +2460,7 @@ public class Analyzer {
         // constant conjuncts should be push down to all leaf node except agg node.
         // (see getPredicatesBoundedByGroupbysSourceExpr method)
         // so we need remove constant conjuncts when expr is not a leaf node.
-        List<Expr> unassigned = getUnassignedConjuncts(
-                node instanceof AggregationNode ? node.getTupleIds() : node.getTblRefIds());
+        List<Expr> unassigned = getUnassignedConjuncts(node.getTblRefIds());
         if (!node.getChildren().isEmpty() && !(node instanceof AggregationNode)) {
             unassigned = unassigned.stream()
                     .filter(e -> !e.isConstant()).collect(Collectors.toList());

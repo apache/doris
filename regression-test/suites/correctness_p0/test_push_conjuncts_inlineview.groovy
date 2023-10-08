@@ -151,5 +151,39 @@ explain {
     }
 
  sql """ DROP TABLE IF EXISTS `push_conjunct_table` """
+
+    sql """ DROP TABLE IF EXISTS `dwd_mf_wms_plate_table` """
+    sql """ CREATE TABLE `dwd_mf_wms_plate_table` (
+            `id` int(11) NOT NULL COMMENT '主键',
+            `length` float NOT NULL COMMENT '',
+            `created_time` datetime NULL COMMENT '创建时间'
+            ) ENGINE=OLAP
+            UNIQUE KEY(`id`)
+            COMMENT ''
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );"""
+    explain {
+            sql("""select created_time from(
+                        select 
+                        ROW_NUMBER() over(order by id ) as row_num,
+                        id,
+                        length,
+                        created_time
+                        from(
+                        select
+                        id,
+                        `length` ,
+                        created_time
+                        from
+                        dwd_mf_wms_plate_table
+                        ) t
+                        group by id,length,created_time
+                        ) res 
+                        where res.created_time<'2022-02-18 09:30:13';""")
+            contains "VSELECT"
+        }
+    sql """ DROP TABLE IF EXISTS `dwd_mf_wms_plate_table` """
 }
 
