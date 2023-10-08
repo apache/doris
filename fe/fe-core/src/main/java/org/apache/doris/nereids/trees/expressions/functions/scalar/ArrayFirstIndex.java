@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -49,11 +48,7 @@ public class ArrayFirstIndex extends ScalarFunction
      * array_first_index(lambda, a1, ...) = array_first_index(array_map(lambda, a1, ...))
      */
     public ArrayFirstIndex(Expression arg) {
-        super("array_first_index", new ArrayMap(arg));
-        if (!(arg instanceof Lambda)) {
-            throw new AnalysisException(
-                    String.format("The 1st arg of %s must be lambda but is %s", getName(), arg));
-        }
+        super("array_first_index", arg instanceof Lambda ? new ArrayMap(arg) : arg);
     }
 
     /**
