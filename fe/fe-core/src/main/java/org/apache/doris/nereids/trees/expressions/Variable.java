@@ -47,11 +47,6 @@ public class Variable extends Expression implements LeafExpression {
         return name;
     }
 
-    @Override
-    protected String getExpressionName() {
-        return "variable";
-    }
-
     public VariableType getType() {
         return type;
     }
