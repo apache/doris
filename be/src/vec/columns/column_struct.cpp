@@ -261,7 +261,7 @@ size_t ColumnStruct::filter(const Filter& filter) {
     }
     return result_size;
 }
-  
+
 ColumnPtr ColumnStruct::permute(const Permutation& perm, size_t limit) const {
     const size_t tuple_size = columns.size();
     Columns new_columns(tuple_size);
