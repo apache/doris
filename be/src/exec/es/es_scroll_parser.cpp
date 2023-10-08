@@ -187,7 +187,7 @@ Status get_int_value(const rapidjson::Value& col, PrimitiveType type, void* slot
 
 template <typename T, typename RT>
 Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool is_date_str,
-                          RT* slot, const std::string& time_zone) {
+                          RT* slot, const cctz::time_zone& time_zone) {
     constexpr bool is_datetime_v1 = std::is_same_v<T, vectorized::VecDateTimeValue>;
     T dt_val;
     if (is_date_str) {
@@ -273,7 +273,7 @@ Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool 
 
 template <typename T, typename RT>
 Status get_date_int(const rapidjson::Value& col, PrimitiveType type, bool pure_doc_value, RT* slot,
-                    const std::string& time_zone) {
+                    const cctz::time_zone& time_zone) {
     // this would happend just only when `enable_docvalue_scan = false`, and field has timestamp format date from _source
     if (col.IsNumber()) {
         // ES process date/datetime field would use millisecond timestamp for index or docvalue
@@ -300,7 +300,7 @@ Status get_date_int(const rapidjson::Value& col, PrimitiveType type, bool pure_d
 }
 template <typename T, typename RT>
 Status fill_date_int(const rapidjson::Value& col, PrimitiveType type, bool pure_doc_value,
-                     vectorized::IColumn* col_ptr, const std::string& time_zone) {
+                     vectorized::IColumn* col_ptr, const cctz::time_zone& time_zone) {
     RT data;
     RETURN_IF_ERROR((get_date_int<T, RT>(col, type, pure_doc_value, &data, time_zone)));
     col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&data)), 0);
@@ -459,7 +459,7 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
                                   std::vector<vectorized::MutableColumnPtr>& columns,
                                   bool* line_eof,
                                   const std::map<std::string, std::string>& docvalue_context,
-                                  const std::string& time_zone) {
+                                  const cctz::time_zone& time_zone) {
     *line_eof = true;
 
     if (_size <= 0 || _line_index >= _size) {

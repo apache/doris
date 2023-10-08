@@ -41,7 +41,7 @@ public:
     Status fill_columns(const TupleDescriptor* _tuple_desc,
                         std::vector<vectorized::MutableColumnPtr>& columns, bool* line_eof,
                         const std::map<std::string, std::string>& docvalue_context,
-                        const std::string& time_zone);
+                        const cctz::time_zone& time_zone);
 
     const std::string& get_scroll_id();
     int get_size() const;
