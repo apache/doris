@@ -40,14 +40,17 @@ public class SessionController extends BaseController {
     private static final List<String> SESSION_TABLE_HEADER = Lists.newArrayList();
 
     static {
+        SESSION_TABLE_HEADER.add("CurrentConnected");
         SESSION_TABLE_HEADER.add("Id");
         SESSION_TABLE_HEADER.add("User");
         SESSION_TABLE_HEADER.add("Host");
-        SESSION_TABLE_HEADER.add("Cluster");
+        SESSION_TABLE_HEADER.add("LoginTime");
+        SESSION_TABLE_HEADER.add("Catalog");
         SESSION_TABLE_HEADER.add("Db");
         SESSION_TABLE_HEADER.add("Command");
         SESSION_TABLE_HEADER.add("Time");
         SESSION_TABLE_HEADER.add("State");
+        SESSION_TABLE_HEADER.add("QueryId");
         SESSION_TABLE_HEADER.add("Info");
     }
 
@@ -71,7 +74,7 @@ public class SessionController extends BaseController {
 
         long nowMs = System.currentTimeMillis();
         for (ConnectContext.ThreadInfo info : threadInfos) {
-            rows.add(info.toRow(nowMs));
+            rows.add(info.toRow(-1, nowMs));
         }
 
         for (List<String> row : rows) {

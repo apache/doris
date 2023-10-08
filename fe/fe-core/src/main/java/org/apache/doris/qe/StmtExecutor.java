@@ -2588,6 +2588,13 @@ public class StmtExecutor {
     public void setProxyResultSet(ShowResultSet proxyResultSet) {
         this.proxyResultSet = proxyResultSet;
     }
+
+    public String getOriginStmtInString() {
+        if (originStmt != null && originStmt.originStmt != null) {
+            return originStmt.originStmt;
+        }
+        return "";
+    }
 }
 
 
