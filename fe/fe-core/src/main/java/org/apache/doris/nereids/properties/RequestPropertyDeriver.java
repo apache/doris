@@ -166,7 +166,9 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
             addShuffleJoinRequestProperty(hashJoin);
         }
         // for broadcast join
-        if (JoinUtils.couldBroadcast(hashJoin)) {
+        if (JoinUtils.couldBroadcast(hashJoin)
+                && hashJoin.getGroupExpression().get().child(1).getStatistics().getRowCount()
+                < ConnectContext.get().getSessionVariable().getBroadcastRowCountLimit()) {
             addBroadcastJoinRequestProperty();
         }
         return null;

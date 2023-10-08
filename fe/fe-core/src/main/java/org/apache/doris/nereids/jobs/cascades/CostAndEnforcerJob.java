@@ -189,6 +189,16 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                         lowestCostExpr.getCostValueByProperties(requestChildProperty),
                         curChildIndex);
                 if (curTotalCost.getValue() > context.getCostUpperBound()) {
+                    // TODO: remove it for pruning
+                    // setting it to infinity instead of exiting directly is to avoid repeatedly
+                    // optimizing the children. For example:
+                    //      Group1 : betterExpr, currentExpr(child: Group2)
+                    //      steps
+                    //          1. CostAndEnforce(currentExpr) with upperBound betterExpr.cost
+                    //          2. OptimzeGroup(Group2) with upperBound bestExpr.cost - currentExpr.nodeCost
+                    //          3. CostAndEnforce(Expr in Group2) trigger here and exit
+                    //              ...
+                    //          n.  CostAndEnforce(Group2) and then optimize group2 again for the same requireProp
                     curTotalCost = Cost.infinite();
                 }
                 // the request child properties will be covered by the output properties
@@ -275,6 +285,23 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
             }
             return;
         }
+
+        if (context.getRequiredProperties().isDistributorProperties()) {
+            // For properties without an orderSpec, enforceMissingPropertiesHelper always adds a distributor
+            // above this group expression. The cost of the distributor is equal to the cost of the groupExpression
+            // plus the cost of the distributor. The distributor remains unchanged for different groupExpressions.
+            // Therefore, if there is a better groupExpr, it is preferable to enforce the better groupExpr.
+            // Consequently, we can avoid this enforcement.
+            Optional<Pair<Cost, GroupExpression>> bestExpr = groupExpression.getOwnerGroup()
+                    .getLowestCostPlan(context.getRequiredProperties());
+            double bestCost = bestExpr
+                    .map(costGroupExpressionPair -> costGroupExpressionPair.first.getValue())
+                    .orElse(Double.POSITIVE_INFINITY);
+            if (curTotalCost.getValue() > bestCost) {
+                return;
+            }
+        }
+
         EnforceMissingPropertiesHelper enforceMissingPropertiesHelper
                 = new EnforceMissingPropertiesHelper(context, groupExpression, curTotalCost);
         PhysicalProperties addEnforcedProperty = enforceMissingPropertiesHelper
