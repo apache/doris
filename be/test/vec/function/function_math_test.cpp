@@ -48,7 +48,7 @@ TEST(MathFunctionTest, acos_test) {
                         //{{3.14},nan("")},
                         {{1.0}, 0.0}};
 
-    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
 
 TEST(MathFunctionTest, asin_test) {
@@ -59,7 +59,7 @@ TEST(MathFunctionTest, asin_test) {
     DataSet data_set = {
             {{-1.0}, -M_PI / 2}, {{0.0}, 0.0}, {{0.5}, 0.52359877559829893}, {{1.0}, M_PI / 2}};
 
-    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
 
 TEST(MathFunctionTest, atan_test) {
@@ -72,7 +72,7 @@ TEST(MathFunctionTest, atan_test) {
                         {{0.5}, 0.46364760900080609},
                         {{1.0}, 0.78539816339744828}};
 
-    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
 
 TEST(MathFunctionTest, cos_test) {
@@ -86,7 +86,7 @@ TEST(MathFunctionTest, cos_test) {
                         {{M_PI}, -1.0},
                         {{1.0}, 0.54030230586813977}};
 
-    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
 
 TEST(MathFunctionTest, sin_test) {
@@ -100,7 +100,7 @@ TEST(MathFunctionTest, sin_test) {
                         {{M_PI / 2}, 1.0},
                         {{1.0}, 0.8414709848078965}};
 
-    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
 
 TEST(MathFunctionTest, sqrt_test) {
@@ -113,7 +113,7 @@ TEST(MathFunctionTest, sqrt_test) {
                         {{9.0}, 3.0},
                         {{1000.0}, 31.622776601683793}};
 
-    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
 
 TEST(MathFunctionTest, cbrt_test) {
@@ -124,7 +124,7 @@ TEST(MathFunctionTest, cbrt_test) {
     DataSet data_set = {
             {{0.0}, 0.0}, {{2.0}, 1.2599210498948734}, {{8.0}, 2.0}, {{-1000.0}, -10.0}};
 
-    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
 
 TEST(MathFunctionTest, tan_test) {
@@ -137,7 +137,7 @@ TEST(MathFunctionTest, tan_test) {
                         {{-1.0}, -1.5574077246549023},
                         {{1000.0}, 1.4703241557027185}};
 
-    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
 
 TEST(MathFunctionTest, exp_test) {
@@ -151,7 +151,7 @@ TEST(MathFunctionTest, exp_test) {
                         {{-800.0}, 0.0},
                         {{1.0}, 2.7182818284590451}};
 
-    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
 
 TEST(MathFunctionTest, ln_test) {
@@ -165,7 +165,7 @@ TEST(MathFunctionTest, ln_test) {
                         {{100.0}, 4.6051701859880918},
                         {{1000.0}, 6.9077552789821368}};
 
-    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
 
 TEST(MathFunctionTest, log2_test) {
@@ -179,7 +179,7 @@ TEST(MathFunctionTest, log2_test) {
                         {{1000.0}, 9.965784284662087},
                         {{-1.0}, Null()}};
 
-    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
 
 TEST(MathFunctionTest, log10_test) {
@@ -193,7 +193,7 @@ TEST(MathFunctionTest, log10_test) {
                         {{-1.0}, Null()},
                         {{1000.0}, 3.0}};
 
-    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
 
 TEST(MathFunctionTest, log_test) {
@@ -205,7 +205,7 @@ TEST(MathFunctionTest, log_test) {
             {{10.0, 1.0}, 0.0},    {{10.0, 100.0}, 2.0},  {{0.1, 5.0}, -0.69897000433601886},
             {{-2.0, 5.0}, Null()}, {{2.0, -5.0}, Null()}, {{2.0, 0.5}, -1.0}};
 
-    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
 
 TEST(MathFunctionTest, pow_test) {
@@ -218,7 +218,7 @@ TEST(MathFunctionTest, pow_test) {
                         {{100.0, -2.0}, 0.0001},
                         {{2.0, 0.5}, 1.4142135623730951}};
 
-    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
 
 TEST(MathFunctionTest, ceil_test) {
@@ -228,7 +228,7 @@ TEST(MathFunctionTest, ceil_test) {
 
     DataSet data_set = {{{2.3}, 3.0}, {{2.8}, 3.0}, {{-2.3}, -2.0}, {{2.8}, 3.0}};
 
-    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
 
 TEST(MathFunctionTest, floor_test) {
@@ -238,7 +238,7 @@ TEST(MathFunctionTest, floor_test) {
 
     DataSet data_set = {{{2.3}, 2.0}, {{2.8}, 2.0}, {{-2.3}, -3.0}, {{-2.8}, -3.0}};
 
-    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
 
 TEST(MathFunctionTest, degrees_test) {
@@ -251,7 +251,7 @@ TEST(MathFunctionTest, degrees_test) {
                         {{0.0}, 0.0},
                         {{-2.0}, -114.59155902616465}};
 
-    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
 
 TEST(MathFunctionTest, radians_test) {
@@ -264,7 +264,7 @@ TEST(MathFunctionTest, radians_test) {
                         {{0.0}, 0.0},
                         {{-60.0}, -1.0471975511965976}};
 
-    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
 
 TEST(MathFunctionTest, abs_test) {
@@ -279,7 +279,7 @@ TEST(MathFunctionTest, abs_test) {
                             {{0.0}, 0.0},
                             {{-60.0}, 60.0}};
 
-        check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
     }
 
     {
@@ -293,7 +293,7 @@ TEST(MathFunctionTest, abs_test) {
                             {{INT(INT_MAX)}, BIGINT(INT_MAX)},
                             {{INT(INT_MIN)}, BIGINT(-1ll * INT_MIN)}};
 
-        check_function<DataTypeInt64, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
     }
 }
 
@@ -305,7 +305,7 @@ TEST(MathFunctionTest, positive_test) {
 
         DataSet data_set = {{{0.0123}, 0.0123}, {{90.45}, 90.45}, {{0.0}, 0.0}, {{-60.0}, -60.0}};
 
-        check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
     }
 
     {
@@ -316,7 +316,7 @@ TEST(MathFunctionTest, positive_test) {
                             {{(int32_t)0}, (int32_t)0},
                             {{(int32_t)-60}, (int32_t)-60}};
 
-        check_function<DataTypeInt32, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
     }
 }
 
@@ -328,7 +328,7 @@ TEST(MathFunctionTest, negative_test) {
 
         DataSet data_set = {{{0.0123}, -0.0123}, {{90.45}, -90.45}, {{0.0}, 0.0}, {{-60.0}, 60.0}};
 
-        check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
     }
 
     {
@@ -339,7 +339,7 @@ TEST(MathFunctionTest, negative_test) {
                             {{(int32_t)0}, (int32_t)0},
                             {{(int32_t)-60}, (int32_t)60}};
 
-        check_function<DataTypeInt32, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
     }
 }
 
@@ -353,14 +353,14 @@ TEST(MathFunctionTest, sign_test) {
                             {{(int32_t)0}, (int8_t)0.0},
                             {{(int32_t)-10}, (int8_t)-1.0}};
 
-        check_function<DataTypeInt8, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeInt8, true>(func_name, input_types, data_set));
     }
     {
         InputTypeSet input_types = {TypeIndex::Float64};
 
         DataSet data_set = {{{30.7}, (int8_t)1.0}, {{0.0}, (int8_t)0.0}, {{-10.6}, (int8_t)-1.0}};
 
-        check_function<DataTypeInt8, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeInt8, true>(func_name, input_types, data_set));
     }
 }
 
@@ -373,7 +373,7 @@ TEST(MathFunctionTest, round_test) {
         DataSet data_set = {{{30.1}, 30.0}, {{90.6}, 91.0}, {{Null()}, Null()},
                             {{0.0}, 0.0},   {{-1.1}, -1.0}, {{-60.7}, -61.0}};
 
-        check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
     }
 }
 
@@ -385,7 +385,7 @@ TEST(MathFunctionTest, round_bankers_test) {
 
         DataSet data_set = {{{0.4}, 0.0}, {{-3.5}, -4.0}, {{4.5}, 4.0}, {{Null()}, Null()}};
 
-        check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
     }
 }
 
@@ -397,7 +397,7 @@ TEST(MathFunctionTest, least_test) {
     DataSet data_set = {
             {{3, 2}, 2}, {{3, 3}, 3}, {{Null(), -2}, Null()}, {{193, -2}, -2}, {{193, -1}, -1}};
 
-    check_function<DataTypeInt32, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
 }
 
 TEST(MathFunctionTest, greatest_test) {
@@ -408,7 +408,7 @@ TEST(MathFunctionTest, greatest_test) {
     DataSet data_set = {
             {{3, 2}, 3}, {{3, 3}, 3}, {{Null(), -2}, Null()}, {{193, -2}, 193}, {{193, -1}, 193}};
 
-    check_function<DataTypeInt32, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
 }
 
 TEST(MathFunctionTest, bin_test) {
@@ -421,7 +421,7 @@ TEST(MathFunctionTest, bin_test) {
                         {{(int64_t)0}, std::string("0")},
                         {{Null()}, Null()}};
 
-    check_function<DataTypeString, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
 }
 
 TEST(MathFunctionTest, hex_test) {
@@ -439,7 +439,7 @@ TEST(MathFunctionTest, hex_test) {
                         {{(int64_t)9223372036854775807}, std::string("7FFFFFFFFFFFFFFF")},
                         {{(int64_t)-7453337203775808}, std::string("FFE5853AB393E6C0")}};
 
-    check_function<DataTypeString, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
 }
 
 TEST(MathFunctionTest, random_test) {
@@ -454,7 +454,7 @@ TEST(MathFunctionTest, random_test) {
 
     for (const auto& data : data_set) {
         DataSet data_line = {data};
-        check_function<DataTypeFloat64, true>(func_name, input_types, data_line);
+        static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_line));
     }
 }
 
@@ -469,7 +469,8 @@ TEST(MathFunctionTest, conv_test) {
 
         for (const auto& data : data_set) {
             DataSet data_line = {data};
-            check_function<DataTypeString, true>(func_name, input_types, data_line);
+            static_cast<void>(
+                    check_function<DataTypeString, true>(func_name, input_types, data_line));
         }
     }
 
@@ -480,7 +481,8 @@ TEST(MathFunctionTest, conv_test) {
 
         for (const auto& data : data_set) {
             DataSet data_line = {data};
-            check_function<DataTypeString, true>(func_name, input_types, data_line);
+            static_cast<void>(
+                    check_function<DataTypeString, true>(func_name, input_types, data_line));
         }
     }
 }
@@ -494,7 +496,7 @@ TEST(MathFunctionTest, money_format_test) {
                             {{BIGINT(17014116)}, VARCHAR("17,014,116.00")},
                             {{BIGINT(-17014116)}, VARCHAR("-17,014,116.00")}};
 
-        check_function<DataTypeString, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
 
     {
@@ -503,7 +505,7 @@ TEST(MathFunctionTest, money_format_test) {
                             {{LARGEINT(17014116)}, VARCHAR("17,014,116.00")},
                             {{LARGEINT(-17014116)}, VARCHAR("-17,014,116.00")}};
 
-        check_function<DataTypeString, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
     {
         InputTypeSet input_types = {TypeIndex::Float64};
@@ -511,7 +513,7 @@ TEST(MathFunctionTest, money_format_test) {
                             {{DOUBLE(17014116.67)}, VARCHAR("17,014,116.67")},
                             {{DOUBLE(-17014116.67)}, VARCHAR("-17,014,116.67")}};
 
-        check_function<DataTypeString, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
     {
         InputTypeSet input_types = {TypeIndex::Decimal128};
@@ -519,7 +521,7 @@ TEST(MathFunctionTest, money_format_test) {
                             {{DECIMAL(17014116.67)}, VARCHAR("17,014,116.67")},
                             {{DECIMAL(-17014116.67)}, VARCHAR("-17,014,116.67")}};
 
-        check_function<DataTypeString, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
 }
 

@@ -45,13 +45,14 @@ namespace orc {
 struct ColumnVectorBatch;
 } // namespace orc
 
-#define SERIALIZE_COLUMN_TO_JSON()                                            \
-    for (size_t i = start_idx; i < end_idx; ++i) {                            \
-        if (i != start_idx) {                                                 \
-            bw.write(options.field_delim.data(), options.field_delim.size()); \
-        }                                                                     \
-        serialize_one_cell_to_json(column, i, bw, options);                   \
-    }
+#define SERIALIZE_COLUMN_TO_JSON()                                                          \
+    for (size_t i = start_idx; i < end_idx; ++i) {                                          \
+        if (i != start_idx) {                                                               \
+            bw.write(options.field_delim.data(), options.field_delim.size());               \
+        }                                                                                   \
+        RETURN_IF_ERROR(serialize_one_cell_to_json(column, i, bw, options, nesting_level)); \
+    }                                                                                       \
+    return Status::OK();
 
 #define DESERIALIZE_COLUMN_FROM_JSON_VECTOR()                                                      \
     for (int i = 0; i < slices.size(); ++i) {                                                      \
@@ -135,6 +136,11 @@ public:
 
         char escape_char = 0;
 
+        /**
+         * only used for export data
+         */
+        bool _output_object_data = true;
+
         [[nodiscard]] char get_collection_delimiter(int nesting_level) const {
             CHECK(0 <= nesting_level && nesting_level <= 153);
 
@@ -187,12 +193,14 @@ public:
     DataTypeSerDe();
     virtual ~DataTypeSerDe();
     // Text serializer and deserializer with formatOptions to handle different text format
-    virtual void serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
-                                            FormatOptions& options) const = 0;
+    virtual Status serialize_one_cell_to_json(const IColumn& column, int row_num,
+                                              BufferWritable& bw, FormatOptions& options,
+                                              int nesting_level = 1) const = 0;
 
     // this function serialize multi-column to one row text to avoid virtual function call in complex type nested loop
-    virtual void serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
-                                          BufferWritable& bw, FormatOptions& options) const = 0;
+    virtual Status serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
+                                            BufferWritable& bw, FormatOptions& options,
+                                            int nesting_level = 1) const = 0;
 
     virtual Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                   const FormatOptions& options,
@@ -219,7 +227,11 @@ public:
     virtual void serialize_one_cell_to_hive_text(const IColumn& column, int row_num,
                                                  BufferWritable& bw, FormatOptions& options,
                                                  int nesting_level = 1) const {
-        serialize_one_cell_to_json(column, row_num, bw, options);
+        Status st = serialize_one_cell_to_json(column, row_num, bw, options);
+        if (!st.ok()) {
+            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                                   "serialize_one_cell_to_json error: {}", st.to_string());
+        }
     }
 
     // Protobuf serializer and deserializer

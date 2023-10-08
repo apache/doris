@@ -79,8 +79,8 @@ std::unique_ptr<Block> AsyncResultWriter::get_block_from_queue() {
 }
 
 void AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* profile) {
-    ExecEnv::GetInstance()->fragment_mgr()->get_thread_pool()->submit_func(
-            [this, state, profile]() { this->process_block(state, profile); });
+    static_cast<void>(ExecEnv::GetInstance()->fragment_mgr()->get_thread_pool()->submit_func(
+            [this, state, profile]() { this->process_block(state, profile); }));
 }
 
 void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profile) {
@@ -120,7 +120,7 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
     // if not in transaction or status is in error or force close we can do close in
     // async IO thread
     if (!_writer_status.ok() || !in_transaction()) {
-        close(_writer_status);
+        static_cast<void>(close(_writer_status));
         _need_normal_close = false;
     }
     _writer_thread_closed = true;

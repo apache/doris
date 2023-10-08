@@ -733,12 +733,10 @@ DEFINE_mInt32(mem_tracker_consume_min_size_bytes, "1048576");
 // In most cases, it does not need to be modified.
 DEFINE_mDouble(tablet_version_graph_orphan_vertex_ratio, "0.1");
 
-// share brpc streams when memtable_on_sink_node = true
-DEFINE_Bool(share_load_streams, "true");
 // share delta writers when memtable_on_sink_node = true
 DEFINE_Bool(share_delta_writers, "true");
-// number of brpc stream per OlapTableSinkV2 (per load if share_load_streams = true)
-DEFINE_Int32(num_streams_per_sink, "5");
+// number of brpc stream per load
+DEFINE_Int32(num_streams_per_load, "5");
 // timeout for open stream sink rpc in ms
 DEFINE_Int64(open_stream_sink_timeout_ms, "500");
 
@@ -1106,6 +1104,7 @@ DEFINE_Bool(exit_on_exception, "false");
 
 // cgroup
 DEFINE_String(doris_cgroup_cpu_path, "");
+DEFINE_Bool(enable_cpu_hard_limit, "false");
 
 // clang-format off
 #ifdef BE_TEST
@@ -1526,9 +1525,12 @@ Status set_fuzzy_config(const std::string& field, const std::string& value) {
 
 void set_fuzzy_configs() {
     // random value true or false
-    set_fuzzy_config("disable_storage_page_cache", ((rand() % 2) == 0) ? "true" : "false");
-    set_fuzzy_config("enable_system_metrics", ((rand() % 2) == 0) ? "true" : "false");
-    set_fuzzy_config("enable_simdjson_reader", ((rand() % 2) == 0) ? "true" : "false");
+    static_cast<void>(
+            set_fuzzy_config("disable_storage_page_cache", ((rand() % 2) == 0) ? "true" : "false"));
+    static_cast<void>(
+            set_fuzzy_config("enable_system_metrics", ((rand() % 2) == 0) ? "true" : "false"));
+    static_cast<void>(
+            set_fuzzy_config("enable_simdjson_reader", ((rand() % 2) == 0) ? "true" : "false"));
     // random value from 8 to 48
     // s = set_fuzzy_config("doris_scanner_thread_pool_thread_num", std::to_string((rand() % 41) + 8));
     // LOG(INFO) << s.to_string();

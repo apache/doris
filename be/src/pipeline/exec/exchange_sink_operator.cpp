@@ -112,7 +112,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     _split_block_hash_compute_timer = ADD_TIMER(_profile, "SplitBlockHashComputeTime");
     _split_block_distribute_by_channel_timer =
             ADD_TIMER(_profile, "SplitBlockDistributeByChannelTime");
-    _blocks_sent_counter = ADD_COUNTER(_profile, "BlocksSent", TUnit::UNIT);
+    _blocks_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "BlocksSent", TUnit::UNIT, 1);
     _overall_throughput = _profile->add_derived_counter(
             "OverallThroughput", TUnit::BYTES_PER_SECOND,
             std::bind<int64_t>(&RuntimeProfile::units_per_second, _bytes_sent_counter,
@@ -279,7 +279,7 @@ void ExchangeSinkOperatorX::_handle_eof_channel(RuntimeState* state, ChannelPtrT
                                                 Status st) {
     channel->set_receiver_eof(st);
     // Chanel will not send RPC to the downstream when eof, so close chanel by OK status.
-    channel->close(state, Status::OK());
+    static_cast<void>(channel->close(state, Status::OK()));
 }
 
 Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block,
@@ -325,8 +325,9 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                 if (serialized) {
                     auto cur_block = local_state._serializer.get_block()->to_block();
                     if (!cur_block.empty()) {
-                        local_state._serializer.serialize_block(
-                                &cur_block, block_holder->get_block(), local_state.channels.size());
+                        static_cast<void>(local_state._serializer.serialize_block(
+                                &cur_block, block_holder->get_block(),
+                                local_state.channels.size()));
                     } else {
                         block_holder->get_block()->Clear();
                     }

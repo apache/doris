@@ -72,7 +72,7 @@ RoutineLoadTaskExecutor::RoutineLoadTaskExecutor(ExecEnv* exec_env)
         return _task_map.size();
     });
 
-    _data_consumer_pool.start_bg_worker();
+    static_cast<void>(_data_consumer_pool.start_bg_worker());
 }
 
 RoutineLoadTaskExecutor::~RoutineLoadTaskExecutor() {
@@ -342,7 +342,8 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
     if (ctx->is_multi_table) {
         // plan the rest of unplanned data
         auto multi_table_pipe = std::static_pointer_cast<io::MultiTablePipe>(ctx->body_sink);
-        multi_table_pipe->request_and_exec_plans();
+        HANDLE_ERROR(multi_table_pipe->request_and_exec_plans(),
+                     "multi tables task executes plan error");
         // need memory order
         multi_table_pipe->set_consume_finished();
     }

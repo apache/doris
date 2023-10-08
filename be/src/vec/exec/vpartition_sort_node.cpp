@@ -64,6 +64,7 @@ Status VPartitionSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
     _has_global_limit = tnode.partition_sort_node.has_global_limit;
     _top_n_algorithm = tnode.partition_sort_node.top_n_algorithm;
     _partition_inner_limit = tnode.partition_sort_node.partition_inner_limit;
+    _topn_phase = tnode.partition_sort_node.ptopn_phase;
     return Status::OK();
 }
 
@@ -173,7 +174,9 @@ Status VPartitionSortNode::sink(RuntimeState* state, vectorized::Block* input_bl
             _value_places[0]->append_whole_block(input_block, child(0)->row_desc());
         } else {
             //just simply use partition num to check
-            if (_num_partition > config::partition_topn_partition_threshold &&
+            //if is TWO_PHASE_GLOBAL, must be sort all data thought partition num threshold have been exceeded.
+            if (_topn_phase != TPartTopNPhase::TWO_PHASE_GLOBAL &&
+                _num_partition > config::partition_topn_partition_threshold &&
                 child_input_rows < 10000 * _num_partition) {
                 {
                     std::lock_guard<std::mutex> lock(_buffer_mutex);
@@ -239,7 +242,7 @@ Status VPartitionSortNode::open(RuntimeState* state) {
         RETURN_IF_ERROR(sink(state, input_block.get(), eos));
     } while (!eos);
 
-    child(0)->close(state);
+    static_cast<void>(child(0)->close(state));
 
     return Status::OK();
 }

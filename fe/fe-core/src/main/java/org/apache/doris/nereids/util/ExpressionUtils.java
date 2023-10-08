@@ -351,10 +351,6 @@ public class ExpressionUtils {
         return builder.build();
     }
 
-    public static boolean isAllLiteral(Expression... children) {
-        return Arrays.stream(children).allMatch(c -> c instanceof Literal);
-    }
-
     public static boolean isAllLiteral(List<Expression> children) {
         return children.stream().allMatch(c -> c instanceof Literal);
     }

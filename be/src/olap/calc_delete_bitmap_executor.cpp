@@ -78,10 +78,10 @@ Status CalcDeleteBitmapToken::get_delete_bitmap(DeleteBitmapPtr res_bitmap) {
 }
 
 void CalcDeleteBitmapExecutor::init() {
-    ThreadPoolBuilder("TabletCalcDeleteBitmapThreadPool")
-            .set_min_threads(1)
-            .set_max_threads(config::calc_delete_bitmap_max_thread)
-            .build(&_thread_pool);
+    static_cast<void>(ThreadPoolBuilder("TabletCalcDeleteBitmapThreadPool")
+                              .set_min_threads(1)
+                              .set_max_threads(config::calc_delete_bitmap_max_thread)
+                              .build(&_thread_pool));
 }
 
 std::unique_ptr<CalcDeleteBitmapToken> CalcDeleteBitmapExecutor::create_token() {

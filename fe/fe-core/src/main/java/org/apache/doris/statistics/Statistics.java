@@ -37,26 +37,6 @@ public class Statistics {
     // the byte size of one tuple
     private double tupleSize;
 
-    /**
-     * after filter, compute the new ndv of a column
-     * @param ndv original ndv of column
-     * @param newRowCount the row count of table after filter
-     * @param oldRowCount the row count of table before filter
-     * @return the new ndv after filter
-     */
-    public static double computeNdv(double ndv, double newRowCount, double oldRowCount) {
-        if (newRowCount > oldRowCount) {
-            return ndv;
-        }
-        double selectOneTuple = newRowCount / StatsMathUtil.nonZeroDivisor(oldRowCount);
-        double allTuplesOfSameDistinctValueNotSelected = Math.pow((1 - selectOneTuple), oldRowCount / ndv);
-        if (allTuplesOfSameDistinctValueNotSelected == 1.0) {
-            // avoid NaN
-            return ndv;
-        }
-        return Math.min(ndv * (1 - allTuplesOfSameDistinctValueNotSelected), newRowCount);
-    }
-
     public Statistics(Statistics another) {
         this.rowCount = another.rowCount;
         this.expressionToColumnStats = new HashMap<>(another.expressionToColumnStats);
@@ -80,51 +60,17 @@ public class Statistics {
         return rowCount;
     }
 
-    /*
-     * Return a stats with new rowCount and fix each column stats.
-     */
     public Statistics withRowCount(double rowCount) {
-        if (Double.isNaN(rowCount)) {
-            return this;
-        }
-        Statistics statistics = new Statistics(rowCount, new HashMap<>(expressionToColumnStats));
-        statistics.fix(rowCount, StatsMathUtil.nonZeroDivisor(this.rowCount));
-        return statistics;
-    }
-
-    public Statistics setRowCount(double rowCount) {
         return new Statistics(rowCount, new HashMap<>(expressionToColumnStats));
     }
 
     /**
      * Update by count.
      */
-    public Statistics updateRowCountAndColStats(double rowCount) {
+    public Statistics withRowCountAndEnforceValid(double rowCount) {
         Statistics statistics = new Statistics(rowCount, expressionToColumnStats);
-        for (Entry<Expression, ColumnStatistic> entry : expressionToColumnStats.entrySet()) {
-            ColumnStatistic columnStatistic = entry.getValue();
-            ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(columnStatistic);
-            columnStatisticBuilder.setNdv(Math.min(columnStatistic.ndv, rowCount));
-            columnStatisticBuilder.setNumNulls(rowCount - columnStatistic.numNulls);
-            columnStatisticBuilder.setCount(rowCount);
-            expressionToColumnStats.put(entry.getKey(), columnStatisticBuilder.build());
-        }
+        statistics.enforceValid();
         return statistics;
-    }
-
-    /**
-     * Fix by sel.
-     */
-    public void fix(double newRowCount, double originRowCount) {
-        double sel = newRowCount / originRowCount;
-        for (Entry<Expression, ColumnStatistic> entry : expressionToColumnStats.entrySet()) {
-            ColumnStatistic columnStatistic = entry.getValue();
-            ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(columnStatistic);
-            columnStatisticBuilder.setNdv(computeNdv(columnStatistic.ndv, newRowCount, originRowCount));
-            columnStatisticBuilder.setNumNulls(Math.min(columnStatistic.numNulls * sel, newRowCount));
-            columnStatisticBuilder.setCount(newRowCount);
-            expressionToColumnStats.put(entry.getKey(), columnStatisticBuilder.build());
-        }
     }
 
     public void enforceValid() {
@@ -137,8 +83,8 @@ public class Statistics {
                 columnStatisticBuilder.setNumNulls(Math.min(columnStatistic.numNulls, rowCount - ndv));
                 columnStatisticBuilder.setCount(rowCount);
                 columnStatistic = columnStatisticBuilder.build();
+                expressionToColumnStats.put(entry.getKey(), columnStatistic);
             }
-            expressionToColumnStats.put(entry.getKey(), columnStatistic);
         }
     }
 
@@ -148,21 +94,12 @@ public class Statistics {
     }
 
     public Statistics withSel(double sel) {
-        return withSel(sel, true);
-    }
-
-    public Statistics withSel(double sel, boolean updateColStats) {
         sel = StatsMathUtil.minNonNaN(sel, 1);
         if (Double.isNaN(rowCount)) {
             return this;
         }
         double newCount = rowCount * sel;
-        double originCount = rowCount;
-        Statistics statistics = new Statistics(newCount, new HashMap<>(expressionToColumnStats));
-        if (updateColStats) {
-            statistics.fix(newCount, StatsMathUtil.nonZeroDivisor(originCount));
-        }
-        return statistics;
+        return new Statistics(newCount, new HashMap<>(expressionToColumnStats));
     }
 
     public Statistics addColumnStats(Expression expression, ColumnStatistic columnStatistic) {
@@ -174,11 +111,6 @@ public class Statistics {
         return inputs.stream()
                 .allMatch(s -> expressionToColumnStats.containsKey(s)
                         && expressionToColumnStats.get(s).isUnKnown);
-    }
-
-    public Statistics merge(Statistics statistics) {
-        expressionToColumnStats.putAll(statistics.expressionToColumnStats);
-        return this;
     }
 
     private double computeTupleSize() {

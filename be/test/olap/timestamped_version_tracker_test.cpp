@@ -305,7 +305,7 @@ TEST_F(TestTimestampedVersionTracker, delete_version_from_graph) {
     Version version0(0, 0);
 
     version_graph.add_version_to_graph(version0);
-    version_graph.delete_version_from_graph(version0);
+    static_cast<void>(version_graph.delete_version_from_graph(version0));
 
     EXPECT_EQ(2, version_graph._version_graph.size());
     EXPECT_EQ(0, version_graph._version_graph[0].edges.size());
@@ -320,7 +320,7 @@ TEST_F(TestTimestampedVersionTracker, delete_version_from_graph_with_same_versio
     version_graph.add_version_to_graph(version0);
     version_graph.add_version_to_graph(version1);
 
-    version_graph.delete_version_from_graph(version0);
+    static_cast<void>(version_graph.delete_version_from_graph(version0));
 
     EXPECT_EQ(2, version_graph._version_graph.size());
     EXPECT_EQ(1, version_graph._version_graph[0].edges.size());
@@ -368,7 +368,7 @@ TEST_F(TestTimestampedVersionTracker, capture_consistent_versions) {
     version_graph.construct_version_graph(rs_metas, &max_version);
 
     Version spec_version(0, 8);
-    version_graph.capture_consistent_versions(spec_version, &version_path);
+    static_cast<void>(version_graph.capture_consistent_versions(spec_version, &version_path));
 
     EXPECT_EQ(4, version_path.size());
     EXPECT_EQ(Version(0, 0), version_path[0]);
@@ -392,7 +392,7 @@ TEST_F(TestTimestampedVersionTracker, capture_consistent_versions_with_same_rows
     version_graph.construct_version_graph(rs_metas, &max_version);
 
     Version spec_version(0, 8);
-    version_graph.capture_consistent_versions(spec_version, &version_path);
+    static_cast<void>(version_graph.capture_consistent_versions(spec_version, &version_path));
 
     EXPECT_EQ(4, version_path.size());
     EXPECT_EQ(Version(0, 0), version_path[0]);
@@ -549,7 +549,7 @@ TEST_F(TestTimestampedVersionTracker, capture_consistent_versions_tracker) {
     }
 
     Version spec_version(0, 8);
-    tracker.capture_consistent_versions(spec_version, &version_path);
+    static_cast<void>(tracker.capture_consistent_versions(spec_version, &version_path));
 
     EXPECT_EQ(4, version_path.size());
     EXPECT_EQ(Version(0, 0), version_path[0]);
@@ -576,7 +576,7 @@ TEST_F(TestTimestampedVersionTracker, capture_consistent_versions_tracker_with_s
     }
 
     Version spec_version(0, 8);
-    tracker.capture_consistent_versions(spec_version, &version_path);
+    static_cast<void>(tracker.capture_consistent_versions(spec_version, &version_path));
 
     EXPECT_EQ(4, version_path.size());
     EXPECT_EQ(Version(0, 0), version_path[0]);
@@ -802,8 +802,8 @@ TEST_F(TestTimestampedVersionTracker, get_version_graph_orphan_vertex_ratio) {
     version_graph.add_version_to_graph(version1);
     version_graph.add_version_to_graph(version2);
     version_graph.add_version_to_graph(version3);
-    version_graph.delete_version_from_graph(version2);
-    version_graph.delete_version_from_graph(version3);
+    static_cast<void>(version_graph.delete_version_from_graph(version2));
+    static_cast<void>(version_graph.delete_version_from_graph(version3));
 
     EXPECT_EQ(5, version_graph._version_graph.size());
     EXPECT_EQ(0.4, version_graph.get_orphan_vertex_ratio());
