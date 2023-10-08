@@ -335,6 +335,22 @@ AggFnEvaluator::AggFnEvaluator(AggFnEvaluator& evaluator, RuntimeState* state)
           _function(evaluator._function),
           _expr_name(evaluator._expr_name),
           _agg_columns(evaluator._agg_columns) {
+    if (evaluator._fn.binary_type == TFunctionBinaryType::JAVA_UDF) {
+        DataTypes tmp_argument_types;
+        tmp_argument_types.reserve(evaluator._input_exprs_ctxs.size());
+        // prepare for argument
+        for (int i = 0; i < evaluator._input_exprs_ctxs.size(); ++i) {
+            auto data_type = evaluator._input_exprs_ctxs[i]->root()->data_type();
+            tmp_argument_types.emplace_back(data_type);
+        }
+        const DataTypes& argument_types =
+                _real_argument_types.empty() ? tmp_argument_types : _real_argument_types;
+        _function = AggregateJavaUdaf::create(evaluator._fn, argument_types, evaluator._data_type);
+        static_cast<void>(
+                static_cast<AggregateJavaUdaf*>(_function.get())->check_udaf(evaluator._fn));
+    }
+    DCHECK(_function != nullptr);
+
     _input_exprs_ctxs.resize(evaluator._input_exprs_ctxs.size());
     for (size_t i = 0; i < _input_exprs_ctxs.size(); i++) {
         WARN_IF_ERROR(evaluator._input_exprs_ctxs[i]->clone(state, _input_exprs_ctxs[i]), "");

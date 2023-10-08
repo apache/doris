@@ -32,7 +32,7 @@ public:
     ~MultiCastDataStreamSink() override = default;
 
     Status send(RuntimeState* state, Block* block, bool eos = false) override {
-        _multi_cast_data_streamer->push(state, block, eos);
+        static_cast<void>(_multi_cast_data_streamer->push(state, block, eos));
         return Status::OK();
     };
 

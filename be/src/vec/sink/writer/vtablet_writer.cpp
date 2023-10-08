@@ -43,6 +43,7 @@
 #include <unordered_map>
 #include <utility>
 
+#include "olap/wal_manager.h"
 #include "util/runtime_profile.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_fwd.h"
@@ -969,11 +970,17 @@ void VNodeChannel::mark_close() {
 VTabletWriter::VTabletWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs)
         : AsyncResultWriter(output_exprs), _t_sink(t_sink) {
     _transfer_large_data_by_brpc = config::transfer_large_data_by_brpc;
+    DCHECK(t_sink.__isset.olap_table_sink);
+    auto& table_sink = t_sink.olap_table_sink;
+    _db_id = table_sink.db_id;
+    _tb_id = table_sink.table_id;
+    _wal_id = table_sink.txn_id;
 }
 
-void VTabletWriter::init_properties(doris::ObjectPool* pool, bool group_commit) {
+Status VTabletWriter::init_properties(doris::ObjectPool* pool, bool group_commit) {
     _pool = pool;
     _group_commit = group_commit;
+    return Status::OK();
 }
 
 void VTabletWriter::_send_batch_process() {
@@ -1197,6 +1204,11 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     if (_vpartition->is_auto_partition()) {
         auto [part_ctx, part_func] = _get_partition_function();
         RETURN_IF_ERROR(part_func->prepare(_state, *_output_row_desc, part_ctx.get()));
+    }
+    if (_group_commit) {
+        RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->add_wal_path(_db_id, _tb_id, _wal_id,
+                                                                    _state->import_label()));
+        RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->create_wal_writer(_wal_id, _wal_writer));
     }
 
     _prepare = true;
@@ -1482,7 +1494,7 @@ Status VTabletWriter::close(Status exec_status) {
     SCOPED_TIMER(_close_timer);
     SCOPED_TIMER(_profile->total_time_counter());
 
-    try_close(_state, exec_status);
+    static_cast<void>(try_close(_state, exec_status));
 
     // If _close_status is not ok, all nodes have been canceled in try_close.
     if (_close_status.ok()) {
@@ -1619,6 +1631,9 @@ Status VTabletWriter::close(Status exec_status) {
                 [](const std::shared_ptr<VNodeChannel>& ch) { ch->clear_all_blocks(); });
     }
 
+    if (_wal_writer.get() != nullptr) {
+        static_cast<void>(_wal_writer->finalize());
+    }
     return _close_status;
 }
 
@@ -1659,6 +1674,7 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
     _tablet_finder->clear_for_new_batch();
     _row_distribution_watch.start();
     auto num_rows = block->rows();
+    _tablet_finder->filter_bitmap().Reset(num_rows);
     size_t partition_num = _vpartition->get_partitions().size();
     if (!_vpartition->is_auto_partition() && partition_num == 1 &&
         _tablet_finder->is_find_tablet_every_sink()) {
@@ -1670,7 +1686,7 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
         int result_idx;
         if (_vpartition->is_projection_partition()) {
             // calc the start value of missing partition ranges.
-            part_func->execute(part_ctx.get(), block.get(), &result_idx);
+            static_cast<void>(part_func->execute(part_ctx.get(), block.get(), &result_idx));
             VLOG_DEBUG << "Partition-calculated block:" << block->dump_data();
             // change the column to compare to transformed.
             _vpartition->set_transformed_slots({(uint16_t)result_idx});
@@ -1778,9 +1794,10 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
     }
 
     if (_group_commit) {
-        _group_commit_block(&input_block, rows,
+        _group_commit_block(&input_block, num_rows,
                             _block_convertor->num_filtered_rows() +
-                                    _tablet_finder->num_filtered_rows() - filtered_rows);
+                                    _tablet_finder->num_filtered_rows() - filtered_rows,
+                            _state, block.get(), _block_convertor.get(), _tablet_finder.get());
     }
     // TODO: Before load, we need to projection unuseful column
     // auto slots = _schema->tuple_desc()->slots();
@@ -1808,11 +1825,49 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
     return Status::OK();
 }
 
-void VTabletWriter::_group_commit_block(Block* input_block, int64_t rows, int64_t filter_rows) {
+Status VTabletWriter::write_wal(OlapTableBlockConvertor* block_convertor,
+                                OlapTabletFinder* tablet_finder, vectorized::Block* block,
+                                RuntimeState* state, int64_t num_rows, int64_t filtered_rows) {
+    PBlock pblock;
+    size_t uncompressed_bytes = 0, compressed_bytes = 0;
+    if (filtered_rows == 0) {
+        RETURN_IF_ERROR(block->serialize(state->be_exec_version(), &pblock, &uncompressed_bytes,
+                                         &compressed_bytes, segment_v2::CompressionTypePB::SNAPPY));
+        RETURN_IF_ERROR(_wal_writer->append_blocks(std::vector<PBlock*> {&pblock}));
+    } else {
+        auto cloneBlock = block->clone_without_columns();
+        auto res_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
+        for (int i = 0; i < num_rows; ++i) {
+            if (block_convertor->num_filtered_rows() > 0 &&
+                block_convertor->filter_bitmap().Get(i)) {
+                continue;
+            }
+            if (tablet_finder->num_filtered_rows() > 0 && tablet_finder->filter_bitmap().Get(i)) {
+                continue;
+            }
+            res_block.add_row(block, i);
+        }
+        RETURN_IF_ERROR(res_block.to_block().serialize(state->be_exec_version(), &pblock,
+                                                       &uncompressed_bytes, &compressed_bytes,
+                                                       segment_v2::CompressionTypePB::SNAPPY));
+        RETURN_IF_ERROR(_wal_writer->append_blocks(std::vector<PBlock*> {&pblock}));
+    }
+    return Status::OK();
+}
+
+void VTabletWriter::_group_commit_block(vectorized::Block* input_block, int64_t num_rows,
+                                        int64_t filter_rows, RuntimeState* state,
+                                        vectorized::Block* block,
+                                        OlapTableBlockConvertor* block_convertor,
+                                        OlapTabletFinder* tablet_finder) {
+    static_cast<void>(
+            write_wal(block_convertor, tablet_finder, block, state, num_rows, filter_rows));
+#ifndef BE_TEST
     auto* future_block = assert_cast<FutureBlock*>(input_block);
     std::unique_lock<doris::Mutex> l(*(future_block->lock));
-    future_block->set_result(Status::OK(), rows, rows - filter_rows);
+    future_block->set_result(Status::OK(), num_rows, num_rows - filter_rows);
     future_block->cv->notify_all();
+#endif
 }
 
 } // namespace vectorized

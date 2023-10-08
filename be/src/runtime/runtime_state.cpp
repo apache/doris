@@ -305,6 +305,13 @@ void RuntimeState::get_unreported_errors(std::vector<std::string>* new_errors) {
     }
 }
 
+Status RuntimeState::query_status() {
+    auto st = _query_ctx->exec_status();
+    RETURN_IF_ERROR(st);
+    std::lock_guard<std::mutex> l(_process_status_lock);
+    return _process_status;
+}
+
 bool RuntimeState::is_cancelled() const {
     return _is_cancelled.load() || (_query_ctx && _query_ctx->is_cancelled());
 }
@@ -341,8 +348,8 @@ Status RuntimeState::check_query_state(const std::string& msg) {
 const int64_t MAX_ERROR_NUM = 50;
 
 Status RuntimeState::create_error_log_file() {
-    _exec_env->load_path_mgr()->get_load_error_file_name(
-            _db_name, _import_label, _fragment_instance_id, &_error_log_file_path);
+    static_cast<void>(_exec_env->load_path_mgr()->get_load_error_file_name(
+            _db_name, _import_label, _fragment_instance_id, &_error_log_file_path));
     std::string error_log_absolute_path =
             _exec_env->load_path_mgr()->get_load_error_absolute_path(_error_log_file_path);
     _error_log_file = new std::ofstream(error_log_absolute_path, std::ifstream::out);

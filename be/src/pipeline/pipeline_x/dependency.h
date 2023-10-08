@@ -80,8 +80,6 @@ public:
         _ready_for_read = true;
     }
 
-    bool is_ready_for_read() { return _ready_for_read; }
-
     // Notify downstream pipeline tasks this dependency is blocked.
     virtual void block_reading() { _ready_for_read = false; }
 
@@ -530,6 +528,7 @@ struct HashJoinSharedState : public JoinSharedState {
     size_t build_exprs_size = 0;
     std::shared_ptr<std::vector<vectorized::Block>> build_blocks =
             std::make_shared<std::vector<vectorized::Block>>();
+    bool probe_ignore_null = false;
 };
 
 class HashJoinDependency final : public WriteDependency {

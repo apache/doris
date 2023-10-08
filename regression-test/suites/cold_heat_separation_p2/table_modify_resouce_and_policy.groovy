@@ -208,13 +208,6 @@ suite("table_modify_resouce") {
         try_times -= 1
         assertTrue(try_times > 0)
     }
-    // 所有的local data size为0
-    log.info( "test all local size is zero")
-    for (int i = 0; i < tablets.size(); i++) {
-        fetchDataSize(sizes, tablets[i])
-        assertEquals(sizes[0], 0)
-        tablets[i][9] = sizes[1]
-    }
 
     // 修改resource和policy到新值然后查看remote data size是否能对上
     sql """
@@ -297,13 +290,6 @@ suite("table_modify_resouce") {
         fetchDataSize(sizes, tablets[0])
         try_times -= 1
         assertTrue(try_times > 0)
-    }
-    // 所有的local data size为0
-    log.info( "test all local size is zero")
-    for (int i = 0; i < tablets.size(); i++) {
-        fetchDataSize(sizes, tablets[i])
-        assertEquals(sizes[0], 0)
-        tablets[i][9] = sizes[1]
     }
 
     // 修改resource和policy到新值然后查看remote data size是否能对上

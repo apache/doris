@@ -83,9 +83,6 @@ public class DateTimeV2Type extends DateLikeType {
      * may be we need to check for validity?
      */
     public static DateTimeV2Type forTypeFromString(String s) {
-        if (!s.contains(".")) {
-            return DateTimeV2Type.SYSTEM_DEFAULT;
-        }
         int scale = DateTimeLiteral.determineScale(s);
         return DateTimeV2Type.of(scale);
     }

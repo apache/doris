@@ -25,10 +25,12 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.MapType;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
@@ -94,6 +96,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     protected static String DEFAULT_COLUMN_SEPARATOR = ",";
     protected static final String DEFAULT_LINE_DELIMITER = "\n";
     public static final String FORMAT = "format";
+    public static final String TABLE_ID = "table_id";
     public static final String COLUMN_SEPARATOR = "column_separator";
     public static final String LINE_DELIMITER = "line_delimiter";
     protected static final String JSON_ROOT = "json_root";
@@ -114,6 +117,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     protected static final ImmutableSet<String> FILE_FORMAT_PROPERTIES = new ImmutableSet.Builder<String>()
             .add(FORMAT)
+            .add(TABLE_ID)
             .add(JSON_ROOT)
             .add(JSON_PATHS)
             .add(STRIP_OUTER_ARRAY)
@@ -157,6 +161,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     private boolean fuzzyParse;
     private boolean trimDoubleQuotes;
     private int skipLines;
+    private long tableId;
 
     public abstract TFileType getTFileType();
 
@@ -236,10 +241,14 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             case "avro":
                 this.fileFormatType = TFileFormatType.FORMAT_AVRO;
                 break;
+            case "wal":
+                this.fileFormatType = TFileFormatType.FORMAT_WAL;
+                break;
             default:
                 throw new AnalysisException("format:" + formatString + " is not supported.");
         }
 
+        tableId = Long.valueOf(validParams.getOrDefault(TABLE_ID, "-1")).longValue();
         columnSeparator = validParams.getOrDefault(COLUMN_SEPARATOR, DEFAULT_COLUMN_SEPARATOR);
         if (Strings.isNullOrEmpty(columnSeparator)) {
             throw new AnalysisException("column_separator can not be empty.");
@@ -399,6 +408,20 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         Backend be = getBackend();
         if (be == null) {
             throw new AnalysisException("No Alive backends");
+        }
+
+        if (this.fileFormatType == TFileFormatType.FORMAT_WAL) {
+            List<Column> fileColumns = new ArrayList<>();
+            Table table = Env.getCurrentInternalCatalog().getTableByTableId(tableId);
+            List<Column> tableColumns = table.getBaseSchema(false);
+            for (int i = 1; i <= tableColumns.size(); i++) {
+                fileColumns.add(new Column("c" + i, tableColumns.get(i - 1).getDataType(), true));
+            }
+            Column deleteSignColumn = ((OlapTable) table).getDeleteSignColumn();
+            if (deleteSignColumn != null) {
+                fileColumns.add(new Column("c" + (tableColumns.size() + 1), deleteSignColumn.getDataType(), true));
+            }
+            return fileColumns;
         }
 
         TNetworkAddress address = new TNetworkAddress(be.getHost(), be.getBrpcPort());

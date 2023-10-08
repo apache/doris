@@ -157,8 +157,8 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalSink
     public String toString() {
         return Utils.toSqlString("LogicalOlapTableSink[" + id.asInt() + "]",
                 "outputExprs", outputExprs,
-                "database", database,
-                "targetTable", targetTable,
+                "database", database.getFullName(),
+                "targetTable", targetTable.getName(),
                 "cols", cols,
                 "partitionIds", partitionIds,
                 "singleReplicaLoad", singleReplicaLoad,

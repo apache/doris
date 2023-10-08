@@ -239,11 +239,6 @@ public:
         _hash_map.prefetch_hash(hash_value);
     }
 
-    template <bool read = true>
-    void ALWAYS_INLINE prefetch_by_key(Key key) {
-        _hash_map.prefetch(key);
-    }
-
     /// Call func(const Key &, Mapped &) for each hash map element.
     template <typename Func>
     void for_each_value(Func&& func) {

@@ -369,7 +369,7 @@ Status DataDir::load() {
     // if one rowset load failed, then the total data dir will not be loaded
 
     // necessarily check incompatible old format. when there are old metas, it may load to data missing
-    _check_incompatible_old_format_tablet();
+    static_cast<void>(_check_incompatible_old_format_tablet());
 
     std::vector<RowsetMetaSharedPtr> dir_rowset_metas;
     LOG(INFO) << "begin loading rowset from meta";
@@ -411,7 +411,7 @@ Status DataDir::load() {
                 rowset_meta->serialize(&result);
                 std::string key =
                         ROWSET_PREFIX + tablet_uid.to_string() + "_" + rowset_id.to_string();
-                _meta->put(META_COLUMN_FAMILY_INDEX, key, result);
+                static_cast<void>(_meta->put(META_COLUMN_FAMILY_INDEX, key, result));
             }
         }
         dir_rowset_metas.push_back(rowset_meta);
@@ -481,8 +481,8 @@ Status DataDir::load() {
     for (int64_t tablet_id : tablet_ids) {
         TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
         if (tablet && tablet->set_tablet_schema_into_rowset_meta()) {
-            TabletMetaManager::save(this, tablet->tablet_id(), tablet->schema_hash(),
-                                    tablet->tablet_meta());
+            static_cast<void>(TabletMetaManager::save(
+                    this, tablet->tablet_id(), tablet->schema_hash(), tablet->tablet_meta()));
         }
     }
 
@@ -499,7 +499,8 @@ Status DataDir::load() {
                 pending_publish_info_pb.transaction_id(), true);
         return true;
     };
-    TabletMetaManager::traverse_pending_publish(_meta, load_pending_publish_info_func);
+    static_cast<void>(
+            TabletMetaManager::traverse_pending_publish(_meta, load_pending_publish_info_func));
 
     // traverse rowset
     // 1. add committed rowset to txn map
@@ -530,8 +531,9 @@ Status DataDir::load() {
             rowset_meta->tablet_uid() == tablet->tablet_uid()) {
             if (!rowset_meta->tablet_schema()) {
                 rowset_meta->set_tablet_schema(tablet->tablet_schema());
-                RowsetMetaManager::save(_meta, rowset_meta->tablet_uid(), rowset_meta->rowset_id(),
-                                        rowset_meta->get_rowset_pb());
+                static_cast<void>(RowsetMetaManager::save(_meta, rowset_meta->tablet_uid(),
+                                                          rowset_meta->rowset_id(),
+                                                          rowset_meta->get_rowset_pb()));
             }
             Status commit_txn_status = _txn_manager->commit_txn(
                     _meta, rowset_meta->partition_id(), rowset_meta->txn_id(),
@@ -551,8 +553,9 @@ Status DataDir::load() {
                    rowset_meta->tablet_uid() == tablet->tablet_uid()) {
             if (!rowset_meta->tablet_schema()) {
                 rowset_meta->set_tablet_schema(tablet->tablet_schema());
-                RowsetMetaManager::save(_meta, rowset_meta->tablet_uid(), rowset_meta->rowset_id(),
-                                        rowset_meta->get_rowset_pb());
+                static_cast<void>(RowsetMetaManager::save(_meta, rowset_meta->tablet_uid(),
+                                                          rowset_meta->rowset_id(),
+                                                          rowset_meta->get_rowset_pb()));
             }
             Status publish_status = tablet->add_rowset(rowset);
             if (!publish_status && !publish_status.is<PUSH_VERSION_ALREADY_EXIST>()) {
@@ -611,7 +614,7 @@ Status DataDir::load() {
         }
         return true;
     };
-    TabletMetaManager::traverse_delete_bitmap(_meta, load_delete_bitmap_func);
+    static_cast<void>(TabletMetaManager::traverse_delete_bitmap(_meta, load_delete_bitmap_func));
 
     // At startup, we only count these invalid rowset, but do not actually delete it.
     // The actual delete operation is in StorageEngine::_clean_unused_rowset_metas,
@@ -936,7 +939,7 @@ Status DataDir::move_to_trash(const std::string& tablet_path) {
     if (sub_files.empty()) {
         LOG(INFO) << "remove empty dir " << source_parent_dir;
         // no need to exam return status
-        io::global_local_filesystem()->delete_directory(source_parent_dir);
+        static_cast<void>(io::global_local_filesystem()->delete_directory(source_parent_dir));
     }
 
     return Status::OK();
@@ -949,7 +952,8 @@ void DataDir::perform_remote_rowset_gc() {
         gc_kvs.emplace_back(key, value);
         return true;
     };
-    _meta->iterate(META_COLUMN_FAMILY_INDEX, REMOTE_ROWSET_GC_PREFIX, traverse_remote_rowset_func);
+    static_cast<void>(_meta->iterate(META_COLUMN_FAMILY_INDEX, REMOTE_ROWSET_GC_PREFIX,
+                                     traverse_remote_rowset_func));
     std::vector<std::string> deleted_keys;
     for (auto& [key, val] : gc_kvs) {
         auto rowset_id = key.substr(REMOTE_ROWSET_GC_PREFIX.size());
@@ -980,7 +984,7 @@ void DataDir::perform_remote_rowset_gc() {
         }
     }
     for (const auto& key : deleted_keys) {
-        _meta->remove(META_COLUMN_FAMILY_INDEX, key);
+        static_cast<void>(_meta->remove(META_COLUMN_FAMILY_INDEX, key));
     }
 }
 
@@ -991,7 +995,8 @@ void DataDir::perform_remote_tablet_gc() {
         tablet_gc_kvs.emplace_back(key, value);
         return true;
     };
-    _meta->iterate(META_COLUMN_FAMILY_INDEX, REMOTE_TABLET_GC_PREFIX, traverse_remote_tablet_func);
+    static_cast<void>(_meta->iterate(META_COLUMN_FAMILY_INDEX, REMOTE_TABLET_GC_PREFIX,
+                                     traverse_remote_tablet_func));
     std::vector<std::string> deleted_keys;
     for (auto& [key, val] : tablet_gc_kvs) {
         auto tablet_id = key.substr(REMOTE_TABLET_GC_PREFIX.size());
@@ -1022,7 +1027,7 @@ void DataDir::perform_remote_tablet_gc() {
         }
     }
     for (const auto& key : deleted_keys) {
-        _meta->remove(META_COLUMN_FAMILY_INDEX, key);
+        static_cast<void>(_meta->remove(META_COLUMN_FAMILY_INDEX, key));
     }
 }
 
