@@ -55,8 +55,10 @@ struct ParquetInt96 {
         return (hi - JULIAN_EPOCH_OFFSET_DAYS) * MICROS_IN_DAY + lo / NANOS_PER_MICROSECOND;
     }
     inline __int128 to_int128() const {
-        __int128 ans = 0 ;
-        std::cout <<"before ""hi = "<<hi <<" lo = "<<lo <<"\n";
+        __int128 ans = 0;
+        std::cout << "before "
+                     "hi = "
+                  << hi << " lo = " << lo << "\n";
         ans = (((__int128)hi) << 64) + lo;
         return ans;
     }

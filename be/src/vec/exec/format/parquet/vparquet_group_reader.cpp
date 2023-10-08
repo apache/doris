@@ -129,7 +129,7 @@ Status RowGroupReader::init(
         std::unique_ptr<ParquetColumnReader> reader;
         RETURN_IF_ERROR(ParquetColumnReader::create(_file_reader, field, _row_group_meta,
                                                     _read_ranges, _ctz, _io_ctx, reader,
-                                                    max_buf_size));//create column reader .....
+                                                    max_buf_size)); //create column reader .....
         if (reader == nullptr) {
             VLOG_DEBUG << "Init row group(" << _row_group_id << ") reader failed";
             return Status::Corruption("Init row group reader failed");
@@ -183,8 +183,8 @@ bool RowGroupReader::_can_filter_by_dict(int slot_id,
             break;
         }
     }
-    if (slot != nullptr){
-//    if (!slot->type().is_string_type()) {//TODO(CYW) : check use file metadata   column_metadata.type
+    if (slot != nullptr) {
+        //    if (!slot->type().is_string_type()) {//TODO(CYW) : check use file metadata   column_metadata.type
         return false;
     }
 
@@ -321,7 +321,7 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
         }
 
         RETURN_IF_ERROR(_build_pos_delete_filter(*read_rows));
-/*
+        /*
         std::vector<uint32_t> columns_to_filter;
         int column_to_keep = block->columns();
         columns_to_filter.resize(column_to_keep);

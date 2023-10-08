@@ -169,15 +169,13 @@ vectorized::BlockUPtr ScannerContext::get_free_block() {
     block = vectorized::Block::create_unique(_output_tuple_desc->slots(), _batch_size,
                                              true /*ignore invalid slots*/);
 
-
-//    vector<COUNTER_SETlumnWithTypeAndName> v;
-//    vectorized::DataTypePtr a = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeUInt8>());
-//    v.push_back( ColumnWithTypeAndName(a,"id"));
-//    vectorized::DataTypePtr b = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
-//    v.push_back( ColumnWithTypeAndName(b,"age"));
-//    block = vectorized::Block::create_unique(v);
-//    block->set_num_rows(_batch_size);
-
+    //    vector<COUNTER_SETlumnWithTypeAndName> v;
+    //    vectorized::DataTypePtr a = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeUInt8>());
+    //    v.push_back( ColumnWithTypeAndName(a,"id"));
+    //    vectorized::DataTypePtr b = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+    //    v.push_back( ColumnWithTypeAndName(b,"age"));
+    //    block = vectorized::Block::create_unique(v);
+    //    block->set_num_rows(_batch_size);
 
     COUNTER_UPDATE(_newly_create_free_blocks_num, 1);
 
