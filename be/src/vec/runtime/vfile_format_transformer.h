@@ -39,6 +39,7 @@ public:
         for (int i = 0; i < output_vexpr_ctxs.size(); ++i) {
             data_types.push_back(output_vexpr_ctxs[i]->root()->data_type());
         }
+        _options._output_object_data = output_object_data;
         _serdes = vectorized::create_data_type_serdes(data_types);
     }
 
