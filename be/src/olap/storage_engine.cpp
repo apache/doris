@@ -362,9 +362,8 @@ Status StorageEngine::get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_i
     return res;
 }
 
-Status StorageEngine::get_special_dir_info(SpecialDirInfo* special_dir_infos,
+void StorageEngine::get_special_dir_info(SpecialDirInfo* special_dir_infos,
                                            TaskWorkerPool::DiskType type) {
-    Status res = Status::OK();
     switch (type) {
     case TaskWorkerPool::DiskType::LOG:
         _log_dir->health_check();
@@ -379,7 +378,7 @@ Status StorageEngine::get_special_dir_info(SpecialDirInfo* special_dir_infos,
     default:
         break;
     }
-    return res;
+    return;
 }
 
 int64_t StorageEngine::get_file_or_directory_size(const std::string& file_path) {

@@ -30,10 +30,6 @@ public:
     SpecialDir(const std::string& path);
     ~SpecialDir();
 
-    const std::string& path() const { return _path; }
-
-    const io::FileSystemSPtr& fs() const { return _fs; }
-
     void get_dir_info(SpecialDirInfo* special_dir_info) {
         special_dir_info->path = _path;
         special_dir_info->capacity = _capacity_bytes;

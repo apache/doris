@@ -37,7 +37,7 @@ SpecialDir::SpecialDir(const std::string& path)
           _capacity_bytes(0),
           _is_used(true) {}
 
-SpecialDir::~SpecialDir() {}
+SpecialDir::~SpecialDir() = default;
 
 Status SpecialDir::update_capacity() {
     RETURN_IF_ERROR(io::global_local_filesystem()->get_space_info(_path, &_capacity_bytes,
