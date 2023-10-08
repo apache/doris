@@ -2222,4 +2222,11 @@ public class Config extends ConfigBase {
             + "the default value is 4320, which is 3 days"})
     public static int arrow_flight_token_alive_time = 4320;
 
+    @ConfField(description = {
+        "设置允许跨域访问的特定域名,默认允许任何域名跨域访问",
+        "Set the specific domain name that allows cross-domain access. "
+            + "By default, any domain name is allowed cross-domain access"
+    })
+    public static String access_control_allowed_origin_domain = "*";
+
 }
