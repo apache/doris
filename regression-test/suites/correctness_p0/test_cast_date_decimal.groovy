@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/functions/function_running_difference.h"
+suite("test_cast_date_decimal") {
+    sql """
+        set enable_nereids_planner=false;
+    """
 
-namespace doris::vectorized {
-
-void register_function_running_difference(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionRunningDifference>();
+    qt_sql """
+        select cast('2020-02-02' as date ) between cast('2020-02-02' as date ) and cast('2020-02-02' as date ) + 1.0;
+    """
 }
-
-} // namespace doris::vectorized

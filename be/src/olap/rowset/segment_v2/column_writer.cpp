@@ -709,7 +709,7 @@ Status ScalarColumnWriter::finish_current_page() {
     data_page_footer->set_num_values(_next_rowid - _first_rowid);
     data_page_footer->set_nullmap_size(nullmap.slice().size);
     if (_new_page_callback != nullptr) {
-        _new_page_callback->put_extra_info_in_page(data_page_footer);
+        static_cast<void>(_new_page_callback->put_extra_info_in_page(data_page_footer));
     }
     // trying to compress page body
     OwnedSlice compressed_body;
@@ -961,9 +961,9 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
             // now only support nested type is scala
             if (writer != nullptr) {
                 //NOTE: use array field name as index field, but item_writer size should be used when moving item_data_ptr
-                _inverted_index_builder->add_array_values(
+                static_cast<void>(_inverted_index_builder->add_array_values(
                         _item_writer->get_field()->size(), reinterpret_cast<const void*>(data),
-                        reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows);
+                        reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows));
             }
         }
     }

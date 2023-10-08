@@ -20,8 +20,6 @@ package org.apache.doris.statistics;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
-import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 
 import com.google.gson.annotations.SerializedName;
@@ -29,15 +27,19 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Collectors;
 
-public class TableStats implements Writable {
+public class TableStatsMeta implements Writable {
 
     @SerializedName("tblId")
     public final long tblId;
+
     @SerializedName("idxId")
     public final long idxId;
     @SerializedName("updatedRows")
@@ -51,39 +53,22 @@ public class TableStats implements Writable {
     @SerializedName("rowCount")
     public final long rowCount;
 
-    @SerializedName("method")
-    public final AnalysisMethod analysisMethod;
-
-    @SerializedName("type")
-    public final AnalysisType analysisType;
-
     @SerializedName("updateTime")
     public long updatedTime;
 
-    @SerializedName("colLastUpdatedTime")
-    private ConcurrentMap<String, Long> colLastUpdatedTime = new ConcurrentHashMap<>();
+    @SerializedName("colNameToColStatsMeta")
+    private ConcurrentMap<String, ColStatsMeta> colNameToColStatsMeta = new ConcurrentHashMap<>();
 
     @SerializedName("trigger")
     public JobType jobType;
 
     // It's necessary to store these fields separately from AnalysisInfo, since the lifecycle between AnalysisInfo
     // and TableStats is quite different.
-    public TableStats(long tblId, long rowCount, AnalysisInfo analyzedJob) {
+    public TableStatsMeta(long tblId, long rowCount, AnalysisInfo analyzedJob) {
         this.tblId = tblId;
         this.idxId = -1;
         this.rowCount = rowCount;
-        analysisMethod = analyzedJob.analysisMethod;
-        analysisType = analyzedJob.analysisType;
-        updatedTime = System.currentTimeMillis();
-        String cols = analyzedJob.colName;
-        // colName field AnalyzeJob's format likes: "[col1, col2]", we need to remove brackets here
-        if (analyzedJob.colName.startsWith("[") && analyzedJob.colName.endsWith("]")) {
-            cols = cols.substring(1, cols.length() - 1);
-        }
-        for (String col : cols.split(",")) {
-            colLastUpdatedTime.put(col, updatedTime);
-        }
-        jobType = analyzedJob.jobType;
+        updateByJob(analyzedJob);
     }
 
     @Override
@@ -92,30 +77,61 @@ public class TableStats implements Writable {
         Text.writeString(out, json);
     }
 
-    public static TableStats read(DataInput dataInput) throws IOException {
+    public static TableStatsMeta read(DataInput dataInput) throws IOException {
         String json = Text.readString(dataInput);
-        TableStats tableStats = GsonUtils.GSON.fromJson(json, TableStats.class);
+        TableStatsMeta tableStats = GsonUtils.GSON.fromJson(json, TableStatsMeta.class);
         // Might be null counterintuitively, for compatible
-        if (tableStats.colLastUpdatedTime == null) {
-            tableStats.colLastUpdatedTime = new ConcurrentHashMap<>();
+        if (tableStats.colNameToColStatsMeta == null) {
+            tableStats.colNameToColStatsMeta = new ConcurrentHashMap<>();
         }
         return tableStats;
     }
 
     public long findColumnLastUpdateTime(String colName) {
-        return colLastUpdatedTime.getOrDefault(colName, 0L);
+        ColStatsMeta colStatsMeta = colNameToColStatsMeta.get(colName);
+        if (colStatsMeta == null) {
+            return 0;
+        }
+        return colStatsMeta.updatedTime;
+    }
+
+    public ColStatsMeta findColumnStatsMeta(String colName) {
+        return colNameToColStatsMeta.get(colName);
     }
 
     public void removeColumn(String colName) {
-        colLastUpdatedTime.remove(colName);
+        colNameToColStatsMeta.remove(colName);
     }
 
     public Set<String> analyzeColumns() {
-        return colLastUpdatedTime.keySet();
+        return colNameToColStatsMeta.keySet();
     }
 
     public void reset() {
         updatedTime = 0;
-        colLastUpdatedTime.replaceAll((k, v) -> 0L);
+        colNameToColStatsMeta.values().forEach(ColStatsMeta::clear);
+    }
+
+    public void updateByJob(AnalysisInfo analyzedJob) {
+        updatedTime = System.currentTimeMillis();
+        String colNameStr = analyzedJob.colName;
+        // colName field AnalyzeJob's format likes: "[col1, col2]", we need to remove brackets here
+        // TODO: Refactor this later
+        if (analyzedJob.colName.startsWith("[") && analyzedJob.colName.endsWith("]")) {
+            colNameStr = colNameStr.substring(1, colNameStr.length() - 1);
+        }
+        List<String> cols = Arrays.stream(colNameStr.split(",")).map(String::trim).collect(Collectors.toList());
+        for (String col : cols) {
+            ColStatsMeta colStatsMeta = colNameToColStatsMeta.get(col);
+            if (colStatsMeta == null) {
+                colNameToColStatsMeta.put(col, new ColStatsMeta(updatedTime,
+                        analyzedJob.analysisMethod, analyzedJob.analysisType, analyzedJob.jobType, 0));
+            } else {
+                colStatsMeta.updatedTime = updatedTime;
+                colStatsMeta.analysisType = analyzedJob.analysisType;
+                colStatsMeta.analysisMethod = analyzedJob.analysisMethod;
+            }
+        }
+        jobType = analyzedJob.jobType;
     }
 }

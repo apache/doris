@@ -116,7 +116,7 @@ public:
 #endif // __GNUC__
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         ColumnRawPtrs data_columns(arguments.size());
         const ColumnArray::Offsets64* offsets = nullptr;
         ColumnPtr src_offsets;
@@ -234,7 +234,7 @@ private:
     template <typename HashMapContainer, typename HashMethod, bool is_nullable>
     void _execute_by_hash(const ColumnRawPtrs& columns, const ColumnArray::Offsets64& offsets,
                           [[maybe_unused]] const NullMap* null_map,
-                          ColumnInt64::Container& dst_values) {
+                          ColumnInt64::Container& dst_values) const {
         HashMapContainer hash_map;
         HashMethod hash_method(columns, {}, nullptr);
 
@@ -262,7 +262,7 @@ private:
 
     template <typename ColumnType>
     void _execute_number(const ColumnRawPtrs& columns, const ColumnArray::Offsets64& offsets,
-                         const NullMapType* null_map, ColumnInt64::Container& dst_values) {
+                         const NullMapType* null_map, ColumnInt64::Container& dst_values) const {
         using NestType = typename ColumnType::value_type;
         using ElementNativeType = typename NativeType<NestType>::Type;
 
@@ -281,7 +281,7 @@ private:
     }
 
     void _execute_string(const ColumnRawPtrs& columns, const ColumnArray::Offsets64& offsets,
-                         const NullMapType* null_map, ColumnInt64::Container& dst_values) {
+                         const NullMapType* null_map, ColumnInt64::Container& dst_values) const {
         using HashMapContainer = HashMapWithStackMemory<StringRef, Int64, DefaultHash<StringRef>,
                                                         INITIAL_SIZE_DEGREE>;
         using HashMethod = ColumnsHashing::HashMethodString<UInt64, Int64, false, false>;

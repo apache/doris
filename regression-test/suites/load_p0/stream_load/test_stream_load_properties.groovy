@@ -136,7 +136,7 @@ suite("test_stream_load_properties", "p0") {
                 table "stream_load_" + tableName
                 set 'column_separator', '|'
                 set 'columns', columns[i]
-                //set 'exec_mem_limit', '1'
+                set 'exec_mem_limit', '1'
                 file files[i]
                 time 10000 // limit inflight 10s
 
@@ -559,7 +559,26 @@ suite("test_stream_load_properties", "p0") {
 
             do_streamload_2pc.call(txnId, "commit", tableName1)
 
-            sleep(60)
+            def count = 0
+            while (true) {
+                def res
+                if (i <= 3) {
+                    res = sql "select count(*) from ${tableName1}"
+                } else {
+                    res = sql "select count(*) from ${tableName1}"
+                }
+                if (res[0][0] > 0) {
+                    break
+                }
+                if (count >= 60) {
+                    log.error("stream load commit can not visible for long time")
+                    assertEquals(20, res[0][0])
+                    break
+                }
+                sleep(1000)
+                count++
+            }
+            
             if (i <= 3) {
                 qt_sql_2pc_commit "select * from ${tableName1} order by k00,k01"
             } else {
@@ -570,7 +589,8 @@ suite("test_stream_load_properties", "p0") {
         }
     } finally {
         for (String tableName in tables) {
-            sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+            def tableName1 =  "stream_load_" + tableName
+            sql "DROP TABLE IF EXISTS ${tableName1} FORCE"
         }
     }
 
