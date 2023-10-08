@@ -155,6 +155,7 @@ Status VectorizedFnCall::execute(VExprContext* context, vectorized::Block* block
         // if not find fast execute result column, means do not need check fast execute again
         _can_fast_execute = fast_execute(context->fn_context(_fn_context_index), *block, arguments,
                                          num_columns_without_result, block->rows());
+        // insert be converted column to block     向block插入转换后的列
         if (_can_fast_execute) {
             *result_column_id = num_columns_without_result;
             return Status::OK();

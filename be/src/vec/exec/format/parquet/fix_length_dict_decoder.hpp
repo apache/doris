@@ -82,6 +82,9 @@ public:
         }
             FOR_LOGICAL_NUMERIC_TYPES(DISPATCH)
 #undef DISPATCH
+        case TypeIndex::Int128:
+            return _decode_numeric< Int128 ,T, has_filter>(doris_column, select_vector);
+            break;
         case TypeIndex::Date:
             if constexpr (std::is_same_v<T, Int32>) {
                 return _decode_date<VecDateTimeValue, Int64, has_filter>(doris_column,
@@ -158,10 +161,11 @@ public:
         default:
             break;
         }
-
         return Status::InvalidArgument(
                 "Can't decode parquet physical type {} to doris logical type {}",
                 tparquet::to_string(_physical_type), getTypeName(logical_type));
+
+        return Status::OK();
     }
 
     Status set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t length, size_t num_values) override {
@@ -190,9 +194,16 @@ protected:
             switch (read_type) {
             case ColumnSelectVector::CONTENT: {
                 for (size_t i = 0; i < run_length; ++i) {
-                    column_data[data_index++] =
-                            static_cast<PhysicalType>(_dict_items[_indexes[dict_index++]]);
-                }
+                    if constexpr (std::is_same_v<PhysicalType,ParquetInt96> ){
+                        ParquetInt96 value = static_cast<PhysicalType>(_dict_items[_indexes[dict_index++]]);
+                        column_data[data_index++] = value.to_int128();
+
+                    } else {
+                        column_data[data_index++] =
+                                static_cast<PhysicalType>(_dict_items[_indexes[dict_index++]]);
+
+                    }
+                    }
                 break;
             }
             case ColumnSelectVector::NULL_DATA: {

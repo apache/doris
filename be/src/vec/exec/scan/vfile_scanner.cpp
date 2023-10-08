@@ -289,7 +289,7 @@ Status VFileScanner::open(RuntimeState* state) {
 Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof) {
     do {
         if (_cur_reader == nullptr || _cur_reader_eof) {
-            RETURN_IF_ERROR(_get_next_reader());
+            RETURN_IF_ERROR(_get_next_reader());//init parquet reader
         }
 
         if (_scanner_eof) {
@@ -577,7 +577,7 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
             for (int i = 0; i < rows; ++i) {
-                if (filter_map[i] && nullable_column->is_null_at(i)) {
+                if (filter_map[i] && nullable_column->is_null_at(i)) {//in load , error case
                     if (_strict_mode && (_src_slot_descs_order_by_dest[dest_index]) &&
                         !_src_block_ptr->get_by_position(_dest_slot_to_src_slot_index[dest_index])
                                  .column->is_null_at(i)) {
@@ -706,7 +706,7 @@ Status VFileScanner::_get_next_reader() {
             _state->update_num_finished_scan_range(1);
             return Status::OK();
         }
-        if (_next_range != 0) {
+            if (_next_range != 0) {
             _state->update_num_finished_scan_range(1);
         }
 
@@ -764,14 +764,14 @@ Status VFileScanner::_get_next_reader() {
                     _state->query_options().enable_parquet_lazy_mat);
             {
                 SCOPED_TIMER(_open_reader_timer);
-                RETURN_IF_ERROR(parquet_reader->open());
+                RETURN_IF_ERROR(parquet_reader->open());//read file_schema
             }
             if (push_down_predicates && _push_down_conjuncts.empty() && !_conjuncts.empty()) {
                 _push_down_conjuncts.resize(_conjuncts.size());
                 for (size_t i = 0; i != _conjuncts.size(); ++i) {
                     RETURN_IF_ERROR(_conjuncts[i]->clone(_state, _push_down_conjuncts[i]));
                 }
-                _discard_conjuncts();
+                //_discard_conjuncts();
             }
             if (range.__isset.table_format_params &&
                 range.table_format_params.table_format_type == "iceberg") {
@@ -792,7 +792,7 @@ Status VFileScanner::_get_next_reader() {
                         _file_col_names, place_holder, _colname_to_value_range,
                         _push_down_conjuncts, _real_tuple_desc, _default_val_row_desc.get(),
                         _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
-                        &_slot_id_to_filter_conjuncts);
+                        &_slot_id_to_filter_conjuncts);//init parquet reader <-  select column / filter / value_range min max
                 _cur_reader = std::move(parquet_reader);
             }
             need_to_get_parsed_schema = true;

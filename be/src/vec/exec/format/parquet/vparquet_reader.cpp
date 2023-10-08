@@ -43,10 +43,34 @@
 #include "vec/exec/format/parquet/vparquet_page_index.h"
 #include "vec/exprs/vbloom_predicate.h"
 #include "vec/exprs/vexpr.h"
-#include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vin_predicate.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
 #include "vec/exprs/vslot_ref.h"
+#include "exec/schema_scanner.h"
+#include "gtest/gtest_pred_impl.h"
+#include "io/fs/buffered_reader.h"
+#include "io/fs/file_reader.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "runtime/descriptors.h"
+#include "util/timezone_utils.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_factory.hpp"
+#include "vec/exec/format/parquet/parquet_common.h"
+#include "gen_cpp/descriptors.pb.h"
+#include "olap/olap_common.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_string.h"
+#include "vec/exec/format/convert.h"
 
 namespace cctz {
 class time_zone;
@@ -514,33 +538,61 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
         }
     }
     DCHECK(_current_group_reader != nullptr);
-    if (_push_down_agg_type == TPushAggOp::type::COUNT) {
-        auto rows = std::min(_current_group_reader->get_remaining_rows(), (int64_t)_batch_size);
 
-        _current_group_reader->set_remaining_rows(_current_group_reader->get_remaining_rows() -
-                                                  rows);
-
-        for (auto& col : block->mutate_columns()) {
-            col->resize(rows);
-        }
-
-        *read_rows = rows;
-        if (_current_group_reader->get_remaining_rows() == 0) {
-            _current_group_reader.reset(nullptr);
-        }
-
-        return Status::OK();
-    }
 
     {
+        BlockUPtr src_block ;
+        std::map<string,bool> need_convert;
+        {
+//            std::cout <<"->";
+//            for(auto i  =0; i < block->columns();i++ ){
+//                std::cout << block->get_columns()[i]->get_name()<<" ";
+//            }
+//            std::cout <<"\n";
+
+            vector<ColumnWithTypeAndName> v;
+            for (auto &col_name: block->get_names()) {
+                vectorized::DataTypePtr data_type;
+                tparquet::Type::type parquet_type = _file_metadata->schema().get_column(col_name)->physical_type;
+                bool conv = false;
+                convert::convert_data_type_from_parquet(parquet_type,
+                                                data_type,block->get_by_name(col_name).type,&conv);
+                std::cout << col_name <<"->"<<conv<<"\n";
+                need_convert[col_name] = conv;
+                if (conv){
+                    v.emplace_back(data_type, col_name);
+                }else {
+//                    v.emplace_back(  (*std::move(block->get_by_name(col_name).column)).mutate(),data_type,col_name );
+                    v.emplace_back(
+                                   block->get_by_name(col_name).column->assume_mutable(),
+                                   data_type, col_name);
+                }
+            }
+            src_block = vectorized::Block::create_unique(v);
+        }
         SCOPED_RAW_TIMER(&_statistics.column_read_time);
         Status batch_st =
-                _current_group_reader->next_batch(block, _batch_size, read_rows, &_row_group_eof);
+                _current_group_reader->next_batch(src_block.get(), _batch_size, read_rows, &_row_group_eof);
         if (!batch_st.ok()) {
             return Status::InternalError("Read parquet file {} failed, reason = {}",
                                          _scan_range.path, batch_st.to_string());
         }
+
+        //convert
+        for(auto i  =0; i < block->columns();i++ ){
+            std::cout <<"colname = " << block->get_names()[i] <<" "<<need_convert[block->get_names()[i]] <<"\n";
+            if (need_convert[block->get_names()[i]]){
+                std::unique_ptr<convert::ColumnConvert>  converter(nullptr);
+                convert::DocTime doc;
+//                auto x =
+                doc.init_time(_file_metadata->schema().get_column(i),_ctz);
+                RETURN_IF_ERROR(convert::get_converter(src_block->get_data_type(i),block->get_data_type(i),&converter,doc));
+//                block->get_columns()[i]=src_block->get_columns()[i];
+                converter->convert(src_block->get_columns()[i].get(), const_cast<IColumn*>(block->get_columns()[i].get()));
+            }
+        }
     }
+
     if (_row_group_eof) {
         auto column_st = _current_group_reader->statistics();
         _column_statistics.merge(column_st);

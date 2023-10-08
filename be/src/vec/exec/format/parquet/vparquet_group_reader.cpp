@@ -129,7 +129,7 @@ Status RowGroupReader::init(
         std::unique_ptr<ParquetColumnReader> reader;
         RETURN_IF_ERROR(ParquetColumnReader::create(_file_reader, field, _row_group_meta,
                                                     _read_ranges, _ctz, _io_ctx, reader,
-                                                    max_buf_size));
+                                                    max_buf_size));//create column reader .....
         if (reader == nullptr) {
             VLOG_DEBUG << "Init row group(" << _row_group_id << ") reader failed";
             return Status::Corruption("Init row group reader failed");
@@ -183,7 +183,8 @@ bool RowGroupReader::_can_filter_by_dict(int slot_id,
             break;
         }
     }
-    if (!slot->type().is_string_type()) {
+    if (slot != nullptr){
+//    if (!slot->type().is_string_type()) {//TODO(CYW) : check use file metadata   column_metadata.type
         return false;
     }
 
@@ -320,7 +321,7 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
         }
 
         RETURN_IF_ERROR(_build_pos_delete_filter(*read_rows));
-
+/*
         std::vector<uint32_t> columns_to_filter;
         int column_to_keep = block->columns();
         columns_to_filter.resize(column_to_keep);
@@ -336,6 +337,9 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
             bool can_filter_all = false;
             RETURN_IF_ERROR_OR_CATCH_EXCEPTION(VExprContext::execute_conjuncts(
                     _filter_conjuncts, &filters, block, &result_filter, &can_filter_all));
+            // => select col  where col = '1'    =>  col1  ,converted col , '1' col
+
+            //filter all data
             if (can_filter_all) {
                 for (auto& col : columns_to_filter) {
                     std::move(*block->get_by_position(col).column).assume_mutable()->clear();
@@ -344,6 +348,7 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
                 _convert_dict_cols_to_string_cols(block);
                 return Status::OK();
             }
+            _pre_conjunct_ctxs
             if (!_not_single_slot_filter_conjuncts.empty()) {
                 _convert_dict_cols_to_string_cols(block);
                 std::vector<IColumn::Filter*> merged_filters;
@@ -362,7 +367,7 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
             RETURN_IF_CATCH_EXCEPTION(
                     RETURN_IF_ERROR(_filter_block(block, column_to_keep, columns_to_filter)));
         }
-
+*/
         *read_rows = block->rows();
         return Status::OK();
     }

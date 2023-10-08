@@ -121,6 +121,8 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
                                    io::IOContext* io_ctx,
                                    std::unique_ptr<ParquetColumnReader>& reader,
                                    size_t max_buf_size) {
+
+
     if (field->type.type == TYPE_ARRAY) {
         std::unique_ptr<ParquetColumnReader> element_reader;
         RETURN_IF_ERROR(create(file, &field->children[0], row_group, row_ranges, ctz, io_ctx,
@@ -252,8 +254,10 @@ Status ScalarColumnReader::_read_values(size_t num_values, ColumnPtr& doris_colu
     NullMap* map_data_column = nullptr;
     if (doris_column->is_nullable()) {
         SCOPED_RAW_TIMER(&_decode_null_map_time);
-        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-                (*std::move(doris_column)).mutate().get());
+//        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
+//                (*std::move(doris_column)).mutate().get());
+        auto* nullable_column = const_cast<vectorized::ColumnNullable*>(reinterpret_cast<const vectorized::ColumnNullable*>(doris_column.get()));
+
         data_column = nullable_column->get_nested_column_ptr();
         map_data_column = &(nullable_column->get_null_map_data());
         if (_chunk_reader->max_def_level() > 0) {
@@ -442,7 +446,7 @@ Status ScalarColumnReader::read_dict_values_to_column(MutableColumnPtr& doris_co
                                                       bool* has_dict) {
     bool loaded;
     RETURN_IF_ERROR(_try_load_dict_page(&loaded, has_dict));
-    if (loaded && has_dict) {
+    if (loaded && *has_dict) {//todo(cyw) has_dist ????
         return _chunk_reader->read_dict_values_to_column(doris_column);
     }
     return Status::OK();

@@ -54,6 +54,12 @@ struct ParquetInt96 {
     inline uint64_t to_timestamp_micros() const {
         return (hi - JULIAN_EPOCH_OFFSET_DAYS) * MICROS_IN_DAY + lo / NANOS_PER_MICROSECOND;
     }
+    inline __int128 to_int128() const {
+        __int128 ans = 0 ;
+        std::cout <<"before ""hi = "<<hi <<" lo = "<<lo <<"\n";
+        ans = (((__int128)hi) << 64) + lo;
+        return ans;
+    }
 
     static const uint32_t JULIAN_EPOCH_OFFSET_DAYS;
     static const uint64_t MICROS_IN_DAY;
