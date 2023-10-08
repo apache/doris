@@ -2,23 +2,24 @@
 -- !ds_shape_30 --
 PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )
-----hashAgg[GLOBAL]
-------PhysicalDistribute
---------hashAgg[LOCAL]
-----------PhysicalProject
-------------hashJoin[INNER_JOIN] hashCondition=((web_returns.wr_returning_addr_sk = customer_address.ca_address_sk))otherCondition=()
---------------PhysicalDistribute
-----------------PhysicalProject
-------------------hashJoin[INNER_JOIN] hashCondition=((web_returns.wr_returned_date_sk = date_dim.d_date_sk))otherCondition=()
---------------------PhysicalProject
-----------------------PhysicalOlapScan[web_returns]
---------------------PhysicalDistribute
+----PhysicalProject
+------hashAgg[GLOBAL]
+--------PhysicalDistribute
+----------hashAgg[LOCAL]
+------------PhysicalProject
+--------------hashJoin[INNER_JOIN] hashCondition=((web_returns.wr_returning_addr_sk = customer_address.ca_address_sk))otherCondition=()
+----------------PhysicalDistribute
+------------------PhysicalProject
+--------------------hashJoin[INNER_JOIN] hashCondition=((web_returns.wr_returned_date_sk = date_dim.d_date_sk))otherCondition=()
 ----------------------PhysicalProject
-------------------------filter((date_dim.d_year = 2002))
---------------------------PhysicalOlapScan[date_dim]
---------------PhysicalDistribute
-----------------PhysicalProject
-------------------PhysicalOlapScan[customer_address]
+------------------------PhysicalOlapScan[web_returns]
+----------------------PhysicalDistribute
+------------------------PhysicalProject
+--------------------------filter((date_dim.d_year = 2002))
+----------------------------PhysicalOlapScan[date_dim]
+----------------PhysicalDistribute
+------------------PhysicalProject
+--------------------PhysicalOlapScan[customer_address]
 --PhysicalResultSink
 ----PhysicalTopN
 ------PhysicalDistribute

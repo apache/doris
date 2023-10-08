@@ -31,7 +31,8 @@
 namespace doris::pipeline {
 
 Status FileScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* scanners) {
-    if (Base::_eos_dependency->read_blocked_by() == nullptr) {
+    if (_scan_ranges.empty()) {
+        Base::_eos_dependency->set_ready_for_read();
         return Status::OK();
     }
 
@@ -50,4 +51,62 @@ Status FileScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
     }
     return Status::OK();
 }
+
+void FileScanLocalState::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
+    int max_scanners = config::doris_scanner_thread_pool_thread_num;
+    if (scan_ranges.size() <= max_scanners) {
+        _scan_ranges = scan_ranges;
+    } else {
+        // There is no need for the number of scanners to exceed the number of threads in thread pool.
+        _scan_ranges.clear();
+        auto range_iter = scan_ranges.begin();
+        for (int i = 0; i < max_scanners && range_iter != scan_ranges.end(); ++i, ++range_iter) {
+            _scan_ranges.push_back(*range_iter);
+        }
+        for (int i = 0; range_iter != scan_ranges.end(); ++i, ++range_iter) {
+            if (i == max_scanners) {
+                i = 0;
+            }
+            auto& ranges = _scan_ranges[i].scan_range.ext_scan_range.file_scan_range.ranges;
+            auto& merged_ranges = range_iter->scan_range.ext_scan_range.file_scan_range.ranges;
+            ranges.insert(ranges.end(), merged_ranges.begin(), merged_ranges.end());
+        }
+        _scan_ranges.shrink_to_fit();
+        LOG(INFO) << "Merge " << scan_ranges.size() << " scan ranges to " << _scan_ranges.size();
+    }
+    if (scan_ranges.size() > 0 &&
+        scan_ranges[0].scan_range.ext_scan_range.file_scan_range.__isset.params) {
+        // for compatibility.
+        // in new implement, the tuple id is set in prepare phase
+        _output_tuple_id =
+                scan_ranges[0].scan_range.ext_scan_range.file_scan_range.params.dest_tuple_id;
+    }
+}
+
+Status FileScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
+    RETURN_IF_ERROR(ScanLocalState<FileScanLocalState>::init(state, info));
+    auto& p = _parent->cast<FileScanOperatorX>();
+    _output_tuple_id = p._output_tuple_id;
+    return Status::OK();
+}
+
+Status FileScanLocalState::_process_conjuncts() {
+    RETURN_IF_ERROR(ScanLocalState<FileScanLocalState>::_process_conjuncts());
+    if (Base::_eos_dependency->read_blocked_by() == nullptr) {
+        return Status::OK();
+    }
+    // TODO: Push conjuncts down to reader.
+    return Status::OK();
+}
+
+Status FileScanOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(ScanOperatorX<FileScanLocalState>::prepare(state));
+    if (state->get_query_ctx() != nullptr &&
+        state->get_query_ctx()->file_scan_range_params_map.count(_id) > 0) {
+        TFileScanRangeParams& params = state->get_query_ctx()->file_scan_range_params_map[_id];
+        _output_tuple_id = params.dest_tuple_id;
+    }
+    return Status::OK();
+}
+
 } // namespace doris::pipeline

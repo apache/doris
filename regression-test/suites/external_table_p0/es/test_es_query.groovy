@@ -197,6 +197,7 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
         order_qt_sql78 """select c_bool, c_byte, c_short, c_integer, c_long, c_unsigned_long, c_float, c_half_float, c_double, c_scaled_float, c_date, c_datetime, c_keyword, c_text, c_ip, c_person from test1"""
         order_qt_sql79 """select c_bool, c_byte, c_short, c_integer, c_long, c_unsigned_long, c_float, c_half_float, c_double, c_scaled_float, c_date, c_datetime, c_keyword, c_text, c_ip, c_person from test2"""
 
+
         List<List<String>> tables7N = sql """show tables"""
         boolean notContainHide7 = true
         tables7N.forEach {
@@ -216,6 +217,9 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
         }
         assertTrue(containeHide7)
 
+
+        order_qt_sql710 """select * from test3_20231005"""
+
         sql """switch es8"""
         order_qt_sql81 """select * from test1 where test2='text#1'"""
         order_qt_sql82 """select * from test2_20220808 where test4 >= '2022-08-08 00:00:00' and test4 < '2022-08-08 23:59:59'"""
@@ -224,6 +228,6 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
         order_qt_sql85 """select * from test1 where esquery(test2, '{"match":{"test2":"text#1"}}')"""
         order_qt_sql86 """select c_bool, c_byte, c_short, c_integer, c_long, c_unsigned_long, c_float, c_half_float, c_double, c_scaled_float, c_date, c_datetime, c_keyword, c_text, c_ip, c_person from test1"""
         order_qt_sql87 """select c_bool, c_byte, c_short, c_integer, c_long, c_unsigned_long, c_float, c_half_float, c_double, c_scaled_float, c_date, c_datetime, c_keyword, c_text, c_ip, c_person from test2"""
-
+        order_qt_sql88 """select * from test3_20231005"""
     }
 }

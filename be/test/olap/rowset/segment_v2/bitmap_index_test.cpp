@@ -66,7 +66,7 @@ void write_index_file(const std::string& filename, FileSystemSPtr fs, const void
         EXPECT_TRUE(fs->create_file(filename, &file_writer).ok());
 
         std::unique_ptr<BitmapIndexWriter> writer;
-        BitmapIndexWriter::create(type_info, &writer);
+        static_cast<void>(BitmapIndexWriter::create(type_info, &writer));
         writer->add_values(values, value_count);
         writer->add_nulls(null_count);
         EXPECT_TRUE(writer->finish(file_writer.get(), meta).ok());
@@ -113,7 +113,7 @@ TEST_F(BitmapIndexTest, test_invert) {
         EXPECT_EQ(2, iter->current_ordinal());
 
         Roaring bitmap;
-        iter->read_bitmap(iter->current_ordinal(), &bitmap);
+        static_cast<void>(iter->read_bitmap(iter->current_ordinal(), &bitmap));
         EXPECT_TRUE(Roaring::bitmapOf(1, 2) == bitmap);
 
         int value2 = 1024 * 9;
@@ -122,15 +122,16 @@ TEST_F(BitmapIndexTest, test_invert) {
         EXPECT_TRUE(exact_match);
         EXPECT_EQ(1024 * 9, iter->current_ordinal());
 
-        iter->read_union_bitmap(iter->current_ordinal(), iter->bitmap_nums(), &bitmap);
+        static_cast<void>(
+                iter->read_union_bitmap(iter->current_ordinal(), iter->bitmap_nums(), &bitmap));
         EXPECT_EQ(1025, bitmap.cardinality());
 
         int value3 = 1024;
-        iter->seek_dictionary(&value3, &exact_match);
+        static_cast<void>(iter->seek_dictionary(&value3, &exact_match));
         EXPECT_EQ(1024, iter->current_ordinal());
 
         Roaring bitmap2;
-        iter->read_union_bitmap(0, iter->current_ordinal(), &bitmap2);
+        static_cast<void>(iter->read_union_bitmap(0, iter->current_ordinal(), &bitmap2));
         EXPECT_EQ(1024, bitmap2.cardinality());
 
         delete reader;
@@ -169,7 +170,7 @@ TEST_F(BitmapIndexTest, test_invert_2) {
         EXPECT_EQ(1024, iter->current_ordinal());
 
         Roaring bitmap;
-        iter->read_union_bitmap(0, iter->current_ordinal(), &bitmap);
+        static_cast<void>(iter->read_union_bitmap(0, iter->current_ordinal(), &bitmap));
         EXPECT_EQ(1024, bitmap.cardinality());
 
         delete reader;
@@ -203,7 +204,7 @@ TEST_F(BitmapIndexTest, test_multi_pages) {
         EXPECT_EQ(0, iter->current_ordinal());
 
         Roaring bitmap;
-        iter->read_bitmap(iter->current_ordinal(), &bitmap);
+        static_cast<void>(iter->read_bitmap(iter->current_ordinal(), &bitmap));
         EXPECT_EQ(1, bitmap.cardinality());
 
         delete reader;
@@ -229,7 +230,7 @@ TEST_F(BitmapIndexTest, test_null) {
         get_bitmap_reader_iter<FieldType::OLAP_FIELD_TYPE_BIGINT>(file_name, meta, &reader, &iter);
 
         Roaring bitmap;
-        iter->read_null_bitmap(&bitmap);
+        static_cast<void>(iter->read_null_bitmap(&bitmap));
         EXPECT_EQ(30, bitmap.cardinality());
 
         delete reader;

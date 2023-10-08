@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -140,6 +141,14 @@ public class LogicalPlanBuilder {
 
     public LogicalPlanBuilder limit(long limit) {
         return limit(limit, 0);
+    }
+
+    public LogicalPlanBuilder topN(long limit, long offset, List<Integer> orderKeySlotsIndex) {
+        List<OrderKey> orderKeys = orderKeySlotsIndex.stream()
+                .map(i -> new OrderKey(this.plan.getOutput().get(i), false, false))
+                .collect(Collectors.toList());
+        LogicalTopN<Plan> topNPlan = new LogicalTopN<>(orderKeys, limit, offset, this.plan);
+        return from(topNPlan);
     }
 
     public LogicalPlanBuilder filter(Expression conjunct) {
