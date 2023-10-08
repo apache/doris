@@ -1317,6 +1317,10 @@ Status SegmentIterator::_lookup_ordinal(const StorageReadOptions::KeyRange& key_
                                         &lower_rowid));
     }
     DCHECK(lower_rowid <= upper_rowid);
+    if (lower_rowid == 0 && upper_rowid == num_rows()) {
+        row_bitmap->addRange(lower_rowid, upper_rowid);
+        return Status::OK();
+    }
 
     const PrimaryKeyIndexReader* pk_index_reader = _segment->get_primary_key_index();
     DCHECK(pk_index_reader != nullptr);
