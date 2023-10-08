@@ -3,123 +3,143 @@
 0
 
 -- !join1_tree --
-LogicalResultSink[138] ( outputExprs=[c1#0] )
-+--LogicalLimit ( limit=1, offset=0, phase=GLOBAL )
-   +--LogicalLimit ( limit=1, offset=0, phase=LOCAL )
-      +--LogicalAggregate[132] ( groupByExpr=[c1#0], outputExpr=[c1#0], hasRepeat=false )
-         +--LogicalProject[130] ( distinct=false, projects=[c1#0], excepts=[] )
-            +--LogicalJoin[128] ( type=LEFT_OUTER_JOIN, markJoinSlotReference=Optional.empty, hashJoinConjuncts=[(c1#0 = c1#3)], otherJoinConjuncts=[] )
-               |--LogicalLimit ( limit=1, offset=0, phase=LOCAL )
-               |  +--LogicalAggregate[122] ( groupByExpr=[c1#0], outputExpr=[c1#0], hasRepeat=false )
-               |     +--LogicalProject[120] ( distinct=false, projects=[c1#0], excepts=[] )
-               |        +--LogicalOlapScan ( qualified=default_cluster:nereids_regression_test_limit_join.t2, indexName=t2, selectedIndexId=10306, preAgg=ON )
-               +--LogicalProject[125] ( distinct=false, projects=[c1#3], excepts=[] )
-                  +--LogicalOlapScan ( qualified=default_cluster:nereids_regression_test_limit_join.t2, indexName=t2, selectedIndexId=10306, preAgg=ON )
+PhysicalResultSink
+--PhysicalLimit
+----PhysicalDistribute
+------PhysicalLimit
+--------hashAgg[LOCAL]
+----------PhysicalProject
+------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = t2.c1))otherCondition=()
+--------------PhysicalLimit
+----------------hashAgg[LOCAL]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t2]
+--------------PhysicalProject
+----------------PhysicalOlapScan[t2]
 
 -- !join2 --
 0
 
 -- !join2_tree --
-LogicalResultSink[138] ( outputExprs=[c1#0] )
-+--LogicalLimit ( limit=1, offset=1, phase=GLOBAL )
-   +--LogicalLimit ( limit=2, offset=0, phase=LOCAL )
-      +--LogicalAggregate[132] ( groupByExpr=[c1#0], outputExpr=[c1#0], hasRepeat=false )
-         +--LogicalProject[130] ( distinct=false, projects=[c1#0], excepts=[] )
-            +--LogicalJoin[128] ( type=LEFT_OUTER_JOIN, markJoinSlotReference=Optional.empty, hashJoinConjuncts=[(c1#0 = c1#3)], otherJoinConjuncts=[] )
-               |--LogicalLimit ( limit=2, offset=0, phase=LOCAL )
-               |  +--LogicalAggregate[122] ( groupByExpr=[c1#0], outputExpr=[c1#0], hasRepeat=false )
-               |     +--LogicalProject[120] ( distinct=false, projects=[c1#0], excepts=[] )
-               |        +--LogicalOlapScan ( qualified=default_cluster:nereids_regression_test_limit_join.t2, indexName=t2, selectedIndexId=10306, preAgg=ON )
-               +--LogicalProject[125] ( distinct=false, projects=[c1#3], excepts=[] )
-                  +--LogicalOlapScan ( qualified=default_cluster:nereids_regression_test_limit_join.t2, indexName=t2, selectedIndexId=10306, preAgg=ON )
+PhysicalResultSink
+--PhysicalLimit
+----PhysicalDistribute
+------PhysicalLimit
+--------hashAgg[LOCAL]
+----------PhysicalProject
+------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = t2.c1))otherCondition=()
+--------------PhysicalLimit
+----------------hashAgg[LOCAL]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t2]
+--------------PhysicalProject
+----------------PhysicalOlapScan[t2]
 
 -- !join3 --
 0
 
 -- !join3_tree --
-LogicalResultSink[144] ( outputExprs=[c1#3] )
-+--LogicalLimit ( limit=1, offset=0, phase=GLOBAL )
-   +--LogicalLimit ( limit=1, offset=0, phase=LOCAL )
-      +--LogicalAggregate[138] ( groupByExpr=[c1#3], outputExpr=[c1#3], hasRepeat=false )
-         +--LogicalProject[136] ( distinct=false, projects=[c1#3], excepts=[] )
-            +--LogicalJoin[134] ( type=LEFT_OUTER_JOIN, markJoinSlotReference=Optional.empty, hashJoinConjuncts=[(c1#0 = c1#3)], otherJoinConjuncts=[] )
-               |--LogicalLimit ( limit=1, offset=0, phase=LOCAL )
-               |  +--LogicalAggregate[128] ( groupByExpr=[c1#3], outputExpr=[c1#3], hasRepeat=false )
-               |     +--LogicalProject[126] ( distinct=false, projects=[c1#3], excepts=[] )
-               |        +--LogicalOlapScan ( qualified=default_cluster:nereids_regression_test_limit_join.t2, indexName=t2, selectedIndexId=10306, preAgg=ON )
-               +--LogicalProject[131] ( distinct=false, projects=[c1#0], excepts=[] )
-                  +--LogicalOlapScan ( qualified=default_cluster:nereids_regression_test_limit_join.t2, indexName=t2, selectedIndexId=10306, preAgg=ON )
+PhysicalResultSink
+--PhysicalLimit
+----PhysicalDistribute
+------PhysicalLimit
+--------hashAgg[LOCAL]
+----------PhysicalProject
+------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = t2.c1))otherCondition=()
+--------------PhysicalLimit
+----------------hashAgg[LOCAL]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t2]
+--------------PhysicalProject
+----------------PhysicalOlapScan[t2]
 
 -- !join4 --
 0
 
 -- !join4_tree --
-LogicalResultSink[144] ( outputExprs=[c1#3] )
-+--LogicalLimit ( limit=1, offset=1, phase=GLOBAL )
-   +--LogicalLimit ( limit=2, offset=0, phase=LOCAL )
-      +--LogicalAggregate[138] ( groupByExpr=[c1#3], outputExpr=[c1#3], hasRepeat=false )
-         +--LogicalProject[136] ( distinct=false, projects=[c1#3], excepts=[] )
-            +--LogicalJoin[134] ( type=LEFT_OUTER_JOIN, markJoinSlotReference=Optional.empty, hashJoinConjuncts=[(c1#0 = c1#3)], otherJoinConjuncts=[] )
-               |--LogicalLimit ( limit=2, offset=0, phase=LOCAL )
-               |  +--LogicalAggregate[128] ( groupByExpr=[c1#3], outputExpr=[c1#3], hasRepeat=false )
-               |     +--LogicalProject[126] ( distinct=false, projects=[c1#3], excepts=[] )
-               |        +--LogicalOlapScan ( qualified=default_cluster:nereids_regression_test_limit_join.t2, indexName=t2, selectedIndexId=10306, preAgg=ON )
-               +--LogicalProject[131] ( distinct=false, projects=[c1#0], excepts=[] )
-                  +--LogicalOlapScan ( qualified=default_cluster:nereids_regression_test_limit_join.t2, indexName=t2, selectedIndexId=10306, preAgg=ON )
+PhysicalResultSink
+--PhysicalLimit
+----PhysicalDistribute
+------PhysicalLimit
+--------hashAgg[LOCAL]
+----------PhysicalProject
+------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = t2.c1))otherCondition=()
+--------------PhysicalLimit
+----------------hashAgg[LOCAL]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t2]
+--------------PhysicalProject
+----------------PhysicalOlapScan[t2]
 
 -- !join5 --
 0
 
 -- !join5_tree --
-LogicalResultSink[112] ( outputExprs=[c1#0] )
-+--LogicalTopN ( limit=1, offset=0, orderKeys=[c1#0 asc null first] )
-   +--LogicalProject[107] ( distinct=false, projects=[c1#0], excepts=[] )
-      +--LogicalJoin[105] ( type=LEFT_OUTER_JOIN, markJoinSlotReference=Optional.empty, hashJoinConjuncts=[(c1#0 = c1#3)], otherJoinConjuncts=[] )
-         |--LogicalTopN ( limit=1, offset=0, orderKeys=[c1#0 asc null first] )
-         |  +--LogicalProject[98] ( distinct=false, projects=[c1#0], excepts=[] )
-         |     +--LogicalOlapScan ( qualified=default_cluster:nereids_regression_test_limit_join.t2, indexName=t2, selectedIndexId=10306, preAgg=ON )
-         +--LogicalProject[102] ( distinct=false, projects=[c1#3], excepts=[] )
-            +--LogicalOlapScan ( qualified=default_cluster:nereids_regression_test_limit_join.t2, indexName=t2, selectedIndexId=10306, preAgg=ON )
+PhysicalResultSink
+--PhysicalTopN
+----PhysicalTopN
+------PhysicalProject
+--------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = t2.c1))otherCondition=()
+----------PhysicalTopN
+------------PhysicalDistribute
+--------------PhysicalTopN
+----------------PhysicalProject
+------------------PhysicalOlapScan[t2]
+----------PhysicalDistribute
+------------PhysicalProject
+--------------PhysicalOlapScan[t2]
 
 -- !join6 --
 0
 
 -- !join6_tree --
-LogicalResultSink[112] ( outputExprs=[c1#0] )
-+--LogicalTopN ( limit=1, offset=1, orderKeys=[c1#0 asc null first] )
-   +--LogicalProject[107] ( distinct=false, projects=[c1#0], excepts=[] )
-      +--LogicalJoin[105] ( type=LEFT_OUTER_JOIN, markJoinSlotReference=Optional.empty, hashJoinConjuncts=[(c1#0 = c1#3)], otherJoinConjuncts=[] )
-         |--LogicalTopN ( limit=2, offset=0, orderKeys=[c1#0 asc null first] )
-         |  +--LogicalProject[98] ( distinct=false, projects=[c1#0], excepts=[] )
-         |     +--LogicalOlapScan ( qualified=default_cluster:nereids_regression_test_limit_join.t2, indexName=t2, selectedIndexId=10306, preAgg=ON )
-         +--LogicalProject[102] ( distinct=false, projects=[c1#3], excepts=[] )
-            +--LogicalOlapScan ( qualified=default_cluster:nereids_regression_test_limit_join.t2, indexName=t2, selectedIndexId=10306, preAgg=ON )
+PhysicalResultSink
+--PhysicalTopN
+----PhysicalTopN
+------PhysicalProject
+--------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = t2.c1))otherCondition=()
+----------PhysicalTopN
+------------PhysicalDistribute
+--------------PhysicalTopN
+----------------PhysicalProject
+------------------PhysicalOlapScan[t2]
+----------PhysicalDistribute
+------------PhysicalProject
+--------------PhysicalOlapScan[t2]
 
 -- !join7 --
 0
 
 -- !join7_tree --
-LogicalResultSink[117] ( outputExprs=[c1#3] )
-+--LogicalTopN ( limit=1, offset=0, orderKeys=[c1#3 asc null first] )
-   +--LogicalProject[112] ( distinct=false, projects=[c1#3], excepts=[] )
-      +--LogicalJoin[110] ( type=LEFT_OUTER_JOIN, markJoinSlotReference=Optional.empty, hashJoinConjuncts=[(c1#0 = c1#3)], otherJoinConjuncts=[] )
-         |--LogicalTopN ( limit=1, offset=0, orderKeys=[c1#3 asc null first] )
-         |  +--LogicalProject[103] ( distinct=false, projects=[c1#3], excepts=[] )
-         |     +--LogicalOlapScan ( qualified=default_cluster:nereids_regression_test_limit_join.t2, indexName=t2, selectedIndexId=10306, preAgg=ON )
-         +--LogicalProject[107] ( distinct=false, projects=[c1#0], excepts=[] )
-            +--LogicalOlapScan ( qualified=default_cluster:nereids_regression_test_limit_join.t2, indexName=t2, selectedIndexId=10306, preAgg=ON )
+PhysicalResultSink
+--PhysicalTopN
+----PhysicalTopN
+------PhysicalProject
+--------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = t2.c1))otherCondition=()
+----------PhysicalTopN
+------------PhysicalDistribute
+--------------PhysicalTopN
+----------------PhysicalProject
+------------------PhysicalOlapScan[t2]
+----------PhysicalDistribute
+------------PhysicalProject
+--------------PhysicalOlapScan[t2]
 
 -- !join8 --
 0
 
 -- !join8_tree --
-LogicalResultSink[117] ( outputExprs=[c1#3] )
-+--LogicalTopN ( limit=1, offset=1, orderKeys=[c1#3 asc null first] )
-   +--LogicalProject[112] ( distinct=false, projects=[c1#3], excepts=[] )
-      +--LogicalJoin[110] ( type=LEFT_OUTER_JOIN, markJoinSlotReference=Optional.empty, hashJoinConjuncts=[(c1#0 = c1#3)], otherJoinConjuncts=[] )
-         |--LogicalTopN ( limit=2, offset=0, orderKeys=[c1#3 asc null first] )
-         |  +--LogicalProject[103] ( distinct=false, projects=[c1#3], excepts=[] )
-         |     +--LogicalOlapScan ( qualified=default_cluster:nereids_regression_test_limit_join.t2, indexName=t2, selectedIndexId=10306, preAgg=ON )
-         +--LogicalProject[107] ( distinct=false, projects=[c1#0], excepts=[] )
-            +--LogicalOlapScan ( qualified=default_cluster:nereids_regression_test_limit_join.t2, indexName=t2, selectedIndexId=10306, preAgg=ON )
+PhysicalResultSink
+--PhysicalTopN
+----PhysicalTopN
+------PhysicalProject
+--------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = t2.c1))otherCondition=()
+----------PhysicalTopN
+------------PhysicalDistribute
+--------------PhysicalTopN
+----------------PhysicalProject
+------------------PhysicalOlapScan[t2]
+----------PhysicalDistribute
+------------PhysicalProject
+--------------PhysicalOlapScan[t2]
 

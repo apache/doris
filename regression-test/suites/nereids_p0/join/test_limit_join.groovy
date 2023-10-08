@@ -51,7 +51,7 @@ suite("test_limit_join", "nereids_p0") {
         """
 
     qt_join1_tree """
-        EXPLAIN REWRITTEN PLAN SELECT t1.c1
+        EXPLAIN SHAPE PLAN SELECT t1.c1
         FROM ${tbName2} t1 left join t2 on t1.c1 = t2.c1
         GROUP BY t1.c1
         limit 1;
@@ -65,7 +65,7 @@ suite("test_limit_join", "nereids_p0") {
         """
 
     qt_join2_tree """
-        EXPLAIN REWRITTEN PLAN SELECT t1.c1
+        EXPLAIN SHAPE PLAN SELECT t1.c1
         FROM ${tbName2} t1 left join t2 on t1.c1 = t2.c1
         GROUP BY t1.c1
         LIMIT 1 OFFSET 1;
@@ -79,7 +79,7 @@ suite("test_limit_join", "nereids_p0") {
         """
 
     qt_join3_tree """
-        EXPLAIN REWRITTEN PLAN SELECT t2.c1
+        EXPLAIN SHAPE PLAN SELECT t2.c1
         FROM ${tbName2} t1 right join t2 on t1.c1 = t2.c1
         GROUP BY t2.c1
         limit 1;
@@ -93,7 +93,7 @@ suite("test_limit_join", "nereids_p0") {
         """
     
     qt_join4_tree """
-        EXPLAIN REWRITTEN PLAN SELECT t2.c1
+        EXPLAIN SHAPE PLAN SELECT t2.c1
         FROM ${tbName2} t1 right join t2 on t1.c1 = t2.c1
         GROUP BY t2.c1
         LIMIT 1 OFFSET 1;
@@ -108,7 +108,7 @@ suite("test_limit_join", "nereids_p0") {
         """
 
     qt_join5_tree """
-        EXPLAIN REWRITTEN PLAN SELECT t1.c1
+        EXPLAIN SHAPE PLAN SELECT t1.c1
         FROM ${tbName2} t1 left join t2 on t1.c1 = t2.c1
         ORDER BY t1.c1
         limit 1;
@@ -122,7 +122,7 @@ suite("test_limit_join", "nereids_p0") {
         """
 
     qt_join6_tree """
-        EXPLAIN REWRITTEN PLAN SELECT t1.c1
+        EXPLAIN SHAPE PLAN SELECT t1.c1
         FROM ${tbName2} t1 left join t2 on t1.c1 = t2.c1
         ORDER BY t1.c1
         LIMIT 1 OFFSET 1;
@@ -136,7 +136,7 @@ suite("test_limit_join", "nereids_p0") {
         """
 
     qt_join7_tree """
-        EXPLAIN REWRITTEN PLAN SELECT t2.c1
+        EXPLAIN SHAPE PLAN SELECT t2.c1
         FROM ${tbName2} t1 right join t2 on t1.c1 = t2.c1
         ORDER BY t2.c1
         limit 1;
@@ -150,7 +150,7 @@ suite("test_limit_join", "nereids_p0") {
         """
 
     qt_join8_tree """
-        EXPLAIN REWRITTEN PLAN SELECT t2.c1
+        EXPLAIN SHAPE PLAN SELECT t2.c1
         FROM ${tbName2} t1 right join t2 on t1.c1 = t2.c1
         ORDER BY t2.c1
         LIMIT 1 OFFSET 1;
