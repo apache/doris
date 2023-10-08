@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_catalog_ddl", "p0,external") {
+suite("test_catalog_ddl", "p0,external,external_docker") {
         String catalog1 = "test_ddl_ctr1";
         // This is only for testing catalog ddl syntax
         sql """drop catalog if exists ${catalog1};"""
