@@ -40,7 +40,7 @@ public class JoinCommuteTest implements MemoPatternMatchSupported {
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), join)
-                .applyExploration(JoinCommute.LEFT_DEEP.build())
+                .applyExploration(JoinCommute.ZIG_ZAG.build())
                 .printlnOrigin()
                 .printlnExploration()
                 .matchesExploration(
