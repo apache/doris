@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.ErrorCode;
@@ -27,8 +28,6 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
-
-import java.util.Optional;
 
 // DROP DB表达式
 public class DropDbStmt extends DdlStmt {
@@ -62,9 +61,9 @@ public class DropDbStmt extends DdlStmt {
         }
         dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
 
-        // Don't allowed to drop mysql compatible databases
-        Optional<Database> dbTmp = Env.getCurrentEnv().getInternalCatalog().getDb(dbName);
-        if (dbTmp != null && dbTmp.get().isMysqlCompatibleDatabase()) {
+        // Don't allow to drop mysql compatible databases
+        DatabaseIf db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
+        if (db != null && (db instanceof Database) && ((Database) db).isMysqlCompatibleDatabase()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
                     analyzer.getQualifiedUser(), dbName);
         }
