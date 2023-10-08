@@ -35,11 +35,9 @@ suite("having") {
             DISTRIBUTED BY HASH(`s_suppkey`) BUCKETS 12
             PROPERTIES (
             "replication_allocation" = "tag.location.default: 1",
-            "is_being_synced" = "false",
             "storage_format" = "V2",
             "light_schema_change" = "true",
-            "disable_auto_compaction" = "false",
-            "enable_single_replica_compaction" = "false"
+            "disable_auto_compaction" = "false"
             ); """
     sql """explain 
         select count(*)

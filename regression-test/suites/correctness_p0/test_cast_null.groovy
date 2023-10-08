@@ -29,11 +29,9 @@ suite("test_cast_null") {
         DISTRIBUTED BY HASH(`k1`) BUCKETS 1
         PROPERTIES (
         "replication_allocation" = "tag.location.default: 1",
-        "is_being_synced" = "false",
         "storage_format" = "V2",
         "light_schema_change" = "true",
-        "disable_auto_compaction" = "false",
-        "enable_single_replica_compaction" = "false"
+        "disable_auto_compaction" = "false"
         );
     """
     sql """insert into test_table_t1 values(1.0);"""

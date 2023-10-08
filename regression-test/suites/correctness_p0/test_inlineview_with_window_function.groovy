@@ -76,7 +76,7 @@ suite("test_inlineview_with_window_function") {
     sql """CREATE TABLE `test_table_aaa` (
             `ordernum` varchar(65533) NOT NULL ,
             `dnt` datetime NOT NULL ,
-            `data` json NULL 
+            `data` jsonb NULL 
             ) ENGINE=OLAP
             DUPLICATE KEY(`ordernum`, `dnt`)
             COMMENT 'OLAP'
@@ -136,11 +136,11 @@ suite("test_inlineview_with_window_function") {
                     max(fzl)*1600*0.278 solar
                 from(
                     select ordernum,dnt,
-                            cast(if(json_extract(data,'\$.LJRL1')=0 or json_extract(data,'\$.LJRL1') like '%E%',null,json_extract(data,'\$.LJRL1')) as double) ljrl1,
-                            cast(if(json_extract(data,'\$.LJRL2')=0 or json_extract(data,'\$.LJRL2') like '%E%',null,json_extract(data,'\$.LJRL2')) as double) ljrl2,
-                            first_value(cast(if(json_extract(data,'\$.FZL')=0 or json_extract(data,'\$.FZL') like '%E%',null,
-                            json_extract(data,'\$.FZL')) as double)) over (partition by ordernum order by dnt desc) fzl,
-                            cast(if(json_extract(data,'\$.DB1')=0 or json_extract(data,'\$.DB1') like '%E%',null,json_extract(data,'\$.DB1')) as double) db1
+                            cast(if(jsonb_extract_double(data,'\$.LJRL1')=0 or jsonb_extract_double(data,'\$.LJRL1') like '%E%',null,jsonb_extract_double(data,'\$.LJRL1')) as double) ljrl1,
+                            cast(if(jsonb_extract_double(data,'\$.LJRL2')=0 or jsonb_extract_double(data,'\$.LJRL2') like '%E%',null,jsonb_extract_double(data,'\$.LJRL2')) as double) ljrl2,
+                            first_value(cast(if(jsonb_extract_double(data,'\$.FZL')=0 or jsonb_extract_double(data,'\$.FZL') like '%E%',null,
+                            jsonb_extract_double(data,'\$.FZL')) as double)) over (partition by ordernum order by dnt desc) fzl,
+                            cast(if(jsonb_extract_double(data,'\$.DB1')=0 or jsonb_extract_double(data,'\$.DB1') like '%E%',null,jsonb_extract_double(data,'\$.DB1')) as double) db1
                     from test_table_aaa
                         )a1
                 group by ordernum
