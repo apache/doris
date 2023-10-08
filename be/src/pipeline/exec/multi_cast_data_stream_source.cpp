@@ -125,8 +125,16 @@ RuntimeProfile* MultiCastDataStreamerSourceOperator::get_runtime_profile() const
     return _multi_cast_data_streamer->profile();
 }
 
+MultiCastDataStreamSourceLocalState::MultiCastDataStreamSourceLocalState(RuntimeState* state,
+                                                                         OperatorXBase* parent)
+        : Base(state, parent),
+          vectorized::RuntimeFilterConsumer(
+                  static_cast<Parent*>(parent)->dest_id_from_sink(), parent->runtime_filter_descs(),
+                  static_cast<Parent*>(parent)->_row_desc(), _conjuncts) {};
+
 Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
+    RETURN_IF_ERROR(RuntimeFilterConsumer::init(state));
     SCOPED_TIMER(profile()->total_time_counter());
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<Parent>();
@@ -134,6 +142,8 @@ Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalState
     for (size_t i = 0; i < p._output_expr_contexts.size(); i++) {
         RETURN_IF_ERROR(p._output_expr_contexts[i]->clone(state, _output_expr_contexts[i]));
     }
+    // init profile for runtime filter
+    RuntimeFilterConsumer::_init_profile(profile());
     return Status::OK();
 }
 
