@@ -37,7 +37,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -50,7 +50,7 @@ import java.util.Set;
 @Getter
 @Setter
 public class EsTable extends Table {
-    public static final Set<String> DEFAULT_DOCVALUE_DISABLED_FIELDS = new HashSet<>(Arrays.asList("text"));
+    public static final Set<String> DEFAULT_DOCVALUE_DISABLED_FIELDS = new HashSet<>(Collections.singletonList("text"));
 
     private static final Logger LOG = LogManager.getLogger(EsTable.class);
     // Solr doc_values vs stored_fields performance-smackdown indicate:
@@ -95,6 +95,9 @@ public class EsTable extends Table {
 
     // Whether pushdown like expr, like will trans to wildcard query, consumes too many es cpu resources
     private boolean likePushDown = Boolean.parseBoolean(EsResource.LIKE_PUSH_DOWN_DEFAULT_VALUE);
+
+    // Whether to include hidden index, default to false
+    private boolean includeHiddenIndex = Boolean.parseBoolean(EsResource.INCLUDE_HIDDEN_INDEX_DEFAULT_VALUE);
 
     // tableContext is used for being convenient to persist some configuration parameters uniformly
     private Map<String, String> tableContext = new HashMap<>();
@@ -202,6 +205,10 @@ public class EsTable extends Table {
         // parse httpSslEnabled before use it here.
         EsResource.fillUrlsWithSchema(seeds, httpSslEnabled);
 
+        if (properties.containsKey(EsResource.INCLUDE_HIDDEN_INDEX_DEFAULT_VALUE)) {
+            includeHiddenIndex = EsUtil.getBoolean(properties, EsResource.INCLUDE_HIDDEN_INDEX_DEFAULT_VALUE);
+        }
+
         tableContext.put("hosts", hosts);
         tableContext.put("userName", userName);
         tableContext.put("passwd", passwd);
@@ -215,6 +222,7 @@ public class EsTable extends Table {
         tableContext.put(EsResource.NODES_DISCOVERY, String.valueOf(nodesDiscovery));
         tableContext.put(EsResource.HTTP_SSL_ENABLED, String.valueOf(httpSslEnabled));
         tableContext.put(EsResource.LIKE_PUSH_DOWN, String.valueOf(likePushDown));
+        tableContext.put(EsResource.INCLUDE_HIDDEN_INDEX, String.valueOf(includeHiddenIndex));
     }
 
     @Override
@@ -295,6 +303,8 @@ public class EsTable extends Table {
                 tableContext.getOrDefault(EsResource.HTTP_SSL_ENABLED, EsResource.HTTP_SSL_ENABLED_DEFAULT_VALUE));
         likePushDown = Boolean.parseBoolean(
                 tableContext.getOrDefault(EsResource.LIKE_PUSH_DOWN, EsResource.LIKE_PUSH_DOWN_DEFAULT_VALUE));
+        includeHiddenIndex = Boolean.parseBoolean(tableContext.getOrDefault(EsResource.INCLUDE_HIDDEN_INDEX,
+                EsResource.INCLUDE_HIDDEN_INDEX_DEFAULT_VALUE));
         PartitionType partType = PartitionType.valueOf(Text.readString(in));
         if (partType == PartitionType.UNPARTITIONED) {
             partitionInfo = SinglePartitionInfo.read(in);
