@@ -400,6 +400,7 @@ WITH BROKER broker_name
    (
        "hadoop.username"="user",
        "password"="pass"
+       "fs.defaultFs" = "HDFS://test:802"
    )
    PROPERTIES
    (
@@ -427,6 +428,7 @@ WITH BROKER broker_name
    (
        "hadoop.username"="user",
        "password"="pass"
+       "fs.defaultFs" = "HDFS://test:802"
    )
    ```
 
@@ -448,6 +450,7 @@ WITH BROKER broker_name
     with HDFS (
     "hadoop.username" = "user"
     "password" = ""
+    "fs.defaultFs" = "HDFS://test:port"
     )
     PROPERTIES
     (
@@ -474,6 +477,7 @@ WITH BROKER broker_name
     with HDFS (
     "hadoop.username" = "user"
     "password" = ""
+    "fs.defaultFs" = "HDFS://test:port"
     )
     PROPERTIES
     (
