@@ -200,17 +200,18 @@ public class TableQueryPlanAction extends RestBaseController {
         TableName tableAndDb = fromTables.get(0).getName();
         int lower = GlobalVariable.lowerCaseTableNames;
         //Determine whether table names are case-sensitive
-        if(lower == 0) {
+        if (lower == 0) {
             if (!(tableAndDb.getDb().equals(requestDb) && tableAndDb.getTbl().equals(requestTable))) {
                 throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST,
                         "requested database and table must consistent with sql: request [ "
-                                + requestDb + "." + requestTable + "]" + "and sql [" + tableAndDb.toString () + "]");
+                                + requestDb + "." + requestTable + "]" + "and sql [" + tableAndDb.toString() + "]");
             }
         } else {
-            if (!(tableAndDb.getDb().equalsIgnoreCase(requestDb) && tableAndDb.getTbl().equalsIgnoreCase(requestTable))) {
+            if (!(tableAndDb.getDb().equalsIgnoreCase(requestDb) &&
+                    tableAndDb.getTbl().equalsIgnoreCase(requestTable))) {
                 throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST,
                         "requested database and table must consistent with sql: request [ "
-                                + requestDb + "." + requestTable + "]" + "and sql [" + tableAndDb.toString () + "]");
+                                + requestDb + "." + requestTable + "]" + "and sql [" + tableAndDb.toString() + "]");
             }
         }
 
