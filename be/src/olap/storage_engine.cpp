@@ -367,12 +367,12 @@ void StorageEngine::get_special_dir_info(SpecialDirInfo* special_dir_infos,
     switch (type) {
     case TaskWorkerPool::DiskType::LOG:
         _log_dir->health_check();
-        _log_dir->update_capacity();
+        static_cast<void>(_log_dir->update_capacity());
         _log_dir->get_dir_info(special_dir_infos);
         break;
     case TaskWorkerPool::DiskType::DEPLOY:
         _deploy_dir->health_check();
-        _deploy_dir->update_capacity();
+        static_cast<void>(_deploy_dir->update_capacity());
         _deploy_dir->get_dir_info(special_dir_infos);
         break;
     default:
