@@ -55,6 +55,7 @@ ScannerContext::ScannerContext(doris::RuntimeState* state_, doris::vectorized::V
           _process_status(Status::OK()),
           _batch_size(state_->batch_size()),
           limit(limit_),
+          _max_bytes_in_queue(std::max(max_bytes_in_blocks_queue_, (int64_t)1024) * num_parallel_instances),
           _scanner_scheduler(state_->exec_env()->scanner_scheduler()),
           _scanners(scanners_),
           _num_parallel_instances(num_parallel_instances) {
@@ -65,9 +66,6 @@ ScannerContext::ScannerContext(doris::RuntimeState* state_, doris::vectorized::V
     if (limit < 0) {
         limit = -1;
     }
-    max_bytes_in_blocks_queue_ =
-            max_bytes_in_blocks_queue_ < 1024 ? 1024 : max_bytes_in_blocks_queue_;
-    _max_bytes_in_queue = max_bytes_in_blocks_queue_ * num_parallel_instances;
     _max_thread_num = config::doris_scanner_thread_pool_thread_num / 4;
     _max_thread_num *= num_parallel_instances;
     _max_thread_num = _max_thread_num == 0 ? 1 : _max_thread_num;
