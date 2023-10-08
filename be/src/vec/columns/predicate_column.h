@@ -415,10 +415,6 @@ public:
         LOG(FATAL) << "compare_at not supported in PredicateColumnType";
     }
 
-    void get_extremes(Field& min, Field& max) const override {
-        LOG(FATAL) << "get_extremes not supported in PredicateColumnType";
-    }
-
     bool can_be_inside_nullable() const override { return true; }
 
     bool is_fixed_and_contiguous() const override { return true; }
