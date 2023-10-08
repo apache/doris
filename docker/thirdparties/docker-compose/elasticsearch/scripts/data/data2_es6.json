@@ -4,6 +4,7 @@
   "test3": 4,
   "test4": "2022-08-08",
   "test5": 2222.2,
+  "test6": "login",
   "c_bool": [true, false, true, true],
   "c_byte": [1, -2, -3, 4],
   "c_short": [128, 129, -129, -130],
