@@ -111,7 +111,7 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 
 - `auto_increment_increment`
 
-  用于兼容 MySQL 客户端。无实际作用。
+  用于兼容 MySQL 客户端。无实际作用。虽然 Doris 已经有了 [AUTO_INCREMENT](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE#column_definition_list) 功能，但这个参数并不会对 AUTO_INCREMENT 的行为产生影响。auto_increment_offset 也是如此。
 
 - `autocommit`
 
@@ -362,7 +362,7 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 
 - `query_timeout`
 
-  用于设置查询超时。该变量会作用于当前连接中所有的查询语句，对于 INSERT 语句推荐使用insert_timeout。默认为 5 分钟，单位为秒。
+  用于设置查询超时。该变量会作用于当前连接中所有的查询语句，对于 INSERT 语句推荐使用insert_timeout。默认为 15 分钟，单位为秒。
 
 - `insert_timeout`
   <version since="dev"></version>用于设置针对 INSERT 语句的超时。该变量仅作用于 INSERT 语句，建议在 INSERT 行为易持续较长时间的场景下设置。默认为 4 小时，单位为秒。由于旧版本用户会通过延长 query_timeout 来防止 INSERT 语句超时，insert_timeout 在 query_timeout 大于自身的情况下将会失效, 以兼容旧版本用户的习惯。
@@ -633,7 +633,7 @@ try (Connection conn = DriverManager.getConnection("jdbc:mysql://127.0.0.1:9030/
 
     <version since="dev"></version>
 
-    如果设置为true，对于查询请求，将不再返回实际结果集，而仅返回行数。默认为 false。
+    如果设置为true，对于查询请求，将不再返回实际结果集，而仅返回行数。对于导入和insert，Sink 丢掉了数据，不会有实际的写发生。额默认为 false。
 
     该参数可以用于测试返回大量数据集时，规避结果集传输的耗时，重点关注底层查询执行的耗时。
 
@@ -678,6 +678,12 @@ try (Connection conn = DriverManager.getConnection("jdbc:mysql://127.0.0.1:9030/
 
   在 DataSink 节点上构建 MemTable，并通过 brpc streaming 发送 segment 到其他 BE。
   该方法减少了多副本之间的重复工作，并且节省了数据序列化和反序列化的时间。
+
+* `enable_unique_key_partial_update`
+
+  <version since="2.0.2">
+  是否在对insert into语句启用部分列更新的语义，默认为 false
+  </version>
 
 ***
 

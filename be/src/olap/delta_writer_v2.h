@@ -52,6 +52,7 @@ class TupleDescriptor;
 class SlotDescriptor;
 class OlapTableSchemaParam;
 class BetaRowsetWriterV2;
+class LoadStreamStub;
 
 namespace vectorized {
 class Block;
@@ -61,7 +62,9 @@ class Block;
 // This class is NOT thread-safe, external synchronization is required.
 class DeltaWriterV2 {
 public:
-    static Status open(WriteRequest* req, DeltaWriterV2** writer, RuntimeProfile* profile);
+    static Status open(WriteRequest* req,
+                       const std::vector<std::shared_ptr<LoadStreamStub>>& streams,
+                       DeltaWriterV2** writer, RuntimeProfile* profile);
 
     ~DeltaWriterV2();
 
@@ -95,7 +98,8 @@ public:
     int64_t total_received_rows() const { return _total_received_rows; }
 
 private:
-    DeltaWriterV2(WriteRequest* req, StorageEngine* storage_engine, RuntimeProfile* profile);
+    DeltaWriterV2(WriteRequest* req, const std::vector<std::shared_ptr<LoadStreamStub>>& streams,
+                  StorageEngine* storage_engine, RuntimeProfile* profile);
 
     void _build_current_tablet_schema(int64_t index_id,
                                       const OlapTableSchemaParam* table_schema_param,
@@ -122,7 +126,7 @@ private:
     std::shared_ptr<MemTableWriter> _memtable_writer;
     MonotonicStopWatch _lock_watch;
 
-    std::vector<brpc::StreamId> _streams;
+    std::vector<std::shared_ptr<LoadStreamStub>> _streams;
 };
 
 } // namespace doris

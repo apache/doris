@@ -57,7 +57,7 @@ class RuntimeState;
 class SlotDescriptor;
 class TupleDescriptor;
 namespace io {
-class IOContext;
+struct IOContext;
 enum class FileCachePolicy : uint8_t;
 } // namespace io
 namespace vectorized {
@@ -206,19 +206,16 @@ void ParquetReader::_close_internal() {
         }
         _closed = true;
     }
-
-    if (_is_file_metadata_owned && _file_metadata != nullptr) {
-        delete _file_metadata;
-    }
 }
 
 Status ParquetReader::_open_file() {
     if (_file_reader == nullptr) {
         SCOPED_RAW_TIMER(&_statistics.open_file_time);
         ++_statistics.open_file_num;
-        io::FileReaderOptions reader_options = FileFactory::get_reader_options(_state);
         _file_description.mtime =
                 _scan_range.__isset.modification_time ? _scan_range.modification_time : 0;
+        io::FileReaderOptions reader_options =
+                FileFactory::get_reader_options(_state, _file_description);
         RETURN_IF_ERROR(io::DelegateReader::create_file_reader(
                 _profile, _system_properties, _file_description, reader_options, &_file_system,
                 &_file_reader, io::DelegateReader::AccessMode::RANDOM, _io_ctx));
@@ -230,23 +227,25 @@ Status ParquetReader::_open_file() {
         }
         size_t meta_size = 0;
         if (_meta_cache == nullptr) {
-            _is_file_metadata_owned = true;
             RETURN_IF_ERROR(
                     parse_thrift_footer(_file_reader, &_file_metadata, &meta_size, _io_ctx));
+            // wrap it with unique ptr, so that it can be released finally.
+            _file_metadata_ptr.reset(_file_metadata);
+            _file_metadata = _file_metadata_ptr.get();
+
             _column_statistics.read_bytes += meta_size;
             // parse magic number & parse meta data
             _column_statistics.meta_read_calls += 1;
         } else {
-            _is_file_metadata_owned = false;
-            RETURN_IF_ERROR(_meta_cache->get_parquet_footer(_file_reader, _io_ctx, 0, &meta_size,
-                                                            &_cache_handle));
-
+            RETURN_IF_ERROR(_meta_cache->get_parquet_footer(_file_reader, _io_ctx,
+                                                            _file_description.mtime, &meta_size,
+                                                            &_meta_cache_handle));
             _column_statistics.read_bytes += meta_size;
             if (meta_size > 0) {
                 _column_statistics.meta_read_calls += 1;
             }
 
-            _file_metadata = (FileMetaData*)_cache_handle.data();
+            _file_metadata = (FileMetaData*)_meta_cache_handle.data();
         }
 
         if (_file_metadata == nullptr) {
@@ -289,8 +288,7 @@ void ParquetReader::_init_system_properties() {
 
 void ParquetReader::_init_file_description() {
     _file_description.path = _scan_range.path;
-    _file_description.start_offset = _scan_range.start_offset;
-    _file_description.file_size = _scan_range.__isset.file_size ? _scan_range.file_size : 0;
+    _file_description.file_size = _scan_range.__isset.file_size ? _scan_range.file_size : -1;
     if (_scan_range.__isset.fs_name) {
         _file_description.fs_name = _scan_range.fs_name;
     }
@@ -787,8 +785,8 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         auto& conjuncts = conjunct_iter->second;
         std::vector<int> skipped_page_range;
         const FieldSchema* col_schema = schema_desc.get_column(read_col);
-        page_index.collect_skipped_page_range(&column_index, conjuncts, col_schema,
-                                              skipped_page_range, *_ctz);
+        static_cast<void>(page_index.collect_skipped_page_range(
+                &column_index, conjuncts, col_schema, skipped_page_range, *_ctz));
         if (skipped_page_range.empty()) {
             continue;
         }
@@ -796,8 +794,8 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         RETURN_IF_ERROR(page_index.parse_offset_index(chunk, off_index_buff, &offset_index));
         for (int page_id : skipped_page_range) {
             RowRange skipped_row_range;
-            page_index.create_skipped_row_range(offset_index, row_group.num_rows, page_id,
-                                                &skipped_row_range);
+            static_cast<void>(page_index.create_skipped_row_range(offset_index, row_group.num_rows,
+                                                                  page_id, &skipped_row_range));
             // use the union row range
             skipped_row_ranges.emplace_back(skipped_row_range);
         }
@@ -839,7 +837,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
 
 Status ParquetReader::_process_row_group_filter(const tparquet::RowGroup& row_group,
                                                 bool* filter_group) {
-    _process_column_stat_filter(row_group.columns, filter_group);
+    static_cast<void>(_process_column_stat_filter(row_group.columns, filter_group));
     _init_chunk_dicts();
     RETURN_IF_ERROR(_process_dict_filter(filter_group));
     _init_bloom_filter();

@@ -43,7 +43,6 @@
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
-#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "udf/udf.h"
 #include "util/jsonb_document.h"
@@ -70,6 +69,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
@@ -116,6 +116,11 @@ inline UInt32 extract_to_decimal_scale(const ColumnWithTypeAndName& named_column
     named_column.column->get(0, field);
     return field.get<UInt32>();
 }
+
+struct PrecisionScaleArg {
+    UInt32 precision;
+    UInt32 scale;
+};
 /** Cast from string or number to Time.
   * In Doris, the underlying storage type of the Time class is Float64.
   */
@@ -124,14 +129,12 @@ struct TimeCast {
     // Some examples of conversions.
     // '300' -> 00:03:00 '20:23' ->  20:23:00 '20:23:24' -> 20:23:24
     template <typename T>
-    static bool try_parse_time(char* s, size_t len, T& x, const cctz::time_zone& local_time_zone,
-                               ZoneList& time_zone_cache, std::shared_mutex& cache_lock) {
+    static bool try_parse_time(char* s, size_t len, T& x, const cctz::time_zone& local_time_zone) {
         /// TODO: Maybe we can move Timecast to the io_helper.
         if (try_as_time(s, len, x, local_time_zone)) {
             return true;
         } else {
-            if (VecDateTimeValue dv {};
-                dv.from_date_str(s, len, local_time_zone, time_zone_cache, &cache_lock)) {
+            if (VecDateTimeValue dv {}; dv.from_date_str(s, len, local_time_zone)) {
                 // can be parse as a datetime
                 x = dv.hour() * 3600 + dv.minute() * 60 + dv.second();
                 return true;
@@ -269,7 +272,7 @@ struct ConvertImpl {
                     check_and_get_column<ColVecFrom>(named_from.column.get())) {
             typename ColVecTo::MutablePtr col_to = nullptr;
             if constexpr (IsDataTypeDecimal<ToDataType>) {
-                UInt32 scale = additions;
+                UInt32 scale = ((PrecisionScaleArg)additions).scale;
                 ToDataType::check_type_scale(scale);
                 col_to = ColVecTo::create(0, scale);
             } else {
@@ -552,13 +555,16 @@ struct ConvertImplGenericFromString {
         auto data_type_to = block.get_by_position(result).type;
         if (const ColumnString* col_from_string = check_and_get_column<ColumnString>(&col_from)) {
             auto col_to = data_type_to->create_column();
-
+            auto serde = data_type_to->get_serde();
             size_t size = col_from.size();
             col_to->reserve(size);
 
             ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(size);
             ColumnUInt8::Container* vec_null_map_to = &col_null_map_to->get_data();
             const bool is_complex = is_complex_type(data_type_to);
+            DataTypeSerDe::FormatOptions format_options;
+            format_options.converted_from_string = true;
+
             for (size_t i = 0; i < size; ++i) {
                 const auto& val = col_from_string->get_data_at(i);
                 // Note: here we should handle the null element
@@ -570,8 +576,9 @@ struct ConvertImplGenericFromString {
                     }
                     continue;
                 }
-                ReadBuffer read_buffer((char*)(val.data), val.size);
-                Status st = data_type_to->from_string(read_buffer, col_to);
+                Slice string_slice(val.data, val.size);
+                Status st = serde->deserialize_one_cell_from_json(*col_to, string_slice,
+                                                                  format_options);
                 // if parsing failed, will return null
                 (*vec_null_map_to)[i] = !st.ok();
                 if (!st.ok()) {
@@ -852,25 +859,23 @@ struct NameToDateTime {
 
 template <typename DataType, typename Additions = void*, typename FromDataType = void*>
 bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb,
-                    const cctz::time_zone& local_time_zone, ZoneList& time_zone_cache,
-                    std::shared_mutex& cache_lock,
+                    const cctz::time_zone& local_time_zone,
                     Additions additions [[maybe_unused]] = Additions()) {
     if constexpr (IsDateTimeType<DataType>) {
-        return try_read_datetime_text(x, rb, local_time_zone, time_zone_cache, cache_lock);
+        return try_read_datetime_text(x, rb, local_time_zone);
     }
 
     if constexpr (IsDateType<DataType>) {
-        return try_read_date_text(x, rb, local_time_zone, time_zone_cache, cache_lock);
+        return try_read_date_text(x, rb, local_time_zone);
     }
 
     if constexpr (IsDateV2Type<DataType>) {
-        return try_read_date_v2_text(x, rb, local_time_zone, time_zone_cache, cache_lock);
+        return try_read_date_v2_text(x, rb, local_time_zone);
     }
 
     if constexpr (IsDateTimeV2Type<DataType>) {
         UInt32 scale = additions;
-        return try_read_datetime_v2_text(x, rb, local_time_zone, time_zone_cache, cache_lock,
-                                         scale);
+        return try_read_datetime_v2_text(x, rb, local_time_zone, scale);
     }
 
     if constexpr (std::is_same_v<DataTypeString, FromDataType> &&
@@ -879,8 +884,7 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb,
         auto len = rb.count();
         auto s = rb.position();
         rb.position() = rb.end(); // make is_all_read = true
-        auto ret =
-                TimeCast::try_parse_time(s, len, x, local_time_zone, time_zone_cache, cache_lock);
+        auto ret = TimeCast::try_parse_time(s, len, x, local_time_zone);
         x *= (1000 * 1000);
         return ret;
     }
@@ -896,25 +900,35 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb,
     if constexpr (std::is_integral_v<typename DataType::FieldType>) {
         return try_read_int_text(x, rb);
     }
+}
 
+template <typename DataType, typename Additions = void*>
+StringParser::ParseResult try_parse_decimal_impl(typename DataType::FieldType& x, ReadBuffer& rb,
+                                                 const cctz::time_zone& local_time_zone,
+                                                 Additions additions
+                                                 [[maybe_unused]] = Additions()) {
     if constexpr (IsDataTypeDecimalV2<DataType>) {
-        UInt32 scale = additions;
-        return try_read_decimal_text<TYPE_DECIMALV2>(x, rb, DataType::max_precision(), scale);
+        UInt32 scale = ((PrecisionScaleArg)additions).scale;
+        UInt32 precision = ((PrecisionScaleArg)additions).precision;
+        return try_read_decimal_text<TYPE_DECIMALV2>(x, rb, precision, scale);
     }
 
     if constexpr (std::is_same_v<DataTypeDecimal<Decimal32>, DataType>) {
-        UInt32 scale = additions;
-        return try_read_decimal_text<TYPE_DECIMAL32>(x, rb, DataType::max_precision(), scale);
+        UInt32 scale = ((PrecisionScaleArg)additions).scale;
+        UInt32 precision = ((PrecisionScaleArg)additions).precision;
+        return try_read_decimal_text<TYPE_DECIMAL32>(x, rb, precision, scale);
     }
 
     if constexpr (std::is_same_v<DataTypeDecimal<Decimal64>, DataType>) {
-        UInt32 scale = additions;
-        return try_read_decimal_text<TYPE_DECIMAL64>(x, rb, DataType::max_precision(), scale);
+        UInt32 scale = ((PrecisionScaleArg)additions).scale;
+        UInt32 precision = ((PrecisionScaleArg)additions).precision;
+        return try_read_decimal_text<TYPE_DECIMAL64>(x, rb, precision, scale);
     }
 
     if constexpr (IsDataTypeDecimal128I<DataType>) {
-        UInt32 scale = additions;
-        return try_read_decimal_text<TYPE_DECIMAL128I>(x, rb, DataType::max_precision(), scale);
+        UInt32 scale = ((PrecisionScaleArg)additions).scale;
+        UInt32 precision = ((PrecisionScaleArg)additions).precision;
+        return try_read_decimal_text<TYPE_DECIMAL128I>(x, rb, precision, scale);
     }
 }
 
@@ -1035,7 +1049,7 @@ struct ToNumberMonotonicity {
                 return {};
             }
         }
-
+        LOG(FATAL) << "__builtin_unreachable";
         __builtin_unreachable();
     }
 };
@@ -1101,7 +1115,7 @@ public:
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         if (!arguments.size()) {
             return Status::RuntimeError("Function {} expects at least 1 arguments", get_name());
         }
@@ -1290,7 +1304,7 @@ public:
 
 protected:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         /// drop second argument, pass others
         ColumnNumbers new_arguments {arguments.front()};
         if (arguments.size() > 2)
@@ -1329,10 +1343,6 @@ struct ConvertThroughParsing {
         using ColVecTo = std::conditional_t<IsDecimalNumber<ToFieldType>,
                                             ColumnDecimal<ToFieldType>, ColumnVector<ToFieldType>>;
 
-        // For datelike type, only from FunctionConvertFromString. So we can use its' context。
-        ZoneList& time_zone_cache = context->state()->exec_env()->global_zone_cache();
-        std::shared_mutex& cache_lock = context->state()->exec_env()->zone_cache_rw_lock();
-
         const IColumn* col_from = block.get_by_position(arguments[0]).column.get();
         const ColumnString* col_from_string = check_and_get_column<ColumnString>(col_from);
 
@@ -1345,7 +1355,7 @@ struct ConvertThroughParsing {
         typename ColVecTo::MutablePtr col_to = nullptr;
 
         if constexpr (IsDataTypeDecimal<ToDataType>) {
-            UInt32 scale = additions;
+            UInt32 scale = ((PrecisionScaleArg)additions).scale;
             ToDataType::check_type_scale(scale);
             col_to = ColVecTo::create(size, scale);
         } else {
@@ -1381,19 +1391,22 @@ struct ConvertThroughParsing {
 
             bool parsed;
             if constexpr (IsDataTypeDecimal<ToDataType>) {
-                parsed = try_parse_impl<ToDataType>(
-                        vec_to[i], read_buffer, context->state()->timezone_obj(), time_zone_cache,
-                        cache_lock, vec_to.get_scale());
+                ToDataType::check_type_precision((PrecisionScaleArg(additions).precision));
+                StringParser::ParseResult res = try_parse_decimal_impl<ToDataType>(
+                        vec_to[i], read_buffer, context->state()->timezone_obj(),
+                        PrecisionScaleArg(additions));
+                parsed = (res == StringParser::PARSE_SUCCESS ||
+                          res == StringParser::PARSE_OVERFLOW ||
+                          res == StringParser::PARSE_UNDERFLOW);
             } else if constexpr (IsDataTypeDateTimeV2<ToDataType>) {
                 auto type = check_and_get_data_type<DataTypeDateTimeV2>(
                         block.get_by_position(result).type.get());
                 parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer,
                                                     context->state()->timezone_obj(),
-                                                    time_zone_cache, cache_lock, type->get_scale());
+                                                    type->get_scale());
             } else {
                 parsed = try_parse_impl<ToDataType, void*, FromDataType>(
-                        vec_to[i], read_buffer, context->state()->timezone_obj(), time_zone_cache,
-                        cache_lock);
+                        vec_to[i], read_buffer, context->state()->timezone_obj());
             }
             (*vec_null_map_to)[i] = !parsed || !is_all_read(read_buffer);
             current_offset = next_offset;
@@ -1445,7 +1458,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         const IDataType* from_type = block.get_by_position(arguments[0]).type.get();
 
         if (check_and_get_data_type<DataTypeString>(from_type)) {
@@ -1481,7 +1494,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         Status ret_status = Status::OK();
         const IDataType* from_type = block.get_by_position(arguments[0]).type.get();
         auto call = [&](const auto& types) -> bool {
@@ -1624,7 +1637,8 @@ private:
 
                         auto state = ConvertImpl<LeftDataType, RightDataType, NameCast>::execute(
                                 context, block, arguments, result, input_rows_count,
-                                context->check_overflow_for_decimal(), scale);
+                                context->check_overflow_for_decimal(),
+                                PrecisionScaleArg {precision, scale});
                         if (!state) {
                             throw Exception(state.code(), state.to_string());
                         }
@@ -1689,6 +1703,26 @@ private:
         if (!from_type) {
             return create_unsupport_wrapper(
                     "CAST AS HLL can only be performed between HLL, String "
+                    "types");
+        }
+
+        return nullptr;
+    }
+
+    WrapperType create_bitmap_wrapper(FunctionContext* context,
+                                      const DataTypePtr& from_type_untyped,
+                                      const DataTypeBitMap& to_type) const {
+        /// Conversion from String through parsing.
+        if (check_and_get_data_type<DataTypeString>(from_type_untyped.get())) {
+            return &ConvertImplGenericFromString::execute;
+        }
+
+        //TODO if from is not string, it must be BITMAP?
+        const auto* from_type = check_and_get_data_type<DataTypeBitMap>(from_type_untyped.get());
+
+        if (!from_type) {
+            return create_unsupport_wrapper(
+                    "CAST AS BITMAP can only be performed between BITMAP, String "
                     "types");
         }
 
@@ -2085,6 +2119,9 @@ private:
         case TypeIndex::HLL:
             return create_hll_wrapper(context, from_type,
                                       static_cast<const DataTypeHLL&>(*to_type));
+        case TypeIndex::BitMap:
+            return create_bitmap_wrapper(context, from_type,
+                                         static_cast<const DataTypeBitMap&>(*to_type));
         default:
             break;
         }

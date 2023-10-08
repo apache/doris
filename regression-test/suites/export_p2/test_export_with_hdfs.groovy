@@ -16,6 +16,11 @@
 // under the License.
 
 suite("test_export_with_hdfs", "p2") {
+    // open nereids
+    sql """ set enable_nereids_planner=true """
+    sql """ set enable_fallback_to_original_planner=false """
+
+
     String nameNodeHost = context.config.otherConfigs.get("extHiveHmsHost")
     String hdfsPort = context.config.otherConfigs.get("extHdfsPort")
     String fs = "hdfs://${nameNodeHost}:${hdfsPort}"
@@ -99,8 +104,8 @@ suite("test_export_with_hdfs", "p2") {
         // check data correctness
         order_qt_select """ select * from hdfs(
                 "uri" = "${outfile_url}0.${file_suffix}",
-                "fs.defaultFS" = "${fs}",
                 "hadoop.username" = "${user_name}",
+                "column_separator" = ",",
                 "format" = "${format}");
             """
     }

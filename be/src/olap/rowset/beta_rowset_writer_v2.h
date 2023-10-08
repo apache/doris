@@ -60,9 +60,11 @@ namespace vectorized::schema_util {
 class LocalSchemaChangeRecorder;
 }
 
+class LoadStreamStub;
+
 class BetaRowsetWriterV2 : public RowsetWriter {
 public:
-    BetaRowsetWriterV2(const std::vector<brpc::StreamId>& streams);
+    BetaRowsetWriterV2(const std::vector<std::shared_ptr<LoadStreamStub>>& streams);
 
     ~BetaRowsetWriterV2() override;
 
@@ -157,7 +159,7 @@ private:
 
     fmt::memory_buffer vlog_buffer;
 
-    std::vector<brpc::StreamId> _streams;
+    std::vector<std::shared_ptr<LoadStreamStub>> _streams;
 
     int64_t _delete_bitmap_ns = 0;
     int64_t _segment_writer_ns = 0;

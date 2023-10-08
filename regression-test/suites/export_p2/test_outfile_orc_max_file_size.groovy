@@ -16,6 +16,11 @@
 // under the License.
 
 suite("test_outfile_orc_max_file_size", "p2") {
+    // open nereids
+    sql """ set enable_nereids_planner=true """
+    sql """ set enable_fallback_to_original_planner=false """
+
+    
     String nameNodeHost = context.config.otherConfigs.get("extHiveHmsHost")
     String hdfsPort = context.config.otherConfigs.get("extHdfsPort")
     String fs = "hdfs://${nameNodeHost}:${hdfsPort}"
@@ -49,7 +54,7 @@ suite("test_outfile_orc_max_file_size", "p2") {
         """
     }
 
-    def table_export_name = "test_export_max_file_size"
+    def table_export_name = "test_outfile_orc_max_file_size"
 
     create_table(table_export_name)
 
@@ -58,7 +63,6 @@ suite("test_outfile_orc_max_file_size", "p2") {
             insert into ${table_export_name}
             select * from hdfs(
             "uri" = "hdfs://${nameNodeHost}:${hdfsPort}${load_data_path}",
-            "fs.defaultFS" = "${fs}",
             "hadoop.username" = "${user_name}",
             "format" = "orc");
         """

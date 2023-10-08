@@ -28,6 +28,7 @@
 #include <memory>
 #include <vector>
 
+#include "common/status.h"
 #include "vec/common/arena.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/common/unaligned.h"
@@ -416,7 +417,7 @@ Status ColumnMap::filter_by_selector(const uint16_t* sel, size_t sel_size, IColu
         max_offset = std::max(max_offset, offset_at(sel[i]));
     }
     if (max_offset > std::numeric_limits<uint16_t>::max()) {
-        return Status::IOError("map elements too large than uint16_t::max");
+        return Status::Corruption("map elements too large than uint16_t::max");
     }
 
     to_offsets.reserve(to_offsets.size() + sel_size);
@@ -432,8 +433,10 @@ Status ColumnMap::filter_by_selector(const uint16_t* sel, size_t sel_size, IColu
     }
 
     if (nested_sel_size > 0) {
-        keys_column->filter_by_selector(nested_sel.get(), nested_sel_size, &to->get_keys());
-        values_column->filter_by_selector(nested_sel.get(), nested_sel_size, &to->get_values());
+        static_cast<void>(keys_column->filter_by_selector(nested_sel.get(), nested_sel_size,
+                                                          &to->get_keys()));
+        static_cast<void>(values_column->filter_by_selector(nested_sel.get(), nested_sel_size,
+                                                            &to->get_values()));
     }
     return Status::OK();
 }

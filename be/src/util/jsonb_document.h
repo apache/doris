@@ -361,6 +361,8 @@ public:
 
     leg_info* get_leg_from_leg_vector(size_t i) { return leg_vector[i].get(); }
 
+    void clean() { leg_vector.clear(); }
+
 private:
     std::vector<std::unique_ptr<leg_info>> leg_vector;
 };
@@ -543,6 +545,12 @@ public:
 
     // size of the value in bytes
     unsigned int size() const;
+
+    //Get the number of jsonbvalue elements
+    int length() const;
+
+    //Whether to include the jsonbvalue rhs
+    bool contains(JsonbValue* rhs) const;
 
     // get the raw byte array of the value
     const char* getValuePtr() const;
@@ -897,6 +905,40 @@ public:
         return end();
     }
 
+    // Get number of elements in object
+    int numElem() const {
+        const char* pch = payload_;
+        const char* fence = payload_ + size_;
+
+        unsigned int num = 0;
+        while (pch < fence) {
+            JsonbKeyValue* pkey = (JsonbKeyValue*)(pch);
+            ++num;
+            pch += pkey->numPackedBytes();
+        }
+
+        assert(pch == fence);
+
+        return num;
+    }
+
+    JsonbKeyValue* getJsonbKeyValue(unsigned int i) const {
+        const char* pch = payload_;
+        const char* fence = payload_ + size_;
+
+        unsigned int num = 0;
+        while (pch < fence) {
+            JsonbKeyValue* pkey = (JsonbKeyValue*)(pch);
+            if (num == i) return pkey;
+            ++num;
+            pch += pkey->numPackedBytes();
+        }
+
+        assert(pch == fence);
+
+        return nullptr;
+    }
+
     JsonbValue* find(const char* key, hDictFind handler = nullptr) const {
         return const_cast<ObjectVal*>(this)->find(key, handler);
     }
@@ -975,7 +1017,7 @@ public:
     }
 
     // Get number of elements in array
-    unsigned int numElem() const {
+    int numElem() const {
         const char* pch = payload_;
         const char* fence = payload_ + size_;
 
@@ -1192,6 +1234,116 @@ inline unsigned int JsonbValue::size() const {
     case JsonbType::T_False:
     default:
         return 0;
+    }
+}
+
+inline int JsonbValue::length() const {
+    switch (type_) {
+    case JsonbType::T_Int8:
+    case JsonbType::T_Int16:
+    case JsonbType::T_Int32:
+    case JsonbType::T_Int64:
+    case JsonbType::T_Double:
+    case JsonbType::T_Float:
+    case JsonbType::T_Int128:
+    case JsonbType::T_String:
+    case JsonbType::T_Binary:
+    case JsonbType::T_Null:
+    case JsonbType::T_True:
+    case JsonbType::T_False: {
+        return 1;
+    }
+    case JsonbType::T_Object: {
+        return ((ObjectVal*)this)->numElem();
+    }
+    case JsonbType::T_Array: {
+        return ((ArrayVal*)this)->numElem();
+    }
+    default:
+        return 0;
+    }
+}
+
+inline bool JsonbValue::contains(JsonbValue* rhs) const {
+    switch (type_) {
+    case JsonbType::T_Int8:
+    case JsonbType::T_Int16:
+    case JsonbType::T_Int32:
+    case JsonbType::T_Int64:
+    case JsonbType::T_Int128: {
+        return ((JsonbIntVal*)(this))->val() == ((JsonbIntVal*)(rhs))->val();
+    }
+    case JsonbType::T_Double: {
+        if (rhs->isDouble()) {
+            return ((JsonbDoubleVal*)(this))->val() == ((JsonbDoubleVal*)(rhs))->val();
+        }
+        return false;
+    }
+    case JsonbType::T_Float: {
+        if (rhs->isDouble()) {
+            return ((JsonbFloatVal*)(this))->val() == ((JsonbFloatVal*)(rhs))->val();
+        }
+        return false;
+    }
+    case JsonbType::T_String:
+    case JsonbType::T_Binary: {
+        if (rhs->isString()) {
+            auto str_value1 = (JsonbStringVal*)this;
+            auto str_value2 = (JsonbStringVal*)rhs;
+            return str_value1->length() == str_value2->length() &&
+                   std::memcmp(str_value1->getBlob(), str_value2->getBlob(),
+                               str_value1->length()) == 0;
+        }
+        return false;
+    }
+    case JsonbType::T_Array: {
+        int lhs_num = ((ArrayVal*)this)->numElem();
+        if (rhs->isArray()) {
+            int rhs_num = ((ArrayVal*)rhs)->numElem();
+            if (rhs_num > lhs_num) return false;
+            int contains_num = 0;
+            for (int i = 0; i < lhs_num; ++i) {
+                for (int j = 0; j < rhs_num; ++j) {
+                    if (((ArrayVal*)this)->get(i)->contains(((ArrayVal*)rhs)->get(j))) {
+                        contains_num++;
+                        break;
+                    }
+                }
+            }
+            return contains_num == rhs_num;
+        }
+        for (int i = 0; i < lhs_num; ++i) {
+            if (((ArrayVal*)this)->get(i)->contains(rhs)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    case JsonbType::T_Object: {
+        if (rhs->isObject()) {
+            auto str_value1 = (ObjectVal*)this;
+            auto str_value2 = (ObjectVal*)rhs;
+            for (int i = 0; i < str_value2->numElem(); ++i) {
+                JsonbKeyValue* key = str_value2->getJsonbKeyValue(i);
+                JsonbValue* value = str_value1->find(key->getKeyStr(), key->klen());
+                if (key != nullptr && value != nullptr && !value->contains(key->value()))
+                    return false;
+            }
+            return true;
+        }
+        return false;
+    }
+    case JsonbType::T_Null: {
+        return rhs->isNull();
+    }
+    case JsonbType::T_True: {
+        return rhs->isTrue();
+    }
+    case JsonbType::T_False: {
+        return rhs->isFalse();
+    }
+    default:
+        return false;
     }
 }
 

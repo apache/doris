@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeA
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.functions.executable.ExecutableFunctions;
 import org.apache.doris.nereids.trees.expressions.functions.executable.NumericArithmetic;
+import org.apache.doris.nereids.trees.expressions.functions.executable.TimeRoundSeries;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -49,6 +50,7 @@ import java.util.List;
  * An expression evaluator that evaluates the value of an expression.
  */
 public enum ExpressionEvaluator {
+
     INSTANCE;
 
     private ImmutableMultimap<String, FunctionInvoker> functions;
@@ -141,7 +143,8 @@ public enum ExpressionEvaluator {
                 ExecutableFunctions.class,
                 DateLiteral.class,
                 DateTimeArithmetic.class,
-                NumericArithmetic.class
+                NumericArithmetic.class,
+                TimeRoundSeries.class
         );
         for (Class<?> cls : classes) {
             for (Method method : cls.getDeclaredMethods()) {

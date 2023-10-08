@@ -60,6 +60,10 @@ class Config {
     public boolean enableCacheData
     public String pluginPath
     public String sslCertificatePath
+    public String dorisComposePath
+    public String image
+    public Boolean dockerEndDeleteFiles
+    public Boolean excludeDockerTest
 
     public String testGroups
     public String excludeGroups
@@ -154,8 +158,11 @@ class Config {
         config.dataPath = FileUtils.getCanonicalPath(cmd.getOptionValue(dataOpt, config.dataPath))
         config.realDataPath = FileUtils.getCanonicalPath(cmd.getOptionValue(realDataOpt, config.realDataPath))
         config.cacheDataPath = cmd.getOptionValue(cacheDataOpt, config.cacheDataPath)
+        config.enableCacheData = Boolean.parseBoolean(cmd.getOptionValue(enableCacheDataOpt, "true"))
         config.pluginPath = FileUtils.getCanonicalPath(cmd.getOptionValue(pluginOpt, config.pluginPath))
         config.sslCertificatePath = FileUtils.getCanonicalPath(cmd.getOptionValue(sslCertificateOpt, config.sslCertificatePath))
+        config.dorisComposePath = FileUtils.getCanonicalPath(config.dorisComposePath)
+        config.image = cmd.getOptionValue(imageOpt, config.image)
         config.suiteWildcard = cmd.getOptionValue(suiteOpt, config.testSuites)
                 .split(",")
                 .collect({s -> s.trim()})
@@ -302,6 +309,10 @@ class Config {
             configToString(obj.sslCertificatePath)
         )
 
+        config.image = configToString(obj.image)
+        config.dockerEndDeleteFiles = configToBoolean(obj.dockerEndDeleteFiles)
+        config.excludeDockerTest = configToBoolean(obj.excludeDockerTest)
+
         def declareFileNames = config.getClass()
                 .getDeclaredFields()
                 .collect({f -> f.name})
@@ -322,7 +333,7 @@ class Config {
         }
 
         if (config.jdbcUrl == null) {
-            //jdbcUrl needs parameter here. Refer to function: buildUrl(String dbName)
+            //jdbcUrl needs parameter here. Refer to function: buildUrlWithDb(String jdbcUrl, String dbName)
             config.jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
             log.info("Set jdbcUrl to '${config.jdbcUrl}' because not specify.".toString())
         }
@@ -417,6 +428,21 @@ class Config {
             log.info("Set sslCertificatePath to '${config.sslCertificatePath}' because not specify.".toString())
         }
 
+        if (config.dockerEndDeleteFiles == null) {
+            config.dockerEndDeleteFiles = false
+            log.info("Set dockerEndDeleteFiles to '${config.dockerEndDeleteFiles}' because not specify.".toString())
+        }
+
+        if (config.excludeDockerTest == null) {
+            config.excludeDockerTest = true
+            log.info("Set excludeDockerTest to '${config.excludeDockerTest}' because not specify.".toString())
+        }
+
+        if (config.dorisComposePath == null) {
+            config.dorisComposePath = "docker/runtime/doris-compose/doris-compose.py"
+            log.info("Set dorisComposePath to '${config.dorisComposePath}' because not specify.".toString())
+        }
+
         if (config.testGroups == null) {
             config.testGroups = "default"
             log.info("Set testGroups to '${config.testGroups}' because not specify.".toString())
@@ -501,7 +527,7 @@ class Config {
     }
 
     Connection getConnectionByDbName(String dbName) {
-        String dbUrl = buildUrl(dbName)
+        String dbUrl = buildUrlWithDb(jdbcUrl, dbName)
         tryCreateDbIfNotExist(dbName)
         log.info("connect to ${dbUrl}".toString())
         return DriverManager.getConnection(dbUrl, jdbcUser, jdbcPassword)
@@ -555,12 +581,12 @@ class Config {
         }
     }
 
-    private void buildUrlWithDefaultDb() {
-        this.jdbcUrl = buildUrl(defaultDb)
+    public void buildUrlWithDefaultDb() {
+        this.jdbcUrl = buildUrlWithDb(jdbcUrl, defaultDb)
         log.info("Reset jdbcUrl to ${jdbcUrl}".toString())
     }
 
-    private String buildUrl(String dbName) {
+    public static String buildUrlWithDb(String jdbcUrl, String dbName) {
         String urlWithDb = jdbcUrl
         String urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)
         if (urlWithoutSchema.indexOf("/") >= 0) {
@@ -583,7 +609,7 @@ class Config {
         return urlWithDb
     }
 
-    private String addSslUrl(String url) {
+    private static String addSslUrl(String url) {
         if (url.contains("TLS")) {
             return url
         }
@@ -605,7 +631,7 @@ class Config {
         }
     }
 
-    private String addTimeoutUrl(String url) {
+    private static String addTimeoutUrl(String url) {
         if (url.contains("connectTimeout=") || url.contains("socketTimeout="))
         {
             return url

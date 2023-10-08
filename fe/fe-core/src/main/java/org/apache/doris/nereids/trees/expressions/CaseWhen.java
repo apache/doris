@@ -94,7 +94,7 @@ public class CaseWhen extends Expression {
         StringBuilder output = new StringBuilder("CASE");
         for (Expression child : children()) {
             if (child instanceof WhenClause) {
-                output.append(child);
+                output.append(child.toString());
             } else {
                 output.append(" ELSE ").append(child.toString());
             }

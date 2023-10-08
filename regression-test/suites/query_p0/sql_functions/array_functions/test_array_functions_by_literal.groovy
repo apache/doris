@@ -17,6 +17,7 @@
 
 suite("test_array_functions_by_literal") {
     // array_nested function
+    sql """ set enable_nereids_planner = false; """
     qt_sql "select a from (select array(1, 1, 2, 2, 2, 2) as a) t"
 
     // array with decimal and other types
@@ -246,6 +247,12 @@ suite("test_array_functions_by_literal") {
     qt_sql_intersect_2 "select array_intersect([1, 2, null], [1, 3, null], [1,2,3,null])"
     qt_sql_intersect_3 "select array_intersect([1,2,3, null], [1,2,3,null], [1,2,null], [1, null])"
     qt_sql_intersect_4 "select array_intersect([1,2,3], [1,2,3], [null], [])"
+
+    // array_union-with-multiple-arguments
+    qt_sql_union_1 "select array_union([1,2,3], [1,2,3], [null])"
+    qt_sql_union_2 "select array_union([1, 2, null], [1, 3, null], [1,2,3,null])"
+    qt_sql_union_3 "select array_union([1,2,3, null], [1,2,3,null], [1,2,null], [1, null])"
+    qt_sql_union_4 "select array_union([1,2,3], [1,2,3], [null], [])"
 
     // array_popfront function
     qt_sql "select array_popfront([1,2,3,4,5,6])"

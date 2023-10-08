@@ -58,7 +58,7 @@ class TFileScanRangeParams;
 
 namespace io {
 class FileSystem;
-class IOContext;
+struct IOContext;
 } // namespace io
 namespace vectorized {
 class Block;
@@ -215,7 +215,7 @@ private:
         ~ORCFilterImpl() override = default;
         void filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t size,
                     void* arg) const override {
-            orcReader->filter(data, sel, size, arg);
+            static_cast<void>(orcReader->filter(data, sel, size, arg));
         }
 
     private:
@@ -230,13 +230,14 @@ private:
         virtual void fillDictFilterColumnNames(
                 std::unique_ptr<orc::StripeInformation> current_strip_information,
                 std::list<std::string>& column_names) const override {
-            _orc_reader->fill_dict_filter_column_names(std::move(current_strip_information),
-                                                       column_names);
+            static_cast<void>(_orc_reader->fill_dict_filter_column_names(
+                    std::move(current_strip_information), column_names));
         }
         virtual void onStringDictsLoaded(
                 std::unordered_map<std::string, orc::StringDictionary*>& column_name_to_dict_map,
                 bool* is_stripe_filtered) const override {
-            _orc_reader->on_string_dicts_loaded(column_name_to_dict_map, is_stripe_filtered);
+            static_cast<void>(_orc_reader->on_string_dicts_loaded(column_name_to_dict_map,
+                                                                  is_stripe_filtered));
         }
 
     private:
@@ -406,7 +407,7 @@ private:
         if (data == nullptr) {
             return Status::InternalError("Wrong data type for colum '{}'", col_name);
         }
-        auto* __restrict date_day_offset_dict = get_date_day_offset_dict();
+        date_day_offset_dict& date_dict = date_day_offset_dict::get();
         auto& column_data = static_cast<ColumnVector<DorisColumnType>&>(*data_column).get_data();
         auto origin_size = column_data.size();
         column_data.resize(origin_size + num_values);
@@ -423,14 +424,12 @@ private:
                     }
                 }
                 int64_t date_value = data->data[i] + _offset_days;
-                DCHECK_LT(date_value, 25500);
-                DCHECK_GE(date_value, 0);
                 if constexpr (std::is_same_v<CppType, VecDateTimeValue>) {
-                    v.create_from_date_v2(date_day_offset_dict[date_value], TIME_DATE);
+                    v.create_from_date_v2(date_dict[date_value], TIME_DATE);
                     // we should cast to date if using date v1.
                     v.cast_to_date();
                 } else {
-                    v = date_day_offset_dict[date_value];
+                    v = date_dict[date_value];
                 }
             } else { // timestamp
                 if constexpr (is_filter) {
@@ -491,6 +490,8 @@ private:
     void set_remaining_rows(int64_t rows) { _remaining_rows = rows; }
 
 private:
+    // This is only for count(*) short circuit read.
+    // save the total number of rows in range
     int64_t _remaining_rows = 0;
     RuntimeProfile* _profile = nullptr;
     RuntimeState* _state = nullptr;

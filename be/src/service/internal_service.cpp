@@ -86,6 +86,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/fold_constant_executor.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/group_commit_mgr.h"
 #include "runtime/load_channel_mgr.h"
 #include "runtime/load_stream_mgr.h"
 #include "runtime/result_buffer_mgr.h"
@@ -95,6 +96,7 @@
 #include "runtime/thread_context.h"
 #include "runtime/types.h"
 #include "service/point_query_executor.h"
+#include "util/arrow/row_batch.h"
 #include "util/async_io.h"
 #include "util/brpc_client_cache.h"
 #include "util/doris_metrics.h"
@@ -554,15 +556,16 @@ void PInternalServiceImpl::cancel_plan_fragment(google::protobuf::RpcController*
         TUniqueId tid;
         tid.__set_hi(request->finst_id().hi());
         tid.__set_lo(request->finst_id().lo());
-
+        signal::set_signal_task_id(tid);
         Status st = Status::OK();
         if (request->has_cancel_reason()) {
             LOG(INFO) << "cancel fragment, fragment_instance_id=" << print_id(tid)
                       << ", reason: " << PPlanFragmentCancelReason_Name(request->cancel_reason());
-            _exec_env->fragment_mgr()->cancel(tid, request->cancel_reason());
+            _exec_env->fragment_mgr()->cancel_instance(tid, request->cancel_reason());
         } else {
             LOG(INFO) << "cancel fragment, fragment_instance_id=" << print_id(tid);
-            _exec_env->fragment_mgr()->cancel(tid);
+            _exec_env->fragment_mgr()->cancel_instance(tid,
+                                                       PPlanFragmentCancelReason::INTERNAL_ERROR);
         }
         // TODO: the logic seems useless, cancel only return Status::OK. remove it
         st.to_protobuf(result->mutable_status());
@@ -661,7 +664,8 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
             std::vector<SlotDescriptor*> file_slots;
             reader = vectorized::AvroJNIReader::create_unique(profile.get(), params, range,
                                                               file_slots);
-            ((vectorized::AvroJNIReader*)(reader.get()))->init_fetch_table_schema_reader();
+            static_cast<void>(
+                    ((vectorized::AvroJNIReader*)(reader.get()))->init_fetch_table_schema_reader());
             break;
         }
         default:
@@ -693,6 +697,40 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
         for (size_t idx = 0; idx < col_types.size(); ++idx) {
             PTypeDesc* type_desc = result->add_column_types();
             col_types[idx].to_protobuf(type_desc);
+        }
+        st.to_protobuf(result->mutable_status());
+    });
+    if (!ret) {
+        offer_failed(result, done, _heavy_work_pool);
+        return;
+    }
+}
+
+void PInternalServiceImpl::fetch_arrow_flight_schema(google::protobuf::RpcController* controller,
+                                                     const PFetchArrowFlightSchemaRequest* request,
+                                                     PFetchArrowFlightSchemaResult* result,
+                                                     google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([request, result, done]() {
+        brpc::ClosureGuard closure_guard(done);
+        RowDescriptor row_desc = ExecEnv::GetInstance()->result_mgr()->find_row_descriptor(
+                UniqueId(request->finst_id()).to_thrift());
+        if (row_desc.equals(RowDescriptor())) {
+            auto st = Status::NotFound("not found row descriptor");
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
+
+        std::shared_ptr<arrow::Schema> schema;
+        auto st = convert_to_arrow_schema(row_desc, &schema);
+        if (UNLIKELY(!st.ok())) {
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
+
+        std::string schema_str;
+        st = serialize_arrow_schema(row_desc, &schema, &schema_str);
+        if (st.ok()) {
+            result->set_schema(std::move(schema_str));
         }
         st.to_protobuf(result->mutable_status());
     });
@@ -1028,7 +1066,7 @@ void PInternalServiceImpl::commit(google::protobuf::RpcController* controller,
             response->mutable_status()->set_status_code(1);
             response->mutable_status()->add_error_msgs("could not find stream load context");
         } else {
-            stream_load_ctx->pipe->finish();
+            static_cast<void>(stream_load_ctx->pipe->finish());
             response->mutable_status()->set_status_code(0);
         }
     });
@@ -1099,20 +1137,10 @@ void PInternalServiceImpl::transmit_block(google::protobuf::RpcController* contr
     int64_t receive_time = GetCurrentTimeNanos();
     response->set_receive_time(receive_time);
 
-    if (!request->has_block() && config::brpc_light_work_pool_threads == -1) {
-        // under high concurrency, thread pool will have a lot of lock contention.
-        _transmit_block(controller, request, response, done, Status::OK());
-        return;
-    }
-
-    FifoThreadPool& pool = request->has_block() ? _heavy_work_pool : _light_work_pool;
-    bool ret = pool.try_offer([this, controller, request, response, done]() {
-        _transmit_block(controller, request, response, done, Status::OK());
-    });
-    if (!ret) {
-        offer_failed(response, done, pool);
-        return;
-    }
+    // under high concurrency, thread pool will have a lot of lock contention.
+    // May offer failed to the thread pool, so that we should avoid using thread
+    // pool here.
+    _transmit_block(controller, request, response, done, Status::OK());
 }
 
 void PInternalServiceImpl::transmit_block_by_http(google::protobuf::RpcController* controller,
@@ -1157,7 +1185,10 @@ void PInternalServiceImpl::_transmit_block(google::protobuf::RpcController* cont
         if (!st.ok()) {
             LOG(WARNING) << "transmit_block failed, message=" << st
                          << ", fragment_instance_id=" << print_id(request->finst_id())
-                         << ", node=" << request->node_id();
+                         << ", node=" << request->node_id()
+                         << ", from sender_id: " << request->sender_id()
+                         << ", be_number: " << request->be_number()
+                         << ", packet_seq: " << request->packet_seq();
         }
     } else {
         st = extract_st;
@@ -1452,7 +1483,7 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
         Status commit_txn_status = StorageEngine::instance()->txn_manager()->commit_txn(
                 tablet->data_dir()->get_meta(), rowset_meta->partition_id(), rowset_meta->txn_id(),
                 rowset_meta->tablet_id(), tablet->tablet_uid(), rowset_meta->load_id(), rowset,
-                true);
+                false);
         if (!commit_txn_status && !commit_txn_status.is<PUSH_TRANSACTION_ALREADY_EXIST>()) {
             LOG(WARNING) << "failed to add committed rowset for slave replica. rowset_id="
                          << rowset_meta->rowset_id() << ", tablet_id=" << rowset_meta->tablet_id()
@@ -1471,7 +1502,7 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
                                     rowset_meta->tablet_id(), node_id, true);
     });
     if (!ret) {
-        offer_failed(response, done, _heavy_work_pool);
+        offer_failed(response, closure_guard.release(), _heavy_work_pool);
         return;
     }
     Status::OK().to_protobuf(response->mutable_status());
@@ -1667,11 +1698,13 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
                     result_block.get_by_position(x).column->assume_mutable();
             RETURN_IF_ERROR(
                     segment->new_column_iterator(full_read_schema.column(index), &column_iterator));
-            segment_v2::ColumnIteratorOptions opt;
-            opt.file_reader = segment->file_reader().get();
-            opt.stats = &stats;
-            opt.use_page_cache = !config::disable_storage_page_cache;
-            column_iterator->init(opt);
+            segment_v2::ColumnIteratorOptions opt {
+                    .use_page_cache = !config::disable_storage_page_cache,
+                    .file_reader = segment->file_reader().get(),
+                    .stats = &stats,
+                    .io_ctx = io::IOContext {.reader_type = ReaderType::READER_QUERY},
+            };
+            static_cast<void>(column_iterator->init(opt));
             std::vector<segment_v2::rowid_t> single_row_loc {
                     static_cast<segment_v2::rowid_t>(row_loc.ordinal_id())};
             RETURN_IF_ERROR(column_iterator->read_by_rowids(single_row_loc.data(), 1, column));
@@ -1728,7 +1761,7 @@ void PInternalServiceImpl::get_tablet_rowset_versions(google::protobuf::RpcContr
                                                       google::protobuf::Closure* done) {
     brpc::ClosureGuard closure_guard(done);
     VLOG_DEBUG << "receive get tablet versions request: " << request->DebugString();
-    ExecEnv::GetInstance()->storage_engine()->get_tablet_rowset_versions(request, response);
+    StorageEngine::instance()->get_tablet_rowset_versions(request, response);
 }
 
 void PInternalServiceImpl::glob(google::protobuf::RpcController* controller,
@@ -1752,5 +1785,62 @@ void PInternalServiceImpl::glob(google::protobuf::RpcController* controller,
         return;
     }
 }
+
+void PInternalServiceImpl::group_commit_insert(google::protobuf::RpcController* controller,
+                                               const PGroupCommitInsertRequest* request,
+                                               PGroupCommitInsertResponse* response,
+                                               google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([this, request, response, done]() {
+        brpc::ClosureGuard closure_guard(done);
+        auto table_id = request->table_id();
+        Status st = Status::OK();
+        TPlan plan;
+        {
+            auto& plan_node = request->plan_node();
+            const uint8_t* buf = (const uint8_t*)plan_node.data();
+            uint32_t len = plan_node.size();
+            st = deserialize_thrift_msg(buf, &len, false, &plan);
+            if (UNLIKELY(!st.ok())) {
+                LOG(WARNING) << "deserialize plan failed, msg=" << st;
+                response->mutable_status()->set_status_code(st.code());
+                response->mutable_status()->set_error_msgs(0, st.to_string());
+                return;
+            }
+        }
+        TDescriptorTable tdesc_tbl;
+        {
+            auto& desc_tbl = request->desc_tbl();
+            const uint8_t* buf = (const uint8_t*)desc_tbl.data();
+            uint32_t len = desc_tbl.size();
+            st = deserialize_thrift_msg(buf, &len, false, &tdesc_tbl);
+            if (UNLIKELY(!st.ok())) {
+                LOG(WARNING) << "deserialize desc tbl failed, msg=" << st;
+                response->mutable_status()->set_status_code(st.code());
+                response->mutable_status()->set_error_msgs(0, st.to_string());
+                return;
+            }
+        }
+        TScanRangeParams tscan_range_params;
+        {
+            auto& bytes = request->scan_range_params();
+            const uint8_t* buf = (const uint8_t*)bytes.data();
+            uint32_t len = bytes.size();
+            st = deserialize_thrift_msg(buf, &len, false, &tscan_range_params);
+            if (UNLIKELY(!st.ok())) {
+                LOG(WARNING) << "deserialize scan range failed, msg=" << st;
+                response->mutable_status()->set_status_code(st.code());
+                response->mutable_status()->set_error_msgs(0, st.to_string());
+                return;
+            }
+        }
+        st = _exec_env->group_commit_mgr()->group_commit_insert(
+                table_id, plan, tdesc_tbl, tscan_range_params, request, response);
+        st.to_protobuf(response->mutable_status());
+    });
+    if (!ret) {
+        offer_failed(response, done, _light_work_pool);
+        return;
+    }
+};
 
 } // namespace doris

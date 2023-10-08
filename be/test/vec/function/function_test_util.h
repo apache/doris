@@ -29,13 +29,17 @@
 #include "gtest/gtest_pred_impl.h"
 #include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/exec_env.h"
 #include "runtime/types.h"
 #include "testutil/any_type.h"
 #include "testutil/function_utils.h"
 #include "udf/udf.h"
+#include "util/bitmap_value.h"
 #include "util/jsonb_utils.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_complex.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -43,6 +47,7 @@
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/simple_function_factory.h"
@@ -269,8 +274,8 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     FunctionUtils fn_utils(fn_ctx_return, arg_types, 0);
     auto* fn_ctx = fn_utils.get_fn_ctx();
     fn_ctx->set_constant_cols(constant_cols);
-    func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
-    func->open(fn_ctx, FunctionContext::THREAD_LOCAL);
+    static_cast<void>(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    static_cast<void>(func->open(fn_ctx, FunctionContext::THREAD_LOCAL));
 
     block.insert({nullptr, return_type, "result"});
 
@@ -283,8 +288,8 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
         EXPECT_EQ(Status::OK(), st);
     }
 
-    func->close(fn_ctx, FunctionContext::THREAD_LOCAL);
-    func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
+    static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
+    static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
 
     // 3. check the result of function
     ColumnPtr column = block.get_columns()[result];
@@ -313,6 +318,17 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
                 if constexpr (std::is_same_v<ReturnType, DataTypeDecimal<Decimal128>>) {
                     const auto& column_data = field.get<DecimalField<Decimal128>>().get_value();
                     EXPECT_EQ(expect_data.value, column_data.value) << " at row " << i;
+                } else if constexpr (std::is_same_v<ReturnType, DataTypeBitMap>) {
+                    const ColumnBitmap* bitmap_col = nullptr;
+                    if constexpr (nullable) {
+                        auto nullable_column = assert_cast<const ColumnNullable*>(column.get());
+                        bitmap_col = assert_cast<const ColumnBitmap*>(
+                                nullable_column->get_nested_column_ptr().get());
+                    } else {
+                        bitmap_col = assert_cast<const ColumnBitmap*>(column.get());
+                    }
+                    EXPECT_EQ(expect_data.to_string(), bitmap_col->get_element(i).to_string())
+                            << " at row " << i;
                 } else if constexpr (std::is_same_v<ReturnType, DataTypeFloat32> ||
                                      std::is_same_v<ReturnType, DataTypeFloat64> ||
                                      std::is_same_v<ReturnType, DataTypeTime>) {

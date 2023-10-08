@@ -17,30 +17,66 @@
 
 package org.apache.doris.nereids.types.coercion;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
+import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateType;
+import org.apache.doris.nereids.types.DateV2Type;
+
+import java.time.DateTimeException;
+import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
-import java.util.Calendar;
 
 /**
  * date like type.
  */
 public abstract class DateLikeType extends PrimitiveType {
-    private Calendar toCalendar(double d) {
-        //d = (year * 10000 + month * 100 + day) * 1000000L;
+    private LocalDate toLocalDate(double d) {
+        // d = (year * 10000 + month * 100 + day) * 1000000L;
         int date = (int) (d / 1000000);
         int day = date % 100;
         int month = (date / 100) % 100;
         int year = date / 10000;
-        Calendar calendar = Calendar.getInstance();
-        calendar.set(Calendar.YEAR, year);
-        calendar.set(Calendar.MONTH, month);
-        calendar.set(Calendar.DAY_OF_MONTH, day);
-        return calendar;
+        return LocalDate.of(year, month, day);
     }
 
     @Override
     public double rangeLength(double high, double low) {
-        Calendar to = toCalendar(high);
-        Calendar from = toCalendar(low);
-        return ChronoUnit.DAYS.between(from.toInstant(), to.toInstant());
+        if (high == low) {
+            return 0;
+        }
+        if (Double.isInfinite(high) || Double.isInfinite(low)) {
+            return Double.POSITIVE_INFINITY;
+        }
+        try {
+            LocalDate to = toLocalDate(high);
+            LocalDate from = toLocalDate(low);
+            return ChronoUnit.DAYS.between(from, to);
+        } catch (DateTimeException e) {
+            return Double.POSITIVE_INFINITY;
+        }
+    }
+
+    /**
+     * parse string to date like literal.
+     */
+    public DateLiteral fromString(String s) {
+        if (this instanceof DateType) {
+            DateTimeV2Literal l = new DateTimeV2Literal(DateTimeV2Type.MAX, s);
+            return new DateLiteral(l.getYear(), l.getMonth(), l.getDay());
+        } else if (this instanceof DateV2Type) {
+            DateTimeV2Literal l = new DateTimeV2Literal(DateTimeV2Type.MAX, s);
+            return new DateV2Literal(l.getYear(), l.getMonth(), l.getDay());
+        } else if (this instanceof DateTimeType) {
+            return new DateTimeLiteral(s);
+        } else if (this instanceof DateTimeV2Type) {
+            return new DateTimeV2Literal((DateTimeV2Type) this, s);
+        } else {
+            throw new AnalysisException("unknown date like type");
+        }
     }
 }

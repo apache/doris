@@ -23,6 +23,7 @@ import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -64,16 +65,24 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
                     + "MIN(`${colName}`) AS min, "
                     + "MAX(`${colName}`) AS max, "
                     + "${dataSizeFunction} AS data_size, "
-                    + "NOW() FROM `${dbName}`.`${tblName}` PARTITION ${partitionName}";
+                    + "NOW() FROM `${dbName}`.`${tblName}` PARTITION ${partitionName}  ${sampleExpr}";
 
     // cache stats for each partition, it would be inserted into column_statistics in a batch.
     private final List<List<ColStatsData>> buf = new ArrayList<>();
+
+    @VisibleForTesting
+    public OlapAnalysisTask() {
+    }
 
     public OlapAnalysisTask(AnalysisInfo info) {
         super(info);
     }
 
     public void doExecute() throws Exception {
+        Set<String> partitionNames = info.colToPartitions.get(info.colName);
+        if (partitionNames.isEmpty()) {
+            return;
+        }
         Map<String, String> params = new HashMap<>();
         params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
         params.put("columnStatTbl", StatisticConstants.STATISTIC_TBL_NAME);
@@ -90,7 +99,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         List<String> partitionAnalysisSQLs = new ArrayList<>();
         try {
             tbl.readLock();
-            Set<String> partitionNames = info.colToPartitions.get(info.colName);
+
             for (String partitionName : partitionNames) {
                 Partition part = tbl.getPartition(partitionName);
                 if (part == null) {
@@ -112,7 +121,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     public void execSQLs(List<String> partitionAnalysisSQLs, Map<String, String> params) throws Exception {
         long startTime = System.currentTimeMillis();
         LOG.debug("analyze task {} start at {}", info.toString(), new Date());
-        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
+        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(info.jobType.equals(JobType.SYSTEM))) {
             List<List<String>> sqlGroups = Lists.partition(partitionAnalysisSQLs, StatisticConstants.UNION_ALL_LIMIT);
             for (List<String> group : sqlGroups) {
                 if (killed) {

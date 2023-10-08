@@ -37,7 +37,7 @@
 
 namespace doris {
 namespace io {
-class IOContext;
+struct IOContext;
 
 BrokerFileReader::BrokerFileReader(const TNetworkAddress& broker_addr, const Path& path,
                                    size_t file_size, TBrokerFD fd,
@@ -47,13 +47,13 @@ BrokerFileReader::BrokerFileReader(const TNetworkAddress& broker_addr, const Pat
           _broker_addr(broker_addr),
           _fd(fd),
           _fs(std::move(fs)) {
-    _fs->get_client(&_client);
+    static_cast<void>(_fs->get_client(&_client));
     DorisMetrics::instance()->broker_file_open_reading->increment(1);
     DorisMetrics::instance()->broker_file_reader_total->increment(1);
 }
 
 BrokerFileReader::~BrokerFileReader() {
-    BrokerFileReader::close();
+    static_cast<void>(BrokerFileReader::close());
 }
 
 Status BrokerFileReader::close() {

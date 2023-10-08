@@ -251,7 +251,7 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
         }
 
         TabletSharedPtr tablet =
-                _env->storage_engine()->tablet_manager()->get_tablet(local_tablet_id);
+                StorageEngine::instance()->tablet_manager()->get_tablet(local_tablet_id);
         if (tablet == nullptr) {
             std::stringstream ss;
             ss << "failed to get local tablet: " << local_tablet_id;
@@ -525,7 +525,7 @@ Status SnapshotLoader::remote_http_download(
 
         auto local_tablet_id = remote_tablet_snapshot.local_tablet_id;
         TabletSharedPtr tablet =
-                _env->storage_engine()->tablet_manager()->get_tablet(local_tablet_id);
+                StorageEngine::instance()->tablet_manager()->get_tablet(local_tablet_id);
         if (tablet == nullptr) {
             std::stringstream ss;
             ss << "failed to get local tablet: " << local_tablet_id;
@@ -697,7 +697,7 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
 
     // rename the rowset ids and tabletid info in rowset meta
     Status convert_status = SnapshotManager::instance()->convert_rowset_ids(
-            snapshot_path, tablet_id, tablet->replica_id(), schema_hash);
+            snapshot_path, tablet_id, tablet->replica_id(), tablet->partition_id(), schema_hash);
     if (!convert_status.ok()) {
         std::stringstream ss;
         ss << "failed to convert rowsetids in snapshot: " << snapshot_path

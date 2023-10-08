@@ -139,6 +139,10 @@ class StreamLoadAction implements SuiteAction {
         headers.put(key, value)
     }
 
+    void unset(String key) {
+        headers.remove(key)
+    }
+
     @Override
     void run() {
         String responseText = null
@@ -146,8 +150,8 @@ class StreamLoadAction implements SuiteAction {
         long startTime = System.currentTimeMillis()
         try {
             if (headers.containsKey("version")) {
-                log.info("Stream load with sql")
-                def uri = "http://${address.hostString}:${address.port}/api/_stream_load_with_sql"
+                log.info("http stream")
+                def uri = "http://${address.hostString}:${address.port}/api/_http_stream"
                 HttpClients.createDefault().withCloseable { client ->
                     RequestBuilder requestBuilder = prepareRequestHeader(RequestBuilder.put(uri))
                     HttpEntity httpEntity = prepareHttpEntity(client)

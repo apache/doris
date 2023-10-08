@@ -6,7 +6,7 @@ PhysicalResultSink
 ------PhysicalTopN
 --------filter((rk <= 100))
 ----------PhysicalWindow
-------------PhysicalQuickSort
+------------PhysicalPartitionTopN
 --------------PhysicalDistribute
 ----------------PhysicalPartitionTopN
 ------------------PhysicalProject
@@ -15,14 +15,14 @@ PhysicalResultSink
 ------------------------hashAgg[LOCAL]
 --------------------------PhysicalRepeat
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN](store_sales.ss_store_sk = store.s_store_sk)
---------------------------------hashJoin[INNER_JOIN](store_sales.ss_item_sk = item.i_item_sk)
-----------------------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
+------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk))otherCondition=()
+--------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk))otherCondition=()
+----------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk))otherCondition=()
 ------------------------------------PhysicalProject
 --------------------------------------PhysicalOlapScan[store_sales]
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
-----------------------------------------filter((date_dim.d_month_seq >= 1206)(date_dim.d_month_seq <= 1217))
+----------------------------------------filter((date_dim.d_month_seq <= 1217) and (date_dim.d_month_seq >= 1206))
 ------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------------PhysicalDistribute
 ------------------------------------PhysicalProject

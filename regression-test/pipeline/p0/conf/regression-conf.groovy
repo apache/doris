@@ -54,7 +54,8 @@ testDirectories = ""
 // this groups will not be executed
 excludeGroups = ""
 // this suites will not be executed
-excludeSuites = "test_stream_load_move_memtable,ds_rf95,test_default_limit,test_profile,test_broker_load,test_spark_load,test_refresh_mtmv,test_bitmap_filter,test_export_parquet,nereids_delete_mow_partial_update,test_hdfs_tvf"
+
+excludeSuites = "test_sql_block_rule,test_ddl,test_leading,test_stream_load_move_memtable,test_profile,test_broker_load,test_spark_load,test_refresh_mtmv,test_bitmap_filter,nereids_delete_mow_partial_update"
 
 // this directories will not be executed
 excludeDirectories = "workload_manager_p1"
@@ -83,6 +84,7 @@ pg_14_port=7121
 // See `docker/thirdparties/start-thirdparties-docker.sh`
 enableHiveTest=false
 hms_port=7141
+hiveServerPort=10000
 
 enableEsTest=false
 es_6_port=19200

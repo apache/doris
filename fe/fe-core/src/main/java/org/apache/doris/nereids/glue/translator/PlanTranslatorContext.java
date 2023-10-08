@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.glue.translator;
 
+import org.apache.doris.analysis.ColumnRefExpr;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
@@ -32,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
@@ -46,11 +48,13 @@ import org.apache.doris.thrift.TPushAggOp;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
@@ -74,6 +78,13 @@ public class PlanTranslatorContext {
      */
     private final Map<SlotId, ExprId> slotIdToExprId = Maps.newHashMap();
 
+    /**
+     * For each lambda argument (ArrayItemReference),
+     * we create a ColumnRef representing it and
+     * then translate it based on the ExprId of the ArrayItemReference.
+     */
+    private final Map<ExprId, ColumnRefExpr> exprIdToColumnRef = Maps.newHashMap();
+
     private final List<ScanNode> scanNodes = Lists.newArrayList();
 
     private final IdGenerator<PlanFragmentId> fragmentIdGenerator = PlanFragmentId.createGenerator();
@@ -94,7 +105,9 @@ public class PlanTranslatorContext {
 
     private final Map<PlanFragmentId, CTEScanNode> cteScanNodeMap = Maps.newHashMap();
 
-    private final Map<Long, TPushAggOp> tablePushAggOp = Maps.newHashMap();
+    private final Map<RelationId, TPushAggOp> tablePushAggOp = Maps.newHashMap();
+
+    private final Map<ScanNode, Set<SlotId>> statsUnknownColumnsMap = Maps.newHashMap();
 
     public PlanTranslatorContext(CascadesContext ctx) {
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
@@ -103,6 +116,34 @@ public class PlanTranslatorContext {
     @VisibleForTesting
     public PlanTranslatorContext() {
         translator = null;
+    }
+
+    /**
+     * remember the unknown-stats column and its scan, used for forbid_unknown_col_stats check
+     */
+    public void addUnknownStatsColumn(ScanNode scan, SlotId slotId) {
+        Set<SlotId> slots = statsUnknownColumnsMap.get(scan);
+        if (slots == null) {
+            statsUnknownColumnsMap.put(scan, Sets.newHashSet(slotId));
+        } else {
+            statsUnknownColumnsMap.get(scan).add(slotId);
+        }
+    }
+
+    public boolean isColumnStatsUnknown(ScanNode scan, SlotId slotId) {
+        Set<SlotId> unknownSlots = statsUnknownColumnsMap.get(scan);
+        if (unknownSlots == null) {
+            return false;
+        }
+        return unknownSlots.contains(slotId);
+    }
+
+    public void removeScanFromStatsUnknownColumnsMap(ScanNode scan) {
+        statsUnknownColumnsMap.remove(scan);
+    }
+
+    public Set<ScanNode> getScanNodeWithUnknownColumnStats() {
+        return statsUnknownColumnsMap.keySet();
     }
 
     public List<PlanFragment> getPlanFragments() {
@@ -154,6 +195,10 @@ public class PlanTranslatorContext {
         slotIdToExprId.put(slotRef.getDesc().getId(), exprId);
     }
 
+    public void addExprIdColumnRefPair(ExprId exprId, ColumnRefExpr columnRefExpr) {
+        exprIdToColumnRef.put(exprId, columnRefExpr);
+    }
+
     public void mergePlanFragment(PlanFragment srcFragment, PlanFragment targetFragment) {
         srcFragment.getTargetRuntimeFilterIds().forEach(targetFragment::setTargetRuntimeFilterIds);
         srcFragment.getBuilderRuntimeFilterIds().forEach(targetFragment::setBuilderRuntimeFilterIds);
@@ -162,6 +207,10 @@ public class PlanTranslatorContext {
 
     public SlotRef findSlotRef(ExprId exprId) {
         return exprIdToSlotRef.get(exprId);
+    }
+
+    public ColumnRefExpr findColumnRef(ExprId exprId) {
+        return exprIdToColumnRef.get(exprId);
     }
 
     public void addScanNode(ScanNode scanNode) {
@@ -239,11 +288,11 @@ public class PlanTranslatorContext {
         return descTable;
     }
 
-    public void setTablePushAggOp(Long tableId, TPushAggOp aggOp) {
-        tablePushAggOp.put(tableId, aggOp);
+    public void setRelationPushAggOp(RelationId relationId, TPushAggOp aggOp) {
+        tablePushAggOp.put(relationId, aggOp);
     }
 
-    public TPushAggOp getTablePushAggOp(Long tableId) {
-        return tablePushAggOp.getOrDefault(tableId, TPushAggOp.NONE);
+    public TPushAggOp getRelationPushAggOp(RelationId relationId) {
+        return tablePushAggOp.getOrDefault(relationId, TPushAggOp.NONE);
     }
 }

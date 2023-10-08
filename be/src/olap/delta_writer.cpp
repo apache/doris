@@ -83,7 +83,7 @@ DeltaWriter::~DeltaWriter() {
     }
 
     // cancel and wait all memtables in flush queue to be finished
-    _memtable_writer->cancel();
+    static_cast<void>(_memtable_writer->cancel());
 
     if (_rowset_builder.tablet() != nullptr) {
         const FlushStatistic& stat = _memtable_writer->get_flush_token_stats();
@@ -163,7 +163,7 @@ Status DeltaWriter::commit_txn(const PSlaveTabletNodes& slave_tablet_nodes,
                                const bool write_single_replica) {
     std::lock_guard<std::mutex> l(_lock);
     SCOPED_TIMER(_commit_txn_timer);
-    _rowset_builder.commit_txn();
+    RETURN_IF_ERROR(_rowset_builder.commit_txn());
 
     if (write_single_replica) {
         for (auto node_info : slave_tablet_nodes.slave_nodes()) {

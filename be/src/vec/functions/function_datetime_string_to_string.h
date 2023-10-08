@@ -73,7 +73,7 @@ public:
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         const ColumnPtr source_col = block.get_by_position(arguments[0]).column;
 
         const auto* nullable_column = check_and_get_column<ColumnNullable>(source_col.get());

@@ -25,10 +25,12 @@ import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
@@ -42,13 +44,14 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.VariantType;
+import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.HMSExternalCatalog;
@@ -62,6 +65,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Histogram;
@@ -69,7 +73,6 @@ import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -87,6 +90,9 @@ import org.apache.logging.log4j.Logger;
 
 import java.net.InetSocketAddress;
 import java.text.SimpleDateFormat;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -96,8 +102,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.StringJoiner;
-import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -158,25 +164,29 @@ public class StatisticsUtil {
     }
 
     public static AutoCloseConnectContext buildConnectContext() {
+        return buildConnectContext(false);
+    }
+
+    public static AutoCloseConnectContext buildConnectContext(boolean limitScan) {
         ConnectContext connectContext = new ConnectContext();
         SessionVariable sessionVariable = connectContext.getSessionVariable();
         sessionVariable.internalSession = true;
         sessionVariable.setMaxExecMemByte(Config.statistics_sql_mem_limit_in_bytes);
         sessionVariable.cpuResourceLimit = Config.cpu_resource_limit_per_analyze_task;
         sessionVariable.setEnableInsertStrict(true);
+        sessionVariable.enablePageCache = false;
         sessionVariable.parallelExecInstanceNum = Config.statistics_sql_parallel_exec_instance_num;
         sessionVariable.parallelPipelineTaskNum = Config.statistics_sql_parallel_exec_instance_num;
         sessionVariable.setEnableNereidsPlanner(false);
         sessionVariable.enableProfile = false;
+        sessionVariable.enableScanRunSerial = limitScan;
         sessionVariable.queryTimeoutS = Config.analyze_task_timeout_in_hours * 60 * 60;
         sessionVariable.insertTimeoutS = Config.analyze_task_timeout_in_hours * 60 * 60;
+        sessionVariable.enableFileCache = false;
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
         connectContext.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
         connectContext.setCurrentUserIdentity(UserIdentity.ROOT);
-        UUID uuid = UUID.randomUUID();
-        TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-        connectContext.setQueryId(queryId);
         connectContext.setStartTime();
         connectContext.setCluster(SystemInfoService.DEFAULT_CLUSTER);
         return new AutoCloseConnectContext(connectContext);
@@ -387,11 +397,12 @@ public class StatisticsUtil {
                             .findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
                                     dbName,
                                     StatisticConstants.STATISTIC_TBL_NAME));
-            statsTbls.add(
-                    (OlapTable) StatisticsUtil
-                            .findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
-                                    dbName,
-                                    StatisticConstants.HISTOGRAM_TBL_NAME));
+            // uncomment it when hist is available for user.
+            // statsTbls.add(
+            //         (OlapTable) StatisticsUtil
+            //                 .findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
+            //                         dbName,
+            //                         StatisticConstants.HISTOGRAM_TBL_NAME));
         } catch (Throwable t) {
             return false;
         }
@@ -423,6 +434,15 @@ public class StatisticsUtil {
                         Partition::getId,
                         Partition::getName
                 ));
+    }
+
+    public static Set<String> getPartitionIds(TableIf table) {
+        if (table instanceof OlapTable) {
+            return ((OlapTable) table).getPartitionIds().stream().map(String::valueOf).collect(Collectors.toSet());
+        } else if (table instanceof ExternalTable) {
+            return table.getPartitionNames();
+        }
+        throw new RuntimeException(String.format("Not supported Table %s", table.getClass().getName()));
     }
 
     public static <T> String joinElementsToString(Collection<T> values, String delimiter) {
@@ -488,18 +508,23 @@ public class StatisticsUtil {
      * First get it from remote table parameters. If not found, estimate it : totalSize/estimatedRowSize
      *
      * @param table Hive HMSExternalTable to estimate row count.
+     * @param isInit Flag to indicate if this is called during init. To avoid recursively get schema.
      * @return estimated row count
      */
-    public static long getHiveRowCount(HMSExternalTable table) {
+    public static long getHiveRowCount(HMSExternalTable table, boolean isInit) {
         Map<String, String> parameters = table.getRemoteTable().getParameters();
         if (parameters == null) {
             return -1;
         }
         // Table parameters contains row count, simply get and return it.
         if (parameters.containsKey(NUM_ROWS)) {
-            return Long.parseLong(parameters.get(NUM_ROWS));
+            long rows = Long.parseLong(parameters.get(NUM_ROWS));
+            // Sometimes, the NUM_ROWS in hms is 0 but actually is not. Need to check TOTAL_SIZE if NUM_ROWS is 0.
+            if (rows != 0) {
+                return rows;
+            }
         }
-        if (!parameters.containsKey(TOTAL_SIZE)) {
+        if (!parameters.containsKey(TOTAL_SIZE) || isInit) {
             return -1;
         }
         // Table parameters doesn't contain row count but contain total size. Estimate row count : totalSize/rowSize
@@ -625,8 +650,8 @@ public class StatisticsUtil {
         TableScan tableScan = table.newScan().includeColumnStats();
         ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder();
         columnStatisticBuilder.setCount(0);
-        columnStatisticBuilder.setMaxValue(Double.MAX_VALUE);
-        columnStatisticBuilder.setMinValue(Double.MIN_VALUE);
+        columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
+        columnStatisticBuilder.setMinValue(Double.NEGATIVE_INFINITY);
         columnStatisticBuilder.setDataSize(0);
         columnStatisticBuilder.setAvgSizeByte(0);
         columnStatisticBuilder.setNumNulls(0);
@@ -702,6 +727,62 @@ public class StatisticsUtil {
             LOG.warn(e.getMessage());
             return false;
         }
-        return table.getType().equals(TableType.HMS_EXTERNAL_TABLE);
+        return table instanceof ExternalTable;
+    }
+
+    public static boolean inAnalyzeTime(LocalTime now) {
+        try {
+            Pair<LocalTime, LocalTime> range = findRangeFromGlobalSessionVar();
+            if (range == null) {
+                return false;
+            }
+            LocalTime start = range.first;
+            LocalTime end = range.second;
+            if (start.isAfter(end) && (now.isAfter(start) || now.isBefore(end))) {
+                return true;
+            } else {
+                return now.isAfter(start) && now.isBefore(end);
+            }
+        } catch (DateTimeParseException e) {
+            LOG.warn("Parse analyze start/end time format fail", e);
+            return true;
+        }
+    }
+
+    private static Pair<LocalTime, LocalTime> findRangeFromGlobalSessionVar() {
+        try {
+            String startTime =
+                    findRangeFromGlobalSessionVar(SessionVariable.FULL_AUTO_ANALYZE_START_TIME)
+                            .fullAutoAnalyzeStartTime;
+            // For compatibility
+            if (StringUtils.isEmpty(startTime)) {
+                startTime = StatisticConstants.FULL_AUTO_ANALYZE_START_TIME;
+            }
+            String endTime = findRangeFromGlobalSessionVar(SessionVariable.FULL_AUTO_ANALYZE_END_TIME)
+                    .fullAutoAnalyzeEndTime;
+            if (StringUtils.isEmpty(startTime)) {
+                endTime = StatisticConstants.FULL_AUTO_ANALYZE_END_TIME;
+            }
+            DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss");
+            return Pair.of(LocalTime.parse(startTime, timeFormatter), LocalTime.parse(endTime, timeFormatter));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static SessionVariable findRangeFromGlobalSessionVar(String varName) throws Exception {
+        SessionVariable sessionVariable =  VariableMgr.newSessionVariable();
+        VariableExpr variableExpr = new VariableExpr(varName, SetType.GLOBAL);
+        VariableMgr.getValue(sessionVariable, variableExpr);
+        return sessionVariable;
+    }
+
+    public static boolean enableAutoAnalyze() {
+        try {
+            return findRangeFromGlobalSessionVar(SessionVariable.ENABLE_FULL_AUTO_ANALYZE).enableFullAutoAnalyze;
+        } catch (Exception e) {
+            LOG.warn("Fail to get value of enable auto analyze, return false by default", e);
+        }
+        return false;
     }
 }

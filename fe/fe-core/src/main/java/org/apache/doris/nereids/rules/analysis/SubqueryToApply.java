@@ -23,7 +23,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
-import org.apache.doris.nereids.trees.expressions.CaseWhen;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
@@ -39,6 +40,8 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
@@ -47,12 +50,12 @@ import com.google.common.collect.ImmutableSet;
 
 import java.util.Collection;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * SubqueryToApply. translate from subquery to LogicalApply.
@@ -68,8 +71,8 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                 logicalFilter().thenApply(ctx -> {
                     LogicalFilter<Plan> filter = ctx.root;
 
-                    ImmutableList<Set> subqueryExprsList = filter.getConjuncts().stream()
-                            .map(e -> (Set) e.collect(SubqueryExpr.class::isInstance))
+                    ImmutableList<Set<SubqueryExpr>> subqueryExprsList = filter.getConjuncts().stream()
+                            .<Set<SubqueryExpr>>map(e -> e.collect(SubqueryExpr.class::isInstance))
                             .collect(ImmutableList.toImmutableList());
                     if (subqueryExprsList.stream()
                             .flatMap(Collection::stream).noneMatch(SubqueryExpr.class::isInstance)) {
@@ -104,8 +107,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                         tmpPlan = applyPlan;
                         newConjuncts.add(conjunct);
                     }
-                    Set<Expression> conjuncts = new LinkedHashSet<>();
-                    conjuncts.addAll(newConjuncts.build());
+                    Set<Expression> conjuncts = ImmutableSet.copyOf(newConjuncts.build());
                     Plan newFilter = new LogicalFilter<>(conjuncts, applyPlan);
                     if (conjuncts.stream().flatMap(c -> c.children().stream())
                             .anyMatch(MarkJoinSlotReference.class::isInstance)) {
@@ -116,37 +118,132 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                     return new LogicalFilter<>(conjuncts, applyPlan);
                 })
             ),
-            RuleType.PROJECT_SUBQUERY_TO_APPLY.build(
-               logicalProject().thenApply(ctx -> {
-                   LogicalProject<Plan> project = ctx.root;
-                   Set<SubqueryExpr> subqueryExprs = new LinkedHashSet<>();
-                   project.getProjects().stream()
-                           .filter(Alias.class::isInstance)
-                           .map(Alias.class::cast)
-                           .filter(alias -> alias.child() instanceof CaseWhen)
-                           .forEach(alias -> alias.child().children().stream()
-                                   .forEach(e ->
-                                       subqueryExprs.addAll(e.collect(SubqueryExpr.class::isInstance))));
-                   if (subqueryExprs.isEmpty()) {
-                       return project;
-                   }
+            RuleType.PROJECT_SUBQUERY_TO_APPLY.build(logicalProject().thenApply(ctx -> {
+                LogicalProject<Plan> project = ctx.root;
+                ImmutableList<Set<SubqueryExpr>> subqueryExprsList = project.getProjects().stream()
+                        .<Set<SubqueryExpr>>map(e -> e.collect(SubqueryExpr.class::isInstance))
+                        .collect(ImmutableList.toImmutableList());
+                if (subqueryExprsList.stream().flatMap(Collection::stream).count() == 0) {
+                    return project;
+                }
+                List<NamedExpression> oldProjects = ImmutableList.copyOf(project.getProjects());
+                ImmutableList.Builder<NamedExpression> newProjects = new ImmutableList.Builder<>();
+                LogicalPlan childPlan = (LogicalPlan) project.child();
+                LogicalPlan applyPlan;
+                for (int i = 0; i < subqueryExprsList.size(); ++i) {
+                    Set<SubqueryExpr> subqueryExprs = subqueryExprsList.get(i);
+                    if (subqueryExprs.isEmpty()) {
+                        newProjects.add(oldProjects.get(i));
+                        continue;
+                    }
 
-                   SubqueryContext context = new SubqueryContext(subqueryExprs);
-                   return new LogicalProject(project.getProjects().stream()
-                           .map(p -> p.withChildren(
-                               new ReplaceSubquery(ctx.statementContext, true)
-                                   .replace(p, context)))
-                           .collect(ImmutableList.toImmutableList()),
-                           subqueryToApply(
-                               subqueryExprs.stream().collect(ImmutableList.toImmutableList()),
-                               (LogicalPlan) project.child(),
-                               context.getSubqueryToMarkJoinSlot(),
-                               ctx.cascadesContext,
-                               Optional.empty(), true
-                           ));
-               })
-            )
+                    // first step: Replace the subquery in logcialProject's project list
+                    // second step: Replace subquery with LogicalApply
+                    ReplaceSubquery replaceSubquery =
+                            new ReplaceSubquery(ctx.statementContext, true);
+                    SubqueryContext context = new SubqueryContext(subqueryExprs);
+                    Expression newProject =
+                            replaceSubquery.replace(oldProjects.get(i), context);
+
+                    applyPlan = subqueryToApply(
+                            subqueryExprs.stream().collect(ImmutableList.toImmutableList()),
+                            childPlan, context.getSubqueryToMarkJoinSlot(),
+                            ctx.cascadesContext,
+                            Optional.of(newProject), true);
+                    childPlan = applyPlan;
+                    newProjects.add((NamedExpression) newProject);
+                }
+
+                return project.withProjectsAndChild(newProjects.build(), childPlan);
+            })),
+            RuleType.ONE_ROW_RELATION_SUBQUERY_TO_APPLY.build(logicalOneRowRelation()
+                .when(ctx -> ctx.getProjects().stream()
+                        .anyMatch(project -> project.containsType(SubqueryExpr.class)))
+                .thenApply(ctx -> {
+                    LogicalOneRowRelation oneRowRelation = ctx.root;
+                    // create a LogicalProject node with the same project lists above LogicalOneRowRelation
+                    // create a LogicalOneRowRelation with a dummy output column
+                    // so PROJECT_SUBQUERY_TO_APPLY rule can handle the subquery unnest thing
+                    return new LogicalProject<Plan>(oneRowRelation.getProjects(),
+                            oneRowRelation.withProjects(
+                                    ImmutableList.of(new Alias(BooleanLiteral.of(true),
+                                            ctx.statementContext.generateColumnName()))));
+                })),
+            RuleType.JOIN_SUBQUERY_TO_APPLY
+                .build(logicalJoin()
+                .when(join -> join.getHashJoinConjuncts().isEmpty() && !join.getOtherJoinConjuncts().isEmpty())
+                .thenApply(ctx -> {
+                    LogicalJoin<Plan, Plan> join = ctx.root;
+                    Map<Boolean, List<Expression>> joinConjuncts = join.getOtherJoinConjuncts().stream()
+                            .collect(Collectors.groupingBy(conjunct -> conjunct.containsType(SubqueryExpr.class),
+                                    Collectors.toList()));
+                    List<Expression> subqueryConjuncts = joinConjuncts.get(true);
+                    if (subqueryConjuncts == null || subqueryConjuncts.stream()
+                            .anyMatch(expr -> !isValidSubqueryConjunct(expr, join.left()))) {
+                        return join;
+                    }
+
+                    ImmutableList<Set<SubqueryExpr>> subqueryExprsList = subqueryConjuncts.stream()
+                            .<Set<SubqueryExpr>>map(e -> e.collect(SubqueryExpr.class::isInstance))
+                            .collect(ImmutableList.toImmutableList());
+                    ImmutableList.Builder<Expression> newConjuncts = new ImmutableList.Builder<>();
+                    LogicalPlan applyPlan = null;
+                    LogicalPlan leftChildPlan = (LogicalPlan) join.left();
+
+                    // Subquery traversal with the conjunct of and as the granularity.
+                    for (int i = 0; i < subqueryExprsList.size(); ++i) {
+                        Set<SubqueryExpr> subqueryExprs = subqueryExprsList.get(i);
+                        if (subqueryExprs.size() > 1) {
+                            // only support the conjunct contains one subquery expr
+                            return join;
+                        }
+
+                        // first step: Replace the subquery of predicate in LogicalFilter
+                        // second step: Replace subquery with LogicalApply
+                        ReplaceSubquery replaceSubquery = new ReplaceSubquery(ctx.statementContext, true);
+                        SubqueryContext context = new SubqueryContext(subqueryExprs);
+                        Expression conjunct = replaceSubquery.replace(subqueryConjuncts.get(i), context);
+
+                        applyPlan = subqueryToApply(
+                                subqueryExprs.stream().collect(ImmutableList.toImmutableList()),
+                                leftChildPlan, context.getSubqueryToMarkJoinSlot(),
+                                ctx.cascadesContext, Optional.of(conjunct), false);
+                        leftChildPlan = applyPlan;
+                        newConjuncts.add(conjunct);
+                    }
+                    List<Expression> simpleConjuncts = joinConjuncts.get(false);
+                    if (simpleConjuncts != null) {
+                        newConjuncts.addAll(simpleConjuncts);
+                    }
+                    Plan newJoin = join.withConjunctsChildren(join.getHashJoinConjuncts(),
+                            newConjuncts.build(), applyPlan, join.right());
+                    return newJoin;
+                }))
         );
+    }
+
+    private static boolean isValidSubqueryConjunct(Expression expression, Plan leftChild) {
+        // the subquery must be uncorrelated subquery or only correlated to the left child
+        // currently only support the following 4 simple scenarios
+        // 1. col ComparisonPredicate subquery
+        // 2. col in (subquery)
+        // 3. exists (subquery)
+        // 4. col1 ComparisonPredicate subquery or xxx (no more subquery)
+        List<Slot> slots = leftChild.getOutput();
+        if (expression instanceof ComparisonPredicate && expression.child(1) instanceof ScalarSubquery) {
+            ScalarSubquery subquery = (ScalarSubquery) expression.child(1);
+            return slots.containsAll(subquery.getCorrelateSlots());
+        } else if (expression instanceof InSubquery) {
+            return slots.containsAll(((InSubquery) expression).getCorrelateSlots());
+        } else if (expression instanceof Exists) {
+            return slots.containsAll(((Exists) expression).getCorrelateSlots());
+        } else {
+            List<SubqueryExpr> subqueryExprs = expression.collectToList(SubqueryExpr.class::isInstance);
+            if (subqueryExprs.size() == 1) {
+                return slots.containsAll(subqueryExprs.get(0).getCorrelateSlots());
+            }
+        }
+        return false;
     }
 
     private LogicalPlan subqueryToApply(List<SubqueryExpr> subqueryExprs, LogicalPlan childPlan,
@@ -232,12 +329,12 @@ public class SubqueryToApply implements AnalysisRuleFactory {
         private final StatementContext statementContext;
         private boolean isMarkJoin;
 
-        private final boolean isProject;
+        private final boolean shouldOutputMarkJoinSlot;
 
         public ReplaceSubquery(StatementContext statementContext,
-                               boolean isProject) {
+                               boolean shouldOutputMarkJoinSlot) {
             this.statementContext = Objects.requireNonNull(statementContext, "statementContext can't be null");
-            this.isProject = isProject;
+            this.shouldOutputMarkJoinSlot = shouldOutputMarkJoinSlot;
         }
 
         public Expression replace(Expression expression, SubqueryContext subqueryContext) {
@@ -249,28 +346,30 @@ public class SubqueryToApply implements AnalysisRuleFactory {
             // The result set when NULL is specified in the subquery and still evaluates to TRUE by using EXISTS
             // When the number of rows returned is empty, agg will return null, so if there is more agg,
             // it will always consider the returned result to be true
+            boolean needCreateMarkJoinSlot = isMarkJoin || shouldOutputMarkJoinSlot;
             MarkJoinSlotReference markJoinSlotReference = null;
-            if (exists.getQueryPlan().anyMatch(Aggregate.class::isInstance) && isMarkJoin) {
+            if (exists.getQueryPlan().anyMatch(Aggregate.class::isInstance) && needCreateMarkJoinSlot) {
                 markJoinSlotReference =
                         new MarkJoinSlotReference(statementContext.generateColumnName(), true);
-            } else if (isMarkJoin) {
+            } else if (needCreateMarkJoinSlot) {
                 markJoinSlotReference =
                         new MarkJoinSlotReference(statementContext.generateColumnName());
             }
-            if (isMarkJoin) {
+            if (needCreateMarkJoinSlot) {
                 context.setSubqueryToMarkJoinSlot(exists, Optional.of(markJoinSlotReference));
             }
-            return isMarkJoin ? markJoinSlotReference : BooleanLiteral.TRUE;
+            return needCreateMarkJoinSlot ? markJoinSlotReference : BooleanLiteral.TRUE;
         }
 
         @Override
         public Expression visitInSubquery(InSubquery in, SubqueryContext context) {
             MarkJoinSlotReference markJoinSlotReference =
                     new MarkJoinSlotReference(statementContext.generateColumnName());
-            if (isMarkJoin) {
+            boolean needCreateMarkJoinSlot = isMarkJoin || shouldOutputMarkJoinSlot;
+            if (needCreateMarkJoinSlot) {
                 context.setSubqueryToMarkJoinSlot(in, Optional.of(markJoinSlotReference));
             }
-            return isMarkJoin ? markJoinSlotReference : BooleanLiteral.TRUE;
+            return needCreateMarkJoinSlot ? markJoinSlotReference : BooleanLiteral.TRUE;
         }
 
         @Override

@@ -386,6 +386,15 @@ suite("test_bitmap_function") {
             on l.dt = r.dt
         order by l.dt, count
     """
+    qt_sql_bitmap_andnot_count3 """
+        select
+            l.dt,
+            bitmap_andnot_count(l.id, r.id) count
+        from
+            test_bitmap1 l left join test_bitmap2 r
+            on l.dt = r.dt
+        order by l.dt, count
+    """
     qt_sql_bitmap_and_count8 """
         select
             l.dt,
@@ -519,6 +528,7 @@ suite("test_bitmap_function") {
 
     // BITMAP_AND_NOT
     qt_sql """ select bitmap_count(bitmap_and_not(bitmap_from_string('1,2,3'),bitmap_from_string('3,4,5'))) cnt """
+    qt_sql_bitmap_andnot """ select bitmap_count(bitmap_andnot(bitmap_from_string('1,2,3'),bitmap_from_string('3,4,5'))) cnt """
 
     // BITMAP_AND_NOT_COUNT
     qt_sql_bitmap_and_not_count1 """ select bitmap_and_not_count(bitmap_from_string('1,2,3'),bitmap_from_string('3,4,5')) cnt """
@@ -569,7 +579,7 @@ suite("test_bitmap_function") {
 
     // TO_BITMAP
     qt_sql """ select bitmap_count(to_bitmap(10)) """
-    qt_sql """ select bitmap_to_string(to_bitmap(-1)) """
+    qt_sql """ select bitmap_to_string(to_bitmap("-1")) """
 
     // BITMAP_MAX
     qt_sql """ select bitmap_max(bitmap_from_string('')) value; """
@@ -832,4 +842,181 @@ suite("test_bitmap_function") {
     //     select count(distinct tag) as count1,
     //         orthogonal_bitmap_intersect_count(id_bitmap, tag, 0) as count2_bitmap from test_orthog_bitmap_intersect;
     // """
+
+    /////////////////////////////
+    // test bitmap base64
+    sql """ set experimental_enable_nereids_planner=true; """
+    qt_sql_bitmap_base64_nereids0 """ select bitmap_to_string(bitmap_from_base64(bitmap_to_base64(null))); """
+    qt_sql_bitmap_base64_nereids1 """ select bitmap_to_string(bitmap_from_base64(bitmap_to_base64(bitmap_from_string("")))); """
+    qt_sql_bitmap_base64_nereids2 """ select bitmap_to_string(bitmap_from_base64(bitmap_to_base64(bitmap_from_string(" ")))); """
+    qt_sql_bitmap_base64_nereids3 """ select bitmap_to_string(bitmap_from_base64(bitmap_to_base64(bitmap_from_string("1")))); """
+    qt_sql_bitmap_base64_nereids4 """ select bitmap_to_string(bitmap_from_base64(bitmap_to_base64(bitmap_from_string("0, 1, 2, 3")))); """
+    qt_sql_bitmap_base64_nereids5 """ select bitmap_to_string(bitmap_from_base64(bitmap_to_base64(bitmap_from_string("0, 1, 2, 3, 4294967296")))); """
+    qt_sql_bitmap_base64_nereids6 """ select bitmap_to_string(bitmap_from_base64(bitmap_to_base64(bitmap_from_string("0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32")))) """
+    qt_sql_bitmap_base64_nereids7 """ select bitmap_to_string(bitmap_from_base64(bitmap_to_base64(bitmap_from_string("0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,4294967296")))) """
+    qt_sql_bitmap_base64_nereids8 """ select bitmap_to_string(bitmap_from_base64(bitmap_to_base64(to_bitmap(1)))); """
+
+    // test nullable
+    sql """ DROP TABLE IF EXISTS test_bitmap_base64 """ 
+    sql """
+        CREATE TABLE test_bitmap_base64 (
+          dt INT(11) NULL,
+          id bitmap BITMAP_UNION NULL
+        ) ENGINE=OLAP
+        AGGREGATE KEY(dt)
+        DISTRIBUTED BY HASH(dt) BUCKETS 2
+        properties (
+            "replication_num" = "1"
+        );
+    """
+    sql """
+        INSERT INTO
+            test_bitmap_base64
+        VALUES
+            (0, to_bitmap(null)),
+            (1, bitmap_from_string("0")),
+            (2, bitmap_from_string("1,9999999")),
+            (3, bitmap_from_string("0, 1, 2, 3, 4294967296")),
+            (4, bitmap_from_string("0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32")),
+            (5, bitmap_from_string("0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,4294967296"))
+            ;
+    """
+    qt_sql_bitmap_base64_nereids9 """ select bitmap_to_string(bitmap_from_base64(bitmap_to_base64(id))) s from test_bitmap_base64 order by s; """
+
+    sql """ set experimental_enable_nereids_planner=false; """
+    qt_sql_bitmap_base64_0 """ select bitmap_to_string(bitmap_from_base64(bitmap_to_base64(null))); """
+    qt_sql_bitmap_base64_1 """ select bitmap_to_string(bitmap_from_base64(bitmap_to_base64(bitmap_from_string("")))); """
+    qt_sql_bitmap_base64_2 """ select bitmap_to_string(bitmap_from_base64(bitmap_to_base64(bitmap_from_string(" ")))); """
+    qt_sql_bitmap_base64_3 """ select bitmap_to_string(bitmap_from_base64(bitmap_to_base64(bitmap_from_string("1")))); """
+    qt_sql_bitmap_base64_4 """ select bitmap_to_string(bitmap_from_base64(bitmap_to_base64(bitmap_from_string("0, 1, 2, 3")))); """
+    qt_sql_bitmap_base64_5 """ select bitmap_to_string(bitmap_from_base64(bitmap_to_base64(bitmap_from_string("0, 1, 2, 3, 4294967296")))); """
+    qt_sql_bitmap_base64_6 """ select bitmap_to_string(bitmap_from_base64(bitmap_to_base64(bitmap_from_string("0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32")))) """
+    qt_sql_bitmap_base64_7 """ select bitmap_to_string(bitmap_from_base64(bitmap_to_base64(bitmap_from_string("0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,4294967296")))) """
+    qt_sql_bitmap_base64_8 """ select bitmap_to_string(bitmap_from_base64(bitmap_to_base64(to_bitmap(1)))); """
+
+    qt_sql_bitmap_base64_9 """ select bitmap_to_string(bitmap_from_base64(bitmap_to_base64(id))) s from test_bitmap_base64 order by s; """
+
+    // test not nullable
+    sql """ set experimental_enable_nereids_planner=true; """
+    sql """ DROP TABLE IF EXISTS test_bitmap_base64_not_null """ 
+    sql """
+        CREATE TABLE test_bitmap_base64_not_null (
+          dt INT(11) NULL,
+          id bitmap BITMAP_UNION NOT NULL
+        ) ENGINE=OLAP
+        AGGREGATE KEY(dt)
+        DISTRIBUTED BY HASH(dt) BUCKETS 2
+        properties (
+            "replication_num" = "1"
+        );
+    """
+    sql """
+        INSERT INTO
+            test_bitmap_base64_not_null
+        VALUES
+            (1, bitmap_from_string("0")),
+            (2, bitmap_from_string("1,9999999")),
+            (3, bitmap_from_string("0, 1, 2, 3, 4294967296")),
+            (4, bitmap_from_string("0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32")),
+            (5, bitmap_from_string("0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,4294967296"))
+            ;
+    """
+    qt_sql_bitmap_base64_not_null0 """ select bitmap_to_string(bitmap_from_base64(bitmap_to_base64(id))) s from test_bitmap_base64_not_null order by s; """
+    sql """ set experimental_enable_nereids_planner=false; """
+    qt_sql_bitmap_base64_not_null1 """ select bitmap_to_string(bitmap_from_base64(bitmap_to_base64(id))) s from test_bitmap_base64_not_null order by s; """
+
+    ///////////////////
+    // test bitmap_remove
+    sql """ set experimental_enable_nereids_planner=true; """
+    qt_sql_bitmap_remove_nereids0 """
+        select bitmap_to_string(bitmap_remove(bitmap_from_string('1, 2, 3'), 3));
+    """
+    qt_sql_bitmap_remove_nereids1 """
+        select bitmap_to_string(bitmap_remove(bitmap_from_string('1, 2, 3'), null));
+    """
+    // test nullable
+    sql """ DROP TABLE IF EXISTS test_bitmap_remove """ 
+    sql """
+        CREATE TABLE test_bitmap_remove (
+          dt INT(11) NULL,
+          id bitmap BITMAP_UNION NULL
+        ) ENGINE=OLAP
+        AGGREGATE KEY(dt)
+        DISTRIBUTED BY HASH(dt) BUCKETS 2
+        properties (
+            "replication_num" = "1"
+        );
+    """
+    sql """
+        INSERT INTO
+            test_bitmap_remove
+        VALUES
+            (0, to_bitmap(null)),
+            (1, bitmap_from_string("0")),
+            (2, bitmap_from_string("1,9999999")),
+            (3, bitmap_from_string("0, 1, 2, 3, 4294967296")),
+            (4, bitmap_from_string("0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32")),
+            (5, bitmap_from_string("0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,4294967296"))
+            ;
+    """
+    qt_sql_bitmap_remove_nereids2 """ select bitmap_to_string(bitmap_remove(id, 1)) s from test_bitmap_remove order by s; """
+    qt_sql_bitmap_remove_nereids3 """ select bitmap_to_string(bitmap_remove(id, 32)) s from test_bitmap_remove order by s; """
+    qt_sql_bitmap_remove_nereids4 """ select bitmap_to_string(bitmap_remove(id, 4294967296)) s from test_bitmap_remove order by s; """
+    qt_sql_bitmap_remove_nereids5 """ select bitmap_to_string(bitmap_remove(id, null)) s from test_bitmap_remove order by s; """
+
+    // experimental_enable_nereids_planner=false;
+    sql """ set experimental_enable_nereids_planner=false; """
+    qt_sql_bitmap_remove0 """
+        select bitmap_to_string(bitmap_remove(bitmap_from_string('1, 2, 3'), 3));
+    """
+    qt_sql_bitmap_remove1 """
+        select bitmap_to_string(bitmap_remove(bitmap_from_string('1, 2, 3'), null));
+    """
+    qt_sql_bitmap_remove2 """ select bitmap_to_string(bitmap_remove(id, 1)) s from test_bitmap_remove order by s; """
+    qt_sql_bitmap_remove3 """ select bitmap_to_string(bitmap_remove(id, 32)) s from test_bitmap_remove order by s; """
+    qt_sql_bitmap_remove4 """ select bitmap_to_string(bitmap_remove(id, 4294967296)) s from test_bitmap_remove order by s; """
+    qt_sql_bitmap_remove5 """ select bitmap_to_string(bitmap_remove(id, null)) s from test_bitmap_remove order by s; """
+
+    // test not nullable
+    sql """ set experimental_enable_nereids_planner=true; """
+    sql """ DROP TABLE IF EXISTS test_bitmap_remove_not_null """ 
+    sql """
+        CREATE TABLE test_bitmap_remove_not_null (
+          dt INT(11) NULL,
+          id bitmap BITMAP_UNION NOT NULL
+        ) ENGINE=OLAP
+        AGGREGATE KEY(dt)
+        DISTRIBUTED BY HASH(dt) BUCKETS 2
+        properties (
+            "replication_num" = "1"
+        );
+    """
+    sql """
+        INSERT INTO
+            test_bitmap_remove_not_null
+        VALUES
+            (1, bitmap_from_string("0")),
+            (2, bitmap_from_string("1,9999999")),
+            (3, bitmap_from_string("0, 1, 2, 3, 4294967296")),
+            (4, bitmap_from_string("0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32")),
+            (5, bitmap_from_string("0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,4294967296"))
+            ;
+    """
+    qt_sql_bitmap_remove_not_null2 """ select bitmap_to_string(bitmap_remove(id, 1)) s from test_bitmap_remove_not_null order by s; """
+    qt_sql_bitmap_remove_not_null3 """ select bitmap_to_string(bitmap_remove(id, 32)) s from test_bitmap_remove_not_null order by s; """
+    qt_sql_bitmap_remove_not_null4 """ select bitmap_to_string(bitmap_remove(id, 4294967296)) s from test_bitmap_remove_not_null order by s; """
+    qt_sql_bitmap_remove_not_null5 """ select bitmap_to_string(bitmap_remove(id, null)) s from test_bitmap_remove_not_null order by s; """
+
+    sql """ set experimental_enable_nereids_planner=false; """
+    qt_sql_bitmap_remove_not_null6 """ select bitmap_to_string(bitmap_remove(id, 1)) s from test_bitmap_remove_not_null order by s; """
+    qt_sql_bitmap_remove_not_null7 """ select bitmap_to_string(bitmap_remove(id, 32)) s from test_bitmap_remove_not_null order by s; """
+    qt_sql_bitmap_remove_not_null8 """ select bitmap_to_string(bitmap_remove(id, 4294967296)) s from test_bitmap_remove_not_null order by s; """
+    qt_sql_bitmap_remove_not_null9 """ select bitmap_to_string(bitmap_remove(id, null)) s from test_bitmap_remove_not_null order by s; """
+
+    // BITMAP_FROM_ARRAY
+    sql """ set experimental_enable_nereids_planner=false; """
+    qt_sql """ select bitmap_to_string(BITMAP_FROM_ARRAY([]));"""
+
+    sql """ set experimental_enable_nereids_planner=true; """
+    qt_sql """ select bitmap_to_string(BITMAP_FROM_ARRAY([]));"""
 }

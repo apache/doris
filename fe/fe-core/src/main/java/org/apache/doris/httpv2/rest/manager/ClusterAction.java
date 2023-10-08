@@ -65,6 +65,8 @@ public class ClusterAction extends RestBaseController {
 
         result.put("mysql", frontends.stream().map(ip -> ip + ":" + Config.query_port).collect(Collectors.toList()));
         result.put("http", frontends.stream().map(ip -> ip + ":" + Config.http_port).collect(Collectors.toList()));
+        result.put("arrow flight sql server", frontends.stream().map(
+                ip -> ip + ":" + Config.arrow_flight_sql_port).collect(Collectors.toList()));
         return ResponseEntityBuilder.ok(result);
     }
 }

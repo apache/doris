@@ -446,11 +446,12 @@ void ColumnObject::Subcolumn::finalize() {
             part->get_indices_of_non_default_rows(offsets_data, 0, part_size);
             if (offsets->size() == part_size) {
                 ColumnPtr ptr;
-                schema_util::cast_column({part, from_type, ""}, to_type, &ptr);
+                static_cast<void>(schema_util::cast_column({part, from_type, ""}, to_type, &ptr));
                 part = ptr;
             } else {
                 auto values = part->index(*offsets, offsets->size());
-                schema_util::cast_column({values, from_type, ""}, to_type, &values);
+                static_cast<void>(
+                        schema_util::cast_column({values, from_type, ""}, to_type, &values));
                 part = values->create_with_offsets(offsets_data, to_type->get_default(), part_size,
                                                    /*shift=*/0);
             }

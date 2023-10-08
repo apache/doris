@@ -9,73 +9,73 @@ PhysicalResultSink
 ------------PhysicalDistribute
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN](customer_address.ca_address_sk = customer.c_current_addr_sk)
+------------------hashJoin[INNER_JOIN] hashCondition=((customer_address.ca_address_sk = customer.c_current_addr_sk))otherCondition=()
 --------------------PhysicalProject
 ----------------------filter((customer_address.ca_gmt_offset = -7.00))
 ------------------------PhysicalOlapScan[customer_address]
 --------------------PhysicalDistribute
-----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN](store_sales.ss_customer_sk = customer.c_customer_sk)
+----------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk))otherCondition=()
+------------------------PhysicalProject
+--------------------------filter((item.i_category = 'Jewelry'))
+----------------------------PhysicalOlapScan[item]
+------------------------PhysicalDistribute
 --------------------------PhysicalProject
-----------------------------PhysicalOlapScan[customer]
---------------------------PhysicalDistribute
-----------------------------hashJoin[INNER_JOIN](store_sales.ss_item_sk = item.i_item_sk)
+----------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_customer_sk = customer.c_customer_sk))otherCondition=()
 ------------------------------PhysicalProject
---------------------------------filter((cast(i_category as VARCHAR(*)) = 'Jewelry'))
-----------------------------------PhysicalOlapScan[item]
+--------------------------------PhysicalOlapScan[customer]
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN](store_sales.ss_promo_sk = promotion.p_promo_sk)
+----------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_promo_sk = promotion.p_promo_sk))otherCondition=()
+------------------------------------PhysicalProject
+--------------------------------------filter((((promotion.p_channel_dmail = 'Y') OR (promotion.p_channel_email = 'Y')) OR (promotion.p_channel_tv = 'Y')))
+----------------------------------------PhysicalOlapScan[promotion]
 ------------------------------------PhysicalDistribute
---------------------------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
-----------------------------------------PhysicalProject
-------------------------------------------hashJoin[INNER_JOIN](store_sales.ss_store_sk = store.s_store_sk)
---------------------------------------------PhysicalProject
-----------------------------------------------PhysicalOlapScan[store_sales]
---------------------------------------------PhysicalDistribute
-----------------------------------------------PhysicalProject
-------------------------------------------------filter((store.s_gmt_offset = -7.00))
---------------------------------------------------PhysicalOlapScan[store]
+--------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk))otherCondition=()
 ----------------------------------------PhysicalDistribute
 ------------------------------------------PhysicalProject
---------------------------------------------filter((date_dim.d_moy = 11)(date_dim.d_year = 1999))
+--------------------------------------------filter((date_dim.d_moy = 11) and (date_dim.d_year = 1999))
 ----------------------------------------------PhysicalOlapScan[date_dim]
-------------------------------------PhysicalDistribute
---------------------------------------PhysicalProject
-----------------------------------------filter((((cast(p_channel_dmail as VARCHAR(*)) = 'Y') OR (cast(p_channel_email as VARCHAR(*)) = 'Y')) OR (cast(p_channel_tv as VARCHAR(*)) = 'Y')))
-------------------------------------------PhysicalOlapScan[promotion]
+----------------------------------------PhysicalDistribute
+------------------------------------------PhysicalProject
+--------------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk))otherCondition=()
+----------------------------------------------PhysicalProject
+------------------------------------------------PhysicalOlapScan[store_sales]
+----------------------------------------------PhysicalDistribute
+------------------------------------------------PhysicalProject
+--------------------------------------------------filter((store.s_gmt_offset = -7.00))
+----------------------------------------------------PhysicalOlapScan[store]
 ----------PhysicalDistribute
 ------------hashAgg[GLOBAL]
 --------------PhysicalDistribute
 ----------------hashAgg[LOCAL]
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN](customer_address.ca_address_sk = customer.c_current_addr_sk)
+--------------------hashJoin[INNER_JOIN] hashCondition=((customer_address.ca_address_sk = customer.c_current_addr_sk))otherCondition=()
 ----------------------PhysicalProject
 ------------------------filter((customer_address.ca_gmt_offset = -7.00))
 --------------------------PhysicalOlapScan[customer_address]
 ----------------------PhysicalDistribute
-------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN](store_sales.ss_customer_sk = customer.c_customer_sk)
+------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk))otherCondition=()
+--------------------------PhysicalProject
+----------------------------filter((item.i_category = 'Jewelry'))
+------------------------------PhysicalOlapScan[item]
+--------------------------PhysicalDistribute
 ----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[customer]
-----------------------------PhysicalDistribute
-------------------------------hashJoin[INNER_JOIN](store_sales.ss_item_sk = item.i_item_sk)
---------------------------------PhysicalProject
-----------------------------------filter((cast(i_category as VARCHAR(*)) = 'Jewelry'))
-------------------------------------PhysicalOlapScan[item]
+------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk))otherCondition=()
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
-------------------------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
+------------------------------------filter((date_dim.d_moy = 11) and (date_dim.d_year = 1999))
+--------------------------------------PhysicalOlapScan[date_dim]
+--------------------------------PhysicalDistribute
+----------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_customer_sk = customer.c_customer_sk))otherCondition=()
+------------------------------------PhysicalProject
+--------------------------------------PhysicalOlapScan[customer]
+------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
-----------------------------------------hashJoin[INNER_JOIN](store_sales.ss_store_sk = store.s_store_sk)
+----------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk))otherCondition=()
 ------------------------------------------PhysicalProject
 --------------------------------------------PhysicalOlapScan[store_sales]
 ------------------------------------------PhysicalDistribute
 --------------------------------------------PhysicalProject
 ----------------------------------------------filter((store.s_gmt_offset = -7.00))
 ------------------------------------------------PhysicalOlapScan[store]
---------------------------------------PhysicalDistribute
-----------------------------------------PhysicalProject
-------------------------------------------filter((date_dim.d_moy = 11)(date_dim.d_year = 1999))
---------------------------------------------PhysicalOlapScan[date_dim]
 

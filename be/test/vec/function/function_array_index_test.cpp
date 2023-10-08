@@ -42,7 +42,7 @@ TEST(function_array_index_test, array_contains) {
                             {{Null(), 1}, Null()},
                             {{empty_arr, 1}, UInt8(0)}};
 
-        check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
     }
 
     // array_contains(Array<Int8>, Int8)
@@ -55,7 +55,7 @@ TEST(function_array_index_test, array_contains) {
                             {{Null(), Int8(1)}, Null()},
                             {{empty_arr, Int8(1)}, UInt8(0)}};
 
-        check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
     }
 
     // array_contains(Array<Int64>, Int64)
@@ -68,7 +68,7 @@ TEST(function_array_index_test, array_contains) {
                             {{Null(), Int64(1)}, Null()},
                             {{empty_arr, Int64(1)}, UInt8(0)}};
 
-        check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
     }
 
     // array_contains(Array<Int128>, Int128)
@@ -81,7 +81,7 @@ TEST(function_array_index_test, array_contains) {
                             {{Null(), Int128(1)}, Null()},
                             {{empty_arr, Int128(1)}, UInt8(0)}};
 
-        check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
     }
 
     // array_contains(Array<Float32>, Float32)
@@ -94,7 +94,7 @@ TEST(function_array_index_test, array_contains) {
                             {{Null(), float(1)}, Null()},
                             {{empty_arr, float(1)}, UInt8(0)}};
 
-        check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
     }
 
     // array_contains(Array<Float64>, Float64)
@@ -107,7 +107,7 @@ TEST(function_array_index_test, array_contains) {
                             {{Null(), double(1)}, Null()},
                             {{empty_arr, double(1)}, UInt8(0)}};
 
-        check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
     }
 
     // array_contains(Array<Date>, Date)
@@ -122,7 +122,7 @@ TEST(function_array_index_test, array_contains) {
                             {{Null(), std::string("2022-01-04")}, Null()},
                             {{empty_arr, std::string("2022-01-02")}, UInt8(0)}};
 
-        check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
     }
 
     // array_contains(Array<DateTime>, DateTime)
@@ -137,7 +137,7 @@ TEST(function_array_index_test, array_contains) {
                             {{Null(), std::string("2022-01-04 00:00:00")}, Null()},
                             {{empty_arr, std::string("2022-01-02 00:00:00")}, UInt8(0)}};
 
-        check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
     }
 
     // array_contains(Array<Decimal128>, Decimal128)
@@ -151,7 +151,7 @@ TEST(function_array_index_test, array_contains) {
                             {{Null(), ut_type::DECIMAL(0)}, Null()},
                             {{empty_arr, ut_type::DECIMAL(0)}, UInt8(0)}};
 
-        check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
     }
 
     // array_contains(Array<String>, String)
@@ -165,7 +165,7 @@ TEST(function_array_index_test, array_contains) {
                             {{Null(), std::string("abc")}, Null()},
                             {{empty_arr, std::string("")}, UInt8(0)}};
 
-        check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
     }
 }
 
@@ -183,7 +183,7 @@ TEST(function_array_index_test, array_position) {
                             {{Null(), 1}, Null()},
                             {{empty_arr, 1}, Int64(0)}};
 
-        check_function<DataTypeInt64, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
     }
 
     // array_position(Array<Int32>, Int32)
@@ -196,7 +196,7 @@ TEST(function_array_index_test, array_position) {
                             {{Null(), Int32(1)}, Null()},
                             {{empty_arr, Int32(1)}, Int64(0)}};
 
-        check_function<DataTypeInt64, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
     }
 
     // array_position(Array<Int8>, Int8)
@@ -209,7 +209,7 @@ TEST(function_array_index_test, array_position) {
                             {{Null(), Int8(1)}, Null()},
                             {{empty_arr, Int8(1)}, Int64(0)}};
 
-        check_function<DataTypeInt64, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
     }
 
     // array_position(Array<Date>, Date)
@@ -224,7 +224,7 @@ TEST(function_array_index_test, array_position) {
                             {{Null(), std::string("2022-01-04")}, Null()},
                             {{empty_arr, std::string("2022-01-02")}, Int64(0)}};
 
-        check_function<DataTypeInt64, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
     }
 
     // array_position(Array<DateTime>, DateTime)
@@ -239,7 +239,7 @@ TEST(function_array_index_test, array_position) {
                             {{Null(), std::string("2022-01-04 00:00:00")}, Null()},
                             {{empty_arr, std::string("2022-01-02 00:00:00")}, Int64(0)}};
 
-        check_function<DataTypeInt64, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
     }
 
     // array_position(Array<Decimal128>, Decimal128)
@@ -253,7 +253,7 @@ TEST(function_array_index_test, array_position) {
                             {{Null(), ut_type::DECIMAL(0)}, Null()},
                             {{empty_arr, ut_type::DECIMAL(0)}, Int64(0)}};
 
-        check_function<DataTypeInt64, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
     }
 
     // array_position(Array<String>, String)
@@ -267,7 +267,7 @@ TEST(function_array_index_test, array_position) {
                             {{Null(), std::string("abc")}, Null()},
                             {{empty_arr, std::string("")}, Int64(0)}};
 
-        check_function<DataTypeInt64, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
     }
 }
 

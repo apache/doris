@@ -32,14 +32,14 @@ void Pipeline::_init_profile() {
     _pipeline_profile.reset(new RuntimeProfile(ss.str()));
 }
 
-Status Pipeline::build_operators(Operators& operators) {
+Status Pipeline::build_operators() {
     OperatorPtr pre;
     for (auto& operator_t : _operator_builders) {
         auto o = operator_t->build_operator();
         if (pre) {
-            o->set_child(pre);
+            static_cast<void>(o->set_child(pre));
         }
-        operators.emplace_back(o);
+        _operators.emplace_back(o);
         pre = std::move(o);
     }
     return Status::OK();
@@ -54,17 +54,17 @@ Status Pipeline::add_operator(OperatorBuilderPtr& op) {
 }
 
 Status Pipeline::add_operator(OperatorXPtr& op) {
-    if (_operators.empty() && !op->is_source()) {
-        return Status::InternalError("Should set source before other operator");
+    operatorXs.emplace_back(op);
+    if (op->is_source()) {
+        std::reverse(operatorXs.begin(), operatorXs.end());
     }
-    _operators.emplace_back(op);
     return Status::OK();
 }
 
 Status Pipeline::prepare(RuntimeState* state) {
     // TODO
-    RETURN_IF_ERROR(_operators.back()->prepare(state));
-    RETURN_IF_ERROR(_operators.back()->open(state));
+    RETURN_IF_ERROR(operatorXs.back()->prepare(state));
+    RETURN_IF_ERROR(operatorXs.back()->open(state));
     RETURN_IF_ERROR(_sink_x->prepare(state));
     RETURN_IF_ERROR(_sink_x->open(state));
     return Status::OK();

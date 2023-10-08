@@ -36,9 +36,6 @@
 #include "olap/utils.h"
 
 namespace doris {
-namespace {
-const std::string ROWSET_PREFIX = "rst_";
-} // namespace
 
 using namespace ErrorCode;
 
@@ -413,6 +410,7 @@ Status RowsetMetaManager::remove(OlapMeta* meta, TabletUid tablet_uid, const Row
 }
 
 Status RowsetMetaManager::remove_binlog(OlapMeta* meta, const std::string& suffix) {
+    // Please do not remove std::vector<std::string>, more info refer to pr#23190
     return meta->remove(META_COLUMN_FAMILY_INDEX,
                         std::vector<std::string> {kBinlogMetaPrefix.data() + suffix,
                                                   kBinlogDataPrefix.data() + suffix});
@@ -446,7 +444,7 @@ Status RowsetMetaManager::traverse_rowset_metas(
                                              const std::string& value) -> bool {
         std::vector<std::string> parts;
         // key format: rst_uuid_rowset_id
-        split_string<char>(key, '_', &parts);
+        static_cast<void>(split_string<char>(key, '_', &parts));
         if (parts.size() != 3) {
             LOG(WARNING) << "invalid rowset key:" << key << ", splitted size:" << parts.size();
             return true;
@@ -454,7 +452,7 @@ Status RowsetMetaManager::traverse_rowset_metas(
         RowsetId rowset_id;
         rowset_id.init(parts[2]);
         std::vector<std::string> uid_parts;
-        split_string<char>(parts[1], '-', &uid_parts);
+        static_cast<void>(split_string<char>(parts[1], '-', &uid_parts));
         TabletUid tablet_uid(uid_parts[0], uid_parts[1]);
         return func(tablet_uid, rowset_id, value);
     };

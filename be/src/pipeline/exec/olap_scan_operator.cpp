@@ -42,7 +42,7 @@
 namespace doris::pipeline {
 
 Status OlapScanLocalState::_init_profile() {
-    RETURN_IF_ERROR(ScanLocalState::_init_profile());
+    RETURN_IF_ERROR(ScanLocalState<OlapScanLocalState>::_init_profile());
     // 1. init segment profile
     _segment_profile.reset(new RuntimeProfile("SegmentIterator"));
     _scanner_profile->add_child(_segment_profile.get(), true, nullptr);
@@ -133,7 +133,7 @@ Status OlapScanLocalState::_init_profile() {
 Status OlapScanLocalState::_process_conjuncts() {
     SCOPED_TIMER(_process_conjunct_timer);
     RETURN_IF_ERROR(ScanLocalState::_process_conjuncts());
-    if (_eos) {
+    if (ScanLocalState::_eos_dependency->read_blocked_by() == nullptr) {
         return Status::OK();
     }
     RETURN_IF_ERROR(_build_key_ranges_and_filters());
@@ -213,7 +213,7 @@ bool OlapScanLocalState::_storage_no_merge() {
 
 Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* scanners) {
     if (_scan_ranges.empty()) {
-        _eos = true;
+        ScanLocalState::_eos_dependency->set_ready_for_read();
         return Status::OK();
     }
     SCOPED_TIMER(_scanner_init_timer);
@@ -359,7 +359,8 @@ inline std::string push_down_agg_to_string(const TPushAggOp::type& op) {
 
 Status OlapScanLocalState::_build_key_ranges_and_filters() {
     auto& p = _parent->cast<OlapScanOperatorX>();
-    if (p._push_down_agg_type == TPushAggOp::NONE) {
+    if (p._push_down_agg_type == TPushAggOp::NONE ||
+        p._push_down_agg_type == TPushAggOp::COUNT_ON_INDEX) {
         const std::vector<std::string>& column_names = p._olap_scan_node.key_column_name;
         const std::vector<TPrimitiveType::type>& column_types = p._olap_scan_node.key_column_type;
         DCHECK(column_types.size() == column_names.size());
@@ -402,7 +403,9 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
                     },
                     iter->second));
         }
-        _eos |= eos;
+        if (eos) {
+            ScanLocalState::_eos_dependency->set_ready_for_read();
+        }
 
         for (auto& iter : _colname_to_value_range) {
             std::vector<TCondition> filters;
@@ -471,19 +474,14 @@ void OlapScanLocalState::add_filter_info(int id, const PredicateFilterInfo& upda
 }
 
 OlapScanOperatorX::OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode,
-                                     const DescriptorTbl& descs, std::string op_name)
-        : ScanOperatorX(pool, tnode, descs, op_name), _olap_scan_node(tnode.olap_scan_node) {
+                                     const DescriptorTbl& descs)
+        : ScanOperatorX<OlapScanLocalState>(pool, tnode, descs),
+          _olap_scan_node(tnode.olap_scan_node) {
     _output_tuple_id = tnode.olap_scan_node.tuple_id;
     _col_distribute_ids = tnode.olap_scan_node.distribute_column_ids;
     if (_olap_scan_node.__isset.sort_info && _olap_scan_node.__isset.sort_limit) {
         _limit_per_scanner = _olap_scan_node.sort_limit;
     }
-}
-
-Status OlapScanOperatorX::setup_local_state(RuntimeState* state, LocalStateInfo& info) {
-    auto local_state = OlapScanLocalState::create_shared(state, this);
-    state->emplace_local_state(id(), local_state);
-    return local_state->init(state, info);
 }
 
 } // namespace doris::pipeline

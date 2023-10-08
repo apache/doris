@@ -45,7 +45,7 @@ class time_zone;
 } // namespace cctz
 namespace doris {
 namespace io {
-class IOContext;
+struct IOContext;
 } // namespace io
 namespace vectorized {
 class ColumnString;
@@ -414,7 +414,7 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
     }
     RETURN_IF_ERROR(_chunk_reader->decode_values(data_column, type, select_vector, is_dict_filter));
     if (ancestor_nulls != 0) {
-        _chunk_reader->skip_values(ancestor_nulls, false);
+        static_cast<void>(_chunk_reader->skip_values(ancestor_nulls, false));
     }
 
     if (!align_rows) {
@@ -705,17 +705,18 @@ Status StructColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
         size_t field_rows = 0;
         bool field_eof = false;
         if (i == 0) {
-            _child_readers[i]->read_column_data(doris_field, doris_type, select_vector, batch_size,
-                                                &field_rows, &field_eof, is_dict_filter);
+            static_cast<void>(_child_readers[i]->read_column_data(
+                    doris_field, doris_type, select_vector, batch_size, &field_rows, &field_eof,
+                    is_dict_filter));
             *read_rows = field_rows;
             *eof = field_eof;
         } else {
             while (field_rows < *read_rows && !field_eof) {
                 size_t loop_rows = 0;
                 select_vector.reset();
-                _child_readers[i]->read_column_data(doris_field, doris_type, select_vector,
-                                                    *read_rows - field_rows, &loop_rows, &field_eof,
-                                                    is_dict_filter);
+                static_cast<void>(_child_readers[i]->read_column_data(
+                        doris_field, doris_type, select_vector, *read_rows - field_rows, &loop_rows,
+                        &field_eof, is_dict_filter));
                 field_rows += loop_rows;
             }
             DCHECK_EQ(*read_rows, field_rows);

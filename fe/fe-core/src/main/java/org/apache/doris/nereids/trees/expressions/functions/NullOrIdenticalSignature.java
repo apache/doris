@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.NullType;
+import org.apache.doris.nereids.types.coercion.AnyDataType;
 
 import java.util.List;
 
@@ -34,8 +35,14 @@ public interface NullOrIdenticalSignature extends ComputeSignature {
     static boolean isNullOrIdentical(DataType signatureType, DataType realType) {
         try {
             // TODO: copy matchesType to DataType
-            return realType instanceof NullType
-                    || realType.toCatalogDataType().matchesType(signatureType.toCatalogDataType());
+            // TODO: resolve AnyDataType invoke toCatalogDataType
+            if (realType instanceof NullType) {
+                return true;
+            }
+            if (signatureType instanceof AnyDataType) {
+                return false;
+            }
+            return realType.toCatalogDataType().matchesType(signatureType.toCatalogDataType());
         } catch (Throwable t) {
             // the signatureType maybe DataType and can not cast to catalog data type.
             return false;

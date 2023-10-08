@@ -26,6 +26,7 @@
 #include "common/factory_creator.h"
 #include "common/global_types.h"
 #include "common/status.h"
+#include "pipeline/exec/jdbc_scan_operator.h"
 #include "util/runtime_profile.h"
 #include "vec/exec/scan/vscanner.h"
 #include "vec/exec/vjdbc_connector.h"
@@ -48,7 +49,9 @@ public:
     NewJdbcScanner(RuntimeState* state, NewJdbcScanNode* parent, int64_t limit,
                    const TupleId& tuple_id, const std::string& query_string,
                    TOdbcTableType::type table_type, RuntimeProfile* profile);
-
+    NewJdbcScanner(RuntimeState* state, doris::pipeline::JDBCScanLocalState* parent, int64_t limit,
+                   const TupleId& tuple_id, const std::string& query_string,
+                   TOdbcTableType::type table_type, RuntimeProfile* profile);
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
 
@@ -60,6 +63,8 @@ protected:
     RuntimeProfile::Counter* _load_jar_timer = nullptr;
     RuntimeProfile::Counter* _init_connector_timer = nullptr;
     RuntimeProfile::Counter* _get_data_timer = nullptr;
+    RuntimeProfile::Counter* _call_jni_next_timer = nullptr;
+    RuntimeProfile::Counter* _convert_batch_timer = nullptr;
     RuntimeProfile::Counter* _check_type_timer = nullptr;
     RuntimeProfile::Counter* _execte_read_timer = nullptr;
     RuntimeProfile::Counter* _connector_close_timer = nullptr;

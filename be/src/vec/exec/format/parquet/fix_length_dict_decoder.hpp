@@ -216,7 +216,7 @@ protected:
         size_t data_index = column_data.size();
         column_data.resize(data_index + select_vector.num_values() - select_vector.num_filtered());
         size_t dict_index = 0;
-        auto* __restrict date_day_offset_dict = get_date_day_offset_dict();
+        date_day_offset_dict& date_dict = date_day_offset_dict::get();
         ColumnSelectVector::DataReadType read_type;
         while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
             switch (read_type) {
@@ -224,15 +224,14 @@ protected:
                 for (size_t i = 0; i < run_length; ++i) {
                     int64_t date_value =
                             _dict_items[_indexes[dict_index++]] + _decode_params->offset_days;
-                    DCHECK_LT(date_value, 25500);
                     if constexpr (std::is_same_v<CppType, VecDateTimeValue>) {
                         auto& v = reinterpret_cast<CppType&>(column_data[data_index++]);
-                        v.create_from_date_v2(date_day_offset_dict[date_value], TIME_DATE);
+                        v.create_from_date_v2(date_dict[date_value], TIME_DATE);
                         // we should cast to date if using date v1.
                         v.cast_to_date();
                     } else {
                         reinterpret_cast<CppType&>(column_data[data_index++]) =
-                                date_day_offset_dict[date_value];
+                                date_dict[date_value];
                     }
                 }
                 break;

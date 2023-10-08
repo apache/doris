@@ -145,9 +145,9 @@ public class DorisStreamLoader {
             // build request and send to new be location
             beConn = getConnection(location, label);
             // send data to be
-            BufferedOutputStream bos = new BufferedOutputStream(beConn.getOutputStream());
-            bos.write(sb.toString().getBytes());
-            bos.close();
+            try (BufferedOutputStream bos = new BufferedOutputStream(beConn.getOutputStream())) {
+                bos.write(sb.toString().getBytes());
+            }
 
             // get respond
             status = beConn.getResponseCode();

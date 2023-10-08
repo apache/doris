@@ -24,10 +24,13 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
 import org.apache.doris.persist.BarrierLog;
+import org.apache.doris.persist.BatchModifyPartitionsInfo;
 import org.apache.doris.persist.BinlogGcInfo;
 import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
+import org.apache.doris.persist.ReplacePartitionOperationLog;
 import org.apache.doris.persist.TableAddOrDropColumnsInfo;
+import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.thrift.TBinlog;
 import org.apache.doris.thrift.TBinlogType;
 import org.apache.doris.thrift.TStatus;
@@ -265,6 +268,42 @@ public class BinlogManager {
         long timestamp = -1;
         TBinlogType type = TBinlogType.BARRIER;
         String data = barrierLog.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false);
+    }
+
+    // add Modify partitions
+    public void addModifyPartitions(BatchModifyPartitionsInfo info, long commitSeq) {
+        long dbId = info.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(info.getTableId());
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.MODIFY_PARTITIONS;
+        String data = info.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false);
+    }
+
+    // add Replace partition
+    public void addReplacePartitions(ReplacePartitionOperationLog info, long commitSeq) {
+        long dbId = info.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(info.getTblId());
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.REPLACE_PARTITIONS;
+        String data = info.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false);
+    }
+
+    // add Truncate Table
+    public void addTruncateTable(TruncateTableInfo info, long commitSeq) {
+        long dbId = info.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(info.getTblId());
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.TRUNCATE_TABLE;
+        String data = info.toJson();
 
         addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false);
     }

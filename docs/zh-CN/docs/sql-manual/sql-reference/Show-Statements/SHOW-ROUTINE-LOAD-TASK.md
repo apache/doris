@@ -55,11 +55,11 @@ DataSourceProperties: {"0":19}
 
 - `TaskId`：子任务的唯一 ID。
 - `TxnId`：子任务对应的导入事务 ID。
-- `TxnStatus`：子任务对应的导入事务状态。通常为 UNKNOWN。并无实际意思。
+- `TxnStatus`：子任务对应的导入事务状态。为 null 时表示子任务还未开始调度。
 - `JobId`：子任务对应的作业 ID。
 - `CreateTime`：子任务的创建时间。
 - `ExecuteStartTime`：子任务被调度执行的时间，通常晚于创建时间。
-- `Timeout`：子任务超时时间，通常是作业设置的 `MaxIntervalS` 的两倍。
+- `Timeout`：子任务超时时间，通常是作业设置的 `max_batch_interval` 的两倍。
 - `BeId`：执行这个子任务的 BE 节点 ID。
 - `DataSourceProperties`：子任务准备消费的 Kafka Partition 的起始 offset。是一个 Json 格式字符串。Key 为 Partition Id。Value 为消费的起始 offset。
 

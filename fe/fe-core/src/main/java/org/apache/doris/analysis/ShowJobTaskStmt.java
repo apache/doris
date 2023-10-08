@@ -25,9 +25,12 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ShowResultSetMetaData;
+import org.apache.doris.scheduler.constants.JobCategory;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
+import lombok.Getter;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 
@@ -40,26 +43,34 @@ public class ShowJobTaskStmt extends ShowStmt {
             new ImmutableList.Builder<String>()
                     .add("JobId")
                     .add("TaskId")
+                    .add("CreateTime")
                     .add("StartTime")
                     .add("EndTime")
                     .add("Status")
+                    .add("ExecuteSql")
+                    .add("Result")
                     .add("ErrorMsg")
                     .build();
 
+    @Getter
     private final LabelName labelName;
+
+    @Getter
+    private JobCategory jobCategory; // optional
+
+    @Getter
     private String dbFullName; // optional
+    @Getter
     private String name; // optional
 
-    public ShowJobTaskStmt(LabelName labelName) {
+    public ShowJobTaskStmt(String category, LabelName labelName) {
         this.labelName = labelName;
-    }
-
-    public String getDbFullName() {
-        return dbFullName;
-    }
-
-    public String getName() {
-        return name;
+        String jobCategoryName = category;
+        if (StringUtils.isBlank(jobCategoryName)) {
+            this.jobCategory = JobCategory.SQL;
+        } else {
+            this.jobCategory = JobCategory.valueOf(jobCategoryName.toUpperCase());
+        }
     }
 
     @Override
@@ -101,6 +112,9 @@ public class ShowJobTaskStmt extends ShowStmt {
 
     @Override
     public RedirectStatus getRedirectStatus() {
-        return RedirectStatus.FORWARD_NO_SYNC;
+        if (jobCategory.isPersistent()) {
+            return RedirectStatus.FORWARD_NO_SYNC;
+        }
+        return RedirectStatus.NO_FORWARD;
     }
 }

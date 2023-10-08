@@ -47,6 +47,7 @@ import org.apache.doris.common.io.DeepCopy;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.statistics.AnalysisInfo;
@@ -55,6 +56,8 @@ import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.HistogramTask;
 import org.apache.doris.statistics.MVAnalysisTask;
 import org.apache.doris.statistics.OlapAnalysisTask;
+import org.apache.doris.statistics.TableStatsMeta;
+import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TColumn;
@@ -134,7 +137,7 @@ public class OlapTable extends Table {
     private PartitionInfo partitionInfo;
     @SerializedName("idToPartition")
     private Map<Long, Partition> idToPartition = new HashMap<>();
-    private Map<String, Partition> nameToPartition = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+    private Map<String, Partition> nameToPartition = Maps.newTreeMap();
 
     @SerializedName(value = "distributionInfo")
     private DistributionInfo defaultDistributionInfo;
@@ -831,9 +834,6 @@ public class OlapTable extends Table {
             idToPartition.remove(partition.getId());
             nameToPartition.remove(partitionName);
 
-            Preconditions.checkState(partitionInfo.getType() == PartitionType.RANGE
-                    || partitionInfo.getType() == PartitionType.LIST);
-
             if (!isForceDrop) {
                 // recycle partition
                 if (partitionInfo.getType() == PartitionType.RANGE) {
@@ -933,10 +933,14 @@ public class OlapTable extends Table {
      *
      */
 
-    // get partition by name, not including temp partitions
+    // Priority is given to querying from the partition. If not found, query from the tempPartition
     @Override
     public Partition getPartition(String partitionName) {
-        return getPartition(partitionName, false);
+        Partition partition = getPartition(partitionName, false);
+        if (partition != null) {
+            return partition;
+        }
+        return getPartition(partitionName, true);
     }
 
     // get partition by name
@@ -948,7 +952,7 @@ public class OlapTable extends Table {
         }
     }
 
-    // get partition by id, including temp partitions
+    // Priority is given to querying from the partition. If not found, query from the tempPartition
     public Partition getPartition(long partitionId) {
         Partition partition = idToPartition.get(partitionId);
         if (partition == null) {
@@ -1121,6 +1125,49 @@ public class OlapTable extends Table {
         return new MVAnalysisTask(info);
     }
 
+    public boolean needReAnalyzeTable(TableStatsMeta tblStats) {
+        if (tblStats == null) {
+            return true;
+        }
+        long rowCount = getRowCount();
+        // TODO: Do we need to analyze an empty table?
+        if (rowCount == 0) {
+            return false;
+        }
+        if (!tblStats.analyzeColumns().containsAll(getBaseSchema()
+                .stream()
+                .map(Column::getName)
+                .collect(Collectors.toSet()))) {
+            return true;
+        }
+        long updateRows = tblStats.updatedRows.get();
+        int tblHealth = StatisticsUtil.getTableHealth(rowCount, updateRows);
+        return tblHealth < Config.table_stats_health_threshold;
+    }
+
+    @Override
+    public Map<String, Set<String>> findReAnalyzeNeededPartitions() {
+        TableIf table = this;
+        TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(table.getId());
+        Set<String> allPartitions = table.getPartitionNames().stream().map(table::getPartition)
+                .filter(Partition::hasData).map(Partition::getName).collect(Collectors.toSet());
+        if (tableStats == null) {
+            return table.getBaseSchema().stream().collect(Collectors.toMap(Column::getName, v -> allPartitions));
+        }
+        Map<String, Set<String>> colToPart = new HashMap<>();
+        for (Column col : table.getBaseSchema()) {
+            long lastUpdateTime = tableStats.findColumnLastUpdateTime(col.getName());
+            Set<String> partitions = table.getPartitionNames().stream()
+                    .map(table::getPartition)
+                    .filter(Partition::hasData)
+                    .filter(partition ->
+                            partition.getVisibleVersionTime() >= lastUpdateTime).map(Partition::getName)
+                    .collect(Collectors.toSet());
+            colToPart.put(col.getName(), partitions);
+        }
+        return colToPart;
+    }
+
     @Override
     public long getRowCount() {
         long rowCount = 0;
@@ -1136,7 +1183,7 @@ public class OlapTable extends Table {
         long dataSize = 0;
         for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
             rowCount += entry.getValue().getBaseIndex().getRowCount();
-            dataSize += entry.getValue().getBaseIndex().getDataSize();
+            dataSize += entry.getValue().getBaseIndex().getDataSize(false);
         }
         if (rowCount > 0) {
             return dataSize / rowCount;
@@ -1149,7 +1196,7 @@ public class OlapTable extends Table {
     public long getDataLength() {
         long dataSize = 0;
         for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
-            dataSize += entry.getValue().getBaseIndex().getDataSize();
+            dataSize += entry.getValue().getBaseIndex().getDataSize(false);
         }
         return dataSize;
     }
@@ -1522,12 +1569,16 @@ public class OlapTable extends Table {
         return oldPartition;
     }
 
-    public long getDataSize() {
+    public long getDataSize(boolean singleReplica) {
         long dataSize = 0;
         for (Partition partition : getAllPartitions()) {
-            dataSize += partition.getDataSize();
+            dataSize += partition.getDataSize(singleReplica);
         }
         return dataSize;
+    }
+
+    public long getDataSize() {
+        return getDataSize(false);
     }
 
     public long getRemoteDataSize() {
@@ -1733,6 +1784,12 @@ public class OlapTable extends Table {
         }
     }
 
+    public void checkChangeReplicaAllocation() throws DdlException {
+        if (isColocateTable()) {
+            throw new DdlException("Cannot change replication allocation of colocate table.");
+        }
+    }
+
     public void setReplicationAllocation(ReplicaAllocation replicaAlloc) {
         getOrCreatTableProperty().setReplicaAlloc(replicaAlloc);
     }
@@ -1805,6 +1862,7 @@ public class OlapTable extends Table {
         TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, storagePolicy);
         tableProperty.buildStoragePolicy();
+        partitionInfo.refreshTableStoragePolicy(storagePolicy);
     }
 
     public String getStoragePolicy() {
@@ -2265,12 +2323,16 @@ public class OlapTable extends Table {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) {
+    public void analyze(String dbName) {
         for (MaterializedIndexMeta meta : indexIdToMeta.values()) {
             try {
+                ConnectContext connectContext = new ConnectContext();
+                connectContext.setCluster(SystemInfoService.DEFAULT_CLUSTER);
+                connectContext.setDatabase(dbName);
+                Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), connectContext);
                 meta.parseStmt(analyzer);
             } catch (IOException e) {
-                e.printStackTrace();
+                LOG.info(e);
             }
         }
     }

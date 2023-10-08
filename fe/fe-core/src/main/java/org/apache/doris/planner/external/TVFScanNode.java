@@ -81,10 +81,6 @@ public class TVFScanNode extends FileQueryScanNode {
         numNodes = backendPolicy.numBackends();
     }
 
-    protected String getFsName(FileSplit split) {
-        return tableValuedFunction.getFsName();
-    }
-
     @Override
     public TFileAttributes getFileAttributes() throws UserException {
         return tableValuedFunction.getFileAttributes();
@@ -129,6 +125,9 @@ public class TVFScanNode extends FileQueryScanNode {
     @Override
     public List<Split> getSplits() throws UserException {
         List<Split> splits = Lists.newArrayList();
+        if (tableValuedFunction.getTFileType() == TFileType.FILE_STREAM) {
+            return splits;
+        }
         List<TBrokerFileStatus> fileStatuses = tableValuedFunction.getFileStatuses();
         for (TBrokerFileStatus fileStatus : fileStatuses) {
             Path path = new Path(fileStatus.getPath());

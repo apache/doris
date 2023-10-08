@@ -46,7 +46,6 @@
 #include "gen_cpp/Types_constants.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "gutil/ref_counted.h"
-#include "io/cache/file_cache_manager.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "io/fs/path.h"
 #include "olap/cold_data_compaction.h"
@@ -84,7 +83,6 @@ using std::string;
 
 namespace doris {
 
-using io::FileCacheManager;
 using io::Path;
 
 // number of running SCHEMA-CHANGE threads
@@ -118,29 +116,29 @@ Status StorageEngine::start_bg_threads() {
         data_dirs.push_back(tmp_store.second);
     }
 
-    ThreadPoolBuilder("BaseCompactionTaskThreadPool")
-            .set_min_threads(config::max_base_compaction_threads)
-            .set_max_threads(config::max_base_compaction_threads)
-            .build(&_base_compaction_thread_pool);
-    ThreadPoolBuilder("CumuCompactionTaskThreadPool")
-            .set_min_threads(config::max_cumu_compaction_threads)
-            .set_max_threads(config::max_cumu_compaction_threads)
-            .build(&_cumu_compaction_thread_pool);
-    ThreadPoolBuilder("SingleReplicaCompactionTaskThreadPool")
-            .set_min_threads(config::max_single_replica_compaction_threads)
-            .set_max_threads(config::max_single_replica_compaction_threads)
-            .build(&_single_replica_compaction_thread_pool);
+    static_cast<void>(ThreadPoolBuilder("BaseCompactionTaskThreadPool")
+                              .set_min_threads(config::max_base_compaction_threads)
+                              .set_max_threads(config::max_base_compaction_threads)
+                              .build(&_base_compaction_thread_pool));
+    static_cast<void>(ThreadPoolBuilder("CumuCompactionTaskThreadPool")
+                              .set_min_threads(config::max_cumu_compaction_threads)
+                              .set_max_threads(config::max_cumu_compaction_threads)
+                              .build(&_cumu_compaction_thread_pool));
+    static_cast<void>(ThreadPoolBuilder("SingleReplicaCompactionTaskThreadPool")
+                              .set_min_threads(config::max_single_replica_compaction_threads)
+                              .set_max_threads(config::max_single_replica_compaction_threads)
+                              .build(&_single_replica_compaction_thread_pool));
 
     if (config::enable_segcompaction) {
-        ThreadPoolBuilder("SegCompactionTaskThreadPool")
-                .set_min_threads(config::segcompaction_num_threads)
-                .set_max_threads(config::segcompaction_num_threads)
-                .build(&_seg_compaction_thread_pool);
+        static_cast<void>(ThreadPoolBuilder("SegCompactionTaskThreadPool")
+                                  .set_min_threads(config::segcompaction_num_threads)
+                                  .set_max_threads(config::segcompaction_num_threads)
+                                  .build(&_seg_compaction_thread_pool));
     }
-    ThreadPoolBuilder("ColdDataCompactionTaskThreadPool")
-            .set_min_threads(config::cold_data_compaction_thread_num)
-            .set_max_threads(config::cold_data_compaction_thread_num)
-            .build(&_cold_data_compaction_thread_pool);
+    static_cast<void>(ThreadPoolBuilder("ColdDataCompactionTaskThreadPool")
+                              .set_min_threads(config::cold_data_compaction_thread_num)
+                              .set_max_threads(config::cold_data_compaction_thread_num)
+                              .build(&_cold_data_compaction_thread_pool));
 
     // compaction tasks producer thread
     RETURN_IF_ERROR(Thread::create(
@@ -158,14 +156,14 @@ Status StorageEngine::start_bg_threads() {
     if (max_checkpoint_thread_num < 0) {
         max_checkpoint_thread_num = data_dirs.size();
     }
-    ThreadPoolBuilder("TabletMetaCheckpointTaskThreadPool")
-            .set_max_threads(max_checkpoint_thread_num)
-            .build(&_tablet_meta_checkpoint_thread_pool);
+    static_cast<void>(ThreadPoolBuilder("TabletMetaCheckpointTaskThreadPool")
+                              .set_max_threads(max_checkpoint_thread_num)
+                              .build(&_tablet_meta_checkpoint_thread_pool));
 
-    ThreadPoolBuilder("MultiGetTaskThreadPool")
-            .set_min_threads(config::multi_get_max_threads)
-            .set_max_threads(config::multi_get_max_threads)
-            .build(&_bg_multi_get_thread_pool);
+    static_cast<void>(ThreadPoolBuilder("MultiGetTaskThreadPool")
+                              .set_min_threads(config::multi_get_max_threads)
+                              .set_max_threads(config::multi_get_max_threads)
+                              .build(&_bg_multi_get_thread_pool));
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "tablet_checkpoint_tasks_producer_thread",
             [this, data_dirs]() { this->_tablet_checkpoint_callback(data_dirs); },
@@ -203,10 +201,10 @@ Status StorageEngine::start_bg_threads() {
         LOG(INFO) << "path scan/gc threads started. number:" << get_stores().size();
     }
 
-    ThreadPoolBuilder("CooldownTaskThreadPool")
-            .set_min_threads(config::cooldown_thread_num)
-            .set_max_threads(config::cooldown_thread_num)
-            .build(&_cooldown_thread_pool);
+    static_cast<void>(ThreadPoolBuilder("CooldownTaskThreadPool")
+                              .set_min_threads(config::cooldown_thread_num)
+                              .set_max_threads(config::cooldown_thread_num)
+                              .build(&_cooldown_thread_pool));
     LOG(INFO) << "cooldown thread pool started";
 
     RETURN_IF_ERROR(Thread::create(
@@ -227,17 +225,11 @@ Status StorageEngine::start_bg_threads() {
             &_cold_data_compaction_producer_thread));
     LOG(INFO) << "cold data compaction producer thread started";
 
-    RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "cache_file_cleaner_tasks_producer_thread",
-            [this]() { this->_cache_file_cleaner_tasks_producer_callback(); },
-            &_cache_file_cleaner_tasks_producer_thread));
-    LOG(INFO) << "cache file cleaner tasks producer thread started";
-
     // add tablet publish version thread pool
-    ThreadPoolBuilder("TabletPublishTxnThreadPool")
-            .set_min_threads(config::tablet_publish_txn_max_thread)
-            .set_max_threads(config::tablet_publish_txn_max_thread)
-            .build(&_tablet_publish_txn_thread_pool);
+    static_cast<void>(ThreadPoolBuilder("TabletPublishTxnThreadPool")
+                              .set_min_threads(config::tablet_publish_txn_max_thread)
+                              .set_max_threads(config::tablet_publish_txn_max_thread)
+                              .build(&_tablet_publish_txn_thread_pool));
 
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "aync_publish_version_thread",
@@ -250,8 +242,7 @@ Status StorageEngine::start_bg_threads() {
 
 void StorageEngine::_cache_clean_callback() {
     int32_t interval = config::cache_prune_stale_interval;
-    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)) &&
-           !k_doris_exit) {
+    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval))) {
         if (interval <= 0) {
             LOG(WARNING) << "config of cache clean interval is illegal: [" << interval
                          << "], force set to 3600 ";
@@ -259,6 +250,17 @@ void StorageEngine::_cache_clean_callback() {
         }
 
         CacheManager::instance()->for_each_cache_prune_stale();
+
+        // Dynamically modify the config to clear the cache, each time the disable cache will only be cleared once.
+        // TODO, Support page cache and other caches.
+        if (config::disable_segment_cache) {
+            if (!_clear_segment_cache) {
+                CacheManager::instance()->clear_once(CachePolicy::CacheType::SEGMENT_CACHE);
+                _clear_segment_cache = true;
+            }
+        } else {
+            _clear_segment_cache = false;
+        }
     }
 }
 
@@ -279,8 +281,7 @@ void StorageEngine::_garbage_sweeper_thread_callback() {
     double usage = 1.0;
     // After the program starts, the first round of cleaning starts after min_interval.
     uint32_t curr_interval = min_interval;
-    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(curr_interval)) &&
-           !k_doris_exit) {
+    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(curr_interval))) {
         // Function properties:
         // when usage < 0.6,          ratio close to 1.(interval close to max_interval)
         // when usage at [0.6, 0.75], ratio is rapidly decreasing from 0.87 to 0.27.
@@ -295,6 +296,10 @@ void StorageEngine::_garbage_sweeper_thread_callback() {
 
         // start clean trash and update usage.
         Status res = start_trash_sweep(&usage);
+        if (res.ok() && _need_clean_trash.exchange(false, std::memory_order_relaxed)) {
+            res = start_trash_sweep(&usage, true);
+        }
+
         if (!res.ok()) {
             LOG(WARNING) << "one or more errors occur when sweep trash."
                          << "see previous message for detail. err code=" << res;
@@ -314,8 +319,7 @@ void StorageEngine::_disk_stat_monitor_thread_callback() {
                          << ", force set to 1";
             interval = 1;
         }
-    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)) &&
-             !k_doris_exit);
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
 }
 
 void StorageEngine::check_cumulative_compaction_config() {
@@ -346,8 +350,7 @@ void StorageEngine::_unused_rowset_monitor_thread_callback() {
                          << ", force set to 1";
             interval = 1;
         }
-    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)) &&
-             !k_doris_exit);
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
 }
 
 void StorageEngine::_path_gc_thread_callback(DataDir* data_dir) {
@@ -366,8 +369,7 @@ void StorageEngine::_path_gc_thread_callback(DataDir* data_dir) {
                          << "will be forced set to half hour";
             interval = 1800; // 0.5 hour
         }
-    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)) &&
-             !k_doris_exit);
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
 }
 
 void StorageEngine::_path_scan_thread_callback(DataDir* data_dir) {
@@ -385,8 +387,7 @@ void StorageEngine::_path_scan_thread_callback(DataDir* data_dir) {
                          << "will be forced set to one day";
             interval = 24 * 3600; // one day
         }
-    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)) &&
-             !k_doris_exit);
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
 }
 
 void StorageEngine::_tablet_checkpoint_callback(const std::vector<DataDir*>& data_dirs) {
@@ -401,8 +402,7 @@ void StorageEngine::_tablet_checkpoint_callback(const std::vector<DataDir*>& dat
             }
         }
         interval = config::generate_tablet_meta_checkpoint_tasks_interval_secs;
-    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)) &&
-             !k_doris_exit);
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
 }
 
 void StorageEngine::_tablet_path_check_callback() {
@@ -421,8 +421,7 @@ void StorageEngine::_tablet_path_check_callback() {
     do {
         int32_t batch_size = config::tablet_path_check_batch_size;
         if (batch_size <= 0) {
-            if (_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)) &&
-                !k_doris_exit) {
+            if (_stop_background_threads_latch.wait_for(std::chrono::seconds(interval))) {
                 break;
             }
             continue;
@@ -480,8 +479,7 @@ void StorageEngine::_tablet_path_check_callback() {
             }
         }
 
-    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)) &&
-             !k_doris_exit);
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
 }
 
 void StorageEngine::_adjust_compaction_thread_num() {
@@ -637,8 +635,7 @@ void StorageEngine::_compaction_tasks_producer_callback() {
         } else {
             interval = 5000; // 5s to check disable_auto_compaction
         }
-    } while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(interval)) &&
-             !k_doris_exit);
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(interval)));
 }
 
 void StorageEngine::_update_replica_infos_callback() {
@@ -722,8 +719,7 @@ void StorageEngine::_update_replica_infos_callback() {
             start = end;
         }
         interval = config::update_replica_infos_interval_seconds;
-    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)) &&
-             !k_doris_exit);
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
 }
 
 Status StorageEngine::_submit_single_replica_compaction_task(TabletSharedPtr tablet,
@@ -1088,14 +1084,12 @@ void StorageEngine::_cooldown_tasks_producer_callback() {
                 LOG(INFO) << "failed to submit cooldown task";
             }
         }
-    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)) &&
-             !k_doris_exit);
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
 }
 
 void StorageEngine::_remove_unused_remote_files_callback() {
     while (!_stop_background_threads_latch.wait_for(
-                   std::chrono::seconds(config::remove_unused_remote_files_interval_sec)) &&
-           !k_doris_exit) {
+            std::chrono::seconds(config::remove_unused_remote_files_interval_sec))) {
         LOG(INFO) << "begin to remove unused remote files";
         Tablet::remove_unused_remote_files();
     }
@@ -1106,8 +1100,7 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
     std::mutex tablet_submitted_mtx;
 
     while (!_stop_background_threads_latch.wait_for(
-                   std::chrono::seconds(config::cold_data_compaction_interval_sec)) &&
-           !k_doris_exit) {
+            std::chrono::seconds(config::cold_data_compaction_interval_sec))) {
         if (config::disable_auto_compaction ||
             MemInfo::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
             continue;
@@ -1164,66 +1157,51 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
         for (auto& [tablet, score] : tablet_to_compact) {
             LOG(INFO) << "submit cold data compaction. tablet_id=" << tablet->tablet_id()
                       << " score=" << score;
-            _cold_data_compaction_thread_pool->submit_func([&, t = std::move(tablet)]() {
-                auto compaction = std::make_shared<ColdDataCompaction>(t);
-                {
-                    std::lock_guard lock(tablet_submitted_mtx);
-                    tablet_submitted.insert(t->tablet_id());
-                }
-                std::unique_lock cold_compaction_lock(t->get_cold_compaction_lock(),
-                                                      std::try_to_lock);
-                if (!cold_compaction_lock.owns_lock()) {
-                    LOG(WARNING) << "try cold_compaction_lock failed, tablet_id=" << t->tablet_id();
-                }
-                auto st = compaction->compact();
-                {
-                    std::lock_guard lock(tablet_submitted_mtx);
-                    tablet_submitted.erase(t->tablet_id());
-                }
-                if (!st.ok()) {
-                    LOG(WARNING) << "failed to do cold data compaction. tablet_id="
-                                 << t->tablet_id() << " err=" << st;
-                }
-            });
+            static_cast<void>(
+                    _cold_data_compaction_thread_pool->submit_func([&, t = std::move(tablet)]() {
+                        auto compaction = std::make_shared<ColdDataCompaction>(t);
+                        {
+                            std::lock_guard lock(tablet_submitted_mtx);
+                            tablet_submitted.insert(t->tablet_id());
+                        }
+                        std::unique_lock cold_compaction_lock(t->get_cold_compaction_lock(),
+                                                              std::try_to_lock);
+                        if (!cold_compaction_lock.owns_lock()) {
+                            LOG(WARNING) << "try cold_compaction_lock failed, tablet_id="
+                                         << t->tablet_id();
+                        }
+                        auto st = compaction->compact();
+                        {
+                            std::lock_guard lock(tablet_submitted_mtx);
+                            tablet_submitted.erase(t->tablet_id());
+                        }
+                        if (!st.ok()) {
+                            LOG(WARNING) << "failed to do cold data compaction. tablet_id="
+                                         << t->tablet_id() << " err=" << st;
+                        }
+                    }));
         }
 
         for (auto& [tablet, score] : tablet_to_follow) {
             LOG(INFO) << "submit to follow cooldown meta. tablet_id=" << tablet->tablet_id()
                       << " score=" << score;
-            _cold_data_compaction_thread_pool->submit_func([&, t = std::move(tablet)]() {
-                {
-                    std::lock_guard lock(tablet_submitted_mtx);
-                    tablet_submitted.insert(t->tablet_id());
-                }
-                auto st = t->cooldown();
-                {
-                    std::lock_guard lock(tablet_submitted_mtx);
-                    tablet_submitted.erase(t->tablet_id());
-                }
-                if (!st.ok()) {
-                    LOG(WARNING) << "failed to cooldown. tablet_id=" << t->tablet_id()
-                                 << " err=" << st;
-                }
-            });
+            static_cast<void>(
+                    _cold_data_compaction_thread_pool->submit_func([&, t = std::move(tablet)]() {
+                        {
+                            std::lock_guard lock(tablet_submitted_mtx);
+                            tablet_submitted.insert(t->tablet_id());
+                        }
+                        auto st = t->cooldown();
+                        {
+                            std::lock_guard lock(tablet_submitted_mtx);
+                            tablet_submitted.erase(t->tablet_id());
+                        }
+                        if (!st.ok()) {
+                            LOG(WARNING) << "failed to cooldown. tablet_id=" << t->tablet_id()
+                                         << " err=" << st;
+                        }
+                    }));
         }
-    }
-}
-
-void StorageEngine::_cache_file_cleaner_tasks_producer_callback() {
-    while (true) {
-        int64_t interval = config::generate_cache_cleaner_task_interval_sec;
-        if (interval <= 0) {
-            interval = 10;
-        }
-        bool stop = _stop_background_threads_latch.wait_for(std::chrono::seconds(interval));
-        if (stop || k_doris_exit) {
-            break;
-        }
-        if (config::generate_cache_cleaner_task_interval_sec <= 0) {
-            continue;
-        }
-        LOG(INFO) << "Begin to Clean cache files";
-        FileCacheManager::instance()->gc_file_caches();
     }
 }
 
@@ -1240,9 +1218,9 @@ void StorageEngine::add_async_publish_task(int64_t partition_id, int64_t tablet_
         PendingPublishInfoPB pending_publish_info_pb;
         pending_publish_info_pb.set_partition_id(partition_id);
         pending_publish_info_pb.set_transaction_id(transaction_id);
-        TabletMetaManager::save_pending_publish_info(tablet->data_dir(), tablet->tablet_id(),
-                                                     publish_version,
-                                                     pending_publish_info_pb.SerializeAsString());
+        static_cast<void>(TabletMetaManager::save_pending_publish_info(
+                tablet->data_dir(), tablet->tablet_id(), publish_version,
+                pending_publish_info_pb.SerializeAsString()));
     }
     LOG(INFO) << "add pending publish task, tablet_id: " << tablet_id
               << " version: " << publish_version << " txn_id:" << transaction_id
@@ -1264,8 +1242,7 @@ int64_t StorageEngine::get_pending_publish_min_version(int64_t tablet_id) {
 }
 
 void StorageEngine::_async_publish_callback() {
-    while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(30)) &&
-           !k_doris_exit) {
+    while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(30))) {
         // tablet, publish_version
         std::vector<std::pair<TabletSharedPtr, int64_t>> need_removed_tasks;
         {
@@ -1304,16 +1281,17 @@ void StorageEngine::_async_publish_callback() {
 
                 auto async_publish_task = std::make_shared<AsyncTabletPublishTask>(
                         tablet, partition_id, transaction_id, version);
-                StorageEngine::instance()->tablet_publish_txn_thread_pool()->submit_func(
-                        [=]() { async_publish_task->handle(); });
+                static_cast<void>(
+                        StorageEngine::instance()->tablet_publish_txn_thread_pool()->submit_func(
+                                [=]() { async_publish_task->handle(); }));
                 tablet_iter->second.erase(task_iter);
                 need_removed_tasks.emplace_back(tablet, version);
                 tablet_iter++;
             }
         }
         for (auto& [tablet, publish_version] : need_removed_tasks) {
-            TabletMetaManager::remove_pending_publish_info(tablet->data_dir(), tablet->tablet_id(),
-                                                           publish_version);
+            static_cast<void>(TabletMetaManager::remove_pending_publish_info(
+                    tablet->data_dir(), tablet->tablet_id(), publish_version));
         }
     }
 }

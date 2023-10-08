@@ -24,10 +24,13 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 
-import java.util.Map;
+import java.util.List;
 
 /**
  * check cast valid
@@ -42,28 +45,41 @@ public class CheckCast extends AbstractExpressionRewriteRule {
         DataType originalType = cast.child().getDataType();
         DataType targetType = cast.getDataType();
         if (!check(originalType, targetType)) {
-            throw new AnalysisException("cannot cast " + originalType + " to " + targetType);
+            throw new AnalysisException("cannot cast " + originalType.toSql() + " to " + targetType.toSql());
         }
         return cast;
     }
 
     private boolean check(DataType originalType, DataType targetType) {
+        if (originalType.isNullType()) {
+            return true;
+        }
+        if (originalType.equals(targetType)) {
+            return true;
+        }
         if (originalType instanceof ArrayType && targetType instanceof ArrayType) {
             return check(((ArrayType) originalType).getItemType(), ((ArrayType) targetType).getItemType());
         } else if (originalType instanceof MapType && targetType instanceof MapType) {
             return check(((MapType) originalType).getKeyType(), ((MapType) targetType).getKeyType())
                     && check(((MapType) originalType).getValueType(), ((MapType) targetType).getValueType());
         } else if (originalType instanceof StructType && targetType instanceof StructType) {
-            Map<String, DataType> targetItems = ((StructType) targetType).getItems();
-            for (Map.Entry<String, DataType> entry : ((StructType) originalType).getItems().entrySet()) {
-                if (targetItems.containsKey(entry.getKey())) {
-                    if (!check(entry.getValue(), targetItems.get(entry.getKey()))) {
-                        return false;
-                    }
-                } else {
+            List<StructField> targetFields = ((StructType) targetType).getFields();
+            List<StructField> originalFields = ((StructType) originalType).getFields();
+            if (targetFields.size() != originalFields.size()) {
+                return false;
+            }
+            for (int i = 0; i < targetFields.size(); i++) {
+                if (originalFields.get(i).isNullable() != targetFields.get(i).isNullable()) {
+                    return false;
+                }
+                if (!check(originalFields.get(i).getDataType(), targetFields.get(i).getDataType())) {
                     return false;
                 }
             }
+            return true;
+        } else if (originalType instanceof CharacterType && targetType instanceof StructType) {
+            return true;
+        } else if (originalType instanceof JsonType || targetType instanceof JsonType) {
             return true;
         } else {
             return checkPrimitiveType(originalType, targetType);

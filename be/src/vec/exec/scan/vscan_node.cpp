@@ -226,11 +226,6 @@ Status VScanNode::alloc_resource(RuntimeState* state) {
 }
 
 Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
-    // debug case failure, to be removed
-    if (state->enable_profile()) {
-        LOG(WARNING) << "debug case failure " << print_id(state->query_id()) << " " << get_name()
-                     << ": VScanNode::get_next";
-    }
     SCOPED_TIMER(_get_next_timer);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     // in inverted index apply logic, in order to optimize query performance,
@@ -247,11 +242,6 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
     }};
 
     if (state->is_cancelled()) {
-        // debug case failure, to be removed
-        if (state->enable_profile()) {
-            LOG(WARNING) << "debug case failure " << print_id(state->query_id()) << " "
-                         << get_name() << ": VScanNode::get_next canceled";
-        }
         // ISSUE: https://github.com/apache/doris/issues/16360
         // _scanner_ctx may be null here, see: `VScanNode::alloc_resource` (_eos == null)
         if (_scanner_ctx) {
@@ -264,11 +254,6 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
 
     if (_eos) {
         *eos = true;
-        // debug case failure, to be removed
-        if (state->enable_profile()) {
-            LOG(WARNING) << "debug case failure " << print_id(state->query_id()) << " "
-                         << get_name() << ": VScanNode::get_next eos";
-        }
         return Status::OK();
     }
 
@@ -279,6 +264,9 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
         return Status::OK();
     }
 
+    if (scan_block == nullptr) {
+        return Status::Error<777>("not pointer in scan pipline");
+    }
     // get scanner's block memory
     block->swap(*scan_block);
     _scanner_ctx->return_free_block(std::move(scan_block));
@@ -550,8 +538,9 @@ Status VScanNode::_normalize_predicate(const VExprSPtr& conjunct_expr_root, VExp
 
             if (pdt == PushDownType::UNACCEPTABLE &&
                 TExprNodeType::COMPOUND_PRED == cur_expr->node_type()) {
-                _normalize_compound_predicate(cur_expr, context, &pdt, _is_runtime_filter_predicate,
-                                              in_predicate_checker, eq_predicate_checker);
+                static_cast<void>(_normalize_compound_predicate(
+                        cur_expr, context, &pdt, _is_runtime_filter_predicate, in_predicate_checker,
+                        eq_predicate_checker));
                 output_expr = conjunct_expr_root; // remaining in conjunct tree
                 return Status::OK();
             }
@@ -821,8 +810,9 @@ Status VScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* expr
             } else {
                 if (sizeof(typename PrimitiveTypeTraits<T>::CppType) != value.size) {
                     return Status::InternalError(
-                            "PrimitiveType {} meet invalid input value size {}, expect size {}", T,
-                            value.size, sizeof(typename PrimitiveTypeTraits<T>::CppType));
+                            "PrimitiveType {} meet invalid input value_size={}, expect_size={}, "
+                            "node_id={}",
+                            T, value.size, sizeof(typename PrimitiveTypeTraits<T>::CppType), _id);
                 }
                 RETURN_IF_ERROR(_change_value_range<true>(
                         temp_range, reinterpret_cast<void*>(const_cast<char*>(value.data)),
@@ -1034,8 +1024,8 @@ Status VScanNode::_normalize_compound_predicate(
                                     value_range.mark_runtime_filter_predicate(
                                             _is_runtime_filter_predicate);
                                 }};
-                                _normalize_binary_in_compound_predicate(child_expr, expr_ctx, slot,
-                                                                        value_range, pdt);
+                                static_cast<void>(_normalize_binary_in_compound_predicate(
+                                        child_expr, expr_ctx, slot, value_range, pdt));
                             },
                             active_range);
 
@@ -1056,17 +1046,17 @@ Status VScanNode::_normalize_compound_predicate(
                                     value_range.mark_runtime_filter_predicate(
                                             _is_runtime_filter_predicate);
                                 }};
-                                _normalize_match_in_compound_predicate(child_expr, expr_ctx, slot,
-                                                                       value_range, pdt);
+                                static_cast<void>(_normalize_match_in_compound_predicate(
+                                        child_expr, expr_ctx, slot, value_range, pdt));
                             },
                             active_range);
 
                     _compound_value_ranges.emplace_back(active_range);
                 }
             } else if (TExprNodeType::COMPOUND_PRED == child_expr->node_type()) {
-                _normalize_compound_predicate(child_expr, expr_ctx, pdt,
-                                              _is_runtime_filter_predicate, in_predicate_checker,
-                                              eq_predicate_checker);
+                static_cast<void>(_normalize_compound_predicate(
+                        child_expr, expr_ctx, pdt, _is_runtime_filter_predicate,
+                        in_predicate_checker, eq_predicate_checker));
             }
         }
     }

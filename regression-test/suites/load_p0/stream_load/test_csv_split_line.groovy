@@ -83,7 +83,6 @@ suite("test_csv_split_line", "p0") {
                         process_pparent_path,process_parent_path,process_parent_command_line,
                         process_path,process_command_line,file_dna,icon_dna,client_ip,assetid,
                         product_ver,clientid,process_file_size,client_id,rule_hit_all """ 
-                
         file 'test_csv_split_line1.csv'
     }
 
@@ -109,11 +108,13 @@ suite("test_csv_split_line", "p0") {
     streamLoad {
         table "${tableName}2"
         set 'column_separator', 'hello'
+        set 'trim_double_quotes', 'true'
         file 'test_csv_split_line2.csv'
     }
     streamLoad {
         table "${tableName}2"
         set 'column_separator', '114455'
+        set 'trim_double_quotes', 'true'
         file 'test_csv_split_line3.csv'
     }
     
@@ -122,9 +123,46 @@ suite("test_csv_split_line", "p0") {
     
     
     
-    
-    
-
     sql """ drop table ${tableName}2; """ 
+
+    sql """ DROP TABLE IF EXISTS ${tableName}3 """
+    sql """ create table ${tableName}3 (
+        `user_id` bigint(20) NULL, 
+        `tag_type` varchar(20) NULL , 
+        `tag_owner_id` bigint(20) NULL, 
+        `tag_value` text NULL ,
+        `deleted` tinyint(4) NULL ,
+        `create_time` datetime NULL DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=OLAP
+        UNIQUE KEY(`user_id`, `tag_type`, `tag_owner_id`)
+        DISTRIBUTED BY HASH(`user_id`) BUCKETS 20
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "is_being_synced" = "false",
+        "colocate_with" = "__global__crm_user_group",
+        "storage_format" = "V2",
+        "enable_unique_key_merge_on_write" = "true",
+        "disable_auto_compaction" = "false",
+        "enable_single_replica_compaction" = "false"
+    ); 
+    """        
+        
+    streamLoad {
+        table "${tableName}3"
+        set 'column_separator', '||'
+        file 'test_csv_split_line4.csv'
+    }
+    order_qt_sql """
+        select * from ${tableName}3 order by user_id;
+    """  
+
+    order_qt_sql """
+        select * from ${tableName}3 where tag_value="" order by user_id;
+    """      
+    order_qt_sql """
+        select * from ${tableName}3 where tag_value="" order by user_id;
+    """
+    
+    sql """ drop table ${tableName}3; """ 
 
 }

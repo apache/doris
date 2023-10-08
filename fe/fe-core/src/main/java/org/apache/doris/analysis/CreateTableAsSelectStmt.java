@@ -17,6 +17,10 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -79,13 +83,37 @@ public class CreateTableAsSelectStmt extends DdlStmt {
         Preconditions.checkArgument(outputs.size() == queryStmt.getResultExprs().size());
         for (int i = 0; i < outputs.size(); ++i) {
             if (queryStmt.getResultExprs().get(i).getSrcSlotRef() != null) {
-                queryStmt.getResultExprs().get(i).getSrcSlotRef().getColumn()
-                        .setIsAllowNull(outputs.get(i).isNullable());
+                Column columnCopy =  new Column(queryStmt.getResultExprs().get(i).getSrcSlotRef().getColumn());
+                columnCopy.setIsAllowNull(outputs.get(i).isNullable());
+                queryStmt.getResultExprs().get(i).getSrcSlotRef().getDesc().setColumn(columnCopy);
+            }
+            if (Config.enable_date_conversion) {
+                if (queryStmt.getResultExprs().get(i).getType() == Type.DATE) {
+                    Expr castExpr = queryStmt.getResultExprs().get(i).castTo(Type.DATEV2);
+                    queryStmt.getResultExprs().set(i, castExpr);
+                }
+                if (queryStmt.getResultExprs().get(i).getType() == Type.DATETIME) {
+                    Expr castExpr = queryStmt.getResultExprs().get(i).castTo(Type.DATETIMEV2);
+                    queryStmt.getResultExprs().set(i, castExpr);
+                }
+            }
+            if (Config.enable_decimal_conversion && queryStmt.getResultExprs().get(i).getType().isDecimalV2()) {
+                int precision = queryStmt.getResultExprs().get(i).getType().getPrecision();
+                int scalar = queryStmt.getResultExprs().get(i).getType().getDecimalDigits();
+                Expr castExpr = queryStmt.getResultExprs().get(i)
+                        .castTo(ScalarType.createDecimalV3Type(precision, scalar));
+                queryStmt.getResultExprs().set(i, castExpr);
             }
         }
         ArrayList<Expr> resultExprs = getQueryStmt().getResultExprs();
         if (columnNames != null && columnNames.size() != resultExprs.size()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_COL_NUMBER_NOT_MATCH);
         }
+    }
+
+    @Override
+    public void reset() {
+        super.reset();
+        queryStmt.reset();
     }
 }

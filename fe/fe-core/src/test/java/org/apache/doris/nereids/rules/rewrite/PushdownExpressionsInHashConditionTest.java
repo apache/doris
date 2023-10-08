@@ -135,20 +135,22 @@ public class PushdownExpressionsInHashConditionTest extends TestWithFeService im
                 .applyTopDown(new FindHashConditionForJoin())
                 .applyTopDown(new PushdownExpressionsInHashCondition())
                 .matches(
-                    logicalProject(
-                        logicalJoin(
-                            logicalProject(
-                                logicalOlapScan()
-                            ),
-                            logicalProject(
-                                logicalSubQueryAlias(
-                                    logicalAggregate(
-                                        logicalOlapScan()
-                                    )
+                        logicalProject(
+                                logicalJoin(
+                                        logicalProject(
+                                                logicalOlapScan()
+                                        ),
+                                        logicalProject(
+                                                logicalSubQueryAlias(
+                                                        logicalProject(
+                                                                logicalAggregate(
+                                                                        logicalProject(
+                                                                                logicalOlapScan()
+                                                                        )))
+                                                )
+                                        )
                                 )
-                            )
                         )
-                    )
                 );
     }
 
@@ -168,8 +170,12 @@ public class PushdownExpressionsInHashConditionTest extends TestWithFeService im
                             logicalProject(
                                 logicalSubQueryAlias(
                                     logicalSort(
-                                        logicalAggregate(
-                                                logicalOlapScan()
+                                        logicalProject(
+                                            logicalAggregate(
+                                                logicalProject(
+                                                    logicalOlapScan()
+                                                )
+                                            )
                                         )
                                     )
                                 )

@@ -163,7 +163,7 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
             _next_row.block->create_same_struct_block(_reader_context.batch_size)->mutate_columns();
 
     _stored_has_null_tag.resize(_stored_data_columns.size());
-    _stored_has_string_tag.resize(_stored_data_columns.size());
+    _stored_has_variable_length_tag.resize(_stored_data_columns.size());
 
     auto& tablet_schema = *_tablet_schema;
     for (auto idx : _agg_columns_idx) {
@@ -182,13 +182,23 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
         });
         _agg_places.push_back(place);
 
-        // calculate `has_string` tag.
-        _stored_has_string_tag[idx] =
+        // calculate `_has_variable_length_tag` tag. like string, array, map
+        _stored_has_variable_length_tag[idx] =
                 _stored_data_columns[idx]->is_column_string() ||
                 (_stored_data_columns[idx]->is_nullable() &&
                  reinterpret_cast<ColumnNullable*>(_stored_data_columns[idx].get())
                          ->get_nested_column_ptr()
-                         ->is_column_string());
+                         ->is_column_string()) ||
+                _stored_data_columns[idx]->is_column_array() ||
+                (_stored_data_columns[idx]->is_nullable() &&
+                 reinterpret_cast<ColumnNullable*>(_stored_data_columns[idx].get())
+                         ->get_nested_column_ptr()
+                         ->is_column_array()) ||
+                _stored_data_columns[idx]->is_column_map() ||
+                (_stored_data_columns[idx]->is_nullable() &&
+                 reinterpret_cast<ColumnNullable*>(_stored_data_columns[idx].get())
+                         ->get_nested_column_ptr()
+                         ->is_column_map());
     }
 }
 
@@ -214,6 +224,10 @@ Status BlockReader::init(const ReaderParams& read_params) {
 
     auto status = _init_collect_iter(read_params);
     if (!status.ok()) {
+        if (UNLIKELY(!status.ok() && !status.is<ErrorCode::END_OF_FILE>())) {
+            _tablet->report_error(status);
+        }
+
         return status;
     }
 
@@ -377,8 +391,16 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
                 reinterpret_cast<ColumnInt8*>(target_columns[delete_sign_idx].get())
                         ->get_data()
                         .data();
+        int delete_count = 0;
         for (int i = 0; i < target_block_row; ++i) {
-            filter_data[i] = delete_data[i] == 0;
+            bool sign = (delete_data[i] == 0);
+            filter_data[i] = sign;
+            if (UNLIKELY(!sign)) {
+                if (UNLIKELY(_reader_context.record_rowids)) {
+                    _block_row_locations[i].row_id = -1;
+                    delete_count++;
+                }
+            }
         }
 
         ColumnWithTypeAndName column_with_type_and_name {_delete_filter_column,
@@ -388,6 +410,9 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
         RETURN_IF_ERROR(Block::filter_block(block, target_columns.size(), target_columns.size()));
         _stats.rows_del_filtered += target_block_row - block->rows();
         DCHECK(block->try_get_by_name("__DORIS_COMPACTION_FILTER__") == nullptr);
+        if (UNLIKELY(_reader_context.record_rowids)) {
+            DCHECK_EQ(_block_row_locations.size(), block->rows() + delete_count);
+        }
     }
     return Status::OK();
 }
@@ -446,8 +471,8 @@ size_t BlockReader::_copy_agg_data() {
 
     for (auto idx : _agg_columns_idx) {
         auto& dst_column = _stored_data_columns[idx];
-        if (_stored_has_string_tag[idx]) {
-            //string type should replace ordered
+        if (_stored_has_variable_length_tag[idx]) {
+            //variable length type should replace ordered
             for (size_t i = 0; i < copy_size; i++) {
                 auto& ref = _stored_row_ref[i];
                 dst_column->replace_column_data(*ref.block->get_by_position(idx).column,
@@ -501,17 +526,6 @@ bool BlockReader::_get_next_row_same() {
         auto block = _next_row.block.get();
         return block->get_same_bit(_next_row.row_pos);
     }
-}
-
-ColumnPredicate* BlockReader::_parse_to_predicate(const FunctionFilter& function_filter) {
-    int32_t index = _tablet_schema->field_index(function_filter._col_name);
-    if (index < 0) {
-        return nullptr;
-    }
-
-    // currently only support like predicate
-    return new LikeColumnPredicate(function_filter._opposite, index, function_filter._fn_ctx,
-                                   function_filter._string_param);
 }
 
 } // namespace doris::vectorized

@@ -151,7 +151,7 @@ Status EngineCloneTask::_do_clone() {
         if (missed_versions.empty()) {
             LOG(INFO) << "missed version size = 0, skip clone and return success. tablet_id="
                       << _clone_req.tablet_id << " replica_id=" << _clone_req.replica_id;
-            _set_tablet_info(is_new_tablet);
+            static_cast<void>(_set_tablet_info(is_new_tablet));
             return Status::OK();
         }
 
@@ -179,7 +179,8 @@ Status EngineCloneTask::_do_clone() {
         string local_shard_root_path;
         DataDir* store = nullptr;
         RETURN_IF_ERROR(StorageEngine::instance()->obtain_shard_path(
-                _clone_req.storage_medium, &local_shard_root_path, &store));
+                _clone_req.storage_medium, _clone_req.dest_path_hash, &local_shard_root_path,
+                &store));
         auto tablet_dir = fmt::format("{}/{}/{}", local_shard_root_path, _clone_req.tablet_id,
                                       _clone_req.schema_hash);
 
@@ -214,7 +215,7 @@ Status EngineCloneTask::_do_clone() {
         // clone success, delete .hdr file because tablet meta is stored in rocksdb
         string header_path =
                 TabletMeta::construct_header_file_path(tablet_dir, _clone_req.tablet_id);
-        io::global_local_filesystem()->delete_file(header_path);
+        static_cast<void>(io::global_local_filesystem()->delete_file(header_path));
     }
     return _set_tablet_info(is_new_tablet);
 }
@@ -322,7 +323,7 @@ Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
             // change all rowset ids because they maybe its id same with local rowset
             status = SnapshotManager::instance()->convert_rowset_ids(
                     local_data_path, _clone_req.tablet_id, _clone_req.replica_id,
-                    _clone_req.schema_hash);
+                    _clone_req.partition_id, _clone_req.schema_hash);
         } else {
             LOG_WARNING("failed to download snapshot from remote BE")
                     .tag("url", remote_url_prefix)
@@ -586,7 +587,7 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
             for (auto& file : linked_success_files) {
                 paths.emplace_back(file);
             }
-            io::global_local_filesystem()->batch_delete(paths);
+            static_cast<void>(io::global_local_filesystem()->batch_delete(paths));
         }
     }};
     /// Traverse all downloaded clone files in CLONE dir.
@@ -734,7 +735,22 @@ Status EngineCloneTask::_finish_full_clone(Tablet* tablet,
         RETURN_IF_ERROR(tablet->create_rowset(rs_meta, &rs));
         to_add.push_back(std::move(rs));
     }
-    tablet->tablet_meta()->set_cooldown_meta_id(cloned_tablet_meta->cooldown_meta_id());
+    {
+        std::shared_lock cooldown_conf_rlock(tablet->get_cooldown_conf_lock());
+        if (tablet->cooldown_conf_unlocked().first == tablet->replica_id()) {
+            // If this replica is cooldown replica, MUST generate a new `cooldown_meta_id` to avoid use `cooldown_meta_id`
+            // generated in old cooldown term which may lead to such situation:
+            // Replica A is cooldown replica, cooldown_meta_id=2,
+            // Replica B: cooldown_replica=A, cooldown_meta_id=1
+            // Replica A: full clone Replica A, cooldown_meta_id=1, but remote cooldown_meta is still with cooldown_meta_id=2
+            // After tablet report. FE finds all replicas' cooldowned data is consistent
+            // Replica A: confirm_unused_remote_files, delete some cooldowned data of cooldown_meta_id=2
+            // Replica B: follow_cooldown_data, cooldown_meta_id=2, data lost
+            tablet->tablet_meta()->set_cooldown_meta_id(UniqueId::gen_uid());
+        } else {
+            tablet->tablet_meta()->set_cooldown_meta_id(cloned_tablet_meta->cooldown_meta_id());
+        }
+    }
     if (tablet->enable_unique_key_merge_on_write()) {
         tablet->tablet_meta()->delete_bitmap() = cloned_tablet_meta->delete_bitmap();
     }

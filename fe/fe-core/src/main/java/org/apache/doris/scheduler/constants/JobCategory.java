@@ -23,27 +23,36 @@ import lombok.Getter;
  * The job category is used to distinguish different types of jobs.
  */
 public enum JobCategory {
-    COMMON(1, "common"),
-    SQL(2, "sql"),
+    COMMON(1, "common", true),
+    SQL(2, "sql", true),
+    MTMV(3, "mtmv", false),
     ;
 
     @Getter
     private int code;
 
     @Getter
-    private String description;
+    private String name;
 
-    JobCategory(int code, String description) {
+    /**
+     * if the job is persistent, it will be saved to the metadata store.
+     * if the job is not persistent, it will not be saved to the memory.
+     */
+    @Getter
+    private boolean persistent;
+
+    JobCategory(int code, String name, boolean persistent) {
         this.code = code;
-        this.description = description;
+        this.name = name;
+        this.persistent = persistent;
     }
 
-    public static JobCategory getJobCategoryByCode(int code) {
+    public static JobCategory getJobCategoryByName(String name) {
         for (JobCategory jobCategory : JobCategory.values()) {
-            if (jobCategory.getCode() == code) {
+            if (jobCategory.name.equalsIgnoreCase(name)) {
                 return jobCategory;
             }
         }
-        return null;
+        throw new IllegalArgumentException("Unknown job category name: " + name);
     }
 }

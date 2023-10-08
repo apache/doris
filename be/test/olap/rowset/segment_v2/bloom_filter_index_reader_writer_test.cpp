@@ -70,7 +70,8 @@ void write_bloom_filter_index_file(const std::string& file_name, const void* val
 
         std::unique_ptr<BloomFilterIndexWriter> bloom_filter_index_writer;
         BloomFilterOptions bf_options;
-        BloomFilterIndexWriter::create(bf_options, type_info, &bloom_filter_index_writer);
+        static_cast<void>(
+                BloomFilterIndexWriter::create(bf_options, type_info, &bloom_filter_index_writer));
         const CppType* vals = (const CppType*)values;
         for (int i = 0; i < value_count;) {
             size_t num = std::min(1024, (int)value_count - i);
@@ -97,7 +98,7 @@ void get_bloom_filter_reader_iter(const std::string& file_name, const ColumnInde
     std::string fname = dname + "/" + file_name;
     io::FileReaderSPtr file_reader;
     ASSERT_EQ(io::global_local_filesystem()->open_file(fname, &file_reader), Status::OK());
-    *reader = new BloomFilterIndexReader(std::move(file_reader), &meta.bloom_filter_index());
+    *reader = new BloomFilterIndexReader(std::move(file_reader), meta.bloom_filter_index());
     auto st = (*reader)->load(true, false);
     EXPECT_TRUE(st.ok());
 

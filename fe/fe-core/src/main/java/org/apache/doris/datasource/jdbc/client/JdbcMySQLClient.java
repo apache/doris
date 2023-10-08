@@ -39,8 +39,8 @@ import java.util.function.Consumer;
 
 public class JdbcMySQLClient extends JdbcClient {
 
-    private static boolean convertDateToNull = false;
-    private static boolean isDoris = false;
+    private boolean convertDateToNull = false;
+    private boolean isDoris = false;
 
     protected JdbcMySQLClient(JdbcClientConfig jdbcClientConfig) {
         super(jdbcClientConfig);
@@ -136,6 +136,8 @@ public class JdbcMySQLClient extends JdbcClient {
 
                 // in mysql-jdbc-connector-8.0.*, TYPE_NAME of the HLL column in doris will be "UNKNOWN"
                 // in mysql-jdbc-connector-5.1.*, TYPE_NAME of the HLL column in doris will be "HLL"
+                // in mysql-jdbc-connector-8.0.*, TYPE_NAME of BITMAP column in doris will be "BIT"
+                // in mysql-jdbc-connector-5.1.*, TYPE_NAME of BITMAP column in doris will be "BITMAP"
                 field.setDataTypeName(rs.getString("TYPE_NAME"));
                 if (isDoris) {
                     mapFieldtoType = getColumnsDataTypeUseQuery(dbName, tableName);
@@ -174,12 +176,17 @@ public class JdbcMySQLClient extends JdbcClient {
         List<Column> dorisTableSchema = Lists.newArrayListWithCapacity(jdbcTableSchema.size());
         for (JdbcFieldSchema field : jdbcTableSchema) {
             DefaultValueExprDef defaultValueExprDef = null;
-            if (field.getDefaultValue() != null
-                    && field.getDefaultValue().toLowerCase().startsWith("current_timestamp")) {
-                long precision = field.getDefaultValue().toLowerCase().contains("(")
-                        ? Long.parseLong(field.getDefaultValue().toLowerCase()
-                        .split("\\(")[1].split("\\)")[0]) : 0;
-                defaultValueExprDef = new DefaultValueExprDef("now", precision);
+            if (field.getDefaultValue() != null) {
+                String colDefaultValue = field.getDefaultValue().toLowerCase();
+                // current_timestamp()
+                if (colDefaultValue.startsWith("current_timestamp")) {
+                    long precision = 0;
+                    if (colDefaultValue.contains("(")) {
+                        String substring = colDefaultValue.substring(18, colDefaultValue.length() - 1).trim();
+                        precision = substring.isEmpty() ? 0 : Long.parseLong(substring);
+                    }
+                    defaultValueExprDef = new DefaultValueExprDef("now", precision);
+                }
             }
             dorisTableSchema.add(new Column(field.getColumnName(),
                     jdbcTypeToDoris(field), field.isKey(), null,
@@ -398,7 +405,8 @@ public class JdbcMySQLClient extends JdbcClient {
                 return ScalarType.createDateV2Type();
             case "DATETIME":
             case "DATETIMEV2": {
-                int scale = Integer.parseInt(upperType.substring(openParen + 1, upperType.length() - 1));
+                int scale = (openParen == -1) ? 6
+                        : Integer.parseInt(upperType.substring(openParen + 1, upperType.length() - 1));
                 if (scale > 6) {
                     scale = 6;
                 }
@@ -417,6 +425,8 @@ public class JdbcMySQLClient extends JdbcClient {
                 return ScalarType.createJsonbType();
             case "HLL":
                 return ScalarType.createHllType();
+            case "BITMAP":
+                return Type.BITMAP;
             default:
                 return Type.UNSUPPORTED;
         }

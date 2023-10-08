@@ -10,25 +10,26 @@ PhysicalResultSink
 --------------PhysicalQuickSort
 ----------------PhysicalDistribute
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN](supplier.s_suppkey = partsupp.ps_suppkey)
-----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN](supplier.s_nationkey = nation.n_nationkey)
---------------------------PhysicalOlapScan[supplier]
---------------------------PhysicalDistribute
-----------------------------hashJoin[INNER_JOIN](nation.n_regionkey = region.r_regionkey)
-------------------------------PhysicalDistribute
---------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[nation]
-------------------------------PhysicalDistribute
---------------------------------PhysicalProject
-----------------------------------filter((region.r_name = 'EUROPE'))
-------------------------------------PhysicalOlapScan[region]
+--------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_suppkey = partsupp.ps_suppkey))otherCondition=()
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN](part.p_partkey = partsupp.ps_partkey)
+--------------------------hashJoin[INNER_JOIN] hashCondition=((part.p_partkey = partsupp.ps_partkey))otherCondition=()
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[partsupp]
 ----------------------------PhysicalProject
-------------------------------filter((part.p_size = 15)(p_type like '%BRASS'))
+------------------------------filter((p_type like '%BRASS') and (part.p_size = 15))
 --------------------------------PhysicalOlapScan[part]
+----------------------PhysicalDistribute
+------------------------PhysicalProject
+--------------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = nation.n_nationkey))otherCondition=()
+----------------------------PhysicalOlapScan[supplier]
+----------------------------PhysicalDistribute
+------------------------------hashJoin[INNER_JOIN] hashCondition=((nation.n_regionkey = region.r_regionkey))otherCondition=()
+--------------------------------PhysicalDistribute
+----------------------------------PhysicalProject
+------------------------------------PhysicalOlapScan[nation]
+--------------------------------PhysicalDistribute
+----------------------------------PhysicalProject
+------------------------------------filter((region.r_name = 'EUROPE'))
+--------------------------------------PhysicalOlapScan[region]
 

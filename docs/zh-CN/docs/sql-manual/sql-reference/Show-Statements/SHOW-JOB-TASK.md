@@ -50,6 +50,7 @@ SHOW JOB TASKS FOR job_name;
                        StartTime: 开始执行时间
                          EndTime: 结束时间
                           Status: 状态
+                          Result: 执行结果
                           ErrMsg: 错误信息
 ```
 

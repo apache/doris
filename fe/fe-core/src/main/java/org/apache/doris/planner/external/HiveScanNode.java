@@ -20,15 +20,11 @@ package org.apache.doris.planner.external;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.ListPartitionItem;
-import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.PartitionItem;
-import org.apache.doris.catalog.StructField;
-import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.external.HMSExternalTable;
@@ -67,6 +63,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -89,6 +86,7 @@ public class HiveScanNode extends FileQueryScanNode {
     protected final HMSExternalTable hmsTable;
     private HiveTransaction hiveTransaction = null;
 
+    // will only be set in Nereids, for lagency planner, it should be null
     @Setter
     private SelectedPartitions selectedPartitions = null;
 
@@ -115,52 +113,7 @@ public class HiveScanNode extends FileQueryScanNode {
         if (HiveVersionUtil.isHive1(hmsTable.getHiveVersion())) {
             genSlotToSchemaIdMap();
         }
-        String inputFormat = hmsTable.getRemoteTable().getSd().getInputFormat();
-        if (inputFormat.contains("TextInputFormat")) {
-            for (SlotDescriptor slot : desc.getSlots()) {
-                if (slot.getType().isScalarType()) {
-                    continue;
-                }
-                boolean supported = true;
 
-                // support Array<primitive_type> and array<array<...>>
-                if (slot.getType().isArrayType()) {
-                    ArrayType arraySubType = (ArrayType) slot.getType();
-                    while (true) {
-                        if (arraySubType.getItemType().isArrayType()) {
-                            arraySubType = (ArrayType) arraySubType.getItemType();
-                            continue;
-                        }
-                        if (!arraySubType.getItemType().isScalarType()) {
-                            supported = false;
-                        }
-                        break;
-                    }
-                } else if (slot.getType().isMapType()) { //support map<primitive_type,primitive_type>
-                    if (!((MapType) slot.getType()).getValueType().isScalarType()) {
-                        supported = false;
-                    }
-                } else if (slot.getType().isStructType()) { //support Struct< primitive_type,primitive_type ... >
-                    StructType structSubType = (StructType) slot.getType();
-                    structSubType.getColumnSize();
-                    for (StructField f : structSubType.getFields()) {
-                        if (!f.getType().isScalarType()) {
-                            supported = false;
-                        }
-                    }
-                }
-
-                if (supported == false) {
-                    throw new UserException("For column `" + slot.getColumn().getName()
-                            + "`, The column types are not supported yet"
-                            + " for text input format of Hive.\n"
-                            + "For complex type ,now Support :\n"
-                            + "\t1. array< primitive_type > and array< array< ... > >\n"
-                            + "\t2. map< primitive_type , primitive_type >\n"
-                            + "\t3. Struct< primitive_type , primitive_type ... >\n");
-                }
-            }
-        }
         if (hmsTable.isHiveTransactionalTable()) {
             this.hiveTransaction = new HiveTransaction(DebugUtil.printId(ConnectContext.get().queryId()),
                     ConnectContext.get().getQualifiedUser(), hmsTable, hmsTable.isFullAcidTable());
@@ -176,7 +129,7 @@ public class HiveScanNode extends FileQueryScanNode {
         List<Type> partitionColumnTypes = hmsTable.getPartitionColumnTypes();
         if (!partitionColumnTypes.isEmpty()) {
             // partitioned table
-            boolean isPartitionPruned = selectedPartitions == null ? false : selectedPartitions.isPartitionPruned;
+            boolean isPartitionPruned = selectedPartitions == null ? false : selectedPartitions.isPruned;
             Collection<PartitionItem> partitionItems;
             if (!isPartitionPruned) {
                 // partitionItems is null means that the partition is not pruned by Nereids,
@@ -266,6 +219,11 @@ public class HiveScanNode extends FileQueryScanNode {
         if (ConnectContext.get().getExecutor() != null) {
             ConnectContext.get().getExecutor().getSummaryProfile().setGetPartitionFilesFinishTime();
         }
+        if (tableSample != null) {
+            List<HiveMetaStoreCache.HiveFileStatus> hiveFileStatuses = selectFiles(fileCaches);
+            splitAllFiles(allFiles, hiveFileStatuses);
+            return;
+        }
         for (HiveMetaStoreCache.FileCacheValue fileCacheValue : fileCaches) {
             // This if branch is to support old splitter, will remove later.
             if (fileCacheValue.getSplits() != null) {
@@ -281,6 +239,42 @@ public class HiveScanNode extends FileQueryScanNode {
                 }
             }
         }
+    }
+
+    private void splitAllFiles(List<Split> allFiles,
+                               List<HiveMetaStoreCache.HiveFileStatus> hiveFileStatuses) throws IOException {
+        for (HiveMetaStoreCache.HiveFileStatus status : hiveFileStatuses) {
+            allFiles.addAll(splitFile(status.getPath(), status.getBlockSize(),
+                    status.getBlockLocations(), status.getLength(), status.getModificationTime(),
+                    status.isSplittable(), status.getPartitionValues(),
+                new HiveSplitCreator(status.getAcidInfo())));
+        }
+    }
+
+    private List<HiveMetaStoreCache.HiveFileStatus> selectFiles(List<FileCacheValue> inputCacheValue) {
+        List<HiveMetaStoreCache.HiveFileStatus> fileList = Lists.newArrayList();
+        long totalSize = 0;
+        for (FileCacheValue value : inputCacheValue) {
+            for (HiveMetaStoreCache.HiveFileStatus file : value.getFiles()) {
+                file.setSplittable(value.isSplittable());
+                file.setPartitionValues(value.getPartitionValues());
+                file.setAcidInfo(value.getAcidInfo());
+                fileList.add(file);
+                totalSize += file.getLength();
+            }
+        }
+        long sampleSize = totalSize * tableSample.getSampleValue() / 100;
+        long selectedSize = 0;
+        Collections.shuffle(fileList);
+        int index = 0;
+        for (HiveMetaStoreCache.HiveFileStatus file : fileList) {
+            selectedSize += file.getLength();
+            index += 1;
+            if (selectedSize >= sampleSize) {
+                break;
+            }
+        }
+        return fileList.subList(0, index);
     }
 
     private List<FileCacheValue> getFileSplitByTransaction(HiveMetaStoreCache cache, List<HivePartition> partitions) {

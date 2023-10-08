@@ -30,12 +30,13 @@ suite("ds_rf{--}") {
     sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_pipeline_engine=true'
+    sql 'set enable_runtime_filter_prune=false'
     String stmt = '''
     explain physical plan
     {query}
     '''
     String plan = sql "${stmt}"
-    println plan
+    log.info(plan)
     def getRuntimeFilters = { plantree ->
         {
             def lst = []

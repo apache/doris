@@ -100,6 +100,7 @@ inline const char* get_state_name(PipelineTaskState idx) {
     case PipelineTaskState::BLOCKED_FOR_RF:
         return "BLOCKED_FOR_RF";
     }
+    LOG(FATAL) << "__builtin_unreachable";
     __builtin_unreachable();
 }
 
@@ -109,13 +110,14 @@ class PriorityTaskQueue;
 // The class do the pipeline task. Minest schdule union by task scheduler
 class PipelineTask {
 public:
-    PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state, Operators& operators,
-                 OperatorPtr& sink, PipelineFragmentContext* fragment_context,
-                 RuntimeProfile* parent_profile);
+    PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state, OperatorPtr& sink,
+                 PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile);
 
     PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state,
                  PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile);
     virtual ~PipelineTask() = default;
+
+    PipelineTask() = default;
 
     virtual Status prepare(RuntimeState* state);
 
@@ -123,18 +125,16 @@ public:
 
     // Try to close this pipeline task. If there are still some resources need to be released after `try_close`,
     // this task will enter the `PENDING_FINISH` state.
-    virtual Status try_close();
+    virtual Status try_close(Status exec_status);
     // if the pipeline create a bunch of pipeline task
     // must be call after all pipeline task is finish to release resource
-    virtual Status close();
+    virtual Status close(Status exec_status);
 
     void put_in_runnable_queue() {
         _schedule_time++;
         _wait_worker_watcher.start();
     }
     void pop_out_runnable_queue() { _wait_worker_watcher.stop(); }
-    void start_schedule_watcher() { _wait_schedule_watcher.start(); }
-    void stop_schedule_watcher() { _wait_schedule_watcher.stop(); }
     PipelineTaskState get_state() { return _cur_state; }
     void set_state(PipelineTaskState state);
 
@@ -155,13 +155,13 @@ public:
         return false;
     }
 
-    virtual bool source_can_read() { return _source->can_read() || _ignore_blocking_source(); }
+    virtual bool source_can_read() { return _source->can_read() || _pipeline->_always_can_read; }
 
     virtual bool runtime_filters_are_ready_or_timeout() {
         return _source->runtime_filters_are_ready_or_timeout();
     }
 
-    virtual bool sink_can_write() { return _sink->can_write() || _ignore_blocking_sink(); }
+    virtual bool sink_can_write() { return _sink->can_write() || _pipeline->_always_can_write; }
 
     virtual Status finalize();
 
@@ -195,6 +195,7 @@ public:
     void set_task_queue(TaskQueue* task_queue);
 
     static constexpr auto THREAD_TIME_SLICE = 100'000'000ULL;
+    static constexpr auto THREAD_TIME_SLICE_US = 100000L; // 100ms
 
     // 1 used for update priority queue
     // note(wb) an ugly implementation, need refactor later
@@ -238,7 +239,7 @@ public:
         }
     }
 
-    void set_close_pipeline_time() {
+    virtual void set_close_pipeline_time() {
         if (!_is_close_pipeline) {
             _close_pipeline_time = _pipeline_task_watcher.elapsed_time();
             _is_close_pipeline = true;
@@ -248,16 +249,27 @@ public:
 
     TUniqueId instance_id() const { return _state->fragment_instance_id(); }
 
+    void set_empty_task(bool is_empty_task) { _is_empty_task = is_empty_task; }
+
+    bool is_empty_task() const { return _is_empty_task; }
+
+    void yield();
+
+    void set_task_group_entity(
+            taskgroup::TaskGroupEntity<std::queue<pipeline::PipelineTask*>>* empty_group_entity) {
+        _empty_group_entity = empty_group_entity;
+    }
+
 protected:
     void _finish_p_dependency() {
         for (const auto& p : _pipeline->_parents) {
-            p.lock()->finish_one_dependency(_previous_schedule_id);
+            p.second.lock()->finish_one_dependency(p.first, _previous_schedule_id);
         }
     }
 
     virtual Status _open();
-    void _init_profile();
-    void _fresh_profile_counter();
+    virtual void _init_profile();
+    virtual void _fresh_profile_counter();
 
     uint32_t _index;
     PipelinePtr _pipeline;
@@ -287,6 +299,12 @@ protected:
 
     bool _try_close_flag = false;
 
+    bool _is_empty_task = false;
+    taskgroup::TaskGroupEntity<std::queue<pipeline::PipelineTask*>>* _empty_group_entity;
+    int _core_num = CpuInfo::num_cores();
+    int _total_query_thread_num =
+            config::doris_scanner_thread_pool_thread_num + config::pipeline_executor_size;
+
     RuntimeProfile* _parent_profile;
     std::unique_ptr<RuntimeProfile> _task_profile;
     RuntimeProfile::Counter* _task_cpu_timer;
@@ -306,13 +324,14 @@ protected:
     RuntimeProfile::Counter* _wait_source_timer;
     MonotonicStopWatch _wait_bf_watcher;
     RuntimeProfile::Counter* _wait_bf_timer;
+    RuntimeProfile::Counter* _wait_bf_counts;
     MonotonicStopWatch _wait_sink_watcher;
     RuntimeProfile::Counter* _wait_sink_timer;
     MonotonicStopWatch _wait_worker_watcher;
     RuntimeProfile::Counter* _wait_worker_timer;
+    RuntimeProfile::Counter* _wait_dependency_counts;
+    RuntimeProfile::Counter* _pending_finish_counts;
     // TODO we should calculate the time between when really runnable and runnable
-    MonotonicStopWatch _wait_schedule_watcher;
-    RuntimeProfile::Counter* _wait_schedule_timer;
     RuntimeProfile::Counter* _yield_counts;
     RuntimeProfile::Counter* _core_change_times;
 
@@ -348,41 +367,6 @@ protected:
     RuntimeProfile::Counter* _pip_task_total_timer;
 
 private:
-    /**
-     * Consider the query plan below:
-     *
-     *      ExchangeSource     JoinBuild1
-     *            \              /
-     *         JoinProbe1 (Right Outer)    JoinBuild2
-     *                   \                   /
-     *                 JoinProbe2 (Right Outer)
-     *                          |
-     *                        Sink
-     *
-     * Assume JoinBuild1/JoinBuild2 outputs 0 rows, this pipeline task should not be blocked by ExchangeSource
-     * because we have a determined conclusion that JoinProbe1/JoinProbe2 will also output 0 rows.
-     *
-     * Assume JoinBuild2 outputs > 0 rows, this pipeline task may be blocked by Sink because JoinProbe2 will
-     * produce more data.
-     *
-     * Assume both JoinBuild2 outputs 0 rows this pipeline task should not be blocked by ExchangeSource
-     * and Sink because JoinProbe2 will always produce 0 rows and terminate early.
-     *
-     * In a nutshell, we should follow the rules:
-     * 1. if any operator in pipeline can terminate early, this task should never be blocked by source operator.
-     * 2. if the last operator (except sink) can terminate early, this task should never be blocked by sink operator.
-     */
-    [[nodiscard]] bool _ignore_blocking_sink() { return _root->can_terminate_early(); }
-
-    [[nodiscard]] bool _ignore_blocking_source() {
-        for (size_t i = 1; i < _operators.size(); i++) {
-            if (_operators[i]->can_terminate_early()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     Operators _operators; // left is _source, right is _root
     OperatorPtr _source;
     OperatorPtr _root;
