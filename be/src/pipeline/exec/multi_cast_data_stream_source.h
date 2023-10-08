@@ -94,13 +94,21 @@ private:
 
 class MultiCastDataStreamerSourceOperatorX;
 
-class MultiCastDataStreamSourceLocalState final : public PipelineXLocalState<MultiCastDependency> ,public vectorized::RuntimeFilterConsumer{
+class MultiCastDataStreamSourceLocalState final : public PipelineXLocalState<MultiCastDependency>,
+                                                  public vectorized::RuntimeFilterConsumer {
 public:
     ENABLE_FACTORY_CREATOR(MultiCastDataStreamSourceLocalState);
     using Base = PipelineXLocalState<MultiCastDependency>;
     using Parent = MultiCastDataStreamerSourceOperatorX;
     MultiCastDataStreamSourceLocalState(RuntimeState* state, OperatorXBase* parent);
     Status init(RuntimeState* state, LocalStateInfo& info) override;
+
+    Status open(RuntimeState* state) override {
+        RETURN_IF_ERROR(Base::open(state));
+        RETURN_IF_ERROR(_acquire_runtime_filter());
+        return Status::OK();
+    }
+
     friend class MultiCastDataStreamerSourceOperatorX;
 
 private:
@@ -166,6 +174,12 @@ public:
     }
 
     int dest_id_from_sink() const { return _t_data_stream_sink.dest_node_id; }
+
+    bool runtime_filters_are_ready_or_timeout(RuntimeState* state) const override {
+        return state->get_local_state(id())
+                ->template cast<MultiCastDataStreamSourceLocalState>()
+                .runtime_filters_are_ready_or_timeout();
+    }
 
 private:
     friend class MultiCastDataStreamSourceLocalState;
