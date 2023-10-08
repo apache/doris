@@ -1,3 +1,5 @@
+import java.util.stream.Collectors
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -100,7 +102,7 @@ suite("test_analyze") {
 
     sql """
         SET enable_nereids_planner=true;
-        
+
         """
     sql """
         SET enable_fallback_to_original_planner=false;
@@ -112,7 +114,7 @@ suite("test_analyze") {
     Thread.sleep(1000 * 60)
 
     sql """
-        SELECT COUNT(*) FROM ${tbl}; 
+        SELECT COUNT(*) FROM ${tbl};
     """
 
     sql """
@@ -123,7 +125,7 @@ suite("test_analyze") {
 
     try {
         sql """
-            SELECT COUNT(*) FROM ${tbl}; 
+            SELECT * FROM ${tbl};
         """
     } catch (Exception e) {
         exception = e
@@ -138,7 +140,7 @@ suite("test_analyze") {
     """
 
     sql """
-        SELECT COUNT(*) FROM ${tbl}; 
+        SELECT COUNT(*) FROM ${tbl};
     """
 
     sql """
@@ -147,7 +149,7 @@ suite("test_analyze") {
 
     try {
         sql """
-            SELECT COUNT(*) FROM ${tbl}; 
+            SELECT COUNT(*) FROM ${tbl};
         """
     } catch (Exception e) {
         exception = e
@@ -162,25 +164,25 @@ suite("test_analyze") {
     """
 
     a_result_3 = sql """
-        ANALYZE DATABASE ${db} WITH SAMPLE PERCENT 5 WITH AUTO
+        ANALYZE DATABASE ${db} WITH SAMPLE PERCENT 5
     """
 
     show_result = sql """
         SHOW ANALYZE
     """
 
-    def contains_expected_table = {r ->
-        for(int i = 0; i < r.size; i++) {
-            if (r[i][3] == "${tbl}" ) {
+    def contains_expected_table = { r ->
+        for (int i = 0; i < r.size; i++) {
+            if (r[i][3] == "${tbl}") {
                 return true
             }
         }
         return false
     }
 
-    def stats_job_removed = {r, id ->
-        for(int i = 0; i < r.size; i++) {
-            if (r[i][0] == id ) {
+    def stats_job_removed = { r, id ->
+        for (int i = 0; i < r.size; i++) {
+            if (r[i][0] == id) {
                 return false
             }
         }
@@ -190,14 +192,14 @@ suite("test_analyze") {
     assert contains_expected_table(show_result)
 
     sql """
-        DROP ANALYZE JOB ${a_result_3[0][4]}
+        DROP ANALYZE JOB ${a_result_3[0][0]}
     """
 
     show_result = sql """
         SHOW ANALYZE
     """
 
-    assert stats_job_removed(show_result, a_result_3[0][4])
+    assert stats_job_removed(show_result, a_result_3[0][0])
 
     sql """
         ANALYZE DATABASE ${db} WITH SAMPLE ROWS 5 WITH PERIOD 100000
@@ -238,8 +240,8 @@ suite("test_analyze") {
         SHOW COLUMN CACHED STATS analyze_partitioned_tbl_test(col1)
     """
 
-    def expected_result = { r->
-        for(int i = 0; i < r.size; i++) {
+    def expected_result = { r ->
+        for (int i = 0; i < r.size; i++) {
             if ((int) Double.parseDouble(r[i][1]) == 6) {
                 return true
             } else {
@@ -884,7 +886,7 @@ PARTITION `p599` VALUES IN (599)
         SHOW COLUMN CACHED STATS test_600_partition_table_analyze(id);
     """
 
-    def expected_col_stats = { r, expected_value, idx ->
+    def  expected_col_stats = { r, expected_value, idx ->
         return (int) Double.parseDouble(r[0][idx]) == expected_value
     }
 
@@ -1044,7 +1046,7 @@ PARTITION `p599` VALUES IN (599)
     sql """
         DROP TABLE IF EXISTS two_thousand_partition_table_test
     """
-
+    // check analyze table with thousand partition
     sql """
         CREATE TABLE two_thousand_partition_table_test (col1 int(11451) not null)
         DUPLICATE KEY(col1)
@@ -1063,5 +1065,49 @@ PARTITION `p599` VALUES IN (599)
         ANALYZE TABLE two_thousand_partition_table_test WITH SYNC;
     """
 
-}
+    // meta check
+    sql """
+        CREATE TABLE `test_meta_management` (
+           `col1` varchar(11451) NOT NULL,
+           `col2` int(11) NOT NULL,
+           `col3` int(11) NOT NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`col1`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`col1`) BUCKETS 3
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        ); 
+    """
 
+    sql """insert into test_meta_management values(1, 2, 3);"""
+    sql """insert into test_meta_management values(4, 5, 6);"""
+    sql """insert into test_meta_management values(7, 1, 9);"""
+    sql """insert into test_meta_management values(3, 8, 2);"""
+    sql """insert into test_meta_management values(5, 2, 1);"""
+    sql """insert into test_meta_management values(41, 2, 3)"""
+
+    sql """ANALYZE TABLE test_meta_management WITH SYNC"""
+    sql """DROP STATS test_meta_management(col1)"""
+
+    def afterDropped = sql """SHOW TABLE STATS test_meta_management"""
+    def convert_col_list_str_to_java_collection = { cols ->
+        if (cols.startsWith("[") && cols.endsWith("]")) {
+            cols = cols.substring(1, cols.length() - 1);
+        }
+        return Arrays.stream(cols.split(",")).map(String::trim).collect(Collectors.toList())
+    }
+
+    def check_column = { r, expected ->
+        expected_result = convert_col_list_str_to_java_collection(expected)
+        actual_result = convert_col_list_str_to_java_collection(r[0][4])
+        System.out.println(expected_result)
+        System.out.println(actual_result)
+        return expected_result.containsAll(actual_result) && actual_result.containsAll(expected_result)
+    }
+    assert check_column(afterDropped, "[col2, col3]")
+    sql """ANALYZE TABLE test_meta_management WITH SYNC"""
+    afterDropped = sql """SHOW TABLE STATS test_meta_management"""
+    assert check_column(afterDropped, "[col1, col2, col3]")
+
+}

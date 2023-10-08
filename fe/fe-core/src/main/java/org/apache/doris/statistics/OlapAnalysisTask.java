@@ -23,25 +23,26 @@ import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Lists;
 import org.apache.commons.text.StringSubstitutor;
 
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.StringJoiner;
+import java.util.stream.Collectors;
 
 /**
  * Each task analyze one column.
  */
 public class OlapAnalysisTask extends BaseAnalysisTask {
-
-    private static final String ANALYZE_PARTITION_SQL_TEMPLATE = INSERT_PART_STATISTICS
-            + "FROM `${dbName}`.`${tblName}` "
-            + "PARTITION ${partName} ${sampleExpr}";
 
     // TODO Currently, NDV is computed for the full table; in fact,
     //  NDV should only be computed for the relevant partition.
@@ -49,11 +50,39 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             + "     (SELECT NDV(`${colName}`) AS ndv "
             + "     FROM `${dbName}`.`${tblName}` ${sampleExpr}) t2\n";
 
+    private static final String collectPartitionStatsSQLTemplate =
+            " SELECT "
+                    + "CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}', '-', ${partId}) AS id, "
+                    + "${catalogId} AS catalog_id, "
+                    + "${dbId} AS db_id, "
+                    + "${tblId} AS tbl_id, "
+                    + "${idxId} AS idx_id, "
+                    + "'${colId}' AS col_id, "
+                    + "${partId} AS part_id, "
+                    + "COUNT(1) AS row_count, "
+                    + "NDV(`${colName}`) AS ndv, "
+                    + "SUM(CASE WHEN `${colName}` IS NULL THEN 1 ELSE 0 END) AS null_count, "
+                    + "MIN(`${colName}`) AS min, "
+                    + "MAX(`${colName}`) AS max, "
+                    + "${dataSizeFunction} AS data_size, "
+                    + "NOW() FROM `${dbName}`.`${tblName}` PARTITION ${partitionName}  ${sampleExpr}";
+
+    // cache stats for each partition, it would be inserted into column_statistics in a batch.
+    private final List<List<ColStatsData>> buf = new ArrayList<>();
+
+    @VisibleForTesting
+    public OlapAnalysisTask() {
+    }
+
     public OlapAnalysisTask(AnalysisInfo info) {
         super(info);
     }
 
     public void doExecute() throws Exception {
+        Set<String> partitionNames = info.colToPartitions.get(info.colName);
+        if (partitionNames.isEmpty()) {
+            return;
+        }
         Map<String, String> params = new HashMap<>();
         params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
         params.put("columnStatTbl", StatisticConstants.STATISTIC_TBL_NAME);
@@ -70,56 +99,65 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         List<String> partitionAnalysisSQLs = new ArrayList<>();
         try {
             tbl.readLock();
-            Set<String> partNames = info.colToPartitions.get(info.colName);
-            for (String partName : partNames) {
-                Partition part = tbl.getPartition(partName);
+
+            for (String partitionName : partitionNames) {
+                Partition part = tbl.getPartition(partitionName);
                 if (part == null) {
                     continue;
                 }
-                params.put("partId", String.valueOf(tbl.getPartition(partName).getId()));
+                params.put("partId", String.valueOf(tbl.getPartition(partitionName).getId()));
                 // Avoid error when get the default partition
-                params.put("partName", "`" + partName + "`");
+                params.put("partitionName", "`" + partitionName + "`");
                 StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-                partitionAnalysisSQLs.add(stringSubstitutor.replace(ANALYZE_PARTITION_SQL_TEMPLATE));
+                partitionAnalysisSQLs.add(stringSubstitutor.replace(collectPartitionStatsSQLTemplate));
             }
         } finally {
             tbl.readUnlock();
         }
-        execSQLs(partitionAnalysisSQLs);
-        params.remove("partId");
-        params.put("type", col.getType().toString());
-        StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-        String sql = stringSubstitutor.replace(ANALYZE_COLUMN_SQL_TEMPLATE);
-        execSQL(sql);
+        execSQLs(partitionAnalysisSQLs, params);
     }
 
     @VisibleForTesting
-    public void execSQLs(List<String> partitionAnalysisSQLs) throws Exception {
-        for (String sql : partitionAnalysisSQLs) {
-            execSQL(sql);
-        }
-    }
-
-    @VisibleForTesting
-    public void execSQL(String sql) throws Exception {
-        if (killed) {
-            return;
-        }
+    public void execSQLs(List<String> partitionAnalysisSQLs, Map<String, String> params) throws Exception {
         long startTime = System.currentTimeMillis();
-        LOG.info("ANALYZE SQL : " + sql + " start at " + startTime);
-        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
-            r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
-            stmtExecutor = new StmtExecutor(r.connectContext, sql);
-            r.connectContext.setExecutor(stmtExecutor);
-            stmtExecutor.execute();
-            QueryState queryState = r.connectContext.getState();
-            if (queryState.getStateType().equals(MysqlStateType.ERR)) {
-                throw new RuntimeException(String.format("Failed to analyze %s.%s.%s, error: %s sql: %s",
-                        info.catalogName, info.dbName, info.colName, sql, queryState.getErrorMessage()));
+        LOG.debug("analyze task {} start at {}", info.toString(), new Date());
+        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(info.jobType.equals(JobType.SYSTEM))) {
+            List<List<String>> sqlGroups = Lists.partition(partitionAnalysisSQLs, StatisticConstants.UNION_ALL_LIMIT);
+            for (List<String> group : sqlGroups) {
+                if (killed) {
+                    return;
+                }
+                StringJoiner partitionCollectSQL = new StringJoiner("UNION ALL");
+                group.forEach(partitionCollectSQL::add);
+                stmtExecutor = new StmtExecutor(r.connectContext, partitionCollectSQL.toString());
+                buf.add(stmtExecutor.executeInternalQuery()
+                        .stream().map(ColStatsData::new).collect(Collectors.toList()));
+                QueryState queryState = r.connectContext.getState();
+                if (queryState.getStateType().equals(MysqlStateType.ERR)) {
+                    throw new RuntimeException(String.format("Failed to analyze %s.%s.%s, error: %s sql: %s",
+                            info.catalogName, info.dbName, info.colName, partitionCollectSQL,
+                            queryState.getErrorMessage()));
+                }
             }
+            for (List<ColStatsData> colStatsDataList : buf) {
+                StringBuilder batchInsertSQL =
+                        new StringBuilder("INSERT INTO " + StatisticConstants.FULL_QUALIFIED_STATS_TBL_NAME
+                                + " VALUES ");
+                StringJoiner sj = new StringJoiner(",");
+                colStatsDataList.forEach(c -> sj.add(c.toSQL(true)));
+                batchInsertSQL.append(sj.toString());
+                stmtExecutor = new StmtExecutor(r.connectContext, batchInsertSQL.toString());
+                executeWithExceptionOnFail(stmtExecutor);
+            }
+            params.put("type", col.getType().toString());
+            StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
+            String sql = stringSubstitutor.replace(ANALYZE_COLUMN_SQL_TEMPLATE);
+            stmtExecutor = new StmtExecutor(r.connectContext, sql);
+            executeWithExceptionOnFail(stmtExecutor);
         } finally {
-            LOG.info("Analyze SQL: " + sql + " cost time: " + (System.currentTimeMillis() - startTime) + "ms");
+            LOG.debug("analyze task {} end. cost {}ms", info,
+                    System.currentTimeMillis() - startTime);
         }
-    }
 
+    }
 }

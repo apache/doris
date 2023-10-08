@@ -63,6 +63,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
+import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -116,6 +117,10 @@ public abstract class ExpressionVisitor<R, C>
         WindowFunctionVisitor<R, C> {
 
     public abstract R visit(Expression expr, C context);
+
+    public R visitProperties(Properties properties, C context) {
+        return visit(properties, context);
+    }
 
     @Override
     public R visitAggregateFunction(AggregateFunction aggregateFunction, C context) {

@@ -403,6 +403,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String TEST_QUERY_CACHE_HIT = "test_query_cache_hit";
 
+    public static final String ENABLE_FULL_AUTO_ANALYZE = "enable_full_auto_analyze";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -1141,6 +1143,24 @@ public class SessionVariable implements Serializable, Writable {
                     + "If the specified type of cache is not hit, an error will be reported."},
             options = {"none", "sql_cache", "partition_cache"})
     public String testQueryCacheHit = "none";
+
+    @VariableMgr.VarAttr(name = ENABLE_FULL_AUTO_ANALYZE,
+            description = {"该参数控制是否开启自动收集", "Set false to disable auto analyze"},
+            flag = VariableMgr.GLOBAL)
+    public boolean enableFullAutoAnalyze = true;
+
+    @VariableMgr.VarAttr(name = FULL_AUTO_ANALYZE_START_TIME, needForward = true, checker = "checkAnalyzeTimeFormat",
+            description = {"该参数定义自动ANALYZE例程的开始时间",
+                    "This parameter defines the start time for the automatic ANALYZE routine."},
+            flag = VariableMgr.GLOBAL)
+    public String fullAutoAnalyzeStartTime = "00:00:00";
+
+    @VariableMgr.VarAttr(name = FULL_AUTO_ANALYZE_END_TIME, needForward = true, checker = "checkAnalyzeTimeFormat",
+            description = {"该参数定义自动ANALYZE例程的结束时间",
+                    "This parameter defines the end time for the automatic ANALYZE routine."},
+            flag = VariableMgr.GLOBAL)
+    public String fullAutoAnalyzeEndTime = "02:00:00";
+
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
