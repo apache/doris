@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DorisHttpException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
@@ -35,8 +36,10 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TMemoryScratchSink;
@@ -197,10 +200,20 @@ public class TableQueryPlanAction extends RestBaseController {
         // check consistent http requested resource with sql referenced
         // if consistent in this way, can avoid check privilege
         TableName tableAndDb = fromTables.get(0).getName();
-        if (!(tableAndDb.getDb().equals(requestDb) && tableAndDb.getTbl().equals(requestTable))) {
-            throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST,
-                    "requested database and table must consistent with sql: request [ "
-                    + requestDb + "." + requestTable + "]" + "and sql [" + tableAndDb.toString() + "]");
+        int lower = GlobalVariable.lowerCaseTableNames;
+        //Determine whether table names are case-sensitive
+        if(lower == 0) {
+            if (!(tableAndDb.getDb().equals(requestDb) && tableAndDb.getTbl().equals(requestTable))) {
+                throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST,
+                        "requested database and table must consistent with sql: request [ "
+                                + requestDb + "." + requestTable + "]" + "and sql [" + tableAndDb.toString () + "]");
+            }
+        } else {
+            if (!(tableAndDb.getDb().equalsIgnoreCase(requestDb) && tableAndDb.getTbl().equalsIgnoreCase(requestTable))) {
+                throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST,
+                        "requested database and table must consistent with sql: request [ "
+                                + requestDb + "." + requestTable + "]" + "and sql [" + tableAndDb.toString () + "]");
+            }
         }
 
         // acquired Planner to get PlanNode and fragment templates
