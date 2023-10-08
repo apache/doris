@@ -856,9 +856,9 @@ enum TopNAlgorithm {
 
 enum TPartTopNPhase {
   UNKNOWN,
-  ONE_PAHSE_GLOBAL,
-  TWO_PAHSE_LOCAL,
-  TWO_PAHSE_GLOBAL
+  ONE_PHASE_GLOBAL,
+  TWO_PHASE_LOCAL,
+  TWO_PHASE_GLOBAL
 }
 
  struct TPartitionSortNode {
