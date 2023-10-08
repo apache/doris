@@ -952,6 +952,11 @@ public class NativeInsertStmt extends InsertStmt {
         targetColumns.clear();
     }
 
+    protected void resetPrepare() {
+        label = null;
+        isTransactionBegin = false;
+    }
+
     @Override
     public RedirectStatus getRedirectStatus() {
         if (isExplain()) {
