@@ -23,7 +23,6 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.statistics.util.InternalQueryResult;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import org.apache.commons.text.StringSubstitutor;
@@ -81,11 +80,11 @@ public class JdbcAnalysisTask extends BaseAnalysisTask {
      */
     private void getTableStats() throws Exception {
         Map<String, String> params = buildTableStatsParams(null);
-        List<InternalQueryResult.ResultRow> columnResult =
+        List<ResultRow> columnResult =
                 StatisticsUtil.execStatisticQuery(new StringSubstitutor(params).replace(ANALYZE_TABLE_COUNT_TEMPLATE));
-        String rowCount = columnResult.get(0).getColumnValue("rowCount");
-        params.put("rowCount", rowCount);
-        StatisticsRepository.persistTableStats(params);
+        String rowCount = columnResult.get(0).get(0);
+        Env.getCurrentEnv().getAnalysisManager()
+            .updateTableStatsStatus(new TableStatsMeta(table.getId(), Long.parseLong(rowCount), info));
     }
 
     /**

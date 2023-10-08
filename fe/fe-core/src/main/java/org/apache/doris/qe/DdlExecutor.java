@@ -40,7 +40,6 @@ import org.apache.doris.analysis.AlterResourceStmt;
 import org.apache.doris.analysis.AlterRoutineLoadStmt;
 import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
 import org.apache.doris.analysis.AlterSystemStmt;
-import org.apache.doris.analysis.AlterTableStatsStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterUserStmt;
 import org.apache.doris.analysis.AlterViewStmt;
@@ -162,8 +161,6 @@ public class DdlExecutor {
             env.createMaterializedView((CreateMaterializedViewStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterTableStmt) {
             env.alterTable((AlterTableStmt) ddlStmt);
-        } else if (ddlStmt instanceof AlterTableStatsStmt) {
-            StatisticsRepository.alterTableStatistics((AlterTableStatsStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterColumnStatsStmt) {
             StatisticsRepository.alterColumnStatistics((AlterColumnStatsStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterViewStmt) {
