@@ -83,7 +83,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     public static final String AGG_STATE_SUFFIX = "_state";
     public static final String AGG_UNION_SUFFIX = "_union";
     public static final String AGG_MERGE_SUFFIX = "_merge";
-    public static final String DEFAULT_EXPR_NAME = "__expr";
+    public static final String DEFAULT_EXPR_NAME = "expr";
 
     protected boolean disableTableName = false;
     protected boolean needToMysql = false;
