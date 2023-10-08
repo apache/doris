@@ -254,9 +254,6 @@ ColumnPtr ColumnDecimal<T>::permute(const IColumn::Permutation& perm, size_t lim
 template <typename T>
 MutableColumnPtr ColumnDecimal<T>::clone_resized(size_t size) const {
     auto res = this->create(0, scale);
-    if (this->is_decimalv2_type()) {
-        res->set_decimalv2_type();
-    }
 
     if (size > 0) {
         auto& new_col = assert_cast<Self&>(*res);
@@ -286,7 +283,7 @@ void ColumnDecimal<T>::insert_many_fix_len_data(const char* data_ptr, size_t num
     size_t old_size = data.size();
     data.resize(old_size + num);
 
-    if (this->is_decimalv2_type()) {
+    if constexpr (IsDecimalV2<T>) {
         DecimalV2Value* target = (DecimalV2Value*)(data.data() + old_size);
         for (int i = 0; i < num; i++) {
             const char* cur_ptr = data_ptr + sizeof(decimal12_t) * i;
