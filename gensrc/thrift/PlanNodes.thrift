@@ -306,6 +306,10 @@ struct TPaimonFileDesc {
     4: optional string table_name
     5: optional string paimon_predicate
     6: optional map<string, string> paimon_options
+    7: optional i64 ctl_id
+    8: optional i64 db_id
+    9: optional i64 tbl_id
+    10: optional i64 last_update_time
 }
 
 
@@ -852,9 +856,9 @@ enum TopNAlgorithm {
 
 enum TPartTopNPhase {
   UNKNOWN,
-  ONE_PAHSE_GLOBAL,
-  TWO_PAHSE_LOCAL,
-  TWO_PAHSE_GLOBAL
+  ONE_PHASE_GLOBAL,
+  TWO_PHASE_LOCAL,
+  TWO_PHASE_GLOBAL
 }
 
  struct TPartitionSortNode {

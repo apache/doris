@@ -275,13 +275,19 @@ Status DataSinkOperatorX<MultiCastDataStreamSinkLocalState>::setup_local_states(
         RuntimeState* state, std::vector<LocalSinkStateInfo>& infos) {
     auto multi_cast_data_streamer =
             static_cast<MultiCastDataStreamSinkOperatorX*>(this)->create_multi_cast_data_streamer();
-    for (auto& info : infos) {
-        auto local_state = MultiCastDataStreamSinkLocalState::create_shared(this, state);
-        state->emplace_sink_local_state(id(), local_state);
-        RETURN_IF_ERROR(local_state->init(state, info));
-        local_state->_shared_state->multi_cast_data_streamer = multi_cast_data_streamer;
+    for (int i = 0; i < infos.size(); i++) {
+        auto& info = infos[i];
+        if (i == 0) {
+            auto local_state = MultiCastDataStreamSinkLocalState::create_shared(this, state);
+            state->emplace_sink_local_state(id(), local_state);
+            RETURN_IF_ERROR(local_state->init(state, info));
+            local_state->_shared_state->multi_cast_data_streamer = multi_cast_data_streamer;
+        } else {
+            auto* _shared_state =
+                    (typename MultiCastDependency::SharedState*)info.dependency->shared_state();
+            _shared_state->multi_cast_data_streamer = multi_cast_data_streamer;
+        }
     }
-
     return Status::OK();
 }
 
@@ -320,15 +326,28 @@ Status OperatorX<UnionSourceLocalState>::setup_local_states(RuntimeState* state,
                                                             std::vector<LocalStateInfo>& infos) {
     int child_count = static_cast<pipeline::UnionSourceOperatorX*>(this)->get_child_count();
     std::shared_ptr<DataQueue> data_queue;
-    for (auto& info : infos) {
-        auto local_state = UnionSourceLocalState::create_shared(state, this);
-        state->emplace_local_state(id(), local_state);
-        RETURN_IF_ERROR(local_state->init(state, info));
-        if (child_count != 0) {
-            if (!data_queue) {
-                data_queue = local_state->create_data_queue();
-            }
+
+    if (child_count == 0) {
+        // for union only have const expr
+        for (auto& info : infos) {
+            auto local_state = UnionSourceLocalState::create_shared(state, this);
+            state->emplace_local_state(id(), local_state);
+            RETURN_IF_ERROR(local_state->init(state, info));
+        }
+        return Status::OK();
+    }
+    for (int i = 0; i < infos.size(); i++) {
+        auto& info = infos[i];
+        if (i == 0) {
+            auto local_state = UnionSourceLocalState::create_shared(state, this);
+            state->emplace_local_state(id(), local_state);
+            RETURN_IF_ERROR(local_state->init(state, info));
+            data_queue = local_state->create_data_queue();
             local_state->_shared_state->data_queue = data_queue;
+        } else {
+            auto* _shared_state =
+                    (typename UnionDependency::SharedState*)info.dependency->shared_state();
+            _shared_state->data_queue = data_queue;
         }
     }
     return Status::OK();

@@ -665,18 +665,6 @@ public class Config extends ConfigBase {
             "单个 broker scanner 的最大并发数。", "Maximal concurrency of broker scanners."})
     public static int max_broker_concurrency = 10;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "导出作业的最大并发数。", "Limitation of the concurrency of running export jobs."})
-    public static int export_running_job_num_limit = 5;
-
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "导出作业的默认超时时间。", "Default timeout of export jobs."})
-    public static int export_task_default_timeout_second = 2 * 3600; // 2h
-
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "每个导出作业的需要处理的 tablet 数量。", "Number of tablets need to be handled per export job."})
-    public static int export_tablet_num_per_task = 5;
-
     // TODO(cmy): Disable by default because current checksum logic has some bugs.
     @ConfField(mutable = true, masterOnly = true, description = {
             "一致性检查的开始时间。与 `consistency_check_end_time` 配合使用，决定一致性检查的起止时间。"
