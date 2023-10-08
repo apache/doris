@@ -139,7 +139,8 @@ public class TaskHandler implements WorkHandler<TaskEvent> {
         if (null == jobTaskManager) {
             jobTaskManager = Env.getCurrentEnv().getJobTaskManager();
         }
-        jobTaskManager.addJobTask(jobTask);
+        boolean isPersistent = job.getJobCategory().isPersistent();
+        jobTaskManager.addJobTask(jobTask, isPersistent);
     }
 
     public void onTransientTaskHandle(TaskEvent taskEvent) {

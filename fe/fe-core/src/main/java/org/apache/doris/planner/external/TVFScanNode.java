@@ -85,10 +85,6 @@ public class TVFScanNode extends FileQueryScanNode {
         numNodes = backendPolicy.numBackends();
     }
 
-    protected String getFsName(FileSplit split) {
-        return tableValuedFunction.getFsName();
-    }
-
     @Override
     public TFileAttributes getFileAttributes() throws UserException {
         return tableValuedFunction.getFileAttributes();

@@ -339,6 +339,8 @@ public class OperationType {
 
     public static final short OP_PERSIST_AUTO_JOB = 456;
 
+    public static final short OP_DELETE_TABLE_STATS = 457;
+
     /**
      * Get opcode name by op code.
      **/

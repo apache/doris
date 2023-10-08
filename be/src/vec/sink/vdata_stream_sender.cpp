@@ -466,7 +466,7 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
     _split_block_distribute_by_channel_timer =
             ADD_TIMER(profile(), "SplitBlockDistributeByChannelTime");
     _merge_block_timer = ADD_TIMER(profile(), "MergeBlockTime");
-    _blocks_sent_counter = ADD_COUNTER(profile(), "BlocksSent", TUnit::UNIT);
+    _blocks_sent_counter = ADD_COUNTER_WITH_LEVEL(profile(), "BlocksSent", TUnit::UNIT, 1);
     _overall_throughput = profile()->add_derived_counter(
             "OverallThroughput", TUnit::BYTES_PER_SECOND,
             std::bind<int64_t>(&RuntimeProfile::units_per_second, _bytes_sent_counter,

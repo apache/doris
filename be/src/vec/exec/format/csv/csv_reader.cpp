@@ -825,6 +825,7 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
     io::FileReaderOptions reader_options =
             FileFactory::get_reader_options(_state, _file_description);
     if (_params.file_type == TFileType::FILE_STREAM) {
+        // Due to http_stream needs to pre read a portion of the data to parse column information, so it is set to true here
         RETURN_IF_ERROR(
                 FileFactory::create_pipe_reader(_params.load_id, &_file_reader, _state, true));
     } else {
