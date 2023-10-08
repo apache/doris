@@ -245,10 +245,14 @@ public class VariableMgr {
     public static SessionVariable newSessionVariable() {
         wlock.lock();
         try {
-            return (SessionVariable) SerializationUtils.clone(defaultSessionVariable);
+            return cloneSessionVariable(defaultSessionVariable);
         } finally {
             wlock.unlock();
         }
+    }
+
+    public static SessionVariable cloneSessionVariable(SessionVariable var) {
+        return SerializationUtils.clone(var);
     }
 
     // Check if this setVar can be set correctly
