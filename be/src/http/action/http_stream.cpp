@@ -245,13 +245,13 @@ void HttpStreamAction::on_chunk_data(HttpRequest* req) {
             if (ctx->schema_buffer->pos + remove_bytes < config::stream_tvf_buffer_size) {
                 ctx->schema_buffer->put_bytes(bb->ptr, remove_bytes);
             } else {
-                ctx->need_schema = true;
+                LOG(INFO) << "use a portion of data to request fe to obtain column information";
                 ctx->is_read_schema = false;
                 ctx->status = _process_put(req, ctx);
             }
         }
 
-        if (!st.ok()) {
+        if (!st.ok() && !ctx->status.ok()) {
             LOG(WARNING) << "append body content failed. errmsg=" << st << ", " << ctx->brief();
             ctx->status = st;
             return;
@@ -260,7 +260,8 @@ void HttpStreamAction::on_chunk_data(HttpRequest* req) {
     }
     // after all the data has been read and it has not reached 1M, it will execute here
     if (ctx->is_read_schema) {
-        ctx->need_schema = true;
+        LOG(INFO) << "after all the data has been read and it has not reached 1M, it will execute "
+                  << "here";
         ctx->is_read_schema = false;
         ctx->status = _process_put(req, ctx);
     }

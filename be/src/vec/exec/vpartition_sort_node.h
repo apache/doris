@@ -435,6 +435,7 @@ private:
     std::queue<Block> _blocks_buffer;
     int64_t child_input_rows = 0;
     std::mutex _buffer_mutex;
+    TPartTopNPhase::type _topn_phase;
 
     RuntimeProfile::Counter* _build_timer;
     RuntimeProfile::Counter* _emplace_key_timer;

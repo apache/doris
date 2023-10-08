@@ -1512,8 +1512,6 @@ public class Env {
         loadJobScheduler.start();
         loadEtlChecker.start();
         loadLoadingChecker.start();
-        // export task
-        exportMgr.start();
         // Tablet checker and scheduler
         tabletChecker.start();
         tabletScheduler.start();

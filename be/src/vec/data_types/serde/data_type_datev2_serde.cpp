@@ -27,15 +27,16 @@
 namespace doris {
 namespace vectorized {
 
-void DataTypeDateV2SerDe::serialize_column_to_json(const IColumn& column, int start_idx,
-                                                   int end_idx, BufferWritable& bw,
-                                                   FormatOptions& options) const {
-    SERIALIZE_COLUMN_TO_JSON()
+Status DataTypeDateV2SerDe::serialize_column_to_json(const IColumn& column, int start_idx,
+                                                     int end_idx, BufferWritable& bw,
+                                                     FormatOptions& options,
+                                                     int nesting_level) const {
+    SERIALIZE_COLUMN_TO_JSON();
 }
 
-void DataTypeDateV2SerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
-                                                     BufferWritable& bw,
-                                                     FormatOptions& options) const {
+Status DataTypeDateV2SerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+                                                       BufferWritable& bw, FormatOptions& options,
+                                                       int nesting_level) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -47,6 +48,7 @@ void DataTypeDateV2SerDe::serialize_one_cell_to_json(const IColumn& column, int 
     char* pos = val.to_string(buf);
     // DateTime to_string the end is /0
     bw.write(buf, pos - buf - 1);
+    return Status::OK();
 }
 
 Status DataTypeDateV2SerDe::deserialize_column_from_json_vector(IColumn& column,
