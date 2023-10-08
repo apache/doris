@@ -64,8 +64,8 @@ partition_desc ["key"="value"]
 - 如指定分桶方式，只能修改分桶数，不可修改分桶方式或分桶列。如果指定了分桶方式，但是没有指定分桶数，则分桶数会使用默认值10，不会使用建表时指定的分桶数。如果要指定分桶数，则必须指定分桶方式。
 - ["key"="value"] 部分可以设置分区的一些属性，具体说明见 [CREATE TABLE](../Create/CREATE-TABLE.md)
 - 如果建表时用户未显式创建Partition,则不支持通过ALTER的方式增加分区
-- 如果用户使用的是List Partition则可以增加default partition
-  -  ALTER TABLE ADD PARTITION DEFAULT
+- 如果用户使用的是List Partition则可以增加default partition，default partition将会存储所有不满足其他分区键要求的数据。
+  -  ALTER TABLE table_name ADD PARTITION partition_name
 
 2. 删除分区
 
@@ -151,7 +151,16 @@ ALTER TABLE example_db.my_table
 DROP PARTITION p1;
 ```
 
-8. 增加一个指定上下界的分区
+8. 批量删除分区
+
+```sql
+ALTER TABLE example_db.my_table
+DROP PARTITION p1,
+DROP PARTITION p2,
+DROP PARTITION p3;
+```
+
+9. 增加一个指定上下界的分区
 
 ```sql
 ALTER TABLE example_db.my_table

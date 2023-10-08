@@ -77,6 +77,7 @@ struct TabletsChannelKey {
 std::ostream& operator<<(std::ostream& os, const TabletsChannelKey& key);
 
 class DeltaWriter;
+class MemTableWriter;
 class OlapTableSchemaParam;
 class LoadChannel;
 
@@ -89,6 +90,8 @@ public:
     ~TabletsChannel();
 
     Status open(const PTabletWriterOpenRequest& request);
+    // open + open writers
+    Status incremental_open(const PTabletWriterOpenRequest& params);
 
     // no-op when this channel has been closed or cancelled
     Status add_batch(const PTabletWriterAddBlockRequest& request,
@@ -110,15 +113,7 @@ public:
     // no-op when this channel has been closed or cancelled
     Status cancel();
 
-    int64_t mem_consumption();
-
     void refresh_profile();
-
-    void get_active_memtable_mem_consumption(
-            std::multimap<int64_t, int64_t, std::greater<int64_t>>* mem_consumptions);
-
-    void flush_memtable_async(int64_t tablet_id);
-    void wait_flush(int64_t tablet_id);
 
 private:
     template <typename Request>
@@ -132,11 +127,10 @@ private:
                      google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
                      google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors,
                      PSlaveTabletNodes slave_tablet_nodes, const bool write_single_replica);
-    void _build_partition_tablets_relation(const PTabletWriterOpenRequest& request);
 
     void _add_broken_tablet(int64_t tablet_id);
     void _add_error_tablet(google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors,
-                           int64_t tablet_id, Status error);
+                           int64_t tablet_id, Status error) const;
     bool _is_broken_tablet(int64_t tablet_id);
     void _init_profile(RuntimeProfile* profile);
 
@@ -171,8 +165,6 @@ private:
     // status to return when operate on an already closed/cancelled channel
     // currently it's OK.
     Status _close_status;
-    std::map<int64, std::vector<int64>> _partition_tablets_map;
-    std::map<int64, int64> _tablet_partition_map;
 
     // tablet_id -> TabletChannel
     std::unordered_map<int64_t, DeltaWriter*> _tablet_writers;

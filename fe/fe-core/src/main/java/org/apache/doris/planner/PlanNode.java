@@ -27,11 +27,13 @@ import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprId;
 import org.apache.doris.analysis.ExprSubstitutionMap;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Type;
@@ -39,6 +41,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.ProfileStatistics;
 import org.apache.doris.statistics.PlanStats;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsDeriveResult;
@@ -46,6 +49,7 @@ import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFunctionBinaryType;
 import org.apache.doris.thrift.TPlan;
 import org.apache.doris.thrift.TPlanNode;
+import org.apache.doris.thrift.TPushAggOp;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -133,6 +137,12 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     //  Node should compact data.
     protected boolean compactData;
+    // Most of the plan node has the same numInstance as its (left) child, except some special nodes, such as
+    // 1. scan node, whose numInstance is calculated according to its data distribution
+    // 2. exchange node, which is gather distribution
+    // 3. union node, whose numInstance is the sum of its children's numInstance
+    // ...
+    // only special nodes need to call setNumInstances() and getNumInstances() from attribute numInstances
     protected int numInstances;
 
     // Runtime filters assigned to this node.
@@ -565,6 +575,62 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return expBuilder.toString();
     }
 
+    protected final String getExplainStringToProfile(String rootPrefix, String prefix, TExplainLevel detailLevel,
+            ProfileStatistics statistics) {
+        StringBuilder expBuilder = new StringBuilder();
+        String detailPrefix = prefix;
+        boolean traverseChildren = children != null
+                && children.size() > 0
+                && !(this instanceof ExchangeNode);
+        // if (children != null && children.size() > 0) {
+        if (traverseChildren) {
+            detailPrefix += "|  ";
+        } else {
+            detailPrefix += "   ";
+        }
+
+        // Print the current node
+        // The plan node header line will be prefixed by rootPrefix and the remaining
+        // details
+        // will be prefixed by detailPrefix.
+        expBuilder.append(rootPrefix + id.asInt() + ":" + planNodeName + "\n");
+        expBuilder.append(getNodeExplainString(detailPrefix, detailLevel));
+        statistics.getInfoById(id.asInt(), detailPrefix, expBuilder);
+        if (limit != -1) {
+            expBuilder.append(detailPrefix + "limit: " + limit + "\n");
+        }
+        if (!CollectionUtils.isEmpty(projectList)) {
+            expBuilder.append(detailPrefix).append("projections: ").append(getExplainString(projectList)).append("\n");
+            expBuilder.append(detailPrefix).append("project output tuple id: ")
+                    .append(outputTupleDesc.getId().asInt()).append("\n");
+        }
+        // Output Tuple Ids only when explain plan level is set to verbose
+        if (detailLevel.equals(TExplainLevel.VERBOSE)) {
+            expBuilder.append(detailPrefix + "tuple ids: ");
+            for (TupleId tupleId : tupleIds) {
+                String nullIndicator = nullableTupleIds.contains(tupleId) ? "N" : "";
+                expBuilder.append(tupleId.asInt() + nullIndicator + " ");
+            }
+            expBuilder.append("\n");
+        }
+
+        // Print the children
+        // if (children != null && children.size() > 0) {
+        if (traverseChildren) {
+            expBuilder.append(detailPrefix + "\n");
+            String childHeadlinePrefix = prefix + "|----";
+            String childDetailPrefix = prefix + "|    ";
+            for (int i = 1; i < children.size(); ++i) {
+                expBuilder.append(
+                        children.get(i).getExplainStringToProfile(childHeadlinePrefix, childDetailPrefix,
+                                detailLevel, statistics));
+                expBuilder.append(childDetailPrefix + "\n");
+            }
+            expBuilder.append(children.get(0).getExplainStringToProfile(prefix, prefix, detailLevel, statistics));
+        }
+        return expBuilder.toString();
+    }
+
     /**
      * Return the node-specific details.
      * Subclass should override this function.
@@ -844,7 +910,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     }
 
     public int getNumInstances() {
-        return numInstances;
+        return this.children.get(0).getNumInstances();
     }
 
     public boolean shouldColoAgg(AggregateInfo aggregateInfo) {
@@ -955,6 +1021,25 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         // don't round cardinality down to zero for safety.
         if (cardinality == 0 && preConjunctCardinality > 0) {
             cardinality = 1;
+        }
+    }
+
+    /**
+     * find planNode recursively based on the planNodeId
+     */
+    public static PlanNode findPlanNodeFromPlanNodeId(PlanNode root, PlanNodeId id) {
+        if (root == null || root.getId() == null || id == null) {
+            return null;
+        } else if (root.getId().equals(id)) {
+            return root;
+        } else {
+            for (PlanNode child : root.getChildren()) {
+                PlanNode retNode = findPlanNodeFromPlanNodeId(child, id);
+                if (retNode != null) {
+                    return retNode;
+                }
+            }
+            return null;
         }
     }
 
@@ -1155,5 +1240,23 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     public void setCardinalityAfterFilter(long cardinalityAfterFilter) {
         this.cardinalityAfterFilter = cardinalityAfterFilter;
+    }
+
+    protected TPushAggOp pushDownAggNoGroupingOp = TPushAggOp.NONE;
+
+    public void setPushDownAggNoGrouping(TPushAggOp pushDownAggNoGroupingOp) {
+        this.pushDownAggNoGroupingOp = pushDownAggNoGroupingOp;
+    }
+
+    public TPushAggOp getPushDownAggNoGroupingOp() {
+        return pushDownAggNoGroupingOp;
+    }
+
+    public boolean pushDownAggNoGrouping(FunctionCallExpr aggExpr) {
+        return false;
+    }
+
+    public boolean pushDownAggNoGroupingCheckCol(FunctionCallExpr aggExpr, Column col) {
+        return false;
     }
 }

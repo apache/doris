@@ -22,7 +22,6 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
-import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.util.MutableState;
@@ -59,32 +58,17 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     // difficult to locate.
     private MutableState mutableState = EmptyMutableState.INSTANCE;
 
-    public AbstractPlan(PlanType type, Plan... children) {
+    protected AbstractPlan(PlanType type, List<Plan> children) {
         this(type, Optional.empty(), Optional.empty(), null, children);
     }
 
     /**
      * all parameter constructor.
      */
-    public AbstractPlan(PlanType type, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> optLogicalProperties, @Nullable Statistics statistics,
-            Plan... children) {
-        super(groupExpression, children);
-        this.type = Objects.requireNonNull(type, "type can not be null");
-        this.groupExpression = Objects.requireNonNull(groupExpression, "groupExpression can not be null");
-        Objects.requireNonNull(optLogicalProperties, "logicalProperties can not be null");
-        this.logicalPropertiesSupplier = Suppliers.memoize(() -> optLogicalProperties.orElseGet(
-                this::computeLogicalProperties));
-        this.statistics = statistics;
-    }
-
-    /**
-     * all parameter constructor.
-     */
-    public AbstractPlan(PlanType type, Optional<GroupExpression> groupExpression,
+    protected AbstractPlan(PlanType type, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> optLogicalProperties, @Nullable Statistics statistics,
             List<Plan> children) {
-        super(groupExpression, children);
+        super(children);
         this.type = Objects.requireNonNull(type, "type can not be null");
         this.groupExpression = Objects.requireNonNull(groupExpression, "groupExpression can not be null");
         Objects.requireNonNull(optLogicalProperties, "logicalProperties can not be null");
@@ -108,7 +92,7 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
 
     @Override
     public boolean canBind() {
-        return !bound() && childrenBound();
+        return !bound() && children().stream().allMatch(Plan::bound);
     }
 
     /**
@@ -129,7 +113,7 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     public JSONObject toJson() {
         JSONObject json = new JSONObject();
         json.put("PlanType", getType().toString());
-        if (this.children().size() == 0) {
+        if (this.children().isEmpty()) {
             return json;
         }
         JSONArray childrenJson = new JSONArray();
@@ -138,25 +122,6 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         }
         json.put("children", childrenJson);
         return json;
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-        AbstractPlan that = (AbstractPlan) o;
-        // stats should don't need.
-        return Objects.equals(getLogicalProperties(), that.getLogicalProperties());
-    }
-
-    @Override
-    public int hashCode() {
-        // stats should don't need.
-        return Objects.hash(getLogicalProperties());
     }
 
     @Override
@@ -175,16 +140,23 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     }
 
     @Override
-    public Plan child(int index) {
-        return super.child(index);
-    }
-
-    @Override
     public LogicalProperties getLogicalProperties() {
+        // TODO: use bound()?
         if (this instanceof Unbound) {
             return UnboundLogicalProperties.INSTANCE;
         }
         return logicalPropertiesSupplier.get();
+    }
+
+    @Override
+    public LogicalProperties computeLogicalProperties() {
+        boolean hasUnboundChild = children.stream()
+                .anyMatch(child -> !child.bound());
+        if (hasUnboundChild || hasUnboundExpression()) {
+            return UnboundLogicalProperties.INSTANCE;
+        } else {
+            return new LogicalProperties(this::computeOutput);
+        }
     }
 
     @Override
@@ -195,31 +167,5 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     @Override
     public void setMutableState(String key, Object state) {
         this.mutableState = this.mutableState.set(key, state);
-    }
-
-    /**
-     * used in treeString()
-     *
-     * @return "" if groupExpression is empty, o.w. string format of group id
-     */
-    public String getGroupIdAsString() {
-        String groupId;
-        if (getGroupExpression().isPresent()) {
-            groupId = "@" + groupExpression.get().getOwnerGroup().getGroupId().asInt();
-        } else if (getMutableState("group").isPresent()) {
-            groupId = "@" + getMutableState("group").get();
-        } else {
-            groupId = "";
-        }
-        return groupId;
-    }
-
-    @Override
-    public boolean deepEquals(TreeNode o) {
-        AbstractPlan that = (AbstractPlan) o;
-        if (Objects.equals(getLogicalProperties(), that.getLogicalProperties())) {
-            return super.deepEquals(o);
-        }
-        return false;
     }
 }

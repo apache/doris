@@ -117,9 +117,7 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
                 .build();
     }
 
-    /**
-     * Determine the equality with another plan
-     */
+    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;
@@ -127,9 +125,8 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        LogicalRepeat that = (LogicalRepeat) o;
-        return Objects.equals(groupingSets, that.groupingSets)
-                && Objects.equals(outputExpressions, that.outputExpressions);
+        LogicalRepeat<?> that = (LogicalRepeat<?>) o;
+        return groupingSets.equals(that.groupingSets) && outputExpressions.equals(that.outputExpressions);
     }
 
     @Override

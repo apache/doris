@@ -1,6 +1,6 @@
 ---
 {
-    "title": "datediff",
+    "title": "DATEDIFF",
     "language": "en"
 }
 ---

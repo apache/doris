@@ -38,6 +38,7 @@
 #include <sstream>
 #include <thread>
 
+#include "service/backend_options.h"
 #include "util/doris_metrics.h"
 
 namespace apache {
@@ -298,6 +299,11 @@ ThriftServer::ThriftServer(const std::string& name,
     INT_COUNTER_METRIC_REGISTER(_thrift_server_metric_entity, thrift_connections_total);
 }
 
+ThriftServer::~ThriftServer() {
+    stop();
+    join();
+}
+
 Status ThriftServer::start() {
     DCHECK(!_started);
     std::shared_ptr<apache::thrift::protocol::TProtocolFactory> protocol_factory(
@@ -332,7 +338,8 @@ Status ThriftServer::start() {
         break;
 
     case THREAD_POOL:
-        fe_server_transport.reset(new apache::thrift::transport::TServerSocket(_port));
+        fe_server_transport.reset(new apache::thrift::transport::TServerSocket(
+                BackendOptions::get_service_bind_address_without_bracket(), _port));
 
         if (transport_factory.get() == nullptr) {
             transport_factory.reset(new apache::thrift::transport::TBufferedTransportFactory());
@@ -343,7 +350,8 @@ Status ThriftServer::start() {
         break;
 
     case THREADED:
-        server_socket = new apache::thrift::transport::TServerSocket(_port);
+        server_socket = new apache::thrift::transport::TServerSocket(
+                BackendOptions::get_service_bind_address_without_bracket(), _port);
         //      server_socket->setAcceptTimeout(500);
         fe_server_transport.reset(server_socket);
 

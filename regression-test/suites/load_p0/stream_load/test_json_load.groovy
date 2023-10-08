@@ -606,9 +606,10 @@ suite("test_json_load", "p0") {
             "replication_num" = "1"
         );
         """
-1
+
         load_json_data.call("${testTable}", 'with_jsonpath', '', 'true', 'json', """productid, deviceid, data, datatimestamp, dt=from_unixtime(substr(datatimestamp,1,10),'%Y%m%d')""",
                 '["$.productid","$.deviceid","$.data","$.data.datatimestamp"]', '', '', '', 'with_jsonpath.json')
+        sql "sync"
         qt_select22 "select * from ${testTable}"
 
     } finally {
@@ -621,7 +622,7 @@ suite("test_json_load", "p0") {
         brokerName =getBrokerName()
         hdfsUser = getHdfsUser()
         hdfsPasswd = getHdfsPasswd()
-        def hdfs_file_path = uploadToHdfs "stream_load/simple_object_json.json"
+        def hdfs_file_path = uploadToHdfs "load_p0/stream_load/simple_object_json.json"
         def format = "json" 
 
         // case18: import json use pre-filter exprs

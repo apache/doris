@@ -91,10 +91,12 @@ template <PrimitiveType Type>
 Status TypedZoneMapIndexWriter<Type>::flush() {
     // Update segment zone map.
     if (_field->compare(_segment_zone_map.min_value, _page_zone_map.min_value) > 0) {
-        _field->type_info()->direct_copy(_segment_zone_map.min_value, _page_zone_map.min_value);
+        _field->type_info()->direct_copy_may_cut(_segment_zone_map.min_value,
+                                                 _page_zone_map.min_value);
     }
     if (_field->compare(_segment_zone_map.max_value, _page_zone_map.max_value) < 0) {
-        _field->type_info()->direct_copy(_segment_zone_map.max_value, _page_zone_map.max_value);
+        _field->type_info()->direct_copy_may_cut(_segment_zone_map.max_value,
+                                                 _page_zone_map.max_value);
     }
     if (_page_zone_map.has_null) {
         _segment_zone_map.has_null = true;
@@ -146,7 +148,15 @@ Status TypedZoneMapIndexWriter<Type>::finish(io::FileWriter* file_writer,
 }
 
 Status ZoneMapIndexReader::load(bool use_page_cache, bool kept_in_memory) {
-    IndexedColumnReader reader(_file_reader, _index_meta->page_zone_maps());
+    // TODO yyq: implement a new once flag to avoid status construct.
+    return _load_once.call([this, use_page_cache, kept_in_memory] {
+        return _load(use_page_cache, kept_in_memory, std::move(_page_zone_maps_meta));
+    });
+}
+
+Status ZoneMapIndexReader::_load(bool use_page_cache, bool kept_in_memory,
+                                 std::unique_ptr<IndexedColumnMetaPB> page_zone_maps_meta) {
+    IndexedColumnReader reader(_file_reader, *page_zone_maps_meta);
     RETURN_IF_ERROR(reader.load(use_page_cache, kept_in_memory));
     IndexedColumnIterator iter(&reader);
 

@@ -59,7 +59,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         ColumnPtr res_ptr;
         ColumnArrayExecutionDatas datas(arguments.size());
         std::vector<bool> col_const(arguments.size());
@@ -69,8 +69,7 @@ public:
             col_const[i] = is_const;
             extract_column_array_info(*col, datas[i]);
         }
-        if (Status st = Impl::execute(res_ptr, datas, col_const, 0, input_rows_count);
-            st != Status::OK()) {
+        if (Status st = Impl::execute(res_ptr, datas, col_const, 0, input_rows_count); !st.ok()) {
             return Status::RuntimeError(
                     fmt::format("function {} execute failed {} ", get_name(), st.to_string()));
         }

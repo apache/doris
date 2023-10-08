@@ -146,9 +146,6 @@ public class Analyzer {
     private String schemaWild;
     private String schemaTable; // table used in DESCRIBE Table
 
-    // True if the corresponding select block has a limit and/or offset clause.
-    private boolean hasLimitOffsetClause = false;
-
     // Current depth of nested analyze() calls. Used for enforcing a
     // maximum expr-tree depth. Needs to be manually maintained by the user
     // of this Analyzer with incrementCallDepth() and decrementCallDepth().
@@ -657,6 +654,14 @@ public class Analyzer {
         }
     }
 
+    public void registerTupleDescriptor(TupleDescriptor desc) {
+        tupleByAlias.put(desc.getAlias(), desc);
+        for (SlotDescriptor slot : desc.getSlots()) {
+            String key = desc.getAlias() + "." + slot.getColumn().getName();
+            slotRefMap.put(key, slot);
+        }
+    }
+
     /**
      * Creates an returns an empty TupleDescriptor for the given table ref and registers
      * it against all its legal aliases. For tables refs with an explicit alias, only the
@@ -922,7 +927,34 @@ public class Analyzer {
             // ===================================================
             // Someone may concern that if t2 is not alias of t, this fix will cause incorrect resolve. In fact,
             // this does not happen, since we push t2.a in (1.2) down to this inline view, t2 must be alias of t.
-            if (d == null && isInlineView && newTblName.getTbl().equals(explicitViewAlias)) {
+            // create table tmp_can_drop_t1 (
+            //     cust_id varchar(96),
+            //     user_id varchar(96)
+            // )
+            // create table tmp_can_drop_t2 (
+            //     cust_id varchar(96),
+            //     usr_id varchar(96)
+            // )
+            // select
+            // a.cust_id,
+            // a.usr_id
+            // from (
+            // select
+            //     a.cust_id,
+            //     a.usr_id, --------->(report error, because there is no user_id column in tmp_can_drop_t1)
+            //     a.user_id
+            // from tmp_can_drop_t1 a
+            // full join (
+            //     select
+            //     cust_id,
+            //     usr_id
+            //     from
+            //     tmp_can_drop_t2
+            // ) b
+            // on b.cust_id = a.cust_id
+            // ) a;
+            if (d == null && isInlineView && newTblName.getTbl().equals(explicitViewAlias)
+                    && !tupleByAlias.containsKey(newTblName.getTbl())) {
                 d = resolveColumnRef(colName);
             }
         }
@@ -1818,10 +1850,6 @@ public class Analyzer {
         return hasEmptySpjResultSet;
     }
 
-    public void setHasLimitOffsetClause(boolean hasLimitOffset) {
-        this.hasLimitOffsetClause = hasLimitOffset;
-    }
-
     /**
      * Register all conjuncts in 'conjuncts' that make up the On-clause of the given
      * right-hand side of a join. Assigns each conjunct a unique id. If rhsRef is
@@ -2134,7 +2162,7 @@ public class Analyzer {
         for (int i = 1; i < exprs.size(); ++i) {
             exprs.get(i).analyze(this);
             if (compatibleType.isDateV2() && exprs.get(i) instanceof StringLiteral
-                    && ((StringLiteral) exprs.get(i)).canConvertToDateV2(compatibleType)) {
+                    && ((StringLiteral) exprs.get(i)).canConvertToDateType(compatibleType)) {
                 // If string literal can be converted to dateV2, we use datev2 as the compatible type
                 // instead of datetimev2.
             } else if (exprs.get(i).isConstantImpl()) {

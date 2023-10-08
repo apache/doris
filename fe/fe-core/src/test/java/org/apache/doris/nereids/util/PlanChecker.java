@@ -33,7 +33,6 @@ import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
 import org.apache.doris.nereids.jobs.rewrite.PlanTreeRewriteBottomUpJob;
 import org.apache.doris.nereids.jobs.rewrite.PlanTreeRewriteTopDownJob;
 import org.apache.doris.nereids.jobs.rewrite.RootPlanTreeRewriteJob;
-import org.apache.doris.nereids.memo.CopyInResult;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
@@ -65,7 +64,6 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 
-import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -76,6 +74,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 /**
  * Utility to apply rules to plan and check output plan matches the expected pattern.
@@ -129,7 +128,7 @@ public class PlanChecker {
 
     public PlanChecker analyze(Plan plan) {
         this.cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
-        Set<String> originDisableRules = connectContext.getSessionVariable().getDisableNereidsRules();
+        Set<String> originDisableRules = connectContext.getSessionVariable().getDisableNereidsRuleNames();
         Set<String> disableRuleWithAuth = Sets.newHashSet(originDisableRules);
         disableRuleWithAuth.add(RuleType.RELATION_AUTHENTICATION.name());
         connectContext.getSessionVariable().setDisableNereidsRules(String.join(",", disableRuleWithAuth));
@@ -243,23 +242,13 @@ public class PlanChecker {
 
     public PlanChecker dpHypOptimize() {
         double now = System.currentTimeMillis();
+        cascadesContext.getStatementContext().setDpHyp(true);
+        cascadesContext.getConnectContext().getSessionVariable().enableDPHypOptimizer = true;
         Group root = cascadesContext.getMemo().getRoot();
-        boolean changeRoot = false;
-        if (root.isValidJoinGroup()) {
-            // If the root group is join group, DPHyp can change the root group.
-            // To keep the root group is not changed, we add a dummy project operator above join
-            List<Slot> outputs = root.getLogicalExpression().getPlan().getOutput();
-            LogicalPlan plan = new LogicalProject(outputs, root.getLogicalExpression().getPlan());
-            CopyInResult copyInResult = cascadesContext.getMemo().copyIn(plan, null, false);
-            root = copyInResult.correspondingExpression.getOwnerGroup();
-            changeRoot = true;
-        }
         cascadesContext.pushJob(new JoinOrderJob(root, cascadesContext.getCurrentJobContext()));
+        cascadesContext.pushJob(new DeriveStatsJob(root.getLogicalExpression(),
+                cascadesContext.getCurrentJobContext()));
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
-        if (changeRoot) {
-            cascadesContext.getMemo().setRoot(root.getLogicalExpression().child(0));
-        }
-        // if the root is not join, we need to optimize again.
         optimize();
         System.out.println("DPhyp:" + (System.currentTimeMillis() - now));
         return this;
@@ -357,20 +346,29 @@ public class PlanChecker {
     }
 
     private PlanChecker applyExploration(Group group, Rule rule) {
-        // copy groupExpressions can prevent ConcurrentModificationException
-        for (GroupExpression logicalExpression : Lists.newArrayList(group.getLogicalExpressions())) {
-            applyExploration(logicalExpression, rule);
+        // copy children expression, because group may be changed after apply rule.
+        List<GroupExpression> logicalExpressions = Lists.newArrayList(group.getLogicalExpressions());
+        // due to mergeGroup, the children Group of groupExpression may be replaced, so we need to use lambda to
+        // get the child to make we can get child at the time we use child.
+        // If we use for child: groupExpression.children(), it means that we take it in advance. It may cause NPE,
+        // work flow: get children() to get left, right -> copyIn left() -> mergeGroup -> right is merged -> NPE
+        for (int i = 0; i < logicalExpressions.size(); i++) {
+            final int childIdx = i;
+            applyExploration(() -> logicalExpressions.get(childIdx), rule);
         }
 
-        for (GroupExpression physicalExpression : Lists.newArrayList(group.getPhysicalExpressions())) {
-            applyExploration(physicalExpression, rule);
+        List<GroupExpression> physicalExpressions = Lists.newArrayList(group.getPhysicalExpressions());
+        for (int i = 0; i < physicalExpressions.size(); i++) {
+            final int childIdx = i;
+            applyExploration(() -> physicalExpressions.get(childIdx), rule);
         }
         return this;
     }
 
-    private void applyExploration(GroupExpression groupExpression, Rule rule) {
-        GroupExpressionMatching matchResult = new GroupExpressionMatching(rule.getPattern(), groupExpression);
+    private void applyExploration(Supplier<GroupExpression> groupExpression, Rule rule) {
+        GroupExpressionMatching matchResult = new GroupExpressionMatching(rule.getPattern(), groupExpression.get());
 
+        List<Group> childrenGroup = new ArrayList<>(groupExpression.get().children());
         for (Plan before : matchResult) {
             Plan after = rule.transform(before, cascadesContext).get(0);
             if (before != after) {
@@ -378,7 +376,7 @@ public class PlanChecker {
             }
         }
 
-        for (Group childGroup : groupExpression.children()) {
+        for (Group childGroup : childrenGroup) {
             applyExploration(childGroup, rule);
         }
     }
@@ -459,10 +457,24 @@ public class PlanChecker {
         return this;
     }
 
+    public PlanChecker notMatchesFromRoot(PatternDescriptor<? extends Plan> patternDesc) {
+        Memo memo = cascadesContext.getMemo();
+        assertMatches(memo, () -> !(new GroupExpressionMatching(patternDesc.pattern,
+                memo.getRoot().getLogicalExpression()).iterator().hasNext()));
+        return this;
+    }
+
     public PlanChecker matches(PatternDescriptor<? extends Plan> patternDesc) {
         Memo memo = cascadesContext.getMemo();
         checkSlotFromChildren(memo);
         assertMatches(memo, () -> MatchingUtils.topDownFindMatching(memo.getRoot(), patternDesc.pattern));
+        return this;
+    }
+
+    public PlanChecker nonMatch(PatternDescriptor<? extends Plan> patternDesc) {
+        Memo memo = cascadesContext.getMemo();
+        checkSlotFromChildren(memo);
+        assertMatches(memo, () -> !MatchingUtils.topDownFindMatching(memo.getRoot(), patternDesc.pattern));
         return this;
     }
 
@@ -598,7 +610,7 @@ public class PlanChecker {
     }
 
     public PhysicalPlan getBestPlanTree() {
-        return chooseBestPlan(cascadesContext.getMemo().getRoot(), PhysicalProperties.ANY);
+        return chooseBestPlan(cascadesContext.getMemo().getRoot(), PhysicalProperties.GATHER);
     }
 
     public PhysicalPlan getBestPlanTree(PhysicalProperties properties) {

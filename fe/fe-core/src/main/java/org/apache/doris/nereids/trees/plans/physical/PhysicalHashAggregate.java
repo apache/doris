@@ -96,7 +96,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
             Optional<List<Expression>> partitionExpressions, AggregateParam aggregateParam, boolean maybeUsingStream,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             RequireProperties requireProperties, CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_AGGREGATE, groupExpression, logicalProperties, child);
+        super(PlanType.PHYSICAL_HASH_AGGREGATE, groupExpression, logicalProperties, child);
         this.groupByExpressions = ImmutableList.copyOf(
                 Objects.requireNonNull(groupByExpressions, "groupByExpressions cannot be null"));
         this.outputExpressions = ImmutableList.copyOf(
@@ -122,7 +122,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             RequireProperties requireProperties, PhysicalProperties physicalProperties,
             Statistics statistics, CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_AGGREGATE, groupExpression, logicalProperties, physicalProperties, statistics,
+        super(PlanType.PHYSICAL_HASH_AGGREGATE, groupExpression, logicalProperties, physicalProperties, statistics,
                 child);
         this.groupByExpressions = ImmutableList.copyOf(
                 Objects.requireNonNull(groupByExpressions, "groupByExpressions cannot be null"));
@@ -196,7 +196,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalHashAggregate[" + id.asInt() + "]" + getGroupIdAsString(),
+        return Utils.toSqlString("PhysicalHashAggregate[" + id.asInt() + "]" + getGroupIdWithPrefix(),
                 "aggPhase", aggregateParam.aggPhase,
                 "aggMode", aggregateParam.aggMode,
                 "maybeUseStreaming", maybeUsingStream,
@@ -295,7 +295,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
 
     @Override
     public boolean pushDownRuntimeFilter(CascadesContext context, IdGenerator<RuntimeFilterId> generator,
-            AbstractPhysicalJoin builderNode, Expression src, Expression probeExpr,
+            AbstractPhysicalJoin<?, ?> builderNode, Expression src, Expression probeExpr,
             TRuntimeFilterType type, long buildSideNdv, int exprOrder) {
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
         Map<NamedExpression, Pair<PhysicalRelation, Slot>> aliasTransferMap = ctx.getAliasTransferMap();
@@ -303,19 +303,33 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
         // so right maybe an expression and left is a slot
         Slot probeSlot = RuntimeFilterGenerator.checkTargetChild(probeExpr);
 
-        // aliasTransMap doesn't contain the key, means that the path from the olap scan to the join
+        // aliasTransMap doesn't contain the key, means that the path from the scan to the join
         // contains join with denied join type. for example: a left join b on a.id = b.id
-        if (!RuntimeFilterGenerator.checkPushDownPreconditions(builderNode, ctx, probeSlot)) {
+        if (!RuntimeFilterGenerator.checkPushDownPreconditionsForJoin(builderNode, ctx, probeSlot)) {
             return false;
         }
         PhysicalRelation scan = aliasTransferMap.get(probeSlot).first;
-        if (!RuntimeFilterGenerator.isCoveredByPlanNode(this, scan)) {
+        if (!RuntimeFilterGenerator.checkPushDownPreconditionsForRelation(this, scan)) {
             return false;
         }
 
         AbstractPhysicalPlan child = (AbstractPhysicalPlan) child(0);
-        boolean pushedDown = child.pushDownRuntimeFilter(context, generator, builderNode,
+        return child.pushDownRuntimeFilter(context, generator, builderNode,
                 src, probeExpr, type, buildSideNdv, exprOrder);
-        return pushedDown;
+    }
+
+    @Override
+    public List<Slot> computeOutput() {
+        return outputExpressions.stream()
+                .map(NamedExpression::toSlot)
+                .collect(ImmutableList.toImmutableList());
+    }
+
+    @Override
+    public PhysicalHashAggregate<CHILD_TYPE> resetLogicalProperties() {
+        return new PhysicalHashAggregate<>(groupByExpressions, outputExpressions, partitionExpressions,
+                aggregateParam, maybeUsingStream, groupExpression, null,
+                requireProperties, physicalProperties, statistics,
+                child());
     }
 }

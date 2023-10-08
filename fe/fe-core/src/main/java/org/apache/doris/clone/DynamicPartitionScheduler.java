@@ -210,7 +210,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         ArrayList<Long> partitionSizeArray = Lists.newArrayList();
         for (Partition partition : partitions) {
             if (partition.getVisibleVersion() >= 2) {
-                partitionSizeArray.add(partition.getDataSize());
+                partitionSizeArray.add(partition.getAllDataSize(true));
             }
         }
 
@@ -221,7 +221,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
 
         // plus 5 for uncompressed data
         long uncompressedPartitionSize = getNextPartitionSize(partitionSizeArray) * 5;
-        return AutoBucketUtils.getBucketsNum(uncompressedPartitionSize);
+        return AutoBucketUtils.getBucketsNum(uncompressedPartitionSize, Config.autobucket_min_buckets);
     }
 
     private ArrayList<AddPartitionClause> getAddPartitionClause(Database db, OlapTable olapTable,
@@ -504,6 +504,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                     || !olapTable.dynamicPartitionExists()
                     || !olapTable.getTableProperty().getDynamicPartitionProperty().getEnable()) {
                 iterator.remove();
+                continue;
+            } else if (olapTable.isBeingSynced()) {
                 continue;
             }
             olapTable.readLock();

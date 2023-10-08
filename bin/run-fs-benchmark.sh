@@ -72,7 +72,7 @@ if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
 fi
 
 if [[ -n "${HADOOP_CONF_DIR}" ]]; then
-    export DORIS_CLASSPATH="${HADOOP_CONF_DIR}:${DORIS_CLASSPATH}"
+    export DORIS_CLASSPATH="${DORIS_CLASSPATH}:${HADOOP_CONF_DIR}"
 fi
 
 # the CLASSPATH and LIBHDFS_OPTS is used for hadoop libhdfs
@@ -234,7 +234,7 @@ java_version="$(
 CUR_DATE=$(date +%Y%m%d-%H%M%S)
 LOG_PATH="-DlogPath=${DORIS_HOME}/log/jni.log"
 COMMON_OPTS="-Dsun.java.command=DorisBE -XX:-CriticalJNINatives"
-JDBC_OPTS="-DJDBC_MIN_POOL=1 -DJDBC_MAX_POOL=100 -DJDBC_MAX_IDEL_TIME=300000"
+JDBC_OPTS="-DJDBC_MIN_POOL=1 -DJDBC_MAX_POOL=100 -DJDBC_MAX_IDLE_TIME=300000"
 
 if [[ "${java_version}" -gt 8 ]]; then
     if [[ -z ${JAVA_OPTS_FOR_JDK_9} ]]; then

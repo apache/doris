@@ -181,7 +181,7 @@ Doris 元数据将保存在这里。 强烈建议将此目录的存储为：
 
 #### `bdbje_lock_timeout_second`
 
-默认值：1
+默认值：5
 
 bdbje 操作的 lock timeout  如果 FE WARN 日志中有很多 LockTimeoutException，可以尝试增加这个值
 
@@ -384,6 +384,12 @@ heartbeat_mgr 中处理心跳事件的线程数。
 
 Doris FE 通过 mysql 协议查询连接端口
 
+#### `arrow_flight_sql_port`
+
+默认值：-1
+
+Doris FE 通过 Arrow Flight SQL 协议查询连接端口
+
 #### `frontend_address`
 
 状态:已弃用，不建议使用。
@@ -430,14 +436,6 @@ FE https 使能标志位，false 表示支持 http，true 表示同时支持 htt
 默认值：1024
 
 每个 FE 的最大连接数
-
-#### `max_connection_scheduler_threads_num`
-
-默认值：4096
-
-查询请求调度器中的最大线程数。
-
-目前的策略是，有请求过来，就为其单独申请一个线程进行服务
 
 #### `check_java_version`
 
@@ -613,7 +611,7 @@ FE向BE的BackendService发送rpc请求时的超时时间，单位：毫秒。
 
 #### `remote_fragment_exec_timeout_ms`
 
-默认值：5000  （ms）
+默认值：30000  （ms）
 
 是否可以动态配置：true
 
@@ -765,6 +763,16 @@ trace导出到 collector: `http://127.0.0.1:4318/v1/traces`
 
 </version>
 
+#### `multi_partition_name_prefix`
+
+默认值：p_
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+使用此参数设置 multi partition 的分区名前缀，仅仅multi partition 生效，不作用于动态分区，默认前缀是“p_”。
+
 #### `partition_in_memory_update_interval_secs`
 
 默认值：300 (s)
@@ -818,7 +826,7 @@ trace导出到 collector: `http://127.0.0.1:4318/v1/traces`
 
 是否为 Master FE 节点独有的配置项：false
 
-如果设置为 true，SQL 查询结果集将被缓存。如果查询中所有表的所有分区最后一次访问版本时间的间隔大于cache_last_version_interval_second，且结果集小于cache_result_max_row_count，则结果集会被缓存，下一条相同的SQL会命中缓存
+如果设置为 true，SQL 查询结果集将被缓存。如果查询中所有表的所有分区最后一次访问版本时间的间隔大于cache_last_version_interval_second，且结果集行数小于cache_result_max_row_count，且数据大小小于cache_result_max_data_size，则结果集会被缓存，下一条相同的SQL会命中缓存
 
 如果设置为 true，FE 会启用 sql 结果缓存，该选项适用于离线数据更新场景
 
@@ -846,6 +854,16 @@ trace导出到 collector: `http://127.0.0.1:4318/v1/traces`
 是否为 Master FE 节点独有的配置项：false
 
 设置可以缓存的最大行数，详细的原理可以参考官方文档：操作手册->分区缓存
+
+#### `cache_result_max_data_size`
+
+默认值：31457280
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：false
+
+设置可以缓存的最大数据大小，单位Bytes
 
 #### `cache_last_version_interval_second`
 
@@ -1680,6 +1698,12 @@ sys_log_dir:
 
 日志拆分的大小，每1G拆分一个日志文件
 
+#### `sys_log_enable_compress`
+
+默认值：false
+
+控制是否压缩fe log, 包括fe.log 及 fe.warn.log。如果开启，则使用gzip算法进行压缩。
+
 #### `audit_log_dir`
 
 默认值：DorisFE.DORIS_HOME_DIR + "/log"
@@ -1724,6 +1748,12 @@ HOUR: log前缀是：yyyyMMddHH
 - 10小时  10 小时
 - 60m    60 分钟
 - 120s   120 秒
+
+#### `audit_log_enable_compress`
+
+默认值：false
+
+控制是否压缩 fe.audit.log。如果开启，则使用gzip算法进行压缩。
 
 ### 存储
 
@@ -2714,14 +2744,6 @@ show data （其他用法：HELP SHOW DATA）
 
 这个参数主要用于避免因 external catalog 无法访问、信息过多等原因导致的查询 `information_schema` 超时的问题。
 
-#### `max_instance_num`
-
-<version since="dev"></version>
-
-默认值：128
-
-用于限制parallel_fragment_exec_instance_num的设置，set parallel_fragment_exec_instance_num不能超过max_instance_num
-
 #### `enable_query_hit_stats`
 
 <version since="dev"></version>
@@ -2740,3 +2762,15 @@ show data （其他用法：HELP SHOW DATA）
 默认值：4
 
 此变量表示增加与/运算符执行的除法操作结果规模的位数。默认为4。
+
+#### `enable_convert_light_weight_schema_change`
+
+默认值：true
+
+暂时性配置项，开启后会启动后台线程自动将所有的olap表修改为可light schema change，修改结果可通过命令`show convert_light_schema_change [from db]` 来查看，将会展示所有非light schema change表的转换结果
+
+#### `disable_local_deploy_manager_drop_node`
+
+默认值：true
+
+禁止LocalDeployManager删除节点，防止cluster.info文件有误导致节点被删除。

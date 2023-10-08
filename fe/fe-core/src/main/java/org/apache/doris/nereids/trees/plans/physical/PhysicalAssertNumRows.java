@@ -70,7 +70,7 @@ public class PhysicalAssertNumRows<CHILD_TYPE extends Plan> extends PhysicalUnar
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalAssertNumRows" + getGroupIdAsString(),
+        return Utils.toSqlString("PhysicalAssertNumRows" + getGroupIdWithPrefix(),
                 "assertNumRowsElement", assertNumRowsElement);
     }
 
@@ -128,5 +128,11 @@ public class PhysicalAssertNumRows<CHILD_TYPE extends Plan> extends PhysicalUnar
             Statistics statistics) {
         return new PhysicalAssertNumRows<>(assertNumRowsElement, groupExpression,
                 getLogicalProperties(), physicalProperties, statistics, child());
+    }
+
+    @Override
+    public PhysicalAssertNumRows<CHILD_TYPE> resetLogicalProperties() {
+        return new PhysicalAssertNumRows<>(assertNumRowsElement, groupExpression,
+                null, physicalProperties, statistics, child());
     }
 }

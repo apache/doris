@@ -23,7 +23,7 @@
 #include <string>
 
 #include "common/status.h"
-#include "util/priority_thread_pool.hpp"
+#include "util/work_thread_pool.hpp"
 
 namespace google {
 namespace protobuf {
@@ -37,6 +37,7 @@ namespace doris {
 class ExecEnv;
 class PHandShakeRequest;
 class PHandShakeResponse;
+class LoadStreamMgr;
 
 class PInternalServiceImpl : public PBackendService {
 public:
@@ -81,10 +82,19 @@ public:
                             PFetchTableSchemaResult* result,
                             google::protobuf::Closure* done) override;
 
+    void fetch_arrow_flight_schema(google::protobuf::RpcController* controller,
+                                   const PFetchArrowFlightSchemaRequest* request,
+                                   PFetchArrowFlightSchemaResult* result,
+                                   google::protobuf::Closure* done) override;
+
     void tablet_writer_open(google::protobuf::RpcController* controller,
                             const PTabletWriterOpenRequest* request,
                             PTabletWriterOpenResult* response,
                             google::protobuf::Closure* done) override;
+
+    void open_stream_sink(google::protobuf::RpcController* controller,
+                          const POpenStreamSinkRequest* request, POpenStreamSinkResponse* response,
+                          google::protobuf::Closure* done) override;
 
     void tablet_writer_add_block(google::protobuf::RpcController* controller,
                                  const PTabletWriterAddBlockRequest* request,
@@ -181,6 +191,19 @@ public:
                                     PGetTabletVersionsResponse* response,
                                     google::protobuf::Closure* done) override;
 
+    void report_stream_load_status(google::protobuf::RpcController* controller,
+                                   const PReportStreamLoadStatusRequest* request,
+                                   PReportStreamLoadStatusResponse* response,
+                                   google::protobuf::Closure* done) override;
+
+    void glob(google::protobuf::RpcController* controller, const PGlobRequest* request,
+              PGlobResponse* response, google::protobuf::Closure* done) override;
+
+    void group_commit_insert(google::protobuf::RpcController* controller,
+                             const PGroupCommitInsertRequest* request,
+                             PGroupCommitInsertResponse* response,
+                             google::protobuf::Closure* done) override;
+
 private:
     void _exec_plan_fragment_in_pthread(google::protobuf::RpcController* controller,
                                         const PExecPlanFragmentRequest* request,
@@ -227,8 +250,10 @@ private:
     // the reason see issue #16634
     // define the interface for reading and writing data as heavy interface
     // otherwise as light interface
-    PriorityThreadPool _heavy_work_pool;
-    PriorityThreadPool _light_work_pool;
+    FifoThreadPool _heavy_work_pool;
+    FifoThreadPool _light_work_pool;
+
+    std::unique_ptr<LoadStreamMgr> _load_stream_mgr;
 };
 
 } // namespace doris

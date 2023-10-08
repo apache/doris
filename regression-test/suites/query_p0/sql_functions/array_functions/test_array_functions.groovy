@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_array_functions") {
+    sql "SET enable_nereids_planner=false"
     def tableName = "tbl_test_array_functions"
     // array functions only supported in vectorized engine
     sql """DROP TABLE IF EXISTS ${tableName}"""
@@ -33,7 +34,8 @@ suite("test_array_functions") {
               `k10` ARRAY<datetimev2(3)> NULL COMMENT "",
               `k11` ARRAY<datetimev2(3)> NULL COMMENT "",
               `k12` ARRAY<decimalv3(6, 3)> NULL COMMENT "",
-              `k13` ARRAY<decimalv3(6, 3)> NULL COMMENT ""
+              `k13` ARRAY<decimalv3(6, 3)> NULL COMMENT "",
+              `k14` ARRAY<int(11)> NULL COMMENT ""
             ) ENGINE=OLAP
             DUPLICATE KEY(`k1`)
             DISTRIBUTED BY HASH(`k1`) BUCKETS 1
@@ -42,15 +44,15 @@ suite("test_array_functions") {
             "storage_format" = "V2"
             )
         """
-    sql """ INSERT INTO ${tableName} VALUES(1,[1,2,3],["a","b",""],[1,2],["hi"],["2015-03-13"],["2015-03-13 12:36:38"],["2023-02-05","2023-02-06"],["2023-02-07","2023-02-06"],['2022-10-15 10:30:00.999', '2022-08-31 12:00:00.999'],['2022-10-16 10:30:00.999', '2022-08-31 12:00:00.999'],[111.111, 222.222],[222.222, 333.333]) """
-    sql """ INSERT INTO ${tableName} VALUES(2,[4],NULL,[5],["hi2"],NULL,NULL,["2023-01-05","2023-01-06"],["2023-01-07","2023-01-06"],['2022-11-15 10:30:00.999', '2022-01-31 12:00:00.999'],['2022-11-16 10:30:00.999', '2022-01-31 12:00:00.999'],[333.3333, 444.4444],[444.4444, 555.5555]) """
-    sql """ INSERT INTO ${tableName} VALUES(3,[],[],NULL,["hi3"],NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL) """
-    sql """ INSERT INTO ${tableName} VALUES(4,[1,2,3,4,5,4,3,2,1],[],[],NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL) """
-    sql """ INSERT INTO ${tableName} VALUES(5,[],["a","b","c","d","c","b","a"],NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL) """
-    sql """ INSERT INTO ${tableName} VALUES(6,[1,2,3,4,5,4,3,2,1],["a","b","c","d","c","b","a"],NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL) """
-    sql """ INSERT INTO ${tableName} VALUES(7,[8,9,NULL,10,NULL],["f",NULL,"g",NULL,"h"],NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL) """
-    sql """ INSERT INTO ${tableName} VALUES(8,[1,2,3,3,4,4,NULL],["a","b","b","b"],[1,2,2,3],["hi","hi","hello"],["2015-03-13"],["2015-03-13 12:36:38"],NULL,NULL,NULL,NULL,NULL,NULL) """
-    sql """ INSERT INTO ${tableName} VALUES(9,[1,2,3],["a","b",""],[1,2],["hi"],["2015-03-13","2015-03-13","2015-03-14"],["2015-03-13 12:36:38","2015-03-13 12:36:38"],NULL,NULL,NULL,NULL,NULL,NULL) """
+    sql """ INSERT INTO ${tableName} VALUES(1,[1,2,3],["a","b",""],[1,2],["hi"],["2015-03-13"],["2015-03-13 12:36:38"],["2023-02-05","2023-02-06"],["2023-02-07","2023-02-06"],['2022-10-15 10:30:00.999', '2022-08-31 12:00:00.999'],['2022-10-16 10:30:00.999', '2022-08-31 12:00:00.999'],[111.111, 222.222],[222.222, 333.333],[1,222,3]) """
+    sql """ INSERT INTO ${tableName} VALUES(2,[4],NULL,[5],["hi2"],NULL,NULL,["2023-01-05","2023-01-06"],["2023-01-07","2023-01-06"],['2022-11-15 10:30:00.999', '2022-01-31 12:00:00.999'],['2022-11-16 10:30:00.999', '2022-01-31 12:00:00.999'],[333.3333, 444.4444],[444.4444, 555.5555],NULL) """
+    sql """ INSERT INTO ${tableName} VALUES(3,[],[],NULL,["hi3"],NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,[2,3,4]) """
+    sql """ INSERT INTO ${tableName} VALUES(4,[1,2,3,4,5,4,3,2,1],[],[],NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,[NULL, 23]) """
+    sql """ INSERT INTO ${tableName} VALUES(5,[],["a","b","c","d","c","b","a"],NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,[]) """
+    sql """ INSERT INTO ${tableName} VALUES(6,[1,2,3,4,5,4,3,2,1],["a","b","c","d","c","b","a"],NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,[NULL, 22]) """
+    sql """ INSERT INTO ${tableName} VALUES(7,[8,9,NULL,10,NULL],["f",NULL,"g",NULL,"h"],NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,[8,9,NULL,10,NULL]) """
+    sql """ INSERT INTO ${tableName} VALUES(8,[1,2,3,3,4,4,NULL],["a","b","b","b"],[1,2,2,3],["hi","hi","hello"],["2015-03-13"],["2015-03-13 12:36:38"],NULL,NULL,NULL,NULL,NULL,NULL,[8,9,NULL,10,NULL]) """
+    sql """ INSERT INTO ${tableName} VALUES(9,[1,2,3],["a","b",""],[1,2],["hi"],["2015-03-13","2015-03-13","2015-03-14"],["2015-03-13 12:36:38","2015-03-13 12:36:38"],NULL,NULL,NULL,NULL,NULL,NULL,[NULL,12]) """
 
     qt_select "SELECT k1, size(k2), size(k3) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, cardinality(k2), cardinality(k3) FROM ${tableName} ORDER BY k1"
@@ -75,6 +77,8 @@ suite("test_array_functions") {
     qt_select "SELECT k1, array_union(k8, k9) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_union(k10, k11) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_union(k12, k13) FROM ${tableName} ORDER BY k1"
+    // multi-params array_union
+    qt_select "SELECT k1, array_union(k2, k4, k14) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_except(k2, k4) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_except(k8, k9) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_except(k10, k11) FROM ${tableName} ORDER BY k1"
@@ -116,12 +120,17 @@ suite("test_array_functions") {
     qt_select "SELECT k1, array_enumerate_uniq(k8) from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_enumerate_uniq(k10) from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_enumerate_uniq(k12) from ${tableName} ORDER BY k1"
+
+    // Here disable the cases about `array_shuffle` since the result of `array_shuffle` is not stable.
+    // FYI: the result of `array_shuffle` depends on the row position in the column.
+    /*
     qt_select_array_shuffle1 "SELECT k1, k2, array_sum(k2), array_sum(array_shuffle(k2)), array_shuffle(k2, 0), shuffle(k2, 0) from ${tableName} ORDER BY k1"
     qt_select_array_shuffle2 "SELECT k1, k5, array_size(k5), array_size(array_shuffle(k5)), array_shuffle(k5, 0), shuffle(k5, 0) from ${tableName} ORDER BY k1"
     qt_select_array_shuffle3 "SELECT k1, k6, array_size(k6), array_size(array_shuffle(k6)), array_shuffle(k6, 0), shuffle(k6, 0) from ${tableName} ORDER BY k1"
     qt_select_array_shuffle4 "SELECT k1, k7, array_size(k7), array_size(array_shuffle(k7)), array_shuffle(k7, 0), shuffle(k7, 0) from ${tableName} ORDER BY k1"
     qt_select_array_shuffle5 "SELECT k1, k10, array_size(k10), array_size(array_shuffle(k10)), array_shuffle(k10, 0), shuffle(k10, 0) from ${tableName} ORDER BY k1"
     qt_select_array_shuffle6 "SELECT k1, k12, array_sum(k12), array_sum(array_shuffle(k12)), array_shuffle(k12, 1), shuffle(k12, 1) from ${tableName} ORDER BY k1"
+    */
     qt_select "SELECT k1, array_popback(k2) from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_popback(k5) from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_popback(k6) from ${tableName} ORDER BY k1"
@@ -154,6 +163,9 @@ suite("test_array_functions") {
     qt_select "SELECT k1, array_position(k8, cast('2023-02-05' as datev2)) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_position(k10, cast('2022-10-15 10:30:00.999' as datetimev2(3))) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_position(k12, cast(111.111 as decimalv3(6,3))) FROM ${tableName} ORDER BY k1"
+    // array_position without cast function
+    qt_select "SELECT k1, array_position(k12, 111.111) FROM ${tableName} ORDER BY k1"
+
     qt_select_array "SELECT k1, array(k1), array_contains(array(k1), k1) from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_concat(k2, k4) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_concat(k2, [1, null, 2], k4, [null]) FROM ${tableName} ORDER BY k1"
@@ -290,4 +302,37 @@ suite("test_array_functions") {
     qt_select_array_datetimev2_2 "SELECT if(1,k2,k3) FROM ${tableName4}"
     qt_select_array_datetimev2_3 "SELECT if(0,k2,k3) FROM ${tableName4}"
     qt_select_array_datetimev2_4 "SELECT if(0,k2,k4) FROM ${tableName4}"
+
+    // array with decimal
+    sql "drop table if exists fn_test"
+
+    sql """
+            CREATE TABLE IF NOT EXISTS `fn_test` (
+                `id` int null,
+                `kdcmls1` decimal(9, 3) null,
+                `kdcmls3` decimal(27, 9) null,
+                `kdcmlv3s1` decimalv3(9, 3) null,
+                `kdcmlv3s2` decimalv3(15, 5) null,
+                `kdcmlv3s3` decimalv3(27, 9) null,
+                `kadcml` array<decimal(27, 9)> null,
+            ) engine=olap
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            properties("replication_num" = "1")
+        """
+    sql """ insert into `fn_test` values
+            (0, 0.100, 0.100000000 , 0.100, 0.10000, 0.100000000, [0.100000000, 0.100000000]),
+            (1, 0.200, 0.200000000  , 0.200, 0.20000, 0.200000000, [0.200000000, 0.200000000]),
+            (3, 0.300, 0.300000000  , 0.300, 0.30000, 0.300000000, [0.300000000, 0.300000000]),
+            (4, 0.400, 0.400000000  , 0.400, 0.40000, 0.400000000, [0.400000000, 0.400000000]),
+            (5, 0.500, 0.500000000  , 0.500, 0.50000, 0.500000000, [0.500000000, 0.500000000]),
+            (6, 0.600, 0.600000000  , 0.600, 0.60000, 0.600000000, [0.600000000, 0.600000000]),
+            (7, 0.700, 0.700000000  , 0.700, 0.70000, 0.700000000, [0.700000000, 0.700000000]),
+            (8, 0.800, 0.800000000  , 0.800, 0.80000, 0.800000000, [0.800000000, 0.800000000]),
+            (9, 0.900, 0.900000000  , 0.900, 0.90000, 0.900000000, [0.900000000, 0.900000000]),
+            (10, 1.000, 1.000000000  , 1.000, 1.00000, 1.000000000, [1.000000000, 1.000000000]),
+            (11, 1.100, 1.100000000  , 1.100, 1.10000, 1.100000000, [1.100000000, 1.100000000]),
+            (12, 1.200, 1.200000000  , 1.200, 1.20000, 1.200000000, [1.200000000, 1.200000000]); """
+
+    qt_sql """ select array_position(kadcml, kdcmls1), kadcml, kdcmls1 from fn_test;"""
+
 }

@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -88,7 +87,7 @@ public class HyperGraph {
      *
      * @param alias The alias Expression in project Operator
      */
-    public boolean addAlias(Alias alias) {
+    public boolean addAlias(Alias alias, long subTreeNodes) {
         Slot aliasSlot = alias.toSlot();
         if (slotToNodeMap.containsKey(aliasSlot)) {
             return true;
@@ -97,12 +96,21 @@ public class HyperGraph {
         for (Slot slot : alias.getInputSlots()) {
             bitmap = LongBitmap.or(bitmap, slotToNodeMap.get(slot));
         }
+        // The case hit when there are some constant aliases such as:
+        // select * from t1 join (
+        //          select *, 1 as b1 from t2)
+        //              on t1.b = b1
+        // just reference them all for this slot
+        if (bitmap == 0) {
+            bitmap = subTreeNodes;
+        }
+        Preconditions.checkArgument(bitmap > 0, "slot must belong to some table");
         slotToNodeMap.put(aliasSlot, bitmap);
         if (!complexProject.containsKey(bitmap)) {
             complexProject.put(bitmap, new ArrayList<>());
-        } else if (!(alias.child() instanceof SlotReference)) {
-            alias = (Alias) PlanUtils.mergeProjections(complexProject.get(bitmap), Lists.newArrayList(alias)).get(0);
         }
+        alias = (Alias) PlanUtils.mergeProjections(complexProject.get(bitmap), Lists.newArrayList(alias)).get(0);
+
         complexProject.get(bitmap).add(alias);
         return true;
     }
@@ -111,8 +119,9 @@ public class HyperGraph {
      * add end node to HyperGraph
      *
      * @param group The group that is the end node in graph
+     * @return return the node index
      */
-    public void addNode(Group group) {
+    public int addNode(Group group) {
         Preconditions.checkArgument(!group.isValidJoinGroup());
         for (Slot slot : group.getLogicalExpression().getPlan().getOutput()) {
             Preconditions.checkArgument(!slotToNodeMap.containsKey(slot));
@@ -120,6 +129,7 @@ public class HyperGraph {
         }
         nodeSet.add(group);
         nodes.add(new Node(nodes.size(), group));
+        return nodes.size() - 1;
     }
 
     public boolean isNodeGroup(Group group) {
@@ -135,138 +145,126 @@ public class HyperGraph {
      *
      * @param group The join group
      */
-    public BitSet addEdge(Group group, BitSet leftEdgeMap, BitSet rightEdgeMap) {
+    public BitSet addEdge(Group group, Pair<BitSet, Long> leftEdgeNodes, Pair<BitSet, Long> rightEdgeNodes) {
         Preconditions.checkArgument(group.isValidJoinGroup());
         LogicalJoin<? extends Plan, ? extends Plan> join = (LogicalJoin) group.getLogicalExpression().getPlan();
         HashMap<Pair<Long, Long>, Pair<List<Expression>, List<Expression>>> conjuncts = new HashMap<>();
-
         for (Expression expression : join.getHashJoinConjuncts()) {
-            Pair<Long, Long> ends = findEnds(expression);
+            // TODO: avoid calling calculateEnds if calNodeMap's results are same
+            Pair<Long, Long> ends = calculateEnds(calNodeMap(expression.getInputSlots()), leftEdgeNodes,
+                    rightEdgeNodes);
             if (!conjuncts.containsKey(ends)) {
                 conjuncts.put(ends, Pair.of(new ArrayList<>(), new ArrayList<>()));
             }
             conjuncts.get(ends).first.add(expression);
         }
         for (Expression expression : join.getOtherJoinConjuncts()) {
-            Pair<Long, Long> ends = findEnds(expression);
+            Pair<Long, Long> ends = calculateEnds(calNodeMap(expression.getInputSlots()), leftEdgeNodes,
+                    rightEdgeNodes);
             if (!conjuncts.containsKey(ends)) {
                 conjuncts.put(ends, Pair.of(new ArrayList<>(), new ArrayList<>()));
             }
             conjuncts.get(ends).second.add(expression);
         }
 
-        BitSet edgeMap = new BitSet();
-        edgeMap.or(leftEdgeMap);
-        edgeMap.or(rightEdgeMap);
-
+        BitSet curJoinEdges = new BitSet();
         for (Map.Entry<Pair<Long, Long>, Pair<List<Expression>, List<Expression>>> entry : conjuncts
                 .entrySet()) {
             LogicalJoin singleJoin = new LogicalJoin<>(join.getJoinType(), entry.getValue().first,
                     entry.getValue().second, JoinHint.NONE, join.getMarkJoinSlotReference(),
                     Lists.newArrayList(join.left(), join.right()));
-            Edge edge = new Edge(singleJoin, edges.size());
+            Edge edge = new Edge(singleJoin, edges.size(), leftEdgeNodes.first, rightEdgeNodes.first,
+                    LongBitmap.newBitmapUnion(leftEdgeNodes.second, rightEdgeNodes.second));
             Pair<Long, Long> ends = entry.getKey();
-            initEdgeEnds(ends, edge, leftEdgeMap, rightEdgeMap);
+            edge.setLeftRequiredNodes(ends.first);
+            edge.setLeftExtendedNodes(ends.first);
+            edge.setRightRequiredNodes(ends.second);
+            edge.setRightExtendedNodes(ends.second);
             for (int nodeIndex : LongBitmap.getIterator(edge.getReferenceNodes())) {
                 nodes.get(nodeIndex).attachEdge(edge);
             }
-            edgeMap.set(edge.getIndex());
+            curJoinEdges.set(edge.getIndex());
             edges.add(edge);
         }
-
-        return edgeMap;
+        curJoinEdges.stream().forEach(i -> edges.get(i).addCurJoinEdges(curJoinEdges));
+        curJoinEdges.stream().forEach(i -> edges.get(i).addCurJoinEdges(curJoinEdges));
+        curJoinEdges.stream().forEach(i -> makeConflictRules(edges.get(i)));
+        return curJoinEdges;
         // In MySQL, each edge is reversed and store in edges again for reducing the branch miss
         // We don't implement this trick now.
     }
 
-    // Make edge with CD-A algorithm in
+    // Make edge with CD-C algorithm in
     // On the correct and complete enumeration of the core search
-    private void initEdgeEnds(Pair<Long, Long> ends, Edge edge, BitSet leftEdges, BitSet rightEdges) {
-        long left = ends.first;
-        long right = ends.second;
-        for (int i = leftEdges.nextSetBit(0); i >= 0; i = leftEdges.nextSetBit(i + 1)) {
-            Edge lEdge = edges.get(i);
-            if (!JoinType.isAssoc(lEdge.getJoinType(), edge.getJoinType())) {
-                left = LongBitmap.or(left, lEdge.getLeft());
+    private void makeConflictRules(Edge edgeB) {
+        BitSet leftSubTreeEdges = subTreeEdges(edgeB.getLeftChildEdges());
+        BitSet rightSubTreeEdges = subTreeEdges(edgeB.getRightChildEdges());
+        long leftRequired = edgeB.getLeftRequiredNodes();
+        long rightRequired = edgeB.getRightRequiredNodes();
+
+        for (int i = leftSubTreeEdges.nextSetBit(0); i >= 0; i = leftSubTreeEdges.nextSetBit(i + 1)) {
+            Edge childA = edges.get(i);
+            if (!JoinType.isAssoc(childA.getJoinType(), edgeB.getJoinType())) {
+                leftRequired = LongBitmap.newBitmapUnion(leftRequired, childA.getLeftSubNodes(edges));
             }
-            if (!JoinType.isLAssoc(lEdge.getJoinType(), edge.getJoinType())) {
-                left = LongBitmap.or(left, lEdge.getRight());
-            }
-        }
-        for (int i = rightEdges.nextSetBit(0); i >= 0; i = rightEdges.nextSetBit(i + 1)) {
-            Edge rEdge = edges.get(i);
-            if (!JoinType.isAssoc(rEdge.getJoinType(), edge.getJoinType())) {
-                right = LongBitmap.or(right, rEdge.getRight());
-            }
-            if (!JoinType.isRAssoc(rEdge.getJoinType(), edge.getJoinType())) {
-                right = LongBitmap.or(right, rEdge.getLeft());
+            if (!JoinType.isLAssoc(childA.getJoinType(), edgeB.getJoinType())) {
+                leftRequired = LongBitmap.newBitmapUnion(leftRequired, childA.getRightSubNodes(edges));
             }
         }
 
-        edge.setOriginalLeft(left);
-        edge.setOriginalRight(right);
-        edge.setLeft(left);
-        edge.setRight(right);
+        for (int i = rightSubTreeEdges.nextSetBit(0); i >= 0; i = rightSubTreeEdges.nextSetBit(i + 1)) {
+            Edge childA = edges.get(i);
+            if (!JoinType.isAssoc(edgeB.getJoinType(), childA.getJoinType())) {
+                rightRequired = LongBitmap.newBitmapUnion(rightRequired, childA.getRightSubNodes(edges));
+            }
+            if (!JoinType.isRAssoc(edgeB.getJoinType(), childA.getJoinType())) {
+                rightRequired = LongBitmap.newBitmapUnion(rightRequired, childA.getLeftSubNodes(edges));
+            }
+        }
+        edgeB.setLeftRequiredNodes(leftRequired);
+        edgeB.setRightRequiredNodes(rightRequired);
+        edgeB.setLeftExtendedNodes(leftRequired);
+        edgeB.setRightExtendedNodes(rightRequired);
     }
 
-    private int findRoot(List<Integer> parent, int idx) {
-        int root = parent.get(idx);
-        if (root != idx) {
-            root = findRoot(parent, root);
-        }
-        parent.set(idx, root);
-        return root;
+    private BitSet subTreeEdges(Edge edge) {
+        BitSet bitSet = new BitSet();
+        bitSet.or(subTreeEdges(edge.getLeftChildEdges()));
+        bitSet.or(subTreeEdges(edge.getRightChildEdges()));
+        bitSet.set(edge.getIndex());
+        return bitSet;
     }
 
-    private boolean isConnected(long bitmap, long excludeBitmap) {
-        if (LongBitmap.getCardinality(bitmap) == 1) {
-            return true;
-        }
-
-        // use unionSet to check whether the bitmap is connected
-        List<Integer> parent = new ArrayList<>();
-        for (int i = 0; i < nodes.size(); i++) {
-            parent.add(i, i);
-        }
-        for (Edge edge : edges) {
-            if (LongBitmap.isOverlap(edge.getLeft(), excludeBitmap)
-                    || LongBitmap.isOverlap(edge.getRight(), excludeBitmap)) {
-                continue;
-            }
-
-            int root = findRoot(parent, LongBitmap.nextSetBit(edge.getLeft(), 0));
-            for (int idx : LongBitmap.getIterator(edge.getLeft())) {
-                parent.set(idx, root);
-            }
-            for (int idx : LongBitmap.getIterator(edge.getRight())) {
-                parent.set(idx, root);
-            }
-        }
-
-        int root = findRoot(parent, LongBitmap.nextSetBit(bitmap, 0));
-        for (int idx : LongBitmap.getIterator(bitmap)) {
-            if (root != findRoot(parent, idx)) {
-                return false;
-            }
-        }
-        return true;
+    private BitSet subTreeEdges(BitSet edgeSet) {
+        BitSet bitSet = new BitSet();
+        edgeSet.stream()
+                .mapToObj(i -> subTreeEdges(edges.get(i)))
+                .forEach(b -> bitSet.or(b));
+        return bitSet;
     }
 
-    private Pair<Long, Long> findEnds(Expression expression) {
-        long bitmap = calNodeMap(expression.getInputSlots());
-        int cardinality = LongBitmap.getCardinality(bitmap);
-        Preconditions.checkArgument(cardinality > 1);
-        for (long subset : LongBitmap.getSubsetIterator(bitmap)) {
-            long left = subset;
-            long right = LongBitmap.newBitmapDiff(bitmap, left);
-            // when the graph without right node has a connected-sub-graph contains left nodes
-            // and the graph without left node has a connected-sub-graph contains right nodes.
-            // we can generate an edge for this expression
-            if (isConnected(left, right) && isConnected(right, left)) {
-                return Pair.of(left, right);
-            }
+    // Try to calculate the ends of an expression.
+    // left = ref_nodes \cap left_tree , right = ref_nodes \cap right_tree
+    // if left = 0, recursively calculate it in left tree
+    private Pair<Long, Long> calculateEnds(long allNodes, Pair<BitSet, Long> leftEdgeNodes,
+            Pair<BitSet, Long> rightEdgeNodes) {
+        long left = LongBitmap.newBitmapIntersect(allNodes, leftEdgeNodes.second);
+        long right = LongBitmap.newBitmapIntersect(allNodes, rightEdgeNodes.second);
+        if (left == 0) {
+            Preconditions.checkArgument(leftEdgeNodes.first.cardinality() > 0,
+                    "the number of the table which expression reference is less 2");
+            Pair<BitSet, Long> llEdgesNodes = edges.get(leftEdgeNodes.first.nextSetBit(0)).getLeftEdgeNodes(edges);
+            Pair<BitSet, Long> lrEdgesNodes = edges.get(leftEdgeNodes.first.nextSetBit(0)).getRightEdgeNodes(edges);
+            return calculateEnds(allNodes, llEdgesNodes, lrEdgesNodes);
         }
-        throw new RuntimeException("DPhyper meets unconnected subgraph");
+        if (right == 0) {
+            Preconditions.checkArgument(rightEdgeNodes.first.cardinality() > 0,
+                    "the number of the table which expression reference is less 2");
+            Pair<BitSet, Long> rlEdgesNodes = edges.get(rightEdgeNodes.first.nextSetBit(0)).getLeftEdgeNodes(edges);
+            Pair<BitSet, Long> rrEdgesNodes = edges.get(rightEdgeNodes.first.nextSetBit(0)).getRightEdgeNodes(edges);
+            return calculateEnds(allNodes, rlEdgesNodes, rrEdgesNodes);
+        }
+        return Pair.of(left, right);
     }
 
     private long calNodeMap(Set<Slot> slots) {
@@ -291,10 +289,10 @@ public class HyperGraph {
         // For these nodes that are only in the old edge, we need remove the edge from them
         // For these nodes that are only in the new edge, we need to add the edge to them
         Edge edge = edges.get(edgeIndex);
-        updateEdges(edge, edge.getLeft(), newLeft);
-        updateEdges(edge, edge.getRight(), newRight);
-        edges.get(edgeIndex).setLeft(newLeft);
-        edges.get(edgeIndex).setRight(newRight);
+        updateEdges(edge, edge.getLeftExtendedNodes(), newLeft);
+        updateEdges(edge, edge.getRightExtendedNodes(), newRight);
+        edges.get(edgeIndex).setLeftExtendedNodes(newLeft);
+        edges.get(edgeIndex).setRightExtendedNodes(newRight);
     }
 
     private void updateEdges(Edge edge, long oldNodes, long newNodes) {
@@ -339,8 +337,8 @@ public class HyperGraph {
                     arrowHead = ",arrowhead=none";
                 }
 
-                int leftIndex = LongBitmap.lowestOneIndex(edge.getLeft());
-                int rightIndex = LongBitmap.lowestOneIndex(edge.getRight());
+                int leftIndex = LongBitmap.lowestOneIndex(edge.getLeftExtendedNodes());
+                int rightIndex = LongBitmap.lowestOneIndex(edge.getRightExtendedNodes());
                 builder.append(String.format("%s -> %s [label=\"%s\"%s]\n", graphvisNodes.get(leftIndex),
                         graphvisNodes.get(rightIndex), label, arrowHead));
             } else {
@@ -349,7 +347,7 @@ public class HyperGraph {
 
                 String leftLabel = "";
                 String rightLabel = "";
-                if (LongBitmap.getCardinality(edge.getLeft()) == 1) {
+                if (LongBitmap.getCardinality(edge.getLeftExtendedNodes()) == 1) {
                     rightLabel = label;
                 } else {
                     leftLabel = label;
@@ -357,13 +355,13 @@ public class HyperGraph {
 
                 int finalI = i;
                 String finalLeftLabel = leftLabel;
-                for (int nodeIndex : LongBitmap.getIterator(edge.getLeft())) {
+                for (int nodeIndex : LongBitmap.getIterator(edge.getLeftExtendedNodes())) {
                     builder.append(String.format("%s -> e%d [arrowhead=none, label=\"%s\"]\n",
                             graphvisNodes.get(nodeIndex), finalI, finalLeftLabel));
                 }
 
                 String finalRightLabel = rightLabel;
-                for (int nodeIndex : LongBitmap.getIterator(edge.getRight())) {
+                for (int nodeIndex : LongBitmap.getIterator(edge.getRightExtendedNodes())) {
                     builder.append(String.format("%s -> e%d [arrowhead=none, label=\"%s\"]\n",
                             graphvisNodes.get(nodeIndex), finalI, finalRightLabel));
                 }

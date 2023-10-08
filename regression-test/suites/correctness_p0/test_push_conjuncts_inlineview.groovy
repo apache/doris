@@ -75,6 +75,20 @@ explain {
         contains "= '123'"
     }
 
+explain {
+        sql("""SELECT *
+                FROM 
+                    (SELECT `a`.`a_key` AS `a_key`,
+                    now() as d
+                    FROM `push_conjunct_table` a) t1
+                    join 
+                    (SELECT `a`.`a_key` AS `a_key`,
+                    b_key
+                    FROM `push_conjunct_table` a) t2
+                    on t1. d = t2.b_key;""")
+        notContains "VNESTED LOOP JOIN"
+    }
+
 sql """
     WITH ttt AS
     (SELECT c1,
@@ -113,6 +127,28 @@ sql """
         GROUP BY  src.c1, d1 ) dd
     WHERE dd.d1 IN ('-1');
 """
+
+explain {
+        sql("""SELECT max(b_key)
+            FROM 
+                (SELECT a_key,
+                    max(b_key) AS b_key
+                FROM 
+                    (SELECT a_key,
+                    max(b_key) AS b_key
+                    FROM push_conjunct_table
+                    GROUP BY  a_key
+                    UNION all 
+                    SELECT a_key,
+                    max(b_key) AS b_key
+                    FROM push_conjunct_table
+                    GROUP BY  a_key) t2
+                    GROUP BY  t2.a_key ) t
+                WHERE t.a_key = "abcd"
+            GROUP BY  t.a_key;""")
+        notContains "having"
+        contains "= 'abcd'"
+    }
 
  sql """ DROP TABLE IF EXISTS `push_conjunct_table` """
 }

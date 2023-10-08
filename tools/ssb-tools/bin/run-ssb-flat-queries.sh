@@ -117,13 +117,14 @@ origin_batch_size=$(
 run_sql "set global parallel_fragment_exec_instance_num=8;"
 run_sql "set global exec_mem_limit=8G;"
 run_sql "set global batch_size=4096;"
+run_sql "set global query_timeout=900;"
 echo '============================================'
 run_sql "show variables;"
 echo '============================================'
 run_sql "show table status;"
 echo '============================================'
 start=$(date +%s)
-run_sql "analyze database ${DB} with sync;"
+run_sql "analyze table lineorder_flat with sync;"
 end=$(date +%s)
 totalTime=$((end - start))
 echo "analyze database ${DB} with sync total time: ${totalTime} s"

@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
-import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
@@ -77,16 +76,15 @@ public abstract class PhysicalRelation extends PhysicalLeaf implements Relation 
     }
 
     @Override
-    public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitPhysicalScan(this, context);
-    }
-
-    @Override
     public List<? extends Expression> getExpressions() {
         return ImmutableList.of();
     }
 
     public RelationId getRelationId() {
         return relationId;
+    }
+
+    public boolean canPushDownRuntimeFilter() {
+        return false;
     }
 }

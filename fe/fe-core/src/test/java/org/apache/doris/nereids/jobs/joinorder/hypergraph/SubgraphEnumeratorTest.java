@@ -130,8 +130,8 @@ public class SubgraphEnumeratorTest {
             visited.add(left);
             visited.add(right);
             for (Edge edge : hyperGraph.getEdges()) {
-                if ((LongBitmap.isSubset(edge.getLeft(), left) && LongBitmap.isSubset(edge.getRight(), right)) || (
-                        LongBitmap.isSubset(edge.getLeft(), right) && LongBitmap.isSubset(edge.getRight(), left))) {
+                if ((LongBitmap.isSubset(edge.getLeftExtendedNodes(), left) && LongBitmap.isSubset(edge.getRightExtendedNodes(), right)) || (
+                        LongBitmap.isSubset(edge.getLeftExtendedNodes(), right) && LongBitmap.isSubset(edge.getRightExtendedNodes(), left))) {
                     count += countAndCheck(left, hyperGraph, counter, cache) * countAndCheck(right, hyperGraph,
                             counter, cache);
                     break;

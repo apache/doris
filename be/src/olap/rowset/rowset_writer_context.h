@@ -30,6 +30,8 @@ class RowsetWriterContextBuilder;
 using RowsetWriterContextBuilderSharedPtr = std::shared_ptr<RowsetWriterContextBuilder>;
 class DataDir;
 class Tablet;
+class FileWriterCreator;
+class SegmentCollector;
 namespace vectorized::schema_util {
 class LocalSchemaChangeRecorder;
 }
@@ -38,6 +40,7 @@ struct RowsetWriterContext {
     RowsetWriterContext()
             : tablet_id(0),
               tablet_schema_hash(0),
+              index_id(0),
               partition_id(0),
               rowset_type(BETA_ROWSET),
               rowset_state(PREPARED),
@@ -52,6 +55,7 @@ struct RowsetWriterContext {
     RowsetId rowset_id;
     int64_t tablet_id;
     int64_t tablet_schema_hash;
+    int64_t index_id;
     int64_t partition_id;
     RowsetTypePB rowset_type;
     io::FileSystemSPtr fs;
@@ -80,7 +84,7 @@ struct RowsetWriterContext {
     // (because it hard to refactor, and RowsetConvertor will be deprecated in future)
     DataDir* data_dir = nullptr;
 
-    int64_t newest_write_timestamp;
+    int64_t newest_write_timestamp = -1;
     bool enable_unique_key_merge_on_write = false;
     std::set<int32_t> skip_inverted_index;
     DataWriteType write_type = DataWriteType::TYPE_DEFAULT;
@@ -90,6 +94,17 @@ struct RowsetWriterContext {
             nullptr;
 
     std::shared_ptr<MowContext> mow_context;
+    std::shared_ptr<FileWriterCreator> file_writer_creator;
+    std::shared_ptr<SegmentCollector> segment_collector;
+
+    /// begin file cache opts
+    bool write_file_cache = false;
+    bool is_hot_data = false;
+    int64_t file_cache_ttl_sec = 0;
+    /// end file cache opts
+
+    // segcompaction for this RowsetWriter, disable it for some transient writers
+    bool enable_segcompaction = true;
 };
 
 } // namespace doris

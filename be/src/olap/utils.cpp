@@ -45,7 +45,6 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "io/fs/file_reader.h"
-#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "olap/olap_common.h"
@@ -411,7 +410,7 @@ Status gen_timestamp_string(std::string* out_string) {
     if (localtime_r(&now, &local_tm) == nullptr) {
         return Status::Error<OS_ERROR>("fail to localtime_r time. time={}", now);
     }
-    char time_suffix[16] = {0}; // Example: 20150706111404, 长度是15个字符
+    char time_suffix[16] = {0}; // Example: 20150706111404's length is 15
     if (strftime(time_suffix, sizeof(time_suffix), "%Y%m%d%H%M%S", &local_tm) == 0) {
         return Status::Error<OS_ERROR>("fail to strftime time. time={}", now);
     }
@@ -428,14 +427,14 @@ Status read_write_test_file(const std::string& test_file_path) {
     if (access(test_file_path.c_str(), F_OK) == 0) {
         if (remove(test_file_path.c_str()) != 0) {
             char errmsg[64];
-            return Status::Error<IO_ERROR>("fail to access test file. path={}, errno={}, err={}",
-                                           test_file_path, errno, strerror_r(errno, errmsg, 64));
+            return Status::IOError("fail to access test file. path={}, errno={}, err={}",
+                                   test_file_path, errno, strerror_r(errno, errmsg, 64));
         }
     } else {
         if (errno != ENOENT) {
             char errmsg[64];
-            return Status::Error<IO_ERROR>("fail to access test file. path={}, errno={}, err={}",
-                                           test_file_path, errno, strerror_r(errno, errmsg, 64));
+            return Status::IOError("fail to access test file. path={}, errno={}, err={}",
+                                   test_file_path, errno, strerror_r(errno, errmsg, 64));
         }
     }
 
@@ -471,8 +470,8 @@ Status read_write_test_file(const std::string& test_file_path) {
     size_t bytes_read = 0;
     RETURN_IF_ERROR(file_reader->read_at(0, {read_buff.get(), TEST_FILE_BUF_SIZE}, &bytes_read));
     if (memcmp(write_buff.get(), read_buff.get(), TEST_FILE_BUF_SIZE) != 0) {
-        return Status::Error<TEST_FILE_ERROR>(
-                "the test file write_buf and read_buf not equal, file_name={}.", test_file_path);
+        return Status::IOError("the test file write_buf and read_buf not equal, file_name={}.",
+                               test_file_path);
     }
     // delete file
     return io::global_local_filesystem()->delete_file(test_file_path);

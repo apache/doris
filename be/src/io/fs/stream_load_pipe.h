@@ -37,7 +37,7 @@
 
 namespace doris {
 namespace io {
-class IOContext;
+struct IOContext;
 
 static inline constexpr size_t kMaxPipeBufferedBytes = 4 * 1024 * 1024;
 
@@ -60,7 +60,9 @@ public:
 
     // called when consumer finished
     Status close() override {
-        cancel("closed");
+        if (!(_finished || _cancelled)) {
+            cancel("closed");
+        }
         return Status::OK();
     }
 

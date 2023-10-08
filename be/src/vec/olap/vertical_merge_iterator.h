@@ -113,6 +113,7 @@ public:
     uint64_t total_size() const { return _total_size; }
     uint64_t buffered_size() { return _buffer->size(); }
     void set_agg_flag(uint64_t index, bool agg);
+    bool get_agg_flag(uint64_t index);
 
     Status has_remaining();
 
@@ -163,8 +164,8 @@ public:
     Status block_reset(const std::shared_ptr<Block>& block);
     Status init(const StorageReadOptions& opts);
     bool compare(const VerticalMergeIteratorContext& rhs) const;
-    void copy_rows(Block* block, bool advanced = true);
-    void copy_rows(Block* block, size_t count);
+    Status copy_rows(Block* block, bool advanced = true);
+    Status copy_rows(Block* block, size_t count);
 
     Status advance();
 
@@ -374,6 +375,8 @@ public:
 
     Status unique_key_next_row(IteratorRowRef* ref) override;
 
+    uint64_t merged_rows() const override { return _filtered_rows; }
+
 private:
     int _get_size(Block* block) { return block->rows(); }
 
@@ -388,6 +391,7 @@ private:
     const Schema* _schema = nullptr;
 
     int _block_row_max = 0;
+    size_t _filtered_rows = 0;
     RowSourcesBuffer* _row_sources_buf;
     StorageReadOptions _opts;
 };

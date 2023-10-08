@@ -23,6 +23,8 @@ import org.apache.doris.thrift.TUnit;
 public class Counter {
     private volatile long value;
     private volatile int type;
+    private volatile boolean remove = false;
+    private volatile long level;
 
     public long getValue() {
         return value;
@@ -33,8 +35,16 @@ public class Counter {
         this.value = value;
     }
 
+    public void setValue(long value) {
+        this.value = value;
+    }
+
     public TUnit getType() {
         return TUnit.findByValue(type);
+    }
+
+    public void setLevel(long level) {
+        this.level = level;
     }
 
     public void setType(TUnit type) {
@@ -44,5 +54,43 @@ public class Counter {
     public Counter(TUnit type, long value) {
         this.value = value;
         this.type = type.getValue();
+        this.level = 2;
+    }
+
+    public Counter(TUnit type, long value, long level) {
+        this.value = value;
+        this.type = type.getValue();
+        this.level = level;
+    }
+
+    public void addValue(Counter other) {
+        if (other == null) {
+            return;
+        }
+        this.value += other.value;
+    }
+
+    public void divValue(long div) {
+        if (div <= 0) {
+            return;
+        }
+        value /= div;
+    }
+
+    public boolean isTimeType() {
+        TUnit ttype = TUnit.findByValue(type);
+        return ttype == TUnit.TIME_MS || ttype == TUnit.TIME_NS || ttype == TUnit.TIME_S;
+    }
+
+    public void setCanRemove() {
+        this.remove = true;
+    }
+
+    public boolean isRemove() {
+        return this.remove;
+    }
+
+    public long getLevel() {
+        return this.level;
     }
 }

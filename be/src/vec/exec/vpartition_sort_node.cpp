@@ -29,13 +29,13 @@
 #include "common/logging.h"
 #include "common/object_pool.h"
 #include "runtime/runtime_state.h"
+#include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/hash_set.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
-// Here is an empirical value.
-static constexpr size_t HASH_MAP_PREFETCH_DIST = 16;
+
 VPartitionSortNode::VPartitionSortNode(ObjectPool* pool, const TPlanNode& tnode,
                                        const DescriptorTbl& descs)
         : ExecNode(pool, tnode, descs), _hash_table_size_counter(nullptr) {
@@ -64,6 +64,7 @@ Status VPartitionSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
     _has_global_limit = tnode.partition_sort_node.has_global_limit;
     _top_n_algorithm = tnode.partition_sort_node.top_n_algorithm;
     _partition_inner_limit = tnode.partition_sort_node.partition_inner_limit;
+    _topn_phase = tnode.partition_sort_node.ptopn_phase;
     return Status::OK();
 }
 
@@ -112,20 +113,12 @@ void VPartitionSortNode::_emplace_into_hash_table(const ColumnRawPtrs& key_colum
                 _pre_serialize_key_if_need(state, agg_method, key_columns, num_rows);
 
                 //PHHashMap
+                const auto& keys = state.get_keys();
                 if constexpr (HashTableTraits<HashTableType>::is_phmap) {
-                    if (_hash_values.size() < num_rows) {
-                        _hash_values.resize(num_rows);
-                    }
-                    if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
-                                          AggState>::value) {
-                        for (size_t i = 0; i < num_rows; ++i) {
-                            _hash_values[i] = agg_method.data.hash(agg_method.keys[i]);
-                        }
-                    } else {
-                        for (size_t i = 0; i < num_rows; ++i) {
-                            _hash_values[i] =
-                                    agg_method.data.hash(state.get_key_holder(i, *_agg_arena_pool));
-                        }
+                    _hash_values.resize(num_rows);
+
+                    for (size_t i = 0; i < num_rows; ++i) {
+                        _hash_values[i] = agg_method.data.hash(keys[i]);
                     }
                 }
 
@@ -138,10 +131,10 @@ void VPartitionSortNode::_emplace_into_hash_table(const ColumnRawPtrs& key_colum
                                 agg_method.data.prefetch_by_hash(
                                         _hash_values[row + HASH_MAP_PREFETCH_DIST]);
                             }
-                            return state.emplace_key(agg_method.data, _hash_values[row], row,
-                                                     *_agg_arena_pool);
+                            return state.emplace_with_key(agg_method.data, keys[row],
+                                                          _hash_values[row], row);
                         } else {
-                            return state.emplace_key(agg_method.data, row, *_agg_arena_pool);
+                            return state.emplace_with_key(agg_method.data, keys[row], row);
                         }
                     }();
 
@@ -166,7 +159,7 @@ void VPartitionSortNode::_emplace_into_hash_table(const ColumnRawPtrs& key_colum
                                                     batch_size);
                 }
             },
-            _partitioned_data->_partition_method_variant);
+            _partitioned_data->method_variant);
 }
 
 Status VPartitionSortNode::sink(RuntimeState* state, vectorized::Block* input_block, bool eos) {
@@ -181,7 +174,10 @@ Status VPartitionSortNode::sink(RuntimeState* state, vectorized::Block* input_bl
             _value_places[0]->append_whole_block(input_block, child(0)->row_desc());
         } else {
             //just simply use partition num to check
-            if (_num_partition > 512 && child_input_rows < 10000 * _num_partition) {
+            //if is TWO_PHASE_GLOBAL, must be sort all data thought partition num threshold have been exceeded.
+            if (_topn_phase != TPartTopNPhase::TWO_PHASE_GLOBAL &&
+                _num_partition > config::partition_topn_partition_threshold &&
+                child_input_rows < 10000 * _num_partition) {
                 {
                     std::lock_guard<std::mutex> lock(_buffer_mutex);
                     _blocks_buffer.push(std::move(*input_block));
@@ -246,7 +242,7 @@ Status VPartitionSortNode::open(RuntimeState* state) {
         RETURN_IF_ERROR(sink(state, input_block.get(), eos));
     } while (!eos);
 
-    child(0)->close(state);
+    static_cast<void>(child(0)->close(state));
 
     return Status::OK();
 }
@@ -399,7 +395,8 @@ void VPartitionSortNode::_init_hash_method() {
     } else {
         bool use_fixed_key = true;
         bool has_null = false;
-        int key_byte_size = 0;
+        size_t key_byte_size = 0;
+        size_t bitmap_size = get_bitmap_size(_partition_exprs_num);
 
         _partition_key_sz.resize(_partition_exprs_num);
         for (int i = 0; i < _partition_exprs_num; ++i) {
@@ -417,16 +414,15 @@ void VPartitionSortNode::_init_hash_method() {
             key_byte_size += _partition_key_sz[i];
         }
 
-        if (std::tuple_size<KeysNullMap<UInt256>>::value + key_byte_size > sizeof(UInt256)) {
+        if (bitmap_size + key_byte_size > sizeof(UInt256)) {
             use_fixed_key = false;
         }
 
         if (use_fixed_key) {
             if (has_null) {
-                if (std::tuple_size<KeysNullMap<UInt64>>::value + key_byte_size <= sizeof(UInt64)) {
+                if (bitmap_size + key_byte_size <= sizeof(UInt64)) {
                     _partitioned_data->init(PartitionedHashMapVariants::Type::int64_keys, has_null);
-                } else if (std::tuple_size<KeysNullMap<UInt128>>::value + key_byte_size <=
-                           sizeof(UInt128)) {
+                } else if (bitmap_size + key_byte_size <= sizeof(UInt128)) {
                     _partitioned_data->init(PartitionedHashMapVariants::Type::int128_keys,
                                             has_null);
                 } else {

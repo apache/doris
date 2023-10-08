@@ -459,8 +459,7 @@ private:
                 NativeResultType res;
                 // TODO handle overflow gracefully
                 if (Op::template apply<NativeResultType>(a, b, res)) {
-                    LOG(WARNING) << "Decimal math overflow";
-                    res = max_decimal_value<ResultType>();
+                    res = type_limit<ResultType>::max();
                 }
                 return res;
             } else {
@@ -500,7 +499,7 @@ private:
                 // TODO handle overflow gracefully
                 if (overflow) {
                     LOG(WARNING) << "Decimal math overflow";
-                    res = max_decimal_value<ResultType>();
+                    res = type_limit<ResultType>::max();
                 }
             } else {
                 res = apply(a, b);
@@ -809,7 +808,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         auto* left_generic = block.get_by_position(arguments[0]).type.get();
         auto* right_generic = block.get_by_position(arguments[1]).type.get();
         auto* result_generic = block.get_by_position(result).type.get();

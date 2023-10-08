@@ -30,6 +30,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/status.h"
 #include "http/http_channel.h"
 #include "http/http_request.h"
 #include "http/http_status.h"
@@ -120,7 +121,7 @@ Status RestoreTabletAction::_reload_tablet(const std::string& key, const std::st
     clone_req.__set_tablet_id(tablet_id);
     clone_req.__set_schema_hash(schema_hash);
     Status res = Status::OK();
-    res = _exec_env->storage_engine()->load_header(shard_path, clone_req, /*restore=*/true);
+    res = StorageEngine::instance()->load_header(shard_path, clone_req, /*restore=*/true);
     if (!res.ok()) {
         LOG(WARNING) << "load header failed. status: " << res << ", signature: " << tablet_id;
         // remove tablet data path in data path
@@ -182,7 +183,8 @@ Status RestoreTabletAction::_restore(const std::string& key, int64_t tablet_id,
     Status s = _create_hard_link_recursive(latest_tablet_path, restore_schema_hash_path);
     if (!s.ok()) {
         // do not check the status of delete_directory, return status of link operation
-        io::global_local_filesystem()->delete_directory(restore_schema_hash_path);
+        static_cast<void>(
+                io::global_local_filesystem()->delete_directory(restore_schema_hash_path));
         return s;
     }
     std::string restore_shard_path = store->get_absolute_shard_path(tablet_meta.shard_id());
@@ -275,7 +277,7 @@ bool RestoreTabletAction::_get_timestamp_and_count_from_schema_hash_path(
     path time_label_path = schema_hash_path.parent_path().parent_path();
     std::string time_label = time_label_path.filename().string();
     std::vector<std::string> parts;
-    doris::split_string<char>(time_label, '.', &parts);
+    static_cast<void>(doris::split_string<char>(time_label, '.', &parts));
     if (parts.size() != 2) {
         LOG(WARNING) << "invalid time label:" << time_label;
         return false;

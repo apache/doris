@@ -317,6 +317,8 @@ suite("test_date_function") {
     // NOW
     def now_result = sql """ select now() """
     assertTrue(now_result[0].size() == 1)
+    def now_null_result = sql """ select now(null) """
+    assertTrue(now_null_result[0].size() == 1)
 
     // SECOND
     qt_sql """ select second('2018-12-31 23:59:59') """
@@ -712,4 +714,18 @@ suite("test_date_function") {
         sql "select cast('20230631' as date), cast('20230632' as date)"
         result([[null, null]])
     }
+    
+    res = sql "explain select date_trunc('2022-04-24', 'day'), date_trunc('1999-03-12 00:31:23', 'hour')"
+    assertFalse(res.contains("date_trunc"))
+
+    qt_sql """ select date_add("2023-08-17T01:41:18Z", interval 8 hour) """
+
+    qt_sql """
+        SELECT
+            UNIX_TIMESTAMP(a, '%Y-%c-%d %H:%i:%s') AS a,
+            UNIX_TIMESTAMP(a, 'yyyy-MM-dd HH:mm:ss') as b
+        FROM
+           (
+            SELECT FROM_UNIXTIME(UNIX_TIMESTAMP('20230918', '%Y%m%d'), 'yyyy-MM-dd HH:mm:ss') AS `a`
+           )t """
 }

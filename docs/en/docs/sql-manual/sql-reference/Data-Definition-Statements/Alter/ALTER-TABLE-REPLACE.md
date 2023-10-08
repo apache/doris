@@ -67,12 +67,23 @@ If `swap` is `false`, do as follows:
 
 ### Example
 
-1. Swap `tbl1` with `tbl2` without deleting the `tbl1` table
+1. Atomic swap `tbl1` with `tbl2` without dropping any tables(Note: if you delete it, you actually delete tbl1 and rename tbl2 to tbl1.)
 
 ```sql
-ALTER TABLE tbl1 REPLACE WITH TABLE tbl2
-    [PROPERTIES('swap' = 'true')];
+ALTER TABLE tbl1 REPLACE WITH TABLE tbl2;
 ```
+or
+```sql
+ALTER TABLE tbl1 REPLACE WITH TABLE tbl2 PROPERTIES('swap' = 'true');
+```
+
+2. Atomic swap `tbl1` with `tbl2` and deleting the `tbl2` table(Keep `tbl1` and the data of the original `tbl2`)
+
+```sql
+ALTER TABLE tbl1 REPLACE WITH TABLE tbl2 PROPERTIES('swap' = 'false');
+```
+
+
 
 ### Keywords
 

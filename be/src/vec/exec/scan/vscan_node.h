@@ -135,6 +135,10 @@ public:
         }
     }
 
+    TPushAggOp::type get_push_down_agg_type() { return _push_down_agg_type; }
+
+    int64_t get_push_down_count() const { return _push_down_count; }
+
     // Get next block.
     // If eos is true, no more data will be read and block should be empty.
     Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) override;
@@ -146,9 +150,7 @@ public:
 
     int runtime_filter_num() const { return (int)_runtime_filter_ctxs.size(); }
 
-    TupleId input_tuple_id() const { return _input_tuple_id; }
     TupleId output_tuple_id() const { return _output_tuple_id; }
-    const TupleDescriptor* input_tuple_desc() const { return _input_tuple_desc; }
     const TupleDescriptor* output_tuple_desc() const { return _output_tuple_desc; }
 
     Status alloc_resource(RuntimeState* state) override;
@@ -172,6 +174,8 @@ public:
         // but the data source can not fully evaluate it.
         PARTIAL_ACCEPTABLE
     };
+
+    RuntimeProfile* scanner_profile() { return _scanner_profile.get(); }
 
 protected:
     // Different data sources register different profiles by implementing this method
@@ -224,6 +228,8 @@ protected:
 
     virtual bool _should_push_down_common_expr() { return false; }
 
+    virtual bool _storage_no_merge() { return false; }
+
     virtual PushDownType _should_push_down_bloom_filter() { return PushDownType::UNACCEPTABLE; }
 
     virtual PushDownType _should_push_down_bitmap_filter() { return PushDownType::UNACCEPTABLE; }
@@ -241,11 +247,8 @@ protected:
     bool _is_pipeline_scan = false;
     bool _shared_scan_opt = false;
 
-    // For load scan node, there should be both input and output tuple descriptor.
-    // For query scan node, there is only output_tuple_desc.
-    TupleId _input_tuple_id = -1;
+    // the output tuple of this scan node
     TupleId _output_tuple_id = -1;
-    const TupleDescriptor* _input_tuple_desc = nullptr;
     const TupleDescriptor* _output_tuple_desc = nullptr;
 
     doris::Mutex _block_lock;
@@ -350,6 +353,11 @@ protected:
 
     std::unordered_map<std::string, int> _colname_to_slot_id;
     std::vector<int> _col_distribute_ids;
+
+    TPushAggOp::type _push_down_agg_type;
+
+    // Record the value of the aggregate function 'count' from doris's be
+    int64_t _push_down_count = -1;
 
 private:
     Status _normalize_conjuncts();

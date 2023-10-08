@@ -51,6 +51,8 @@ struct JdbcConnectorParam {
     std::string user;
     std::string passwd;
     std::string query_string;
+    std::string table_name;
+    bool use_transaction;
     TOdbcTableType::type table_type;
 
     const TupleDescriptor* tuple_desc;
@@ -62,6 +64,8 @@ public:
         int64_t _load_jar_timer = 0;
         int64_t _init_connector_timer = 0;
         int64_t _get_data_timer = 0;
+        int64_t _call_jni_next_timer = 0;
+        int64_t _convert_batch_timer = 0;
         int64_t _check_type_timer = 0;
         int64_t _execte_read_timer = 0;
         int64_t _connector_close_timer = 0;
@@ -71,9 +75,13 @@ public:
 
     ~JdbcConnector() override;
 
-    Status open(RuntimeState* state, bool read = false) override;
+    Status open(RuntimeState* state, bool read = false);
 
     Status query() override;
+
+    Status append(vectorized::Block* block, const vectorized::VExprContextSPtrs& _output_vexpr_ctxs,
+                  uint32_t start_send_row, uint32_t* num_rows_sent,
+                  TOdbcTableType::type table_type = TOdbcTableType::MYSQL) override;
 
     Status exec_write_sql(const std::u16string& insert_stmt,
                           const fmt::memory_buffer& insert_stmt_buffer) override {
@@ -91,9 +99,17 @@ public:
     Status abort_trans() override; // should be call after transaction abort
     Status finish_trans() override; // should be call after transaction commit
 
+    Status init_to_write(doris::RuntimeProfile* profile) override {
+        init_profile(profile);
+        return Status::OK();
+    }
+
     JdbcStatistic& get_jdbc_statistic() { return _jdbc_statistic; }
 
-    Status close() override;
+    Status close(Status s = Status::OK()) override;
+
+protected:
+    JdbcConnectorParam _conn_param;
 
 private:
     Status _register_func_id(JNIEnv* env);
@@ -104,13 +120,14 @@ private:
                                  int rows);
     Status _cast_string_to_hll(const SlotDescriptor* slot_desc, Block* block, int column_index,
                                int rows);
+    Status _cast_string_to_bitmap(const SlotDescriptor* slot_desc, Block* block, int column_index,
+                                  int rows);
     Status _cast_string_to_json(const SlotDescriptor* slot_desc, Block* block, int column_index,
                                 int rows);
     Status _convert_batch_result_set(JNIEnv* env, jobject jobj, const SlotDescriptor* slot_desc,
                                      vectorized::IColumn* column_ptr, int num_rows,
                                      int column_index);
 
-    const JdbcConnectorParam& _conn_param;
     bool _closed = false;
     jclass _executor_clazz;
     jclass _executor_list_clazz;
@@ -146,6 +163,7 @@ private:
     jmethodID _executor_get_array_result;
     jmethodID _executor_get_json_result;
     jmethodID _executor_get_hll_result;
+    jmethodID _executor_get_bitmap_result;
     jmethodID _executor_get_types_id;
     jmethodID _executor_close_id;
     jmethodID _executor_get_list_id;
@@ -162,6 +180,10 @@ private:
     std::map<int, int> _map_column_idx_to_cast_idx_hll;
     std::vector<DataTypePtr> _input_hll_string_types;
     std::vector<MutableColumnPtr> str_hll_cols; // for hll type to save data like string
+
+    std::map<int, int> _map_column_idx_to_cast_idx_bitmap;
+    std::vector<DataTypePtr> _input_bitmap_string_types;
+    std::vector<MutableColumnPtr> str_bitmap_cols; // for bitmap type to save data like string
 
     std::map<int, int> _map_column_idx_to_cast_idx_json;
     std::vector<DataTypePtr> _input_json_string_types;

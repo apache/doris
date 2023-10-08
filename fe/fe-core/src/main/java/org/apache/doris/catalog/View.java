@@ -168,13 +168,11 @@ public class View extends Table {
         try {
             node = (ParseNode) SqlParserUtils.getFirstStmt(parser);
         } catch (Exception e) {
-            LOG.info("stmt is {}", inlineViewDef);
-            LOG.info("exception because: ", e);
-            LOG.info("msg is {}", inlineViewDef);
             // Do not pass e as the exception cause because it might reveal the existence
             // of tables that the user triggering this load may not have privileges on.
             throw new UserException(
-                    String.format("Failed to parse view-definition statement of view: %s", name));
+                    String.format("Failed to parse view-definition statement of view: %s, stmt is %s, reason is %s",
+                            name, inlineViewDef, e.getMessage()));
         }
         // Make sure the view definition parses to a query statement.
         if (!(node instanceof QueryStmt)) {

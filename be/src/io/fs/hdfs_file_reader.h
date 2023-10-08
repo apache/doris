@@ -34,7 +34,7 @@
 
 namespace doris {
 namespace io {
-class IOContext;
+struct IOContext;
 
 class HdfsFileReader : public FileReader {
 public:
@@ -64,6 +64,10 @@ private:
         RuntimeProfile::Counter* total_local_bytes_read;
         RuntimeProfile::Counter* total_short_circuit_bytes_read;
         RuntimeProfile::Counter* total_total_zero_copy_bytes_read;
+
+        RuntimeProfile::Counter* total_hedged_read;
+        RuntimeProfile::Counter* hedged_read_in_cur_thread;
+        RuntimeProfile::Counter* hedged_read_wins;
     };
 #endif
 

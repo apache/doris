@@ -28,7 +28,7 @@ import org.apache.hudi.HoodieBaseRelation.{BaseFileReader, convertToAvroSchema}
 import org.apache.hudi.HoodieConversionUtils.toScalaOption
 import org.apache.hudi.avro.HoodieAvroUtils
 import org.apache.hudi.client.utils.SparkInternalSchemaConverter
-import org.apache.hudi.common.config.{ConfigProperty, HoodieMetadataConfig, SerializableConfiguration, TypedProperties}
+import org.apache.hudi.common.config.{ConfigProperty, HoodieMetadataConfig, TypedProperties}
 import org.apache.hudi.common.fs.FSUtils
 import org.apache.hudi.common.model.{HoodieFileFormat, HoodieRecord}
 import org.apache.hudi.common.table.timeline.HoodieTimeline
@@ -36,6 +36,7 @@ import org.apache.hudi.common.table.{HoodieTableConfig, HoodieTableMetaClient, T
 import org.apache.hudi.common.util.ValidationUtils.checkState
 import org.apache.hudi.common.util.{ConfigUtils, StringUtils}
 import org.apache.hudi.config.HoodieWriteConfig
+import org.apache.hudi.hadoop.CachingPath
 import org.apache.hudi.internal.schema.convert.AvroInternalSchemaConverter
 import org.apache.hudi.internal.schema.utils.{InternalSchemaUtils, SerDeHelper}
 import org.apache.hudi.internal.schema.{HoodieSchemaException, InternalSchema}
@@ -46,9 +47,8 @@ import org.apache.log4j.Logger
 import org.apache.spark.sql.adapter.Spark3_2Adapter
 import org.apache.spark.sql.avro.{HoodieAvroSchemaConverters, HoodieSparkAvroSchemaConverters}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.execution.datasources.{PartitionedFile, PartitioningUtils}
 import org.apache.spark.sql.execution.datasources.parquet.ParquetFileFormat
-import org.apache.spark.sql.hudi.HoodieSqlCommonUtils
+import org.apache.spark.sql.execution.datasources.{PartitionedFile, PartitioningUtils}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.sources.Filter
 import org.apache.spark.sql.types.{StringType, StructField, StructType}
@@ -84,7 +84,17 @@ class HoodieSplit(private val params: jutil.Map[String, String]) {
   val hudiColumnTypes: Map[String, String] = hudiColumnNames.zip(
     params.remove("hudi_column_types").split("#")).toMap
 
-  val requiredFields: Array[String] = params.remove("required_fields").split(",")
+  val requiredFields: Array[String] = {
+    val readFields = params.remove("required_fields").split(",").filter(_.nonEmpty)
+    if (readFields.isEmpty) {
+      // If only read the partition columns, the JniConnector will produce empty required fields.
+      // Read the "_hoodie_record_key" field at least to know how many rows in current hoodie split
+      // Even if the JniConnector doesn't read this field, the call of releaseTable will reclaim the resource
+      Array(HoodieRecord.RECORD_KEY_METADATA_FIELD)
+    } else {
+      readFields
+    }
+  }
   val requiredTypes: Array[ColumnType] = requiredFields.map(
     field => ColumnType.parseType(field, hudiColumnTypes(field)))
 
@@ -143,6 +153,7 @@ case class HoodieTableInformation(sparkSession: SparkSession,
                                   metaClient: HoodieTableMetaClient,
                                   timeline: HoodieTimeline,
                                   tableConfig: HoodieTableConfig,
+                                  resolvedTargetFields: Array[String],
                                   tableAvroSchema: Schema,
                                   internalSchemaOpt: Option[InternalSchema])
 
@@ -163,6 +174,7 @@ abstract class BaseSplitReader(val split: HoodieSplit) {
   imbueConfigs(sqlContext)
 
   protected val tableConfig: HoodieTableConfig = tableInformation.tableConfig
+  protected val tableName: String = tableConfig.getTableName
 
   // NOTE: Record key-field is assumed singular here due to the either of
   //          - In case Hudi's meta fields are enabled: record key will be pre-materialized (stored) as part
@@ -255,13 +267,13 @@ abstract class BaseSplitReader(val split: HoodieSplit) {
     sqlContext.sparkSession.sessionState.conf.setConfString("spark.sql.parquet.enableVectorizedReader", "false")
   }
 
-  def buildScanIterator(requiredColumns: Array[String], filters: Array[Filter]): Iterator[InternalRow] = {
+  def buildScanIterator(filters: Array[Filter]): Iterator[InternalRow] = {
     // NOTE: PLEASE READ CAREFULLY BEFORE MAKING CHANGES
     //       *Appending* additional columns to the ones requested by the caller is not a problem, as those
     //       will be eliminated by the caller's projection;
     //   (!) Please note, however, that it's critical to avoid _reordering_ of the requested columns as this
     //       will break the upstream projection
-    val targetColumns: Array[String] = appendMandatoryColumns(requiredColumns)
+    val targetColumns: Array[String] = appendMandatoryColumns(tableInformation.resolvedTargetFields)
     // NOTE: We explicitly fallback to default table's Avro schema to make sure we avoid unnecessary Catalyst > Avro
     //       schema conversion, which is lossy in nature (for ex, it doesn't preserve original Avro type-names) and
     //       could have an effect on subsequent de-/serializing records in some exotic scenarios (when Avro unions
@@ -362,8 +374,8 @@ abstract class BaseSplitReader(val split: HoodieSplit) {
       val prunedRequiredSchema = prunePartitionColumns(requiredSchema.structTypeSchema)
 
       (partitionSchema,
-        HoodieTableSchema(prunedDataStructSchema, convertToAvroSchema(prunedDataStructSchema).toString),
-        HoodieTableSchema(prunedRequiredSchema, convertToAvroSchema(prunedRequiredSchema).toString))
+        HoodieTableSchema(prunedDataStructSchema, convertToAvroSchema(prunedDataStructSchema, tableName).toString),
+        HoodieTableSchema(prunedRequiredSchema, convertToAvroSchema(prunedRequiredSchema, tableName).toString))
     } else {
       (StructType(Nil), tableSchema, requiredSchema)
     }
@@ -412,7 +424,9 @@ abstract class BaseSplitReader(val split: HoodieSplit) {
     try {
       if (shouldExtractPartitionValuesFromPartitionPath) {
         val filePath = new Path(split.dataFilePath)
-        val relativePath = new URI(split.basePath).relativize(new URI(filePath.getParent.toString)).toString
+        val tablePathWithoutScheme = CachingPath.getPathWithoutSchemeAndAuthority(tableInformation.metaClient.getBasePathV2)
+        val partitionPathWithoutScheme = CachingPath.getPathWithoutSchemeAndAuthority(filePath.getParent)
+        val relativePath = new URI(tablePathWithoutScheme.toString).relativize(new URI(partitionPathWithoutScheme.toString)).toString
         val hiveStylePartitioningEnabled = tableConfig.getHiveStylePartitioningEnable.toBoolean
         if (hiveStylePartitioningEnabled) {
           val partitionSpec = PartitioningUtils.parsePathFragment(relativePath)
@@ -636,12 +650,14 @@ object BaseSplitReader {
               None
           }
         }
+        val tableName = metaClient.getTableConfig.getTableName
+        val (name, namespace) = AvroConversionUtils.getAvroRecordNameAndNamespace(tableName)
         val avroSchema: Schema = internalSchemaOpt.map { is =>
-          AvroInternalSchemaConverter.convert(is, "schema")
+          AvroInternalSchemaConverter.convert(is, namespace + "." + name)
         } orElse {
           specifiedQueryTimestamp.map(schemaResolver.getTableAvroSchema)
         } orElse {
-          split.schemaSpec.map(convertToAvroSchema)
+          split.schemaSpec.map(s => convertToAvroSchema(s, tableName))
         } getOrElse {
           Try(schemaResolver.getTableAvroSchema) match {
             case Success(schema) => schema
@@ -650,10 +666,19 @@ object BaseSplitReader {
           }
         }
 
+        // match column name in lower case
+        val colNames = internalSchemaOpt.map { internalSchema =>
+          internalSchema.getAllColsFullName.asScala.map(f => f.toLowerCase -> f).toMap
+        } getOrElse {
+          avroSchema.getFields.asScala.map(f => f.name().toLowerCase -> f.name()).toMap
+        }
+        val resolvedTargetFields = split.requiredFields.map(field => colNames.getOrElse(field.toLowerCase, field))
+
         HoodieTableInformation(sparkSession,
           metaClient,
           timeline,
           metaClient.getTableConfig,
+          resolvedTargetFields,
           avroSchema,
           internalSchemaOpt)
       }

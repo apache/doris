@@ -106,6 +106,8 @@ private:
               chars(src.chars.begin(), src.chars.end()) {}
 
 public:
+    void sanity_check() const;
+
     const char* get_family_name() const override { return "String"; }
 
     size_t size() const override { return offsets.size(); }

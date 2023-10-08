@@ -84,7 +84,8 @@ Block::Block(const std::vector<SlotDescriptor*>& slots, size_t block_size,
     }
 }
 
-Block::Block(const PBlock& pblock) {
+Status Block::deserialize(const PBlock& pblock) {
+    swap(Block());
     int be_exec_version = pblock.has_be_exec_version() ? pblock.be_exec_version() : 0;
     CHECK(BeExecVersionManager::check_be_exec_version(be_exec_version));
 
@@ -98,11 +99,12 @@ Block::Block(const PBlock& pblock) {
         size_t uncompressed_size = 0;
         if (pblock.has_compression_type() && pblock.has_uncompressed_size()) {
             BlockCompressionCodec* codec;
-            get_block_compression_codec(pblock.compression_type(), &codec);
+            RETURN_IF_ERROR(get_block_compression_codec(pblock.compression_type(), &codec));
             uncompressed_size = pblock.uncompressed_size();
             compression_scratch.resize(uncompressed_size);
             Slice decompressed_slice(compression_scratch);
-            codec->decompress(Slice(compressed_data, compressed_size), &decompressed_slice);
+            RETURN_IF_ERROR(codec->decompress(Slice(compressed_data, compressed_size),
+                                              &decompressed_slice));
             DCHECK(uncompressed_size == decompressed_slice.size);
         } else {
             bool success = snappy::GetUncompressedLength(compressed_data, compressed_size,
@@ -126,6 +128,8 @@ Block::Block(const PBlock& pblock) {
         data.emplace_back(data_column->get_ptr(), type, pcol_meta.name());
     }
     initialize_index_by_name();
+
+    return Status::OK();
 }
 
 void Block::reserve(size_t count) {
@@ -141,8 +145,9 @@ void Block::initialize_index_by_name() {
 
 void Block::insert(size_t position, const ColumnWithTypeAndName& elem) {
     if (position > data.size()) {
-        LOG(FATAL) << fmt::format("Position out of bound in Block::insert(), max position = {}",
-                                  data.size());
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "invalid input position, position={}, data.size{}, names={}", position,
+                        data.size(), dump_names());
     }
 
     for (auto& name_pos : index_by_name) {
@@ -157,8 +162,9 @@ void Block::insert(size_t position, const ColumnWithTypeAndName& elem) {
 
 void Block::insert(size_t position, ColumnWithTypeAndName&& elem) {
     if (position > data.size()) {
-        LOG(FATAL) << fmt::format("Position out of bound in Block::insert(), max position = {}",
-                                  data.size());
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "invalid input position, position={}, data.size{}, names={}", position,
+                        data.size(), dump_names());
     }
 
     for (auto& name_pos : index_by_name) {
@@ -169,6 +175,10 @@ void Block::insert(size_t position, ColumnWithTypeAndName&& elem) {
 
     index_by_name.emplace(elem.name, position);
     data.emplace(data.begin() + position, std::move(elem));
+}
+
+void Block::clear_names() {
+    index_by_name.clear();
 }
 
 void Block::insert(const ColumnWithTypeAndName& elem) {
@@ -242,47 +252,36 @@ void Block::erase_impl(size_t position) {
 void Block::erase(const String& name) {
     auto index_it = index_by_name.find(name);
     if (index_it == index_by_name.end()) {
-        LOG(FATAL) << fmt::format("No such name in Block::erase(): '{}'", name);
+        throw Exception(ErrorCode::INTERNAL_ERROR, "No such name in Block, name={}, block_names={}",
+                        name, dump_names());
     }
 
     erase_impl(index_it->second);
 }
 
 ColumnWithTypeAndName& Block::safe_get_by_position(size_t position) {
-    if (data.empty()) {
-        LOG(FATAL) << "Block is empty";
-    }
-
     if (position >= data.size()) {
-        LOG(FATAL) << fmt::format(
-                "Position {} is out of bound in Block::safe_get_by_position(), max position = {}, "
-                "there are columns: {}",
-                position, data.size() - 1, dump_names());
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "invalid input position, position={}, data.size{}, names={}", position,
+                        data.size(), dump_names());
     }
-
     return data[position];
 }
 
 const ColumnWithTypeAndName& Block::safe_get_by_position(size_t position) const {
-    if (data.empty()) {
-        LOG(FATAL) << "Block is empty";
-    }
-
     if (position >= data.size()) {
-        LOG(FATAL) << fmt::format(
-                "Position {} is out of bound in Block::safe_get_by_position(), max position = {}, "
-                "there are columns: {}",
-                position, data.size() - 1, dump_names());
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "invalid input position, position={}, data.size{}, names={}", position,
+                        data.size(), dump_names());
     }
-
     return data[position];
 }
 
 ColumnWithTypeAndName& Block::get_by_name(const std::string& name) {
     auto it = index_by_name.find(name);
     if (index_by_name.end() == it) {
-        LOG(FATAL) << fmt::format("Not found column {} in block. There are only columns: {}", name,
-                                  dump_names());
+        throw Exception(ErrorCode::INTERNAL_ERROR, "No such name in Block, name={}, block_names={}",
+                        name, dump_names());
     }
 
     return data[it->second];
@@ -291,8 +290,8 @@ ColumnWithTypeAndName& Block::get_by_name(const std::string& name) {
 const ColumnWithTypeAndName& Block::get_by_name(const std::string& name) const {
     auto it = index_by_name.find(name);
     if (index_by_name.end() == it) {
-        LOG(FATAL) << fmt::format("Not found column {} in block. There are only columns: {}", name,
-                                  dump_names());
+        throw Exception(ErrorCode::INTERNAL_ERROR, "No such name in Block, name={}, block_names={}",
+                        name, dump_names());
     }
 
     return data[it->second];
@@ -321,8 +320,8 @@ bool Block::has(const std::string& name) const {
 size_t Block::get_position_by_name(const std::string& name) const {
     auto it = index_by_name.find(name);
     if (index_by_name.end() == it) {
-        LOG(FATAL) << fmt::format("Not found column {} in block. There are only columns: {}", name,
-                                  dump_names());
+        throw Exception(ErrorCode::INTERNAL_ERROR, "No such name in Block, name={}, block_names={}",
+                        name, dump_names());
     }
 
     return it->second;
@@ -405,6 +404,15 @@ void Block::skip_num_rows(int64_t& length) {
 size_t Block::bytes() const {
     size_t res = 0;
     for (const auto& elem : data) {
+        if (!elem.column) {
+            std::stringstream ss;
+            for (const auto& e : data) {
+                ss << e.name + " ";
+            }
+            LOG(FATAL) << fmt::format(
+                    "Column {} in block is nullptr, in method bytes. All Columns are {}", elem.name,
+                    ss.str());
+        }
         res += elem.column->byte_size();
     }
 
@@ -414,6 +422,15 @@ size_t Block::bytes() const {
 size_t Block::allocated_bytes() const {
     size_t res = 0;
     for (const auto& elem : data) {
+        if (!elem.column) {
+            std::stringstream ss;
+            for (const auto& e : data) {
+                ss << e.name + " ";
+            }
+            LOG(FATAL) << fmt::format(
+                    "Column {} in block is nullptr, in method allocated_bytes. All Columns are {}",
+                    elem.name, ss.str());
+        }
         res += elem.column->allocated_bytes();
     }
 
@@ -629,8 +646,8 @@ const ColumnsWithTypeAndName& Block::get_columns_with_type_and_name() const {
     return data;
 }
 
-Names Block::get_names() const {
-    Names res;
+std::vector<std::string> Block::get_names() const {
+    std::vector<std::string> res;
     res.reserve(columns());
 
     for (const auto& elem : data) {
@@ -740,10 +757,14 @@ Block Block::copy_block(const std::vector<int>& column_offset) const {
     return columns_with_type_and_name;
 }
 
-void Block::append_block_by_selector(MutableBlock* dst, const IColumn::Selector& selector) const {
+void Block::append_to_block_by_selector(MutableBlock* dst,
+                                        const IColumn::Selector& selector) const {
     DCHECK_EQ(data.size(), dst->mutable_columns().size());
     for (size_t i = 0; i < data.size(); i++) {
-        data[i].column->append_data_by_selector(dst->mutable_columns()[i], selector);
+        // FIXME: this is a quickfix. we assume that only partition functions make there some
+        if (!is_column_const(*data[i].column)) {
+            data[i].column->append_data_by_selector(dst->mutable_columns()[i], selector);
+        }
     }
 }
 
@@ -806,6 +827,7 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
     for (const auto& c : *this) {
         PColumnMeta* pcm = pblock->add_column_metas();
         c.to_pb_column_meta(pcm);
+        DCHECK(pcm->type() != PGenericType::UNKNOWN) << " forget to set pb type";
         // get serialized size
         content_uncompressed_size +=
                 c.type->get_uncompressed_serialized_bytes(*(c.column), pblock->be_exec_version());
@@ -939,7 +961,8 @@ void MutableBlock::add_rows(const Block* block, size_t row_begin, size_t length)
 void MutableBlock::erase(const String& name) {
     auto index_it = index_by_name.find(name);
     if (index_it == index_by_name.end()) {
-        LOG(FATAL) << fmt::format("No such name in Block::erase(): '{}'", name);
+        throw Exception(ErrorCode::INTERNAL_ERROR, "No such name in Block, name={}, block_names={}",
+                        name, dump_names());
     }
 
     auto position = index_it->second;
@@ -1027,11 +1050,15 @@ std::string MutableBlock::dump_data(size_t row_limit) const {
     return out.str();
 }
 
-std::unique_ptr<Block> Block::create_same_struct_block(size_t size) const {
+std::unique_ptr<Block> Block::create_same_struct_block(size_t size, bool is_reserve) const {
     auto temp_block = Block::create_unique();
     for (const auto& d : data) {
         auto column = d.type->create_column();
-        column->resize(size);
+        if (is_reserve) {
+            column->reserve(size);
+        } else {
+            column->resize(size);
+        }
         temp_block->insert({std::move(column), d.type, d.name});
     }
     return temp_block;
@@ -1076,8 +1103,8 @@ bool MutableBlock::has(const std::string& name) const {
 size_t MutableBlock::get_position_by_name(const std::string& name) const {
     auto it = index_by_name.find(name);
     if (index_by_name.end() == it) {
-        LOG(FATAL) << fmt::format("Not found column {} in block. There are only columns: {}", name,
-                                  dump_names());
+        throw Exception(ErrorCode::INTERNAL_ERROR, "No such name in Block, name={}, block_names={}",
+                        name, dump_names());
     }
 
     return it->second;

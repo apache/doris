@@ -41,16 +41,10 @@ import java.util.stream.Collectors;
 public class PredicatePropagation {
 
     /**
-     * equal predicate with literal in one side would be chosen to be source predicates and used to infer all predicates
-     */
-    private Set<Expression> sourcePredicates = Sets.newHashSet();
-
-    /**
      * infer additional predicates.
      */
     public Set<Expression> infer(Set<Expression> predicates) {
         Set<Expression> inferred = Sets.newHashSet();
-        predicates.addAll(sourcePredicates);
         for (Expression predicate : predicates) {
             if (canEquivalentInfer(predicate)) {
                 List<Expression> newInferred = predicates.stream()
@@ -61,7 +55,6 @@ public class PredicatePropagation {
             }
         }
         inferred.removeAll(predicates);
-        sourcePredicates.addAll(inferred);
         return inferred;
     }
 
@@ -83,10 +76,8 @@ public class PredicatePropagation {
             public Expression visitComparisonPredicate(ComparisonPredicate cp, Void context) {
                 // we need to get expression covered by cast, because we want to infer different datatype
                 if (ExpressionUtils.isExpressionSlotCoveredByCast(cp.left()) && (cp.right().isConstant())) {
-                    sourcePredicates.add(cp);
                     return replaceSlot(cp, ExpressionUtils.getDatatypeCoveredByCast(cp.left()));
                 } else if (ExpressionUtils.isExpressionSlotCoveredByCast(cp.right()) && cp.left().isConstant()) {
-                    sourcePredicates.add(cp);
                     return replaceSlot(cp, ExpressionUtils.getDatatypeCoveredByCast(cp.right()));
                 }
                 return super.visit(cp, context);
@@ -129,7 +120,7 @@ public class PredicatePropagation {
     private boolean canEquivalentInfer(Expression predicate) {
         return predicate instanceof EqualTo
                 && predicate.children().stream().allMatch(e ->
-                    (e instanceof SlotReference) || (e instanceof Cast && e.child(0).isSlot()))
+                    (e instanceof SlotReference) || (e instanceof Cast && e.child(0) instanceof SlotReference))
                 && predicate.child(0).getDataType().equals(predicate.child(1).getDataType());
     }
 

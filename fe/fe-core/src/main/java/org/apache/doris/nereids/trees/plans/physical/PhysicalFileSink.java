@@ -21,9 +21,12 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.algebra.Sink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
@@ -37,29 +40,32 @@ import java.util.Optional;
 /**
  * physicalFileSink for select into outfile
  */
-public class PhysicalFileSink<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> {
+public class PhysicalFileSink<CHILD_TYPE extends Plan> extends PhysicalSink<CHILD_TYPE> implements Sink {
+
     private final String filePath;
     private final String format;
     private final Map<String, String> properties;
 
-    public PhysicalFileSink(String filePath, String format, Map<String, String> properties,
+    public PhysicalFileSink(List<NamedExpression> outputExprs, String filePath, String format,
+            Map<String, String> properties,
             LogicalProperties logicalProperties, CHILD_TYPE child) {
-        this(filePath, format, properties, Optional.empty(), logicalProperties, child);
+        this(outputExprs, filePath, format, properties, Optional.empty(), logicalProperties, child);
     }
 
-    public PhysicalFileSink(String filePath, String format, Map<String, String> properties,
+    public PhysicalFileSink(List<NamedExpression> outputExprs, String filePath, String format,
+            Map<String, String> properties,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_FILE_SINK, groupExpression, logicalProperties, child);
-        this.filePath = filePath;
-        this.format = format;
-        this.properties = properties;
+        this(outputExprs, filePath, format, properties,
+                groupExpression, logicalProperties, PhysicalProperties.GATHER, null, child);
     }
 
-    public PhysicalFileSink(String filePath, String format, Map<String, String> properties,
+    public PhysicalFileSink(List<NamedExpression> outputExprs, String filePath, String format,
+            Map<String, String> properties,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             PhysicalProperties physicalProperties, Statistics statistics, CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_FILE_SINK, groupExpression, logicalProperties, physicalProperties, statistics, child);
+        super(PlanType.PHYSICAL_FILE_SINK, outputExprs,
+                groupExpression, logicalProperties, physicalProperties, statistics, child);
         this.filePath = filePath;
         this.format = format;
         this.properties = properties;
@@ -80,7 +86,8 @@ public class PhysicalFileSink<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "PhysicalFileSink only accepts one child");
-        return new PhysicalFileSink<>(filePath, format, properties, getLogicalProperties(), children.get(0));
+        return new PhysicalFileSink<>(outputExprs, filePath, format, properties,
+                getLogicalProperties(), children.get(0));
     }
 
     @Override
@@ -113,20 +120,36 @@ public class PhysicalFileSink<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
     }
 
     @Override
+    public String toString() {
+        return Utils.toSqlString("PhysicalFileSink[" + id.asInt() + "]",
+                "outputExprs", outputExprs,
+                "filePath", filePath,
+                "format", format,
+                "properties", properties);
+    }
+
+    @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalFileSink<>(filePath, format, properties, groupExpression, getLogicalProperties(), child());
+        return new PhysicalFileSink<>(outputExprs, filePath, format, properties,
+                groupExpression, getLogicalProperties(), child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new PhysicalFileSink<>(filePath, format, properties, groupExpression, logicalProperties.get(),
-                children.get(0));
+        return new PhysicalFileSink<>(outputExprs, filePath, format, properties,
+                groupExpression, logicalProperties.get(), children.get(0));
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
-        return new PhysicalFileSink<>(filePath, format, properties, groupExpression, getLogicalProperties(),
+        return new PhysicalFileSink<>(outputExprs, filePath, format, properties, groupExpression,
+                getLogicalProperties(), physicalProperties, statistics, child());
+    }
+
+    @Override
+    public PhysicalFileSink<CHILD_TYPE> resetLogicalProperties() {
+        return new PhysicalFileSink<>(outputExprs, filePath, format, properties, groupExpression, null,
                 physicalProperties, statistics, child());
     }
 }

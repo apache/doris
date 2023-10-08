@@ -96,6 +96,87 @@ suite("test_primary_key_partial_update", "p0") {
         select * from ${tableName} order by id;
     """
 
+    streamLoad {
+        table "${tableName}"
+        set 'column_separator', ','
+        set 'format', 'csv'
+        set 'partial_columns', 'true'
+        set 'columns', 'id,name,score'
+
+        file 'basic_with_new_keys.csv'
+        time 10000 // limit inflight 10s
+    }
+
+    sql "sync"
+
+    qt_partial_update_in_one_stream_load """
+        select * from ${tableName} order by id;
+    """
+
+    streamLoad {
+        table "${tableName}"
+        set 'column_separator', ','
+        set 'format', 'csv'
+        set 'partial_columns', 'false'
+        set 'columns', 'id,name,score'
+
+        file 'basic_with_new_keys.csv'
+        time 10000 // limit inflight 10s
+    }
+
+    sql "sync"
+
+    qt_partial_update_in_one_stream_load """
+        select * from ${tableName} order by id;
+    """
+
+    streamLoad {
+        table "${tableName}"
+        set 'column_separator', ','
+        set 'format', 'csv'
+        set 'partial_columns', 'true'
+        set 'columns', 'id,name,score'
+
+        file 'basic_with_new_keys_and_invalid.csv'
+        time 10000// limit inflight 10s
+
+        check {result, exception, startTime, endTime ->
+            assertTrue(exception == null)
+            def json = parseJson(result)
+            assertEquals("Fail", json.Status)
+        }
+    }
+
+    qt_partial_update_in_one_stream_load """
+        select * from ${tableName} order by id;
+    """
+
+    streamLoad {
+        table "${tableName}"
+        set 'column_separator', ','
+        set 'column_separator', ','
+        set 'format', 'csv'
+        set 'partial_columns', 'true'
+        set 'columns', 'id,score'
+
+        file 'basic_invalid.csv'
+        time 10000// limit inflight 10s
+
+        check {result, exception, startTime, endTime ->
+            assertTrue(exception == null)
+            def json = parseJson(result)
+            assertEquals("Fail", json.Status)
+            assertTrue(json.Message.contains("[INTERNAL_ERROR]too many filtered rows"))
+            assertEquals(3, json.NumberTotalRows)
+            assertEquals(1, json.NumberLoadedRows)
+            assertEquals(2, json.NumberFilteredRows)
+        }
+    }
+    sql "sync"
+    qt_partial_update_in_one_stream_load """
+        select * from ${tableName} order by id;
+    """
+
     // drop drop
     sql """ DROP TABLE IF EXISTS ${tableName} """
 }

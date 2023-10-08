@@ -215,9 +215,9 @@ public:
         return _rowset_meta_pb.mutable_delete_predicate();
     }
 
-    void set_delete_predicate(const DeletePredicatePB& delete_predicate) {
+    void set_delete_predicate(DeletePredicatePB delete_predicate) {
         DeletePredicatePB* new_delete_condition = _rowset_meta_pb.mutable_delete_predicate();
-        *new_delete_condition = delete_predicate;
+        *new_delete_condition = std::move(delete_predicate);
     }
 
     bool empty() const { return _rowset_meta_pb.empty(); }
@@ -263,6 +263,10 @@ public:
             _schema->to_schema_pb(rowset_meta_pb.mutable_tablet_schema());
         }
         return rowset_meta_pb;
+    }
+
+    inline DeletePredicatePB* mutable_delete_pred_pb() {
+        return _rowset_meta_pb.mutable_delete_predicate();
     }
 
     bool is_singleton_delta() const {

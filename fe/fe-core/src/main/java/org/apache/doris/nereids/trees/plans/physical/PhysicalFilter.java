@@ -21,6 +21,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
@@ -36,6 +37,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Physical filter plan.
@@ -73,7 +75,7 @@ public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalFilter[" + id.asInt() + "]" + getGroupIdAsString(),
+        return Utils.toSqlString("PhysicalFilter[" + id.asInt() + "]" + getGroupIdWithPrefix(),
                 "predicates", getPredicate(),
                 "stats", statistics
         );
@@ -135,9 +137,25 @@ public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     @Override
     public String shapeInfo() {
         StringBuilder builder = new StringBuilder();
-        builder.append("filter(");
-        conjuncts.forEach(conjunct -> builder.append(conjunct.shapeInfo()));
-        builder.append(")");
+        builder.append("filter");
+        builder.append(
+                conjuncts.stream().map(conjunct -> conjunct.shapeInfo())
+                        .sorted()
+                        .collect(Collectors.joining(" and ", "(", ")")));
+        // List<String> strConjuncts = Lists.newArrayList();
+        // conjuncts.forEach(conjunct -> strConjuncts.add(conjunct.shapeInfo()));
+        // builder.append(strConjuncts.stream().sorted().collect(Collectors.joining(" and ", "(", ")")));
         return builder.toString();
+    }
+
+    @Override
+    public List<Slot> computeOutput() {
+        return child().getOutput();
+    }
+
+    @Override
+    public PhysicalFilter<Plan> resetLogicalProperties() {
+        return new PhysicalFilter<>(conjuncts, groupExpression, null, physicalProperties,
+                statistics, child());
     }
 }

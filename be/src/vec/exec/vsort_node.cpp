@@ -144,7 +144,7 @@ Status VSortNode::sink(RuntimeState* state, vectorized::Block* input_block, bool
         // update runtime predicate
         if (_use_topn_opt) {
             Field new_top = _sorter->get_top_value();
-            if (!new_top.is_null() && new_top != old_top) {
+            if (!new_top.is_null() && (old_top.is_null() || new_top != old_top)) {
                 auto& sort_description = _sorter->get_sort_description();
                 auto col = input_block->get_by_position(sort_description[0].column_number);
                 bool is_reverse = sort_description[0].direction < 0;
@@ -192,7 +192,7 @@ Status VSortNode::open(RuntimeState* state) {
 
     } while (!eos);
 
-    child(0)->close(state);
+    static_cast<void>(child(0)->close(state));
 
     mem_tracker()->consume(_sorter->data_size());
     COUNTER_UPDATE(_sort_blocks_memory_usage, _sorter->data_size());

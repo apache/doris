@@ -40,6 +40,7 @@ NewFileScanNode::NewFileScanNode(ObjectPool* pool, const TPlanNode& tnode,
                                  const DescriptorTbl& descs)
         : VScanNode(pool, tnode, descs) {
     _output_tuple_id = tnode.file_scan_node.tuple_id;
+    _table_name = tnode.file_scan_node.__isset.table_name ? tnode.file_scan_node.table_name : "";
 }
 
 Status NewFileScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
@@ -52,7 +53,6 @@ Status NewFileScanNode::prepare(RuntimeState* state) {
     if (state->get_query_ctx() != nullptr &&
         state->get_query_ctx()->file_scan_range_params_map.count(id()) > 0) {
         TFileScanRangeParams& params = state->get_query_ctx()->file_scan_range_params_map[id()];
-        _input_tuple_id = params.src_tuple_id;
         _output_tuple_id = params.dest_tuple_id;
     }
     return Status::OK();
@@ -84,8 +84,6 @@ void NewFileScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_
         scan_ranges[0].scan_range.ext_scan_range.file_scan_range.__isset.params) {
         // for compatibility.
         // in new implement, the tuple id is set in prepare phase
-        _input_tuple_id =
-                scan_ranges[0].scan_range.ext_scan_range.file_scan_range.params.src_tuple_id;
         _output_tuple_id =
                 scan_ranges[0].scan_range.ext_scan_range.file_scan_range.params.dest_tuple_id;
     }
@@ -126,6 +124,10 @@ Status NewFileScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
     }
 
     return Status::OK();
+}
+
+std::string NewFileScanNode::get_name() {
+    return fmt::format("VFILE_SCAN_NODE({0})", _table_name);
 }
 
 }; // namespace doris::vectorized

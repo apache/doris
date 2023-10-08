@@ -184,6 +184,9 @@ public:
     // intersection
     BitmapValue intersect() const {
         BitmapValue result;
+        if (_bitmaps.empty()) {
+            return result;
+        }
         auto it = _bitmaps.begin();
         result |= it->second;
         it++;

@@ -119,7 +119,6 @@ private:
     std::unordered_map<std::string, size_t> _src_block_name_to_idx;
     vectorized::VExprContextSPtrs _dest_expr_ctxs;
     vectorized::VExprContextSPtr _pre_filter_ctx_ptr;
-    bool _is_dynamic_schema = false;
     std::vector<SlotDescriptor*> _src_slot_descs_order_by_dest;
     std::unordered_map<int, int> _dest_slot_to_src_slot_index;
 

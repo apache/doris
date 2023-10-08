@@ -19,8 +19,10 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.io.DiskUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.service.FeDiskInfo;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 
@@ -44,10 +46,15 @@ public class FrontendsProcNode implements ProcNodeInterface {
 
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("Name").add("Host").add("EditLogPort").add("HttpPort").add("QueryPort").add("RpcPort")
-            .add("Role").add("IsMaster").add("ClusterId").add("Join").add("Alive")
+            .add("ArrowFlightSqlPort").add("Role").add("IsMaster").add("ClusterId").add("Join").add("Alive")
             .add("ReplayedJournalId").add("LastStartTime").add("LastHeartbeat")
             .add("IsHelper").add("ErrMsg").add("Version")
             .add("CurrentConnected")
+            .build();
+
+    public static final ImmutableList<String> DISK_TITLE_NAMES = new ImmutableList.Builder<String>()
+            .add("Name").add("Host").add("DirType").add("Dir").add("Filesystem")
+            .add("Capacity").add("Used").add("Available").add("UseRate").add("MountOn")
             .build();
 
     private Env env;
@@ -70,6 +77,14 @@ public class FrontendsProcNode implements ProcNodeInterface {
         }
 
         return result;
+    }
+
+    public static void getFrontendsInfo(Env env, String detailType, List<List<String>> infos) {
+        if (detailType == null) {
+            getFrontendsInfo(env, infos);
+        } else if (detailType.equals("disks")) {
+            getFrontendsDiskInfo(env, infos);
+        }
     }
 
     public static void getFrontendsInfo(Env env, List<List<String>> infos) {
@@ -104,9 +119,11 @@ public class FrontendsProcNode implements ProcNodeInterface {
             if (fe.getHost().equals(env.getSelfNode().getHost())) {
                 info.add(Integer.toString(Config.query_port));
                 info.add(Integer.toString(Config.rpc_port));
+                info.add(Integer.toString(Config.arrow_flight_sql_port));
             } else {
                 info.add(Integer.toString(fe.getQueryPort()));
                 info.add(Integer.toString(fe.getRpcPort()));
+                info.add(Integer.toString(fe.getArrowFlightSqlPort()));
             }
 
             info.add(fe.getRole().name());
@@ -136,6 +153,28 @@ public class FrontendsProcNode implements ProcNodeInterface {
             infos.add(info);
         }
     }
+
+    public static void getFrontendsDiskInfo(Env env, List<List<String>> infos) {
+        for (Frontend fe : env.getFrontends(null /* all */)) {
+            if (fe.getDiskInfos() != null) {
+                for (FeDiskInfo disk : fe.getDiskInfos()) {
+                    List<String> info = new ArrayList<String>();
+                    info.add(fe.getNodeName());
+                    info.add(fe.getHost());
+                    info.add(disk.getDirType());
+                    info.add(disk.getDir());
+                    info.add(disk.getSpaceInfo().fileSystem);
+                    info.add(DiskUtils.sizeFormat(disk.getSpaceInfo().blocks * 1024));
+                    info.add(DiskUtils.sizeFormat(disk.getSpaceInfo().used * 1024));
+                    info.add(DiskUtils.sizeFormat(disk.getSpaceInfo().available * 1024));
+                    info.add(Integer.toString(disk.getSpaceInfo().useRate) + "%");
+                    info.add(disk.getSpaceInfo().mountedOn);
+                    infos.add(info);
+                }
+            }
+        }
+    }
+
 
     private static boolean isHelperNode(List<HostInfo> helperNodes, Frontend fe) {
         return helperNodes.stream().anyMatch(p -> fe.toHostInfo().isSame(p));

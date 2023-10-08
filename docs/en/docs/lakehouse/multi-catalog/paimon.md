@@ -43,43 +43,59 @@ Paimon Catalog Currently supports two types of Metastore creation catalogs:
 
 ### Creating a Catalog Based on FileSystem
 
+> For versions 2.0.1 and earlier, please use the following `Create Catalog based on Hive Metastore`.
+
 #### HDFS
 ```sql
 CREATE CATALOG `paimon_hdfs` PROPERTIES (
     "type" = "paimon",
     "warehouse" = "hdfs://HDFS8000871/user/paimon",
-    "dfs.nameservices"="HDFS8000871",
-    "dfs.ha.namenodes.HDFS8000871"="nn1,nn2",
-    "dfs.namenode.rpc-address.HDFS8000871.nn1"="172.21.0.1:4007",
-    "dfs.namenode.rpc-address.HDFS8000871.nn2"="172.21.0.2:4007",
-    "dfs.client.failover.proxy.provider.HDFS8000871"="org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider",
-    "hadoop.username"="hadoop"
+    "dfs.nameservices" = "HDFS8000871",
+    "dfs.ha.namenodes.HDFS8000871" = "nn1,nn2",
+    "dfs.namenode.rpc-address.HDFS8000871.nn1" = "172.21.0.1:4007",
+    "dfs.namenode.rpc-address.HDFS8000871.nn2" = "172.21.0.2:4007",
+    "dfs.client.failover.proxy.provider.HDFS8000871" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider",
+    "hadoop.username" = "hadoop"
 );
 
 ```
 
 #### S3
 
+> Note that.
+>
+> user need download [paimon-s3-0.4.0-incubating.jar](https://repo.maven.apache.org/maven2/org/apache/paimon/paimon-s3/0.4.0-incubating/paimon-s3-0.4.0-incubating.jar)
+>
+> Place it in directory ${DORIS_HOME}/be/lib/java_extensions/preload-extensions and restart be
+>
+> Starting from version 2.0.2, this file can be placed in BE's `custom_lib/` directory (if it does not exist, just create it manually) to prevent the file from being lost due to the replacement of the lib directory when upgrading the cluster.
+
 ```sql
 CREATE CATALOG `paimon_s3` PROPERTIES (
     "type" = "paimon",
     "warehouse" = "s3://paimon-1308700295.cos.ap-beijing.myqcloud.com/paimoncos",
-    "s3.endpoint"="cos.ap-beijing.myqcloud.com",
-    "s3.access_key"="ak",
-    "s3.secret_key"="sk"
+    "s3.endpoint" = "cos.ap-beijing.myqcloud.com",
+    "s3.access_key" = "ak",
+    "s3.secret_key" = "sk"
 );
 
 ```
 
 #### OSS
 
+>Note that.
+>
+> user need download [paimon-oss-0.4.0-incubating.jar](https://repo.maven.apache.org/maven2/org/apache/paimon/paimon-oss/0.4.0-incubating/paimon-oss-0.4.0-incubating.jar)
+> Place it in directory ${DORIS_HOME}/be/lib/java_extensions/preload-extensions and restart be
+
+
 ```sql
 CREATE CATALOG `paimon_oss` PROPERTIES (
     "type" = "paimon",
     "warehouse" = "oss://paimon-zd/paimonoss",
-    "oss.endpoint"="oss-cn-beijing.aliyuncs.com",
-    "oss.access_key"="ak",
-    "oss.secret_key"="sk"
+    "oss.endpoint" = "oss-cn-beijing.aliyuncs.com",
+    "oss.access_key" = "ak",
+    "oss.secret_key" = "sk"
 );
 
 ```
@@ -89,15 +105,15 @@ CREATE CATALOG `paimon_oss` PROPERTIES (
 ```sql
 CREATE CATALOG `paimon_hms` PROPERTIES (
     "type" = "paimon",
-    "paimon.catalog.type"="hms",
+    "paimon.catalog.type" = "hms",
     "warehouse" = "hdfs://HDFS8000871/user/zhangdong/paimon2",
     "hive.metastore.uris" = "thrift://172.21.0.44:7004",
-    "dfs.nameservices'='HDFS8000871",
-    "dfs.ha.namenodes.HDFS8000871'='nn1,nn2",
-    "dfs.namenode.rpc-address.HDFS8000871.nn1"="172.21.0.1:4007",
-    "dfs.namenode.rpc-address.HDFS8000871.nn2"="172.21.0.2:4007",
-    "dfs.client.failover.proxy.provider.HDFS8000871"="org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider",
-    "hadoop.username"="hadoop"
+    "dfs.nameservices" = "HDFS8000871",
+    "dfs.ha.namenodes.HDFS8000871" = "nn1,nn2",
+    "dfs.namenode.rpc-address.HDFS8000871.nn1" = "172.21.0.1:4007",
+    "dfs.namenode.rpc-address.HDFS8000871.nn2" = "172.21.0.2:4007",
+    "dfs.client.failover.proxy.provider.HDFS8000871" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider",
+    "hadoop.username" = "hadoop"
 );
 
 ```

@@ -315,6 +315,16 @@ Set table properties. The following attributes are currently supported:
 
     Set the copy distribution according to Tag. This attribute can completely cover the function of the `replication_num` attribute.
 
+* `is_being_synced`  
+
+    Used to identify whether this table is copied by CCR and is being synchronized by syncer. The default is `false`.  
+
+    If set to `true`:  
+    `colocate_with`, `storage_policy` properties will be erased  
+    `dynamic partition`, `auto bucket` features will be disabled, that is, they will be displayed as enabled in `show create table`, but will not actually take effect. When `is_being_synced` is set to `false`, these features will resume working.  
+
+    This property is for CCR peripheral modules only and should not be manually set during CCR synchronization.  
+
 * `storage_medium/storage_cooldown_time`
 
    Data storage medium. `storage_medium` is used to declare the initial storage medium of the table data, and `storage_cooldown_time` is used to set the expiration time. Example:
@@ -404,6 +414,37 @@ Set table properties. The following attributes are currently supported:
    index to compaction. It can reduce CPU and IO resource usage for high throughput load.
 
    `"skip_write_index_on_load" = "false"`
+
+* `compaction_policy`
+
+    Configure the compaction strategy in the compression phase. Only support configuring the compaction policy as "time_series" or "size_based".
+
+    time_series: When the disk size of a rowset accumulates to a certain threshold, version merging takes place. The merged rowset is directly promoted to the base compaction stage. This approach effectively reduces the write amplification rate of compaction, especially in scenarios with continuous imports in a time series context.
+
+    In the case of time series compaction, the execution of compaction is adjusted using parameters that have the prefix time_series_compaction.
+
+    `"compaction_policy" = ""`
+
+* `time_series_compaction_goal_size_mbytes`
+
+    Time series compaction policy will utilize this parameter to adjust the size of input files for each compaction. The output file size will be approximately equal to the input file size.
+
+    `"time_series_compaction_goal_size_mbytes" = "1024"`
+
+* `time_series_compaction_file_count_threshold`
+
+    Time series compaction policy will utilize this parameter to adjust the minimum number of input files for each compaction.
+
+    If the number of files in a tablet exceeds the configured threshold, it will trigger a compaction process.
+
+    `"time_series_compaction_file_count_threshold" = "2000"`
+
+* `time_series_compaction_time_threshold_seconds`
+
+     When time series compaction policy is applied, a significant duration passes without a compaction being executed, a compaction will be triggered.
+
+    `"time_series_compaction_time_threshold_seconds" = "3600"`
+
 
 * Dynamic partition related
 

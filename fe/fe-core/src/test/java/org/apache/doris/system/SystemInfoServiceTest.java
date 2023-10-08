@@ -20,9 +20,11 @@ package org.apache.doris.system;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.system.SystemInfoService.HostInfo;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.ImmutableMap;
@@ -58,6 +60,35 @@ public class SystemInfoServiceTest {
     }
 
     @Test
+    public void testGetHostAndPort() {
+        String ipv4 = "192.168.1.2:9050";
+        String ipv6 = "[fe80::5054:ff:fec9:dee0]:9050";
+        String ipv6Error = "fe80::5054:ff:fec9:dee0:9050";
+        try {
+            HostInfo hostAndPort = SystemInfoService.getHostAndPort(ipv4);
+            Assert.assertEquals("192.168.1.2", hostAndPort.getHost());
+            Assert.assertEquals(9050, hostAndPort.getPort());
+        } catch (AnalysisException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+        try {
+            HostInfo hostAndPort = SystemInfoService.getHostAndPort(ipv6);
+            Assert.assertEquals("fe80::5054:ff:fec9:dee0", hostAndPort.getHost());
+            Assert.assertEquals(9050, hostAndPort.getPort());
+        } catch (AnalysisException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+        try {
+            SystemInfoService.getHostAndPort(ipv6Error);
+            Assert.fail();
+        } catch (AnalysisException e) {
+            e.printStackTrace();
+        }
+    }
+
+    @Test
     public void testBackendHbResponseSerialization() throws IOException {
         MetaContext metaContext = new MetaContext();
         metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
@@ -66,7 +97,7 @@ public class SystemInfoServiceTest {
         System.out.println(Env.getCurrentEnvJournalVersion());
 
         BackendHbResponse writeResponse = new BackendHbResponse(1L, 1234, 1234, 1234, 1234, 1234, "test",
-                Tag.VALUE_COMPUTATION);
+                Tag.VALUE_COMPUTATION, false, 1234);
 
         // Write objects to file
         File file1 = new File("./BackendHbResponseSerialization");
@@ -401,4 +432,5 @@ public class SystemInfoServiceTest {
         tagMap.put(Tag.TYPE_ROLE, Tag.VALUE_COMPUTATION);
         be.setTagMap(tagMap);
     }
+
 }

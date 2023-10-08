@@ -1,6 +1,6 @@
 ---
 {
-    "title": "在ARM平台上编译",
+    "title": "在 Arm 平台上编译",
     "language": "zh-CN"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Apache Doris ARM 架构编译
+# Apache Doris Arm 架构编译
 
 本文档介绍如何在 ARM64 平台上编译 Doris。
 

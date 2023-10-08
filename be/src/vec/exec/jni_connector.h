@@ -257,6 +257,7 @@ private:
     size_t _has_read = 0;
 
     bool _closed = false;
+    bool _scanner_initialized = false;
     jclass _jni_scanner_cls;
     jobject _jni_scanner_obj;
     jmethodID _jni_scanner_open;
@@ -296,6 +297,18 @@ private:
     Status _fill_block(Block* block, size_t num_rows);
 
     Status _fill_column(ColumnPtr& doris_column, DataTypePtr& data_type, size_t num_rows);
+
+    Status _fill_map_column(MutableColumnPtr& doris_column, DataTypePtr& data_type,
+                            size_t num_rows);
+
+    Status _fill_array_column(MutableColumnPtr& doris_column, DataTypePtr& data_type,
+                              size_t num_rows);
+
+    Status _fill_struct_column(MutableColumnPtr& doris_column, DataTypePtr& data_type,
+                               size_t num_rows);
+
+    static void _fill_column_meta(ColumnPtr& doris_column, DataTypePtr& data_type,
+                                  std::vector<long>& meta_data);
 
     template <typename CppType>
     Status _fill_numeric_column(MutableColumnPtr& doris_column, CppType* ptr, size_t num_rows) {

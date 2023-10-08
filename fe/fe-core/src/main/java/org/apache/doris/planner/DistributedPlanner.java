@@ -38,8 +38,6 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.planner.external.jdbc.JdbcScanNode;
-import org.apache.doris.planner.external.odbc.OdbcScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TPartitionType;
@@ -270,6 +268,7 @@ public class DistributedPlanner {
         mergePlan.init(ctx.getRootAnalyzer());
         Preconditions.checkState(mergePlan.hasValidStats());
         PlanFragment fragment = new PlanFragment(ctx.getNextFragmentId(), mergePlan, DataPartition.UNPARTITIONED);
+        fragment.setResultSinkType(ctx.getRootAnalyzer().getContext().getResultSinkType());
         inputFragment.setDestination(mergePlan);
         return fragment;
     }
@@ -281,12 +280,8 @@ public class DistributedPlanner {
      * TODO: hbase scans are range-partitioned on the row key
      */
     private PlanFragment createScanFragment(PlanNode node) throws UserException {
-        if (node instanceof MysqlScanNode || node instanceof OdbcScanNode || node instanceof JdbcScanNode) {
+        if (node instanceof MysqlScanNode) {
             return new PlanFragment(ctx.getNextFragmentId(), node, DataPartition.UNPARTITIONED);
-        } else if (node instanceof SchemaScanNode) {
-            return new PlanFragment(ctx.getNextFragmentId(), node, DataPartition.RANDOM);
-        } else if (node instanceof DataGenScanNode) {
-            return new PlanFragment(ctx.getNextFragmentId(), node, DataPartition.RANDOM);
         } else if (node instanceof OlapScanNode) {
             // olap scan node
             OlapScanNode olapScanNode = (OlapScanNode) node;
@@ -388,7 +383,7 @@ public class DistributedPlanner {
             node.setChild(0, leftChildFragment.getPlanRoot());
             connectChildFragment(node, 1, leftChildFragment, rightChildFragment);
             leftChildFragment.setPlanRoot(node);
-            rightChildFragment.setRightChildOfBroadcastHashJoin(true);
+            ((ExchangeNode) node.getChild(1)).setRightChildOfBroadcastHashJoin(true);
             return leftChildFragment;
         } else {
             node.setDistributionMode(HashJoinNode.DistributionMode.PARTITIONED);

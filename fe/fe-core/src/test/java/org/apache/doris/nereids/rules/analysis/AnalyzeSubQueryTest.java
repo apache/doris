@@ -105,7 +105,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements MemoPatter
         PlanChecker.from(connectContext)
                 .analyze(testSql.get(0))
                 .applyTopDown(new LogicalSubQueryAliasToLogicalProject())
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         logicalProject(
                             logicalProject(
@@ -129,7 +129,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements MemoPatter
         PlanChecker.from(connectContext)
                 .analyze(testSql.get(1))
                 .applyTopDown(new LogicalSubQueryAliasToLogicalProject())
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         innerLogicalJoin(
                             logicalProject(
@@ -165,7 +165,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements MemoPatter
         PlanChecker.from(connectContext)
                 .analyze(testSql.get(5))
                 .applyTopDown(new LogicalSubQueryAliasToLogicalProject())
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         innerLogicalJoin(
                             logicalOlapScan(),

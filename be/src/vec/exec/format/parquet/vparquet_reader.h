@@ -56,7 +56,7 @@ class TupleDescriptor;
 
 namespace io {
 class FileSystem;
-class IOContext;
+struct IOContext;
 } // namespace io
 namespace vectorized {
 class Block;
@@ -119,7 +119,7 @@ public:
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
-    void close();
+    void close() override;
 
     RowRange get_whole_range() { return _whole_range; }
 
@@ -182,11 +182,11 @@ private:
 
     Status _open_file();
     void _init_profile();
+    void _close_internal();
     Status _next_row_group_reader();
     RowGroupReader::PositionDeleteContext _get_position_delete_ctx(
             const tparquet::RowGroup& row_group,
             const RowGroupReader::RowGroupIndex& row_group_index);
-    Status _init_read_columns();
     Status _init_row_groups(const bool& is_filter_groups);
     void _init_system_properties();
     void _init_file_description();
@@ -214,23 +214,29 @@ private:
     const TFileRangeDesc& _scan_range;
     io::FileSystemProperties _system_properties;
     io::FileDescription _file_description;
+
+    // the following fields are for parquet meta data cache.
+    // if _meta_cache is not null, the _file_metadata will be got from _meta_cache,
+    // and it is owned by _meta_cache_handle.
+    // if _meta_cache is null, _file_metadata will be managed by _file_metadata_ptr,
+    // which will be released when deconstructing.
+    // ATTN: these fields must be before _file_reader, to make sure they will be released
+    // after _file_reader. Otherwise, there may be heap-use-after-free bug.
+    ObjLRUCache::CacheHandle _meta_cache_handle;
+    std::unique_ptr<FileMetaData> _file_metadata_ptr;
+    FileMetaData* _file_metadata = nullptr;
+    const tparquet::FileMetaData* _t_metadata;
+
     std::shared_ptr<io::FileSystem> _file_system = nullptr;
     io::FileReaderSPtr _file_reader = nullptr;
-    ObjLRUCache::CacheHandle _cache_handle;
-    FileMetaData* _file_metadata = nullptr;
-    // set to true if _file_metadata is owned by this reader.
-    // otherwise, it is owned by someone else, such as _meta_cache
-    bool _is_file_metadata_owned = false;
-    const tparquet::FileMetaData* _t_metadata;
     std::unique_ptr<RowGroupReader> _current_group_reader = nullptr;
     // read to the end of current reader
     bool _row_group_eof = true;
-    int32_t _total_groups;                  // num of groups(stripes) of a parquet(orc) file
-    std::map<std::string, int> _map_column; // column-name <---> column-index
+    int32_t _total_groups; // num of groups(stripes) of a parquet(orc) file
     // table column name to file column name map. For iceberg schema evolution.
     std::unordered_map<std::string, std::string> _table_col_to_file_col;
     std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
-    std::vector<ParquetReadColumn> _read_columns;
+    std::vector<std::string> _read_columns;
     RowRange _whole_range = RowRange(0, 0);
     const std::vector<int64_t>* _delete_rows = nullptr;
     int64_t _delete_rows_index = 0;

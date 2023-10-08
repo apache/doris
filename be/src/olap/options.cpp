@@ -148,20 +148,52 @@ Status parse_root_path(const string& root_path, StorePath* path) {
 
 Status parse_conf_store_paths(const string& config_path, std::vector<StorePath>* paths) {
     std::vector<string> path_vec = strings::Split(config_path, ";", strings::SkipWhitespace());
+    if (path_vec.empty()) {
+        // means compute node
+        return Status::OK();
+    }
+    if (path_vec.back().empty()) {
+        // deal with the case that user add `;` to the tail
+        path_vec.pop_back();
+    }
+
+    std::set<std::string> real_paths;
     for (auto& item : path_vec) {
         StorePath path;
         auto res = parse_root_path(item, &path);
         if (res.ok()) {
-            paths->emplace_back(std::move(path));
+            auto success = real_paths.emplace(path.path).second;
+            if (success) {
+                paths->emplace_back(std::move(path));
+            } else {
+                LOG(WARNING) << "a duplicated path is found " << path.path;
+                return Status::Error<INVALID_ARGUMENT>("a duplicated path is found, path={}",
+                                                       path.path);
+            }
         } else {
             LOG(WARNING) << "failed to parse store path " << item << ", res=" << res;
         }
     }
-    if (paths->empty() || (path_vec.size() != paths->size() && !config::ignore_broken_disk)) {
+    if ((path_vec.size() != paths->size() && !config::ignore_broken_disk)) {
         return Status::Error<INVALID_ARGUMENT>("fail to parse storage_root_path config. value={}",
                                                config_path);
     }
     return Status::OK();
+}
+
+void parse_conf_broken_store_paths(const string& config_path, std::set<std::string>* paths) {
+    std::vector<string> path_vec = strings::Split(config_path, ";", strings::SkipWhitespace());
+    if (path_vec.empty()) {
+        return;
+    }
+    if (path_vec.back().empty()) {
+        // deal with the case that user add `;` to the tail
+        path_vec.pop_back();
+    }
+    for (auto& item : path_vec) {
+        paths->emplace(item);
+    }
+    return;
 }
 
 /** format:   

@@ -22,6 +22,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -76,18 +77,16 @@ public class PhysicalCTEAnchor<
         if (this == o) {
             return true;
         }
-
-        if (!super.equals(o)) {
+        if (o == null || getClass() != o.getClass()) {
             return false;
         }
-
-        PhysicalCTEAnchor that = (PhysicalCTEAnchor) o;
-        return Objects.equals(cteId, that.cteId);
+        PhysicalCTEAnchor<?, ?> that = (PhysicalCTEAnchor<?, ?>) o;
+        return cteId.equals(that.cteId);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), cteId);
+        return Objects.hash(cteId);
     }
 
     @Override
@@ -131,5 +130,16 @@ public class PhysicalCTEAnchor<
     public String shapeInfo() {
         return Utils.toSqlString("PhysicalCteAnchor",
                 "cteId", cteId);
+    }
+
+    @Override
+    public List<Slot> computeOutput() {
+        return right().getOutput();
+    }
+
+    @Override
+    public PhysicalCTEAnchor<Plan, Plan> resetLogicalProperties() {
+        return new PhysicalCTEAnchor<>(cteId, groupExpression, null, physicalProperties,
+                statistics, child(0), child(1));
     }
 }

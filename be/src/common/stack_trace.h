@@ -22,6 +22,7 @@
 
 #include <array>
 #include <csignal>
+#include <cstdint>
 #include <functional>
 #include <optional>
 #include <string>
@@ -75,6 +76,7 @@ public:
     [[nodiscard]] std::string toString() const;
 
     static std::string toString(void** frame_pointers, size_t offset, size_t size);
+    static void createCache();
     static void dropCache();
     static void symbolize(const FramePointers& frame_pointers, size_t offset, size_t size,
                           StackTrace::Frames& frames);

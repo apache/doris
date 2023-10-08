@@ -47,6 +47,7 @@ import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.journal.bdbje.Timestamp;
 import org.apache.doris.load.DeleteInfo;
 import org.apache.doris.load.ExportJob;
+import org.apache.doris.load.ExportJobStateTransfer;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.StreamLoadRecordMgr.FetchStreamLoadRecord;
@@ -106,19 +107,26 @@ import org.apache.doris.persist.ReplacePartitionOperationLog;
 import org.apache.doris.persist.ReplaceTableOperationLog;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.RoutineLoadOperation;
+import org.apache.doris.persist.SetPartitionVersionOperationLog;
 import org.apache.doris.persist.SetReplicaStatusOperationLog;
+import org.apache.doris.persist.SetReplicaVersionOperationLog;
+import org.apache.doris.persist.SetTableStatusOperationLog;
 import org.apache.doris.persist.TableAddOrDropColumnsInfo;
 import org.apache.doris.persist.TableAddOrDropInvertedIndicesInfo;
 import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.TableRenameColumnInfo;
+import org.apache.doris.persist.TableStatsDeletionLog;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
+import org.apache.doris.scheduler.job.Job;
+import org.apache.doris.scheduler.job.JobTask;
 import org.apache.doris.statistics.AnalysisInfo;
+import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -137,6 +145,7 @@ public class JournalEntity implements Writable {
 
     private short opCode;
     private Writable data;
+    private long dataSize;
 
     public short getOpCode() {
         return this.opCode;
@@ -156,6 +165,14 @@ public class JournalEntity implements Writable {
 
     public String toString() {
         return " opCode=" + opCode + " " + data;
+    }
+
+    public void setDataSize(long dataSize) {
+        this.dataSize = dataSize;
+    }
+
+    public long getDataSize() {
+        return this.dataSize;
     }
 
     @Override
@@ -317,7 +334,7 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             case OperationType.OP_EXPORT_UPDATE_STATE:
-                data = ExportJob.StateTransfer.read(in);
+                data = ExportJobStateTransfer.read(in);
                 isRead = true;
                 break;
             case OperationType.OP_FINISH_DELETE: {
@@ -432,6 +449,11 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
+            case OperationType.OP_SET_TABLE_STATUS: {
+                data = SetTableStatusOperationLog.read(in);
+                isRead = true;
+                break;
+            }
             case OperationType.OP_CREATE_REPOSITORY: {
                 data = Repository.read(in);
                 isRead = true;
@@ -448,6 +470,7 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
+            case OperationType.OP_COLOCATE_MOD_REPLICA_ALLOC:
             case OperationType.OP_COLOCATE_ADD_TABLE:
             case OperationType.OP_COLOCATE_REMOVE_TABLE:
             case OperationType.OP_COLOCATE_BACKENDS_PER_BUCKETSEQ:
@@ -515,6 +538,21 @@ public class JournalEntity implements Writable {
             case OperationType.OP_CHANGE_ROUTINE_LOAD_JOB:
             case OperationType.OP_REMOVE_ROUTINE_LOAD_JOB: {
                 data = RoutineLoadOperation.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_UPDATE_SCHEDULER_JOB:
+            case OperationType.OP_DELETE_SCHEDULER_JOB:
+            case OperationType.OP_CREATE_SCHEDULER_JOB: {
+                Job job = Job.readFields(in);
+                data = job;
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_CREATE_SCHEDULER_TASK:
+            case OperationType.OP_DELETE_SCHEDULER_TASK: {
+                JobTask task = JobTask.readFields(in);
+                data = task;
                 isRead = true;
                 break;
             }
@@ -592,6 +630,16 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_SET_REPLICA_STATUS: {
                 data = SetReplicaStatusOperationLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_SET_REPLICA_VERSION: {
+                data = SetReplicaVersionOperationLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_SET_PARTITION_VERSION: {
+                data = SetPartitionVersionOperationLog.read(in);
                 isRead = true;
                 break;
             }
@@ -836,7 +884,22 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_BARRIER: {
-                data = new BarrierLog();
+                data = BarrierLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_UPDATE_TABLE_STATS: {
+                data = TableStatsMeta.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_PERSIST_AUTO_JOB: {
+                data = AnalysisInfo.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_DELETE_TABLE_STATS: {
+                data = TableStatsDeletionLog.read(in);
                 isRead = true;
                 break;
             }

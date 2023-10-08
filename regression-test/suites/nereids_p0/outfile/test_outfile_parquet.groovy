@@ -25,6 +25,10 @@ suite("test_outfile_parquet") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
 
+    def outFile = "/tmp"
+    def urlHost = ""
+    def parquetFiles = ""
+
     def dbName = "test_outfile_parquet"
     sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
     sql "USE $dbName"
@@ -105,9 +109,15 @@ suite("test_outfile_parquet") {
         } else {
             throw new IllegalStateException("""${outFilePath} already exists! """)
         }
-        sql """
-            SELECT * FROM ${tableName} t ORDER BY user_id INTO OUTFILE "file://${outFilePath}/" FORMAT AS PARQUET;
+        def result = sql """
+            SELECT * FROM ${tableName} t ORDER BY user_id INTO OUTFILE "file://${outFile}/" FORMAT AS PARQUET;
         """
+
+        url = result[0][3]
+        urlHost = url.substring(8, url.indexOf("${outFile}"))
+        def filePrifix = url.split("${outFile}")[1]
+        parquetFiles = "${outFile}${filePrifix}*.parquet"
+        scpFiles ("root", urlHost, parquetFiles, outFilePath)
 
         File[] files = path.listFiles()
         assert files.length == 1
@@ -158,5 +168,8 @@ suite("test_outfile_parquet") {
             }
             path.delete();
         }
+
+        cmd = "rm -rf ${parquetFiles}"
+        sshExec ("root", urlHost, cmd)
     }
 }

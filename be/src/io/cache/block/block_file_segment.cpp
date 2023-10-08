@@ -131,7 +131,7 @@ void FileBlock::reset_downloader(std::lock_guard<std::mutex>& segment_lock) {
 
 void FileBlock::reset_downloader_impl(std::lock_guard<std::mutex>& segment_lock) {
     if (_downloaded_size == range().size()) {
-        set_downloaded(segment_lock);
+        static_cast<void>(set_downloaded(segment_lock));
     } else {
         _downloaded_size = 0;
         _download_state = State::EMPTY;

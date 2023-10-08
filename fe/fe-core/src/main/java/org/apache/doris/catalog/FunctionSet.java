@@ -21,12 +21,14 @@ import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CompoundPredicate;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.MatchPredicate;
 import org.apache.doris.builtins.ScalarBuiltins;
 import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
@@ -202,6 +204,9 @@ public class FunctionSet<T> {
     public static final String HIST = "hist";
     public static final String MAP_AGG = "map_agg";
 
+    public static final String BITMAP_AGG = "bitmap_agg";
+    public static final String COUNT_BY_ENUM = "count_by_enum";
+
     private static final Map<Type, String> TOPN_UPDATE_SYMBOL =
             ImmutableMap.<Type, String>builder()
                     .put(Type.CHAR,
@@ -340,10 +345,12 @@ public class FunctionSet<T> {
     public Function specializeTemplateFunction(Function templateFunction, Function requestFunction, boolean isVariadic) {
         try {
             boolean hasTemplateType = false;
-            LOG.debug("templateFunction signature: " + templateFunction.signatureString()
-                        + "  return: " + templateFunction.getReturnType());
-            LOG.debug("requestFunction signature: " + requestFunction.signatureString()
-                        + "  return: " + requestFunction.getReturnType());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("templateFunction signature: {}, return type: {}",
+                            templateFunction.signatureString(), templateFunction.getReturnType());
+                LOG.debug("requestFunction signature: {}, return type: {}",
+                            requestFunction.signatureString(), requestFunction.getReturnType());
+            }
             List<Type> newArgTypes = Lists.newArrayList();
             List<Type> newRetType = Lists.newArrayList();
             if (isVariadic) {
@@ -392,12 +399,14 @@ public class FunctionSet<T> {
                         specializedFunction.getReturnType().specializeTemplateType(
                         requestFunction.getReturnType(), specializedTypeMap, true));
             }
-            LOG.debug("specializedFunction signature: " + specializedFunction.signatureString()
-                        + "  return: " + specializedFunction.getReturnType());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("specializedFunction signature: {}, return type: {}",
+                            specializedFunction.signatureString(), specializedFunction.getReturnType());
+            }
             return hasTemplateType ? specializedFunction : templateFunction;
         } catch (TypeException e) {
-            if (inited) {
-                LOG.warn("specializeTemplateFunction exception", e);
+            if (inited && LOG.isDebugEnabled()) {
+                LOG.debug("specializeTemplateFunction exception", e);
             }
             return null;
         }
@@ -452,6 +461,13 @@ public class FunctionSet<T> {
                 // The implementations of hex for string and int are different.
                 return false;
             }
+        }
+        // If set `roundPreciseDecimalV2Value`, only use decimalv3 as target type to execute round function
+        if (ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().roundPreciseDecimalV2Value
+                && FunctionCallExpr.ROUND_FUNCTION_SET.contains(desc.functionName())
+                && descArgType.isDecimalV2()) {
+            return candicateArgType.getPrimitiveType() == PrimitiveType.DECIMAL128;
         }
         if ((descArgType.isDecimalV3() && candicateArgType.isDecimalV2())
                 || (descArgType.isDecimalV2() && candicateArgType.isDecimalV3())) {
@@ -555,6 +571,8 @@ public class FunctionSet<T> {
     public static final String GROUP_UNIQ_ARRAY = "group_uniq_array";
 
     public static final String GROUP_ARRAY = "group_array";
+
+    public static final String ARRAY_AGG = "array_agg";
 
     // Populate all the aggregate builtins in the catalog.
     // null symbols indicate the function does not need that step of the evaluation.
@@ -1023,9 +1041,18 @@ public class FunctionSet<T> {
             }
 
             if (!Type.JSONB.equals(t)) {
-                for (Type valueType : Type.getTrivialTypes()) {
-                    addBuiltin(AggregateFunction.createBuiltin(MAP_AGG, Lists.newArrayList(t, valueType), new MapType(t, valueType),
+                for (Type valueType : Type.getMapSubTypes()) {
+                    addBuiltin(AggregateFunction.createBuiltin(MAP_AGG, Lists.newArrayList(t, valueType),
+                            new MapType(t, valueType),
                             Type.VARCHAR,
+                            "", "", "", "", "", null, "",
+                            true, true, false, true));
+                }
+
+                for (Type v : Type.getArraySubTypes()) {
+                    addBuiltin(AggregateFunction.createBuiltin(MAP_AGG, Lists.newArrayList(t, new ArrayType(v)),
+                            new MapType(t, new ArrayType(v)),
+                            new MapType(t, new ArrayType(v)),
                             "", "", "", "", "", null, "",
                             true, true, false, true));
                 }
@@ -1268,6 +1295,16 @@ public class FunctionSet<T> {
             addBuiltin(AggregateFunction.createBuiltin("group_bit_xor",
                     Lists.newArrayList(t), t, t, "", "", "", "", "",
                     false, true, false, true));
+            if (!t.equals(Type.LARGEINT)) {
+                addBuiltin(
+                        AggregateFunction.createBuiltin("bitmap_agg", Lists.newArrayList(t), Type.BITMAP, Type.BITMAP,
+                                "",
+                                "",
+                                "",
+                                "",
+                                "",
+                                true, false, true, true));
+            }
         }
 
         addBuiltin(AggregateFunction.createBuiltin(QUANTILE_UNION, Lists.newArrayList(Type.QUANTILE_STATE),
@@ -1367,6 +1404,9 @@ public class FunctionSet<T> {
                     AggregateFunction.createBuiltin(GROUP_ARRAY, Lists.newArrayList(t, Type.INT), new ArrayType(t),
                             t, "", "", "", "", "", true, false, true, true));
 
+            addBuiltin(AggregateFunction.createBuiltin(ARRAY_AGG, Lists.newArrayList(t), new ArrayType(t), t, "", "", "", "", "",
+                    true, false, true, true));
+
             //first_value/last_value for array
             addBuiltin(AggregateFunction.createAnalyticBuiltin("first_value",
                     Lists.newArrayList(new ArrayType(t)), new ArrayType(t), Type.ARRAY,
@@ -1407,6 +1447,10 @@ public class FunctionSet<T> {
                 false, true, false, true));
         addBuiltin(AggregateFunction.createBuiltin("avg",
                 Lists.<Type>newArrayList(Type.BIGINT), Type.DOUBLE, Type.BIGINT,
+                "", "", "", "", "", "", "",
+                false, true, false, true));
+        addBuiltin(AggregateFunction.createBuiltin("avg",
+                Lists.<Type>newArrayList(Type.LARGEINT), Type.DOUBLE, Type.LARGEINT,
                 "", "", "", "", "", "", "",
                 false, true, false, true));
         addBuiltin(AggregateFunction.createBuiltin("avg",
@@ -1604,6 +1648,21 @@ public class FunctionSet<T> {
                         "lead", Lists.newArrayList(t, Type.BIGINT), t, t, true));
         }
 
+        // count_by_enum
+        addBuiltin(AggregateFunction.createBuiltin(COUNT_BY_ENUM,
+                Lists.newArrayList(Type.STRING),
+                Type.STRING,
+                Type.STRING,
+                true,
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                false, true, false, true));
+
     }
 
     public Map<String, List<Function>> getVectorizedFunctions() {
@@ -1616,6 +1675,13 @@ public class FunctionSet<T> {
             builtinFunctions.addAll(entry.getValue());
         }
         return builtinFunctions;
+    }
+
+    public List<Function> getAllFunctions() {
+        List<Function> functions = Lists.newArrayList();
+        vectorizedFunctions.forEach((k, v) -> functions.addAll(v));
+        tableFunctions.forEach((k, v) -> functions.addAll(v));
+        return functions;
     }
 
     public static final String EXPLODE_SPLIT = "explode_split";

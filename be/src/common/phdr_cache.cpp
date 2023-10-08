@@ -74,6 +74,15 @@ std::atomic<PHDRCache*> phdr_cache {};
 
 } // namespace
 
+// Jemalloc heap profile follows libgcc's way of backtracing by default.
+// rewrites dl_iterate_phdr will cause Jemalloc to fail to run after enable profile.
+
+// TODO, two solutions:
+// 1. Jemalloc specifies GNU libunwind as the prof backtracing way, but my test failed,
+//    `--enable-prof-libunwind` not work: https://github.com/jemalloc/jemalloc/issues/2504
+// 2. ClickHouse/libunwind solves Jemalloc profile backtracing, but the branch of ClickHouse/libunwind
+//    has been out of touch with GNU libunwind and LLVM libunwind, which will leave the fate to others.
+/*
 extern "C"
 #ifndef __clang__
         [[gnu::visibility("default")]] [[gnu::externally_visible]]
@@ -95,6 +104,7 @@ extern "C"
     }
     return result;
 }
+*/
 
 extern "C" {
 #ifdef ADDRESS_SANITIZER

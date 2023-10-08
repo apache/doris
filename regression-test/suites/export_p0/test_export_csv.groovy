@@ -22,6 +22,10 @@ import java.nio.file.Files
 import java.nio.file.Paths
 
 suite("test_export_csv", "p0") {
+    // open nereids
+    sql """ set enable_nereids_planner=true """
+    sql """ set enable_fallback_to_original_planner=false """
+
     // check whether the FE config 'enable_outfile_to_local' is true
     StringBuilder strBuilder = new StringBuilder()
     strBuilder.append("curl --location-trusted -u " + context.config.jdbcUser + ":" + context.config.jdbcPassword)
@@ -359,8 +363,8 @@ suite("test_export_csv", "p0") {
         qt_select_load3 """ SELECT * FROM ${table_load_name} t ORDER BY user_id; """
     
     } finally {
-        // try_sql("DROP TABLE IF EXISTS ${table_load_name}")
-        // delete_files.call("${outFilePath}")
+        try_sql("DROP TABLE IF EXISTS ${table_load_name}")
+        delete_files.call("${outFilePath}")
     }
 
     // 4. test csv_with_names_and_types
@@ -437,8 +441,8 @@ suite("test_export_csv", "p0") {
         qt_select_load4 """ SELECT * FROM ${table_load_name} t ORDER BY user_id; """
     
     } finally {
-        // try_sql("DROP TABLE IF EXISTS ${table_load_name}")
-        // delete_files.call("${outFilePath}")
+        try_sql("DROP TABLE IF EXISTS ${table_load_name}")
+        delete_files.call("${outFilePath}")
     }
 
     try_sql("DROP TABLE IF EXISTS ${table_export_name}")

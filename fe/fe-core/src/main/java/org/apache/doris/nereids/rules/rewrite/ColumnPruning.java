@@ -22,17 +22,17 @@ import org.apache.doris.nereids.rules.rewrite.ColumnPruning.PruneContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.OutputPrunable;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
@@ -48,7 +48,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -118,36 +117,31 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         }
 
         LogicalUnion prunedOutputUnion = pruneOutput(union, union.getOutputs(), union::pruneOutputs, context);
+        if (prunedOutputUnion == union) {
+            return union;
+        }
 
         // start prune children of union
         List<Slot> originOutput = union.getOutput();
         Set<Slot> prunedOutput = prunedOutputUnion.getOutputSet();
-        Set<Integer> prunedOutputIndexes = IntStream.range(0, originOutput.size())
+        List<Integer> prunedOutputIndexes = IntStream.range(0, originOutput.size())
                 .filter(index -> prunedOutput.contains(originOutput.get(index)))
                 .boxed()
-                .collect(ImmutableSet.toImmutableSet());
-
-        AtomicBoolean changed = new AtomicBoolean(false);
-        List<Plan> prunedChildren = prunedOutputUnion.children().stream()
-                .map(child -> {
-                    List<Slot> childOutput = child.getOutput();
-                    Set<Slot> prunedChildOutput = prunedOutputIndexes.stream()
-                            .map(childOutput::get)
-                            .collect(ImmutableSet.toImmutableSet());
-
-                    Plan prunedChild = doPruneChild(prunedOutputUnion, child, prunedChildOutput);
-                    if (prunedChild != child) {
-                        changed.set(true);
-                    }
-                    return prunedChild;
-                })
                 .collect(ImmutableList.toImmutableList());
 
-        if (!changed.get()) {
-            return prunedOutputUnion;
+        ImmutableList.Builder<Plan> prunedChildren = ImmutableList.builder();
+        ImmutableList.Builder<List<SlotReference>> prunedChildrenOutputs = ImmutableList.builder();
+        for (int i = 0; i < prunedOutputUnion.arity(); i++) {
+            List<SlotReference> regularChildOutputs = prunedOutputUnion.getRegularChildOutput(i);
+            List<SlotReference> prunedChildOutput = prunedOutputIndexes.stream()
+                    .map(regularChildOutputs::get)
+                    .collect(ImmutableList.toImmutableList());
+            Set<Slot> prunedChildOutputSet = ImmutableSet.copyOf(prunedChildOutput);
+            Plan prunedChild = doPruneChild(prunedOutputUnion, prunedOutputUnion.child(i), prunedChildOutputSet);
+            prunedChildrenOutputs.add(prunedChildOutput);
+            prunedChildren.add(prunedChild);
         }
-
-        return prunedOutputUnion.withChildren(prunedChildren);
+        return prunedOutputUnion.withChildrenAndTheirOutputs(prunedChildren.build(), prunedChildrenOutputs.build());
     }
 
     // we should keep the output of LogicalSetOperation and all the children
@@ -162,13 +156,8 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
     }
 
     @Override
-    public Plan visitLogicalOlapTableSink(LogicalOlapTableSink<? extends Plan> olapTableSink, PruneContext context) {
-        return skipPruneThisAndFirstLevelChildren(olapTableSink);
-    }
-
-    @Override
-    public Plan visitLogicalFileSink(LogicalFileSink<? extends Plan> fileSink, PruneContext context) {
-        return skipPruneThisAndFirstLevelChildren(fileSink);
+    public Plan visitLogicalSink(LogicalSink<? extends Plan> logicalSink, PruneContext context) {
+        return skipPruneThisAndFirstLevelChildren(logicalSink);
     }
 
     // the backend not support filter(project(agg)), so we can not prune the key set in the agg,
@@ -223,15 +212,9 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
                 .build());
     }
 
-    public static final <P extends Plan> P pruneOutput(P plan, List<NamedExpression> originOutput,
-            Function<List<NamedExpression>, P> withPrunedOutput, PruneContext context) {
-        Optional<List<NamedExpression>> prunedOutputs = pruneOutput(originOutput, context);
-        return prunedOutputs.map(withPrunedOutput).orElse(plan);
-    }
-
     /** prune output */
-    public static Optional<List<NamedExpression>> pruneOutput(
-            List<NamedExpression> originOutput, PruneContext context) {
+    public static <P extends Plan> P pruneOutput(P plan, List<NamedExpression> originOutput,
+            Function<List<NamedExpression>, P> withPrunedOutput, PruneContext context) {
         List<NamedExpression> prunedOutputs = originOutput.stream()
                 .filter(output -> context.requiredSlots.contains(output.toSlot()))
                 .collect(ImmutableList.toImmutableList());
@@ -241,9 +224,11 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             prunedOutputs = ImmutableList.of(minimumColumn);
         }
 
-        return prunedOutputs.equals(originOutput)
-                ? Optional.empty()
-                : Optional.of(prunedOutputs);
+        if (prunedOutputs.equals(originOutput)) {
+            return plan;
+        } else {
+            return withPrunedOutput.apply(prunedOutputs);
+        }
     }
 
     private <P extends Plan> P pruneChildren(P plan) {

@@ -23,6 +23,8 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentStartRequest;
+import org.apache.doris.proto.InternalService.PGroupCommitInsertRequest;
+import org.apache.doris.proto.InternalService.PGroupCommitInsertResponse;
 import org.apache.doris.proto.Types;
 import org.apache.doris.thrift.TExecPlanFragmentParamsList;
 import org.apache.doris.thrift.TFoldConstantParams;
@@ -61,7 +63,7 @@ public class BackendServiceProxy {
     }
 
     private static class Holder {
-        private static final int PROXY_NUM = 20;
+        private static final int PROXY_NUM = Config.backend_proxy_num;
         private static BackendServiceProxy[] proxies = new BackendServiceProxy[PROXY_NUM];
         private static AtomicInteger count = new AtomicInteger();
 
@@ -257,6 +259,18 @@ public class BackendServiceProxy {
         }
     }
 
+    public Future<InternalService.PFetchArrowFlightSchemaResult> fetchArrowFlightSchema(
+            TNetworkAddress address, InternalService.PFetchArrowFlightSchemaRequest request) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.fetchArrowFlightSchema(request);
+        } catch (Throwable e) {
+            LOG.warn("fetch arrow flight schema catch a exception, address={}:{}",
+                    address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
     public Future<InternalService.PFetchTableSchemaResult> fetchTableStructureAsync(
             TNetworkAddress address, InternalService.PFetchTableSchemaRequest request) throws RpcException {
         try {
@@ -264,6 +278,18 @@ public class BackendServiceProxy {
             return client.fetchTableStructureAsync(request);
         } catch (Throwable e) {
             LOG.warn("fetch table structure catch a exception, address={}:{}",
+                    address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
+    public Future<InternalService.PReportStreamLoadStatusResponse> reportStreamLoadStatus(
+            TNetworkAddress address, InternalService.PReportStreamLoadStatusRequest request) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.reportStreamLoadStatus(request);
+        } catch (Throwable e) {
+            LOG.warn("report stream load status catch a exception, address={}:{}",
                     address.getHostname(), address.getPort(), e);
             throw new RpcException(address.hostname, e.getMessage());
         }
@@ -387,4 +413,27 @@ public class BackendServiceProxy {
         }
     }
 
+    public Future<InternalService.PGlobResponse> glob(TNetworkAddress address,
+            InternalService.PGlobRequest request) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.glob(request);
+        } catch (Throwable e) {
+            LOG.warn("failed to glob dir from BE {}:{}, path: {}, error: ",
+                    address.getHostname(), address.getPort(), request.getPattern());
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
+    public Future<PGroupCommitInsertResponse> groupCommitInsert(TNetworkAddress address,
+            PGroupCommitInsertRequest request) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.groupCommitInsert(request);
+        } catch (Throwable e) {
+            LOG.warn("failed to group commit insert from address={}:{}", address.getHostname(),
+                    address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
 }

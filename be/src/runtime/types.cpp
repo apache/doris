@@ -40,7 +40,7 @@ TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx)
     switch (node.type) {
     case TTypeNodeType::SCALAR: {
         DCHECK(node.__isset.scalar_type);
-        const TScalarType scalar_type = node.scalar_type;
+        const TScalarType& scalar_type = node.scalar_type;
         type = thrift_to_type(scalar_type.type);
         if (type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_HLL) {
             DCHECK(scalar_type.__isset.len);
@@ -63,11 +63,11 @@ TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx)
     case TTypeNodeType::ARRAY: {
         DCHECK(!node.__isset.scalar_type);
         DCHECK_LT(*idx, types.size() - 1);
-        DCHECK_EQ(node.contains_nulls.size(), 1);
         type = TYPE_ARRAY;
         contains_nulls.reserve(1);
         // here should compatible with fe 1.2, because use contains_null in contains_nulls
         if (node.__isset.contains_nulls) {
+            DCHECK_EQ(node.contains_nulls.size(), 1);
             contains_nulls.push_back(node.contains_nulls[0]);
         } else {
             contains_nulls.push_back(node.contains_null);
@@ -90,13 +90,6 @@ TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx)
             field_names.push_back(node.struct_fields[i].name);
             contains_nulls.push_back(node.struct_fields[i].contains_null);
         }
-        break;
-    }
-    case TTypeNodeType::VARIANT: {
-        DCHECK(!node.__isset.scalar_type);
-        // variant column must be the last column
-        DCHECK_EQ(*idx, types.size() - 1);
-        type = TYPE_VARIANT;
         break;
     }
     case TTypeNodeType::MAP: {

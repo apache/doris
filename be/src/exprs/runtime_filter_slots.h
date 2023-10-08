@@ -33,21 +33,11 @@ namespace doris {
 class VRuntimeFilterSlots {
 public:
     VRuntimeFilterSlots(
-            const std::vector<std::shared_ptr<vectorized::VExprContext>>& prob_expr_ctxs,
             const std::vector<std::shared_ptr<vectorized::VExprContext>>& build_expr_ctxs,
             const std::vector<TRuntimeFilterDesc>& runtime_filter_descs)
-            : _probe_expr_context(prob_expr_ctxs),
-              _build_expr_context(build_expr_ctxs),
-              _runtime_filter_descs(runtime_filter_descs) {}
+            : _build_expr_context(build_expr_ctxs), _runtime_filter_descs(runtime_filter_descs) {}
 
     Status init(RuntimeState* state, int64_t hash_table_size, size_t build_bf_cardinality) {
-        if (_probe_expr_context.size() != _build_expr_context.size()) {
-            return Status::InternalError(
-                    "_probe_expr_context.size() != _build_expr_context.size(), "
-                    "_probe_expr_context.size()={}, _build_expr_context.size()={}",
-                    _probe_expr_context.size(), _build_expr_context.size());
-        }
-
         // runtime filter effect strategy
         // 1. we will ignore IN filter when hash_table_size is too big
         // 2. we will ignore BLOOM filter and MinMax filter when hash_table_size
@@ -57,7 +47,7 @@ public:
 
         auto ignore_local_filter = [state](int filter_id) {
             std::vector<IRuntimeFilter*> filters;
-            state->runtime_filter_mgr()->get_consume_filters(filter_id, filters);
+            static_cast<void>(state->runtime_filter_mgr()->get_consume_filters(filter_id, filters));
             if (filters.empty()) {
                 throw Exception(ErrorCode::INTERNAL_ERROR, "filters empty, filter_id={}",
                                 filter_id);
@@ -101,11 +91,11 @@ public:
             RETURN_IF_ERROR(state->runtime_filter_mgr()->get_producer_filter(filter_desc.filter_id,
                                                                              &runtime_filter));
             if (runtime_filter->expr_order() < 0 ||
-                runtime_filter->expr_order() >= _probe_expr_context.size()) {
+                runtime_filter->expr_order() >= _build_expr_context.size()) {
                 return Status::InternalError(
                         "runtime_filter meet invalid expr_order, expr_order={}, "
-                        "probe_expr_context.size={}",
-                        runtime_filter->expr_order(), _probe_expr_context.size());
+                        "_build_expr_context.size={}",
+                        runtime_filter->expr_order(), _build_expr_context.size());
             }
 
             // do not create 'in filter' when hash_table size over limit
@@ -144,9 +134,9 @@ public:
                     // do not create 'bloom filter' and 'minmax filter' when 'in filter' has created
                     // because in filter is exactly filter, so it is enough to filter data
                     VLOG_DEBUG << "fragment instance " << print_id(state->fragment_instance_id())
-                               << " ignore runtime filter(" << to_string(runtime_filter->type())
-                               << " id " << filter_desc.filter_id
-                               << ") because: already exists in filter";
+                               << " ignore runtime filter("
+                               << IRuntimeFilter::to_string(runtime_filter->type()) << " id "
+                               << filter_desc.filter_id << ") because: already exists in filter";
                     ignore_local_filter(filter_desc.filter_id);
                     continue;
                 }
@@ -221,7 +211,7 @@ public:
     void finish_publish() {
         for (auto& pair : _runtime_filters) {
             for (auto filter : pair.second) {
-                filter->join_rpc();
+                static_cast<void>(filter->join_rpc());
             }
         }
     }
@@ -253,7 +243,7 @@ public:
                 if (ret == context->runtime_filters.end()) {
                     return Status::Aborted("invalid runtime filter id: {}", filter_id);
                 }
-                filter->copy_from_shared_context(ret->second);
+                static_cast<void>(filter->copy_from_shared_context(ret->second));
             }
         }
         return Status::OK();
@@ -262,7 +252,6 @@ public:
     bool empty() { return !_runtime_filters.size(); }
 
 private:
-    const std::vector<std::shared_ptr<vectorized::VExprContext>>& _probe_expr_context;
     const std::vector<std::shared_ptr<vectorized::VExprContext>>& _build_expr_context;
     const std::vector<TRuntimeFilterDesc>& _runtime_filter_descs;
     // prob_contition index -> [IRuntimeFilter]

@@ -181,10 +181,10 @@ void serialize_and_deserialize_arrow_test() {
                     }
                     Int32 val;
                     StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-                    i % 2 == 0 ? val = StringParser::string_to_decimal<__int128>(
+                    i % 2 == 0 ? val = StringParser::string_to_decimal<TYPE_DECIMAL32>(
                                          "1234567.56", 11, type_desc.precision, type_desc.scale,
                                          &result)
-                               : val = StringParser::string_to_decimal<__int128>(
+                               : val = StringParser::string_to_decimal<TYPE_DECIMAL32>(
                                          "-1234567.56", 12, type_desc.precision, type_desc.scale,
                                          &result);
                     EXPECT_TRUE(result == StringParser::PARSE_SUCCESS);
@@ -217,7 +217,7 @@ void serialize_and_deserialize_arrow_test() {
                     StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
                     std::string decimal_string =
                             i % 2 == 0 ? "-123456789012.123456" : "123456789012.123456";
-                    val = StringParser::string_to_decimal<__int128>(
+                    val = StringParser::string_to_decimal<TYPE_DECIMAL64>(
                             decimal_string.c_str(), decimal_string.size(), type_desc.precision,
                             type_desc.scale, &result);
                     EXPECT_TRUE(result == StringParser::PARSE_SUCCESS);
@@ -464,7 +464,8 @@ void serialize_and_deserialize_arrow_test() {
     std::cout << "block data: " << block.dump_data(0, row_num) << std::endl;
     std::cout << "_arrow_schema: " << _arrow_schema->ToString(true) << std::endl;
 
-    convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(), &result);
+    static_cast<void>(
+            convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(), &result));
     Block new_block = block.clone_empty();
     EXPECT_TRUE(result != nullptr);
     std::cout << "result: " << result->ToString() << std::endl;
@@ -480,8 +481,8 @@ void serialize_and_deserialize_arrow_test() {
                 vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeString>());
                 vectorized::ColumnWithTypeAndName type_and_name(strcol->get_ptr(), data_type,
                                                                 real_column_name);
-                arrow_column_to_doris_column(array, 0, type_and_name.column, type_and_name.type,
-                                             block.rows(), "UTC");
+                static_cast<void>(arrow_column_to_doris_column(
+                        array, 0, type_and_name.column, type_and_name.type, block.rows(), "UTC"));
                 {
                     auto& col = column_with_type_and_name.column.get()->assume_mutable_ref();
                     auto& date_data = static_cast<ColumnVector<Int64>&>(col).get_data();
@@ -499,8 +500,8 @@ void serialize_and_deserialize_arrow_test() {
             vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeString>());
             vectorized::ColumnWithTypeAndName type_and_name(strcol->get_ptr(), data_type,
                                                             real_column_name);
-            arrow_column_to_doris_column(array, 0, type_and_name.column, type_and_name.type,
-                                         block.rows(), "UTC");
+            static_cast<void>(arrow_column_to_doris_column(
+                    array, 0, type_and_name.column, type_and_name.type, block.rows(), "UTC"));
             {
                 auto& col = column_with_type_and_name.column.get()->assume_mutable_ref();
                 auto& date_data = static_cast<ColumnVector<UInt32>&>(col).get_data();
@@ -518,8 +519,9 @@ void serialize_and_deserialize_arrow_test() {
             new_block.erase(real_column_name);
             continue;
         }
-        arrow_column_to_doris_column(array, 0, column_with_type_and_name.column,
-                                     column_with_type_and_name.type, block.rows(), "UTC");
+        static_cast<void>(arrow_column_to_doris_column(array, 0, column_with_type_and_name.column,
+                                                       column_with_type_and_name.type, block.rows(),
+                                                       "UTC"));
     }
 
     std::cout << block.dump_data() << std::endl;
@@ -598,15 +600,17 @@ TEST(DataTypeSerDeArrowTest, DataTypeMapNullKeySerDeTest) {
     std::cout << "block structure: " << block.dump_structure() << std::endl;
     std::cout << "_arrow_schema: " << _arrow_schema->ToString(true) << std::endl;
 
-    convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(), &result);
+    static_cast<void>(
+            convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(), &result));
     Block new_block = block.clone_empty();
     EXPECT_TRUE(result != nullptr);
     std::cout << "result: " << result->ToString() << std::endl;
     // deserialize
     auto* array = result->GetColumnByName(col_name).get();
     auto& column_with_type_and_name = new_block.get_by_name(col_name);
-    arrow_column_to_doris_column(array, 0, column_with_type_and_name.column,
-                                 column_with_type_and_name.type, block.rows(), "UTC");
+    static_cast<void>(arrow_column_to_doris_column(array, 0, column_with_type_and_name.column,
+                                                   column_with_type_and_name.type, block.rows(),
+                                                   "UTC"));
     std::cout << block.dump_data() << std::endl;
     std::cout << new_block.dump_data() << std::endl;
     // new block row_index 0, 2 which row has key null will be filter

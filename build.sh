@@ -42,6 +42,7 @@ Usage: $0 <options>
      --fe                   build Frontend and Spark DPP application. Default ON.
      --be                   build Backend. Default ON.
      --meta-tool            build Backend meta tool. Default OFF.
+     --index-tool           build Backend inverted index tool. Default OFF.
      --broker               build Broker. Default ON.
      --audit                build audit loader. Default ON.
      --spark-dpp            build Spark DPP application. Default ON.
@@ -60,6 +61,7 @@ Usage: $0 <options>
     $0                                      build all
     $0 --be                                 build Backend
     $0 --meta-tool                          build Backend meta tool
+    $0 --index-tool                         build Backend inverted index tool
     $0 --fe --clean                         clean and build Frontend and Spark Dpp application
     $0 --fe --be --clean                    clean and build Frontend, Spark Dpp application and Backend
     $0 --spark-dpp                          build Spark DPP application alone
@@ -117,6 +119,7 @@ if ! OPTS="$(getopt \
     -l 'broker' \
     -l 'audit' \
     -l 'meta-tool' \
+    -l 'index-tool' \
     -l 'spark-dpp' \
     -l 'hive-udf' \
     -l 'be-java-extensions' \
@@ -137,6 +140,7 @@ BUILD_BE=0
 BUILD_BROKER=0
 BUILD_AUDIT=0
 BUILD_META_TOOL='OFF'
+BUILD_INDEX_TOOL='OFF'
 BUILD_SPARK_DPP=0
 BUILD_BE_JAVA_EXTENSIONS=0
 BUILD_HIVE_UDF=0
@@ -152,6 +156,7 @@ if [[ "$#" == 1 ]]; then
     BUILD_BROKER=1
     BUILD_AUDIT=1
     BUILD_META_TOOL='OFF'
+    BUILD_INDEX_TOOL='OFF'
     BUILD_SPARK_DPP=1
     BUILD_HIVE_UDF=1
     BUILD_BE_JAVA_EXTENSIONS=1
@@ -181,6 +186,10 @@ else
             ;;
         --meta-tool)
             BUILD_META_TOOL='ON'
+            shift
+            ;;
+        --index-tool)
+            BUILD_INDEX_TOOL='ON'
             shift
             ;;
         --spark-dpp)
@@ -237,6 +246,7 @@ else
         BUILD_BROKER=1
         BUILD_AUDIT=1
         BUILD_META_TOOL='ON'
+        BUILD_INDEX_TOOL='ON'
         BUILD_SPARK_DPP=1
         BUILD_HIVE_UDF=1
         BUILD_BE_JAVA_EXTENSIONS=1
@@ -272,9 +282,20 @@ update_submodule() {
     exit_code=$?
     set -e
     if [[ "${exit_code}" -ne 0 ]]; then
-        echo "Update ${submodule_name} submodule failed, start to download and extract ${submodule_name} package ..."
+        set +e
+        # try to get submodule's current commit
+        submodule_commit=$(git ls-tree HEAD "${submodule_path}" | awk '{print $3}')
+        exit_code=$?
+        if [[ "${exit_code}" = "0" ]]; then
+            commit_specific_url=$(echo "${archive_url}" | sed "s/refs\/heads/${submodule_commit}/")
+        else
+            commit_specific_url="${archive_url}"
+        fi
+        set -e
+        echo "Update ${submodule_name} submodule failed, start to download and extract ${commit_specific_url}"
+
         mkdir -p "${DORIS_HOME}/${submodule_path}"
-        curl -L "${archive_url}" | tar -xz -C "${DORIS_HOME}/${submodule_path}" --strip-components=1
+        curl -L "${commit_specific_url}" | tar -xz -C "${DORIS_HOME}/${submodule_path}" --strip-components=1
     fi
 }
 
@@ -382,7 +403,7 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 && "$(uname -s)" == 'Darwin' ]]; then
     if [[ -n "${CAUSE}" ]]; then
         echo -e "\033[33;1mWARNNING: \033[37;1mSkip building with BE Java extensions due to ${CAUSE}.\033[0m"
         BUILD_BE_JAVA_EXTENSIONS=0
-        BUILD_BE_JAVA_EXTENSIONS_IN_CONF=1
+        BUILD_BE_JAVA_EXTENSIONS_FALSE_IN_CONF=1
     fi
 fi
 
@@ -392,6 +413,7 @@ echo "Get params:
     BUILD_BROKER                -- ${BUILD_BROKER}
     BUILD_AUDIT                 -- ${BUILD_AUDIT}
     BUILD_META_TOOL             -- ${BUILD_META_TOOL}
+    BUILD_INDEX_TOOL            -- ${BUILD_INDEX_TOOL}
     BUILD_SPARK_DPP             -- ${BUILD_SPARK_DPP}
     BUILD_BE_JAVA_EXTENSIONS    -- ${BUILD_BE_JAVA_EXTENSIONS}
     BUILD_HIVE_UDF              -- ${BUILD_HIVE_UDF}
@@ -446,6 +468,7 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
     modules+=("be-java-extensions/paimon-scanner")
     modules+=("be-java-extensions/max-compute-scanner")
     modules+=("be-java-extensions/avro-scanner")
+    modules+=("be-java-extensions/preload-extensions")
 fi
 FE_MODULES="$(
     IFS=','
@@ -487,6 +510,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DWITH_LZO="${WITH_LZO}" \
         -DUSE_LIBCPP="${USE_LIBCPP}" \
         -DBUILD_META_TOOL="${BUILD_META_TOOL}" \
+        -DBUILD_INDEX_TOOL="${BUILD_INDEX_TOOL}" \
         -DSTRIP_DEBUG_INFO="${STRIP_DEBUG_INFO}" \
         -DUSE_DWARF="${USE_DWARF}" \
         -DUSE_UNWIND="${USE_UNWIND}" \
@@ -615,7 +639,11 @@ if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
         cp -r -p "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" "${DORIS_OUTPUT}/be/lib/"
     fi
 
-    if [[ "${BUILD_BE_JAVA_EXTENSIONS_IN_CONF}" -eq 1 ]]; then
+    if [[ -f "${DORIS_THIRDPARTY}/installed/lib/libz.so" ]]; then
+        cp -r -p "${DORIS_THIRDPARTY}/installed/lib/libz.so"* "${DORIS_OUTPUT}/be/lib/"
+    fi
+
+    if [[ "${BUILD_BE_JAVA_EXTENSIONS_FALSE_IN_CONF}" -eq 1 ]]; then
         echo -e "\033[33;1mWARNNING: \033[37;1mDisable Java UDF support in be.conf due to the BE was built without Java UDF.\033[0m"
         cat >>"${DORIS_OUTPUT}/be/conf/be.conf" <<EOF
 
@@ -642,6 +670,10 @@ EOF
         cp -r -p "${DORIS_HOME}/be/output/lib/meta_tool" "${DORIS_OUTPUT}/be/lib"/
     fi
 
+    if [[ "${BUILD_INDEX_TOOL}" = "ON" ]]; then
+        cp -r -p "${DORIS_HOME}/be/output/lib/index_tool" "${DORIS_OUTPUT}/be/lib"/
+    fi
+
     cp -r -p "${DORIS_HOME}/webroot/be"/* "${DORIS_OUTPUT}/be/www"/
     if [[ "${STRIP_DEBUG_INFO}" = "ON" ]]; then
         cp -r -p "${DORIS_HOME}/be/output/lib/debug_info" "${DORIS_OUTPUT}/be/lib"/
@@ -651,21 +683,22 @@ EOF
         cp -r -p "${DORIS_HOME}/bin/run-fs-benchmark.sh" "${DORIS_OUTPUT}/be/bin/"/
     fi
 
-    extensions_modules=("")
-    extensions_modules+=("java-udf")
+    extensions_modules=("java-udf")
     extensions_modules+=("jdbc-scanner")
     extensions_modules+=("hudi-scanner")
     extensions_modules+=("paimon-scanner")
     extensions_modules+=("max-compute-scanner")
     extensions_modules+=("avro-scanner")
+    extensions_modules+=("preload-extensions")
 
     BE_JAVA_EXTENSIONS_DIR="${DORIS_OUTPUT}/be/lib/java_extensions/"
     rm -rf "${BE_JAVA_EXTENSIONS_DIR}"
     mkdir "${BE_JAVA_EXTENSIONS_DIR}"
     for extensions_module in "${extensions_modules[@]}"; do
         module_path="${DORIS_HOME}/fe/be-java-extensions/${extensions_module}/target/${extensions_module}-jar-with-dependencies.jar"
+        mkdir "${BE_JAVA_EXTENSIONS_DIR}"/"${extensions_module}"
         if [[ -f "${module_path}" ]]; then
-            cp "${module_path}" "${BE_JAVA_EXTENSIONS_DIR}"/
+            cp "${module_path}" "${BE_JAVA_EXTENSIONS_DIR}"/"${extensions_module}"
         fi
     done
 

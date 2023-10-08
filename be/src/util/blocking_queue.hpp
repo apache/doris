@@ -82,6 +82,26 @@ public:
         return true;
     }
 
+    // Return false if queue full or has been shutdown.
+    bool try_put(const T& val) {
+        if (_shutdown || _list.size() >= _max_elements) {
+            return false;
+        }
+
+        MonotonicStopWatch timer;
+        timer.start();
+        std::unique_lock<std::mutex> unique_lock(_lock);
+        _total_put_wait_time += timer.elapsed_time();
+
+        if (_shutdown || _list.size() >= _max_elements) {
+            return false;
+        }
+
+        _list.push_back(val);
+        _get_cv.notify_one();
+        return true;
+    }
+
     // Shut down the queue. Wakes up all threads waiting on BlockingGet or BlockingPut.
     void shutdown() {
         {
@@ -98,6 +118,8 @@ public:
         return _list.size();
     }
 
+    uint32_t get_capacity() const { return _max_elements; }
+
     // Returns the total amount of time threads have blocked in BlockingGet.
     uint64_t total_get_wait_time() const { return _total_get_wait_time; }
 
@@ -105,12 +127,6 @@ public:
     uint64_t total_put_wait_time() const { return _total_put_wait_time; }
 
 private:
-    uint32_t SizeLocked(const std::unique_lock<std::mutex>& lock) const {
-        // The size of 'get_list_' is read racily to avoid getting 'get_lock_' in write path.
-        DCHECK(lock.owns_lock());
-        return _list.size();
-    }
-
     bool _shutdown;
     const int _max_elements;
     std::condition_variable _get_cv; // 'get' callers wait on this

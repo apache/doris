@@ -36,11 +36,12 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "runtime/memory/mem_tracker.h"
-#include "util/runtime_profile.h"
 #include "util/string_util.h"
 #include "util/uid_util.h"
 
 namespace doris {
+
+class RuntimeProfile;
 
 constexpr auto MEM_TRACKER_GROUP_NUM = 1000;
 
@@ -74,29 +75,20 @@ public:
         std::mutex group_lock;
     };
 
-    inline static std::unordered_map<Type, std::shared_ptr<RuntimeProfile::HighWaterMarkCounter>>
-            TypeMemSum = {{Type::GLOBAL,
-                           std::make_shared<RuntimeProfile::HighWaterMarkCounter>(TUnit::BYTES)},
-                          {Type::QUERY,
-                           std::make_shared<RuntimeProfile::HighWaterMarkCounter>(TUnit::BYTES)},
-                          {Type::LOAD,
-                           std::make_shared<RuntimeProfile::HighWaterMarkCounter>(TUnit::BYTES)},
-                          {Type::COMPACTION,
-                           std::make_shared<RuntimeProfile::HighWaterMarkCounter>(TUnit::BYTES)},
-                          {Type::SCHEMA_CHANGE,
-                           std::make_shared<RuntimeProfile::HighWaterMarkCounter>(TUnit::BYTES)},
-                          {Type::CLONE,
-                           std::make_shared<RuntimeProfile::HighWaterMarkCounter>(TUnit::BYTES)},
-                          {Type::EXPERIMENTAL,
-                           std::make_shared<RuntimeProfile::HighWaterMarkCounter>(TUnit::BYTES)}};
+    inline static std::unordered_map<Type, std::shared_ptr<MemCounter>> TypeMemSum = {
+            {Type::GLOBAL, std::make_shared<MemCounter>()},
+            {Type::QUERY, std::make_shared<MemCounter>()},
+            {Type::LOAD, std::make_shared<MemCounter>()},
+            {Type::COMPACTION, std::make_shared<MemCounter>()},
+            {Type::SCHEMA_CHANGE, std::make_shared<MemCounter>()},
+            {Type::CLONE, std::make_shared<MemCounter>()},
+            {Type::EXPERIMENTAL, std::make_shared<MemCounter>()}};
 
 public:
     // byte_limit equal to -1 means no consumption limit, only participate in process memory statistics.
-    MemTrackerLimiter(Type type, const std::string& label = std::string(), int64_t byte_limit = -1,
-                      RuntimeProfile* profile = nullptr,
-                      const std::string& profile_counter_name = "PeakMemoryUsage");
+    MemTrackerLimiter(Type type, const std::string& label = std::string(), int64_t byte_limit = -1);
 
-    ~MemTrackerLimiter();
+    ~MemTrackerLimiter() override;
 
     static std::string type_string(Type type) {
         switch (type) {
@@ -117,6 +109,7 @@ public:
         default:
             LOG(FATAL) << "not match type of mem tracker limiter :" << static_cast<int>(type);
         }
+        LOG(FATAL) << "__builtin_unreachable";
         __builtin_unreachable();
     }
 
@@ -151,12 +144,13 @@ public:
     }
 
     static void refresh_global_counter();
-    static void refresh_all_tracker_profile();
 
     Snapshot make_snapshot() const override;
     // Returns a list of all the valid tracker snapshots.
     static void make_process_snapshots(std::vector<MemTracker::Snapshot>* snapshots);
     static void make_type_snapshots(std::vector<MemTracker::Snapshot>* snapshots, Type type);
+    static void make_top_consumption_snapshots(std::vector<MemTracker::Snapshot>* snapshots,
+                                               int top_num);
 
     static std::string log_usage(MemTracker::Snapshot snapshot);
     std::string log_usage() { return log_usage(make_snapshot()); }

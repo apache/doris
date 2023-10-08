@@ -53,6 +53,16 @@ public class LambdaFunctionExpr extends Expr {
         this.setType(Type.LAMBDA_FUNCTION);
     }
 
+    // for Nereids
+    public LambdaFunctionExpr(Expr lambdaBody, List<String> argNames, List<Expr> slotExpr) {
+        this.slotExpr.add(lambdaBody);
+        this.slotExpr.addAll(slotExpr);
+        this.names.addAll(argNames);
+        this.params.addAll(slotExpr);
+        this.children.add(lambdaBody);
+        this.setType(Type.LAMBDA_FUNCTION);
+    }
+
     public LambdaFunctionExpr(LambdaFunctionExpr rhs) {
         super(rhs);
         this.names.addAll(rhs.names);
@@ -115,7 +125,20 @@ public class LambdaFunctionExpr extends Expr {
 
     @Override
     protected String toSqlImpl() {
-        return String.format("%s -> %s", names.toString(), getChild(0).toSql());
+        String nameStr = "";
+        Expr lambdaExpr = slotExpr.get(0);
+        int exprSize = names.size();
+        for (int i = 0; i < exprSize; ++i) {
+            nameStr = nameStr + names.get(i);
+            if (i != exprSize - 1) {
+                nameStr = nameStr + ",";
+            }
+        }
+        if (exprSize > 1) {
+            nameStr = "(" + nameStr + ")";
+        }
+        String res = String.format("%s -> %s", nameStr, lambdaExpr.toSql());
+        return res;
     }
 
     @Override
@@ -136,6 +159,7 @@ public class LambdaFunctionExpr extends Expr {
         return slotExpr;
     }
 
+    @Override
     public boolean isNullable() {
         for (int i = 1; i < slotExpr.size(); ++i) {
             if (slotExpr.get(i).isNullable()) {

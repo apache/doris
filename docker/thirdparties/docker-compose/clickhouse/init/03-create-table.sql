@@ -123,3 +123,19 @@ CREATE TABLE doris_test.json
 )
 ENGINE = MergeTree
 ORDER BY id;
+
+CREATE TABLE doris_test.final_test
+(
+    key Int64,
+    some String
+)
+    ENGINE = ReplacingMergeTree
+ORDER BY key;
+
+CREATE TABLE doris_test.ts
+(
+    id Int64,
+    ts UInt64
+)
+ENGINE = MergeTree
+ORDER BY id;

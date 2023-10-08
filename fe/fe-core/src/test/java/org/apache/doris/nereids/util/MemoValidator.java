@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.GroupId;
@@ -40,10 +41,6 @@ public class MemoValidator {
     public final IdentityHashMap<Group, Void> visitedGroups = new IdentityHashMap<>();
     public final IdentityHashMap<GroupExpression, Void> visitedExpressions = new IdentityHashMap<>();
 
-    public static MemoValidator validateInitState(Memo memo) {
-        return validateInitState(memo, null);
-    }
-
     public static MemoValidator validateInitState(Memo memo, Plan initPlan) {
         Assertions.assertEquals(memo.getGroups().size(), memo.getGroupExpressions().size());
 
@@ -55,6 +52,9 @@ public class MemoValidator {
 
         MemoValidator validator = validate(memo);
         if (initPlan != null) {
+            if (initPlan instanceof UnboundResultSink) {
+                return validator;
+            }
             Assertions.assertEquals(initPlan, memo.getRoot().getLogicalExpression().getPlan());
         }
         return validator;

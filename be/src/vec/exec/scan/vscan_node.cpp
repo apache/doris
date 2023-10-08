@@ -113,6 +113,24 @@ Status VScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     } else {
         _max_pushdown_conditions_per_column = config::max_pushdown_conditions_per_column;
     }
+
+    // tnode.olap_scan_node.push_down_agg_type_opt field is deprecated
+    // Introduced a new field : tnode.push_down_agg_type_opt
+    //
+    // make it compatible here
+    if (tnode.__isset.push_down_agg_type_opt) {
+        _push_down_agg_type = tnode.push_down_agg_type_opt;
+    } else if (tnode.olap_scan_node.__isset.push_down_agg_type_opt) {
+        _push_down_agg_type = tnode.olap_scan_node.push_down_agg_type_opt;
+
+    } else {
+        _push_down_agg_type = TPushAggOp::type::NONE;
+    }
+
+    if (tnode.__isset.push_down_count) {
+        _push_down_count = tnode.push_down_count;
+    }
+
     return Status::OK();
 }
 
@@ -165,7 +183,6 @@ Status VScanNode::alloc_resource(RuntimeState* state) {
     if (_opened) {
         return Status::OK();
     }
-    _input_tuple_desc = state->desc_tbl().get_tuple_descriptor(_input_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     RETURN_IF_ERROR(ExecNode::alloc_resource(state));
     RETURN_IF_ERROR(_acquire_runtime_filter());
@@ -247,6 +264,9 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
         return Status::OK();
     }
 
+    if (scan_block == nullptr) {
+        return Status::Error<777>("not pointer in scan pipline");
+    }
     // get scanner's block memory
     block->swap(*scan_block);
     _scanner_ctx->return_free_block(std::move(scan_block));
@@ -303,12 +323,11 @@ Status VScanNode::_start_scanners(const std::list<VScannerSPtr>& scanners,
     if (_is_pipeline_scan) {
         int max_queue_size = _shared_scan_opt ? std::max(query_parallel_instance_num, 1) : 1;
         _scanner_ctx = pipeline::PipScannerContext::create_shared(
-                _state, this, _input_tuple_desc, _output_tuple_desc, scanners, limit(),
-                _state->scan_queue_mem_limit(), _col_distribute_ids, max_queue_size);
+                _state, this, _output_tuple_desc, scanners, limit(), _state->scan_queue_mem_limit(),
+                _col_distribute_ids, max_queue_size);
     } else {
-        _scanner_ctx =
-                ScannerContext::create_shared(_state, this, _input_tuple_desc, _output_tuple_desc,
-                                              scanners, limit(), _state->scan_queue_mem_limit());
+        _scanner_ctx = ScannerContext::create_shared(_state, this, _output_tuple_desc, scanners,
+                                                     limit(), _state->scan_queue_mem_limit());
     }
     return Status::OK();
 }
@@ -323,10 +342,12 @@ Status VScanNode::close(RuntimeState* state) {
 
 void VScanNode::release_resource(RuntimeState* state) {
     if (_scanner_ctx.get()) {
-        if (!state->enable_pipeline_exec() || _should_create_scanner) {
+        if (!state->enable_pipeline_exec()) {
             // stop and wait the scanner scheduler to be done
             // _scanner_ctx may not be created for some short circuit case.
             _scanner_ctx->set_should_stop();
+            _scanner_ctx->clear_and_join(this, state);
+        } else if (_should_create_scanner) {
             _scanner_ctx->clear_and_join(this, state);
         }
     }
@@ -517,8 +538,9 @@ Status VScanNode::_normalize_predicate(const VExprSPtr& conjunct_expr_root, VExp
 
             if (pdt == PushDownType::UNACCEPTABLE &&
                 TExprNodeType::COMPOUND_PRED == cur_expr->node_type()) {
-                _normalize_compound_predicate(cur_expr, context, &pdt, _is_runtime_filter_predicate,
-                                              in_predicate_checker, eq_predicate_checker);
+                static_cast<void>(_normalize_compound_predicate(
+                        cur_expr, context, &pdt, _is_runtime_filter_predicate, in_predicate_checker,
+                        eq_predicate_checker));
                 output_expr = conjunct_expr_root; // remaining in conjunct tree
                 return Status::OK();
             }
@@ -531,7 +553,8 @@ Status VScanNode::_normalize_predicate(const VExprSPtr& conjunct_expr_root, VExp
                 return Status::OK();
             }
 
-            if (pdt == PushDownType::ACCEPTABLE && _is_key_column(slot->col_name())) {
+            if (pdt == PushDownType::ACCEPTABLE &&
+                (_is_key_column(slot->col_name()) || _storage_no_merge())) {
                 output_expr = nullptr;
                 return Status::OK();
             } else {
@@ -787,8 +810,9 @@ Status VScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* expr
             } else {
                 if (sizeof(typename PrimitiveTypeTraits<T>::CppType) != value.size) {
                     return Status::InternalError(
-                            "PrimitiveType {} meet invalid input value size {}, expect size {}", T,
-                            value.size, sizeof(typename PrimitiveTypeTraits<T>::CppType));
+                            "PrimitiveType {} meet invalid input value_size={}, expect_size={}, "
+                            "node_id={}",
+                            T, value.size, sizeof(typename PrimitiveTypeTraits<T>::CppType), _id);
                 }
                 RETURN_IF_ERROR(_change_value_range<true>(
                         temp_range, reinterpret_cast<void*>(const_cast<char*>(value.data)),
@@ -1000,8 +1024,8 @@ Status VScanNode::_normalize_compound_predicate(
                                     value_range.mark_runtime_filter_predicate(
                                             _is_runtime_filter_predicate);
                                 }};
-                                _normalize_binary_in_compound_predicate(child_expr, expr_ctx, slot,
-                                                                        value_range, pdt);
+                                static_cast<void>(_normalize_binary_in_compound_predicate(
+                                        child_expr, expr_ctx, slot, value_range, pdt));
                             },
                             active_range);
 
@@ -1022,17 +1046,17 @@ Status VScanNode::_normalize_compound_predicate(
                                     value_range.mark_runtime_filter_predicate(
                                             _is_runtime_filter_predicate);
                                 }};
-                                _normalize_match_in_compound_predicate(child_expr, expr_ctx, slot,
-                                                                       value_range, pdt);
+                                static_cast<void>(_normalize_match_in_compound_predicate(
+                                        child_expr, expr_ctx, slot, value_range, pdt));
                             },
                             active_range);
 
                     _compound_value_ranges.emplace_back(active_range);
                 }
             } else if (TExprNodeType::COMPOUND_PRED == child_expr->node_type()) {
-                _normalize_compound_predicate(child_expr, expr_ctx, pdt,
-                                              _is_runtime_filter_predicate, in_predicate_checker,
-                                              eq_predicate_checker);
+                static_cast<void>(_normalize_compound_predicate(
+                        child_expr, expr_ctx, pdt, _is_runtime_filter_predicate,
+                        in_predicate_checker, eq_predicate_checker));
             }
         }
     }

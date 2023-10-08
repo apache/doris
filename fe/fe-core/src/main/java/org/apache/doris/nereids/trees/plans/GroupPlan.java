@@ -87,12 +87,6 @@ public class GroupPlan extends LogicalLeaf {
     }
 
     @Override
-    public LogicalProperties computeLogicalProperties() {
-        throw new IllegalStateException("GroupPlan can not compute logical properties."
-                + " You should invoke GroupPlan.getLogicalProperties()");
-    }
-
-    @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitGroupPlan(this, context);
     }

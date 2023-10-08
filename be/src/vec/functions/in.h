@@ -89,6 +89,24 @@ public:
 
     bool use_default_implementation_for_nulls() const override { return false; }
 
+    // size of [ in ( 1 , 2  , 3 , null) ]  is 3
+    size_t get_size_with_out_null(FunctionContext* context) {
+        if ((context->get_num_args() - 1) > FIXED_CONTAINER_MAX_SIZE) {
+            return context->get_num_args() - 1;
+        }
+        size_t sz = 0;
+        for (int i = 1; i < context->get_num_args(); ++i) {
+            const auto& const_column_ptr = context->get_constant_col(i);
+            if (const_column_ptr != nullptr) {
+                auto const_data = const_column_ptr->column_ptr->get_data_at(0);
+                if (const_data.data != nullptr) {
+                    sz++;
+                }
+            }
+        }
+        return sz;
+    }
+
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         if (scope == FunctionContext::THREAD_LOCAL) {
             return Status::OK();
@@ -104,8 +122,8 @@ public:
             // the StringValue's memory is held by FunctionContext, so we can use StringValueSet here directly
             state->hybrid_set.reset(create_string_value_set((size_t)(context->get_num_args() - 1)));
         } else {
-            state->hybrid_set.reset(create_set(context->get_arg_type(0)->type,
-                                               (size_t)(context->get_num_args() - 1)));
+            state->hybrid_set.reset(
+                    create_set(context->get_arg_type(0)->type, get_size_with_out_null(context)));
         }
 
         for (int i = 1; i < context->get_num_args(); ++i) {
@@ -126,7 +144,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         auto in_state = reinterpret_cast<InState*>(
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
         if (!in_state) {

@@ -22,9 +22,15 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.persist.AlterDatabasePropertyInfo;
+import org.apache.doris.persist.BarrierLog;
+import org.apache.doris.persist.BatchModifyPartitionsInfo;
 import org.apache.doris.persist.BinlogGcInfo;
 import org.apache.doris.persist.DropPartitionInfo;
+import org.apache.doris.persist.ModifyTablePropertyOperationLog;
+import org.apache.doris.persist.ReplacePartitionOperationLog;
 import org.apache.doris.persist.TableAddOrDropColumnsInfo;
+import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.thrift.TBinlog;
 import org.apache.doris.thrift.TBinlogType;
 import org.apache.doris.thrift.TStatus;
@@ -53,10 +59,33 @@ public class BinlogManager {
 
     private ReentrantReadWriteLock lock;
     private Map<Long, DBBinlog> dbBinlogMap;
+    private BinlogConfigCache binlogConfigCache;
 
     public BinlogManager() {
         lock = new ReentrantReadWriteLock();
         dbBinlogMap = Maps.newHashMap();
+        binlogConfigCache = new BinlogConfigCache();
+    }
+
+    private void afterAddBinlog(TBinlog binlog) {
+        if (!binlog.isSetRemoveEnableCache()) {
+            return;
+        }
+        if (!binlog.isRemoveEnableCache()) {
+            return;
+        }
+
+        long dbId = binlog.getDbId();
+        boolean onlyDb = true;
+        if (binlog.isSetTableIds()) {
+            for (long tableId : binlog.getTableIds()) {
+                binlogConfigCache.remove(tableId);
+                onlyDb = false;
+            }
+        }
+        if (onlyDb) {
+            binlogConfigCache.remove(dbId);
+        }
     }
 
     private void addBinlog(TBinlog binlog) {
@@ -64,32 +93,29 @@ public class BinlogManager {
             return;
         }
 
-        // find db BinlogConfig
-        long dbId = binlog.getDbId();
-        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
-        if (db == null) {
-            LOG.warn("db not found. dbId: {}", dbId);
-            return;
-        }
-        boolean dbBinlogEnable = db.getBinlogConfig().isEnable();
-
         DBBinlog dbBinlog;
         lock.writeLock().lock();
         try {
+            long dbId = binlog.getDbId();
             dbBinlog = dbBinlogMap.get(dbId);
+
             if (dbBinlog == null) {
-                dbBinlog = new DBBinlog(binlog);
+                dbBinlog = new DBBinlog(binlogConfigCache, binlog);
                 dbBinlogMap.put(dbId, dbBinlog);
             }
         } finally {
             lock.writeLock().unlock();
         }
 
-        dbBinlog.addBinlog(binlog, dbBinlogEnable);
+        dbBinlog.addBinlog(binlog);
     }
 
     private void addBinlog(long dbId, List<Long> tableIds, long commitSeq, long timestamp, TBinlogType type,
-                           String data) {
+                           String data, boolean removeEnableCache) {
+        if (!Config.enable_feature_binlog) {
+            return;
+        }
+
         TBinlog binlog = new TBinlog();
         // set commitSeq, timestamp, type, dbId, data
         binlog.setCommitSeq(commitSeq);
@@ -101,7 +127,26 @@ public class BinlogManager {
             binlog.setTableIds(tableIds);
         }
         binlog.setTableRef(0);
-        addBinlog(binlog);
+        binlog.setRemoveEnableCache(removeEnableCache);
+
+        // Check if all db or table binlog is disable, return
+        boolean dbBinlogEnable = binlogConfigCache.isEnableDB(dbId);
+        boolean anyEnable = dbBinlogEnable;
+        if (tableIds != null) {
+            for (long tableId : tableIds) {
+                boolean tableBinlogEnable = binlogConfigCache.isEnableTable(dbId, tableId);
+                anyEnable = anyEnable || tableBinlogEnable;
+                if (anyEnable) {
+                    break;
+                }
+            }
+        }
+
+        if (anyEnable) {
+            addBinlog(binlog);
+        }
+
+        afterAddBinlog(binlog);
     }
 
     public void addUpsertRecord(UpsertRecord upsertRecord) {
@@ -112,7 +157,7 @@ public class BinlogManager {
         TBinlogType type = TBinlogType.UPSERT;
         String data = upsertRecord.toJson();
 
-        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data);
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false);
     }
 
     public void addAddPartitionRecord(AddPartitionRecord addPartitionRecord) {
@@ -124,7 +169,7 @@ public class BinlogManager {
         TBinlogType type = TBinlogType.ADD_PARTITION;
         String data = addPartitionRecord.toJson();
 
-        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data);
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false);
     }
 
     public void addCreateTableRecord(CreateTableRecord createTableRecord) {
@@ -136,7 +181,7 @@ public class BinlogManager {
         TBinlogType type = TBinlogType.CREATE_TABLE;
         String data = createTableRecord.toJson();
 
-        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data);
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false);
     }
 
     public void addDropPartitionRecord(DropPartitionInfo dropPartitionInfo, long commitSeq) {
@@ -147,7 +192,7 @@ public class BinlogManager {
         TBinlogType type = TBinlogType.DROP_PARTITION;
         String data = dropPartitionInfo.toJson();
 
-        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data);
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false);
     }
 
     public void addDropTableRecord(DropTableRecord record) {
@@ -159,7 +204,7 @@ public class BinlogManager {
         TBinlogType type = TBinlogType.DROP_TABLE;
         String data = record.toJson();
 
-        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data);
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false);
     }
 
     public void addAlterJobV2(AlterJobV2 alterJob, long commitSeq) {
@@ -170,7 +215,7 @@ public class BinlogManager {
         TBinlogType type = TBinlogType.ALTER_JOB;
         String data = alterJob.toJson();
 
-        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data);
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false);
     }
 
     public void addModifyTableAddOrDropColumns(TableAddOrDropColumnsInfo info, long commitSeq) {
@@ -181,7 +226,86 @@ public class BinlogManager {
         TBinlogType type = TBinlogType.MODIFY_TABLE_ADD_OR_DROP_COLUMNS;
         String data = info.toJson();
 
-        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data);
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false);
+    }
+
+    public void addAlterDatabaseProperty(AlterDatabasePropertyInfo info, long commitSeq) {
+        long dbId = info.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.ALTER_DATABASE_PROPERTY;
+        String data = info.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, true);
+    }
+
+    public void addModifyTableProperty(ModifyTablePropertyOperationLog info, long commitSeq) {
+        long dbId = info.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(info.getTableId());
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.MODIFY_TABLE_PROPERTY;
+        String data = info.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, true);
+    }
+
+    // add Barrier log
+    public void addBarrierLog(BarrierLog barrierLog, long commitSeq) {
+        if (barrierLog == null) {
+            return;
+        }
+
+        long dbId = barrierLog.getDbId();
+        long tableId = barrierLog.getTableId();
+        if (dbId == 0 || tableId == 0) {
+            return;
+        }
+
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(tableId);
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.BARRIER;
+        String data = barrierLog.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false);
+    }
+
+    // add Modify partitions
+    public void addModifyPartitions(BatchModifyPartitionsInfo info, long commitSeq) {
+        long dbId = info.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(info.getTableId());
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.MODIFY_PARTITIONS;
+        String data = info.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false);
+    }
+
+    // add Replace partition
+    public void addReplacePartitions(ReplacePartitionOperationLog info, long commitSeq) {
+        long dbId = info.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(info.getTblId());
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.REPLACE_PARTITIONS;
+        String data = info.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false);
+    }
+
+    // add Truncate Table
+    public void addTruncateTable(TruncateTableInfo info, long commitSeq) {
+        long dbId = info.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(info.getTblId());
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.TRUNCATE_TABLE;
+        String data = info.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false);
     }
 
     // get binlog by dbId, return first binlog.version > version
@@ -383,7 +507,8 @@ public class BinlogManager {
                 if (binlog.getType() == TBinlogType.DUMMY) {
                     // collect tableDummyBinlogs and dbDummyBinlog to recover DBBinlog and TableBinlog
                     if (binlog.getBelong() == -1) {
-                        DBBinlog dbBinlog = DBBinlog.recoverDbBinlog(binlog, tableDummies, currentDbBinlogEnable);
+                        DBBinlog dbBinlog = DBBinlog.recoverDbBinlog(binlogConfigCache, binlog, tableDummies,
+                                currentDbBinlogEnable);
                         dbBinlogMap.put(dbId, dbBinlog);
                     } else {
                         tableDummies.add(binlog);

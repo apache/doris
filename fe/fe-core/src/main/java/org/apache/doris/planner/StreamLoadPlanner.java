@@ -36,7 +36,6 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -153,13 +152,14 @@ public class StreamLoadPlanner {
                 for (ImportColumnDesc importColumnDesc : taskInfo.getColumnExprDescs().descs) {
                     if (importColumnDesc.getColumnName() != null
                             && importColumnDesc.getColumnName().equals(col.getName())) {
-                        if (!col.isVisible()) {
-                            throw new UserException("Partial update should not include invisible column: "
-                                + col.getName());
+                        if (!col.isVisible() && !Column.DELETE_SIGN.equals(col.getName())) {
+                            throw new UserException("Partial update should not include invisible column except"
+                                    + " delete sign column: " + col.getName());
                         }
                         partialUpdateInputColumns.add(col.getName());
-                        if (destTable.hasSequenceCol() && destTable.getSequenceMapCol() != null
-                                && destTable.getSequenceMapCol().equalsIgnoreCase(col.getName())) {
+                        if (destTable.hasSequenceCol() && (taskInfo.hasSequenceCol() || (
+                                destTable.getSequenceMapCol() != null
+                                        && destTable.getSequenceMapCol().equalsIgnoreCase(col.getName())))) {
                             partialUpdateInputColumns.add(Column.SEQUENCE_COL);
                         }
                         existInExpr = true;
@@ -169,6 +169,9 @@ public class StreamLoadPlanner {
                 if (col.isKey() && !existInExpr) {
                     throw new UserException("Partial update should include all key columns, missing: " + col.getName());
                 }
+            }
+            if (taskInfo.getMergeType() == LoadTask.MergeType.DELETE) {
+                partialUpdateInputColumns.add(Column.DELETE_SIGN);
             }
         }
         // here we should be full schema to fill the descriptor table
@@ -209,20 +212,11 @@ public class StreamLoadPlanner {
             }
         }
 
-        // Plan scan tuple of dynamic table
-        if (destTable.isDynamicSchema()) {
-            descTable.addReferencedTable(destTable);
-            scanTupleDesc.setTable(destTable);
-            // add a implict container column "DORIS_DYNAMIC_COL" for dynamic columns
-            SlotDescriptor slotDesc = descTable.addSlotDescriptor(scanTupleDesc);
-            Column col = new Column(Column.DYNAMIC_COLUMN_NAME, Type.VARIANT, false, null, false, "",
-                                    "stream load auto dynamic column");
-            slotDesc.setIsMaterialized(true);
-            slotDesc.setColumn(col);
-            slotDesc.setIsNullable(false);
-            LOG.debug("plan tupleDesc {}", scanTupleDesc.toString());
+        scanTupleDesc.setTable(destTable);
+        analyzer.registerTupleDescriptor(scanTupleDesc);
+        if (null != taskInfo.getWhereExpr()) {
+            taskInfo.getWhereExpr().analyze(analyzer);
         }
-
         // create scan node
         FileLoadScanNode fileScanNode = new FileLoadScanNode(new PlanNodeId(0), scanTupleDesc);
         // 1. create file group
@@ -265,7 +259,7 @@ public class StreamLoadPlanner {
         olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout,
                 taskInfo.getSendBatchParallelism(), taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode());
         olapTableSink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateInputColumns);
-        olapTableSink.complete();
+        olapTableSink.complete(analyzer);
 
         // for stream load, we only need one fragment, ScanNode -> DataSink.
         // OlapTableSink can dispatch data to corresponding node.
@@ -309,6 +303,7 @@ public class StreamLoadPlanner {
         queryOptions.setEnablePipelineEngine(Config.enable_pipeline_load);
         queryOptions.setBeExecVersion(Config.be_exec_version);
         queryOptions.setIsReportSuccess(taskInfo.getEnableProfile());
+        queryOptions.setEnableMemtableOnSinkNode(taskInfo.isMemtableOnSinkNode());
 
         params.setQueryOptions(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();
@@ -367,11 +362,16 @@ public class StreamLoadPlanner {
                 for (ImportColumnDesc importColumnDesc : taskInfo.getColumnExprDescs().descs) {
                     if (importColumnDesc.getColumnName() != null
                             && importColumnDesc.getColumnName().equals(col.getName())) {
-                        if (!col.isVisible()) {
-                            throw new UserException("Partial update should not include invisible column: "
-                                    + col.getName());
+                        if (!col.isVisible() && !Column.DELETE_SIGN.equals(col.getName())) {
+                            throw new UserException("Partial update should not include invisible column except"
+                                    + " delete sign column: " + col.getName());
                         }
                         partialUpdateInputColumns.add(col.getName());
+                        if (destTable.hasSequenceCol() && (taskInfo.hasSequenceCol() || (
+                                destTable.getSequenceMapCol() != null
+                                        && destTable.getSequenceMapCol().equalsIgnoreCase(col.getName())))) {
+                            partialUpdateInputColumns.add(Column.SEQUENCE_COL);
+                        }
                         existInExpr = true;
                         break;
                     }
@@ -379,6 +379,9 @@ public class StreamLoadPlanner {
                 if (col.isKey() && !existInExpr) {
                     throw new UserException("Partial update should include all key columns, missing: " + col.getName());
                 }
+            }
+            if (taskInfo.getMergeType() == LoadTask.MergeType.DELETE) {
+                partialUpdateInputColumns.add(Column.DELETE_SIGN);
             }
         }
         // here we should be full schema to fill the descriptor table
@@ -418,21 +421,11 @@ public class StreamLoadPlanner {
                 throw new DdlException("Column is not SUM AggregateType. column:" + col.getName());
             }
         }
-
-        // Plan scan tuple of dynamic table
-        if (destTable.isDynamicSchema()) {
-            descTable.addReferencedTable(destTable);
-            scanTupleDesc.setTable(destTable);
-            // add a implict container column "DORIS_DYNAMIC_COL" for dynamic columns
-            SlotDescriptor slotDesc = descTable.addSlotDescriptor(scanTupleDesc);
-            Column col = new Column(Column.DYNAMIC_COLUMN_NAME, Type.VARIANT, false, null, false, "",
-                    "stream load auto dynamic column");
-            slotDesc.setIsMaterialized(true);
-            slotDesc.setColumn(col);
-            slotDesc.setIsNullable(false);
-            LOG.debug("plan tupleDesc {}", scanTupleDesc.toString());
+        scanTupleDesc.setTable(destTable);
+        analyzer.registerTupleDescriptor(scanTupleDesc);
+        if (null != taskInfo.getWhereExpr()) {
+            taskInfo.getWhereExpr().analyze(analyzer);
         }
-
         // create scan node
         FileLoadScanNode fileScanNode = new FileLoadScanNode(new PlanNodeId(0), scanTupleDesc);
         // 1. create file group
@@ -475,7 +468,7 @@ public class StreamLoadPlanner {
         olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout,
                 taskInfo.getSendBatchParallelism(), taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode());
         olapTableSink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateInputColumns);
-        olapTableSink.complete();
+        olapTableSink.complete(analyzer);
 
         // for stream load, we only need one fragment, ScanNode -> DataSink.
         // OlapTableSink can dispatch data to corresponding node.
@@ -521,6 +514,7 @@ public class StreamLoadPlanner {
         queryOptions.setEnablePipelineEngine(Config.enable_pipeline_load);
         queryOptions.setBeExecVersion(Config.be_exec_version);
         queryOptions.setIsReportSuccess(taskInfo.getEnableProfile());
+        queryOptions.setEnableMemtableOnSinkNode(taskInfo.isMemtableOnSinkNode());
 
         pipParams.setQueryOptions(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();
@@ -582,6 +576,10 @@ public class StreamLoadPlanner {
             return partitionIds;
         }
         return null;
+    }
+
+    public DescriptorTable getDescTable() {
+        return descTable;
     }
 }
 

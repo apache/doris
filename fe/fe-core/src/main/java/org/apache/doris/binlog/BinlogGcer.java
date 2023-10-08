@@ -41,7 +41,7 @@ import java.util.Map;
 
 public class BinlogGcer extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(BinlogGcer.class);
-    private static final long GC_DURATION_MS = 313 * 1000L; // 313s
+    private static final long GC_DURATION_MS = 15 * 1000L; // 15s
 
     // TODO(Drogon): use this to control gc frequency by real gc time waste sample
     private long lastGcTime = 0L;
@@ -58,7 +58,7 @@ public class BinlogGcer extends MasterDaemon {
             if (tombstones != null && !tombstones.isEmpty()) {
                 LOG.info("tomebstones size: {}", tombstones.size());
             } else {
-                LOG.info("no gc binlogg");
+                LOG.info("no gc binlog");
                 return;
             }
 

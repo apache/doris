@@ -147,7 +147,7 @@ suite("test_in_expr", "query") {
 
     test {
         sql """ select c_array, c_array in (null) from array_in_test; """
-        exception "NOT_IMPLEMENTED_ERROR"
+        exception "errCode"
     }
 
     sql " drop table if exists `json_in_test` "
@@ -165,7 +165,7 @@ suite("test_in_expr", "query") {
 
     test {
         sql """ select j, j in (null) from json_in_test; """
-        exception "NOT_IMPLEMENTED_ERROR"
+        exception "errCode"
     }
 
     sql " drop table if exists `bitmap_in_test` "
@@ -185,11 +185,11 @@ suite("test_in_expr", "query") {
     sql """ insert into bitmap_in_test values (20200622, 1, to_bitmap(243));"""
     test {
         sql """ select device_id, device_id in (to_bitmap(1)) from bitmap_in_test; """
-        exception "NOT_IMPLEMENTED_ERROR"
+        exception "errCode"
     }
     test {
         sql """ select device_id, device_id in (to_bitmap(1),to_bitmap(2),to_bitmap(243)) from bitmap_in_test; """
-        exception "NOT_IMPLEMENTED_ERROR"
+        exception "errCode"
     }
 
     sql " drop table if exists `hll_in_test` "
@@ -208,11 +208,11 @@ suite("test_in_expr", "query") {
     sql """ insert into hll_in_test values(1, hll_hash(1)) """
     test {
         sql """ select id, pv in (hll_hash(1)) from hll_in_test; """
-        exception "NOT_IMPLEMENTED_ERROR"
+        exception "errCode"
     }
     test {
         sql """ select id, pv in (hll_hash(1), hll_hash(2)) from hll_in_test; """
-        exception "NOT_IMPLEMENTED_ERROR"
+        exception "errCode"
     }
 
 }

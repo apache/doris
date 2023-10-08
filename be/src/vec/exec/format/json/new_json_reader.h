@@ -62,7 +62,7 @@ class TFileScanRangeParams;
 
 namespace io {
 class FileSystem;
-class IOContext;
+struct IOContext;
 } // namespace io
 struct TypeDescriptor;
 
@@ -79,7 +79,7 @@ public:
     NewJsonReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
                   const TFileScanRangeParams& params, const TFileRangeDesc& range,
                   const std::vector<SlotDescriptor*>& file_slot_descs, bool* scanner_eof,
-                  io::IOContext* io_ctx, bool is_dynamic_schema = false);
+                  io::IOContext* io_ctx);
 
     NewJsonReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                   const TFileRangeDesc& range, const std::vector<SlotDescriptor*>& file_slot_descs,
@@ -98,26 +98,23 @@ private:
     Status _get_range_params();
     void _init_system_properties();
     void _init_file_description();
-    Status _open_file_reader();
+    Status _open_file_reader(bool need_schema);
     Status _open_line_reader();
     Status _parse_jsonpath_and_json_root();
 
-    Status _read_json_column(Block& block, const std::vector<SlotDescriptor*>& slot_descs,
-                             bool* is_empty_row, bool* eof);
+    Status _read_json_column(RuntimeState* state, Block& block,
+                             const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
+                             bool* eof);
 
-    Status _vhandle_simple_json(Block& block, const std::vector<SlotDescriptor*>& slot_descs,
-                                bool* is_empty_row, bool* eof);
+    Status _vhandle_simple_json(RuntimeState* /*state*/, Block& block,
+                                const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
+                                bool* eof);
 
-    Status _parse_dynamic_json(bool* is_empty_row, bool* eof, Block& block,
-                               const std::vector<SlotDescriptor*>& slot_descs);
-    Status _vhandle_dynamic_json(Block& block, const std::vector<SlotDescriptor*>& slot_descs,
-                                 bool* is_empty_row, bool* eof);
-
-    Status _vhandle_flat_array_complex_json(Block& block,
+    Status _vhandle_flat_array_complex_json(RuntimeState* /*state*/, Block& block,
                                             const std::vector<SlotDescriptor*>& slot_descs,
                                             bool* is_empty_row, bool* eof);
 
-    Status _vhandle_nested_complex_json(Block& block,
+    Status _vhandle_nested_complex_json(RuntimeState* /*state*/, Block& block,
                                         const std::vector<SlotDescriptor*>& slot_descs,
                                         bool* is_empty_row, bool* eof);
 
@@ -147,15 +144,15 @@ private:
     Status _simdjson_parse_json(bool* is_empty_row, bool* eof);
     Status _simdjson_parse_json_doc(size_t* size, bool* eof);
 
-    Status _simdjson_handle_simple_json(Block& block,
+    Status _simdjson_handle_simple_json(RuntimeState* state, Block& block,
                                         const std::vector<SlotDescriptor*>& slot_descs,
                                         bool* is_empty_row, bool* eof);
 
-    Status _simdjson_handle_flat_array_complex_json(Block& block,
+    Status _simdjson_handle_flat_array_complex_json(RuntimeState* state, Block& block,
                                                     const std::vector<SlotDescriptor*>& slot_descs,
                                                     bool* is_empty_row, bool* eof);
 
-    Status _simdjson_handle_nested_complex_json(Block& block,
+    Status _simdjson_handle_nested_complex_json(RuntimeState* state, Block& block,
                                                 const std::vector<SlotDescriptor*>& slot_descs,
                                                 bool* is_empty_row, bool* eof);
 
@@ -174,7 +171,7 @@ private:
 
     size_t _column_index(const StringRef& name, size_t key_index);
 
-    Status (NewJsonReader::*_vhandle_json_callback)(Block& block,
+    Status (NewJsonReader::*_vhandle_json_callback)(RuntimeState* state, Block& block,
                                                     const std::vector<SlotDescriptor*>& slot_descs,
                                                     bool* is_empty_row, bool* eof);
     Status _get_column_default_value(
@@ -239,8 +236,6 @@ private:
     RuntimeProfile::Counter* _read_timer;
     RuntimeProfile::Counter* _file_read_timer;
 
-    bool _is_dynamic_schema = false;
-
     // ======SIMD JSON======
     // name mapping
     /// Hash table match `field name -> position in the block`. NOTE You can use perfect hash map.
@@ -253,6 +248,7 @@ private:
     // simdjson
     static constexpr size_t _init_buffer_size = 1024 * 1024 * 8;
     size_t _padded_size = _init_buffer_size + simdjson::SIMDJSON_PADDING;
+    size_t _original_doc_size = 0;
     std::string _simdjson_ondemand_padding_buffer;
     std::string _simdjson_ondemand_unscape_padding_buffer;
     // char _simdjson_ondemand_padding_buffer[_padded_size];
@@ -266,7 +262,6 @@ private:
     std::unique_ptr<simdjson::ondemand::parser> _ondemand_json_parser = nullptr;
     // column to default value string map
     std::unordered_map<std::string, std::string> _col_default_value_map;
-    int32_t _cur_parsed_variant_rows = 0;
 };
 
 } // namespace vectorized

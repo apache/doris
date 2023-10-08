@@ -1,6 +1,6 @@
 ---
 {
-    "title": "订阅Kafka日志",
+    "title": "订阅 Kafka 日志",
     "language": "zh-CN"
 }
 

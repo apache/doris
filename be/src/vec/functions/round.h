@@ -112,7 +112,7 @@ struct IntegerRoundingComputation {
             return target_scale > 1 ? x * target_scale : x;
         }
         }
-
+        LOG(FATAL) << "__builtin_unreachable";
         __builtin_unreachable();
     }
 
@@ -124,7 +124,7 @@ struct IntegerRoundingComputation {
         case ScaleMode::Negative:
             return compute_impl(x, scale, target_scale);
         }
-
+        LOG(FATAL) << "__builtin_unreachable";
         __builtin_unreachable();
     }
 
@@ -151,7 +151,6 @@ private:
 public:
     static NO_INLINE void apply(const Container& in, UInt32 in_scale, Container& out,
                                 Int16 out_scale) {
-        constexpr bool is_decimalv2 = IsDecimalV2<T>;
         Int16 scale_arg = in_scale - out_scale;
         if (scale_arg > 0) {
             size_t scale = int_exp10(scale_arg);
@@ -162,14 +161,13 @@ public:
 
             if (out_scale < 0) {
                 while (p_in < end_in) {
-                    Op::compute(p_in, scale, p_out,
-                                is_decimalv2 ? int_exp10(9 - out_scale) : int_exp10(-out_scale));
+                    Op::compute(p_in, scale, p_out, int_exp10(-out_scale));
                     ++p_in;
                     ++p_out;
                 }
             } else {
                 while (p_in < end_in) {
-                    Op::compute(p_in, scale, p_out, is_decimalv2 ? scale : 1);
+                    Op::compute(p_in, scale, p_out, 1);
                     ++p_in;
                     ++p_out;
                 }
@@ -241,6 +239,7 @@ inline float roundWithMode(float x, RoundingMode mode) {
         return truncf(x);
     }
 
+    LOG(FATAL) << "__builtin_unreachable";
     __builtin_unreachable();
 }
 
@@ -256,6 +255,7 @@ inline double roundWithMode(double x, RoundingMode mode) {
         return trunc(x);
     }
 
+    LOG(FATAL) << "__builtin_unreachable";
     __builtin_unreachable();
 }
 
@@ -419,6 +419,7 @@ public:
         case 10000000000000000000ULL:
             return applyImpl<10000000000000000000ULL>(in, out);
         default:
+            LOG(FATAL) << "__builtin_unreachable";
             __builtin_unreachable();
         }
     }
@@ -476,6 +477,7 @@ struct Dispatcher {
 
             return col_res;
         } else {
+            LOG(FATAL) << "__builtin_unreachable";
             __builtin_unreachable();
             return nullptr;
         }
@@ -527,7 +529,7 @@ public:
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t /*input_rows_count*/) override {
+                        size_t result, size_t /*input_rows_count*/) const override {
         const ColumnWithTypeAndName& column = block.get_by_position(arguments[0]);
         Int16 scale_arg = 0;
         if (arguments.size() == 2) {

@@ -21,7 +21,7 @@ suite('complex_insert') {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set enable_nereids_dml=true'
-    sql 'set parallel_fragment_exec_instance_num=13'
+    sql 'set enable_strict_consistency_dml=true'
 
     sql 'use nereids_insert_into_table_test'
 
@@ -208,5 +208,4 @@ suite('complex_insert') {
     sql 'insert into agg_have_dup_base select -4, -4, -4, \'d\''
     sql 'sync'
     qt_mv 'select * from agg_have_dup_base'
-
 }

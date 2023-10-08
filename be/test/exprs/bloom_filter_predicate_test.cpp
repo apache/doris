@@ -110,10 +110,10 @@ TEST_F(BloomFilterPredicateTest, bloom_filter_func_stringval_test) {
 TEST_F(BloomFilterPredicateTest, bloom_filter_size_test) {
     std::unique_ptr<BloomFilterFuncBase> func(create_bloom_filter(PrimitiveType::TYPE_VARCHAR));
     int length = 4096;
-    func->init_with_fixed_length(4096);
+    static_cast<void>(func->init_with_fixed_length(4096));
     char* data = nullptr;
     int len;
-    func->get_data(&data, &len);
+    static_cast<void>(func->get_data(&data, &len));
     EXPECT_EQ(length, len);
 }
 

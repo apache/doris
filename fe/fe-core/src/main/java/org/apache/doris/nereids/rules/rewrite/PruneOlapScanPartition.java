@@ -22,6 +22,7 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner;
+import org.apache.doris.nereids.rules.expression.rules.PartitionPruner.PartitionTableType;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -65,7 +66,9 @@ public class PruneOlapScanPartition extends OneRewriteRuleFactory {
                     .collect(Collectors.toList());
 
             List<Long> prunedPartitions = new ArrayList<>(PartitionPruner.prune(
-                    partitionSlots, filter.getPredicate(), partitionInfo, ctx.cascadesContext));
+                    partitionSlots, filter.getPredicate(), partitionInfo, ctx.cascadesContext,
+                    PartitionTableType.OLAP));
+
             List<Long> manuallySpecifiedPartitions = scan.getManuallySpecifiedPartitions();
             if (!CollectionUtils.isEmpty(manuallySpecifiedPartitions)) {
                 prunedPartitions.retainAll(manuallySpecifiedPartitions);

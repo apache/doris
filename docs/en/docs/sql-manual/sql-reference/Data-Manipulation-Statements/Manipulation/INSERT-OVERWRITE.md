@@ -113,9 +113,9 @@ PROPERTIES (
    ```
 
 - The first and second statements have the same effect. If the target column is not specified during overwriting, the column order in the table will be used as the default target column. After the overwrite is successful, there is only one row of data in the `test` table.
-- The third and fourth statements have the same effect. The unspecified column `c2` will be overwritten with the default value 1. After the overwrite is successful, there is only one row of data in the `test` table.
+- The third and fourth statements have the same effect. The unspecified column `c2` will be overwritten with the default value 4. After the overwrite is successful, there is only one row of data in the `test` table.
 - The fifth and sixth statements have the same effect. Expressions (such as `2+2`, `2*2`) can be used in the statement. The result of the expression will be computed during the execution of the statement and then overwritten into the `test` table. After the overwrite is successful, there are two rows of data in the `test` table.
-- The seventh and eighth statements have the same effect. The unspecified column `c2` will be overwritten with the default value 1. After the overwrite is successful, there are two rows of data in the `test` table.
+- The seventh and eighth statements have the same effect. The unspecified column `c2` will be overwritten with the default value 4. After the overwrite is successful, there are two rows of data in the `test` table.
 
 2. Overwrite the `test` table in the form of a query statement. The data format of the `test2` table and the `test` table must be consistent. If they are not consistent, implicit data type conversion will be triggered.
 

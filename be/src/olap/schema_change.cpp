@@ -29,6 +29,7 @@
 #include <tuple>
 
 #include "common/logging.h"
+#include "common/signal_handler.h"
 #include "common/status.h"
 #include "gutil/hash/hash.h"
 #include "gutil/integral_types.h"
@@ -170,7 +171,7 @@ public:
 
                     if (i == rows - 1 || finalized_block.rows() == ALTER_TABLE_BATCH_SIZE) {
                         *merged_rows -= finalized_block.rows();
-                        rowset_writer->add_block(&finalized_block);
+                        static_cast<void>(rowset_writer->add_block(&finalized_block));
                         finalized_block.clear_column_data();
                     }
                 }
@@ -202,7 +203,7 @@ public:
                         column->insert_from(*row_ref.get_column(idx), row_ref.position);
                     }
                 }
-                rowset_writer->add_block(&finalized_block);
+                static_cast<void>(rowset_writer->add_block(&finalized_block));
                 finalized_block.clear_column_data();
             }
         }
@@ -283,11 +284,8 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
     const int column_size = new_block->columns();
 
     // swap ref_block[key] and new_block[value]
-    std::map<int, int> swap_idx_map;
-
+    std::list<std::pair<int, int>> swap_idx_list;
     for (int idx = 0; idx < column_size; idx++) {
-        int ref_idx = _schema_mapping[idx].ref_column;
-
         if (_schema_mapping[idx].expr != nullptr) {
             vectorized::VExprContextSPtr ctx;
             RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(*_schema_mapping[idx].expr, ctx));
@@ -303,14 +301,11 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
                         "{} size invalid, expect={}, real={}", new_block->get_by_position(idx).name,
                         row_size, ref_block->get_by_position(result_column_id).column->size());
             }
-
-            if (_type != ROLLUP) {
-                RETURN_IF_ERROR(
-                        _check_cast_valid(ref_block->get_by_position(ref_idx).column,
-                                          ref_block->get_by_position(result_column_id).column));
-            }
-            swap_idx_map[result_column_id] = idx;
-        } else if (ref_idx < 0) {
+            RETURN_IF_ERROR(_check_cast_valid(ref_block->get_by_position(idx).column,
+                                              ref_block->get_by_position(result_column_id).column,
+                                              _type));
+            swap_idx_list.push_back({result_column_id, idx});
+        } else if (_schema_mapping[idx].ref_column < 0) {
             if (_type != ROLLUP) {
                 // new column, write default value
                 auto value = _schema_mapping[idx].default_value;
@@ -330,24 +325,24 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
             }
         } else {
             // same type, just swap column
-            swap_idx_map[ref_idx] = idx;
+            swap_idx_list.push_back({_schema_mapping[idx].ref_column, idx});
         }
     }
 
-    for (auto it : swap_idx_map) {
-        auto& ref_col = ref_block->get_by_position(it.first);
-        auto& new_col = new_block->get_by_position(it.second);
+    for (auto it : swap_idx_list) {
+        auto& ref_col = ref_block->get_by_position(it.first).column;
+        auto& new_col = new_block->get_by_position(it.second).column;
 
-        bool ref_col_nullable = ref_col.column->is_nullable();
-        bool new_col_nullable = new_col.column->is_nullable();
+        bool ref_col_nullable = ref_col->is_nullable();
+        bool new_col_nullable = new_col->is_nullable();
 
         if (ref_col_nullable != new_col_nullable) {
             // not nullable to nullable
             if (new_col_nullable) {
-                auto* new_nullable_col = assert_cast<vectorized::ColumnNullable*>(
-                        new_col.column->assume_mutable().get());
+                auto* new_nullable_col =
+                        assert_cast<vectorized::ColumnNullable*>(new_col->assume_mutable().get());
 
-                new_nullable_col->swap_nested_column(ref_col.column);
+                new_nullable_col->change_nested_column(ref_col);
                 new_nullable_col->get_null_map_data().resize_fill(new_nullable_col->size());
             } else {
                 // nullable to not nullable:
@@ -355,14 +350,14 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
                 // then do schema change `alter table test modify column c_phone int not null`,
                 // the cast expr of schema change is `CastExpr(CAST String to Nullable(Int32))`,
                 // so need to handle nullable to not nullable here
-                auto* ref_nullable_col = assert_cast<vectorized::ColumnNullable*>(
-                        ref_col.column->assume_mutable().get());
+                auto* ref_nullable_col =
+                        assert_cast<vectorized::ColumnNullable*>(ref_col->assume_mutable().get());
 
-                ref_nullable_col->swap_nested_column(new_col.column);
+                new_col = ref_nullable_col->get_nested_column_ptr();
             }
         } else {
-            new_block->get_by_position(it.second).column.swap(
-                    ref_block->get_by_position(it.first).column);
+            new_block->get_by_position(it.second).column =
+                    ref_block->get_by_position(it.first).column;
         }
     }
     return Status::OK();
@@ -370,7 +365,16 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
 
 // This check is to prevent schema-change from causing data loss
 Status BlockChanger::_check_cast_valid(vectorized::ColumnPtr ref_column,
-                                       vectorized::ColumnPtr new_column) const {
+                                       vectorized::ColumnPtr new_column,
+                                       AlterTabletType type) const {
+    if (ref_column->size() != new_column->size()) {
+        return Status::InternalError(
+                "column size is changed, ref_column_size={}, new_column_size={}",
+                ref_column->size(), new_column->size());
+    }
+    if (type == ROLLUP) {
+        return Status::OK();
+    }
     if (ref_column->is_nullable() != new_column->is_nullable()) {
         if (ref_column->is_nullable()) {
             auto* ref_null_map =
@@ -478,7 +482,7 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
                 vectorized::Block::create_unique(new_tablet->tablet_schema()->create_block());
         auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
 
-        rowset_reader->next_block(ref_block.get());
+        static_cast<void>(rowset_reader->next_block(ref_block.get()));
         if (ref_block->rows() == 0) {
             break;
         }
@@ -487,10 +491,7 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
         RETURN_IF_ERROR(rowset_writer->add_block(new_block.get()));
     } while (true);
 
-    if (!rowset_writer->flush()) {
-        return Status::Error<ALTER_STATUS_ERR>("rowset_writer flush failed");
-    }
-
+    RETURN_IF_ERROR(rowset_writer->flush());
     return Status::OK();
 }
 
@@ -551,7 +552,7 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
 
     do {
         auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
-        rowset_reader->next_block(ref_block.get());
+        static_cast<void>(rowset_reader->next_block(ref_block.get()));
         if (ref_block->rows() == 0) {
             break;
         }
@@ -593,7 +594,6 @@ Status VSchemaChangeWithSorting::_internal_sorting(
         SegmentsOverlapPB segments_overlap, RowsetSharedPtr* rowset) {
     uint64_t merged_rows = 0;
     MultiBlockMerger merger(new_tablet);
-
     std::unique_ptr<RowsetWriter> rowset_writer;
     RowsetWriterContext context;
     context.version = version;
@@ -630,7 +630,6 @@ Status VSchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& src_
     RETURN_IF_ERROR(Merger::vmerge_rowsets(new_tablet, ReaderType::READER_ALTER_TABLE,
                                            new_tablet->tablet_schema(), rs_readers, rowset_writer,
                                            &stats));
-
     _add_merged_rows(stats.merged_rows);
     _add_filtered_rows(stats.filtered_rows);
     return Status::OK();
@@ -682,6 +681,8 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
         return Status::Error<TABLE_NOT_FOUND>("fail to find base tablet. base_tablet={}",
                                               request.base_tablet_id);
     }
+
+    signal::tablet_id = base_tablet->get_table_id();
 
     // new tablet has to exist
     TabletSharedPtr new_tablet =
@@ -797,7 +798,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
                 }
             }
             std::vector<RowsetSharedPtr> empty_vec;
-            new_tablet->modify_rowsets(empty_vec, rowsets_to_delete);
+            static_cast<void>(new_tablet->modify_rowsets(empty_vec, rowsets_to_delete));
             // inherit cumulative_layer_point from base_tablet
             // check if new_tablet.ce_point > base_tablet.ce_point?
             new_tablet->set_cumulative_layer_point(-1);
@@ -814,22 +815,23 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             }
 
             // acquire data sources correspond to history versions
-            base_tablet->capture_rs_readers(versions_to_be_changed, &rs_splits);
+            static_cast<void>(base_tablet->capture_rs_readers(versions_to_be_changed, &rs_splits));
             if (rs_splits.empty()) {
                 res = Status::Error<ALTER_DELTA_DOES_NOT_EXISTS>(
                         "fail to acquire all data sources. version_num={}, data_source_num={}",
                         versions_to_be_changed.size(), rs_splits.size());
                 break;
             }
-            auto& all_del_preds = base_tablet->delete_predicates();
-            for (auto& delete_pred : all_del_preds) {
-                if (delete_pred->version().first > end_version) {
+            std::vector<RowsetMetaSharedPtr> del_preds;
+            for (auto&& split : rs_splits) {
+                auto& rs_meta = split.rs_reader->rowset()->rowset_meta();
+                if (!rs_meta->has_delete_predicate() || rs_meta->start_version() > end_version) {
                     continue;
                 }
-                base_tablet_schema->merge_dropped_columns(
-                        base_tablet->tablet_schema(delete_pred->version()));
+                base_tablet_schema->merge_dropped_columns(*rs_meta->tablet_schema());
+                del_preds.push_back(rs_meta);
             }
-            res = delete_handler.init(base_tablet_schema, all_del_preds, end_version);
+            res = delete_handler.init(base_tablet_schema, del_preds, end_version);
             if (!res) {
                 LOG(WARNING) << "init delete handler failed. base_tablet="
                              << base_tablet->full_name() << ", end_version=" << end_version;
@@ -862,7 +864,8 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
         }
         SchemaChangeParams sc_params;
 
-        DescriptorTbl::create(&sc_params.pool, request.desc_tbl, &sc_params.desc_tbl);
+        static_cast<void>(
+                DescriptorTbl::create(&sc_params.pool, request.desc_tbl, &sc_params.desc_tbl));
         sc_params.base_tablet = base_tablet;
         sc_params.new_tablet = new_tablet;
         sc_params.ref_rowset_readers.reserve(rs_splits.size());
@@ -1345,8 +1348,8 @@ Status SchemaChangeHandler::_init_column_mapping(ColumnMapping* column_mapping,
     if (column_schema.is_nullable() && value.length() == 0) {
         column_mapping->default_value->set_null();
     } else {
-        column_mapping->default_value->from_string(value, column_schema.precision(),
-                                                   column_schema.frac());
+        static_cast<void>(column_mapping->default_value->from_string(
+                value, column_schema.precision(), column_schema.frac()));
     }
 
     return Status::OK();

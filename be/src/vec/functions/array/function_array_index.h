@@ -51,28 +51,31 @@ namespace doris::vectorized {
 
 struct ArrayContainsAction {
     using ResultType = UInt8;
+    static constexpr auto name = "array_contains";
     static constexpr const bool resume_execution = false;
     static constexpr void apply(ResultType& current, size_t) noexcept { current = 1; }
 };
 
 struct ArrayPositionAction {
     using ResultType = Int64;
+    static constexpr auto name = "array_position";
     static constexpr const bool resume_execution = false;
     static constexpr void apply(ResultType& current, size_t j) noexcept { current = j + 1; }
 };
 
 struct ArrayCountEqual {
     using ResultType = Int64;
+    static constexpr auto name = "countequal";
     static constexpr const bool resume_execution = true;
     static constexpr void apply(ResultType& current, size_t j) noexcept { ++current; }
 };
 
-template <typename ConcreteAction, typename Name>
+template <typename ConcreteAction>
 class FunctionArrayIndex : public IFunction {
 public:
     using ResultType = typename ConcreteAction::ResultType;
 
-    static constexpr auto name = Name::name;
+    static constexpr auto name = ConcreteAction::name;
     static FunctionPtr create() { return std::make_shared<FunctionArrayIndex>(); }
 
     /// Get function name.
@@ -90,14 +93,15 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         return _execute_non_nullable(block, arguments, result, input_rows_count);
     }
 
 private:
     ColumnPtr _execute_string(const ColumnArray::Offsets64& offsets, const UInt8* nested_null_map,
                               const IColumn& nested_column, const IColumn& right_column,
-                              const UInt8* right_nested_null_map, const UInt8* outer_null_map) {
+                              const UInt8* right_nested_null_map,
+                              const UInt8* outer_null_map) const {
         // check array nested column type and get data
         const auto& str_offs = reinterpret_cast<const ColumnString&>(nested_column).get_offsets();
         const auto& str_chars = reinterpret_cast<const ColumnString&>(nested_column).get_chars();
@@ -162,7 +166,8 @@ private:
     template <typename NestedColumnType, typename RightColumnType>
     ColumnPtr _execute_number(const ColumnArray::Offsets64& offsets, const UInt8* nested_null_map,
                               const IColumn& nested_column, const IColumn& right_column,
-                              const UInt8* right_nested_null_map, const UInt8* outer_null_map) {
+                              const UInt8* right_nested_null_map,
+                              const UInt8* outer_null_map) const {
         // check array nested column type and get data
         const auto& nested_data =
                 reinterpret_cast<const NestedColumnType&>(nested_column).get_data();
@@ -220,69 +225,9 @@ private:
                                        const UInt8* nested_null_map, const IColumn& nested_column,
                                        const IColumn& right_column,
                                        const UInt8* right_nested_null_map,
-                                       const UInt8* outer_null_map) {
-        if (check_column<ColumnUInt8>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnUInt8>(
-                    offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
-                    outer_null_map);
-        } else if (check_column<ColumnInt8>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnInt8>(
-                    offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
-                    outer_null_map);
-        } else if (check_column<ColumnInt16>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnInt16>(
-                    offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
-                    outer_null_map);
-        } else if (check_column<ColumnInt32>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnInt32>(
-                    offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
-                    outer_null_map);
-        } else if (check_column<ColumnInt64>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnInt64>(
-                    offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
-                    outer_null_map);
-        } else if (check_column<ColumnInt128>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnInt128>(
-                    offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
-                    outer_null_map);
-        } else if (check_column<ColumnFloat32>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnFloat32>(
-                    offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
-                    outer_null_map);
-        } else if (check_column<ColumnFloat64>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnFloat64>(
-                    offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
-                    outer_null_map);
-        } else if (right_column.is_date_type()) {
-            return _execute_number<NestedColumnType, ColumnDate>(
-                    offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
-                    outer_null_map);
-        } else if (right_column.is_datetime_type()) {
-            return _execute_number<NestedColumnType, ColumnDateTime>(
-                    offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
-                    outer_null_map);
-        } else if (check_column<ColumnDateV2>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnDateV2>(
-                    offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
-                    outer_null_map);
-        } else if (check_column<ColumnDateTimeV2>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnDateTimeV2>(
-                    offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
-                    outer_null_map);
-        } else if (check_column<ColumnDecimal32>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnDecimal32>(
-                    offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
-                    outer_null_map);
-        } else if (check_column<ColumnDecimal64>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnDecimal64>(
-                    offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
-                    outer_null_map);
-        } else if (check_column<ColumnDecimal128I>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnDecimal128I>(
-                    offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
-                    outer_null_map);
-        } else if (check_column<ColumnDecimal128>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnDecimal128>(
+                                       const UInt8* outer_null_map) const {
+        if (check_column<NestedColumnType>(right_column)) {
+            return _execute_number<NestedColumnType, NestedColumnType>(
                     offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
                     outer_null_map);
         }
@@ -290,7 +235,7 @@ private:
     }
 
     Status _execute_non_nullable(Block& block, const ColumnNumbers& arguments, size_t result,
-                                 size_t input_rows_count) {
+                                 size_t input_rows_count) const {
         // extract array offsets and nested data
         auto left_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();

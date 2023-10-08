@@ -35,6 +35,7 @@
 #include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
+#include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/core/block.h"
@@ -94,7 +95,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         auto dst_null_column = ColumnUInt8::create(input_rows_count);
         UInt8* dst_null_map = dst_null_column->get_data().data();
         const UInt8* src_null_map = nullptr;
@@ -128,7 +129,8 @@ public:
 
 private:
     //=========================== map element===========================//
-    ColumnPtr _get_mapped_idx(const ColumnArray& column, const ColumnWithTypeAndName& argument) {
+    ColumnPtr _get_mapped_idx(const ColumnArray& column,
+                              const ColumnWithTypeAndName& argument) const {
         auto right_column = make_nullable(argument.column->convert_to_full_column_if_const());
         const ColumnArray::Offsets64& offsets = column.get_offsets();
         ColumnPtr nested_ptr = make_nullable(column.get_data_ptr());
@@ -160,7 +162,7 @@ private:
     template <typename ColumnType>
     ColumnPtr _execute_number(const ColumnArray::Offsets64& offsets, const IColumn& nested_column,
                               const UInt8* arr_null_map, const IColumn& indices,
-                              const UInt8* nested_null_map, UInt8* dst_null_map) {
+                              const UInt8* nested_null_map, UInt8* dst_null_map) const {
         const auto& nested_data = reinterpret_cast<const ColumnType&>(nested_column).get_data();
 
         auto dst_column = nested_column.clone_empty();
@@ -201,7 +203,7 @@ private:
 
     ColumnPtr _execute_string(const ColumnArray::Offsets64& offsets, const IColumn& nested_column,
                               const UInt8* arr_null_map, const IColumn& indices,
-                              const UInt8* nested_null_map, UInt8* dst_null_map) {
+                              const UInt8* nested_null_map, UInt8* dst_null_map) const {
         const auto& src_str_offs =
                 reinterpret_cast<const ColumnString&>(nested_column).get_offsets();
         const auto& src_str_chars =
@@ -253,7 +255,7 @@ private:
     }
 
     ColumnPtr _execute_map(const ColumnsWithTypeAndName& arguments, size_t input_rows_count,
-                           const UInt8* src_null_map, UInt8* dst_null_map) {
+                           const UInt8* src_null_map, UInt8* dst_null_map) const {
         auto left_column = arguments[0].column->convert_to_full_column_if_const();
         DataTypePtr val_type =
                 reinterpret_cast<const DataTypeMap&>(*arguments[0].type).get_value_type();
@@ -283,8 +285,46 @@ private:
         return _execute_nullable(args, input_rows_count, src_null_map, dst_null_map);
     }
 
+    ColumnPtr _execute_common(const ColumnArray::Offsets64& offsets, const IColumn& nested_column,
+                              const UInt8* arr_null_map, const IColumn& indices,
+                              const UInt8* nested_null_map, UInt8* dst_null_map) const {
+        // prepare return data
+        auto dst_column = nested_column.clone_empty();
+        dst_column->reserve(offsets.size());
+
+        // process
+        for (size_t row = 0; row < offsets.size(); ++row) {
+            size_t off = offsets[row - 1];
+            size_t len = offsets[row] - off;
+            auto index = indices.get_int(row);
+            // array is nullable
+            bool null_flag = bool(arr_null_map && arr_null_map[row]);
+            // calc index in nested column
+            if (!null_flag && index > 0 && index <= len) {
+                index += off - 1;
+            } else if (!null_flag && index < 0 && -index <= len) {
+                index += off + len;
+            } else {
+                null_flag = true;
+            }
+            // nested column nullable check
+            if (!null_flag && nested_null_map && nested_null_map[index]) {
+                null_flag = true;
+            }
+            // actual data copy
+            if (!null_flag) {
+                dst_null_map[row] = false;
+                dst_column->insert_from(nested_column, index);
+            } else {
+                dst_null_map[row] = true;
+                dst_column->insert_default();
+            }
+        }
+        return dst_column;
+    }
+
     ColumnPtr _execute_nullable(const ColumnsWithTypeAndName& arguments, size_t input_rows_count,
-                                const UInt8* src_null_map, UInt8* dst_null_map) {
+                                const UInt8* src_null_map, UInt8* dst_null_map) const {
         // check array nested column type and get data
         auto left_column = arguments[0].column->convert_to_full_column_if_const();
         const auto& array_column = reinterpret_cast<const ColumnArray&>(*left_column);
@@ -355,6 +395,9 @@ private:
                                                     nested_null_map, dst_null_map);
         } else if (check_column<ColumnString>(*nested_column)) {
             res = _execute_string(offsets, *nested_column, src_null_map, *idx_col, nested_null_map,
+                                  dst_null_map);
+        } else {
+            res = _execute_common(offsets, *nested_column, src_null_map, *idx_col, nested_null_map,
                                   dst_null_map);
         }
 

@@ -45,6 +45,7 @@ class Config {
     public String feTargetThriftAddress
     public String feSyncerUser
     public String feSyncerPassword
+    public String syncerAddress
 
     public String feHttpAddress
     public String feHttpUser
@@ -59,6 +60,10 @@ class Config {
     public boolean enableCacheData
     public String pluginPath
     public String sslCertificatePath
+    public String dorisComposePath
+    public String image
+    public Boolean dockerEndDeleteFiles
+    public Boolean excludeDockerTest
 
     public String testGroups
     public String excludeGroups
@@ -84,6 +89,7 @@ class Config {
 
     public TNetworkAddress feSourceThriftNetworkAddress
     public TNetworkAddress feTargetThriftNetworkAddress
+    public TNetworkAddress syncerNetworkAddress
     public InetSocketAddress feHttpInetSocketAddress
     public InetSocketAddress metaServiceHttpInetSocketAddress
     public Integer parallel
@@ -96,7 +102,7 @@ class Config {
 
     Config(String defaultDb, String jdbcUrl, String jdbcUser, String jdbcPassword,
            String feSourceThriftAddress, String feTargetThriftAddress, String feSyncerUser, String feSyncerPassword,
-           String feHttpAddress, String feHttpUser, String feHttpPassword, String metaServiceHttpAddress,
+           String syncerPassword, String feHttpAddress, String feHttpUser, String feHttpPassword, String metaServiceHttpAddress,
            String suitePath, String dataPath, String realDataPath, String cacheDataPath, Boolean enableCacheData,
            String testGroups, String excludeGroups, String testSuites, String excludeSuites,
            String testDirectories, String excludeDirectories, String pluginPath, String sslCertificatePath) {
@@ -108,6 +114,7 @@ class Config {
         this.feTargetThriftAddress = feTargetThriftAddress
         this.feSyncerUser = feSyncerUser
         this.feSyncerPassword = feSyncerPassword
+        this.syncerAddress = syncerAddress
         this.feHttpAddress = feHttpAddress
         this.feHttpUser = feHttpUser
         this.feHttpPassword = feHttpPassword
@@ -151,8 +158,11 @@ class Config {
         config.dataPath = FileUtils.getCanonicalPath(cmd.getOptionValue(dataOpt, config.dataPath))
         config.realDataPath = FileUtils.getCanonicalPath(cmd.getOptionValue(realDataOpt, config.realDataPath))
         config.cacheDataPath = cmd.getOptionValue(cacheDataOpt, config.cacheDataPath)
+        config.enableCacheData = Boolean.parseBoolean(cmd.getOptionValue(enableCacheDataOpt, "true"))
         config.pluginPath = FileUtils.getCanonicalPath(cmd.getOptionValue(pluginOpt, config.pluginPath))
         config.sslCertificatePath = FileUtils.getCanonicalPath(cmd.getOptionValue(sslCertificateOpt, config.sslCertificatePath))
+        config.dorisComposePath = FileUtils.getCanonicalPath(config.dorisComposePath)
+        config.image = cmd.getOptionValue(imageOpt, config.image)
         config.suiteWildcard = cmd.getOptionValue(suiteOpt, config.testSuites)
                 .split(",")
                 .collect({s -> s.trim()})
@@ -206,6 +216,15 @@ class Config {
             config.feTargetThriftNetworkAddress = new TNetworkAddress(host, port)
         } catch (Throwable t) {
             throw new IllegalStateException("Can not parse fe thrift address: ${config.feTargetThriftAddress}", t)
+        }
+
+        config.syncerAddress = cmd.getOptionValue(syncerAddressOpt, config.syncerAddress)
+        try {
+            String host = config.syncerAddress.split(":")[0]
+            int port = Integer.valueOf(config.syncerAddress.split(":")[1])
+            config.syncerNetworkAddress = new TNetworkAddress(host, port)
+        } catch (Throwable t) {
+            throw new IllegalStateException("Can not parse syncer address: ${config.syncerAddress}", t)
         }
 
         config.feHttpAddress = cmd.getOptionValue(feHttpAddressOpt, config.feHttpAddress)
@@ -270,6 +289,7 @@ class Config {
             configToString(obj.feTargetThriftAddress),
             configToString(obj.feSyncerUser),
             configToString(obj.feSyncerPassword),
+            configToString(obj.syncerAddress),
             configToString(obj.feHttpAddress),
             configToString(obj.feHttpUser),
             configToString(obj.feHttpPassword),
@@ -288,6 +308,10 @@ class Config {
             configToString(obj.pluginPath),
             configToString(obj.sslCertificatePath)
         )
+
+        config.image = configToString(obj.image)
+        config.dockerEndDeleteFiles = configToBoolean(obj.dockerEndDeleteFiles)
+        config.excludeDockerTest = configToBoolean(obj.excludeDockerTest)
 
         def declareFileNames = config.getClass()
                 .getDeclaredFields()
@@ -309,7 +333,7 @@ class Config {
         }
 
         if (config.jdbcUrl == null) {
-            //jdbcUrl needs parameter here. Refer to function: buildUrl(String dbName)
+            //jdbcUrl needs parameter here. Refer to function: buildUrlWithDb(String jdbcUrl, String dbName)
             config.jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
             log.info("Set jdbcUrl to '${config.jdbcUrl}' because not specify.".toString())
         }
@@ -352,6 +376,11 @@ class Config {
         if (config.feSyncerPassword == null) {
             config.feSyncerPassword = ""
             log.info("Set feSyncerPassword to empty because not specify.".toString())
+        }
+
+        if (config.syncerAddress == null) {
+            config.syncerAddress = "127.0.0.1:9190"
+            log.info("Set syncerAddress to '${config.syncerAddress}' because not specify.".toString())
         }
 
         if (config.feHttpUser == null) {
@@ -397,6 +426,21 @@ class Config {
         if (config.sslCertificatePath == null) {
             config.sslCertificatePath = "regression-test/ssl_default_certificate"
             log.info("Set sslCertificatePath to '${config.sslCertificatePath}' because not specify.".toString())
+        }
+
+        if (config.dockerEndDeleteFiles == null) {
+            config.dockerEndDeleteFiles = false
+            log.info("Set dockerEndDeleteFiles to '${config.dockerEndDeleteFiles}' because not specify.".toString())
+        }
+
+        if (config.excludeDockerTest == null) {
+            config.excludeDockerTest = true
+            log.info("Set excludeDockerTest to '${config.excludeDockerTest}' because not specify.".toString())
+        }
+
+        if (config.dorisComposePath == null) {
+            config.dorisComposePath = "docker/runtime/doris-compose/doris-compose.py"
+            log.info("Set dorisComposePath to '${config.dorisComposePath}' because not specify.".toString())
         }
 
         if (config.testGroups == null) {
@@ -483,7 +527,7 @@ class Config {
     }
 
     Connection getConnectionByDbName(String dbName) {
-        String dbUrl = buildUrl(dbName)
+        String dbUrl = buildUrlWithDb(jdbcUrl, dbName)
         tryCreateDbIfNotExist(dbName)
         log.info("connect to ${dbUrl}".toString())
         return DriverManager.getConnection(dbUrl, jdbcUser, jdbcPassword)
@@ -537,12 +581,12 @@ class Config {
         }
     }
 
-    private void buildUrlWithDefaultDb() {
-        this.jdbcUrl = buildUrl(defaultDb)
+    public void buildUrlWithDefaultDb() {
+        this.jdbcUrl = buildUrlWithDb(jdbcUrl, defaultDb)
         log.info("Reset jdbcUrl to ${jdbcUrl}".toString())
     }
 
-    private String buildUrl(String dbName) {
+    public static String buildUrlWithDb(String jdbcUrl, String dbName) {
         String urlWithDb = jdbcUrl
         String urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)
         if (urlWithoutSchema.indexOf("/") >= 0) {
@@ -565,7 +609,7 @@ class Config {
         return urlWithDb
     }
 
-    private String addSslUrl(String url) {
+    private static String addSslUrl(String url) {
         if (url.contains("TLS")) {
             return url
         }
@@ -587,7 +631,7 @@ class Config {
         }
     }
 
-    private String addTimeoutUrl(String url) {
+    private static String addTimeoutUrl(String url) {
         if (url.contains("connectTimeout=") || url.contains("socketTimeout="))
         {
             return url

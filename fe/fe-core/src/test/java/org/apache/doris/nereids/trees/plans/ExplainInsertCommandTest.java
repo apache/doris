@@ -110,6 +110,16 @@ public class ExplainInsertCommandTest extends TestWithFeService {
     }
 
     @Test
+    public void testInsertIntoValues() throws Exception {
+        String sql = "explain insert into t1 values(1, 1, 1, 1), (2, 2, 2, 2), (3, 3, 3, 3)";
+        Assertions.assertEquals(4, getOutputFragment(sql).getOutputExprs().size());
+        sql = "explain insert into t2 values(1, 1, 1, 1), (2, 2, 2, 2), (3, 3, 3, 3)";
+        Assertions.assertEquals(6, getOutputFragment(sql).getOutputExprs().size());
+        sql = "explain insert into agg_have_dup_base values(-4, -4, -4, 'd')";
+        Assertions.assertEquals(8, getOutputFragment(sql).getOutputExprs().size());
+    }
+
+    @Test
     public void testAnalysisException() {
         String sql = "explain insert into t1(v1, v2) select k2 * 2, v1 + 1, v2 + 4 from src";
         Assertions.assertThrows(AnalysisException.class, () -> getOutputFragment(sql));
@@ -119,8 +129,8 @@ public class ExplainInsertCommandTest extends TestWithFeService {
     public void testWithMV() throws Exception {
         String sql = "explain insert into agg_have_dup_base select -4, -4, -4, 'd'";
         Assertions.assertEquals(8, getOutputFragment(sql).getOutputExprs().size());
-        String sql1 = "explain insert into agg_have_dup_base select -4, k2, -4, 'd' from agg_have_dup_base";
-        Assertions.assertEquals(8, getOutputFragment(sql1).getOutputExprs().size());
+        sql = "explain insert into agg_have_dup_base select -4, k2, -4, 'd' from agg_have_dup_base";
+        Assertions.assertEquals(8, getOutputFragment(sql).getOutputExprs().size());
     }
 
     private PlanFragment getOutputFragment(String sql) throws Exception {

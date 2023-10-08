@@ -26,7 +26,6 @@ import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
@@ -36,7 +35,6 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
-import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -54,7 +52,6 @@ import org.apache.doris.thrift.TDisk;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.UtFrameUtils;
 
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Table;
@@ -162,32 +159,12 @@ public class TabletRepairAndBalanceTest {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         Env.getCurrentEnv().createTable(createTableStmt);
         // must set replicas' path hash, or the tablet scheduler won't work
-        updateReplicaPathHash();
+        RebalancerTestUtil.updateReplicaPathHash();
     }
 
     private static void dropTable(String sql) throws Exception {
         DropTableStmt dropTableStmt = (DropTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         Env.getCurrentEnv().dropTable(dropTableStmt);
-    }
-
-    private static void updateReplicaPathHash() {
-        Table<Long, Long, Replica> replicaMetaTable = Env.getCurrentInvertedIndex().getReplicaMetaTable();
-        for (Table.Cell<Long, Long, Replica> cell : replicaMetaTable.cellSet()) {
-            long beId = cell.getColumnKey();
-            Backend be = Env.getCurrentSystemInfo().getBackend(beId);
-            if (be == null) {
-                continue;
-            }
-            Replica replica = cell.getValue();
-            TabletMeta tabletMeta = Env.getCurrentInvertedIndex().getTabletMeta(cell.getRowKey());
-            ImmutableMap<String, DiskInfo> diskMap = be.getDisks();
-            for (DiskInfo diskInfo : diskMap.values()) {
-                if (diskInfo.getStorageMedium() == tabletMeta.getStorageMedium()) {
-                    replica.setPathHash(diskInfo.getPathHash());
-                    break;
-                }
-            }
-        }
     }
 
     private static void alterTable(String sql) throws Exception {
@@ -255,6 +232,7 @@ public class TabletRepairAndBalanceTest {
         ExceptionChecker.expectThrows(DdlException.class, () -> createTable(createStr));
 
         // nodes of zone2 not enough, create will fail
+        // it will fail because of we check tag location during the analysis process, so we check AnalysisException
         String createStr2 = "create table test.tbl1\n"
                 + "(k1 date, k2 int)\n"
                 + "partition by range(k1)\n"
@@ -268,7 +246,7 @@ public class TabletRepairAndBalanceTest {
                 + "(\n"
                 + "    \"replication_allocation\" = \"tag.location.zone1: 2, tag.location.zone2: 3\"\n"
                 + ")";
-        ExceptionChecker.expectThrows(DdlException.class, () -> createTable(createStr2));
+        ExceptionChecker.expectThrows(AnalysisException.class, () -> createTable(createStr2));
 
         // normal, create success
         String createStr3 = "create table test.tbl1\n"
@@ -291,7 +269,7 @@ public class TabletRepairAndBalanceTest {
         // alter table's replica allocation failed, tag not enough
         String alterStr = "alter table test.tbl1"
                 + " set (\"replication_allocation\" = \"tag.location.zone1: 2, tag.location.zone2: 3\");";
-        ExceptionChecker.expectThrows(DdlException.class, () -> alterTable(alterStr));
+        ExceptionChecker.expectThrows(AnalysisException.class, () -> alterTable(alterStr));
         ReplicaAllocation tblReplicaAlloc = tbl.getDefaultReplicaAllocation();
         Assert.assertEquals(3, tblReplicaAlloc.getTotalReplicaNum());
         Assert.assertEquals(Short.valueOf((short) 2), tblReplicaAlloc.getReplicaNumByTag(tag1));
@@ -417,18 +395,19 @@ public class TabletRepairAndBalanceTest {
         //      p1: zone1:1, zone2:2
         //      p2,p2: zone1:2, zone2:1
 
-        // change tbl1's default replica allocation to zone1:4, which is allowed
-        String alterStr3 = "alter table test.tbl1 set ('default.replication_allocation' = 'tag.location.zone1:4')";
+        // change tbl1's default replica allocation to zone1:3, which is allowed
+        String alterStr3 = "alter table test.tbl1 set ('default.replication_allocation' = 'tag.location.zone1:3')";
         ExceptionChecker.expectThrowsNoException(() -> alterTable(alterStr3));
 
         // change tbl1's p1's replica allocation to zone1:4, which is forbidden
         String alterStr4 = "alter table test.tbl1 modify partition p1"
                 + " set ('replication_allocation' = 'tag.location.zone1:4')";
-        ExceptionChecker.expectThrows(DdlException.class, () -> alterTable(alterStr4));
+        ExceptionChecker.expectThrows(AnalysisException.class, () -> alterTable(alterStr4));
 
-        // change col_tbl1's default replica allocation to zone2:4, which is allowed
-        String alterStr5 = "alter table test.col_tbl1 set ('default.replication_allocation' = 'tag.location.zone2:4')";
-        ExceptionChecker.expectThrowsNoException(() -> alterTable(alterStr5));
+        // change col_tbl1's default replica allocation to zone2:2, which is forbidden
+        String alterStr5 = "alter table test.col_tbl1 set ('default.replication_allocation' = 'tag.location.zone2:2')";
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "Cannot change replication allocation of colocate table", () -> alterTable(alterStr5));
 
         // Drop all tables
         String dropStmt1 = "drop table test.tbl1 force";
@@ -497,7 +476,7 @@ public class TabletRepairAndBalanceTest {
         ExceptionChecker.expectThrowsNoException(() -> createTable(createStr6));
 
         OlapTable tbl3 = db.getOlapTableOrDdlException("col_tbl3");
-        updateReplicaPathHash();
+        RebalancerTestUtil.updateReplicaPathHash();
         // Set one replica's state as DECOMMISSION, see if it can be changed to NORMAL
         Tablet oneTablet = null;
         Replica oneReplica = null;

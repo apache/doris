@@ -37,7 +37,7 @@ namespace doris {
 class PageCacheHandle;
 
 template <typename TAllocator>
-class PageBase : private TAllocator, LRUCacheValueBase {
+class PageBase : private TAllocator, public LRUCacheValueBase {
 public:
     PageBase() : _data(nullptr), _size(0), _capacity(0) {}
 
@@ -103,34 +103,37 @@ public:
     class DataPageCache : public LRUCachePolicy {
     public:
         DataPageCache(size_t capacity, uint32_t num_shards)
-                : LRUCachePolicy("DataPageCache", capacity, LRUCacheType::SIZE,
-                                 config::data_page_cache_stale_sweep_time_sec, num_shards) {}
+                : LRUCachePolicy(CachePolicy::CacheType::DATA_PAGE_CACHE, capacity,
+                                 LRUCacheType::SIZE, config::data_page_cache_stale_sweep_time_sec,
+                                 num_shards) {}
     };
 
     class IndexPageCache : public LRUCachePolicy {
     public:
         IndexPageCache(size_t capacity, uint32_t num_shards)
-                : LRUCachePolicy("IndexPageCache", capacity, LRUCacheType::SIZE,
-                                 config::index_page_cache_stale_sweep_time_sec, num_shards) {}
+                : LRUCachePolicy(CachePolicy::CacheType::INDEXPAGE_CACHE, capacity,
+                                 LRUCacheType::SIZE, config::index_page_cache_stale_sweep_time_sec,
+                                 num_shards) {}
     };
 
     class PKIndexPageCache : public LRUCachePolicy {
     public:
         PKIndexPageCache(size_t capacity, uint32_t num_shards)
-                : LRUCachePolicy("PKIndexPageCache", capacity, LRUCacheType::SIZE,
+                : LRUCachePolicy(CachePolicy::CacheType::PK_INDEX_PAGE_CACHE, capacity,
+                                 LRUCacheType::SIZE,
                                  config::pk_index_page_cache_stale_sweep_time_sec, num_shards) {}
     };
 
     static constexpr uint32_t kDefaultNumShards = 16;
 
     // Create global instance of this class
-    static void create_global_cache(size_t capacity, int32_t index_cache_percentage,
-                                    int64_t pk_index_cache_capacity,
-                                    uint32_t num_shards = kDefaultNumShards);
+    static StoragePageCache* create_global_cache(size_t capacity, int32_t index_cache_percentage,
+                                                 int64_t pk_index_cache_capacity,
+                                                 uint32_t num_shards = kDefaultNumShards);
 
     // Return global instance.
     // Client should call create_global_cache before.
-    static StoragePageCache* instance() { return _s_instance; }
+    static StoragePageCache* instance() { return ExecEnv::GetInstance()->get_storage_page_cache(); }
 
     StoragePageCache(size_t capacity, int32_t index_cache_percentage,
                      int64_t pk_index_cache_capacity, uint32_t num_shards);
@@ -162,7 +165,6 @@ public:
 
 private:
     StoragePageCache();
-    static StoragePageCache* _s_instance;
 
     int32_t _index_cache_percentage = 0;
     std::unique_ptr<DataPageCache> _data_page_cache = nullptr;
@@ -227,6 +229,11 @@ public:
     Slice data() const {
         DataPage* cache_value = (DataPage*)_cache->value(_handle);
         return Slice(cache_value->data(), cache_value->size());
+    }
+
+    void update_last_visit_time() {
+        DataPage* cache_value = (DataPage*)_cache->value(_handle);
+        cache_value->last_visit_time = UnixMillis();
     }
 
 private:

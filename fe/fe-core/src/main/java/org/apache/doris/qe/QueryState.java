@@ -69,6 +69,10 @@ public class QueryState {
         return stateType;
     }
 
+    public void setNoop() {
+        stateType = MysqlStateType.NOOP;
+    }
+
     public void setEof() {
         stateType = MysqlStateType.EOF;
     }

@@ -47,6 +47,11 @@ suite ("group_check") {
         exception "errCode = 2,"
     }
 
+    test {
+        sql "create materialized view kgroup as select * from d_table where k1=1;"
+        exception "errCode = 2,"
+    }
+
     createMV ("create materialized view kgroup as select k1,k2,sum(k3) from d_table group by k1,k2;")
 
 

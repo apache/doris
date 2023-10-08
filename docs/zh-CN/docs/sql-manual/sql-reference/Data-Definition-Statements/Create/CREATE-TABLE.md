@@ -298,6 +298,16 @@ UNIQUE KEY(k1, k2)
 
     根据 Tag 设置副本分布情况。该属性可以完全覆盖 `replication_num` 属性的功能。
 
+* `is_being_synced`  
+
+    用于标识此表是否是被CCR复制而来并且正在被syncer同步，默认为 `false`。  
+
+    如果设置为 `true`：  
+    `colocate_with`，`storage_policy`属性将被擦除  
+    `dynamic partition`，`auto bucket`功能将会失效，即在`show create table`中显示开启状态，但不会实际生效。当`is_being_synced`被设置为 `false` 时，这些功能将会恢复生效。  
+
+    这个属性仅供CCR外围模块使用，在CCR同步的过程中不要手动设置。
+
 * `storage_medium/storage_cooldown_time`
 
     数据存储介质。`storage_medium` 用于声明表数据的初始存储介质，而 `storage_cooldown_time` 用于设定到期时间。示例：
@@ -387,6 +397,36 @@ UNIQUE KEY(k1, k2)
     重复写索引的CPU和IO资源消耗，提升高吞吐导入的性能。
 
     `"skip_write_index_on_load" = "false"`
+
+* `compaction_policy`
+
+    配置这个表的 compaction 的合并策略，仅支持配置为 time_series 或者 size_based
+
+    time_series: 当 rowset 的磁盘体积积攒到一定大小时进行版本合并。合并后的 rowset 直接晋升到 base compaction 阶段。在时序场景持续导入的情况下有效降低 compact 的写入放大率
+
+    此策略将使用 time_series_compaction 为前缀的参数调整 compaction 的执行
+
+    `"compaction_policy" = ""`
+
+* `time_series_compaction_goal_size_mbytes`
+
+    compaction 的合并策略为 time_series 时，将使用此参数来调整每次 compaction 输入的文件的大小，输出的文件大小和输入相当
+
+    `"time_series_compaction_goal_size_mbytes" = "1024"`
+
+* `time_series_compaction_file_count_threshold`
+
+    compaction 的合并策略为 time_series 时，将使用此参数来调整每次 compaction 输入的文件数量的最小值
+
+    一个 tablet 中，文件数超过该配置，就会触发 compaction
+
+    `"time_series_compaction_file_count_threshold" = "2000"`
+
+* `time_series_compaction_time_threshold_seconds`
+
+    compaction 的合并策略为 time_series 时，将使用此参数来调整 compaction 的最长时间间隔，即长时间未执行过 compaction 时，就会触发一次 compaction，单位为秒
+
+    `"time_series_compaction_time_threshold_seconds" = "3600"`
 
 * 动态分区相关
 

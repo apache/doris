@@ -17,9 +17,7 @@
 
 package org.apache.doris.binlog;
 
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.common.Pair;
 import org.apache.doris.thrift.TBinlog;
 import org.apache.doris.thrift.TBinlogType;
@@ -37,11 +35,14 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class TableBinlog {
     private static final Logger LOG = LogManager.getLogger(TableBinlog.class);
 
+    private long dbId;
     private long tableId;
     private ReentrantReadWriteLock lock;
     private TreeSet<TBinlog> binlogs;
+    private BinlogConfigCache binlogConfigCache;
 
-    public TableBinlog(TBinlog binlog, long tableId) {
+    public TableBinlog(BinlogConfigCache binlogConfigCache, TBinlog binlog, long dbId, long tableId) {
+        this.dbId = dbId;
         this.tableId = tableId;
         lock = new ReentrantReadWriteLock();
         binlogs = Sets.newTreeSet(Comparator.comparingLong(TBinlog::getCommitSeq));
@@ -53,6 +54,7 @@ public class TableBinlog {
             dummy = BinlogUtils.newDummyBinlog(binlog.getDbId(), tableId);
         }
         binlogs.add(dummy);
+        this.binlogConfigCache = binlogConfigCache;
     }
 
     public TBinlog getDummyBinlog() {
@@ -100,7 +102,7 @@ public class TableBinlog {
         }
     }
 
-    private Pair<TBinlog, Long> getLastUpsertAndLargestCommitSeq(long expired, BinlogComparator check) {
+    private Pair<TBinlog, Long> getLastUpsertAndLargestCommitSeq(long expired, BinlogComparator checker) {
         if (binlogs.size() <= 1) {
             return null;
         }
@@ -111,7 +113,7 @@ public class TableBinlog {
         TBinlog lastExpiredBinlog = null;
         while (iter.hasNext()) {
             TBinlog binlog = iter.next();
-            if (check.isExpired(binlog, expired)) {
+            if (checker.isExpired(binlog, expired)) {
                 lastExpiredBinlog = binlog;
                 --binlog.table_ref;
                 if (binlog.getType() == TBinlogType.UPSERT) {
@@ -133,7 +135,7 @@ public class TableBinlog {
     }
 
     // this method call when db binlog enable
-    public BinlogTombstone gc(long expiredCommitSeq) {
+    public BinlogTombstone commitSeqGc(long expiredCommitSeq) {
         Pair<TBinlog, Long> tombstoneInfo;
 
         // step 1: get tombstoneUpsertBinlog and dummyBinlog
@@ -163,31 +165,20 @@ public class TableBinlog {
     }
 
     // this method call when db binlog disable
-    public BinlogTombstone gc(Database db) {
+    public BinlogTombstone ttlGc() {
         // step 1: get expire time
-        OlapTable table;
-        try {
-            Table tbl = db.getTableOrMetaException(tableId);
-            if (tbl == null) {
-                LOG.warn("fail to get table. db: {}, table id: {}", db.getFullName(), tableId);
-                return null;
-            }
-            if (!(tbl instanceof OlapTable)) {
-                LOG.warn("table is not olap table. db: {}, table id: {}", db.getFullName(), tableId);
-                return null;
-            }
-            table = (OlapTable) tbl;
-        } catch (Exception e) {
-            LOG.warn("fail to get table. db: {}, table id: {}", db.getFullName(), tableId);
+        BinlogConfig tableBinlogConfig = binlogConfigCache.getTableBinlogConfig(dbId, tableId);
+        if (tableBinlogConfig == null) {
             return null;
         }
 
-        long ttlSeconds = table.getBinlogConfig().getTtlSeconds();
+        long ttlSeconds = tableBinlogConfig.getTtlSeconds();
         long expiredMs = BinlogUtils.getExpiredMs(ttlSeconds);
 
         if (expiredMs < 0) {
             return null;
         }
+        LOG.info("ttl gc. dbId: {}, tableId: {}, expiredMs: {}", dbId, tableId, expiredMs);
 
         // step 2: get tombstoneUpsertBinlog and dummyBinlog
         Pair<TBinlog, Long> tombstoneInfo;

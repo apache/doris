@@ -42,6 +42,7 @@
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/pb_helper.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_meta.h"
@@ -124,7 +125,8 @@ Status SnapshotManager::release_snapshot(const string& snapshot_path) {
 }
 
 Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t tablet_id,
-                                           int64_t replica_id, const int32_t& schema_hash) {
+                                           int64_t replica_id, int64_t partition_id,
+                                           const int32_t& schema_hash) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     Status res = Status::OK();
     // check clone dir existed
@@ -159,6 +161,9 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
     new_tablet_meta_pb.set_tablet_id(tablet_id);
     *new_tablet_meta_pb.mutable_tablet_uid() = TabletUid::gen_uid().to_proto();
     new_tablet_meta_pb.set_replica_id(replica_id);
+    if (partition_id != -1) {
+        new_tablet_meta_pb.set_partition_id(partition_id);
+    }
     new_tablet_meta_pb.set_schema_hash(schema_hash);
     TabletSchemaSPtr tablet_schema;
     tablet_schema =
@@ -284,7 +289,7 @@ Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
     }
     RETURN_IF_ERROR(new_rowset->load(false));
     new_rowset->rowset_meta()->to_rowset_pb(new_rs_meta_pb);
-    org_rowset->remove();
+    RETURN_IF_ERROR(org_rowset->remove());
     return Status::OK();
 }
 
@@ -382,6 +387,8 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                      << ref_tablet->data_dir()->path();
         return res;
     }
+
+    bool is_copy_binlog = request.__isset.is_copy_binlog ? request.is_copy_binlog : false;
 
     // schema_full_path_desc.filepath:
     //      /snapshot_id_path/tablet_id/schema_hash/
@@ -595,6 +602,64 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
             break;
         }
 
+    } while (false);
+
+    // link all binlog files to snapshot path
+    do {
+        if (!res.ok()) {
+            break;
+        }
+
+        if (!is_copy_binlog) {
+            break;
+        }
+
+        RowsetBinlogMetasPB rowset_binlog_metas_pb;
+        if (request.__isset.missing_version) {
+            res = ref_tablet->get_rowset_binlog_metas(request.missing_version,
+                                                      &rowset_binlog_metas_pb);
+        } else {
+            std::vector<TVersion> missing_versions;
+            res = ref_tablet->get_rowset_binlog_metas(missing_versions, &rowset_binlog_metas_pb);
+        }
+        if (!res.ok()) {
+            break;
+        }
+        if (rowset_binlog_metas_pb.rowset_binlog_metas_size() == 0) {
+            break;
+        }
+
+        // write to pb file
+        auto rowset_binlog_metas_pb_filename =
+                fmt::format("{}/rowset_binlog_metas.pb", schema_full_path);
+        res = write_pb(rowset_binlog_metas_pb_filename, rowset_binlog_metas_pb);
+        if (!res.ok()) {
+            break;
+        }
+
+        for (auto& rowset_binlog_meta : rowset_binlog_metas_pb.rowset_binlog_metas()) {
+            std::string segment_file_path;
+            auto num_segments = rowset_binlog_meta.num_segments();
+            std::string_view rowset_id = rowset_binlog_meta.rowset_id();
+
+            for (int64_t segment_index = 0; segment_index < num_segments; ++segment_index) {
+                segment_file_path = ref_tablet->get_segment_filepath(rowset_id, segment_index);
+                auto snapshot_segment_file_path =
+                        fmt::format("{}/{}_{}.binlog", schema_full_path, rowset_id, segment_index);
+
+                res = io::global_local_filesystem()->link_file(segment_file_path,
+                                                               snapshot_segment_file_path);
+                if (!res.ok()) {
+                    LOG(WARNING) << "fail to link binlog file. [src=" << segment_file_path
+                                 << ", dest=" << snapshot_segment_file_path << "]";
+                    break;
+                }
+            }
+
+            if (!res.ok()) {
+                break;
+            }
+        }
     } while (false);
 
     if (!res.ok()) {

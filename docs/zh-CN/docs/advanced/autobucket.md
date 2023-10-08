@@ -32,7 +32,10 @@ DISTRIBUTED BY ... BUCKETS auto
 
 </version>
 
-用户经常设置不合适的bucket，导致各种问题，这里提供一种方式，来自动设置分桶数。暂时而言只对olap表生效
+用户经常设置不合适的bucket，导致各种问题，这里提供一种方式，来自动设置分桶数。暂时而言只对olap表生效  
+
+注意：这个功能在被CCR同步时将会失效。如果这个表是被CCR复制而来的，即PROPERTIES中包含`is_being_synced = true`时，在`show create table`中会显示开启状态，但不会实际生效。当`is_being_synced`被设置为 `false` 时，这些功能将会恢复生效，但`is_being_synced`属性仅供CCR外围模块使用，在CCR同步的过程中不要手动设置。
+
 
 # 实现
 
@@ -70,6 +73,7 @@ properties("estimate_partition_size" = "100G")
 3. 得到最终的分桶个数计算逻辑：
 先计算一个中间值 x = min(M, N, 128)，
 如果 x < N并且x < BE节点个数，则最终分桶为 y 即 BE 节点个数；否则最终分桶数为 x
+4. x = max(x, autobucket_min_buckets), 这里autobucket_min_buckets是在Config中配置的，默认是1
 
 上述过程伪代码表现形式为：
 

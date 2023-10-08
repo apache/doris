@@ -153,6 +153,8 @@ jmethodID JniUtil::throwable_to_stack_trace_id_ = NULL;
 jmethodID JniUtil::get_jvm_metrics_id_ = NULL;
 jmethodID JniUtil::get_jvm_threads_id_ = NULL;
 jmethodID JniUtil::get_jmx_json_ = NULL;
+jobject JniUtil::jni_scanner_loader_obj_ = NULL;
+jmethodID JniUtil::jni_scanner_loader_method_ = NULL;
 
 Status JniUtfCharGuard::create(JNIEnv* env, jstring jstr, JniUtfCharGuard* out) {
     DCHECK(jstr != nullptr);
@@ -340,12 +342,56 @@ Status JniUtil::LocalToGlobalRef(JNIEnv* env, jobject local_ref, jobject* global
     return Status::OK();
 }
 
+Status JniUtil::init_jni_scanner_loader(JNIEnv* env) {
+    // Get scanner loader;
+    jclass jni_scanner_loader_cls;
+    std::string jni_scanner_loader_str = "org/apache/doris/common/classloader/ScannerLoader";
+    RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, jni_scanner_loader_str.c_str(),
+                                               &jni_scanner_loader_cls));
+    jmethodID jni_scanner_loader_constructor =
+            env->GetMethodID(jni_scanner_loader_cls, "<init>", "()V");
+    RETURN_ERROR_IF_EXC(env);
+    jni_scanner_loader_method_ = env->GetMethodID(jni_scanner_loader_cls, "getLoadedClass",
+                                                  "(Ljava/lang/String;)Ljava/lang/Class;");
+    if (jni_scanner_loader_method_ == NULL) {
+        if (env->ExceptionOccurred()) env->ExceptionDescribe();
+        return Status::InternalError("Failed to find ScannerLoader.getLoadedClass method.");
+    }
+    RETURN_ERROR_IF_EXC(env);
+    jmethodID load_jni_scanner =
+            env->GetMethodID(jni_scanner_loader_cls, "loadAllScannerJars", "()V");
+    RETURN_ERROR_IF_EXC(env);
+
+    jni_scanner_loader_obj_ =
+            env->NewObject(jni_scanner_loader_cls, jni_scanner_loader_constructor);
+    RETURN_ERROR_IF_EXC(env);
+    if (jni_scanner_loader_obj_ == NULL) {
+        if (env->ExceptionOccurred()) env->ExceptionDescribe();
+        return Status::InternalError("Failed to create ScannerLoader object.");
+    }
+    env->CallVoidMethod(jni_scanner_loader_obj_, load_jni_scanner);
+    RETURN_ERROR_IF_EXC(env);
+    return Status::OK();
+}
+
+Status JniUtil::get_jni_scanner_class(JNIEnv* env, const char* classname,
+                                      jclass* jni_scanner_class) {
+    // Get JNI scanner class by class name;
+    jobject loaded_class_obj = env->CallObjectMethod(
+            jni_scanner_loader_obj_, jni_scanner_loader_method_, env->NewStringUTF(classname));
+    RETURN_ERROR_IF_EXC(env);
+    *jni_scanner_class = reinterpret_cast<jclass>(env->NewGlobalRef(loaded_class_obj));
+    RETURN_ERROR_IF_EXC(env);
+    return Status::OK();
+}
+
 Status JniUtil::Init() {
     RETURN_IF_ERROR(LibJVMLoader::instance().load());
 
     // Get the JNIEnv* corresponding to current thread.
     JNIEnv* env;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+
     if (env == NULL) return Status::InternalError("Failed to get/create JVM");
     // Find JniUtil class and create a global ref.
     jclass local_jni_util_cl = env->FindClass("org/apache/doris/common/jni/utils/JniUtil");
@@ -454,6 +500,7 @@ Status JniUtil::Init() {
         if (env->ExceptionOccurred()) env->ExceptionDescribe();
         return Status::InternalError("Failed to find JniUtil.getJMXJson method.");
     }
+    RETURN_IF_ERROR(init_jni_scanner_loader(env));
     jvm_inited_ = true;
     return Status::OK();
 }

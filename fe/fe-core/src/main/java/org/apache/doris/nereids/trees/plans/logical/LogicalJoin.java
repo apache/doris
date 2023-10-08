@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
@@ -64,6 +65,8 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
 
     // Use for top-to-down join reorder
     private final JoinReorderContext joinReorderContext = new JoinReorderContext();
+    // Table bitmap for tables below this join
+    private long bitmap = LongBitmap.newBitmap();
 
     public LogicalJoin(JoinType joinType, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
         this(joinType, ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE,
@@ -95,6 +98,20 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     }
 
     public LogicalJoin(
+            long bitmap,
+            JoinType joinType,
+            List<Expression> hashJoinConjuncts,
+            List<Expression> otherJoinConjuncts,
+            JoinHint hint,
+            Optional<MarkJoinSlotReference> markJoinSlotReference,
+            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+        this(joinType, hashJoinConjuncts,
+                otherJoinConjuncts, hint, markJoinSlotReference,
+                Optional.empty(), Optional.empty(), leftChild, rightChild);
+        this.bitmap = LongBitmap.or(this.bitmap, bitmap);
+    }
+
+    public LogicalJoin(
             JoinType joinType,
             List<Expression> hashJoinConjuncts,
             List<Expression> otherJoinConjuncts,
@@ -106,17 +123,15 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                 Optional.empty(), Optional.empty(), children);
     }
 
-    /**
-     * Just use in withXXX method.
-     */
     private LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts, List<Expression> otherJoinConjuncts,
             JoinHint hint, Optional<MarkJoinSlotReference> markJoinSlotReference,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             List<Plan> children, JoinReorderContext joinReorderContext) {
+        // Just use in withXXX method. Don't need check/copyOf()
         super(PlanType.LOGICAL_JOIN, groupExpression, logicalProperties, children);
         this.joinType = Objects.requireNonNull(joinType, "joinType can not be null");
-        this.hashJoinConjuncts = ImmutableList.copyOf(hashJoinConjuncts);
-        this.otherJoinConjuncts = ImmutableList.copyOf(otherJoinConjuncts);
+        this.hashJoinConjuncts = hashJoinConjuncts;
+        this.otherJoinConjuncts = otherJoinConjuncts;
         this.hint = Objects.requireNonNull(hint, "hint can not be null");
         this.joinReorderContext.copyFrom(joinReorderContext);
         this.markJoinSlotReference = markJoinSlotReference;
@@ -234,9 +249,6 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        if (!super.equals(o)) {
-            return false;
-        }
         LogicalJoin<?, ?> that = (LogicalJoin<?, ?>) o;
         return joinType == that.joinType
                 && hint == that.hint
@@ -265,6 +277,14 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
 
     public Optional<MarkJoinSlotReference> getMarkJoinSlotReference() {
         return markJoinSlotReference;
+    }
+
+    public long getBitmap() {
+        return bitmap;
+    }
+
+    public void setBitmap(long bitmap) {
+        this.bitmap = bitmap;
     }
 
     @Override

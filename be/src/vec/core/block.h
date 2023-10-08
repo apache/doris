@@ -41,7 +41,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
-#include "vec/core/names.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -87,11 +86,18 @@ public:
     Block() = default;
     Block(std::initializer_list<ColumnWithTypeAndName> il);
     Block(const ColumnsWithTypeAndName& data_);
-    Block(const PBlock& pblock);
     Block(const std::vector<SlotDescriptor*>& slots, size_t block_size,
           bool ignore_trivial_slot = false);
 
+    virtual ~Block() = default;
+    Block(const Block& block) = default;
+    Block& operator=(const Block& p) = default;
+    Block(Block&& block) = default;
+    Block& operator=(Block&& other) = default;
+
     void reserve(size_t count);
+    // Make sure the nammes is useless when use block
+    void clear_names();
 
     /// insert the column at the specified position
     void insert(size_t position, const ColumnWithTypeAndName& elem);
@@ -195,7 +201,7 @@ public:
 
     const ColumnsWithTypeAndName& get_columns_with_type_and_name() const;
 
-    Names get_names() const;
+    std::vector<std::string> get_names() const;
     DataTypes get_data_types() const;
 
     DataTypePtr get_data_type(size_t index) const {
@@ -224,9 +230,6 @@ public:
 
     /// Approximate number of allocated bytes in memory - for profiling and limits.
     size_t allocated_bytes() const;
-
-    operator bool() const { return !!columns(); }
-    bool operator!() const { return !this->operator bool(); }
 
     /** Get a list of column names separated by commas. */
     std::string dump_names() const;
@@ -286,7 +289,7 @@ public:
     // copy a new block by the offset column
     Block copy_block(const std::vector<int>& column_offset) const;
 
-    void append_block_by_selector(MutableBlock* dst, const IColumn::Selector& selector) const;
+    void append_to_block_by_selector(MutableBlock* dst, const IColumn::Selector& selector) const;
 
     // need exception safety
     static void filter_block_internal(Block* block, const std::vector<uint32_t>& columns_to_filter,
@@ -310,7 +313,9 @@ public:
                      size_t* compressed_bytes, segment_v2::CompressionTypePB compression_type,
                      bool allow_transfer_large_data = false) const;
 
-    std::unique_ptr<Block> create_same_struct_block(size_t size) const;
+    Status deserialize(const PBlock& pblock);
+
+    std::unique_ptr<Block> create_same_struct_block(size_t size, bool is_reserve = false) const;
 
     /** Compares (*this) n-th row and rhs m-th row.
       * Returns negative number, 0, or positive number  (*this) n-th row is less, equal, greater than rhs m-th row respectively.
@@ -411,7 +416,7 @@ class MutableBlock {
 private:
     MutableColumns _columns;
     DataTypes _data_types;
-    Names _names;
+    std::vector<std::string> _names;
 
     using IndexByName = phmap::flat_hash_map<String, size_t>;
     IndexByName index_by_name;
@@ -610,7 +615,7 @@ public:
         return res;
     }
 
-    Names& get_names() { return _names; }
+    std::vector<std::string>& get_names() { return _names; }
 
     bool has(const std::string& name) const;
 

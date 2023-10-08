@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Stream load",
+    "title": "Stream Load",
     "language": "zh-CN"
 }
 ---
@@ -154,8 +154,8 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
 
 - format
 
-  指定导入数据格式，支持csv、json，默认是csv
-  <version since="1.2"> format </version> 1.2 支持csv_with_names(支持csv文件行首过滤)、csv_with_names_and_types(支持csv文件前两行过滤)、parquet、orc
+  指定导入数据格式，支持 `csv` 和 `json`，默认是 `csv`
+  <version since="1.2"> 支持 `csv_with_names` (csv文件行首过滤)、`csv_with_names_and_types`(csv文件前两行过滤)、`parquet`、`orc`</version>
 
   ```text
   列顺序变换例子：原始数据有三列(src_c1,src_c2,src_c3), 目前doris表也有三列（dst_c1,dst_c2,dst_c3）
@@ -185,17 +185,13 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
   2. 对于导入的某列由函数变换生成时，strict mode 对其不产生影响。
   3. 对于导入的某列类型包含范围限制的，如果原始数据能正常通过类型转换，但无法通过范围限制的，strict mode 对其也不产生影响。例如：如果类型是 decimal(1,0), 原始数据为 10，则属于可以通过类型转换但不在列声明的范围内。这种数据 strict 对其不产生影响。
 
-- merge_type 数据的合并类型，一共支持三种类型APPEND、DELETE、MERGE 其中，APPEND是默认值，表示这批数据全部需要追加到现有数据中，DELETE 表示删除与这批数据key相同的所有行，MERGE 语义 需要与delete 条件联合使用，表示满足delete 条件的数据按照DELETE 语义处理其余的按照APPEND 语义处理
+- merge_type
+
+  数据的合并类型，一共支持三种类型APPEND、DELETE、MERGE 其中，APPEND是默认值，表示这批数据全部需要追加到现有数据中，DELETE 表示删除与这批数据key相同的所有行，MERGE 语义 需要与delete 条件联合使用，表示满足delete 条件的数据按照DELETE 语义处理其余的按照APPEND 语义处理
 
 - two_phase_commit
 
   Stream load 导入可以开启两阶段事务提交模式：在Stream load过程中，数据写入完成即会返回信息给用户，此时数据不可见，事务状态为`PRECOMMITTED`，用户手动触发commit操作之后，数据才可见。
-
-- enable_profile
-  <version since="1.2.7">
-  </version>
-
-  当 `enable_profile` 为 true 时，Stream Load profile将会打印到日志中。否则不会打印。
 
   示例：
 
@@ -224,6 +220,7 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
   2. 对事务触发commit操作
   注意1) 请求发往fe或be均可
   注意2) commit 的时候可以省略 url 中的 `{table}`
+  使用事务id
   ```shell
   curl -X PUT --location-trusted -u user:passwd  -H "txn_id:18036" -H "txn_operation:commit"  http://fe_host:http_port/api/{db}/{table}/_stream_load_2pc
   {
@@ -231,9 +228,18 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
       "msg": "transaction [18036] commit successfully."
   }
   ```
+  使用label
+  ```shell
+  curl -X PUT --location-trusted -u user:passwd  -H "label:55c8ffc9-1c40-4d51-b75e-f2265b3602ef" -H "txn_operation:commit"  http://fe_host:http_port/api/{db}/{table}/_stream_load_2pc
+  {
+      "status": "Success",
+      "msg": "label [55c8ffc9-1c40-4d51-b75e-f2265b3602ef] commit successfully."
+  }
+  ```
   3. 对事务触发abort操作
   注意1) 请求发往fe或be均可
   注意2) abort 的时候可以省略 url 中的 `{table}`
+  使用事务id
   ```shell
   curl -X PUT --location-trusted -u user:passwd  -H "txn_id:18037" -H "txn_operation:abort"  http://fe_host:http_port/api/{db}/{table}/_stream_load_2pc
   {
@@ -241,7 +247,68 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
       "msg": "transaction [18037] abort successfully."
   }
   ```
+  使用label
+  ```shell
+  curl -X PUT --location-trusted -u user:passwd  -H "label:55c8ffc9-1c40-4d51-b75e-f2265b3602ef" -H "txn_operation:abort"  http://fe_host:http_port/api/{db}/{table}/_stream_load_2pc
+  {
+      "status": "Success",
+      "msg": "label [55c8ffc9-1c40-4d51-b75e-f2265b3602ef] abort successfully."
+  }
+  ```
+- enable_profile
 
+  <version since="1.2.7">当 `enable_profile` 为 true 时，Stream Load profile 将会被打印到 be.INFO 日志中。</version>
+
+- memtable_on_sink_node
+
+  <version since="2.1.0">
+  是否在数据导入中启用 MemTable 前移，默认为 false
+  </version>
+
+  在 DataSink 节点上构建 MemTable，并通过 brpc streaming 发送 segment 到其他 BE。
+  该方法减少了多副本之间的重复工作，并且节省了数据序列化和反序列化的时间。
+
+- partial_columns
+
+  <version since="2.0">
+
+  是否启用部分列更新，布尔类型，为 true 表示使用部分列更新，默认值为 false，该参数只允许在表模型为 Unique 且采用 Merge on Write 时设置。
+  
+  eg: `curl  --location-trusted -u root: -H "partial_columns:true" -H "column_separator:," -H "columns:id,balance,last_access_time" -T /tmp/test.csv http://127.0.0.1:48037/api/db1/user_profile/_stream_load`
+
+  </version>
+
+### 使用SQL表达Stream Load的参数
+
+可以在Header中添加一个`sql`的参数，去替代之前参数中的`column_separator`、`line_delimiter`、`where`、`columns`等参数，方便使用。
+
+```
+curl --location-trusted -u user:passwd [-H "sql: ${load_sql}"...] -T data.file -XPUT http://fe_host:http_port/api/_http_stream
+
+
+# -- load_sql
+# insert into db.table (col, ...) select stream_col, ... from http_stream("property1"="value1");
+
+# http_stream
+# (
+#     "column_separator" = ",",
+#     "format" = "CSV",
+#     ...
+# )
+```
+
+示例：
+
+```
+curl  --location-trusted -u root: -T test.csv  -H "sql:insert into demo.example_tbl_1(user_id, age, cost) select c1, c4, c7 * 2 from http_stream("format" = "CSV", "column_separator" = "," ) where age >= 30"  http://127.0.0.1:28030/api/_http_stream
+```
+
+#### 相关参数
+
+1. label: 用户可以通过指定Label的方式来导入数据
+```
+curl -v --location-trusted -u root: -H "sql: insert into test.t1(c1, c2) WITH LABEL label1 select c1,c2 from http_stream(\"format\" = \"CSV\", \"column_separator\" = \",\")" -T example.csv http://127.0.0.1:8030/api/_http_stream
+```
 
 ### 返回结果
 

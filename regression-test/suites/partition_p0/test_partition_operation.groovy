@@ -44,6 +44,7 @@ suite("test_partition_operation", "p1") {
             set "column_separator", ","
             file "./multi_partition/partition_table.csv"
         }
+        sql """sync"""
         test {
             sql "select * from ${tableName} order by k1, k2"
             resultFile "./multi_partition/partition_table.out"
@@ -153,9 +154,8 @@ suite("test_partition_operation", "p1") {
     checkTablePartitionNotExists("test_drop_partition_1", "partition_a")
     sql """ALTER TABLE test_drop_partition_1 DROP PARTITION partition_b"""
     checkTablePartitionNotExists("test_drop_partition_1", "partition_b")
-    sql """ALTER TABLE test_drop_partition_1 DROP PARTITION partition_c"""
+    sql """ALTER TABLE test_drop_partition_1 DROP PARTITION partition_c, DROP PARTITION partition_d"""
     checkTablePartitionNotExists("test_drop_partition_1", "partition_c")
-    sql """ALTER TABLE test_drop_partition_1 DROP PARTITION partition_d"""
     checkTablePartitionNotExists("test_drop_partition_1", "partition_d")
     qt_sql5 "select * from test_drop_partition_1 order by k1, k2"
     // after drop all partition, add a partiion

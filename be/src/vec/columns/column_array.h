@@ -210,6 +210,10 @@ public:
         return scatter_impl<ColumnArray>(num_columns, selector);
     }
 
+    size_t ALWAYS_INLINE offset_at(ssize_t i) const { return get_offsets()[i - 1]; }
+    size_t ALWAYS_INLINE size_at(ssize_t i) const {
+        return get_offsets()[i] - get_offsets()[i - 1];
+    }
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
         return append_data_by_selector_impl<ColumnArray>(res, selector);
@@ -223,12 +227,26 @@ public:
     void insert_indices_from(const IColumn& src, const int* indices_begin,
                              const int* indices_end) override;
 
-    void replace_column_data(const IColumn&, size_t row, size_t self_row = 0) override {
-        LOG(FATAL) << "replace_column_data not implemented";
+    void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
+        DCHECK(size() > self_row);
+        const auto& r = assert_cast<const ColumnArray&>(rhs);
+        const size_t nested_row_size = r.size_at(row);
+        const size_t r_nested_start_off = r.offset_at(row);
+
+        // we should clear data because we call resize() before replace_column_data()
+        if (self_row == 0) {
+            data->clear();
+        }
+        get_offsets()[self_row] = get_offsets()[self_row - 1] + nested_row_size;
+        // we make sure call replace_column_data() by order so, here we just insert data for nested
+        data->insert_range_from(r.get_data(), r_nested_start_off, nested_row_size);
     }
+
     void replace_column_data_default(size_t self_row = 0) override {
-        LOG(FATAL) << "replace_column_data_default not implemented";
+        DCHECK(size() > self_row);
+        get_offsets()[self_row] = get_offsets()[self_row - 1];
     }
+
     void clear() override {
         data->clear();
         offsets->clear();
@@ -257,11 +275,6 @@ private:
     // [[[2,1,5],[9,1]], [[1,2]]] --> data column [3 column array], offset[-1] = 0, offset[0] = 2, offset[1] = 3
     WrappedPtr data;
     WrappedPtr offsets;
-
-    size_t ALWAYS_INLINE offset_at(ssize_t i) const { return get_offsets()[i - 1]; }
-    size_t ALWAYS_INLINE size_at(ssize_t i) const {
-        return get_offsets()[i] - get_offsets()[i - 1];
-    }
 
     /// Multiply values if the nested column is ColumnVector<T>.
     template <typename T>

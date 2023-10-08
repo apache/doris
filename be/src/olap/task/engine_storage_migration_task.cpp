@@ -103,10 +103,10 @@ Status EngineStorageMigrationTask::_check_running_txns() {
     std::set<int64_t> transaction_ids;
     // check if this tablet has related running txns. if yes, can not do migration.
     StorageEngine::instance()->txn_manager()->get_tablet_related_txns(
-            _tablet->tablet_id(), _tablet->schema_hash(), _tablet->tablet_uid(), &partition_id,
-            &transaction_ids);
+            _tablet->tablet_id(), _tablet->tablet_uid(), &partition_id, &transaction_ids);
     if (transaction_ids.size() > 0) {
-        return Status::InternalError("tablet {} has unfinished txns", _tablet->tablet_id());
+        return Status::Error<ErrorCode::INTERNAL_ERROR, false>("tablet {} has unfinished txns",
+                                                               _tablet->tablet_id());
     }
     return Status::OK();
 }
@@ -151,8 +151,8 @@ Status EngineStorageMigrationTask::_gen_and_write_header_to_hdr_file(
 
     // it will change rowset id and its create time
     // rowset create time is useful when load tablet from meta to check which tablet is the tablet to load
-    return SnapshotManager::instance()->convert_rowset_ids(full_path, tablet_id,
-                                                           _tablet->replica_id(), schema_hash);
+    return SnapshotManager::instance()->convert_rowset_ids(
+            full_path, tablet_id, _tablet->replica_id(), _tablet->partition_id(), schema_hash);
 }
 
 Status EngineStorageMigrationTask::_reload_tablet(const std::string& full_path) {
@@ -289,7 +289,7 @@ Status EngineStorageMigrationTask::_migrate() {
 
     if (!res.ok()) {
         // we should remove the dir directly for avoid disk full of junk data, and it's safe to remove
-        io::global_local_filesystem()->delete_directory(full_path);
+        static_cast<void>(io::global_local_filesystem()->delete_directory(full_path));
     }
     return res;
 }

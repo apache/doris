@@ -20,6 +20,7 @@ package org.apache.doris.planner.external.odbc;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -28,10 +29,12 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.external.ExternalScanNode;
 import org.apache.doris.planner.external.jdbc.JdbcScanNode;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.statistics.query.StatsDelta;
@@ -103,6 +106,10 @@ public class OdbcScanNode extends ExternalScanNode {
             return output.toString();
         }
         output.append(prefix).append("QUERY: ").append(getOdbcQueryStr()).append("\n");
+        if (!conjuncts.isEmpty()) {
+            Expr expr = convertConjunctsToAndCompoundPredicate(conjuncts);
+            output.append(prefix).append("PREDICATES: ").append(expr.toSql()).append("\n");
+        }
         return output.toString();
     }
 
@@ -176,7 +183,7 @@ public class OdbcScanNode extends ExternalScanNode {
         }
         ArrayList<Expr> odbcConjuncts = Expr.cloneList(conjuncts, sMap);
         for (Expr p : odbcConjuncts) {
-            if (JdbcScanNode.shouldPushDownConjunct(odbcType, p)) {
+            if (shouldPushDownConjunct(odbcType, p)) {
                 String filter = JdbcScanNode.conjunctExprToString(odbcType, p);
                 filters.add(filter);
                 conjuncts.remove(p);
@@ -212,5 +219,22 @@ public class OdbcScanNode extends ExternalScanNode {
         return new StatsDelta(Env.getCurrentEnv().getCurrentCatalog().getId(),
                 Env.getCurrentEnv().getCurrentCatalog().getDbOrAnalysisException(tbl.getQualifiedDbName()).getId(),
                 tbl.getId(), -1L);
+    }
+
+    @Override
+    public int getNumInstances() {
+        return ConnectContext.get().getSessionVariable().getEnablePipelineEngine()
+            ? ConnectContext.get().getSessionVariable().getParallelExecInstanceNum() : 1;
+    }
+
+    public static boolean shouldPushDownConjunct(TOdbcTableType tableType, Expr expr) {
+        if (!tableType.equals(TOdbcTableType.MYSQL)) {
+            List<FunctionCallExpr> fnExprList = Lists.newArrayList();
+            expr.collect(FunctionCallExpr.class, fnExprList);
+            if (!fnExprList.isEmpty()) {
+                return false;
+            }
+        }
+        return Config.enable_func_pushdown;
     }
 }

@@ -19,11 +19,15 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -42,9 +46,11 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 
 public class DeleteStmt extends DdlStmt {
 
@@ -117,14 +123,19 @@ public class DeleteStmt extends DdlStmt {
 
         // analyze predicate
         if (fromClause == null) {
+            if (wherePredicate == null) {
+                throw new AnalysisException("Where clause is not set");
+            }
             ExprRewriter exprRewriter = new ExprRewriter(EXPR_NORMALIZE_RULES);
             wherePredicate = exprRewriter.rewrite(wherePredicate, analyzer);
             try {
                 analyzePredicate(wherePredicate, analyzer);
+                checkDeleteConditions();
             } catch (Exception e) {
                 if (!(((OlapTable) targetTable).getKeysType() == KeysType.UNIQUE_KEYS)) {
                     throw new AnalysisException(e.getMessage(), e.getCause());
                 }
+                wherePredicate.reset();
                 constructInsertStmt();
             }
         } else {
@@ -190,7 +201,9 @@ public class DeleteStmt extends DdlStmt {
                 cols,
                 new InsertSource(selectStmt),
                 null,
-                isPartialUpdate);
+                isPartialUpdate,
+                NativeInsertStmt.InsertType.DELETE);
+        ((NativeInsertStmt) insertStmt).setIsFromDeleteOrUpdateStmt(true);
     }
 
     private void analyzeTargetTable(Analyzer analyzer) throws UserException {
@@ -226,18 +239,25 @@ public class DeleteStmt extends DdlStmt {
         }
         if (predicate instanceof BinaryPredicate) {
             BinaryPredicate binaryPredicate = (BinaryPredicate) predicate;
+            binaryPredicate.getChild(0).analyze(analyzer);
+            binaryPredicate.getChild(1).analyze(analyzer);
+
+            binaryPredicate.setChild(1, binaryPredicate.getChild(1).castTo(binaryPredicate.getChild(0).getType()));
             binaryPredicate.analyze(analyzer);
+
             ExprRewriter exprRewriter = new ExprRewriter(FoldConstantsRule.INSTANCE);
             binaryPredicate.setChild(1, exprRewriter.rewrite(binaryPredicate.getChild(1), analyzer, null));
             Expr leftExpr = binaryPredicate.getChild(0);
             if (!(leftExpr instanceof SlotRef)) {
                 throw new AnalysisException(
-                        "Left expr of binary predicate should be column name, predicate=" + binaryPredicate.toSql());
+                        "Left expr of binary predicate should be column name, predicate: " + binaryPredicate.toSql()
+                                + ", left expr type:" + leftExpr.getType());
             }
             Expr rightExpr = binaryPredicate.getChild(1);
             if (!(rightExpr instanceof LiteralExpr)) {
                 throw new AnalysisException(
-                        "Right expr of binary predicate should be value, predicate=" + binaryPredicate.toSql());
+                        "Right expr of binary predicate should be value, predicate: " + binaryPredicate.toSql()
+                                + ", right expr type:" + rightExpr.getType());
             }
             deleteConditions.add(binaryPredicate);
         } else if (predicate instanceof CompoundPredicate) {
@@ -278,6 +298,132 @@ public class DeleteStmt extends DdlStmt {
             throw new AnalysisException("Where clause only supports compound predicate,"
                     + " binary predicate, is_null predicate or in predicate");
         }
+    }
+
+    private void checkDeleteConditions() throws AnalysisException {
+        // check condition column is key column and condition value
+        // Here we use "getFullSchema()" to get all columns including VISIBLE and SHADOW columns
+
+        // we ensure the db and table exists.
+        Database db = (Database) Env.getCurrentEnv().getCurrentCatalog().getDb(getDbName()).get();
+        OlapTable table = ((OlapTable) db.getTable(getTableName()).get());
+
+        Map<String, Column> nameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        for (Column column : table.getFullSchema()) {
+            nameToColumn.put(column.getName(), column);
+        }
+
+        for (Predicate condition : deleteConditions) {
+            SlotRef slotRef = getSlotRef(condition);
+            String columnName = slotRef.getColumnName();
+            if (!nameToColumn.containsKey(columnName)) {
+                throw new AnalysisException(String.format("Unknown column '%s' in '%s'", columnName, table.getName()));
+            }
+
+            if (Column.isShadowColumn(columnName)) {
+                throw new AnalysisException("Can not apply delete condition to shadow column");
+            }
+
+            // Check if this column is under schema change, if yes, there will be a shadow column related to it.
+            // And we don't allow doing delete operation when a condition column is under schema change.
+            String shadowColName = Column.getShadowName(columnName);
+            if (nameToColumn.containsKey(shadowColName)) {
+                throw new AnalysisException(String.format("Column '%s' is under"
+                        + " schema change operation. Do not allow delete operation", columnName));
+            }
+
+            Column column = nameToColumn.get(columnName);
+            // Due to rounding errors, most floating-point numbers end up being slightly imprecise,
+            // it also means that numbers expected to be equal often differ slightly, so we do not allow compare with
+            // floating-point numbers, floating-point number not allowed in where clause
+            if (column.getDataType().isFloatingPointType()) {
+                throw new AnalysisException("Column[" + columnName + "] type is float or double.");
+            }
+            if (!column.isKey()) {
+                if (table.getKeysType() == KeysType.AGG_KEYS) {
+                    throw new AnalysisException("delete predicate on value column only supports Unique table with"
+                            + " merge-on-write enabled and Duplicate table, but " + "Table[" + table.getName()
+                                    + "] is an Aggregate table.");
+                } else if (table.getKeysType() == KeysType.UNIQUE_KEYS && !table.getEnableUniqueKeyMergeOnWrite()) {
+                    throw new AnalysisException("delete predicate on value column only supports Unique table with"
+                            + " merge-on-write enabled and Duplicate table, but " + "Table[" + table.getName()
+                                    + "] is an Aggregate table.");
+                }
+            }
+
+            if (condition instanceof BinaryPredicate) {
+                String value = null;
+                try {
+                    BinaryPredicate binaryPredicate = (BinaryPredicate) condition;
+                    // if a bool cond passed to be, be's zone_map cannot handle bool correctly,
+                    // change it to a tinyint type here;
+                    value = binaryPredicate.getChild(1).getStringValue();
+                    if (column.getDataType() == PrimitiveType.BOOLEAN) {
+                        if (value.equalsIgnoreCase("true")) {
+                            binaryPredicate.setChild(1, LiteralExpr.create("1", Type.TINYINT));
+                        } else if (value.equalsIgnoreCase("false")) {
+                            binaryPredicate.setChild(1, LiteralExpr.create("0", Type.TINYINT));
+                        }
+                    } else if (column.getDataType() == PrimitiveType.DATE
+                            || column.getDataType() == PrimitiveType.DATETIME
+                            || column.getDataType() == PrimitiveType.DATEV2) {
+                        DateLiteral dateLiteral = new DateLiteral(value, Type.fromPrimitiveType(column.getDataType()));
+                        value = dateLiteral.getStringValue();
+                        binaryPredicate.setChild(1, LiteralExpr.create(value,
+                                Type.fromPrimitiveType(column.getDataType())));
+                    } else if (column.getDataType() == PrimitiveType.DATETIMEV2) {
+                        DateLiteral dateLiteral = new DateLiteral(value,
+                                ScalarType.createDatetimeV2Type(ScalarType.MAX_DATETIMEV2_SCALE));
+                        value = dateLiteral.getStringValue();
+                        binaryPredicate.setChild(1, LiteralExpr.create(value,
+                                ScalarType.createDatetimeV2Type(ScalarType.MAX_DATETIMEV2_SCALE)));
+                    }
+                    LiteralExpr.create(value, column.getType());
+                } catch (AnalysisException e) {
+                    throw new AnalysisException("Invalid column value[" + value + "] for column " + columnName);
+                }
+            } else if (condition instanceof InPredicate) {
+                String value = null;
+                try {
+                    InPredicate inPredicate = (InPredicate) condition;
+                    for (int i = 1; i <= inPredicate.getInElementNum(); i++) {
+                        value = inPredicate.getChild(i).getStringValue();
+                        if (column.getDataType() == PrimitiveType.DATE
+                                || column.getDataType() == PrimitiveType.DATETIME
+                                || column.getDataType() == PrimitiveType.DATEV2
+                                || column.getDataType() == PrimitiveType.DATETIMEV2) {
+                            DateLiteral dateLiteral = new DateLiteral(value,
+                                    column.getType());
+                            value = dateLiteral.getStringValue();
+                            inPredicate.setChild(i, LiteralExpr.create(value,
+                                    column.getType()));
+                        } else {
+                            LiteralExpr.create(value, Type.fromPrimitiveType(column.getDataType()));
+                        }
+                    }
+                } catch (AnalysisException e) {
+                    throw new AnalysisException("Invalid column value[" + value + "] for column " + columnName);
+                }
+            }
+
+            // set schema column name
+            slotRef.setCol(column.getName());
+        }
+    }
+
+    private SlotRef getSlotRef(Predicate condition) {
+        SlotRef slotRef = null;
+        if (condition instanceof BinaryPredicate) {
+            BinaryPredicate binaryPredicate = (BinaryPredicate) condition;
+            slotRef = (SlotRef) binaryPredicate.getChild(0);
+        } else if (condition instanceof IsNullPredicate) {
+            IsNullPredicate isNullPredicate = (IsNullPredicate) condition;
+            slotRef = (SlotRef) isNullPredicate.getChild(0);
+        } else if (condition instanceof InPredicate) {
+            InPredicate inPredicate = (InPredicate) condition;
+            slotRef = (SlotRef) inPredicate.getChild(0);
+        }
+        return slotRef;
     }
 
     @Override

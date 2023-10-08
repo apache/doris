@@ -66,18 +66,18 @@ public:
     // TODO(lingbin): Other schema-change type do not need to be on the same disk. Because
     // there may be insufficient space on the current disk, which will lead the schema-change
     // task to be fail, even if there is enough space on other disks
-    Status create_tablet(const TCreateTabletReq& request, std::vector<DataDir*> stores);
+    Status create_tablet(const TCreateTabletReq& request, std::vector<DataDir*> stores,
+                         RuntimeProfile* profile);
 
     // Drop a tablet by description.
     // If `is_drop_table_or_partition` is true, we need to remove all remote rowsets in this tablet.
     Status drop_tablet(TTabletId tablet_id, TReplicaId replica_id, bool is_drop_table_or_partition);
 
-    Status drop_tablets_on_error_root_path(const std::vector<TabletInfo>& tablet_info_vec);
-
     TabletSharedPtr find_best_tablet_to_compaction(
             CompactionType compaction_type, DataDir* data_dir,
             const std::unordered_set<TTabletId>& tablet_submitted_compaction, uint32_t* score,
-            std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy);
+            const std::unordered_map<std::string_view, std::shared_ptr<CumulativeCompactionPolicy>>&
+                    all_cumulative_compaction_policies);
 
     TabletSharedPtr get_tablet(TTabletId tablet_id, bool include_deleted = false,
                                std::string* err = nullptr);
@@ -88,19 +88,15 @@ public:
     TabletSharedPtr get_tablet(TTabletId tablet_id, TabletUid tablet_uid,
                                bool include_deleted = false, std::string* err = nullptr);
 
-    std::vector<TabletSharedPtr> get_all_tablet(std::function<bool(Tablet*)>&& filter =
-                                                        [](Tablet* t) { return t->is_used(); }) {
-        std::vector<TabletSharedPtr> res;
-        for (const auto& tablets_shard : _tablets_shards) {
-            std::shared_lock rdlock(tablets_shard.lock);
-            for (auto& [id, tablet] : tablets_shard.tablet_map) {
-                if (filter(tablet.get())) {
-                    res.emplace_back(tablet);
-                }
-            }
-        }
-        return res;
-    }
+    std::vector<TabletSharedPtr> get_all_tablet(
+            std::function<bool(Tablet*)>&& filter = filter_used_tablets);
+
+    // Handler not hold the shard lock.
+    void for_each_tablet(std::function<void(const TabletSharedPtr&)>&& handler,
+                         std::function<bool(Tablet*)>&& filter = filter_used_tablets);
+
+    static bool filter_all_tablets(Tablet* tablet) { return true; }
+    static bool filter_used_tablets(Tablet* tablet) { return tablet->is_used(); }
 
     uint64_t get_rowset_nums();
     uint64_t get_segment_nums();
@@ -177,10 +173,11 @@ private:
     //        OLAP_ERR_TABLE_INSERT_DUPLICATION_ERROR, if find duplication
     //        Status::Error<UNINITIALIZED>(), if not inited
     Status _add_tablet_unlocked(TTabletId tablet_id, const TabletSharedPtr& tablet,
-                                bool update_meta, bool force);
+                                bool update_meta, bool force, RuntimeProfile* profile);
 
     Status _add_tablet_to_map_unlocked(TTabletId tablet_id, const TabletSharedPtr& tablet,
-                                       bool update_meta, bool keep_files, bool drop_old);
+                                       bool update_meta, bool keep_files, bool drop_old,
+                                       RuntimeProfile* profile);
 
     bool _check_tablet_id_exist_unlocked(TTabletId tablet_id);
 
@@ -194,11 +191,13 @@ private:
     TabletSharedPtr _internal_create_tablet_unlocked(const TCreateTabletReq& request,
                                                      const bool is_schema_change,
                                                      const Tablet* base_tablet,
-                                                     const std::vector<DataDir*>& data_dirs);
+                                                     const std::vector<DataDir*>& data_dirs,
+                                                     RuntimeProfile* profile);
     TabletSharedPtr _create_tablet_meta_and_dir_unlocked(const TCreateTabletReq& request,
                                                          const bool is_schema_change,
                                                          const Tablet* base_tablet,
-                                                         const std::vector<DataDir*>& data_dirs);
+                                                         const std::vector<DataDir*>& data_dirs,
+                                                         RuntimeProfile* profile);
     Status _create_tablet_meta_unlocked(const TCreateTabletReq& request, DataDir* store,
                                         const bool is_schema_change_tablet,
                                         const Tablet* base_tablet,

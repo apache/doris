@@ -64,8 +64,8 @@ Notice:
 - If the bucketing method is specified, only the number of buckets can be modified, not the bucketing method or the bucketing column. If the bucketing method is specified but the number of buckets not be specified, the default value `10` will be used for bucket number instead of the number specified when the table is created. If the number of buckets modified, the bucketing method needs to be specified simultaneously.
 - The ["key"="value"] section can set some attributes of the partition, see [CREATE TABLE](../Create/CREATE-TABLE.md)
 - If the user does not explicitly create a partition when creating a table, adding a partition by ALTER is not supported
-- If the user uses list partition then they can add default partition to the table
-  -  ALTER TABLE ADD PARTITION DEFAULT
+- If the user uses list partition then they can add default partition to the table. The default partition will store all data not satisfying prior partition key's constraints.
+  -  ALTER TABLE table_name ADD PARTITION partition_name
 
 2. Delete the partition
 
@@ -151,7 +151,16 @@ ALTER TABLE example_db.my_table
 DROP PARTITION p1;
 ```
 
-8. Add a partition specifying upper and lower bounds
+8. Batch delete partition
+
+```sql
+ALTER TABLE example_db.my_table
+DROP PARTITION p1,
+DROP PARTITION p2,
+DROP PARTITION p3;
+```
+
+9. Add a partition specifying upper and lower bounds
 
 ```sql
 ALTER TABLE example_db.my_table

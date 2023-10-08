@@ -107,6 +107,14 @@ class StreamLoadAction implements SuiteAction {
         this.inputText = inputText.call()
     }
 
+    void sql(String sql) {
+        headers.put('sql', sql)
+    }
+
+    void sql(Closure<String> sql) {
+        headers.put('sql', sql.call())
+    }
+
     void file(String file) {
         this.file = file
     }
@@ -131,18 +139,33 @@ class StreamLoadAction implements SuiteAction {
         headers.put(key, value)
     }
 
+    void unset(String key) {
+        headers.remove(key)
+    }
+
     @Override
     void run() {
         String responseText = null
         Throwable ex = null
         long startTime = System.currentTimeMillis()
         try {
-            def uri = "http://${address.hostString}:${address.port}/api/${db}/${table}/_stream_load"
-            HttpClients.createDefault().withCloseable { client ->
-                RequestBuilder requestBuilder = prepareRequestHeader(RequestBuilder.put(uri))
-                HttpEntity httpEntity = prepareHttpEntity(client)
-                String beLocation = streamLoadToFe(client, requestBuilder)
-                responseText = streamLoadToBe(client, requestBuilder, beLocation, httpEntity)
+            if (headers.containsKey("version")) {
+                log.info("http stream")
+                def uri = "http://${address.hostString}:${address.port}/api/_http_stream"
+                HttpClients.createDefault().withCloseable { client ->
+                    RequestBuilder requestBuilder = prepareRequestHeader(RequestBuilder.put(uri))
+                    HttpEntity httpEntity = prepareHttpEntity(client)
+                    String beLocation = streamLoadToFe(client, requestBuilder)
+                    responseText = streamLoadToBe(client, requestBuilder, beLocation, httpEntity)
+                }
+            } else {
+                def uri = "http://${address.hostString}:${address.port}/api/${db}/${table}/_stream_load"
+                HttpClients.createDefault().withCloseable { client ->
+                    RequestBuilder requestBuilder = prepareRequestHeader(RequestBuilder.put(uri))
+                    HttpEntity httpEntity = prepareHttpEntity(client)
+                    String beLocation = streamLoadToFe(client, requestBuilder)
+                    responseText = streamLoadToBe(client, requestBuilder, beLocation, httpEntity)
+                }
             }
         } catch (Throwable t) {
             ex = t

@@ -28,6 +28,7 @@
 #include <memory>
 #include <vector>
 
+#include "common/status.h"
 #include "vec/common/arena.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/common/unaligned.h"
@@ -98,8 +99,6 @@ MutableColumnPtr ColumnMap::clone_resized(size_t to_size) const {
 
 // to support field functions
 Field ColumnMap::operator[](size_t n) const {
-    // Map is FieldVector, now we keep key value in seperate  , see in field.h
-    Map m(2);
     size_t start_offset = offset_at(n);
     size_t element_size = size_at(n);
 
@@ -116,9 +115,7 @@ Field ColumnMap::operator[](size_t n) const {
         v[i] = get_values()[start_offset + i];
     }
 
-    m.push_back(k);
-    m.push_back(v);
-    return m;
+    return Map {k, v};
 }
 
 // here to compare to below
@@ -169,6 +166,7 @@ void ColumnMap::pop_back(size_t n) {
 }
 
 void ColumnMap::insert_from(const IColumn& src_, size_t n) {
+    DCHECK(n < src_.size());
     const ColumnMap& src = assert_cast<const ColumnMap&>(src_);
     size_t size = src.size_at(n);
     size_t offset = src.offset_at(n);
@@ -419,7 +417,7 @@ Status ColumnMap::filter_by_selector(const uint16_t* sel, size_t sel_size, IColu
         max_offset = std::max(max_offset, offset_at(sel[i]));
     }
     if (max_offset > std::numeric_limits<uint16_t>::max()) {
-        return Status::IOError("map elements too large than uint16_t::max");
+        return Status::Corruption("map elements too large than uint16_t::max");
     }
 
     to_offsets.reserve(to_offsets.size() + sel_size);
@@ -435,8 +433,10 @@ Status ColumnMap::filter_by_selector(const uint16_t* sel, size_t sel_size, IColu
     }
 
     if (nested_sel_size > 0) {
-        keys_column->filter_by_selector(nested_sel.get(), nested_sel_size, &to->get_keys());
-        values_column->filter_by_selector(nested_sel.get(), nested_sel_size, &to->get_values());
+        static_cast<void>(keys_column->filter_by_selector(nested_sel.get(), nested_sel_size,
+                                                          &to->get_keys()));
+        static_cast<void>(values_column->filter_by_selector(nested_sel.get(), nested_sel_size,
+                                                            &to->get_values()));
     }
     return Status::OK();
 }
@@ -467,6 +467,16 @@ ColumnPtr ColumnMap::replicate(const Offsets& offsets) const {
                                  assert_cast<const ColumnArray&>(*v_arr).get_data_ptr(),
                                  assert_cast<const ColumnArray&>(*k_arr).get_offsets_ptr());
     return res;
+}
+
+void ColumnMap::replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const {
+    auto& res = reinterpret_cast<ColumnMap&>(column);
+
+    // Make a temp column array for reusing its replicate function
+    ColumnArray::create(keys_column->assume_mutable(), offsets_column->assume_mutable())
+            ->replicate(indexs, target_size, res.keys_column->assume_mutable_ref());
+    ColumnArray::create(values_column->assume_mutable(), offsets_column->assume_mutable())
+            ->replicate(indexs, target_size, res.values_column->assume_mutable_ref());
 }
 
 void ColumnMap::reserve(size_t n) {

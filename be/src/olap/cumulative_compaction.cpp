@@ -44,12 +44,12 @@ CumulativeCompaction::~CumulativeCompaction() = default;
 
 Status CumulativeCompaction::prepare_compact() {
     if (!_tablet->init_succeeded()) {
-        return Status::Error<CUMULATIVE_INVALID_PARAMETERS>("_tablet init failed");
+        return Status::Error<CUMULATIVE_INVALID_PARAMETERS, false>("_tablet init failed");
     }
 
     std::unique_lock<std::mutex> lock(_tablet->get_cumulative_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
-        return Status::Error<TRY_LOCK_FAILED>(
+        return Status::Error<TRY_LOCK_FAILED, false>(
                 "The tablet is under cumulative compaction. tablet={}", _tablet->full_name());
     }
 
@@ -69,7 +69,7 @@ Status CumulativeCompaction::prepare_compact() {
 Status CumulativeCompaction::execute_compact_impl() {
     std::unique_lock<std::mutex> lock(_tablet->get_cumulative_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
-        return Status::Error<TRY_LOCK_FAILED>(
+        return Status::Error<TRY_LOCK_FAILED, false>(
                 "The tablet is under cumulative compaction. tablet={}", _tablet->full_name());
     }
 
@@ -77,7 +77,7 @@ Status CumulativeCompaction::execute_compact_impl() {
     // for compaction may change. In this case, current compaction task should not be executed.
     if (_tablet->get_clone_occurred()) {
         _tablet->set_clone_occurred(false);
-        return Status::Error<CUMULATIVE_CLONE_OCCURRED>("get_clone_occurred failed");
+        return Status::Error<CUMULATIVE_CLONE_OCCURRED, false>("get_clone_occurred failed");
     }
 
     SCOPED_ATTACH_TASK(_mem_tracker);
@@ -124,7 +124,7 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
     _tablet->cumulative_compaction_policy()->pick_input_rowsets(
             _tablet.get(), candidate_rowsets, config::cumulative_compaction_max_deltas,
             config::cumulative_compaction_min_deltas, &_input_rowsets, &_last_delete_version,
-            &compaction_score);
+            &compaction_score, allow_delete_in_cumu_compaction());
 
     // Cumulative compaction will process with at least 1 rowset.
     // So when there is no rowset being chosen, we should return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>():

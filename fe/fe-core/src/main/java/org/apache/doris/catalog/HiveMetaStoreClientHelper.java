@@ -35,6 +35,7 @@ import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.RemoteFiles;
@@ -76,7 +77,6 @@ import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hudi.avro.HoodieAvroUtils;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.TableSchemaResolver;
-import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import shade.doris.hive.org.apache.thrift.TException;
@@ -90,7 +90,6 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.Deque;
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
@@ -783,20 +782,18 @@ public class HiveMetaStoreClientHelper {
             }
         }
         if (lowerCaseType.startsWith("char")) {
-            ScalarType type = ScalarType.createType(PrimitiveType.CHAR);
             Matcher match = digitPattern.matcher(lowerCaseType);
             if (match.find()) {
-                type.setLength(Integer.parseInt(match.group(1)));
+                return ScalarType.createType(PrimitiveType.CHAR, Integer.parseInt(match.group(1)), 0, 0);
             }
-            return type;
+            return ScalarType.createType(PrimitiveType.CHAR);
         }
         if (lowerCaseType.startsWith("varchar")) {
-            ScalarType type = ScalarType.createType(PrimitiveType.VARCHAR);
             Matcher match = digitPattern.matcher(lowerCaseType);
             if (match.find()) {
-                type.setLength(Integer.parseInt(match.group(1)));
+                return ScalarType.createType(PrimitiveType.VARCHAR, Integer.parseInt(match.group(1)), 0, 0);
             }
-            return type;
+            return ScalarType.createType(PrimitiveType.VARCHAR);
         }
         if (lowerCaseType.startsWith("decimal")) {
             Matcher match = digitPattern.matcher(lowerCaseType);
@@ -896,20 +893,6 @@ public class HiveMetaStoreClientHelper {
         return output.toString();
     }
 
-    public static org.apache.iceberg.Table getIcebergTable(HMSExternalTable table) {
-        String metastoreUri = table.getMetastoreUri();
-        org.apache.iceberg.hive.HiveCatalog hiveCatalog = new org.apache.iceberg.hive.HiveCatalog();
-        Configuration conf = getConfiguration(table);
-        hiveCatalog.setConf(conf);
-        // initialize hive catalog
-        Map<String, String> catalogProperties = new HashMap<>();
-        catalogProperties.put(HMSProperties.HIVE_METASTORE_URIS, metastoreUri);
-        catalogProperties.put("uri", metastoreUri);
-        hiveCatalog.initialize("hive", catalogProperties);
-
-        return hiveCatalog.loadTable(TableIdentifier.of(table.getDbName(), table.getName()));
-    }
-
     public static Schema getHudiTableSchema(HMSExternalTable table) {
         HoodieTableMetaClient metaClient = getHudiClient(table);
         TableSchemaResolver schemaUtil = new TableSchemaResolver(metaClient);
@@ -943,6 +926,24 @@ public class HiveMetaStoreClientHelper {
             }
         }
         return ugi;
+    }
+
+    public static <T> T ugiDoAs(long catalogId, PrivilegedExceptionAction<T> action) {
+        return ugiDoAs(((ExternalCatalog) Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId)).getConfiguration(),
+                action);
+    }
+
+    public static <T> T ugiDoAs(Configuration conf, PrivilegedExceptionAction<T> action) {
+        UserGroupInformation ugi = getUserGroupInformation(conf);
+        try {
+            if (ugi != null) {
+                return ugi.doAs(action);
+            } else {
+                return action.run();
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e.getMessage(), e.getCause());
+        }
     }
 
     public static HoodieTableMetaClient getHudiClient(HMSExternalTable table) {

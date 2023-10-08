@@ -25,6 +25,8 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.InvalidFormatException;
+import org.apache.doris.nereids.util.DateUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TDateLiteral;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -32,6 +34,7 @@ import org.apache.doris.thrift.TExprNodeType;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -56,8 +59,10 @@ import java.time.temporal.TemporalAccessor;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TimeZone;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 public class DateLiteral extends LiteralExpr {
     private static final Logger LOG = LogManager.getLogger(DateLiteral.class);
@@ -91,6 +96,7 @@ public class DateLiteral extends LiteralExpr {
     private static Map<String, Integer> MONTH_NAME_DICT = Maps.newHashMap();
     private static Map<String, Integer> MONTH_ABBR_NAME_DICT = Maps.newHashMap();
     private static Map<String, Integer> WEEK_DAY_NAME_DICT = Maps.newHashMap();
+    private static Set<Character> TIME_PART_SET = Sets.newHashSet();
     private static final int[] DAYS_IN_MONTH = new int[] {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
     private static final int ALLOW_SPACE_MASK = 4 | 64;
     private static final int MAX_DATE_PARTS = 8;
@@ -125,6 +131,7 @@ public class DateLiteral extends LiteralExpr {
                             .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, false)
                             .toFormatter().withResolverStyle(ResolverStyle.STRICT),
                     DATETIMEKEY_FORMATTER, DATEKEY_FORMATTER);
+            TIME_PART_SET = "HhIiklrSsTp".chars().mapToObj(c -> (char) c).collect(Collectors.toSet());
         } catch (AnalysisException e) {
             LOG.error("invalid date format", e);
             System.exit(-1);
@@ -173,11 +180,10 @@ public class DateLiteral extends LiteralExpr {
         MONTH_ABBR_NAME_DICT.put("sun", 6);
     }
 
-    //Regex used to determine if the TIME field exists int date_format
-    private static final Pattern HAS_TIME_PART = Pattern.compile("^.*[HhIiklrSsTp]+.*$");
+    private static final Pattern HAS_OFFSET_PART = Pattern.compile("[\\+\\-]\\d{2}:\\d{2}");
 
-    //Date Literal persist type in meta
-    private enum  DateLiteralType {
+    // Date Literal persist type in meta
+    private enum DateLiteralType {
         DATETIME(0),
         DATE(1),
 
@@ -261,6 +267,7 @@ public class DateLiteral extends LiteralExpr {
         } else {
             throw new AnalysisException("Error date literal type : " + type);
         }
+        analysisDone();
     }
 
     public DateLiteral(long year, long month, long day) {
@@ -271,6 +278,7 @@ public class DateLiteral extends LiteralExpr {
         this.month = month;
         this.day = day;
         this.type = ScalarType.getDefaultDateType(Type.DATE);
+        analysisDone();
     }
 
     public DateLiteral(long year, long month, long day, Type type) {
@@ -280,6 +288,7 @@ public class DateLiteral extends LiteralExpr {
         Preconditions.checkArgument(type.getPrimitiveType().equals(Type.DATE.getPrimitiveType())
                 || type.getPrimitiveType().equals(Type.DATEV2.getPrimitiveType()));
         this.type = type;
+        analysisDone();
     }
 
     public DateLiteral(long year, long month, long day, long hour, long minute, long second) {
@@ -290,6 +299,7 @@ public class DateLiteral extends LiteralExpr {
         this.month = month;
         this.day = day;
         this.type = ScalarType.getDefaultDateType(Type.DATETIME);
+        analysisDone();
     }
 
     public DateLiteral(long year, long month, long day, long hour, long minute, long second, long microsecond,
@@ -303,6 +313,7 @@ public class DateLiteral extends LiteralExpr {
         this.microsecond = microsecond;
         Preconditions.checkArgument(type.isDatetimeV2());
         this.type = type;
+        analysisDone();
     }
 
     public DateLiteral(long year, long month, long day, long hour, long minute, long second, Type type) {
@@ -315,6 +326,7 @@ public class DateLiteral extends LiteralExpr {
         Preconditions.checkArgument(type.getPrimitiveType().equals(Type.DATETIME.getPrimitiveType())
                 || type.getPrimitiveType().equals(Type.DATETIMEV2.getPrimitiveType()));
         this.type = type;
+        analysisDone();
     }
 
     public DateLiteral(LocalDateTime dateTime, Type type) {
@@ -328,6 +340,7 @@ public class DateLiteral extends LiteralExpr {
             this.second = dateTime.getSecond();
             this.microsecond = dateTime.get(ChronoField.MICRO_OF_SECOND);
         }
+        analysisDone();
     }
 
     public DateLiteral(DateLiteral other) {
@@ -351,6 +364,27 @@ public class DateLiteral extends LiteralExpr {
             Preconditions.checkArgument(type.isDateType());
             TemporalAccessor dateTime = null;
             boolean parsed = false;
+            int offset = 0;
+
+            // parse timezone
+            if (haveTimeZoneOffset(s) || haveTimeZoneName(s)) {
+                String tzString = new String();
+                if (haveTimeZoneName(s)) { // GMT, UTC+8, Z[, CN, Asia/Shanghai]
+                    int split = getTimeZoneSplitPos(s);
+                    Preconditions.checkArgument(split > 0);
+                    tzString = s.substring(split);
+                    s = s.substring(0, split);
+                } else { // +04:30
+                    Preconditions.checkArgument(s.charAt(s.length() - 6) == '-' || s.charAt(s.length() - 6) == '+');
+                    tzString = s.substring(s.length() - 6);
+                    s = s.substring(0, s.length() - 6);
+                }
+                ZoneId zone = ZoneId.of(tzString);
+                ZoneId dorisZone = DateUtils.getTimeZone();
+                offset = dorisZone.getRules().getOffset(java.time.Instant.now()).getTotalSeconds()
+                        - zone.getRules().getOffset(java.time.Instant.now()).getTotalSeconds();
+            }
+
             if (!s.contains("-")) {
                 // handle format like 20210106, but should not handle 2021-1-6
                 for (DateTimeFormatter formatter : formatterList) {
@@ -398,7 +432,7 @@ public class DateLiteral extends LiteralExpr {
                 if (s.contains(" ")) {
                     builder.appendLiteral(" ");
                 }
-                String[] timePart = s.contains(" ") ? s.split(" ")[1].split(":") : new String[]{};
+                String[] timePart = s.contains(" ") ? s.split(" ")[1].split(":") : new String[] {};
                 if (timePart.length > 0 && (type.equals(Type.DATE) || type.equals(Type.DATEV2))) {
                     throw new AnalysisException("Invalid date value: " + s);
                 }
@@ -448,6 +482,17 @@ public class DateLiteral extends LiteralExpr {
                 type = ScalarType.createDatetimeV2Type(scale);
             }
             this.type = type;
+
+            if (offset != 0) {
+                DateLiteral result = this.plusSeconds(offset);
+                this.second = result.second;
+                this.minute = result.minute;
+                this.hour = result.hour;
+                this.day = result.day;
+                this.month = result.month;
+                this.year = result.year;
+            }
+
             if (checkRange() || checkDate()) {
                 throw new AnalysisException("Datetime value is out of range");
             }
@@ -514,7 +559,7 @@ public class DateLiteral extends LiteralExpr {
             buffer.order(ByteOrder.LITTLE_ENDIAN);
             buffer.putInt(value);
         } else if (type == PrimitiveType.DATETIMEV2) {
-            long value =  (year << 46) | (month << 42) | (day << 37) | (hour << 32)
+            long value = (year << 46) | (month << 42) | (day << 37) | (hour << 32)
                     | (minute << 26) | (second << 20) | (microsecond % (1 << 20));
             buffer = ByteBuffer.allocate(8);
             buffer.order(ByteOrder.LITTLE_ENDIAN);
@@ -542,7 +587,7 @@ public class DateLiteral extends LiteralExpr {
             return -1;
         }
         // date time will not overflow when doing addition and subtraction
-        return Long.signum(getLongValue() - expr.getLongValue());
+        return getStringValue().compareTo(expr.getStringValue());
     }
 
     @Override
@@ -639,6 +684,9 @@ public class DateLiteral extends LiteralExpr {
         try {
             checkValueValid();
         } catch (AnalysisException e) {
+            if (ConnectContext.get() != null) {
+                ConnectContext.get().getState().reset();
+            }
             // If date value is invalid, set this to null
             msg.node_type = TExprNodeType.NULL_LITERAL;
             msg.setIsNullable(true);
@@ -735,7 +783,7 @@ public class DateLiteral extends LiteralExpr {
 
     private long makePackedDatetimeV2() {
         return (year << 46) | (month << 42) | (day << 37) | (hour << 32)
-            | (minute << 26) | (second << 20) | (microsecond % (1 << 20));
+                | (minute << 26) | (second << 20) | (microsecond % (1 << 20));
     }
 
     private long makePackedDateV2() {
@@ -745,7 +793,7 @@ public class DateLiteral extends LiteralExpr {
     @Override
     public void write(DataOutput out) throws IOException {
         super.write(out);
-        //set flag bit in meta, 0 is DATETIME and 1 is DATE
+        // set flag bit in meta, 0 is DATETIME and 1 is DATE
         if (this.type.equals(Type.DATETIME)) {
             out.writeShort(DateLiteralType.DATETIME.value());
             out.writeLong(makePackedDatetime());
@@ -851,11 +899,11 @@ public class DateLiteral extends LiteralExpr {
     }
 
     public static boolean hasTimePart(String format) {
-        return HAS_TIME_PART.matcher(format).matches();
+        return format.chars().anyMatch(c -> TIME_PART_SET.contains((char) c));
     }
 
-    //Return the date stored in the dateliteral as pattern format.
-    //eg : "%Y-%m-%d" or "%Y-%m-%d %H:%i:%s"
+    // Return the date stored in the dateliteral as pattern format.
+    // eg : "%Y-%m-%d" or "%Y-%m-%d %H:%i:%s"
     public String dateFormat(String pattern) throws AnalysisException {
         TemporalAccessor accessor;
         if (type.equals(Type.DATE) || type.equals(Type.DATEV2)) {
@@ -1005,19 +1053,19 @@ public class DateLiteral extends LiteralExpr {
         return LocalDateTime.of(year, month, dayOfMonth, hour, minute, second, microSeconds * 1000);
     }
 
-    public DateLiteral plusYears(int year) throws AnalysisException {
+    public DateLiteral plusYears(long year) throws AnalysisException {
         return new DateLiteral(getTimeFormatter().plusYears(year), type);
     }
 
-    public DateLiteral plusMonths(int month) throws AnalysisException {
+    public DateLiteral plusMonths(long month) throws AnalysisException {
         return new DateLiteral(getTimeFormatter().plusMonths(month), type);
     }
 
-    public DateLiteral plusDays(int day) throws AnalysisException {
+    public DateLiteral plusDays(long day) throws AnalysisException {
         return new DateLiteral(getTimeFormatter().plusDays(day), type);
     }
 
-    public DateLiteral plusHours(int hour) throws AnalysisException {
+    public DateLiteral plusHours(long hour) throws AnalysisException {
         if (type.isDate()) {
             return new DateLiteral(getTimeFormatter().plusHours(hour), Type.DATETIME);
         }
@@ -1027,7 +1075,7 @@ public class DateLiteral extends LiteralExpr {
         return new DateLiteral(getTimeFormatter().plusHours(hour), type);
     }
 
-    public DateLiteral plusMinutes(int minute) {
+    public DateLiteral plusMinutes(long minute) {
         if (type.isDate()) {
             return new DateLiteral(getTimeFormatter().plusMinutes(minute), Type.DATETIME);
         }
@@ -1037,7 +1085,7 @@ public class DateLiteral extends LiteralExpr {
         return new DateLiteral(getTimeFormatter().plusMinutes(minute), type);
     }
 
-    public DateLiteral plusSeconds(int second) {
+    public DateLiteral plusSeconds(long second) {
         if (type.isDate()) {
             return new DateLiteral(getTimeFormatter().plusSeconds(second), Type.DATETIME);
         }
@@ -1495,6 +1543,10 @@ public class DateLiteral extends LiteralExpr {
         }
     }
 
+    public long daynr() {
+        return calcDaynr(this.year, this.month, this.day);
+    }
+
     // calculate the number of days from year 0000-00-00 to year-month-day
     private long calcDaynr(long year, long month, long day) {
         long delsum = 0;
@@ -1762,5 +1814,28 @@ public class DateLiteral extends LiteralExpr {
             }
             return;
         }
+    }
+
+    private static boolean haveTimeZoneOffset(String arg) {
+        Preconditions.checkArgument(arg.length() > 6);
+        return HAS_OFFSET_PART.matcher(arg.substring(arg.length() - 6)).matches();
+    }
+
+    private static boolean haveTimeZoneName(String arg) {
+        for (char ch : arg.toCharArray()) {
+            if (Character.isUpperCase(ch) && ch != 'T') {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static int getTimeZoneSplitPos(String arg) {
+        int split = arg.length() - 1;
+        for (; !Character.isAlphabetic(arg.charAt(split)); split--) {
+        } // skip +8 of UTC+8
+        for (; split >= 0 && (Character.isUpperCase(arg.charAt(split)) || arg.charAt(split) == '/'); split--) {
+        }
+        return split + 1;
     }
 }

@@ -54,6 +54,20 @@ class DataTypeNumberSerDe : public DataTypeSerDe {
 
 public:
     using ColumnType = ColumnVector<T>;
+
+    Status serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
+                                      FormatOptions& options, int nesting_level = 1) const override;
+    Status serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
+                                    BufferWritable& bw, FormatOptions& options,
+                                    int nesting_level = 1) const override;
+    Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
+                                          const FormatOptions& options,
+                                          int nesting_level = 1) const override;
+
+    Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
+                                               int* num_deserialized, const FormatOptions& options,
+                                               int nesting_level = 1) const override;
+
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override;
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
@@ -73,6 +87,10 @@ public:
                                  int row_idx, bool col_const) const override;
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
                                  int row_idx, bool col_const) const override;
+
+    Status write_column_to_orc(const IColumn& column, const NullMap* null_map,
+                               orc::ColumnVectorBatch* orc_col_batch, int start, int end,
+                               std::vector<StringRef>& buffer_list) const override;
 
 private:
     template <bool is_binary_format>
@@ -223,7 +241,8 @@ void DataTypeNumberSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
     } else if constexpr (std::is_same_v<T, double>) {
         col.insert_value(static_cast<const JsonbDoubleVal*>(arg)->val());
     } else {
-        LOG(FATAL) << "unknown jsonb type " << arg->typeName() << " for writing to column";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "read_one_cell_from_jsonb with type '{}'", arg->typeName());
     }
 }
 template <typename T>
@@ -259,7 +278,8 @@ void DataTypeNumberSerDe<T>::write_one_cell_to_jsonb(const IColumn& column,
         double val = *reinterpret_cast<const double*>(data_ref.data);
         result.writeDouble(val);
     } else {
-        LOG(FATAL) << "unknown column type " << column.get_name() << " for writing to jsonb";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "write_one_cell_to_jsonb with type " + column.get_name());
     }
 }
 

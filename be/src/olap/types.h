@@ -607,7 +607,7 @@ bool is_scalar_type(FieldType field_type);
 
 const TypeInfo* get_scalar_type_info(FieldType field_type);
 
-TypeInfoPtr get_type_info(segment_v2::ColumnMetaPB* column_meta_pb);
+TypeInfoPtr get_type_info(const segment_v2::ColumnMetaPB* column_meta_pb);
 
 TypeInfoPtr get_type_info(const TabletColumn* col);
 
@@ -731,6 +731,10 @@ struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_JSONB> {
     using CppType = Slice;
 };
 template <>
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_VARIANT> {
+    using CppType = Slice;
+};
+template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_HLL> {
     using CppType = Slice;
 };
@@ -798,11 +802,11 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
     static inline void direct_copy_may_cut(void* dest, const void* src) { direct_copy(dest, src); }
 
     static inline void set_to_max(void* buf) {
-        set_cpp_type_value(buf, std::numeric_limits<CppType>::max());
+        set_cpp_type_value(buf, type_limit<CppType>::max());
     }
 
     static inline void set_to_min(void* buf) {
-        set_cpp_type_value(buf, std::numeric_limits<CppType>::min());
+        set_cpp_type_value(buf, type_limit<CppType>::min());
     }
 
     static std::string to_string(const void* src) {
@@ -1027,23 +1031,15 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL32>
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-        int32_t value = StringParser::string_to_decimal<int32_t>(scan_key.c_str(), scan_key.size(),
-                                                                 9, scale, &result);
+        int32_t value = StringParser::string_to_decimal<TYPE_DECIMAL32>(
+                scan_key.c_str(), scan_key.size(), 9, scale, &result);
 
         if (result == StringParser::PARSE_FAILURE) {
             return Status::Error<ErrorCode::INVALID_ARGUMENT>(
                     "FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL32>::from_string meet PARSE_FAILURE");
         }
-        *reinterpret_cast<int32_t*>(buf) = (int32_t)value;
+        *reinterpret_cast<int32_t*>(buf) = value;
         return Status::OK();
-    }
-    static void set_to_max(void* buf) {
-        CppType* data = reinterpret_cast<CppType*>(buf);
-        *data = 999999999;
-    }
-    static void set_to_min(void* buf) {
-        CppType* data = reinterpret_cast<CppType*>(buf);
-        *data = -999999999;
     }
 };
 
@@ -1053,22 +1049,14 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL64>
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-        int64_t value = StringParser::string_to_decimal<int64_t>(scan_key.c_str(), scan_key.size(),
-                                                                 18, scale, &result);
+        int64_t value = StringParser::string_to_decimal<TYPE_DECIMAL64>(
+                scan_key.c_str(), scan_key.size(), 18, scale, &result);
         if (result == StringParser::PARSE_FAILURE) {
             return Status::Error<ErrorCode::INVALID_ARGUMENT>(
                     "FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL64>::from_string meet PARSE_FAILURE");
         }
-        *reinterpret_cast<int64_t*>(buf) = (int64_t)value;
+        *reinterpret_cast<int64_t*>(buf) = value;
         return Status::OK();
-    }
-    static void set_to_max(void* buf) {
-        CppType* data = reinterpret_cast<CppType*>(buf);
-        *data = 999999999999999999ll;
-    }
-    static void set_to_min(void* buf) {
-        CppType* data = reinterpret_cast<CppType*>(buf);
-        *data = -999999999999999999ll;
     }
 };
 
@@ -1078,7 +1066,7 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL128I>
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-        int128_t value = StringParser::string_to_decimal<int128_t>(
+        int128_t value = StringParser::string_to_decimal<TYPE_DECIMAL128I>(
                 scan_key.c_str(), scan_key.size(), 38, scale, &result);
         if (result == StringParser::PARSE_FAILURE) {
             return Status::Error<ErrorCode::INVALID_ARGUMENT>(
@@ -1092,16 +1080,6 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL128I>
         fmt::memory_buffer buffer;
         fmt::format_to(buffer, "{}", value);
         return std::string(buffer.data(), buffer.size());
-    }
-    static void set_to_max(void* buf) {
-        *reinterpret_cast<PackedInt128*>(buf) =
-                static_cast<int128_t>(999999999999999999ll) * 100000000000000000ll * 1000ll +
-                static_cast<int128_t>(99999999999999999ll) * 1000ll + 999ll;
-    }
-    static void set_to_min(void* buf) {
-        *reinterpret_cast<PackedInt128*>(buf) =
-                -(static_cast<int128_t>(999999999999999999ll) * 100000000000000000ll * 1000ll +
-                  static_cast<int128_t>(99999999999999999ll) * 1000ll + 999ll);
     }
 };
 
@@ -1408,6 +1386,15 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_JSONB>
     static void set_to_max(void* buf) {
         auto slice = reinterpret_cast<Slice*>(buf);
         slice->size = 0;
+    }
+};
+
+template <>
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_VARIANT>
+        : public FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_JSONB> {
+    static int cmp(const void* left, const void* right) {
+        LOG(WARNING) << "can not compare VARIANT values";
+        return -1; // always update ?
     }
 };
 

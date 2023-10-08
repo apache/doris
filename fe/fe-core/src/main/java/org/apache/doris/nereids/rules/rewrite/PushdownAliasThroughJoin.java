@@ -22,6 +22,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -45,7 +46,9 @@ public class PushdownAliasThroughJoin extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalProject(logicalJoin())
             .when(project -> project.getProjects().stream().allMatch(expr ->
-                    (expr instanceof Slot) || (expr instanceof Alias && ((Alias) expr).child() instanceof Slot)))
+                (expr instanceof Slot && !(expr instanceof MarkJoinSlotReference))
+                        || (expr instanceof Alias && ((Alias) expr).child() instanceof Slot
+                                && !(((Alias) expr).child() instanceof MarkJoinSlotReference))))
             .when(project -> project.getProjects().stream().anyMatch(expr -> expr instanceof Alias))
             .then(project -> {
                 LogicalJoin<? extends Plan, ? extends Plan> join = project.child();

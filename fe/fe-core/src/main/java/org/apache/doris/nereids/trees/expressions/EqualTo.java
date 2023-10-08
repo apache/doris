@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -31,7 +32,11 @@ import java.util.List;
 public class EqualTo extends ComparisonPredicate implements PropagateNullable {
 
     public EqualTo(Expression left, Expression right) {
-        super(left, right, "=");
+        super(ImmutableList.of(left, right), "=");
+    }
+
+    private EqualTo(List<Expression> children) {
+        super(children, "=");
     }
 
     @Override
@@ -40,14 +45,9 @@ public class EqualTo extends ComparisonPredicate implements PropagateNullable {
     }
 
     @Override
-    public String toString() {
-        return "(" + left() + " = " + right() + ")";
-    }
-
-    @Override
     public EqualTo withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new EqualTo(children.get(0), children.get(1));
+        return new EqualTo(children);
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {

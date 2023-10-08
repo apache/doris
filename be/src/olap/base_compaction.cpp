@@ -44,13 +44,13 @@ BaseCompaction::~BaseCompaction() = default;
 
 Status BaseCompaction::prepare_compact() {
     if (!_tablet->init_succeeded()) {
-        return Status::Error<INVALID_ARGUMENT>("_tablet init failed");
+        return Status::Error<INVALID_ARGUMENT, false>("_tablet init failed");
     }
 
     std::unique_lock<std::mutex> lock(_tablet->get_base_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
-        return Status::Error<TRY_LOCK_FAILED>("another base compaction is running. tablet={}",
-                                              _tablet->full_name());
+        return Status::Error<TRY_LOCK_FAILED, false>(
+                "another base compaction is running. tablet={}", _tablet->full_name());
     }
 
     // 1. pick rowsets to compact
@@ -69,15 +69,15 @@ Status BaseCompaction::execute_compact_impl() {
 #endif
     std::unique_lock<std::mutex> lock(_tablet->get_base_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
-        return Status::Error<TRY_LOCK_FAILED>("another base compaction is running. tablet={}",
-                                              _tablet->full_name());
+        return Status::Error<TRY_LOCK_FAILED, false>(
+                "another base compaction is running. tablet={}", _tablet->full_name());
     }
 
     // Clone task may happen after compaction task is submitted to thread pool, and rowsets picked
     // for compaction may change. In this case, current compaction task should not be executed.
     if (_tablet->get_clone_occurred()) {
         _tablet->set_clone_occurred(false);
-        return Status::Error<BE_CLONE_OCCURRED>("get_clone_occurred failed");
+        return Status::Error<BE_CLONE_OCCURRED, false>("get_clone_occurred failed");
     }
 
     SCOPED_ATTACH_TASK(_mem_tracker);
@@ -122,17 +122,26 @@ void BaseCompaction::_filter_input_rowset() {
 Status BaseCompaction::pick_rowsets_to_compact() {
     _input_rowsets = _tablet->pick_candidate_rowsets_to_base_compaction();
     RETURN_IF_ERROR(check_version_continuity(_input_rowsets));
-    RETURN_IF_ERROR(_check_rowset_overlapping(_input_rowsets));
     _filter_input_rowset();
     if (_input_rowsets.size() <= 1) {
         return Status::Error<BE_NO_SUITABLE_VERSION>("_input_rowsets.size() is 1");
     }
 
+    // There are two occasions, first is that we set enable_delete_when_cumu_compaction false:
     // If there are delete predicate rowsets in tablet, start_version > 0 implies some rowsets before
     // delete version cannot apply these delete predicates, which can cause incorrect query result.
     // So we must abort this base compaction.
     // A typical scenario is that some rowsets before cumulative point are on remote storage.
-    if (_input_rowsets.front()->start_version() > 0) {
+    // For example, consider rowset[0,3] is on remote storage, now we pass [4,4],[5,5],[6,9]
+    // to do base compaction and rowset[5,5] is delete predicate rowset, if we allow them to do
+    // such procedure, then we'll get [4,9] while it will lose the delete predicate information in [5,5]
+    // which rusult in data in [0,3] will not be deleted.
+    // Another occasion is that we set enable_delete_when_cumu_compaction true:
+    // Then whatever the _input_rowsets.front()->start_version() > 0 or not, once the output
+    // rowset's start version is bigger than 2, we'll always remain the delete pred information inside
+    // the output rowset so the rowsets whose version is less than _input_rowsets.front()->start_version() > 0
+    // would apply the delete pred in the end.
+    if (!allow_delete_in_cumu_compaction() && _input_rowsets.front()->start_version() > 0) {
         bool has_delete_predicate = false;
         for (const auto& rs : _input_rowsets) {
             if (rs->rowset_meta()->has_delete_predicate()) {
@@ -204,19 +213,6 @@ Status BaseCompaction::pick_rowsets_to_compact() {
             "cumulative_base_ratio={}, interval_since_last_base_compaction={}",
             _tablet->full_name(), _input_rowsets.size() - 1, cumulative_base_ratio,
             interval_since_last_base_compaction);
-}
-
-Status BaseCompaction::_check_rowset_overlapping(const std::vector<RowsetSharedPtr>& rowsets) {
-    for (auto& rs : rowsets) {
-        if (rs->rowset_meta()->is_segments_overlapping()) {
-            return Status::Error<BE_SEGMENTS_OVERLAPPING>(
-                    "There is overlapping rowset before cumulative point, rowset version={}-{}, "
-                    "cumulative point={}, tablet={}",
-                    rs->start_version(), rs->end_version(), _tablet->cumulative_layer_point(),
-                    _tablet->full_name());
-        }
-    }
-    return Status::OK();
 }
 
 } // namespace doris

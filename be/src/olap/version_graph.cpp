@@ -366,7 +366,7 @@ PathVersionListSharedPtr TimestampedVersionTracker::fetch_and_delete_path_by_id(
     _stale_version_path_map.erase(path_id);
 
     for (auto& version : ptr->timestamped_versions()) {
-        _version_graph.delete_version_from_graph(version->version());
+        static_cast<void>(_version_graph.delete_version_from_graph(version->version()));
     }
     return ptr;
 }

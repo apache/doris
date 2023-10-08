@@ -67,18 +67,17 @@ else()
 endif()
 
 # Options
-if (NOT OS_MACOSX)
-    option(GLIBC_COMPATIBILITY "Enable compatibility with older glibc libraries." ON)
-    option(USE_LIBCPP "Use libc++" OFF)
-    option(USE_MEM_TRACKER, "Use memory tracker" ON)
-    option(USE_UNWIND "Use libunwind" ON)
-else()
-    option(GLIBC_COMPATIBILITY "Enable compatibility with older glibc libraries." OFF)
-    option(USE_LIBCPP "Use libc++" ON)
-    option(USE_MEM_TRACKER, "Use memory tracker" OFF)
-    option(USE_UNWIND "Use libunwind" OFF)
-endif()
+option(GLIBC_COMPATIBILITY "Enable compatibility with older glibc libraries." ON)
+option(USE_LIBCPP "Use libc++" OFF)
+option(USE_MEM_TRACKER, "Use memory tracker" ON)
+option(USE_UNWIND "Use libunwind" ON)
 option(USE_JEMALLOC "Use jemalloc" ON)
+if (OS_MACOSX)
+    set(GLIBC_COMPATIBILITY OFF)
+    set(USE_LIBCPP ON)
+    set(USE_MEM_TRACKER OFF)
+    set(USE_UNWIND OFF)
+endif()
 
 if (DISPLAY_BUILD_TIME)
     set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE "time -f 'TimeUsage: real=%es, user=%Us, sys=%Ss'")
@@ -157,285 +156,9 @@ endif()
 
 set(GPERFTOOLS_HOME "${THIRDPARTY_DIR}/gperftools")
 
-# Set all libraries
-add_library(gflags STATIC IMPORTED)
-set_target_properties(gflags PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libgflags.a)
-
-add_library(glog STATIC IMPORTED)
-set_target_properties(glog PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libglog.a)
-
-add_library(backtrace STATIC IMPORTED)
-set_target_properties(backtrace PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libbacktrace.a)
-
-add_library(re2 STATIC IMPORTED)
-set_target_properties(re2 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libre2.a)
-
-add_library(hyperscan STATIC IMPORTED)
-set_target_properties(hyperscan PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libhs.a)
-
-add_library(odbc STATIC IMPORTED)
-set_target_properties(odbc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libodbc.a)
-
-add_library(pprof STATIC IMPORTED)
-set_target_properties(pprof PROPERTIES IMPORTED_LOCATION
-    ${GPERFTOOLS_HOME}/lib/libprofiler.a)
-
-add_library(tcmalloc STATIC IMPORTED)
-set_target_properties(tcmalloc PROPERTIES IMPORTED_LOCATION
-    ${GPERFTOOLS_HOME}/lib/libtcmalloc.a)
-
-add_library(protobuf STATIC IMPORTED)
-set_target_properties(protobuf PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libprotobuf.a)
-
-add_library(protoc STATIC IMPORTED)
-set_target_properties(protoc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libprotoc.a)
-
-add_library(gtest STATIC IMPORTED)
-set_target_properties(gtest PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libgtest.a)
-
-add_library(gtest_main STATIC IMPORTED)
-set_target_properties(gtest_main PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libgtest_main.a)
-
-add_library(benchmark STATIC IMPORTED)
-set_target_properties(benchmark PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libbenchmark.a)
-
-add_library(gmock STATIC IMPORTED)
-set_target_properties(gmock PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libgmock.a)
-
-add_library(snappy STATIC IMPORTED)
-set_target_properties(snappy PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libsnappy.a)
-
-add_library(curl STATIC IMPORTED)
-set_target_properties(curl PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libcurl.a)
-
-add_library(lz4 STATIC IMPORTED)
-set_target_properties(lz4 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/liblz4.a)
-
-add_library(thrift STATIC IMPORTED)
-set_target_properties(thrift PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libthrift.a)
-
-add_library(thriftnb STATIC IMPORTED)
-set_target_properties(thriftnb PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libthriftnb.a)
-
-if(WITH_LZO)
-    add_library(lzo STATIC IMPORTED)
-    set_target_properties(lzo PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/liblzo2.a)
-endif()
-
-if (WITH_MYSQL)
-    add_library(mysql STATIC IMPORTED)
-    set_target_properties(mysql PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libmysqlclient.a)
-endif()
-
-add_library(libevent STATIC IMPORTED)
-set_target_properties(libevent PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libevent.a)
-
-add_library(libevent_pthreads STATIC IMPORTED)
-set_target_properties(libevent_pthreads PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libevent_pthreads.a)
-
-add_library(libbz2 STATIC IMPORTED)
-set_target_properties(libbz2 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libbz2.a)
-
-add_library(libz STATIC IMPORTED)
-set_target_properties(libz PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libz.a)
-
-add_library(crypto STATIC IMPORTED)
-set_target_properties(crypto PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libcrypto.a)
-
-add_library(openssl STATIC IMPORTED)
-set_target_properties(openssl PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libssl.a)
-
-add_library(leveldb STATIC IMPORTED)
-set_target_properties(leveldb PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libleveldb.a)
-
-add_library(jemalloc STATIC IMPORTED)
-set_target_properties(jemalloc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libjemalloc_doris.a)
-
-add_library(jemalloc_arrow STATIC IMPORTED)
-set_target_properties(jemalloc_arrow PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libjemalloc.a)
-
-if (USE_UNWIND)
-    add_library(libunwind STATIC IMPORTED)
-    set_target_properties(libunwind PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libunwind.a)
-endif()
-
-add_library(brotlicommon STATIC IMPORTED)
-set_target_properties(brotlicommon PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libbrotlicommon.a)
-
-add_library(brotlidec STATIC IMPORTED)
-set_target_properties(brotlidec PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libbrotlidec.a)
-
-add_library(brotlienc STATIC IMPORTED)
-set_target_properties(brotlienc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libbrotlienc.a)
-
-add_library(zstd STATIC IMPORTED)
-set_target_properties(zstd PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libzstd.a)
-
-add_library(arrow STATIC IMPORTED)
-set_target_properties(arrow PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libarrow.a)
-
-add_library(parquet STATIC IMPORTED)
-set_target_properties(parquet PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libparquet.a)
-
-add_library(brpc STATIC IMPORTED)
-set_target_properties(brpc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libbrpc.a)
-
-add_library(rocksdb STATIC IMPORTED)
-set_target_properties(rocksdb PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/librocksdb.a)
-
-add_library(cyrus-sasl STATIC IMPORTED)
-set_target_properties(cyrus-sasl PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libsasl2.a)
-
-add_library(librdkafka_cpp STATIC IMPORTED)
-set_target_properties(librdkafka_cpp PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/librdkafka++.a)
-
-add_library(librdkafka STATIC IMPORTED)
-set_target_properties(librdkafka PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/librdkafka.a)
-
-add_library(libs2 STATIC IMPORTED)
-set_target_properties(libs2 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libs2.a)
-
-add_library(bitshuffle STATIC IMPORTED)
-set_target_properties(bitshuffle PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libbitshuffle.a)
-
-add_library(roaring STATIC IMPORTED)
-set_target_properties(roaring PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libroaring.a)
-
-add_library(fmt STATIC IMPORTED)
-set_target_properties(fmt PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libfmt.a)
-
-add_library(cctz STATIC IMPORTED)
-set_target_properties(cctz PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libcctz.a)
-
-add_library(aws-sdk-core STATIC IMPORTED)
-set_target_properties(aws-sdk-core PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-cpp-sdk-core.a)
-
-add_library(aws-sdk-s3 STATIC IMPORTED)
-set_target_properties(aws-sdk-s3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-cpp-sdk-s3.a)
-
-add_library(aws-sdk-transfer STATIC IMPORTED)
-set_target_properties(aws-sdk-transfer PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-cpp-sdk-transfer.a)
-
-add_library(aws-sdk-s3-crt STATIC IMPORTED)
-set_target_properties(aws-sdk-s3-crt PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-cpp-sdk-s3-crt.a)
-
-
-add_library(aws-crt-cpp STATIC IMPORTED)
-set_target_properties(aws-crt-cpp PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-crt-cpp.a)
-
-add_library(aws-c-cal STATIC IMPORTED)
-set_target_properties(aws-c-cal PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-cal.a)
-
-add_library(aws-c-auth STATIC IMPORTED)
-set_target_properties(aws-c-auth PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-auth.a)
-
-add_library(aws-c-compression STATIC IMPORTED)
-set_target_properties(aws-c-compression PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-compression.a)
-
-add_library(aws-c-common STATIC IMPORTED)
-set_target_properties(aws-c-common PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-common.a)
-
-add_library(aws-c-event-stream STATIC IMPORTED)
-set_target_properties(aws-c-event-stream PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-event-stream.a)
-
-add_library(aws-c-io STATIC IMPORTED)
-set_target_properties(aws-c-io PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-io.a)
-
-add_library(aws-c-http STATIC IMPORTED)
-set_target_properties(aws-c-http PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-http.a)
-
-add_library(aws-c-mqtt STATIC IMPORTED)
-set_target_properties(aws-c-mqtt PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-mqtt.a)
-
-add_library(aws-checksums STATIC IMPORTED)
-set_target_properties(aws-checksums PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-checksums.a)
-
-add_library(aws-c-s3 STATIC IMPORTED)
-set_target_properties(aws-c-s3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-s3.a)
-
-if (NOT OS_MACOSX)
-    add_library(aws-s2n STATIC IMPORTED)
-    set_target_properties(aws-s2n PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libs2n.a)
-endif()
-
-add_library(minizip STATIC IMPORTED)
-set_target_properties(minizip PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libminizip.a)
-
-add_library(simdjson STATIC IMPORTED)
-set_target_properties(simdjson PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libsimdjson.a)
-
-add_library(idn STATIC IMPORTED)
-set_target_properties(idn PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libidn.a)
-
-add_library(opentelemetry_common STATIC IMPORTED)
-set_target_properties(opentelemetry_common PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libopentelemetry_common.a)
-
-add_library(opentelemetry_exporter_zipkin_trace STATIC IMPORTED)
-set_target_properties(opentelemetry_exporter_zipkin_trace PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libopentelemetry_exporter_zipkin_trace.a)
-
-add_library(opentelemetry_resources STATIC IMPORTED)
-set_target_properties(opentelemetry_resources PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libopentelemetry_resources.a)
-
-add_library(opentelemetry_version STATIC IMPORTED)
-set_target_properties(opentelemetry_version PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libopentelemetry_version.a)
-
-add_library(opentelemetry_exporter_ostream_span STATIC IMPORTED)
-set_target_properties(opentelemetry_exporter_ostream_span PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libopentelemetry_exporter_ostream_span.a)
-
-add_library(opentelemetry_trace STATIC IMPORTED)
-set_target_properties(opentelemetry_trace PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libopentelemetry_trace.a)
-
-add_library(opentelemetry_http_client_curl STATIC IMPORTED)
-set_target_properties(opentelemetry_http_client_curl PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libopentelemetry_http_client_curl.a)
-
-add_library(opentelemetry_exporter_otlp_http STATIC IMPORTED)
-set_target_properties(opentelemetry_exporter_otlp_http PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libopentelemetry_exporter_otlp_http.a)
-
-add_library(opentelemetry_exporter_otlp_http_client STATIC IMPORTED)
-set_target_properties(opentelemetry_exporter_otlp_http_client PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libopentelemetry_exporter_otlp_http_client.a)
-
-add_library(opentelemetry_otlp_recordable STATIC IMPORTED)
-set_target_properties(opentelemetry_otlp_recordable PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libopentelemetry_otlp_recordable.a)
-
-add_library(opentelemetry_proto STATIC IMPORTED)
-set_target_properties(opentelemetry_proto PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libopentelemetry_proto.a)
-
-add_library(xml2 STATIC IMPORTED)
-set_target_properties(xml2 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libxml2.a)
-
-add_library(lzma STATIC IMPORTED)
-set_target_properties(lzma PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/liblzma.a)
-
-add_library(gsasl STATIC IMPORTED)
-set_target_properties(gsasl PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libgsasl.a)
-
-add_library(krb5support STATIC IMPORTED)
-set_target_properties(krb5support PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libkrb5support.a)
-
-add_library(krb5 STATIC IMPORTED)
-set_target_properties(krb5 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libkrb5.a)
-
-add_library(com_err STATIC IMPORTED)
-set_target_properties(com_err PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libcom_err.a)
-
-add_library(k5crypto STATIC IMPORTED)
-set_target_properties(k5crypto PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libk5crypto.a)
-
-add_library(gssapi_krb5 STATIC IMPORTED)
-set_target_properties(gssapi_krb5 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libgssapi_krb5.a)
+include (cmake/thirdparty.cmake)
 
 find_program(THRIFT_COMPILER thrift ${CMAKE_SOURCE_DIR}/bin)
-
-if (OS_MACOSX)
-    add_library(bfd STATIC IMPORTED)
-    set_target_properties(bfd PROPERTIES IMPORTED_LOCATION "${THIRDPARTY_DIR}/lib/libbfd.a")
-
-    add_library(iberty STATIC IMPORTED)
-    set_target_properties(iberty PROPERTIES IMPORTED_LOCATION "${THIRDPARTY_DIR}/lib/libiberty.a")
-
-    add_library(intl STATIC IMPORTED)
-    set_target_properties(intl PROPERTIES IMPORTED_LOCATION "${THIRDPARTY_DIR}/lib/libintl.a")
-endif()
 
 option(BUILD_JAVA OFF)
 option(BUILD_CPP_TESTS OFF)
@@ -482,7 +205,7 @@ target_compile_options(clucene-contribs-lib PRIVATE ${clucene_options})
 target_compile_options(ic PRIVATE ${clucene_options})
 
 install(DIRECTORY
-    ${SRC_DIR}/clucene/src/contribs-lib/CLucene/analysis/jieba/dict 
+    ${SRC_DIR}/clucene/src/contribs-lib/CLucene/analysis/jieba/dict
     DESTINATION ${OUTPUT_DIR})
 
 # Check if functions are supported in this platform. All flags will generated
@@ -502,14 +225,17 @@ function(TRY_TO_CHANGE_LINKER LINKER_COMMAND LINKER_NAME)
     endif()
 endfunction()
 
-# In terms of performance, mold> lld> gold> ld
-set(CUSTUM_LINKER_COMMAND "ld")
-TRY_TO_CHANGE_LINKER("mold" "mold")
-TRY_TO_CHANGE_LINKER("lld" "LLD")
-TRY_TO_CHANGE_LINKER("gold" "GNU gold")
-if (NOT CUSTUM_LINKER_COMMAND STREQUAL "ld")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=${CUSTUM_LINKER_COMMAND}")
+if (NOT OS_MACOSX) # MACOSX's lld will core dump
+    # In terms of performance, mold> lld> gold> ld
+    set(CUSTUM_LINKER_COMMAND "ld")
+    TRY_TO_CHANGE_LINKER("mold" "mold")
+    TRY_TO_CHANGE_LINKER("lld" "LLD")
+    TRY_TO_CHANGE_LINKER("gold" "GNU gold")
+    if (NOT CUSTUM_LINKER_COMMAND STREQUAL "ld")
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=${CUSTUM_LINKER_COMMAND}")
+    endif()
 endif()
+
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_C_STANDARD 17)
@@ -542,7 +268,7 @@ if (COMPILER_CLANG)
         message(FATAL_ERROR "Need Clang version at least 16")
     endif()
 
-    add_compile_options(-fcolor-diagnostics 
+    add_compile_options(-fcolor-diagnostics
                         -Wpedantic
                         -Wunused
                         -Wunused-command-line-argument
@@ -699,7 +425,7 @@ include_directories(
     ${GPERFTOOLS_HOME}/include
 )
 
-if ("${DORIS_JAVA_HOME}" STREQUAL "") 
+if ("${DORIS_JAVA_HOME}" STREQUAL "")
     set(DORIS_JAVA_HOME "$ENV{JAVA_HOME}")
 endif()
 
@@ -722,28 +448,6 @@ set(KRB5_LIBS
     gssapi_krb5
     k5crypto)
 
-set(AWS_LIBS
-    aws-sdk-s3
-    aws-sdk-core
-    aws-sdk-transfer
-    aws-checksums
-    aws-c-io
-    aws-c-event-stream
-    aws-c-common
-    aws-c-cal
-    aws-s2n
-    aws-c-s3
-    aws-c-auth
-    aws-crt-cpp
-    aws-c-compression
-    aws-c-http
-    aws-c-mqtt
-    aws-sdk-s3-crt)
-
-if (OS_MACOSX)
-    list(REMOVE_ITEM AWS_LIBS aws-s2n)
-endif()
-
 # Set Doris libraries
 set(DORIS_LINK_LIBS
     ${WL_START_GROUP}
@@ -754,7 +458,6 @@ set(DORIS_LINK_LIBS
     Gutil
     IO
     Olap
-    Rowset
     Runtime
     Service
     Udf
@@ -762,6 +465,7 @@ set(DORIS_LINK_LIBS
     DorisGen
     Webserver
     Geo
+    GeoType
     Vec
     Pipeline
     ${WL_END_GROUP}
@@ -774,64 +478,8 @@ find_package(absl)
 # When adding new dependencies, If you don’t know if it can run on all platforms,
 # add it here first.
 set(COMMON_THIRDPARTY
-    backtrace
-    rocksdb
-    cyrus-sasl
-    libs2
-    snappy
     Boost::date_time
-    thrift
-    thriftnb
-    glog
-    re2
-    hyperscan
-    pprof
-    lz4
-    libevent
-    libevent_pthreads
-    idn
-    gsasl
-    curl
-    libz
-    libbz2
-    gflags
-    brpc
-    protobuf
-    openssl
-    crypto
-    leveldb
-    bitshuffle
-    roaring
-    fmt
-    jemalloc
-    jemalloc_arrow
-    brotlicommon
-    brotlidec
-    brotlienc
-    zstd
-    arrow
-    parquet
-    odbc
-    cctz
-    minizip
-    opentelemetry_common
-    opentelemetry_exporter_zipkin_trace
-    opentelemetry_resources
-    opentelemetry_version
-    opentelemetry_exporter_ostream_span
-    opentelemetry_trace
-    opentelemetry_http_client_curl
-    opentelemetry_exporter_otlp_http
-    opentelemetry_exporter_otlp_http_client
-    opentelemetry_otlp_recordable
-    opentelemetry_proto
-    ${AWS_LIBS}
-    # put this after lz4 to avoid using lz4 lib in librdkafka
-    librdkafka_cpp
-    librdkafka
-    xml2
-    lzma
-    simdjson
+    ${COMMON_THIRDPARTY}
 )
 
 if ((ARCH_AMD64 OR ARCH_AARCH64) AND OS_LINUX)
@@ -858,8 +506,15 @@ endif()
 if (absl_FOUND)
     set(COMMON_THIRDPARTY
         ${COMMON_THIRDPARTY}
-        absl::flat_hash_set
-        absl::str_format
+        absl::flags_internal
+        absl::flags_reflection
+        absl::random_internal_pool_urbg
+        absl::random_internal_randen
+        absl::random_internal_seed_material
+        absl::spinlock_wait
+        absl::status
+        absl::statusor
+        absl::strings
     )
 endif()
 
@@ -873,7 +528,7 @@ if (OS_MACOSX)
     )
 endif()
 
-if (${MAKE_TEST} STREQUAL "ON")
+if (MAKE_TEST)
     set(COMMON_THIRDPARTY
         ${COMMON_THIRDPARTY}
         benchmark
@@ -1002,7 +657,7 @@ if (ENABLE_CLANG_COVERAGE AND ENABLE_CLANG_COVERAGE STREQUAL ON AND COMPILER_CLA
     SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-instr-generate -fcoverage-mapping")
 endif ()
 
-if (${MAKE_TEST} STREQUAL "ON")
+if (MAKE_TEST)
     add_compile_options(-fprofile-arcs -ftest-coverage -DGTEST_USE_OWN_TR1_TUPLE=0)
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-arcs -ftest-coverage")
     if (NOT OS_MACOSX)
@@ -1031,7 +686,7 @@ else()
     message(STATUS "Link Flags: ${TEST_LINK_LIBS}")
 endif()
 
-if (ENABLE_PCH) 
+if (ENABLE_PCH)
     add_library(pch STATIC ${SRC_DIR}pch/pch.cc)
     target_precompile_headers(
         pch
@@ -1063,15 +718,21 @@ add_subdirectory(${SRC_DIR}/runtime)
 add_subdirectory(${SRC_DIR}/service)
 add_subdirectory(${SRC_DIR}/udf)
 
-if (BUILD_META_TOOL AND BUILD_META_TOOL STREQUAL "ON")
+option(BUILD_META_TOOL "Build meta tool" OFF)
+if (BUILD_META_TOOL)
     add_subdirectory(${SRC_DIR}/tools)
+endif()
+
+option(BUILD_INDEX_TOOL "Build index tool" OFF)
+if (BUILD_INDEX_TOOL)
+    add_subdirectory(${SRC_DIR}/index-tools)
 endif()
 
 add_subdirectory(${SRC_DIR}/util)
 add_subdirectory(${SRC_DIR}/vec)
 add_subdirectory(${SRC_DIR}/pipeline)
 
-if (${MAKE_TEST} STREQUAL "ON")
+if (MAKE_TEST)
     add_subdirectory(${TEST_DIR})
 endif ()
 

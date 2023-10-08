@@ -58,21 +58,21 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
 
     public PhysicalDistribute(DistributionSpec spec, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_DISTRIBUTION, groupExpression, logicalProperties, child);
+        super(PlanType.PHYSICAL_DISTRIBUTE, groupExpression, logicalProperties, child);
         this.distributionSpec = spec;
     }
 
     public PhysicalDistribute(DistributionSpec spec, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
             Statistics statistics, CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_DISTRIBUTION, groupExpression, logicalProperties, physicalProperties, statistics,
+        super(PlanType.PHYSICAL_DISTRIBUTE, groupExpression, logicalProperties, physicalProperties, statistics,
                 child);
         this.distributionSpec = spec;
     }
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalDistribute[" + id.asInt() + "]" + getGroupIdAsString(),
+        return Utils.toSqlString("PhysicalDistribute[" + id.asInt() + "]" + getGroupIdWithPrefix(),
                 "distributionSpec", distributionSpec,
                 "stats", statistics
         );
@@ -131,7 +131,7 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
 
     @Override
     public boolean pushDownRuntimeFilter(CascadesContext context, IdGenerator<RuntimeFilterId> generator,
-            AbstractPhysicalJoin builderNode, Expression src, Expression probeExpr,
+            AbstractPhysicalJoin<?, ?> builderNode, Expression src, Expression probeExpr,
             TRuntimeFilterType type, long buildSideNdv, int exprOrder) {
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
         Map<NamedExpression, Pair<PhysicalRelation, Slot>> aliasTransferMap = ctx.getAliasTransferMap();
@@ -139,21 +139,31 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
         // so right maybe an expression and left is a slot
         Slot probeSlot = RuntimeFilterGenerator.checkTargetChild(probeExpr);
 
-        // aliasTransMap doesn't contain the key, means that the path from the olap scan to the join
+        // aliasTransMap doesn't contain the key, means that the path from the scan to the join
         // contains join with denied join type. for example: a left join b on a.id = b.id
-        if (!RuntimeFilterGenerator.checkPushDownPreconditions(builderNode, ctx, probeSlot)) {
+        if (!RuntimeFilterGenerator.checkPushDownPreconditionsForJoin(builderNode, ctx, probeSlot)) {
             return false;
         }
         PhysicalRelation scan = aliasTransferMap.get(probeSlot).first;
-        if (!RuntimeFilterGenerator.isCoveredByPlanNode(this, scan)) {
+        if (!RuntimeFilterGenerator.checkPushDownPreconditionsForRelation(this, scan)) {
             return false;
         }
         // TODO: global rf need merge stage which is heavy
         // add some rule, such as bc only is allowed for
         // pushing down through distribute, currently always pushing.
         AbstractPhysicalPlan childPlan = (AbstractPhysicalPlan) child(0);
-        boolean pushedDown = childPlan.pushDownRuntimeFilter(context, generator, builderNode, src, probeExpr,
+        return childPlan.pushDownRuntimeFilter(context, generator, builderNode, src, probeExpr,
                 type, buildSideNdv, exprOrder);
-        return pushedDown;
+    }
+
+    @Override
+    public List<Slot> computeOutput() {
+        return child().getOutput();
+    }
+
+    @Override
+    public PhysicalDistribute<CHILD_TYPE> resetLogicalProperties() {
+        return new PhysicalDistribute<>(distributionSpec, groupExpression,
+                null, physicalProperties, statistics, child());
     }
 }

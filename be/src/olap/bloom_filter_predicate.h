@@ -155,7 +155,12 @@ private:
         return info;
     }
 
-    int get_filter_id() const override { return _filter->get_filter_id(); }
+    int get_filter_id() const override {
+        int filter_id = _filter->get_filter_id();
+        DCHECK(filter_id != -1);
+        return filter_id;
+    }
+    bool is_filter() const override { return true; }
 
     std::shared_ptr<BloomFilterFuncBase> _filter;
     SpecificFilter* _specific_filter; // owned by _filter

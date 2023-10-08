@@ -39,6 +39,8 @@
 #include "olap/olap_common.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
+#include "runtime/types.h"
+#include "udf/udf.h"
 #include "util/string_util.h"
 #include "util/thrift_rpc_helper.h"
 #include "vec/columns/column.h"
@@ -50,7 +52,6 @@
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/field.h"
-#include "vec/core/names.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
@@ -128,7 +129,8 @@ bool is_conversion_required_between_integers(FieldType lhs, FieldType rhs) {
     return true;
 }
 
-Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, ColumnPtr* result) {
+Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, ColumnPtr* result,
+                   RuntimeState* state) {
     ColumnsWithTypeAndName arguments;
     if (WhichDataType(type->get_type_id()).is_string()) {
         // Special handle ColumnString, since the original cast logic use ColumnString's first item
@@ -145,8 +147,9 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
     argnum.emplace_back(1);
     size_t result_column = tmp_block.columns();
     tmp_block.insert({nullptr, type, arg.name});
-    RETURN_IF_ERROR(
-            function->execute(nullptr, tmp_block, argnum, result_column, arg.column->size()));
+    auto need_state_only = FunctionContext::create_context(state, {}, {});
+    RETURN_IF_ERROR(function->execute(need_state_only.get(), tmp_block, argnum, result_column,
+                                      arg.column->size()));
     *result = std::move(tmp_block.get_by_position(result_column).column);
     return Status::OK();
 }
@@ -289,7 +292,8 @@ Status send_add_columns_rpc(ColumnsWithTypeAndName column_type_names,
     return Status::OK();
 }
 
-Status unfold_object(size_t dynamic_col_position, Block& block, bool cast_to_original_type) {
+Status unfold_object(size_t dynamic_col_position, Block& block, bool cast_to_original_type,
+                     RuntimeState* state) {
     auto dynamic_col = block.get_by_position(dynamic_col_position).column->assume_mutable();
     auto* column_object_ptr = assert_cast<ColumnObject*>(dynamic_col.get());
     if (column_object_ptr->empty()) {
@@ -300,7 +304,7 @@ Status unfold_object(size_t dynamic_col_position, Block& block, bool cast_to_ori
     CHECK(column_object_ptr->is_finalized());
     Columns subcolumns;
     DataTypes types;
-    Names names;
+    std::vector<std::string> names;
     std::unordered_set<std::string> static_column_names;
 
     // extract columns from dynamic column
@@ -324,8 +328,8 @@ Status unfold_object(size_t dynamic_col_position, Block& block, bool cast_to_ori
             }
             if (cast_to_original_type && !dst_type->equals(*types[i])) {
                 // Cast static columns to original slot type
-                RETURN_IF_ERROR(
-                        schema_util::cast_column({subcolumns[i], types[i], ""}, dst_type, &column));
+                RETURN_IF_ERROR(schema_util::cast_column({subcolumns[i], types[i], ""}, dst_type,
+                                                         &column, state));
             }
             // replace original column
             column_type_name->column = column;

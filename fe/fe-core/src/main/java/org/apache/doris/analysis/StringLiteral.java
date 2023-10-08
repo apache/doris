@@ -24,8 +24,6 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.qe.VariableVarConverters;
 import org.apache.doris.thrift.TExprNode;
@@ -199,9 +197,9 @@ public class StringLiteral extends LiteralExpr {
         return newLiteral;
     }
 
-    public boolean canConvertToDateV2(Type targetType) {
+    public boolean canConvertToDateType(Type targetType) {
         try {
-            Preconditions.checkArgument(targetType.isDateV2());
+            Preconditions.checkArgument(targetType.isDateType());
             new DateLiteral(value, targetType);
             return true;
         } catch (AnalysisException e) {
@@ -240,9 +238,9 @@ public class StringLiteral extends LiteralExpr {
                     try {
                         return new FloatLiteral(Double.valueOf(value), targetType);
                     } catch (NumberFormatException e) {
-                        ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_NUMBER, value);
+                        // consistent with CastExpr's getResultValue() method
+                        return new NullLiteral();
                     }
-                    break;
                 case DECIMALV2:
                 case DECIMAL32:
                 case DECIMAL64:
@@ -261,7 +259,7 @@ public class StringLiteral extends LiteralExpr {
         } else if (targetType.isDateType()) {
             // FE only support 'yyyy-MM-dd hh:mm:ss' && 'yyyy-MM-dd' format
             // so if FE unchecked cast fail, we also build CastExpr for BE
-            // BE support other format suck as 'yyyyMMdd'...
+            // BE support other format such as 'yyyyMMdd'...
             try {
                 return convertToDate(targetType);
             } catch (AnalysisException e) {

@@ -28,6 +28,7 @@
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/object_pool.h"
+#include "common/status.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -46,7 +47,6 @@
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vmap_literal.h"
 #include "vec/exprs/vmatch_predicate.h"
-#include "vec/exprs/vschema_change_expr.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/exprs/vstruct_literal.h"
 #include "vec/exprs/vtuple_is_null_predicate.h"
@@ -55,6 +55,94 @@
 namespace doris {
 class RowDescriptor;
 class RuntimeState;
+TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, int precision,
+                                 int scale) {
+    TExprNode node;
+
+    switch (type) {
+    case TYPE_BOOLEAN: {
+        static_cast<void>(create_texpr_literal_node<TYPE_BOOLEAN>(data, &node));
+        break;
+    }
+    case TYPE_TINYINT: {
+        static_cast<void>(create_texpr_literal_node<TYPE_TINYINT>(data, &node));
+        break;
+    }
+    case TYPE_SMALLINT: {
+        static_cast<void>(create_texpr_literal_node<TYPE_SMALLINT>(data, &node));
+        break;
+    }
+    case TYPE_INT: {
+        static_cast<void>(create_texpr_literal_node<TYPE_INT>(data, &node));
+        break;
+    }
+    case TYPE_BIGINT: {
+        static_cast<void>(create_texpr_literal_node<TYPE_BIGINT>(data, &node));
+        break;
+    }
+    case TYPE_LARGEINT: {
+        static_cast<void>(create_texpr_literal_node<TYPE_LARGEINT>(data, &node));
+        break;
+    }
+    case TYPE_FLOAT: {
+        static_cast<void>(create_texpr_literal_node<TYPE_FLOAT>(data, &node));
+        break;
+    }
+    case TYPE_DOUBLE: {
+        static_cast<void>(create_texpr_literal_node<TYPE_DOUBLE>(data, &node));
+        break;
+    }
+    case TYPE_DATEV2: {
+        static_cast<void>(create_texpr_literal_node<TYPE_DATEV2>(data, &node));
+        break;
+    }
+    case TYPE_DATETIMEV2: {
+        static_cast<void>(create_texpr_literal_node<TYPE_DATETIMEV2>(data, &node));
+        break;
+    }
+    case TYPE_DATE: {
+        static_cast<void>(create_texpr_literal_node<TYPE_DATE>(data, &node));
+        break;
+    }
+    case TYPE_DATETIME: {
+        static_cast<void>(create_texpr_literal_node<TYPE_DATETIME>(data, &node));
+        break;
+    }
+    case TYPE_DECIMALV2: {
+        static_cast<void>(create_texpr_literal_node<TYPE_DECIMALV2>(data, &node, precision, scale));
+        break;
+    }
+    case TYPE_DECIMAL32: {
+        static_cast<void>(create_texpr_literal_node<TYPE_DECIMAL32>(data, &node, precision, scale));
+        break;
+    }
+    case TYPE_DECIMAL64: {
+        static_cast<void>(create_texpr_literal_node<TYPE_DECIMAL64>(data, &node, precision, scale));
+        break;
+    }
+    case TYPE_DECIMAL128I: {
+        static_cast<void>(
+                create_texpr_literal_node<TYPE_DECIMAL128I>(data, &node, precision, scale));
+        break;
+    }
+    case TYPE_CHAR: {
+        static_cast<void>(create_texpr_literal_node<TYPE_CHAR>(data, &node));
+        break;
+    }
+    case TYPE_VARCHAR: {
+        static_cast<void>(create_texpr_literal_node<TYPE_VARCHAR>(data, &node));
+        break;
+    }
+    case TYPE_STRING: {
+        static_cast<void>(create_texpr_literal_node<TYPE_STRING>(data, &node));
+        break;
+    }
+    default:
+        DCHECK(false);
+        throw std::invalid_argument("Invalid type!");
+    }
+    return node;
+}
 } // namespace doris
 
 namespace doris::vectorized {
@@ -113,6 +201,9 @@ Status VExpr::open(RuntimeState* state, VExprContext* context,
                    FunctionContext::FunctionStateScope scope) {
     for (int i = 0; i < _children.size(); ++i) {
         RETURN_IF_ERROR(_children[i]->open(state, context, scope));
+    }
+    if (scope == FunctionContext::FRAGMENT_LOCAL) {
+        RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
     }
     return Status::OK();
 }
@@ -204,16 +295,17 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
             expr = VTupleIsNullPredicate::create_shared(expr_node);
             break;
         }
-        case TExprNodeType::SCHEMA_CHANGE_EXPR: {
-            expr = VSchemaChangeExpr::create_shared(expr_node);
-            break;
-        }
         default:
             return Status::InternalError("Unknown expr node type: {}", expr_node.node_type);
         }
     } catch (const Exception& e) {
-        return Status::InternalError("create expr failed, TExprNode={}, reason={}",
-                                     apache::thrift::ThriftDebugString(expr_node), e.what());
+        if (e.code() == ErrorCode::INTERNAL_ERROR) {
+            return Status::InternalError("Create Expr failed because {}\nTExprNode={}", e.what(),
+                                         apache::thrift::ThriftDebugString(expr_node));
+        }
+        return Status::Error<false>(e.code(), "Create Expr failed because {}", e.what());
+        LOG(WARNING) << "create expr failed, TExprNode={}, reason={}"
+                     << apache::thrift::ThriftDebugString(expr_node) << e.what();
     }
     if (!expr->data_type()) {
         return Status::InvalidArgument("Unknown expr type: {}", expr_node.node_type);
@@ -378,6 +470,7 @@ Status VExpr::get_const_col(VExprContext* context,
     }
 
     if (_constant_col != nullptr) {
+        DCHECK(column_wrapper != nullptr);
         *column_wrapper = _constant_col;
         return Status::OK();
     }
@@ -391,7 +484,10 @@ Status VExpr::get_const_col(VExprContext* context,
     DCHECK(result != -1);
     const auto& column = block.get_by_position(result).column;
     _constant_col = std::make_shared<ColumnPtrWrapper>(column);
-    *column_wrapper = _constant_col;
+    if (column_wrapper != nullptr) {
+        *column_wrapper = _constant_col;
+    }
+
     return Status::OK();
 }
 
@@ -429,9 +525,9 @@ void VExpr::close_function_context(VExprContext* context, FunctionContext::Funct
                                    const FunctionBasePtr& function) const {
     if (_fn_context_index != -1) {
         FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
-        function->close(fn_ctx, FunctionContext::THREAD_LOCAL);
+        static_cast<void>(function->close(fn_ctx, FunctionContext::THREAD_LOCAL));
         if (scope == FunctionContext::FRAGMENT_LOCAL) {
-            function->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
+            static_cast<void>(function->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
         }
     }
 }

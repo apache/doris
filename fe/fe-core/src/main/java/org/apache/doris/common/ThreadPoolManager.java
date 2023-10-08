@@ -17,6 +17,7 @@
 
 package org.apache.doris.common;
 
+
 import org.apache.doris.metric.Metric;
 import org.apache.doris.metric.Metric.MetricUnit;
 import org.apache.doris.metric.MetricLabel;
@@ -45,7 +46,6 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
-
 /**
  * ThreadPoolManager is a helper class for construct daemon thread pool with limit thread and memory resource.
  * thread names in thread pool are formatted as poolName-ID, where ID is a unique, sequentially assigned integer.
@@ -131,6 +131,15 @@ public class ThreadPoolManager {
                                                               boolean needRegisterMetric) {
         return newDaemonThreadPool(numThread, numThread, KEEP_ALIVE_TIME, TimeUnit.SECONDS,
                 new LinkedBlockingQueue<>(queueSize), new BlockedPolicy(poolName, timeoutSeconds),
+                poolName, needRegisterMetric);
+    }
+
+    public static ThreadPoolExecutor newDaemonFixedThreadPool(int numThread, int queueSize,
+                                                              String poolName,
+                                                              boolean needRegisterMetric,
+                                                              RejectedExecutionHandler handler) {
+        return newDaemonThreadPool(numThread, numThread, KEEP_ALIVE_TIME, TimeUnit.SECONDS,
+                new LinkedBlockingQueue<>(queueSize), handler,
                 poolName, needRegisterMetric);
     }
 

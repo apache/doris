@@ -1,6 +1,6 @@
 ---
 {
-    "title": "sequence 列",
+    "title": "Sequence 列",
     "language": "zh-CN"
 }
 ---

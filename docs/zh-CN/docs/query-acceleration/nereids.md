@@ -83,4 +83,4 @@ SET enable_fallback_to_original_planner=true;
 
 ### 已知问题
 
-- 不支持命中 Query Cache 和 Partition Cache
+- 不支持命中 Partition Cache

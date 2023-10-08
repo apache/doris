@@ -58,7 +58,7 @@ namespace doris::vectorized {
 
 template <typename T>
 struct AggregateFunctionAvgData {
-    T sum = 0;
+    T sum {};
     UInt64 count = 0;
 
     AggregateFunctionAvgData& operator=(const AggregateFunctionAvgData<T>& src) {
@@ -135,6 +135,9 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
+#ifdef __clang__
+#pragma clang fp reassociate(on)
+#endif
         const auto& column = assert_cast<const ColVecType&>(*columns[0]);
         if constexpr (IsDecimalNumber<T>) {
             this->data(place).sum += column.get_data()[row_num].value;
@@ -145,7 +148,7 @@ public:
     }
 
     void reset(AggregateDataPtr place) const override {
-        this->data(place).sum = 0;
+        this->data(place).sum = {};
         this->data(place).count = 0;
     }
 
@@ -231,6 +234,22 @@ public:
             this->data(place).sum += data[i].sum;
             this->data(place).count += data[i].count;
         }
+    }
+
+    void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
+                                   AggregateDataPtr rhs, const ColumnString* column, Arena* arena,
+                                   const size_t num_rows) const override {
+        this->deserialize_from_column(rhs, *column, arena, num_rows);
+        DEFER({ this->destroy_vec(rhs, num_rows); });
+        this->merge_vec(places, offset, rhs, arena, num_rows);
+    }
+
+    void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
+                                            AggregateDataPtr rhs, const ColumnString* column,
+                                            Arena* arena, const size_t num_rows) const override {
+        this->deserialize_from_column(rhs, *column, arena, num_rows);
+        DEFER({ this->destroy_vec(rhs, num_rows); });
+        this->merge_vec_selected(places, offset, rhs, arena, num_rows);
     }
 
     void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,

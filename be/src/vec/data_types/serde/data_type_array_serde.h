@@ -38,12 +38,39 @@ class DataTypeArraySerDe : public DataTypeSerDe {
 public:
     DataTypeArraySerDe(const DataTypeSerDeSPtr& _nested_serde) : nested_serde(_nested_serde) {}
 
+    Status serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
+                                      FormatOptions& options, int nesting_level = 1) const override;
+
+    Status serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
+                                    BufferWritable& bw, FormatOptions& options,
+                                    int nesting_level = 1) const override;
+
+    Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
+                                          const FormatOptions& options,
+                                          int nesting_level = 1) const override;
+
+    Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
+                                               int* num_deserialized, const FormatOptions& options,
+                                               int nesting_level = 1) const override;
+    Status deserialize_one_cell_from_hive_text(IColumn& column, Slice& slice,
+                                               const FormatOptions& options,
+                                               int nesting_level = 1) const override;
+
+    Status deserialize_column_from_hive_text_vector(IColumn& column, std::vector<Slice>& slices,
+                                                    int* num_deserialized,
+                                                    const FormatOptions& options,
+                                                    int nesting_level = 1) const override;
+    void serialize_one_cell_to_hive_text(const IColumn& column, int row_num, BufferWritable& bw,
+                                         FormatOptions& options,
+                                         int nesting_level = 1) const override;
+
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override {
-        LOG(FATAL) << "Not support write array column to pb";
+        return Status::NotSupported("write_column_to_pb with type " + column.get_name());
     }
+
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override {
-        LOG(FATAL) << "Not support read from pb to array";
+        return Status::NotSupported("read_column_from_pb with type " + column.get_name());
     }
 
     void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena* mem_pool,
@@ -61,6 +88,10 @@ public:
                                  int row_idx, bool col_const) const override;
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
                                  int row_idx, bool col_const) const override;
+
+    Status write_column_to_orc(const IColumn& column, const NullMap* null_map,
+                               orc::ColumnVectorBatch* orc_col_batch, int start, int end,
+                               std::vector<StringRef>& buffer_list) const override;
 
     void set_return_object_as_string(bool value) override {
         DataTypeSerDe::set_return_object_as_string(value);

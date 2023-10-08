@@ -32,6 +32,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
+import org.apache.doris.statistics.ColStatsMeta;
 import org.apache.doris.statistics.ColumnStatistic;
 
 import com.google.common.collect.ImmutableList;
@@ -39,8 +40,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
 import java.util.List;
-import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -56,6 +55,10 @@ public class ShowColumnStatsStmt extends ShowStmt {
                     .add("avg_size_byte")
                     .add("min")
                     .add("max")
+                    .add("method")
+                    .add("type")
+                    .add("trigger")
+                    .add("query_times")
                     .add("updated_time")
                     .build();
 
@@ -91,15 +94,15 @@ public class ShowColumnStatsStmt extends ShowStmt {
         }
         CatalogIf<DatabaseIf> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(tableName.getCtl());
         if (catalog == null) {
-            ErrorReport.reportAnalysisException("Catalog: {} not exists", tableName.getCtl());
+            ErrorReport.reportAnalysisException("Catalog: %s not exists", tableName.getCtl());
         }
         DatabaseIf<TableIf> db = catalog.getDb(tableName.getDb()).orElse(null);
         if (db == null) {
-            ErrorReport.reportAnalysisException("DB: {} not exists", tableName.getDb());
+            ErrorReport.reportAnalysisException("DB: %s not exists", tableName.getDb());
         }
         table = db.getTable(tableName.getTbl()).orElse(null);
         if (table == null) {
-            ErrorReport.reportAnalysisException("Table: {} not exists", tableName.getTbl());
+            ErrorReport.reportAnalysisException("Table: %s not exists", tableName.getTbl());
         }
 
         if (!Env.getCurrentEnv().getAccessManager()
@@ -110,12 +113,10 @@ public class ShowColumnStatsStmt extends ShowStmt {
         }
 
         if (columnNames != null) {
-            Optional<Column> nullColumn = columnNames.stream()
-                    .map(table::getColumn)
-                    .filter(Objects::isNull)
-                    .findFirst();
-            if (nullColumn.isPresent()) {
-                ErrorReport.reportAnalysisException("Column: {} not exists", nullColumn.get());
+            for (String name : columnNames) {
+                if (table.getColumn(name) == null) {
+                    ErrorReport.reportAnalysisException("Column: %s not exists", name);
+                }
             }
         }
     }
@@ -140,6 +141,7 @@ public class ShowColumnStatsStmt extends ShowStmt {
             if (p.second.isUnKnown) {
                 return;
             }
+
             List<String> row = Lists.newArrayList();
             row.add(p.first);
             row.add(String.valueOf(p.second.count));
@@ -149,6 +151,12 @@ public class ShowColumnStatsStmt extends ShowStmt {
             row.add(String.valueOf(p.second.avgSizeByte));
             row.add(String.valueOf(p.second.minExpr == null ? "N/A" : p.second.minExpr.toSql()));
             row.add(String.valueOf(p.second.maxExpr == null ? "N/A" : p.second.maxExpr.toSql()));
+            ColStatsMeta colStatsMeta = Env.getCurrentEnv().getAnalysisManager().findColStatsMeta(table.getId(),
+                    p.first);
+            row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.analysisMethod));
+            row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.analysisType));
+            row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.jobType));
+            row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.queriedTimes));
             row.add(String.valueOf(p.second.updatedTime));
             result.add(row);
         });

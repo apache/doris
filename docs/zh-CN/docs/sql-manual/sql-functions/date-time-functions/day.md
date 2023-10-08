@@ -1,6 +1,6 @@
 ---
 {
-    "title": "day",
+    "title": "DAY",
     "language": "zh-CN"
 }
 ---

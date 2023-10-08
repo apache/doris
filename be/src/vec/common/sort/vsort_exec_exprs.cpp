@@ -22,6 +22,7 @@
 #include <stddef.h>
 
 #include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 class ObjectPool;
@@ -85,5 +86,26 @@ Status VSortExecExprs::open(RuntimeState* state) {
 }
 
 void VSortExecExprs::close(RuntimeState* state) {}
+
+Status VSortExecExprs::clone(RuntimeState* state, VSortExecExprs& new_exprs) {
+    new_exprs._lhs_ordering_expr_ctxs.resize(_lhs_ordering_expr_ctxs.size());
+    new_exprs._rhs_ordering_expr_ctxs.resize(_rhs_ordering_expr_ctxs.size());
+    for (size_t i = 0; i < _lhs_ordering_expr_ctxs.size(); i++) {
+        RETURN_IF_ERROR(
+                _lhs_ordering_expr_ctxs[i]->clone(state, new_exprs._lhs_ordering_expr_ctxs[i]));
+    }
+    for (size_t i = 0; i < _rhs_ordering_expr_ctxs.size(); i++) {
+        RETURN_IF_ERROR(
+                _rhs_ordering_expr_ctxs[i]->clone(state, new_exprs._rhs_ordering_expr_ctxs[i]));
+    }
+    new_exprs._sort_tuple_slot_expr_ctxs.resize(_sort_tuple_slot_expr_ctxs.size());
+    for (size_t i = 0; i < _sort_tuple_slot_expr_ctxs.size(); i++) {
+        RETURN_IF_ERROR(_sort_tuple_slot_expr_ctxs[i]->clone(
+                state, new_exprs._sort_tuple_slot_expr_ctxs[i]));
+    }
+    new_exprs._materialize_tuple = _materialize_tuple;
+    new_exprs._need_convert_to_nullable_flags = _need_convert_to_nullable_flags;
+    return Status::OK();
+}
 
 } // namespace doris::vectorized

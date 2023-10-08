@@ -69,7 +69,7 @@ To ensure that the data sequence between different replicas is unique, you can r
 
 ### Q5. The problem of querying bitmap/hll type data returns NULL
 
-In version 1.1.x, when vectorization is enabled, and the bitmp type field in the query data table returns a NULL result,
+In version 1.1.x, when vectorization is enabled, and the bitmap type field in the query data table returns a NULL result,
 
 1. First you have to `set return_object_data_as_binary=true;`
 2. Turn off vectorization `set enable_vectorized_engine=false;`
@@ -94,3 +94,8 @@ If the `curl 77: Problem with the SSL CA cert` error appears in the be.INFO log.
 1. Download the certificate at [https://curl.se/docs/caextract.html](https://curl.se/docs/caextract.html): cacert.pem
 2. Copy the certificate to the specified location: `sudo cp /tmp/cacert.pem /etc/ssl/certs/ca-certificates.crt`
 3. Restart the BE node.
+
+### Q7. import error："Message": "[INTERNAL_ERROR]single replica load is disabled on BE."
+
+1. Add parameters in be.conf : enable_single_replica_load = true
+2.  Restart the BE node.

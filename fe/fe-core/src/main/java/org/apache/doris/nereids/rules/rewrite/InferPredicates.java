@@ -25,12 +25,12 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
-import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -65,28 +65,31 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
         Plan left = join.left();
         Plan right = join.right();
         Set<Expression> expressions = getAllExpressions(left, right, join.getOnClauseCondition());
-        List<Expression> otherJoinConjuncts = Lists.newArrayList(join.getOtherJoinConjuncts());
         switch (join.getJoinType()) {
             case INNER_JOIN:
             case CROSS_JOIN:
             case LEFT_SEMI_JOIN:
             case RIGHT_SEMI_JOIN:
-                otherJoinConjuncts.addAll(inferNewPredicate(left, expressions));
-                otherJoinConjuncts.addAll(inferNewPredicate(right, expressions));
+                left = inferNewPredicate(left, expressions);
+                right = inferNewPredicate(right, expressions);
                 break;
             case LEFT_OUTER_JOIN:
             case LEFT_ANTI_JOIN:
             case NULL_AWARE_LEFT_ANTI_JOIN:
-                otherJoinConjuncts.addAll(inferNewPredicate(right, expressions));
+                right = inferNewPredicate(right, expressions);
                 break;
             case RIGHT_OUTER_JOIN:
             case RIGHT_ANTI_JOIN:
-                otherJoinConjuncts.addAll(inferNewPredicate(left, expressions));
+                left = inferNewPredicate(left, expressions);
                 break;
             default:
-                return join;
+                break;
         }
-        return join.withOtherJoinConjuncts(otherJoinConjuncts);
+        if (left != join.left() || right != join.right()) {
+            return join.withChildren(ImmutableList.of(left, right));
+        } else {
+            return join;
+        }
     }
 
     @Override
@@ -114,12 +117,12 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
         return Sets.newHashSet(plan.accept(pollUpPredicates, null));
     }
 
-    private List<Expression> inferNewPredicate(Plan plan, Set<Expression> expressions) {
-        List<Expression> predicates = expressions.stream()
+    private Plan inferNewPredicate(Plan plan, Set<Expression> expressions) {
+        Set<Expression> predicates = expressions.stream()
                 .filter(c -> !c.getInputSlots().isEmpty() && plan.getOutputSet().containsAll(
-                        c.getInputSlots())).collect(Collectors.toList());
+                        c.getInputSlots())).collect(Collectors.toSet());
         predicates.removeAll(plan.accept(pollUpPredicates, null));
-        return predicates;
+        return PlanUtils.filterOrSelf(predicates, plan);
     }
 }
 

@@ -19,6 +19,7 @@
 
 #include <fcntl.h>
 #include <fmt/format.h>
+#include <glob.h>
 #include <glog/logging.h>
 #include <openssl/md5.h>
 #include <sys/mman.h>
@@ -43,7 +44,6 @@
 
 namespace doris {
 namespace io {
-class FileReaderOptions;
 
 std::shared_ptr<LocalFileSystem> LocalFileSystem::create(Path path, std::string id) {
     return std::shared_ptr<LocalFileSystem>(new LocalFileSystem(std::move(path), std::move(id)));
@@ -54,31 +54,30 @@ LocalFileSystem::LocalFileSystem(Path&& root_path, std::string&& id)
 
 LocalFileSystem::~LocalFileSystem() = default;
 
-Status LocalFileSystem::create_file_impl(const Path& file, FileWriterPtr* writer) {
+Status LocalFileSystem::create_file_impl(const Path& file, FileWriterPtr* writer,
+                                         const FileWriterOptions* opts) {
     int fd = ::open(file.c_str(), O_TRUNC | O_WRONLY | O_CREAT | O_CLOEXEC, 0666);
     if (-1 == fd) {
         return Status::IOError("failed to open {}: {}", file.native(), errno_to_str());
     }
     *writer = std::make_unique<LocalFileWriter>(
-            std::move(file), fd, std::static_pointer_cast<LocalFileSystem>(shared_from_this()));
+            file, fd, std::static_pointer_cast<LocalFileSystem>(shared_from_this()));
     return Status::OK();
 }
 
-Status LocalFileSystem::open_file_impl(const FileDescription& file_desc, const Path& abs_path,
-                                       const FileReaderOptions& /*reader_options*/,
-                                       FileReaderSPtr* reader) {
-    int64_t fsize = file_desc.file_size;
-    if (fsize <= 0) {
-        RETURN_IF_ERROR(file_size_impl(abs_path, &fsize));
+Status LocalFileSystem::open_file_impl(const Path& file, FileReaderSPtr* reader,
+                                       const FileReaderOptions* opts) {
+    int64_t fsize = opts ? opts->file_size : -1;
+    if (fsize < 0) {
+        RETURN_IF_ERROR(file_size_impl(file, &fsize));
     }
     int fd = -1;
-    RETRY_ON_EINTR(fd, open(abs_path.c_str(), O_RDONLY));
+    RETRY_ON_EINTR(fd, open(file.c_str(), O_RDONLY));
     if (fd < 0) {
-        return Status::IOError("failed to open {}: {}", abs_path.native(), errno_to_str());
+        return Status::IOError("failed to open {}: {}", file.native(), errno_to_str());
     }
     *reader = std::make_shared<LocalFileReader>(
-            std::move(abs_path), fsize, fd,
-            std::static_pointer_cast<LocalFileSystem>(shared_from_this()));
+            file, fsize, fd, std::static_pointer_cast<LocalFileSystem>(shared_from_this()));
     return Status::OK();
 }
 
@@ -408,9 +407,7 @@ bool LocalFileSystem::contain_path(const Path& parent_, const Path& sub_) {
 
 Status LocalFileSystem::read_file_to_string(const Path& file, std::string* content) {
     FileReaderSPtr file_reader;
-    FileDescription fd;
-    fd.path = file.native();
-    RETURN_IF_ERROR(open_file(fd, &file_reader));
+    RETURN_IF_ERROR(open_file(file, &file_reader));
     size_t file_size = file_reader->size();
     content->resize(file_size);
     size_t bytes_read = 0;
@@ -426,6 +423,55 @@ static std::shared_ptr<LocalFileSystem> local_fs = io::LocalFileSystem::create("
 
 const std::shared_ptr<LocalFileSystem>& global_local_filesystem() {
     return local_fs;
+}
+
+Status LocalFileSystem::canonicalize_local_file(const std::string& dir,
+                                                const std::string& file_path,
+                                                std::string* full_path) {
+    const std::string absolute_path = dir + "/" + file_path;
+    std::string canonical_path;
+    RETURN_IF_ERROR(canonicalize(absolute_path, &canonical_path));
+    if (!contain_path(dir, canonical_path)) {
+        return Status::InvalidArgument("file path is not allowed: {}", canonical_path);
+    }
+
+    *full_path = canonical_path;
+    return Status::OK();
+}
+
+Status LocalFileSystem::safe_glob(const std::string& path, std::vector<FileInfo>* res) {
+    if (path.find("..") != std::string::npos) {
+        return Status::InvalidArgument("can not contain '..' in path");
+    }
+    std::string full_path = config::user_files_secure_path + "/" + path;
+    std::vector<std::string> files;
+    RETURN_IF_ERROR(_glob(full_path, &files));
+    for (auto& file : files) {
+        FileInfo fi;
+        fi.is_file = true;
+        RETURN_IF_ERROR(canonicalize_local_file("", file, &(fi.file_name)));
+        RETURN_IF_ERROR(file_size_impl(fi.file_name, &(fi.file_size)));
+        res->push_back(std::move(fi));
+    }
+    return Status::OK();
+}
+
+Status LocalFileSystem::_glob(const std::string& pattern, std::vector<std::string>* res) {
+    glob_t glob_result;
+    memset(&glob_result, 0, sizeof(glob_result));
+
+    int rc = glob(pattern.c_str(), GLOB_TILDE, NULL, &glob_result);
+    if (rc != 0) {
+        globfree(&glob_result);
+        return Status::IOError("failed to glob {}: {}", pattern, glob_err_to_str(rc));
+    }
+
+    for (size_t i = 0; i < glob_result.gl_pathc; ++i) {
+        res->push_back(std::string(glob_result.gl_pathv[i]));
+    }
+
+    globfree(&glob_result);
+    return Status::OK();
 }
 
 } // namespace io

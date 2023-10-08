@@ -55,19 +55,21 @@ public class PaimonExternalTable extends ExternalTable {
     protected synchronized void makeSureInitialized() {
         super.makeSureInitialized();
         if (!objectCreated) {
+            originTable = ((PaimonExternalCatalog) catalog).getPaimonTable(dbName, name);
+            lastUpdateTime = System.currentTimeMillis();
             objectCreated = true;
         }
     }
 
     public Table getOriginTable() {
-        if (originTable == null) {
-            originTable = ((PaimonExternalCatalog) catalog).getPaimonTable(dbName, name);
-        }
+        makeSureInitialized();
         return originTable;
     }
 
     @Override
     public List<Column> initSchema() {
+        //init schema need update lastUpdateTime and get latest schema
+        objectCreated = false;
         Table table = getOriginTable();
         TableSchema schema = ((AbstractFileStoreTable) table).schema();
         List<DataField> columns = schema.fields();
@@ -94,9 +96,12 @@ public class PaimonExternalTable extends ExternalTable {
                 return Type.DOUBLE;
             case SMALLINT:
                 return Type.SMALLINT;
+            case TINYINT:
+                return Type.TINYINT;
             case VARCHAR:
             case BINARY:
             case CHAR:
+            case VARBINARY:
                 return Type.STRING;
             case DECIMAL:
                 DecimalType decimal = (DecimalType) dataType;

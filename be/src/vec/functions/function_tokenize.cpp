@@ -20,28 +20,46 @@
 #include <glog/logging.h>
 
 #include <algorithm>
+#include <regex>
 #include <utility>
 
 #include "CLucene/StdHeader.h"
 #include "CLucene/config/repl_wchar.h"
 #include "olap/inverted_index_parser.h"
-#include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "vec/columns/column.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
-#include "vec/core/field.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
 
-void FunctionTokenize::_execute_constant(const ColumnString& src_column_string,
-                                         const StringRef& tokenize_type,
-                                         IColumn& dest_nested_column,
-                                         ColumnArray::Offsets64& dest_offsets,
-                                         NullMapType* dest_nested_null_map) {
+Status parse(const std::string& str, std::map<std::string, std::string>& result) {
+    std::regex pattern(
+            R"delimiter((?:'([^']*)'|"([^"]*)"|([^,]*))\s*=\s*(?:'([^']*)'|"([^"]*)"|([^,]*)))delimiter");
+    std::smatch matches;
+
+    std::string::const_iterator searchStart(str.cbegin());
+    while (std::regex_search(searchStart, str.cend(), matches, pattern)) {
+        std::string key =
+                matches[1].length() ? matches[1] : (matches[2].length() ? matches[2] : matches[3]);
+        std::string value =
+                matches[4].length() ? matches[4] : (matches[5].length() ? matches[5] : matches[6]);
+
+        result[key] = value;
+
+        searchStart = matches.suffix().first;
+    }
+
+    return Status::OK();
+}
+
+void FunctionTokenize::_do_tokenize(const ColumnString& src_column_string,
+                                    InvertedIndexCtx& inverted_index_ctx,
+                                    IColumn& dest_nested_column,
+                                    ColumnArray::Offsets64& dest_offsets,
+                                    NullMapType* dest_nested_null_map) const {
     ColumnString& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
     ColumnString::Chars& column_string_chars = dest_column_string.get_chars();
     ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
@@ -51,25 +69,6 @@ void FunctionTokenize::_execute_constant(const ColumnString& src_column_string,
     ColumnArray::Offset64 dest_pos = 0;
     ColumnArray::Offset64 src_offsets_size = src_column_string.get_offsets().size();
 
-    InvertedIndexCtx inverted_index_ctx;
-    auto parser_type = get_inverted_index_parser_type_from_string(tokenize_type.to_string());
-
-    switch (parser_type) {
-    case InvertedIndexParserType::PARSER_CHINESE: {
-        // we don't support parse_mode params now, so make it default.
-        inverted_index_ctx.parser_mode = INVERTED_INDEX_PARSER_COARSE_GRANULARITY;
-        inverted_index_ctx.parser_type = parser_type;
-        break;
-    }
-    case InvertedIndexParserType::PARSER_UNICODE: {
-        inverted_index_ctx.parser_type = parser_type;
-        break;
-    }
-    default:
-        // default as english
-        inverted_index_ctx.parser_type = InvertedIndexParserType::PARSER_ENGLISH;
-    }
-
     for (size_t i = 0; i < src_offsets_size; i++) {
         const StringRef tokenize_str = src_column_string.get_data_at(i);
 
@@ -77,13 +76,14 @@ void FunctionTokenize::_execute_constant(const ColumnString& src_column_string,
             dest_offsets.push_back(dest_pos);
             continue;
         }
-        std::vector<std::wstring> query_tokens =
+        auto reader = doris::segment_v2::InvertedIndexReader::create_reader(
+                &inverted_index_ctx, tokenize_str.to_string());
+
+        std::vector<std::string> query_tokens =
                 doris::segment_v2::InvertedIndexReader::get_analyse_result(
-                        "tokenize", tokenize_str.to_string(),
-                        doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY,
-                        &inverted_index_ctx);
-        for (auto token_ws : query_tokens) {
-            std::string token = lucene_wcstoutf8string(token_ws.data(), token_ws.length());
+                        reader.get(), inverted_index_ctx.analyzer, "tokenize",
+                        doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY);
+        for (auto token : query_tokens) {
             const size_t old_size = column_string_chars.size();
             const size_t split_part_size = token.length();
             if (split_part_size > 0) {
@@ -105,7 +105,7 @@ void FunctionTokenize::_execute_constant(const ColumnString& src_column_string,
 
 Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block,
                                       const ColumnNumbers& arguments, size_t result,
-                                      size_t /*input_rows_count*/) {
+                                      size_t /*input_rows_count*/) const {
     DCHECK_EQ(arguments.size(), 2);
     const auto& [src_column, left_const] =
             unpack_if_const(block.get_by_position(arguments[0]).column);
@@ -129,13 +129,27 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
 
     if (auto col_left = check_and_get_column<ColumnString>(src_column.get())) {
         if (auto col_right = check_and_get_column<ColumnString>(right_column.get())) {
-            _execute_constant(*col_left, col_right->get_data_at(0), *dest_nested_column,
-                              dest_offsets, dest_nested_null_map);
+            InvertedIndexCtx inverted_index_ctx;
+            std::map<std::string, std::string> properties;
+            auto st = parse(col_right->get_data_at(0).to_string(), properties);
+            if (!st.ok()) {
+                return st;
+            }
+            inverted_index_ctx.parser_type = get_inverted_index_parser_type_from_string(
+                    get_parser_string_from_properties(properties));
+            inverted_index_ctx.parser_mode = get_parser_mode_string_from_properties(properties);
+            inverted_index_ctx.char_filter_map =
+                    get_parser_char_filter_map_from_properties(properties);
+            auto analyzer =
+                    doris::segment_v2::InvertedIndexReader::create_analyzer(&inverted_index_ctx);
+            inverted_index_ctx.analyzer = analyzer.get();
+            _do_tokenize(*col_left, inverted_index_ctx, *dest_nested_column, dest_offsets,
+                         dest_nested_null_map);
 
             block.replace_by_position(result, std::move(dest_column_ptr));
             return Status::OK();
         }
     }
-    return Status::RuntimeError("unimplements function {}", get_name());
+    return Status::RuntimeError("unimplemented function {}", get_name());
 }
 } // namespace doris::vectorized

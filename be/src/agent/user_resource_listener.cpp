@@ -95,7 +95,7 @@ void UserResourceListener::update_users_resource(int64_t new_version) {
         }
     } catch (TException& e) {
         // Already try twice, log here
-        client.reopen(config::thrift_rpc_timeout_ms);
+        static_cast<void>(client.reopen(config::thrift_rpc_timeout_ms));
         LOG(WARNING) << "retry to fetchResource from  " << _master_info.network_address.hostname
                      << ":" << _master_info.network_address.port << " failed:\n"
                      << e.what();
