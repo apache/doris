@@ -351,7 +351,8 @@ public:
                                 std::unique_ptr<RowsetWriter>* rowset_writer);
 
     Status create_transient_rowset_writer(RowsetSharedPtr rowset_ptr,
-                                          std::unique_ptr<RowsetWriter>* rowset_writer);
+                                          std::unique_ptr<RowsetWriter>* rowset_writer,
+                                          std::shared_ptr<PartialUpdateInfo> partial_update_info);
     Status create_transient_rowset_writer(RowsetWriterContext& context, const RowsetId& rowset_id,
                                           std::unique_ptr<RowsetWriter>* rowset_writer);
 
@@ -477,7 +478,8 @@ public:
     void prepare_to_read(const RowLocation& row_location, size_t pos,
                          PartialUpdateReadPlan* read_plan);
     Status generate_new_block_for_partial_update(
-            TabletSchemaSPtr rowset_schema, const PartialUpdateReadPlan& read_plan_ori,
+            TabletSchemaSPtr rowset_schema, const std::vector<uint32>& missing_cids,
+            const std::vector<uint32>& update_cids, const PartialUpdateReadPlan& read_plan_ori,
             const PartialUpdateReadPlan& read_plan_update,
             const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
             vectorized::Block* output_block);

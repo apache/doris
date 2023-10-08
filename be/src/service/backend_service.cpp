@@ -702,7 +702,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     Status commit_txn_status = StorageEngine::instance()->txn_manager()->commit_txn(
             local_tablet->data_dir()->get_meta(), rowset_meta->partition_id(),
             rowset_meta->txn_id(), rowset_meta->tablet_id(), local_tablet->tablet_uid(),
-            rowset_meta->load_id(), rowset, false);
+            rowset_meta->load_id(), rowset, false, nullptr);
     if (!commit_txn_status && !commit_txn_status.is<ErrorCode::PUSH_TRANSACTION_ALREADY_EXIST>()) {
         auto err_msg = fmt::format(
                 "failed to commit txn for remote tablet. rowset_id: {}, remote_tablet_id={}, "

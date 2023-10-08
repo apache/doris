@@ -126,6 +126,8 @@ private:
     MonotonicStopWatch _lock_watch;
 
     std::vector<std::shared_ptr<LoadStreamStub>> _streams;
+
+    std::shared_ptr<PartialUpdateInfo> _partial_update_info;
 };
 
 } // namespace doris

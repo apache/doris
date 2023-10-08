@@ -67,6 +67,7 @@ public:
     ~MemTableWriter();
 
     Status init(std::shared_ptr<RowsetWriter> rowset_writer, TabletSchemaSPtr tablet_schema,
+                std::shared_ptr<PartialUpdateInfo> partial_update_info,
                 bool unique_key_mow = false);
 
     Status write(const vectorized::Block* block, const std::vector<int>& row_idxs,
@@ -141,6 +142,8 @@ private:
     int64_t _segment_num = 0;
 
     MonotonicStopWatch _lock_watch;
+
+    std::shared_ptr<PartialUpdateInfo> _partial_update_info;
 };
 
 } // namespace doris

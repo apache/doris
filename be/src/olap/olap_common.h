@@ -457,6 +457,7 @@ struct HashOfRowsetId {
 using RowsetIdUnorderedSet = std::unordered_set<RowsetId, HashOfRowsetId>;
 
 class DeleteBitmap;
+struct PartialUpdateInfo;
 // merge on write context
 struct MowContext {
     MowContext(int64_t version, int64_t txnid, const RowsetIdUnorderedSet& ids,
