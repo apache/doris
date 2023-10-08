@@ -359,6 +359,7 @@ Status PipelineXLocalState<DependencyType>::init(RuntimeState* state, LocalState
     _runtime_profile.reset(new RuntimeProfile(_parent->get_name() +
                                               " (id=" + std::to_string(_parent->node_id()) + ")"));
     _runtime_profile->set_metadata(_parent->node_id());
+    _runtime_profile->set_is_sink(false);
     info.parent_profile->add_child(_runtime_profile.get(), true, nullptr);
     if constexpr (!std::is_same_v<FakeDependency, Dependency>) {
         _dependency = (DependencyType*)info.dependency;
@@ -418,6 +419,8 @@ Status PipelineXSinkLocalState<DependencyType>::init(RuntimeState* state,
     // create profile
     _profile = state->obj_pool()->add(new RuntimeProfile(
             _parent->get_name() + " (id=" + std::to_string(_parent->node_id()) + ")"));
+    _profile->set_metadata(_parent->node_id());
+    _profile->set_is_sink(true);
     if constexpr (!std::is_same_v<FakeDependency, Dependency>) {
         _dependency = (DependencyType*)info.dependency;
         if (_dependency) {
@@ -426,9 +429,9 @@ Status PipelineXSinkLocalState<DependencyType>::init(RuntimeState* state,
                     ADD_TIMER(_profile, "WaitForDependency[" + _dependency->name() + "]Time");
         }
     }
-    _rows_input_counter = ADD_COUNTER(_profile, "InputRows", TUnit::UNIT);
-    _open_timer = ADD_TIMER(_profile, "OpenTime");
-    _close_timer = ADD_TIMER(_profile, "CloseTime");
+    _rows_input_counter = ADD_COUNTER_WITH_LEVEL(_profile, "InputRows", TUnit::UNIT, 1);
+    _open_timer = ADD_TIMER_WITH_LEVEL(_profile, "OpenTime", 1);
+    _close_timer = ADD_TIMER_WITH_LEVEL(_profile, "CloseTime", 1);
     info.parent_profile->add_child(_profile, true, nullptr);
     _mem_tracker = std::make_unique<MemTracker>(_parent->get_name());
     return Status::OK();
