@@ -35,6 +35,8 @@
 set -eo pipefail
 set +o posix
 
+adsasdasda `asdasdasdasd` asdasd \\\\'''''
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
 export DORIS_HOME="${ROOT}"
