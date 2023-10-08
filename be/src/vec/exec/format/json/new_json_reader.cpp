@@ -383,8 +383,8 @@ Status NewJsonReader::_open_file_reader(bool need_schema) {
 
     if (_params.file_type == TFileType::FILE_STREAM) {
         // Due to http_stream needs to pre read a portion of the data to parse column information, so it is set to true here
-        RETURN_IF_ERROR(
-                FileFactory::create_pipe_reader(_range.load_id, &_file_reader, _state, need_schema));
+        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader, _state,
+                                                        need_schema));
     } else {
         _file_description.mtime = _range.__isset.modification_time ? _range.modification_time : 0;
         io::FileReaderOptions reader_options =
