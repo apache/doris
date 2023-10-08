@@ -60,7 +60,7 @@ STOP=0
 
 if [[ "$#" == 1 ]]; then
     # default
-    COMPONENTS="mysql,es,hive,pg,oracle,sqlserver,clickhouse"
+    COMPONENTS="mysql,pg,oracle,sqlserver,clickhouse,hive,iceberg,hudi,trino,kafka,mariadb"
 else
     while true; do
         case "$1" in
@@ -92,7 +92,7 @@ else
     done
     if [[ "${COMPONENTS}"x == ""x ]]; then
         if [[ "${STOP}" -eq 1 ]]; then
-            COMPONENTS="mysql,es,pg,oracle,sqlserver,clickhouse,hive,iceberg,hudi,trino,kafka"
+            COMPONENTS="mysql,es,pg,oracle,sqlserver,clickhouse,hive,iceberg,hudi,trino,kafka,mariadb"
         fi
     fi
 fi
@@ -132,7 +132,7 @@ RUN_HUDI=0
 RUN_TRINO=0
 RUN_KAFKA=0
 RUN_SPARK=0
-
+RUN_MARIADB=0
 
 for element in "${COMPONENTS_ARR[@]}"; do
     if [[ "${element}"x == "mysql"x ]]; then
@@ -159,6 +159,8 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_TRINO=1
     elif [[ "${element}"x == "spark"x ]];then
         RUN_SPARK=1
+    elif [[ "${element}"x == "mariadb"x ]];then
+        RUN_MARIADB=1
     else
         echo "Invalid component: ${element}"
         usage
@@ -437,5 +439,17 @@ if  [[ "${RUN_TRINO}" -eq 1 ]]; then
         sleep 20s
         # execute create table sql
         docker exec -it ${TRINO_CONTAINER_ID} /bin/bash -c 'trino -f /scripts/create_trino_table.sql'
+    fi
+fi
+
+if [[ "${RUN_MYSQL}" -eq 1 ]]; then
+    # mysql 5.7
+    cp "${ROOT}"/docker-compose/mairadb/mariadb-10.yaml.tpl "${ROOT}"/docker-compose/mairadb/mariadb-10.yaml
+    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/mairadb/mariadb-10.yaml
+    sudo docker compose -f "${ROOT}"/docker-compose/mairadb/mariadb-10.yaml --env-file "${ROOT}"/docker-compose/mairadb/mariadb-10.env down
+    if [[ "${STOP}" -ne 1 ]]; then
+        sudo mkdir -p "${ROOT}"/docker-compose/mariadb/data/
+        sudo rm "${ROOT}"/docker-compose/mariadb/data/* -rf
+        sudo docker compose -f "${ROOT}"/docker-compose/mairadb/mariadb-10.yaml --env-file "${ROOT}"/docker-compose/mairadb/mariadb-10.env up -d
     fi
 fi
