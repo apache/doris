@@ -29,8 +29,7 @@ namespace doris {
 // boost: 1000 times cost 1min, has line numbers, but has memory leak.
 // glibc: 1000 times cost 1min, no line numbers, unresolved backtrace symbol.
 // libunwind: cost is negligible, has line numbers.
-// Delete the first three frame pointers, which are inside the StackTrace.
-std::string get_stack_trace(int start_pointers_index = 3);
+std::string get_stack_trace(int start_pointers_index = 0);
 
 // Note: there is a libc bug that causes this not to work on 64 bit machines
 // for recursive calls.
