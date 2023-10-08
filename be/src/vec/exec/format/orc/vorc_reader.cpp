@@ -245,8 +245,6 @@ Status OrcReader::_create_file_reader() {
         }
         return Status::InternalError("Init OrcReader failed. reason = {}", _err_msg);
     }
-    _remaining_rows = _reader->getNumberOfRows();
-
     return Status::OK();
 }
 
@@ -789,6 +787,9 @@ Status OrcReader::set_fill_columns(
         auto& selected_type = _row_reader->getSelectedType();
         int idx = 0;
         _init_select_types(selected_type, idx);
+
+        _remaining_rows = _row_reader->getNumberOfRows();
+
     } catch (std::exception& e) {
         return Status::InternalError("Failed to create orc row reader. reason = {}", e.what());
     }

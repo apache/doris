@@ -475,7 +475,7 @@ struct TimeRound {
 
         //round down/up inside time period(several time-units)
         int64_t count = period;
-        int64_t delta_inside_period = (diff % count + count) % count;
+        int64_t delta_inside_period = diff >= 0 ? diff % count : (diff % count + count) % count;
         int64_t step = diff - delta_inside_period +
                        (Impl::Type == FLOOR        ? 0
                         : delta_inside_period == 0 ? 0

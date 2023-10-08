@@ -71,7 +71,7 @@ Status UnionSourceOperator::pull_data(RuntimeState* state, vectorized::Block* bl
             return Status::OK();
         }
         block->swap(*output_block);
-        output_block->clear_column_data(_node->row_desc().num_materialized_slots());
+        output_block->clear_column_data(_node->intermediate_row_desc().num_materialized_slots());
         _data_queue->push_free_block(std::move(output_block), child_idx);
     }
 

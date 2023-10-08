@@ -133,22 +133,13 @@ public:
                      PageHandle* handle, Slice* page_body, PageFooterPB* footer,
                      BlockCompressionCodec* codec) const;
 
-    bool is_nullable() const { return _meta.is_nullable(); }
+    bool is_nullable() const { return _meta_is_nullable; }
 
     const EncodingInfo* encoding_info() const { return _encoding_info; }
 
-    bool has_zone_map() const { return _zone_map_index_meta != nullptr; }
-    bool has_bitmap_index() const { return _bitmap_index_meta != nullptr; }
-    bool has_bloom_filter_index(bool ngram) const {
-        if (_bf_index_meta == nullptr) return false;
-
-        if (ngram) {
-            return _bf_index_meta->algorithm() == BloomFilterAlgorithmPB::NGRAM_BLOOM_FILTER;
-        } else {
-            return _bf_index_meta->algorithm() != BloomFilterAlgorithmPB::NGRAM_BLOOM_FILTER;
-        }
-    }
-
+    bool has_zone_map() const { return _zone_map_index != nullptr; }
+    bool has_bitmap_index() const { return _bitmap_index != nullptr; }
+    bool has_bloom_filter_index(bool ngram) const;
     // Check if this column could match `cond' using segment zone map.
     // Since segment zone map is stored in metadata, this function is fast without I/O.
     // Return true if segment zone map is absent or `cond' could be satisfied, false otherwise.
@@ -167,11 +158,11 @@ public:
     Status get_row_ranges_by_bloom_filter(const AndBlockColumnPredicate* col_predicates,
                                           RowRanges* row_ranges);
 
-    PagePointer get_dict_page_pointer() const { return _meta.dict_page(); }
+    PagePointer get_dict_page_pointer() const { return _meta_dict_page; }
 
     bool is_empty() const { return _num_rows == 0; }
 
-    CompressionTypePB get_compression() const { return _meta.compression(); }
+    CompressionTypePB get_compression() const { return _meta_compression; }
 
     uint64_t num_rows() const { return _num_rows; }
 
@@ -189,7 +180,7 @@ public:
 private:
     ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,
                  io::FileReaderSPtr file_reader);
-    Status init();
+    Status init(const ColumnMetaPB* meta);
 
     // Read column inverted indexes into memory
     // May be called multiple times, subsequent calls will no op.
@@ -222,7 +213,15 @@ private:
     Status _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges);
 
 private:
-    ColumnMetaPB _meta;
+    int64_t _meta_length;
+    FieldType _meta_type;
+    FieldType _meta_children_column_type;
+    bool _meta_is_nullable;
+    bool _use_index_page_cache;
+
+    PagePointer _meta_dict_page;
+    CompressionTypePB _meta_compression;
+
     ColumnReaderOptions _opts;
     uint64_t _num_rows;
 
@@ -235,20 +234,15 @@ private:
     const EncodingInfo* _encoding_info =
             nullptr; // initialized in init(), used for create PageDecoder
 
-    bool _use_index_page_cache;
-
     // meta for various column indexes (null if the index is absent)
-    const ZoneMapIndexPB* _zone_map_index_meta = nullptr;
-    const OrdinalIndexPB* _ordinal_index_meta = nullptr;
-    const BitmapIndexPB* _bitmap_index_meta = nullptr;
-    const BloomFilterIndexPB* _bf_index_meta = nullptr;
+    std::unique_ptr<ZoneMapPB> _segment_zone_map;
 
     mutable std::mutex _load_index_lock;
     std::unique_ptr<ZoneMapIndexReader> _zone_map_index;
     std::unique_ptr<OrdinalIndexReader> _ordinal_index;
     std::unique_ptr<BitmapIndexReader> _bitmap_index;
     std::shared_ptr<InvertedIndexReader> _inverted_index;
-    std::unique_ptr<BloomFilterIndexReader> _bloom_filter_index;
+    std::shared_ptr<BloomFilterIndexReader> _bloom_filter_index;
 
     std::vector<std::unique_ptr<ColumnReader>> _sub_readers;
 

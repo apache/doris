@@ -122,9 +122,7 @@ Status ScannerScheduler::submit(ScannerContext* ctx) {
     if (ctx->done()) {
         return Status::EndOfFile("ScannerContext is done");
     }
-    if (ctx->queue_idx == -1) {
-        ctx->queue_idx = (_queue_idx++ % QUEUE_NUM);
-    }
+    ctx->queue_idx = (_queue_idx++ % QUEUE_NUM);
     if (!_pending_queues[ctx->queue_idx]->blocking_put(ctx)) {
         return Status::InternalError("failed to submit scanner context to scheduler");
     }
@@ -278,6 +276,14 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
 #else
     if (dynamic_cast<NewOlapScanner*>(scanner) == nullptr) {
         Thread::set_self_name("_scanner_scan");
+    }
+#endif
+
+#ifndef __APPLE__
+    // The configuration item is used to lower the priority of the scanner thread,
+    // typically employed to ensure CPU scheduling for write operations.
+    if (config::scan_thread_nice_value != 0 && scanner->get_name() != VFileScanner::NAME) {
+        Thread::set_thread_nice_value();
     }
 #endif
     scanner->update_wait_worker_timer();

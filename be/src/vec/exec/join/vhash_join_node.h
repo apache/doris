@@ -404,7 +404,8 @@ private:
     void _add_tuple_is_null_column(Block* block) override;
 
     Status _filter_data_and_build_output(RuntimeState* state, vectorized::Block* output_block,
-                                         bool* eos, Block* temp_block);
+                                         bool* eos, Block* temp_block,
+                                         bool check_rows_count = true);
 
     template <class HashTableContext>
     friend struct ProcessHashTableBuild;

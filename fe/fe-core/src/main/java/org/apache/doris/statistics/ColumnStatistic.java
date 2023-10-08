@@ -26,7 +26,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
-import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -160,7 +159,10 @@ public class ColumnStatistic {
             LOG.debug("Failed to deserialize column stats", t);
             return ColumnStatistic.UNKNOWN;
         }
-        Preconditions.checkState(columnStatistic != null, "Column stats is null");
+        // Means last analyze failed or interrupted for some reason.
+        if (columnStatistic == null) {
+            return ColumnStatistic.UNKNOWN;
+        }
         columnStatistic.partitionIdToColStats.putAll(partitionIdToColStats);
         return columnStatistic;
     }

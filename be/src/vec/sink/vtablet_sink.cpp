@@ -169,10 +169,12 @@ Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPart
     return Status::OK();
 }
 
-void IndexChannel::mark_as_failed(int64_t node_id, const std::string& host, const std::string& err,
+void IndexChannel::mark_as_failed(const VNodeChannel* node_channel, const std::string& err,
                                   int64_t tablet_id) {
-    LOG(INFO) << "mark node_id:" << node_id << " tablet_id: " << tablet_id
+    DCHECK(node_channel != nullptr);
+    LOG(INFO) << "mark node_id:" << node_channel->channel_info() << " tablet_id: " << tablet_id
               << " as failed, err: " << err;
+    auto node_id = node_channel->node_id();
     const auto& it = _tablets_by_channel.find(node_id);
     if (it == _tablets_by_channel.end()) {
         return;
@@ -183,7 +185,8 @@ void IndexChannel::mark_as_failed(int64_t node_id, const std::string& host, cons
         if (tablet_id == -1) {
             for (const auto the_tablet_id : it->second) {
                 _failed_channels[the_tablet_id].insert(node_id);
-                _failed_channels_msgs.emplace(the_tablet_id, err + ", host: " + host);
+                _failed_channels_msgs.emplace(the_tablet_id,
+                                              err + ", host: " + node_channel->host());
                 if (_failed_channels[the_tablet_id].size() >= ((_parent->_num_replicas + 1) / 2)) {
                     _intolerable_failure_status =
                             Status::InternalError(_failed_channels_msgs[the_tablet_id]);
@@ -191,7 +194,7 @@ void IndexChannel::mark_as_failed(int64_t node_id, const std::string& host, cons
             }
         } else {
             _failed_channels[tablet_id].insert(node_id);
-            _failed_channels_msgs.emplace(tablet_id, err + ", host: " + host);
+            _failed_channels_msgs.emplace(tablet_id, err + ", host: " + node_channel->host());
             if (_failed_channels[tablet_id].size() >= ((_parent->_num_replicas + 1) / 2)) {
                 _intolerable_failure_status =
                         Status::InternalError(_failed_channels_msgs[tablet_id]);
@@ -224,6 +227,13 @@ void IndexChannel::set_tablets_received_rows(
     }
 }
 
+void IndexChannel::set_tablets_filtered_rows(
+        const std::vector<std::pair<int64_t, int64_t>>& tablets_filtered_rows, int64_t node_id) {
+    for (const auto& [tablet_id, rows_num] : tablets_filtered_rows) {
+        _tablets_filtered_rows[tablet_id].emplace_back(node_id, rows_num);
+    }
+}
+
 Status IndexChannel::check_tablet_received_rows_consistency() {
     for (auto& tablet : _tablets_received_rows) {
         for (size_t i = 0; i < tablet.second.size(); i++) {
@@ -238,6 +248,30 @@ Status IndexChannel::check_tablet_received_rows_consistency() {
             if (tablet.second[i].second != tablet.second[0].second) {
                 return Status::InternalError(
                         "rows num written by multi replicas doest't match, load_id={}, txn_id={}, "
+                        "tablt_id={}, node_id={}, rows_num={}, node_id={}, rows_num={}",
+                        print_id(_parent->_load_id), _parent->_txn_id, tablet.first,
+                        tablet.second[i].first, tablet.second[i].second, tablet.second[0].first,
+                        tablet.second[0].second);
+            }
+        }
+    }
+    return Status::OK();
+}
+
+Status IndexChannel::check_tablet_filtered_rows_consistency() {
+    for (auto& tablet : _tablets_filtered_rows) {
+        for (size_t i = 0; i < tablet.second.size(); i++) {
+            VLOG_NOTICE << "check_tablet_filtered_rows_consistency, load_id: " << _parent->_load_id
+                        << ", txn_id: " << std::to_string(_parent->_txn_id)
+                        << ", tablet_id: " << tablet.first
+                        << ", node_id: " << tablet.second[i].first
+                        << ", rows_num: " << tablet.second[i].second;
+            if (i == 0) {
+                continue;
+            }
+            if (tablet.second[i].second != tablet.second[0].second) {
+                return Status::InternalError(
+                        "rows num filtered by multi replicas doest't match, load_id={}, txn_id={}, "
                         "tablt_id={}, node_id={}, rows_num={}, node_id={}, rows_num={}",
                         print_id(_parent->_load_id), _parent->_txn_id, tablet.first,
                         tablet.second[i].first, tablet.second[i].second, tablet.second[0].first,
@@ -272,6 +306,7 @@ VNodeChannel::~VNodeChannel() {
         delete _add_block_closure;
         _add_block_closure = nullptr;
     }
+
     static_cast<void>(_cur_add_block_request.release_id());
 }
 
@@ -371,7 +406,8 @@ void VNodeChannel::_open_internal(bool is_incremental) {
         open_closure->cntl.ignore_eovercrowded();
     }
     // the real transmission here. the corresponding BE's load mgr will open load channel for it.
-    _stub->tablet_writer_open(&open_closure->cntl, &request, &open_closure->result, open_closure);
+    _stub->tablet_writer_open(&_open_closure->cntl, &request, &_open_closure->result,
+                              _open_closure);
     _open_closures.push_back(open_closure);
 
     static_cast<void>(request.release_id());
@@ -430,7 +466,6 @@ Status VNodeChannel::open_wait() {
     _add_block_closure = ReusableClosure<PTabletWriterAddBlockResult>::create();
     _add_block_closure->addFailedHandler(
             [this](bool is_last_rpc) { _add_block_failed_callback(is_last_rpc); });
-
     _add_block_closure->addSuccessHandler(
             [this](const PTabletWriterAddBlockResult& result, bool is_last_rpc) {
                 _add_block_success_callback(result, is_last_rpc);
@@ -760,8 +795,8 @@ void VNodeChannel::_add_block_success_callback(const PTabletWriterAddBlockResult
     if (status.ok()) {
         // if has error tablet, handle them first
         for (auto& error : result.tablet_errors()) {
-            _index_channel->mark_as_failed(this->node_id(), this->host(),
-                                           "tablet error: " + error.msg(), error.tablet_id());
+            _index_channel->mark_as_failed(this, "tablet error: " + error.msg(),
+                                            error.tablet_id());
         }
 
         Status st = _index_channel->check_intolerable_failure();
@@ -774,11 +809,12 @@ void VNodeChannel::_add_block_success_callback(const PTabletWriterAddBlockResult
                 commit_info.backendId = _node_id;
                 _tablet_commit_infos.emplace_back(std::move(commit_info));
                 if (tablet.has_received_rows()) {
-                    _tablets_received_rows.emplace_back(tablet.tablet_id(), tablet.received_rows());
+                    _tablets_received_rows.emplace_back(tablet.tablet_id(),
+                                                        tablet.received_rows());
                 }
                 if (tablet.has_num_rows_filtered()) {
-                    _state->update_num_rows_filtered_in_strict_mode_partial_update(
-                            tablet.num_rows_filtered());
+                    _tablets_filtered_rows.emplace_back(tablet.tablet_id(),
+                                                        tablet.num_rows_filtered());
                 }
                 VLOG_CRITICAL << "master replica commit info: tabletId=" << tablet.tablet_id()
                               << ", backendId=" << _node_id
@@ -792,11 +828,12 @@ void VNodeChannel::_add_block_success_callback(const PTabletWriterAddBlockResult
                         commit_info.tabletId = tablet_slave_node_ids.first;
                         commit_info.backendId = slave_node_id;
                         _tablet_commit_infos.emplace_back(std::move(commit_info));
-                        VLOG_CRITICAL
-                                << "slave replica commit info: tabletId="
-                                << tablet_slave_node_ids.first << ", backendId=" << slave_node_id
-                                << ", master node id: " << this->node_id()
-                                << ", host: " << this->host() << ", txn_id=" << _parent->_txn_id;
+                        VLOG_CRITICAL << "slave replica commit info: tabletId="
+                                        << tablet_slave_node_ids.first
+                                        << ", backendId=" << slave_node_id
+                                        << ", master node id: " << this->node_id()
+                                        << ", host: " << this->host()
+                                        << ", txn_id=" << _parent->_txn_id;
                     }
                 }
             }
@@ -820,7 +857,8 @@ void VNodeChannel::_add_block_success_callback(const PTabletWriterAddBlockResult
         if (st.ok()) {
             _state->load_channel_profile()->update(tprofile);
         } else {
-            LOG(WARNING) << "load channel TRuntimeProfileTree deserialize failed, errmsg=" << st;
+            LOG(WARNING) << "load channel TRuntimeProfileTree deserialize failed, errmsg="
+                            << st;
         }
     }
 }
@@ -834,11 +872,11 @@ void VNodeChannel::_add_block_failed_callback(bool is_last_rpc) {
     }
     SCOPED_ATTACH_TASK(_state);
     // If rpc failed, mark all tablets on this node channel as failed
-    _index_channel->mark_as_failed(
-            this->node_id(), this->host(),
-            fmt::format("rpc failed, error coed:{}, error text:{}",
-                        _add_block_closure->cntl.ErrorCode(), _add_block_closure->cntl.ErrorText()),
-            -1);
+    _index_channel->mark_as_failed(this,
+                                    fmt::format("rpc failed, error coed:{}, error text:{}",
+                                                _add_block_closure->cntl.ErrorCode(),
+                                                _add_block_closure->cntl.ErrorText()),
+                                    -1);
     Status st = _index_channel->check_intolerable_failure();
     if (!st.ok()) {
         _cancel_with_msg(fmt::format("{}, err: {}", channel_info(), st.to_string()));
@@ -922,6 +960,7 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
 
         _index_channel->set_error_tablet_in_state(state);
         _index_channel->set_tablets_received_rows(_tablets_received_rows, _node_id);
+        _index_channel->set_tablets_filtered_rows(_tablets_filtered_rows, _node_id);
         return Status::OK();
     }
 
@@ -1154,7 +1193,7 @@ Status VOlapTableSink::open(RuntimeState* state) {
                 // This phase will not fail due to a single tablet.
                 // Therefore, if the open() phase fails, all tablets corresponding to the node need to be marked as failed.
                 index_channel->mark_as_failed(
-                        ch->node_id(), ch->host(),
+                        ch.get(),
                         fmt::format("{}, open failed, err: {}", ch->channel_info(), st.to_string()),
                         -1);
             }
@@ -1633,8 +1672,7 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
                     // if it is load single tablet, then append this whole block
                     load_block_to_single_tablet);
             if (!st.ok()) {
-                _channels[i]->mark_as_failed(entry.first->node_id(), entry.first->host(),
-                                             st.to_string());
+                _channels[i]->mark_as_failed(entry.first, st.to_string());
             }
         }
     }
@@ -1650,7 +1688,7 @@ Status VOlapTableSink::_cancel_channel_and_check_intolerable_failure(
         Status status, const std::string& err_msg, const std::shared_ptr<IndexChannel> ich,
         const std::shared_ptr<VNodeChannel> nch) {
     LOG(WARNING) << nch->channel_info() << ", close channel failed, err: " << err_msg;
-    ich->mark_as_failed(nch->node_id(), nch->host(), err_msg, -1);
+    ich->mark_as_failed(nch.get(), err_msg, -1);
     // cancel the node channel in best effort
     nch->cancel(err_msg);
 
@@ -1659,6 +1697,8 @@ Status VOlapTableSink::_cancel_channel_and_check_intolerable_failure(
     if (!index_st.ok()) {
         status = index_st;
     } else if (Status st = ich->check_tablet_received_rows_consistency(); !st.ok()) {
+        status = st;
+    } else if (Status st = ich->check_tablet_filtered_rows_consistency(); !st.ok()) {
         status = st;
     }
     return status;
@@ -1755,43 +1795,59 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
                 total_wait_exec_time_ns = 0, max_wait_exec_time_ns = 0, total_add_batch_num = 0,
                 num_node_channels = 0;
         VNodeChannelStat channel_stat;
+        {
+            for (const auto& index_channel : _channels) {
+                if (!status.ok()) {
+                    break;
+                }
+                int64_t add_batch_exec_time = 0;
+                int64_t wait_exec_time = 0;
+                index_channel->for_each_node_channel(
+                        [this, &index_channel, &status, &state, &node_add_batch_counter_map,
+                         &serialize_batch_ns, &channel_stat, &queue_push_lock_ns,
+                         &actual_consume_ns, &total_add_batch_exec_time_ns, &add_batch_exec_time,
+                         &total_wait_exec_time_ns, &wait_exec_time,
+                         &total_add_batch_num](const std::shared_ptr<VNodeChannel>& ch) {
+                            if (!status.ok() || ch->is_closed()) {
+                                return;
+                            }
+                            // in pipeline, all node channels are done or canceled, will not block.
+                            // no pipeline, close may block waiting.
+                            auto s = ch->close_wait(state);
+                            if (!s.ok()) {
+                                status = this->_cancel_channel_and_check_intolerable_failure(
+                                        status, s.to_string(), index_channel, ch);
+                            }
+                            ch->time_report(&node_add_batch_counter_map, &serialize_batch_ns,
+                                            &channel_stat, &queue_push_lock_ns, &actual_consume_ns,
+                                            &total_add_batch_exec_time_ns, &add_batch_exec_time,
+                                            &total_wait_exec_time_ns, &wait_exec_time,
+                                            &total_add_batch_num);
+                        });
 
-        for (const auto& index_channel : _channels) {
-            if (!status.ok()) {
-                break;
-            }
-            int64_t add_batch_exec_time = 0;
-            int64_t wait_exec_time = 0;
-            index_channel->for_each_node_channel(
-                    [this, &index_channel, &status, &state, &node_add_batch_counter_map,
-                     &serialize_batch_ns, &channel_stat, &queue_push_lock_ns, &actual_consume_ns,
-                     &total_add_batch_exec_time_ns, &add_batch_exec_time, &total_wait_exec_time_ns,
-                     &wait_exec_time,
-                     &total_add_batch_num](const std::shared_ptr<VNodeChannel>& ch) {
-                        if (!status.ok() || ch->is_closed()) {
-                            return;
-                        }
-                        // in pipeline, all node channels are done or canceled, will not block.
-                        // no pipeline, close may block waiting.
-                        auto s = ch->close_wait(state);
-                        if (!s.ok()) {
-                            status = this->_cancel_channel_and_check_intolerable_failure(
-                                    status, s.to_string(), index_channel, ch);
-                        }
-                        ch->time_report(&node_add_batch_counter_map, &serialize_batch_ns,
-                                        &channel_stat, &queue_push_lock_ns, &actual_consume_ns,
-                                        &total_add_batch_exec_time_ns, &add_batch_exec_time,
-                                        &total_wait_exec_time_ns, &wait_exec_time,
-                                        &total_add_batch_num);
-                    });
-            num_node_channels += index_channel->num_node_channels();
-            if (add_batch_exec_time > max_add_batch_exec_time_ns) {
-                max_add_batch_exec_time_ns = add_batch_exec_time;
-            }
-            if (wait_exec_time > max_wait_exec_time_ns) {
-                max_wait_exec_time_ns = wait_exec_time;
-            }
-        } // end for index channels
+                // Due to the non-determinism of compaction, the rowsets of each replica may be different from each other on different
+                // BE nodes. The number of rows filtered in SegmentWriter depends on the historical rowsets located in the correspoding
+                // BE node. So we check the number of rows filtered on each succeccful BE to ensure the consistency of the current load
+                if (status.ok() && !_write_single_replica && _schema->is_strict_mode() &&
+                    _schema->is_partial_update()) {
+                    if (Status st = index_channel->check_tablet_filtered_rows_consistency();
+                        !st.ok()) {
+                        status = st;
+                    } else {
+                        state->set_num_rows_filtered_in_strict_mode_partial_update(
+                                index_channel->num_rows_filtered());
+                    }
+                }
+
+                num_node_channels += index_channel->num_node_channels();
+                if (add_batch_exec_time > max_add_batch_exec_time_ns) {
+                    max_add_batch_exec_time_ns = add_batch_exec_time;
+                }
+                if (wait_exec_time > max_wait_exec_time_ns) {
+                    max_wait_exec_time_ns = wait_exec_time;
+                }
+            } // end for index channels
+        }
 
         if (status.ok()) {
             // TODO need to be improved

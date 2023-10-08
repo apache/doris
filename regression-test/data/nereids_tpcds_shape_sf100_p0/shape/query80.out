@@ -38,8 +38,10 @@ PhysicalResultSink
 ------------------------------------------filter((cast(p_channel_tv as VARCHAR(*)) = 'N'))
 --------------------------------------------PhysicalOlapScan[promotion]
 ------------------------------------PhysicalDistribute
---------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[store]
+--------------------------------------filter((promotion.p_channel_tv = 'N'))
+----------------------------------------PhysicalOlapScan[promotion]
+----------------------------------PhysicalDistribute
+------------------------------------PhysicalOlapScan[store]
 --------------------PhysicalProject
 ----------------------hashAgg[GLOBAL]
 ------------------------PhysicalDistribute
@@ -68,8 +70,10 @@ PhysicalResultSink
 ------------------------------------------filter((cast(p_channel_tv as VARCHAR(*)) = 'N'))
 --------------------------------------------PhysicalOlapScan[promotion]
 ------------------------------------PhysicalDistribute
---------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[catalog_page]
+--------------------------------------filter((promotion.p_channel_tv = 'N'))
+----------------------------------------PhysicalOlapScan[promotion]
+----------------------------------PhysicalDistribute
+------------------------------------PhysicalOlapScan[catalog_page]
 --------------------PhysicalProject
 ----------------------hashAgg[GLOBAL]
 ------------------------PhysicalDistribute

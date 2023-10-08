@@ -612,6 +612,8 @@
                                 "sql-manual/sql-functions/json-functions/json_quote",
                                 "sql-manual/sql-functions/json-functions/json_unquote",
                                 "sql-manual/sql-functions/json-functions/json_valid",
+                                "sql-manual/sql-functions/json-functions/json_contains",
+                                "sql-manual/sql-functions/json-functions/json_length",
                                 "sql-manual/sql-functions/json-functions/get_json_double",
                                 "sql-manual/sql-functions/json-functions/get_json_int",
                                 "sql-manual/sql-functions/json-functions/get_json_string"
@@ -728,6 +730,14 @@
                                 "sql-manual/sql-functions/window-functions/WINDOW-FUNCTION-WINDOW-FUNNEL"
                             ]
                         },
+                        {
+                            "type": "category",
+                            "label": "IP Functions",
+                            "items": [
+                                "sql-manual/sql-functions/ip-functions/IPV4-NUM-TO-STRING",
+                                "sql-manual/sql-functions/ip-functions/INET_NTOA"
+                            ]
+                        },
                         "sql-manual/sql-functions/cast",
                         "sql-manual/sql-functions/digital-masking",
                         "sql-manual/sql-functions/width-bucket"
@@ -751,34 +761,6 @@
                                 "sql-manual/sql-reference/Account-Management-Statements/DROP-USER",
                                 "sql-manual/sql-reference/Account-Management-Statements/SET-PASSWORD",
                                 "sql-manual/sql-reference/Account-Management-Statements/ALTER-USER"
-                                "sql-manual/sql-reference/Account-Management-Statements/DROP-USER"
-                            ]
-                        },
-                        {
-                            "type": "category",
-                            "label": "Database Administration",
-                            "items": [
-                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SHOW-CONFIG",
-                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SET-CONFIG",
-                                "sql-manual/sql-reference/Database-Administration-Statements/SET-VARIABLE",
-                                "sql-manual/sql-reference/Database-Administration-Statements/INSTALL-PLUGIN",
-                                "sql-manual/sql-reference/Database-Administration-Statements/UNINSTALL-PLUGIN",
-                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SET-REPLICA-STATUS",
-                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SET-PARTITION-VERSION",
-                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SET-TABLE-STATUS",
-                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SHOW-REPLICA-DISTRIBUTION",
-                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SHOW-REPLICA-STATUS",
-                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-REPAIR-TABLE",
-                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-CANCEL-REPAIR",
-                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-CHECK-TABLET",
-                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-DIAGNOSE-TABLET",
-                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-COPY-TABLET",
-                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SHOW-TABLET-STORAGE-FORMAT",
-                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-CLEAN-TRASH",
-                                "sql-manual/sql-reference/Database-Administration-Statements/RECOVER",
-                                "sql-manual/sql-reference/Database-Administration-Statements/KILL",
-                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-REBALANCE-DISK",
-                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-CANCEL-REBALANCE-DISK"
                             ]
                         },
                         {
@@ -1224,6 +1206,7 @@
                                 "admin-manual/http-actions/fe/upload-action",
                                 "admin-manual/http-actions/fe/import-action",
                                 "admin-manual/http-actions/fe/meta-info-action-V2",
+                                "admin-manual/http-actions/fe/debug-point-action",
                                 "admin-manual/http-actions/fe/statistic-action"
                             ]
                         },

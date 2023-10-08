@@ -413,6 +413,9 @@ public class CastExpr extends Expr {
                 targetExpr.setType(type);
             }
         } catch (AnalysisException ae) {
+            if (ConnectContext.get() != null) {
+                ConnectContext.get().getState().reset();
+            }
             targetExpr = this;
         } catch (NumberFormatException nfe) {
             targetExpr = new NullLiteral();

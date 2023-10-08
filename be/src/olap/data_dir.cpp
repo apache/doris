@@ -240,9 +240,8 @@ void DataDir::health_check() {
         if (!res) {
             LOG(WARNING) << "store read/write test file occur IO Error. path=" << _path
                          << ", err: " << res;
-            if (res.is_io_error()) {
-                _is_used = false;
-            }
+            StorageEngine::instance()->add_broken_path(_path);
+            _is_used = !res.is<IO_ERROR>();
         }
     }
     disks_state->set_value(_is_used ? 1 : 0);
@@ -462,7 +461,7 @@ Status DataDir::load() {
         PendingPublishInfoPB pending_publish_info_pb;
         bool parsed = pending_publish_info_pb.ParseFromString(info);
         if (!parsed) {
-            LOG(WARNING) << "parse pending publish info failed, tablt_id: " << tablet_id
+            LOG(WARNING) << "parse pending publish info failed, tablet_id: " << tablet_id
                          << " publish_version: " << publish_version;
         }
         StorageEngine::instance()->add_async_publish_task(
@@ -829,7 +828,15 @@ void DataDir::update_remote_data_size(int64_t size) {
     disks_remote_used_capacity->set_value(size);
 }
 
-size_t DataDir::tablet_size() const {
+size_t DataDir::disk_capacity() const {
+    return _disk_capacity_bytes;
+}
+
+size_t DataDir::disk_available() const {
+    return _available_bytes;
+}
+
+size_t DataDir::tablet_num() const {
     std::lock_guard<std::mutex> l(_mutex);
     return _tablet_set.size();
 }
@@ -885,7 +892,7 @@ Status DataDir::move_to_trash(const std::string& tablet_path) {
     }
 
     // 4. move tablet to trash
-    VLOG_NOTICE << "move file to trash. " << tablet_path << " -> " << trash_tablet_path;
+    LOG(INFO) << "move file to trash. " << tablet_path << " -> " << trash_tablet_path;
     if (rename(tablet_path.c_str(), trash_tablet_path.c_str()) < 0) {
         return Status::Error<OS_ERROR>("move file to trash failed. file={}, target={}, err={}",
                                        tablet_path, trash_tablet_path.native(), Errno::str());

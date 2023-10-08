@@ -362,7 +362,9 @@ public class ConnectProcessor {
     // Process COM_QUERY statement,
     // only throw an exception when there is a problem interacting with the requesting client
     private void handleQuery(MysqlCommand mysqlCommand) {
-        MetricRepo.COUNTER_REQUEST_ALL.increase(1L);
+        if (MetricRepo.isInit) {
+            MetricRepo.COUNTER_REQUEST_ALL.increase(1L);
+        }
         // convert statement to Java string
         byte[] bytes = packetBuf.array();
         int ending = packetBuf.limit() - 1;
@@ -745,11 +747,19 @@ public class ConnectProcessor {
             int idx = request.isSetStmtIdx() ? request.getStmtIdx() : 0;
             executor = new StmtExecutor(ctx, new OriginStatement(request.getSql(), idx), true);
             ctx.setExecutor(executor);
+            // Set default catalog only if the catalog exists.
             if (request.isSetDefaultCatalog()) {
-                ctx.getEnv().changeCatalog(ctx, request.getDefaultCatalog());
-            }
-            if (request.isSetDefaultDatabase() && !request.getDefaultDatabase().isEmpty()) {
-                ctx.getEnv().changeDb(ctx, request.getDefaultDatabase());
+                CatalogIf catalog = ctx.getEnv().getCatalogMgr().getCatalog(request.getDefaultCatalog());
+                if (catalog != null) {
+                    ctx.getEnv().changeCatalog(ctx, request.getDefaultCatalog());
+                    // Set default db only when the default catalog is set and the dbname exists in default catalog.
+                    if (request.isSetDefaultDatabase()) {
+                        DatabaseIf db = ctx.getCurrentCatalog().getDbNullable(request.getDefaultDatabase());
+                        if (db != null) {
+                            ctx.getEnv().changeDb(ctx, request.getDefaultDatabase());
+                        }
+                    }
+                }
             }
             TUniqueId queryId; // This query id will be set in ctx
             if (request.isSetQueryId()) {

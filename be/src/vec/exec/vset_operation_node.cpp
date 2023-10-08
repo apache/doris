@@ -16,7 +16,6 @@
 // under the License.
 
 #include "vec/exec/vset_operation_node.h"
-#include "vec/utils/template_helpers.hpp"
 
 #include <fmt/format.h>
 #include <gen_cpp/Exprs_types.h>
@@ -47,6 +46,7 @@
 #include "vec/exec/join/join_op.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/utils/template_helpers.hpp"
 
 namespace doris {
 class DescriptorTbl;

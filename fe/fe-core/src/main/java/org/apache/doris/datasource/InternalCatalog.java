@@ -1197,6 +1197,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                 try {
                     FeNameFormat.checkColumnName(name);
                 } catch (AnalysisException exception) {
+                    if (ConnectContext.get() != null) {
+                        ConnectContext.get().getState().reset();
+                    }
                     name = "_col" + (colNameIndex++);
                 }
                 TypeDef typeDef;
@@ -1592,8 +1595,31 @@ public class InternalCatalog implements CatalogIf<Database> {
                             metaChanged = true;
                             break;
                         }
+
+                        List<Column> oldSchema = indexIdToMeta.get(indexId).getSchema();
+                        List<Column> newSchema = entry.getValue().getSchema();
+                        if (oldSchema.size() != newSchema.size()) {
+                            LOG.warn("schema column size diff, old schema {}, new schema {}", oldSchema, newSchema);
+                            metaChanged = true;
+                            break;
+                        } else {
+                            List<Column> oldSchemaCopy = Lists.newArrayList(oldSchema);
+                            List<Column> newSchemaCopy = Lists.newArrayList(newSchema);
+                            oldSchemaCopy.sort((Column a, Column b) -> a.getUniqueId() - b.getUniqueId());
+                            newSchemaCopy.sort((Column a, Column b) -> a.getUniqueId() - b.getUniqueId());
+                            for (int i = 0; i < oldSchemaCopy.size(); ++i) {
+                                if (!oldSchemaCopy.get(i).equals(newSchemaCopy.get(i))) {
+                                    LOG.warn("schema diff, old schema {}, new schema {}", oldSchemaCopy.get(i),
+                                            newSchemaCopy.get(i));
+                                    metaChanged = true;
+                                    break;
+                                }
+                            }
+                        }
                     }
                 }
+
+
 
                 if (metaChanged) {
                     throw new DdlException("Table[" + tableName + "]'s meta has been changed. try again.");
@@ -2945,6 +2971,26 @@ public class InternalCatalog implements CatalogIf<Database> {
                         break;
                     }
                 }
+
+                List<Column> oldSchema = copiedTbl.getFullSchema();
+                List<Column> newSchema = olapTable.getFullSchema();
+                if (oldSchema.size() != newSchema.size()) {
+                    LOG.warn("schema column size diff, old schema {}, new schema {}", oldSchema, newSchema);
+                    metaChanged = true;
+                } else {
+                    List<Column> oldSchemaCopy = Lists.newArrayList(oldSchema);
+                    List<Column> newSchemaCopy = Lists.newArrayList(newSchema);
+                    oldSchemaCopy.sort((Column a, Column b) -> a.getUniqueId() - b.getUniqueId());
+                    newSchemaCopy.sort((Column a, Column b) -> a.getUniqueId() - b.getUniqueId());
+                    for (int i = 0; i < oldSchemaCopy.size(); ++i) {
+                        if (!oldSchemaCopy.get(i).equals(newSchemaCopy.get(i))) {
+                            LOG.warn("schema diff, old schema {}, new schema {}", oldSchemaCopy.get(i),
+                                    newSchemaCopy.get(i));
+                            metaChanged = true;
+                            break;
+                        }
+                    }
+                }
             }
 
             if (metaChanged) {
@@ -2955,8 +3001,10 @@ public class InternalCatalog implements CatalogIf<Database> {
             truncateTableInternal(olapTable, newPartitions, truncateEntireTable);
 
             // write edit log
-            TruncateTableInfo info = new TruncateTableInfo(db.getId(), olapTable.getId(), newPartitions,
-                    truncateEntireTable);
+            TruncateTableInfo info =
+                    new TruncateTableInfo(db.getId(), db.getFullName(), olapTable.getId(), olapTable.getName(),
+                            newPartitions,
+                            truncateEntireTable, truncateTableStmt.toSqlWithoutTable());
             Env.getCurrentEnv().getEditLog().logTruncateTable(info);
         } finally {
             olapTable.writeUnlock();
@@ -3096,7 +3144,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         return newChecksum;
     }
 
-    public ConcurrentHashMap<Long, Database> getIdToDb() {
+    @Override
+    public ConcurrentHashMap<Long, DatabaseIf> getIdToDb() {
         return new ConcurrentHashMap<>(idToDb);
     }
 

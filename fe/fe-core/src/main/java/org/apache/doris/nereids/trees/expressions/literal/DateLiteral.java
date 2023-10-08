@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
+import org.apache.doris.nereids.util.DateTimeFormatterUtils;
 import org.apache.doris.nereids.util.DateUtils;
 
 import org.apache.logging.log4j.LogManager;
@@ -45,7 +46,6 @@ public class DateLiteral extends Literal {
 
     protected static DateTimeFormatter DATE_FORMATTER = null;
     protected static DateTimeFormatter DATE_FORMATTER_TWO_DIGIT = null;
-    protected static DateTimeFormatter DATEKEY_FORMATTER = null;
     // for cast datetime type to date type.
     protected static DateTimeFormatter DATE_TIME_FORMATTER = null;
     private static final LocalDateTime startOfAD = LocalDateTime.of(0, 1, 1, 0, 0, 0);
@@ -64,8 +64,6 @@ public class DateLiteral extends Literal {
     static {
         try {
             DATE_FORMATTER = DateUtils.formatBuilder("%Y-%m-%d").toFormatter()
-                    .withResolverStyle(ResolverStyle.STRICT);
-            DATEKEY_FORMATTER = DateUtils.formatBuilder("%Y%m%d").toFormatter()
                     .withResolverStyle(ResolverStyle.STRICT);
             DATE_FORMATTER_TWO_DIGIT = DateUtils.formatBuilder("%y-%m-%d").toFormatter()
                     .withResolverStyle(ResolverStyle.STRICT);
@@ -120,10 +118,10 @@ public class DateLiteral extends Literal {
     protected void init(String s) throws AnalysisException {
         try {
             TemporalAccessor dateTime;
-            if (s.split("-")[0].length() == 2) {
+            if (!s.contains("-") && !s.contains(":")) {
+                dateTime = DateTimeFormatterUtils.BASIC_DATE_TIME_FORMATTER.parse(s);
+            } else if (s.split("-")[0].length() == 2) {
                 dateTime = DATE_FORMATTER_TWO_DIGIT.parse(s);
-            } else if (s.length() == DATEKEY_LENGTH && !s.contains("-")) {
-                dateTime = DATEKEY_FORMATTER.parse(s);
             } else if (s.length() == 19) {
                 dateTime = DATE_TIME_FORMATTER.parse(s);
             } else {

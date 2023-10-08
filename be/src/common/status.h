@@ -37,6 +37,7 @@ TStatusError(PUBLISH_TIMEOUT);
 TStatusError(MEM_ALLOC_FAILED);
 TStatusError(BUFFER_ALLOCATION_FAILED);
 TStatusError(INVALID_ARGUMENT);
+TStatusError(INVALID_DATA_FORMAT);
 TStatusError(MINIMUM_RESERVATION_UNAVAILABLE);
 TStatusError(CORRUPTION);
 TStatusError(IO_ERROR);
@@ -51,7 +52,6 @@ TStatusError(MEM_LIMIT_EXCEEDED);
 TStatusError(THRIFT_RPC_ERROR);
 TStatusError(TIMEOUT);
 TStatusError(TOO_MANY_TASKS);
-TStatusError(SERVICE_UNAVAILABLE);
 TStatusError(UNINITIALIZED);
 TStatusError(ABORTED);
 TStatusError(DATA_QUALITY_ERROR);
@@ -116,6 +116,7 @@ E(NOT_INITIALIZED, -236);
 E(ALREADY_CANCELLED, -237);
 E(TOO_MANY_SEGMENTS, -238);
 E(ALREADY_CLOSED, -239);
+E(SERVICE_UNAVAILABLE, -240);
 E(NEED_SEND_AGAIN, -241);
 E(CE_CMD_PARAMS_ERROR, -300);
 E(CE_BUFFER_TOO_SMALL, -301);
@@ -309,6 +310,7 @@ constexpr bool capture_stacktrace(int code) {
         && code != ErrorCode::INVERTED_INDEX_BUILD_WAITTING
         && code != ErrorCode::META_KEY_NOT_FOUND
         && code != ErrorCode::PUSH_VERSION_ALREADY_EXIST
+        && code != ErrorCode::VERSION_NOT_EXIST
         && code != ErrorCode::TABLE_ALREADY_DELETED_ERROR
         && code != ErrorCode::TRANSACTION_NOT_EXIST
         && code != ErrorCode::TRANSACTION_ALREADY_VISIBLE
@@ -320,7 +322,8 @@ constexpr bool capture_stacktrace(int code) {
         && code != ErrorCode::CANCELLED
         && code != ErrorCode::UNINITIALIZED
         && code != ErrorCode::PIP_WAIT_FOR_RF
-        && code != ErrorCode::PIP_WAIT_FOR_SC;
+        && code != ErrorCode::PIP_WAIT_FOR_SC
+        && code != ErrorCode::INVALID_DATA_FORMAT;
 }
 // clang-format on
 
@@ -398,6 +401,7 @@ public:
     ERROR_CTOR(MemoryAllocFailed, MEM_ALLOC_FAILED)
     ERROR_CTOR(BufferAllocFailed, BUFFER_ALLOCATION_FAILED)
     ERROR_CTOR(InvalidArgument, INVALID_ARGUMENT)
+    ERROR_CTOR(InvalidDataFormat, INVALID_DATA_FORMAT)
     ERROR_CTOR(MinimumReservationUnavailable, MINIMUM_RESERVATION_UNAVAILABLE)
     ERROR_CTOR(Corruption, CORRUPTION)
     ERROR_CTOR(IOError, IO_ERROR)
@@ -414,7 +418,6 @@ public:
     ERROR_CTOR(RpcError, THRIFT_RPC_ERROR)
     ERROR_CTOR(TimedOut, TIMEOUT)
     ERROR_CTOR(TooManyTasks, TOO_MANY_TASKS)
-    ERROR_CTOR(ServiceUnavailable, SERVICE_UNAVAILABLE)
     ERROR_CTOR(Uninitialized, UNINITIALIZED)
     ERROR_CTOR(Aborted, ABORTED)
     ERROR_CTOR(DataQualityError, DATA_QUALITY_ERROR)
@@ -439,6 +442,7 @@ public:
     }
 
     bool is_invalid_argument() const { return ErrorCode::INVALID_ARGUMENT == _code; }
+    bool is_invalid_data_format() const { return ErrorCode::INVALID_DATA_FORMAT == _code; }
 
     bool is_not_found() const { return _code == ErrorCode::NOT_FOUND; }
     bool is_not_authorized() const { return code() == TStatusCode::NOT_AUTHORIZED; }

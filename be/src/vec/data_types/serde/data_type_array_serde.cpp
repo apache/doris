@@ -65,25 +65,30 @@ void DataTypeArraySerDe::serialize_one_cell_to_json(const IColumn& column, int r
 Status DataTypeArraySerDe::deserialize_column_from_json_vector(IColumn& column,
                                                                std::vector<Slice>& slices,
                                                                int* num_deserialized,
-                                                               const FormatOptions& options) const {
+                                                               const FormatOptions& options,
+                                                               int nesting_level) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
     return Status::OK();
 }
 
 Status DataTypeArraySerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                                          const FormatOptions& options) const {
-    DCHECK(!slice.empty());
+                                                          const FormatOptions& options,
+                                                          int nesting_level) const {
+    if (slice.empty()) {
+        return Status::InvalidArgument("slice is empty!");
+    }
+
     auto& array_column = assert_cast<ColumnArray&>(column);
     auto& offsets = array_column.get_offsets();
     IColumn& nested_column = array_column.get_data();
     DCHECK(nested_column.is_nullable());
     if (slice[0] != '[') {
-        return Status::InvalidArgument("Array does not start with '[' character, found '{}'",
-                                       slice[0]);
+        return Status::InvalidDataFormat("Array does not start with '[' character, found '{}'",
+                                         slice[0]);
     }
     if (slice[slice.size - 1] != ']') {
-        return Status::InvalidArgument("Array does not end with ']' character, found '{}'",
-                                       slice[slice.size - 1]);
+        return Status::InvalidDataFormat("Array does not end with ']' character, found '{}'",
+                                         slice[slice.size - 1]);
     }
     // empty array []
     if (slice.size == 2) {
@@ -104,10 +109,17 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_json(IColumn& column, Slice
     slices.emplace_back(slice);
     size_t slice_size = slice.size;
     // pre add total slice can reduce lasted element check.
+    char quote_char = 0;
     for (int idx = 0; idx < slice_size; ++idx) {
         char c = slice[idx];
         if (c == '"' || c == '\'') {
-            has_quote = !has_quote;
+            if (!has_quote) {
+                quote_char = c;
+                has_quote = !has_quote;
+            } else if (has_quote && quote_char == c) {
+                quote_char = 0;
+                has_quote = !has_quote;
+            }
         } else if (!has_quote && (c == '[' || c == '{')) {
             ++nested_level;
         } else if (!has_quote && (c == ']' || c == '}')) {
@@ -115,6 +127,11 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_json(IColumn& column, Slice
         } else if (!has_quote && nested_level == 0 && c == options.collection_delim) {
             // if meet collection_delimiter and not in quote, we can make it as an item.
             slices.back().remove_suffix(slice_size - idx);
+            // we do not handle item in array is empty,just return error
+            if (slices.back().empty()) {
+                return Status::InvalidArgument("here has item in Array({}) is empty!",
+                                               slice.to_string());
+            }
             // add next total slice.(slice data will not change, so we can use slice directly)
             // skip delimiter
             Slice next(slice.data + idx + 1, slice_size - idx - 1);
@@ -124,8 +141,8 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_json(IColumn& column, Slice
     }
 
     int elem_deserialized = 0;
-    Status st = nested_serde->deserialize_column_from_json_vector(nested_column, slices,
-                                                                  &elem_deserialized, options);
+    Status st = nested_serde->deserialize_column_from_json_vector(
+            nested_column, slices, &elem_deserialized, options, nesting_level + 1);
     offsets.emplace_back(offsets.back() + elem_deserialized);
     return st;
 }
@@ -133,6 +150,9 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_json(IColumn& column, Slice
 Status DataTypeArraySerDe::deserialize_one_cell_from_hive_text(IColumn& column, Slice& slice,
                                                                const FormatOptions& options,
                                                                int nesting_level) const {
+    if (slice.empty()) {
+        return Status::InvalidArgument("slice is empty!");
+    }
     auto& array_column = assert_cast<ColumnArray&>(column);
     auto& offsets = array_column.get_offsets();
     IColumn& nested_column = array_column.get_data();

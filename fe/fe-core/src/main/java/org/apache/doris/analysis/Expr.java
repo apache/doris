@@ -1419,6 +1419,17 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
     }
 
+    /**
+     * Checks whether comparing predicates' children include bitmap type.
+     */
+    public void checkIncludeBitmap() throws AnalysisException {
+        for (int i = 0; i < children.size(); ++i) {
+            if (children.get(i).getType().isBitmapType()) {
+                throw new AnalysisException("Unsupported bitmap type in expression: " + toSql());
+            }
+        }
+    }
+
     public Expr checkTypeCompatibility(Type targetType) throws AnalysisException {
         if (!targetType.isComplexType() && !targetType.isAggStateType()
                 && targetType.getPrimitiveType() == type.getPrimitiveType()) {
@@ -1843,6 +1854,11 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         if (this instanceof SlotRef) {
             SlotRef slot = (SlotRef) this;
             if (slot.getColumnName() != null && slot.getColumnName().equals(colName)) {
+                return true;
+            }
+        } else if (this instanceof ColumnRefExpr) {
+            ColumnRefExpr slot = (ColumnRefExpr) this;
+            if (slot.getName() != null && slot.getName().equals(colName)) {
                 return true;
             }
         }

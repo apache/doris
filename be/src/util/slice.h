@@ -80,6 +80,12 @@ public:
               data(const_cast<char*>(s)),
               size(strlen(s)) {}
 
+    /// default copy/move constructor and assignment
+    Slice(const Slice&) = default;
+    Slice& operator=(const Slice&) = default;
+    Slice(Slice&&) noexcept = default;
+    Slice& operator=(Slice&&) noexcept = default;
+
     /// @return A pointer to the beginning of the referenced data.
     const char* get_data() const { return data; }
 

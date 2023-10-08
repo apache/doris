@@ -62,6 +62,7 @@
 #include "common/config.h"
 #include "common/consts.h"
 #include "common/logging.h"
+#include "common/signal_handler.h"
 #include "common/status.h"
 #include "gutil/ref_counted.h"
 #include "gutil/strings/stringpiece.h"
@@ -119,6 +120,7 @@
 #include "util/time.h"
 #include "util/trace.h"
 #include "util/uid_util.h"
+#include "util/work_thread_pool.hpp"
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/string_ref.h"
@@ -174,7 +176,11 @@ struct WriteCooldownMetaExecutors {
     };
     // Each executor is a mpsc to ensure uploads of the same tablet meta are not concurrent
     // FIXME(AlexYue): Use mpsc instead of `ThreadPool` with 1 thread
-    std::vector<std::unique_ptr<ThreadPool>> _executors;
+    // We use PriorityThreadPool since it would call status inside it's `shutdown` function.
+    // Consider one situation where the StackTraceCache's singleton is detructed before
+    // this WriteCooldownMetaExecutors's singleton, then invoking the status would also call
+    // StackTraceCache which would then result in heap use after free like #23834
+    std::vector<std::unique_ptr<PriorityThreadPool>> _executors;
     std::unordered_set<int64_t> _pending_tablets;
     std::mutex _latch;
     size_t _executor_nums;
@@ -183,7 +189,7 @@ struct WriteCooldownMetaExecutors {
 WriteCooldownMetaExecutors::WriteCooldownMetaExecutors(size_t executor_nums)
         : _executor_nums(executor_nums) {
     for (size_t i = 0; i < _executor_nums; i++) {
-        std::unique_ptr<ThreadPool> pool;
+        std::unique_ptr<PriorityThreadPool> pool;
         ThreadPoolBuilder("WriteCooldownMetaExecutor")
                 .set_min_threads(1)
                 .set_max_threads(1)
@@ -230,7 +236,7 @@ void WriteCooldownMetaExecutors::WriteCooldownMetaExecutors::submit(TabletShared
         VLOG_DEBUG << "tablet " << t->tablet_id() << " is not cooldown replica";
     };
 
-    _executors[_get_executor_pos(tablet_id)]->submit_func(
+    _executors[_get_executor_pos(tablet_id)]->offer(
             [task = std::move(async_write_task)]() { task(); });
 }
 
@@ -1638,9 +1644,10 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
     }
 
     if (tablet_state() == TABLET_RUNNING) {
-        if (has_version_cross || is_io_error_too_times()) {
+        if (has_version_cross || is_io_error_too_times() || !data_dir()->is_used()) {
             LOG(INFO) << "report " << full_name() << " as bad, version_cross=" << has_version_cross
-                      << ", ioe times=" << get_io_error_times();
+                      << ", ioe times=" << get_io_error_times() << ", data_dir used "
+                      << data_dir()->is_used();
             tablet_info->__set_used(false);
         }
 
@@ -1719,7 +1726,8 @@ Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compactio
             *permits = 0;
             if (!res.is<CUMULATIVE_NO_SUITABLE_VERSION>()) {
                 DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
-                return Status::InternalError("prepare cumulative compaction with err: {}", res);
+                return Status::InternalError("prepare cumulative compaction with err: {}",
+                                             res.to_string());
             }
             // return OK if OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION, so that we don't need to
             // print too much useless logs.
@@ -1750,7 +1758,8 @@ Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compactio
             *permits = 0;
             if (!res.is<BE_NO_SUITABLE_VERSION>()) {
                 DorisMetrics::instance()->base_compaction_request_failed->increment(1);
-                return Status::InternalError("prepare base compaction with err: {}", res);
+                return Status::InternalError("prepare base compaction with err: {}",
+                                             res.to_string());
             }
             // return OK if OLAP_ERR_BE_NO_SUITABLE_VERSION, so that we don't need to
             // print too much useless logs.
@@ -1768,7 +1777,8 @@ Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compactio
             set_last_full_compaction_failure_time(UnixMillis());
             *permits = 0;
             if (!res.is<BE_NO_SUITABLE_VERSION>()) {
-                return Status::InternalError("prepare full compaction with err: {}", res);
+                return Status::InternalError("prepare full compaction with err: {}",
+                                             res.to_string());
             }
             // return OK if OLAP_ERR_BE_NO_SUITABLE_VERSION, so that we don't need to
             // print too much useless logs.
@@ -1791,7 +1801,8 @@ Status Tablet::prepare_single_replica_compaction(TabletSharedPtr tablet,
     Status res = _single_replica_compaction->prepare_compact();
     if (!res.ok()) {
         if (!res.is<CUMULATIVE_NO_SUITABLE_VERSION>()) {
-            return Status::InternalError("prepare single replica compaction with err: {}", res);
+            return Status::InternalError("prepare single replica compaction with err: {}",
+                                         res.to_string());
         }
     }
     return Status::OK();
@@ -1838,6 +1849,7 @@ std::vector<Version> Tablet::get_all_versions() {
 }
 
 void Tablet::execute_compaction(CompactionType compaction_type) {
+    signal::tablet_id = tablet_id();
     if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
         MonotonicStopWatch watch;
         watch.start();
@@ -3330,7 +3342,6 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset,
     std::vector<segment_v2::SegmentSharedPtr> segments;
     _load_rowset_segments(rowset, &segments);
 
-    std::lock_guard<std::mutex> rwlock(_rowset_update_lock);
     {
         std::shared_lock meta_rlock(_meta_lock);
         // tablet is under alter process. The delete bitmap will be calculated after conversion.
@@ -3787,7 +3798,7 @@ Status Tablet::check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, in
             missing_rowsets_arr.PushBack(miss_value, missing_rowsets_arr.GetAllocator());
         }
 
-        root.AddMember("requied_rowsets", required_rowsets_arr, root.GetAllocator());
+        root.AddMember("required_rowsets", required_rowsets_arr, root.GetAllocator());
         root.AddMember("missing_rowsets", missing_rowsets_arr, root.GetAllocator());
         rapidjson::StringBuffer strbuf;
         rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(strbuf);

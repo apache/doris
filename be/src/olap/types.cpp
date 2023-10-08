@@ -190,7 +190,7 @@ const TypeInfo* get_struct_type_info(std::vector<FieldType> field_types) {
 
 // TODO: Support the type info of the nested array with more than 9 depths.
 // TODO(xy): Support the type info of the nested struct
-TypeInfoPtr get_type_info(segment_v2::ColumnMetaPB* column_meta_pb) {
+TypeInfoPtr get_type_info(const segment_v2::ColumnMetaPB* column_meta_pb) {
     FieldType type = (FieldType)column_meta_pb->type();
     if (UNLIKELY(type == FieldType::OLAP_FIELD_TYPE_STRUCT)) {
         std::vector<FieldType> field_types;

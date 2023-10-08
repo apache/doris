@@ -62,8 +62,8 @@ public:
     Status delete_and_create_directory(const Path& dir);
     // return disk available space where the given path is.
     Status get_space_info(const Path& path, size_t* capacity, size_t* available);
-    // copy src dir to dest dir, recursivly
-    Status copy_dirs(const Path& src, const Path& dest);
+    // Copy src path to dest path. If `src` is a directory, this method will call recursively for each directory entry.
+    Status copy_path(const Path& src, const Path& dest);
     // return true if parent path contain sub path
     static bool contain_path(const Path& parent, const Path& sub);
     // delete dir or file
@@ -102,7 +102,7 @@ protected:
     Status mtime_impl(const Path& file, time_t* m_time);
     Status delete_and_create_directory_impl(const Path& dir);
     Status get_space_info_impl(const Path& path, size_t* capacity, size_t* available);
-    Status copy_dirs_impl(const Path& src, const Path& dest);
+    Status copy_path_impl(const Path& src, const Path& dest);
     Status delete_directory_or_file_impl(const Path& path);
 
 private:

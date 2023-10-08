@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.nereids.trees.expressions.functions.table.Hdfs;
+import org.apache.doris.nereids.trees.expressions.functions.table.Local;
 import org.apache.doris.nereids.trees.expressions.functions.table.Numbers;
 import org.apache.doris.nereids.trees.expressions.functions.table.S3;
 
@@ -33,7 +34,8 @@ public class BuiltinTableValuedFunctions implements FunctionHelper {
     public final ImmutableList<TableValuedFunc> tableValuedFunctions = ImmutableList.of(
             tableValued(Numbers.class, "numbers"),
             tableValued(Hdfs.class, "hdfs"),
-            tableValued(S3.class, "s3")
+            tableValued(S3.class, "s3"),
+            tableValued(Local.class, "local")
     );
 
     public static final BuiltinTableValuedFunctions INSTANCE = new BuiltinTableValuedFunctions();
@@ -41,3 +43,4 @@ public class BuiltinTableValuedFunctions implements FunctionHelper {
     // Note: Do not add any code here!
     private BuiltinTableValuedFunctions() {}
 }
+

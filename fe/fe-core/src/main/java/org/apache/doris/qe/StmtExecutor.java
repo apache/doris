@@ -103,6 +103,7 @@ import org.apache.doris.common.util.ProfileManager.ProfileType;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.jdbc.client.JdbcClientException;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.LoadJobRowResult;
 import org.apache.doris.load.loadv2.LoadManager;
@@ -464,24 +465,32 @@ public class StmtExecutor {
         }
     }
 
-    private void checkBlockRules() throws AnalysisException {
-        if (originStmt != null) {
-            Env.getCurrentEnv().getSqlBlockRuleMgr().matchSql(
-                    originStmt.originStmt, context.getSqlHash(), context.getQualifiedUser());
-        }
+    public void checkBlockRules() throws AnalysisException {
+        checkBlockRulesByRegex(originStmt);
+        checkBlockRulesByScan(planner);
+    }
 
-        // limitations: partition_num, tablet_num, cardinality
-        if (planner != null) {
-            List<ScanNode> scanNodeList = planner.getScanNodes();
-            for (ScanNode scanNode : scanNodeList) {
-                if (scanNode instanceof OlapScanNode) {
-                    OlapScanNode olapScanNode = (OlapScanNode) scanNode;
-                    Env.getCurrentEnv().getSqlBlockRuleMgr().checkLimitations(
-                            olapScanNode.getSelectedPartitionNum().longValue(),
-                            olapScanNode.getSelectedTabletsNum(),
-                            olapScanNode.getCardinality(),
-                            context.getQualifiedUser());
-                }
+    public void checkBlockRulesByRegex(OriginStatement originStmt) throws AnalysisException {
+        if (originStmt == null) {
+            return;
+        }
+        Env.getCurrentEnv().getSqlBlockRuleMgr().matchSql(
+                originStmt.originStmt, context.getSqlHash(), context.getQualifiedUser());
+    }
+
+    public void checkBlockRulesByScan(Planner planner) throws AnalysisException {
+        if (planner == null) {
+            return;
+        }
+        List<ScanNode> scanNodeList = planner.getScanNodes();
+        for (ScanNode scanNode : scanNodeList) {
+            if (scanNode instanceof OlapScanNode) {
+                OlapScanNode olapScanNode = (OlapScanNode) scanNode;
+                Env.getCurrentEnv().getSqlBlockRuleMgr().checkLimitations(
+                        olapScanNode.getSelectedPartitionNum().longValue(),
+                        olapScanNode.getSelectedTabletsNum(),
+                        olapScanNode.getCardinality(),
+                        context.getQualifiedUser());
             }
         }
     }
@@ -493,7 +502,6 @@ public class StmtExecutor {
         profile.getSummaryProfile().setQueryBeginTime();
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
 
-        checkBlockRules();
         parseByNereids();
         Preconditions.checkState(parsedStmt instanceof LogicalPlanAdapter,
                 "Nereids only process LogicalPlanAdapter, but parsedStmt is " + parsedStmt.getClass().getName());
@@ -544,6 +552,7 @@ public class StmtExecutor {
             planner = new NereidsPlanner(statementContext);
             try {
                 planner.plan(parsedStmt, context.getSessionVariable().toThrift());
+                checkBlockRules();
             } catch (Exception e) {
                 LOG.debug("Nereids plan query failed:\n{}", originStmt.originStmt);
                 throw new NereidsException(new AnalysisException("Unexpected exception: " + e.getMessage(), e));
@@ -767,6 +776,10 @@ public class StmtExecutor {
             LOG.warn("execute Exception. {}", context.getQueryIdentifier(), e);
             context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             context.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
+        } catch (JdbcClientException e) {
+            LOG.warn("execute Exception. {}", context.getQueryIdentifier(), e);
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
+                    e.getMessage());
         } catch (Exception e) {
             LOG.warn("execute Exception. {}", context.getQueryIdentifier(), e);
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
@@ -1217,6 +1230,8 @@ public class StmtExecutor {
         boolean isSend = isSendFields;
         for (InternalService.PCacheValue value : cacheValues) {
             TResultBatch resultBatch = new TResultBatch();
+            // need to set empty list first, to support empty result set.
+            resultBatch.setRows(Lists.newArrayList());
             for (ByteString one : value.getRowsList()) {
                 resultBatch.addToRows(ByteBuffer.wrap(one.toByteArray()));
             }
@@ -1256,6 +1271,14 @@ public class StmtExecutor {
     private void handleCacheStmt(CacheAnalyzer cacheAnalyzer, MysqlChannel channel)
             throws Exception {
         InternalService.PFetchCacheResult cacheResult = cacheAnalyzer.getCacheData();
+        if (cacheResult == null) {
+            if (ConnectContext.get() != null
+                    && !ConnectContext.get().getSessionVariable().testQueryCacheHit.equals("none")) {
+                throw new UserException("The variable test_query_cache_hit is set to "
+                        + ConnectContext.get().getSessionVariable().testQueryCacheHit
+                        + ", but the query cache is not hit.");
+            }
+        }
         CacheMode mode = cacheAnalyzer.getCacheMode();
         Queriable queryStmt = (Queriable) parsedStmt;
         boolean isSendFields = false;
@@ -1303,7 +1326,7 @@ public class StmtExecutor {
 
         if (queryStmt.isExplain()) {
             String explainString = planner.getExplainString(queryStmt.getExplainOptions());
-            handleExplainStmt(explainString);
+            handleExplainStmt(explainString, false);
             return;
         }
 
@@ -1393,11 +1416,11 @@ public class StmtExecutor {
                 profile.getSummaryProfile().freshFetchResultConsumeTime();
 
                 // for outfile query, there will be only one empty batch send back with eos flag
+                // call `copyRowBatch()` first, because batch.getBatch() may be null, if result set is empty
+                if (cacheAnalyzer != null && !isOutfileQuery) {
+                    cacheAnalyzer.copyRowBatch(batch);
+                }
                 if (batch.getBatch() != null) {
-                    if (cacheAnalyzer != null) {
-                        cacheAnalyzer.copyRowBatch(batch);
-                    }
-
                     // register send field result time.
                     profile.getSummaryProfile().setTempStartTime();
                     // For some language driver, getting error packet after fields packet
@@ -1703,7 +1726,7 @@ public class StmtExecutor {
             ExplainOptions explainOptions = insertStmt.getQueryStmt().getExplainOptions();
             insertStmt.setIsExplain(explainOptions);
             String explainString = planner.getExplainString(explainOptions);
-            handleExplainStmt(explainString);
+            handleExplainStmt(explainString, false);
             return;
         }
 
@@ -2083,11 +2106,11 @@ public class StmtExecutor {
     private void handleLockTablesStmt() {
     }
 
-    public void handleExplainStmt(String result) throws IOException {
-        ShowResultSetMetaData metaData =
-                ShowResultSetMetaData.builder()
-                        .addColumn(new Column("Explain String", ScalarType.createVarchar(20)))
-                        .build();
+    public void handleExplainStmt(String result, boolean isNereids) throws IOException {
+        ShowResultSetMetaData metaData = ShowResultSetMetaData.builder()
+                .addColumn(new Column("Explain String" + (isNereids ? "(Nereids Planner)" : "(Old Planner)"),
+                        ScalarType.createVarchar(20)))
+                .build();
         sendMetaData(metaData);
 
         // Send result set.
@@ -2438,6 +2461,10 @@ public class StmtExecutor {
     }
 
     public List<ResultRow> executeInternalQuery() {
+        LOG.debug("INTERNAL QUERY: " + originStmt.toString());
+        UUID uuid = UUID.randomUUID();
+        TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+        context.setQueryId(queryId);
         try {
             List<ResultRow> resultRows = new ArrayList<>();
             try {
@@ -2455,6 +2482,7 @@ public class StmtExecutor {
                     } catch (Exception e) {
                         LOG.warn("fall back to legacy planner, because: {}", e.getMessage(), e);
                         parsedStmt = null;
+                        planner = null;
                         context.getState().setNereids(false);
                         analyzer = new Analyzer(context.getEnv(), context);
                         analyze(context.getSessionVariable().toThrift());
@@ -2464,7 +2492,8 @@ public class StmtExecutor {
                     analyze(context.getSessionVariable().toThrift());
                 }
             } catch (Exception e) {
-                throw new RuntimeException("Failed to execute internal SQL. " + Util.getRootCauseMessage(e), e);
+                throw new RuntimeException("Failed to execute internal SQL. "
+                        + Util.getRootCauseMessage(e) + " " + originStmt.toString(), e);
             }
             planner.getFragments();
             RowBatch batch;
@@ -2474,7 +2503,8 @@ public class StmtExecutor {
                 QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                         new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
             } catch (UserException e) {
-                throw new RuntimeException("Failed to execute internal SQL. " + Util.getRootCauseMessage(e), e);
+                throw new RuntimeException("Failed to execute internal SQL. "
+                        + " " + Util.getRootCauseMessage(e) + originStmt.toString(), e);
             }
 
             Span queryScheduleSpan = context.getTracer()
@@ -2483,7 +2513,8 @@ public class StmtExecutor {
                 coord.exec();
             } catch (Exception e) {
                 queryScheduleSpan.recordException(e);
-                throw new RuntimeException("Failed to execute internal SQL. " + Util.getRootCauseMessage(e), e);
+                throw new RuntimeException("Failed to execute internal SQL. "
+                        + Util.getRootCauseMessage(e) + " " + originStmt.toString(), e);
             } finally {
                 queryScheduleSpan.end();
             }
@@ -2500,7 +2531,8 @@ public class StmtExecutor {
                 }
             } catch (Exception e) {
                 fetchResultSpan.recordException(e);
-                throw new RuntimeException("Failed to execute internal SQL. " + Util.getRootCauseMessage(e), e);
+                throw new RuntimeException("Failed to execute internal SQL. " + Util.getRootCauseMessage(e) + " "
+                        + originStmt.toString(), e);
             } finally {
                 fetchResultSpan.end();
             }
@@ -2548,4 +2580,5 @@ public class StmtExecutor {
         this.proxyResultSet = proxyResultSet;
     }
 }
+
 

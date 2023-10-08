@@ -24,23 +24,20 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
+import org.apache.doris.nereids.util.DateTimeFormatterUtils;
 import org.apache.doris.nereids.util.DateUtils;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
-import java.time.format.DateTimeParseException;
 import java.time.format.ResolverStyle;
 import java.time.temporal.ChronoField;
 import java.time.temporal.TemporalAccessor;
 import java.util.Collections;
-import java.util.List;
 import java.util.Objects;
 import java.util.regex.Pattern;
 
@@ -51,9 +48,7 @@ public class DateTimeLiteral extends DateLiteral {
     protected static DateTimeFormatter DATE_TIME_FORMATTER_TO_HOUR = null;
     protected static DateTimeFormatter DATE_TIME_FORMATTER_TO_MINUTE = null;
     protected static DateTimeFormatter DATE_TIME_FORMATTER_TWO_DIGIT = null;
-    protected static DateTimeFormatter DATETIMEKEY_FORMATTER = null;
     protected static DateTimeFormatter DATE_TIME_FORMATTER_TO_MICRO_SECOND = null;
-    protected static List<DateTimeFormatter> formatterList = null;
     protected static final int MAX_MICROSECOND = 999999;
 
     private static final DateTimeLiteral MIN_DATETIME = new DateTimeLiteral(0000, 1, 1, 0, 0, 0);
@@ -79,29 +74,11 @@ public class DateTimeLiteral extends DateLiteral {
             DATE_TIME_FORMATTER_TWO_DIGIT = DateUtils.formatBuilder("%y-%m-%d %H:%i:%s")
                     .toFormatter().withResolverStyle(ResolverStyle.STRICT);
 
-            DATETIMEKEY_FORMATTER = DateUtils.formatBuilder("%Y%m%d%H%i%s")
-                    .toFormatter().withResolverStyle(ResolverStyle.STRICT);
-
             DATE_TIME_FORMATTER_TO_MICRO_SECOND = new DateTimeFormatterBuilder()
                     .appendPattern("uuuu-MM-dd HH:mm:ss")
                     .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true)
                     .toFormatter()
                     .withResolverStyle(ResolverStyle.STRICT);
-
-            formatterList = Lists.newArrayList(
-                    DateUtils.formatBuilder("%Y%m%d").appendLiteral('T').appendPattern("HHmmss")
-                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true)
-                            .toFormatter().withResolverStyle(ResolverStyle.STRICT),
-                    DateUtils.formatBuilder("%Y%m%d").appendLiteral('T').appendPattern("HHmmss")
-                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, false)
-                            .toFormatter().withResolverStyle(ResolverStyle.STRICT),
-                    DateUtils.formatBuilder("%Y%m%d%H%i%s")
-                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true)
-                            .toFormatter().withResolverStyle(ResolverStyle.STRICT),
-                    DateUtils.formatBuilder("%Y%m%d%H%i%s")
-                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, false)
-                            .toFormatter().withResolverStyle(ResolverStyle.STRICT),
-                    DATETIMEKEY_FORMATTER, DATEKEY_FORMATTER);
         } catch (AnalysisException e) {
             LOG.error("invalid date format", e);
             System.exit(-1);
@@ -147,45 +124,27 @@ public class DateTimeLiteral extends DateLiteral {
         this.day = day;
     }
 
+    public boolean isMidnight() {
+        return hour == 0 && minute == 0 && second == 0 && microSecond == 0;
+    }
+
     @Override
     protected void init(String s) throws AnalysisException {
         try {
             TemporalAccessor dateTime = null;
-            int offset = 0;
             // parse timezone
             if (haveTimeZoneOffset(s) || haveTimeZoneName(s)) {
-                String tzString = new String();
                 if (haveTimeZoneName(s)) { // GMT, UTC+8, Z[, CN, Asia/Shanghai]
                     int split = getTimeZoneSplitPos(s);
                     Preconditions.checkArgument(split > 0);
-                    tzString = s.substring(split);
                     s = s.substring(0, split);
                 } else { // +04:30
                     Preconditions.checkArgument(s.charAt(s.length() - 6) == '-' || s.charAt(s.length() - 6) == '+');
-                    tzString = s.substring(s.length() - 6);
                     s = s.substring(0, s.length() - 6);
                 }
-                ZoneId zone = ZoneId.of(tzString);
-                ZoneId dorisZone = DateUtils.getTimeZone();
-                offset = dorisZone.getRules().getOffset(java.time.Instant.now()).getTotalSeconds()
-                        - zone.getRules().getOffset(java.time.Instant.now()).getTotalSeconds();
             }
-
-            if (!s.contains("-")) {
-                // handle format like 20210106, but should not handle 2021-1-6
-                boolean parsed = false;
-                for (DateTimeFormatter formatter : formatterList) {
-                    try {
-                        dateTime = formatter.parse(s);
-                        parsed = true;
-                        break;
-                    } catch (DateTimeParseException ex) {
-                        // ignore
-                    }
-                }
-                if (!parsed) {
-                    throw new AnalysisException("datetime literal [" + s + "] is invalid");
-                }
+            if (!s.contains("-") && !s.contains(":")) {
+                dateTime = DateTimeFormatterUtils.BASIC_DATE_TIME_FORMATTER.parse(s);
             } else {
                 String[] datePart = s.contains(" ") ? s.split(" ")[0].split("-") : s.split("-");
                 DateTimeFormatterBuilder builder = new DateTimeFormatterBuilder();
@@ -255,16 +214,6 @@ public class DateTimeLiteral extends DateLiteral {
             minute = DateUtils.getOrDefault(dateTime, ChronoField.MINUTE_OF_HOUR);
             second = DateUtils.getOrDefault(dateTime, ChronoField.SECOND_OF_MINUTE);
             microSecond = DateUtils.getOrDefault(dateTime, ChronoField.MICRO_OF_SECOND);
-
-            if (offset != 0) {
-                DateTimeLiteral result = (DateTimeLiteral) this.plusSeconds(offset);
-                this.second = result.second;
-                this.minute = result.minute;
-                this.hour = result.hour;
-                this.day = result.day;
-                this.month = result.month;
-                this.year = result.year;
-            }
 
         } catch (Exception ex) {
             throw new AnalysisException("datetime literal [" + s + "] is invalid");

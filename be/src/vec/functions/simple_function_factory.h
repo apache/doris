@@ -77,6 +77,7 @@ void register_function_like(SimpleFunctionFactory& factory);
 void register_function_regexp(SimpleFunctionFactory& factory);
 void register_function_random(SimpleFunctionFactory& factory);
 void register_function_uuid(SimpleFunctionFactory& factory);
+void register_function_uuid_numeric(SimpleFunctionFactory& factory);
 void register_function_coalesce(SimpleFunctionFactory& factory);
 void register_function_grouping(SimpleFunctionFactory& factory);
 void register_function_datetime_floor_ceil(SimpleFunctionFactory& factory);
@@ -99,6 +100,7 @@ void register_function_match(SimpleFunctionFactory& factory);
 void register_function_tokenize(SimpleFunctionFactory& factory);
 
 void register_function_url(SimpleFunctionFactory& factory);
+void register_function_ip(SimpleFunctionFactory& factory);
 
 class SimpleFunctionFactory {
     using Creator = std::function<FunctionBuilderPtr()>;
@@ -114,7 +116,6 @@ public:
         if (!types.empty()) {
             function_variadic_set.insert(name);
         }
-
         std::string key_str = name;
         if (!types.empty()) {
             for (const auto& type : types) {
@@ -135,7 +136,7 @@ public:
 
     template <class Function>
     void register_function(std::string name) {
-        function_creators[name] = &createDefaultFunction<Function>;
+        register_function(name, &createDefaultFunction<Function>);
     }
 
     void register_alias(const std::string& name, const std::string& alias) {
@@ -252,6 +253,7 @@ public:
             register_function_regexp(instance);
             register_function_random(instance);
             register_function_uuid(instance);
+            register_function_uuid_numeric(instance);
             register_function_coalesce(instance);
             register_function_grouping(instance);
             register_function_datetime_floor_ceil(instance);
@@ -272,6 +274,7 @@ public:
             register_function_width_bucket(instance);
             register_function_match(instance);
             register_function_tokenize(instance);
+            register_function_ip(instance);
         });
         return instance;
     }

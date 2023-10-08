@@ -991,6 +991,7 @@ enum TBinlogType {
   BARRIER = 10,
   MODIFY_PARTITIONS = 11,
   REPLACE_PARTITIONS = 12,
+  TRUNCATE_TABLE = 13,
 }
 
 struct TBinlog {
@@ -1048,6 +1049,7 @@ struct TGetSnapshotResult {
 
 struct TTableRef {
     1: optional string table
+    3: optional string alias_name
 }
 
 struct TRestoreSnapshotRequest {

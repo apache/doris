@@ -82,6 +82,23 @@ TEST(function_bitmap_test, function_bitmap_to_string_test) {
     check_function<DataTypeString, true>(func_name, input_types, data_set);
 }
 
+TEST(function_bitmap_test, function_bitmap_remove) {
+    std::string func_name = "bitmap_remove";
+    InputTypeSet input_types = {TypeIndex::BitMap, TypeIndex::Int64};
+
+    BitmapValue bitmap1({1, 3});
+    BitmapValue bitmap2({1, 3, 5});
+
+    BitmapValue bitmap1_res(1);
+    BitmapValue bitmap2_res({1, 3, 5});
+    {
+        DataSet data_set = {{{&bitmap1, (int64_t)3}, bitmap1_res},
+                            {{&bitmap2, (int64_t)6}, bitmap2_res},
+                            {{&bitmap1, Null()}, Null()}};
+
+        check_function<DataTypeBitMap, true>(func_name, input_types, data_set);
+    }
+}
 namespace doris {
 namespace config {
 DECLARE_Bool(enable_set_in_bitmap_value);
@@ -400,6 +417,21 @@ TEST(function_bitmap_test, function_bitmap_xor_count) {
 
 TEST(function_bitmap_test, function_bitmap_and_not_count) {
     std::string func_name = "bitmap_and_not_count";
+    InputTypeSet input_types = {TypeIndex::BitMap, TypeIndex::BitMap};
+    BitmapValue bitmap1({1, 2, 3});
+    BitmapValue bitmap2({3, 4, std::numeric_limits<uint64_t>::min()});
+    BitmapValue bitmap3({33, 5, std::numeric_limits<uint64_t>::max()});
+    BitmapValue empty_bitmap;
+
+    DataSet data_set = {{{&bitmap1, &empty_bitmap}, (int64_t)3}, //1,2,3
+                        {{&bitmap2, Null()}, (int64_t)0},
+                        {{&bitmap2, &bitmap3}, (int64_t)3},  //0,3,4
+                        {{&bitmap1, &bitmap2}, (int64_t)2}}; //1,2
+
+    check_function<DataTypeInt64, true>(func_name, input_types, data_set);
+}
+TEST(function_bitmap_test, function_bitmap_and_not_count_alias) {
+    std::string func_name = "bitmap_andnot_count";
     InputTypeSet input_types = {TypeIndex::BitMap, TypeIndex::BitMap};
     BitmapValue bitmap1({1, 2, 3});
     BitmapValue bitmap2({3, 4, std::numeric_limits<uint64_t>::min()});

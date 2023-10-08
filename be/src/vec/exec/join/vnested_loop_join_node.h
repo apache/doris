@@ -259,7 +259,7 @@ private:
     std::stack<uint16_t> _build_offset_stack;
     std::stack<uint16_t> _probe_offset_stack;
     VExprContextSPtrs _join_conjuncts;
-
+    RuntimeProfile::Counter* _loop_join_timer;
     friend struct RuntimeFilterBuild;
 };
 

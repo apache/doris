@@ -82,6 +82,7 @@ public class BindSink implements AnalysisRuleFactory {
                                             .map(NamedExpression.class::cast)
                                             .collect(ImmutableList.toImmutableList()),
                                     sink.isPartialUpdate(),
+                                    sink.isFromNativeInsertStmt(),
                                     sink.child());
 
                             // we need to insert all the columns of the target table
@@ -134,7 +135,14 @@ public class BindSink implements AnalysisRuleFactory {
                                                     .filter(col -> col.getName().equals(table.getSequenceMapCol()))
                                                     .findFirst().get();
                                             columnToOutput.put(column.getName(), columnToOutput.get(seqCol.getName()));
+                                        } else if (sink.isPartialUpdate()) {
+                                            // If the current load is a partial update, the values of unmentioned
+                                            // columns will be filled in SegmentWriter. And the output of sink node
+                                            // should not contain these unmentioned columns, so we just skip them.
+                                            continue;
                                         } else if (column.getDefaultValue() == null) {
+                                            // Otherwise, the unmentioned columns should be filled with default values
+                                            // or null values
                                             columnToOutput.put(column.getName(), new Alias(
                                                     new NullLiteral(DataType.fromCatalogType(column.getType())),
                                                     column.getName()));
@@ -161,8 +169,17 @@ public class BindSink implements AnalysisRuleFactory {
                             // add cast project
                             List<NamedExpression> castExprs = Lists.newArrayList();
                             for (int i = 0; i < table.getFullSchema().size(); ++i) {
-                                Expression castExpr = TypeCoercionUtils.castIfNotSameType(fullOutputExprs.get(i),
-                                        DataType.fromCatalogType(table.getFullSchema().get(i).getType()));
+                                Column col = table.getFullSchema().get(i);
+                                NamedExpression expr = (NamedExpression) columnToOutput.get(col.getName());
+                                if (expr == null) {
+                                    // If `expr` is null, it means that the current load is a partial update
+                                    // and `col` should not be contained in the output of the sink node so
+                                    // we skip it.
+                                    continue;
+                                }
+                                Expression castExpr = TypeCoercionUtils.castIfNotSameType(
+                                        expr,
+                                        DataType.fromCatalogType(col.getType()));
                                 if (castExpr instanceof NamedExpression) {
                                     castExprs.add(((NamedExpression) castExpr));
                                 } else {

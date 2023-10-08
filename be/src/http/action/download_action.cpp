@@ -58,7 +58,9 @@ DownloadAction::DownloadAction(ExecEnv* exec_env, const std::vector<std::string>
 
 DownloadAction::DownloadAction(ExecEnv* exec_env, const std::string& error_log_root_dir)
         : _exec_env(exec_env), _download_type(ERROR_LOG), _num_workers(0) {
+#ifndef BE_TEST
     io::global_local_filesystem()->canonicalize(error_log_root_dir, &_error_log_root_dir);
+#endif
 }
 
 void DownloadAction::handle_normal(HttpRequest* req, const std::string& file_param) {

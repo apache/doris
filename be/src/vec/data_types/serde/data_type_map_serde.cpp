@@ -65,7 +65,9 @@ void DataTypeMapSerDe::serialize_one_cell_to_json(const IColumn& column, int row
 Status DataTypeMapSerDe::deserialize_one_cell_from_hive_text(IColumn& column, Slice& slice,
                                                              const FormatOptions& options,
                                                              int nesting_level) const {
-    DCHECK(!slice.empty());
+    if (slice.empty()) {
+        return Status::InvalidArgument("slice is empty!");
+    }
     auto& array_column = assert_cast<ColumnMap&>(column);
     auto& offsets = array_column.get_offsets();
     IColumn& nested_key_column = array_column.get_keys();
@@ -92,10 +94,11 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_hive_text(IColumn& column, Sl
             kv = i;
             continue;
         }
-        if (i == slice.size || slice[i] == collection_delimiter) {
+        if ((i == slice.size || slice[i] == collection_delimiter) && i >= kv + 1) {
             key_slices.push_back({slice.data + from, kv - from});
             value_slices.push_back({slice.data + kv + 1, i - 1 - kv});
             from = i + 1;
+            kv = from;
         }
     }
 
@@ -162,14 +165,18 @@ void DataTypeMapSerDe::serialize_one_cell_to_hive_text(const IColumn& column, in
 Status DataTypeMapSerDe::deserialize_column_from_json_vector(IColumn& column,
                                                              std::vector<Slice>& slices,
                                                              int* num_deserialized,
-                                                             const FormatOptions& options) const {
+                                                             const FormatOptions& options,
+                                                             int nesting_level) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
     return Status::OK();
 }
 
 Status DataTypeMapSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                                        const FormatOptions& options) const {
-    DCHECK(!slice.empty());
+                                                        const FormatOptions& options,
+                                                        int nesting_level) const {
+    if (slice.empty()) {
+        return Status::InvalidArgument("slice is empty!");
+    }
     auto& array_column = assert_cast<ColumnMap&>(column);
     auto& offsets = array_column.get_offsets();
     IColumn& nested_key_column = array_column.get_keys();
@@ -179,12 +186,13 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& 
     if (slice[0] != '{') {
         std::stringstream ss;
         ss << slice[0] << '\'';
-        return Status::InvalidArgument("Map does not start with '{' character, found '" + ss.str());
+        return Status::InvalidDataFormat("Map does not start with '{' character, found '" +
+                                         ss.str());
     }
     if (slice[slice.size - 1] != '}') {
         std::stringstream ss;
         ss << slice[slice.size - 1] << '\'';
-        return Status::InvalidArgument("Map does not end with '}' character, found '" + ss.str());
+        return Status::InvalidDataFormat("Map does not end with '}' character, found '" + ss.str());
     }
     // empty map
     if (slice.size == 2) {
@@ -209,10 +217,17 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& 
     bool key_added = false;
     int idx = 0;
     int elem_deserialized = 0;
+    char quote_char = 0;
     for (; idx < slice_size; ++idx) {
         char c = slice[idx];
         if (c == '"' || c == '\'') {
-            has_quote = !has_quote;
+            if (!has_quote) {
+                quote_char = c;
+                has_quote = !has_quote;
+            } else if (has_quote && quote_char == c) {
+                quote_char = 0;
+                has_quote = !has_quote;
+            }
         } else if (c == '\\' && idx + 1 < slice_size) { //escaped
             ++idx;
         } else if (!has_quote && (c == '[' || c == '{')) {
@@ -226,15 +241,8 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& 
             }
             Slice next(slice.data + start_pos, idx - start_pos);
             next.trim_prefix();
-            if (options.converted_from_string &&
-                (next.starts_with("\"") || next.starts_with("'"))) {
-                next.remove_prefix(1);
-            }
-            if (options.converted_from_string && (next.ends_with("\"") || next.ends_with("'"))) {
-                next.remove_suffix(1);
-            }
-            if (Status st =
-                        key_serde->deserialize_one_cell_from_json(nested_key_column, next, options);
+            if (Status st = key_serde->deserialize_one_cell_from_json(nested_key_column, next,
+                                                                      options, nesting_level + 1);
                 !st.ok()) {
                 nested_key_column.pop_back(elem_deserialized);
                 nested_val_column.pop_back(elem_deserialized);
@@ -252,7 +260,7 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& 
             next.trim_prefix();
 
             if (Status st = value_serde->deserialize_one_cell_from_json(nested_val_column, next,
-                                                                        options);
+                                                                        options, nesting_level + 1);
                 !st.ok()) {
                 nested_key_column.pop_back(elem_deserialized + 1);
                 nested_val_column.pop_back(elem_deserialized);
@@ -270,8 +278,8 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& 
         Slice next(slice.data + start_pos, idx - start_pos);
         next.trim_prefix();
 
-        if (Status st =
-                    value_serde->deserialize_one_cell_from_json(nested_val_column, next, options);
+        if (Status st = value_serde->deserialize_one_cell_from_json(nested_val_column, next,
+                                                                    options, nesting_level + 1);
             !st.ok()) {
             nested_key_column.pop_back(elem_deserialized + 1);
             nested_val_column.pop_back(elem_deserialized);
@@ -280,6 +288,15 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& 
         ++elem_deserialized;
     }
 
+    if (nested_key_column.size() != nested_val_column.size()) {
+        // nested key and value should always same size otherwise we should popback wrong data
+        nested_key_column.pop_back(nested_key_column.size() - offsets.back());
+        nested_val_column.pop_back(nested_val_column.size() - offsets.back());
+        DCHECK(nested_key_column.size() == nested_val_column.size());
+        return Status::InvalidArgument(
+                "deserialize map error key_size({}) not equal to value_size{}",
+                nested_key_column.size(), nested_val_column.size());
+    }
     offsets.emplace_back(offsets.back() + elem_deserialized);
     return Status::OK();
 }

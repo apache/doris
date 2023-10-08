@@ -1282,6 +1282,51 @@ public class OlapScanNode extends ScanNode {
     }
 
     @Override
+    // If scan is key search, should not enable the shared scan opt to prevent the performance problem
+    // 1. where contain the eq or in expr of key column slot
+    // 2. key column slot is distribution column and first column
+    public boolean isKeySearch() {
+        List<SlotRef> whereSlot = Lists.newArrayList();
+        for (Expr conjunct : conjuncts) {
+            if (conjunct instanceof BinaryPredicate) {
+                BinaryPredicate binaryPredicate = (BinaryPredicate) conjunct;
+                if (binaryPredicate.getOp().isEquivalence()) {
+                    if (binaryPredicate.getChild(0) instanceof SlotRef) {
+                        whereSlot.add((SlotRef) binaryPredicate.getChild(0));
+                    }
+                    if (binaryPredicate.getChild(1) instanceof SlotRef) {
+                        whereSlot.add((SlotRef) binaryPredicate.getChild(1));
+                    }
+                }
+            }
+
+            if (conjunct instanceof InPredicate) {
+                InPredicate inPredicate = (InPredicate) conjunct;
+                if (!inPredicate.isNotIn()) {
+                    if (inPredicate.getChild(0) instanceof SlotRef) {
+                        whereSlot.add((SlotRef) inPredicate.getChild(0));
+                    }
+                    if (inPredicate.getChild(1) instanceof SlotRef) {
+                        whereSlot.add((SlotRef) inPredicate.getChild(1));
+                    }
+                }
+            }
+        }
+
+        for (SlotRef slotRef : whereSlot) {
+            String columnName = slotRef.getDesc().getColumn().getName().toLowerCase();
+            if (olapTable != null) {
+                if (olapTable.getDistributionColumnNames().contains(columnName)
+                        && olapTable.getBaseSchema().get(0).getName().toLowerCase().equals(columnName)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    @Override
     protected void toThrift(TPlanNode msg) {
         List<String> keyColumnNames = new ArrayList<String>();
         List<TPrimitiveType> keyColumnTypes = new ArrayList<TPrimitiveType>();

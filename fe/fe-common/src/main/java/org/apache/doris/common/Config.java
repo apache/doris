@@ -19,6 +19,8 @@ package org.apache.doris.common;
 
 import org.apache.doris.common.ExperimentalUtil.ExperimentalType;
 
+import java.util.concurrent.TimeUnit;
+
 public class Config extends ConfigBase {
 
     @ConfField(description = {"用户自定义配置文件的路径，用于存放 fe_custom.conf。该文件中的配置会覆盖 fe.conf 中的配置",
@@ -271,16 +273,6 @@ public class Config extends ConfigBase {
                     + "each element is a CIDR representation of the network address"})
     public static String priority_networks = "";
 
-    @ConfField(description = {"是否重置 BDBJE 的复制组，如果所有的可选节点都无法启动，"
-            + "可以将元数据拷贝到另一个节点，并将这个配置设置为 true，尝试重启 FE。更多信息请参阅官网的元数据故障恢复文档。",
-            "If true, FE will reset bdbje replication group(that is, to remove all electable nodes info) "
-                    + "and is supposed to start as Master. "
-                    + "If all the electable nodes can not start, we can copy the meta data "
-                    + "to another node and set this config to true to try to restart the FE. "
-                    + "For more information, please refer to the metadata failure recovery document "
-                    + "on the official website."})
-    public static String metadata_failure_recovery = "false";
-
     @ConfField(mutable = true, description = {"是否忽略元数据延迟，如果 FE 的元数据延迟超过这个阈值，"
             + "则非 Master FE 仍然提供读服务。这个配置可以用于当 Master FE 因为某些原因停止了较长时间，"
             + "但是仍然希望非 Master FE 可以提供读服务。",
@@ -440,6 +432,13 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = {"导入 Publish 阶段的最大超时时间，单位是秒。",
             "Maximal waiting time for all publish version tasks of one transaction to be finished, in seconds."})
     public static int publish_version_timeout_second = 30; // 30 seconds
+
+    @ConfField(mutable = true, masterOnly = true, description = {"导入 Publish 阶段的等待时间，单位是秒。超过此时间，"
+            + "则只需每个tablet包含一个成功副本，则导入成功。值为 -1 时，表示无限等待。",
+            "Waiting time for one transaction changing to \"at least one replica success\", in seconds."
+            + "If time exceeds this, and for each tablet it has at least one replica publish successful, "
+            + "then the load task will be successful." })
+    public static int publish_wait_time_second = 300;
 
     @ConfField(mutable = true, masterOnly = true, description = {"提交事务的最大超时时间，单位是秒。"
             + "该参数仅用于事务型 insert 操作中。",
@@ -1297,6 +1296,10 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean enable_bdbje_debug_mode = false;
 
+    @ConfField(mutable = false, masterOnly = true, description = {"是否开启debug point模式，测试使用",
+            "is enable debug points, use in test."})
+    public static boolean enable_debug_points = false;
+
     /**
      * This config is used to try skip broker when access bos or other cloud storage via broker
      */
@@ -2128,4 +2131,38 @@ public class Config extends ConfigBase {
                     + "The larger the value, the more uniform the distribution of the hash algorithm, "
                     + "but it will increase the memory overhead."})
     public static int virtual_node_number = 2048;
+
+    @ConfField(description = {"控制对大表的自动ANALYZE的最小时间间隔，"
+            + "在该时间间隔内大小超过huge_table_lower_bound_size_in_bytes的表仅ANALYZE一次",
+            "This controls the minimum time interval for automatic ANALYZE on large tables. Within this interval,"
+                    + "tables larger than huge_table_lower_bound_size_in_bytes are analyzed only once."})
+    public static long huge_table_auto_analyze_interval_in_millis = TimeUnit.HOURS.toMillis(12);
+
+    @ConfField(description = {"定义大表的大小下界，在开启enable_auto_sample的情况下，"
+            + "大小超过该值的表将会自动通过采样收集统计信息", "This defines the lower size bound for large tables. "
+            + "When enable_auto_sample is enabled, tables larger than this value will automatically collect "
+            + "statistics through sampling"})
+    public static long huge_table_lower_bound_size_in_bytes = 5L * 1024 * 1024 * 1024;
+
+    @ConfField(description = {"定义开启开启大表自动sample后，对大表的采样比例",
+            "This defines the number of sample percent for large tables when automatic sampling for"
+                    + "large tables is enabled"})
+    public static int huge_table_default_sample_rows = 4194304;
+
+    @ConfField(description = {"是否开启大表自动sample，开启后对于大小超过huge_table_lower_bound_size_in_bytes会自动通过采样收集"
+            + "统计信息", "Whether to enable automatic sampling for large tables, which, when enabled, automatically"
+            + "collects statistics through sampling for tables larger than 'huge_table_lower_bound_size_in_bytes'"})
+    public static boolean enable_auto_sample = false;
+
+    @ConfField(description = {
+            "控制统计信息的自动触发作业执行记录的持久化行数",
+            "Determine the persist number of automatic triggered analyze job execution status"
+    })
+    public static long auto_analyze_job_record_count = 20000;
+
+    @ConfField(description = {
+            "Auto Buckets中最小的buckets数目",
+            "min buckets of auto bucket"
+    })
+    public static int autobucket_min_buckets = 1;
 }

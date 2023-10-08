@@ -41,6 +41,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <numeric>
 #include <ostream>
 #include <queue>
 #include <set>
@@ -402,6 +403,8 @@ protected:
     RuntimeState* _state;
     // rows number received per tablet, tablet_id -> rows_num
     std::vector<std::pair<int64_t, int64_t>> _tablets_received_rows;
+    // rows number filtered per tablet, tablet_id -> filtered_rows_num
+    std::vector<std::pair<int64_t, int64_t>> _tablets_filtered_rows;
 
     // build a _cur_mutable_block and push into _pending_blocks. when not building, this block is empty.
     std::unique_ptr<vectorized::MutableBlock> _cur_mutable_block;
@@ -436,7 +439,7 @@ public:
         }
     }
 
-    void mark_as_failed(int64_t node_id, const std::string& host, const std::string& err,
+    void mark_as_failed(const VNodeChannel* node_channel, const std::string& err,
                         int64_t tablet_id = -1);
     Status check_intolerable_failure();
 
@@ -455,9 +458,20 @@ public:
 
     void set_tablets_received_rows(
             const std::vector<std::pair<int64_t, int64_t>>& tablets_received_rows, int64_t node_id);
+    void set_tablets_filtered_rows(
+            const std::vector<std::pair<int64_t, int64_t>>& tablets_filtered_rows, int64_t node_id);
+    int64_t num_rows_filtered() {
+        DCHECK(!_tablets_filtered_rows.empty());
+        // the Unique table has no roll up or materilized view
+        // we just add up filtered rows from all partitions
+        return std::accumulate(_tablets_filtered_rows.cbegin(), _tablets_filtered_rows.cend(), 0,
+                               [](int64_t sum, const auto& a) { return sum + a.second[0].second; });
+    }
 
     // check whether the rows num written by different replicas is consistent
     Status check_tablet_received_rows_consistency();
+    // check whether the rows num filtered by different replicas is consistent
+    Status check_tablet_filtered_rows_consistency();
 
     vectorized::VExprContextSPtr get_where_clause() { return _where_clause; }
 
@@ -493,6 +507,9 @@ private:
     // rows num received by DeltaWriter per tablet, tablet_id -> <node_Id, rows_num>
     // used to verify whether the rows num received by different replicas is consistent
     std::map<int64_t, std::vector<std::pair<int64_t, int64_t>>> _tablets_received_rows;
+    // rows num filtered by DeltaWriter per tablet, tablet_id -> <node_Id, filtered_rows_num>
+    // used to verify whether the rows num filtered by different replicas is consistent
+    std::map<int64_t, std::vector<std::pair<int64_t, int64_t>>> _tablets_filtered_rows;
 };
 
 // Write block data to Olap Table.

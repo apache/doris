@@ -116,9 +116,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _broker_client_cache = new BrokerServiceClientCache(config::max_client_cache_size_per_host);
 
     TimezoneUtils::load_timezone_names();
-
-    _global_zone_cache = std::make_unique<vectorized::ZoneList>();
-    TimezoneUtils::load_timezones_to_cache(*_global_zone_cache);
+    TimezoneUtils::load_timezones_to_cache();
 
     ThreadPoolBuilder("SendBatchThreadPool")
             .set_min_threads(config::send_batch_thread_pool_thread_num)

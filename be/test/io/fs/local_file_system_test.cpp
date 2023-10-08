@@ -377,7 +377,7 @@ TEST_F(LocalFileSystemTest, TestCopyAndBatchDelete) {
 
     // copy
     std::string dest_path = "./file_copy_dest/";
-    EXPECT_TRUE(io::global_local_filesystem()->copy_dirs(path, dest_path).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->copy_path(path, dest_path).ok());
 
     std::vector<std::string> dirs;
     std::vector<std::string> files;

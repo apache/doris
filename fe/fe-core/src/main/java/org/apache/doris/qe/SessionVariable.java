@@ -334,6 +334,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_MINIDUMP = "enable_minidump";
 
+    public static final String ENABLE_PAGE_CACHE = "enable_page_cache";
+
+    public static final String MINIDUMP_PATH = "minidump_path";
+
     public static final String TRACE_NEREIDS = "trace_nereids";
 
     public static final String PLAN_NEREIDS_DUMP = "plan_nereids_dump";
@@ -387,7 +391,17 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_MEMTABLE_ON_SINK_NODE =
             "enable_memtable_on_sink_node";
 
+    public static final String ENABLE_UNIQUE_KEY_PARTIAL_UPDATE = "enable_unique_key_partial_update";
+
     public static final String INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD = "inverted_index_conjunction_opt_threshold";
+
+    public static final String FULL_AUTO_ANALYZE_START_TIME = "full_auto_analyze_start_time";
+
+    public static final String FULL_AUTO_ANALYZE_END_TIME = "full_auto_analyze_end_time";
+
+    public static final String EXPAND_RUNTIME_FILTER_BY_INNER_JION = "expand_runtime_filter_by_inner_join";
+
+    public static final String TEST_QUERY_CACHE_HIT = "test_query_cache_hit";
 
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
@@ -432,7 +446,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // query timeout in second.
     @VariableMgr.VarAttr(name = QUERY_TIMEOUT)
-    public int queryTimeoutS = 300;
+    public int queryTimeoutS = 900;
 
     // The global max_execution_time value provides the default for the session value for new connections.
     // The session value applies to SELECT executions executed within the session that include
@@ -1015,6 +1029,15 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_MINIDUMP)
     public boolean enableMinidump = false;
 
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_PAGE_CACHE,
+            description = {"控制是否启用page cache。默认为 true。",
+                "Controls whether to use page cache. "
+                    + "The default value is true."},
+            needForward = true)
+    public boolean enablePageCache = true;
+
     @VariableMgr.VarAttr(name = ENABLE_FOLD_NONDETERMINISTIC_FN)
     public boolean enableFoldNondeterministicFn = false;
 
@@ -1108,6 +1131,16 @@ public class SessionVariable implements Serializable, Writable {
                     + " is a multiple of the minimum total count of the smallest inverted index,"
                     + " use a skiplist to optimize the intersection."})
     public int invertedIndexConjunctionOptThreshold = 1000;
+
+    @VariableMgr.VarAttr(name = ENABLE_UNIQUE_KEY_PARTIAL_UPDATE, needForward = true)
+    public boolean enableUniqueKeyPartialUpdate = false;
+
+    @VariableMgr.VarAttr(name = TEST_QUERY_CACHE_HIT, description = {
+            "用于测试查询缓存是否命中，如果未命中指定类型的缓存，则会报错",
+            "Used to test whether the query cache is hit. "
+                    + "If the specified type of cache is not hit, an error will be reported."},
+            options = {"none", "sql_cache", "partition_cache"})
+    public String testQueryCacheHit = "none";
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -1446,7 +1479,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void setMaxScanQueueMemByte(long scanQueueMemByte) {
-        this.maxScanQueueMemByte = Math.min(scanQueueMemByte, maxExecMemByte / 20);
+        this.maxScanQueueMemByte = Math.min(scanQueueMemByte, maxExecMemByte / 2);
     }
 
     public boolean isSqlQuoteShowCreate() {
@@ -2100,6 +2133,14 @@ public class SessionVariable implements Serializable, Writable {
         this.truncateCharOrVarcharColumns = truncateCharOrVarcharColumns;
     }
 
+    public boolean isEnableUniqueKeyPartialUpdate() {
+        return enableUniqueKeyPartialUpdate;
+    }
+
+    public void setEnableUniqueKeyPartialUpdate(boolean enableUniqueKeyPartialUpdate) {
+        this.enableUniqueKeyPartialUpdate = enableUniqueKeyPartialUpdate;
+    }
+
     /**
      * Serialize to thrift object.
      * Used for rest api.
@@ -2178,6 +2219,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setExternalAggPartitionBits(externalAggPartitionBits);
 
         tResult.setEnableFileCache(enableFileCache);
+
+        tResult.setEnablePageCache(enablePageCache);
 
         tResult.setFileCacheBasePath(fileCacheBasePath);
 
