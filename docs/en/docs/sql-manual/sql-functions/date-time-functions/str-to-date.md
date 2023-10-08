@@ -33,7 +33,7 @@ under the License.
 
 Convert STR to DATE type by format specified, if the conversion result does not return NULL. Note that the 'format' parameter specifies the format of the first parameter.
 
-The `format` supported is consistent with [date_format](date_format.md)
+The `format` supported is consistent with [date_format](dhttps://doris.apache.org/zh-CN/docs/dev/sql-manual/sql-functions/date-time-functions/date-format)
 
 ### example
 
