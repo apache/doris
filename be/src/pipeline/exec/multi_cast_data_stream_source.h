@@ -119,7 +119,9 @@ public:
             : Base(pool, id),
               _consumer_id(consumer_id),
               _t_data_stream_sink(sink),
-              _row_descriptor(row_descriptor) {};
+              _row_descriptor(row_descriptor) {
+        _op_name = "MULTI_CAST_DATA_STREAM_SOURCE_OPERATOR";
+    };
     ~MultiCastDataStreamerSourceOperatorX() override = default;
     Dependency* wait_for_dependency(RuntimeState* state) override {
         CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);

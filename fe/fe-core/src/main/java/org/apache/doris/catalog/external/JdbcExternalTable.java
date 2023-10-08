@@ -24,7 +24,7 @@ import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.JdbcAnalysisTask;
-import org.apache.doris.statistics.TableStats;
+import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import org.apache.logging.log4j.LogManager;
@@ -111,7 +111,7 @@ public class JdbcExternalTable extends ExternalTable {
     @Override
     public long getRowCount() {
         makeSureInitialized();
-        TableStats tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(id);
+        TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(id);
         if (tableStats != null) {
             long rowCount = tableStats.rowCount;
             LOG.debug("Estimated row count for db {} table {} is {}.", dbName, name, rowCount);

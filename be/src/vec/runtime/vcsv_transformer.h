@@ -26,6 +26,8 @@
 #include <parquet/types.h>
 #include <stdint.h>
 
+#include <memory>
+
 #include "vfile_format_transformer.h"
 
 namespace doris {
@@ -53,10 +55,9 @@ public:
     int64_t written_len() override;
 
 private:
-    Status _flush_plain_text_outstream();
+    Status _flush_plain_text_outstream(ColumnString& ser_col);
     std::string _gen_csv_header_types();
 
-    static const std::string NULL_IN_CSV;
     std::string _csv_header;
     std::string_view _column_separator;
     std::string_view _line_delimiter;

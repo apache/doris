@@ -23,12 +23,4 @@ OperatorPtr MultiCastDataStreamSinkOperatorBuilder::build_operator() {
     return std::make_shared<MultiCastDataStreamSinkOperator>(this, _sink);
 }
 
-Status MultiCastDataStreamSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
-    RETURN_IF_ERROR(Base::init(state, info));
-    auto& p = _parent->cast<MultiCastDataStreamSinkOperatorX>();
-    _shared_state->multi_cast_data_streamer = std::make_shared<pipeline::MultiCastDataStreamer>(
-            p._row_desc, p._pool, p._cast_sender_count);
-    return Status::OK();
-}
-
 } // namespace doris::pipeline

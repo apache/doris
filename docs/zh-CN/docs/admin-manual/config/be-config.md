@@ -1529,3 +1529,8 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 * 描述:  在云原生的部署模式下，为了节省资源一个BE 可能会被频繁的加入集群或者从集群中移除。 如果在这个BE 上有正在运行的Query，那么这个Query 会失败。 用户可以使用 stop_be.sh --grace 的方式来关闭一个BE 节点，此时BE 会等待当前正在这个BE 上运行的所有查询都结束才会退出。 同时，在这个时间范围内FE 也不会分发新的query 到这个机器上。 如果超过grace_shutdown_wait_seconds这个阈值，那么BE 也会直接退出，防止一些查询长期不退出导致节点没法快速下掉的情况。
 * 默认值: 120
+
+#### `enable_java_support`
+
+* Description: BE 是否开启使用java-jni，开启后允许 c++  与 java 之间的相互调用。目前已经支持hudi、java-udf、jdbc、max-compute、paimon、preload、avro
+* Default value: true

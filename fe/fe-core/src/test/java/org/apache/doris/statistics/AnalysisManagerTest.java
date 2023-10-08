@@ -339,10 +339,11 @@ public class AnalysisManagerTest {
 
         };
         OlapTable olapTable = new OlapTable();
-        TableStats stats1 = new TableStats(0, 50, new AnalysisInfoBuilder().setColName("col1").build());
+        TableStatsMeta stats1 = new TableStatsMeta(0, 50, new AnalysisInfoBuilder().setColName("col1").build());
         stats1.updatedRows.addAndGet(30);
+
         Assertions.assertTrue(olapTable.needReAnalyzeTable(stats1));
-        TableStats stats2 = new TableStats(0, 190, new AnalysisInfoBuilder().setColName("col1").build());
+        TableStatsMeta stats2 = new TableStatsMeta(0, 190, new AnalysisInfoBuilder().setColName("col1").build());
         stats2.updatedRows.addAndGet(20);
         Assertions.assertFalse(olapTable.needReAnalyzeTable(stats2));
 

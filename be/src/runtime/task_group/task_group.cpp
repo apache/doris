@@ -43,8 +43,7 @@ const static std::string CPU_SHARE = "cpu_share";
 const static std::string MEMORY_LIMIT = "memory_limit";
 const static std::string ENABLE_MEMORY_OVERCOMMIT = "enable_memory_overcommit";
 const static std::string QUERY_CPU_HARD_LIMIT =
-        "query_cpu_hard_limit";                             // sum of all query's cpu_hard_limit
-const static std::string CPU_HARD_LIMIT = "cpu_hard_limit"; // a property for workload group
+        "query_cpu_hard_limit"; // sum of all query's cpu_hard_limit
 
 template <typename QueueType>
 TaskGroupEntity<QueueType>::TaskGroupEntity(taskgroup::TaskGroup* tg, std::string type)
