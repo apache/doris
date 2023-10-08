@@ -207,8 +207,8 @@ public class TableQueryPlanAction extends RestBaseController {
                                 + requestDb + "." + requestTable + "]" + "and sql [" + tableAndDb.toString() + "]");
             }
         } else {
-            if (!(tableAndDb.getDb().equalsIgnoreCase(requestDb) &&
-                    tableAndDb.getTbl().equalsIgnoreCase(requestTable))) {
+            if (!(tableAndDb.getDb().equalsIgnoreCase(requestDb)
+                    && tableAndDb.getTbl().equalsIgnoreCase(requestTable))) {
                 throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST,
                         "requested database and table must consistent with sql: request [ "
                                 + requestDb + "." + requestTable + "]" + "and sql [" + tableAndDb.toString() + "]");
