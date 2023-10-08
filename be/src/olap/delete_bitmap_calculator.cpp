@@ -17,6 +17,7 @@
 
 #include "olap/delete_bitmap_calculator.h"
 
+#include "common/status.h"
 #include "olap/primary_key_index.h"
 #include "vec/data_types/data_type_factory.hpp"
 
@@ -46,7 +47,7 @@ Status MergeIndexDeleteBitmapCalculatorContext::advance() {
 
 Status MergeIndexDeleteBitmapCalculatorContext::seek_at_or_after(Slice const& key) {
     auto st = _iter->seek_at_or_after(&key, &_excat_match);
-    if (st.is<ErrorCode::NOT_FOUND>()) {
+    if (st.is<ErrorCode::ENTRY_NOT_FOUND>()) {
         return Status::EndOfFile("Reach the end of file");
     }
     RETURN_IF_ERROR(st);
@@ -119,6 +120,8 @@ bool MergeIndexDeleteBitmapCalculatorContext::Comparator::operator()(
 
 bool MergeIndexDeleteBitmapCalculatorContext::Comparator::is_key_same(Slice const& lhs,
                                                                       Slice const& rhs) const {
+    DCHECK(lhs.get_size() >= _sequence_length);
+    DCHECK(rhs.get_size() >= _sequence_length);
     auto lhs_without_seq = Slice(lhs.get_data(), lhs.get_size() - _sequence_length);
     auto rhs_without_seq = Slice(rhs.get_data(), rhs.get_size() - _sequence_length);
     return lhs_without_seq.compare(rhs_without_seq) == 0;
@@ -153,7 +156,7 @@ Status MergeIndexDeleteBitmapCalculator::calculate_one(RowLocation& loc) {
         _heap->pop();
         Slice cur_key;
         RETURN_IF_ERROR(cur_ctx->get_current_key(cur_key));
-        if (_comparator.is_key_same(cur_key, _last_key)) {
+        if (!_last_key.empty() && _comparator.is_key_same(cur_key, _last_key)) {
             loc.segment_id = cur_ctx->segment_id();
             loc.row_id = cur_ctx->row_id();
             auto st = cur_ctx->advance();
@@ -192,7 +195,8 @@ Status MergeIndexDeleteBitmapCalculator::calculate_all(DeleteBitmapPtr delete_bi
             break;
         }
         RETURN_IF_ERROR(st);
-        delete_bitmap->add({_rowset_id, loc.segment_id, 0}, loc.row_id);
+        delete_bitmap->add({_rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
+                           loc.row_id);
     }
     return Status::OK();
 }

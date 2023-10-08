@@ -77,16 +77,19 @@ static void set_up() {
 
     doris::EngineOptions options;
     options.store_paths = paths;
-    Status s = doris::StorageEngine::open(options, &k_engine);
+    k_engine = std::make_unique<StorageEngine>(options);
+    Status s = k_engine->open();
     EXPECT_TRUE(s.ok()) << s.to_string();
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
-    k_engine->start_bg_threads();
     exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
+    exec_env->set_storage_engine(k_engine.get());
+    static_cast<void>(k_engine->start_bg_threads());
 }
 
 static void tear_down() {
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
     exec_env->set_memtable_memory_limiter(nullptr);
+    exec_env->set_storage_engine(nullptr);
     k_engine.reset();
     EXPECT_EQ(system("rm -rf ./data_test_1"), 0);
     EXPECT_EQ(system("rm -rf ./data_test_2"), 0);
@@ -175,7 +178,7 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
     TDescriptorTable tdesc_tbl = create_descriptor_tablet_with_sequence_col();
     ObjectPool obj_pool;
     DescriptorTbl* desc_tbl = nullptr;
-    DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
+    static_cast<void>(DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl));
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
     OlapTableSchemaParam param;
 
@@ -196,7 +199,7 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
     DeltaWriter* delta_writer = nullptr;
 
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
-    DeltaWriter::open(&write_req, &delta_writer, profile.get());
+    static_cast<void>(DeltaWriter::open(&write_req, &delta_writer, profile.get()));
     EXPECT_NE(delta_writer, nullptr);
 
     res = delta_writer->close();

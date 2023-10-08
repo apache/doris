@@ -94,6 +94,7 @@ public:
                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
 
     // for ut and non-query.
+    void set_exec_env(ExecEnv* exec_env) { _exec_env = exec_env; }
     void init_mem_trackers(const TUniqueId& id = TUniqueId(), const std::string& name = "unknown");
 
     const TQueryOptions& query_options() const { return _query_options; }
@@ -150,10 +151,7 @@ public:
                _query_options.enable_common_expr_pushdown;
     }
 
-    Status query_status() {
-        std::lock_guard<std::mutex> l(_process_status_lock);
-        return _process_status;
-    }
+    Status query_status();
 
     // Appends error to the _error_log if there is space
     bool log_error(const std::string& error);
@@ -228,6 +226,12 @@ public:
 
     const std::string& db_name() { return _db_name; }
 
+    void set_wal_id(int64_t wal_id) { _wal_id = wal_id; }
+
+    int64_t wal_id() { return _wal_id; }
+
+    const std::string& import_label() { return _import_label; }
+
     const std::string& load_dir() const { return _load_dir; }
 
     void set_load_job_id(int64_t job_id) { _load_job_id = job_id; }
@@ -281,8 +285,8 @@ public:
         _num_rows_load_unselected.fetch_add(num_rows);
     }
 
-    void update_num_rows_filtered_in_strict_mode_partial_update(int64_t num_rows) {
-        _num_rows_filtered_in_strict_mode_partial_update += num_rows;
+    void set_num_rows_filtered_in_strict_mode_partial_update(int64_t num_rows) {
+        _num_rows_filtered_in_strict_mode_partial_update = num_rows;
     }
 
     void set_per_fragment_instance_idx(int idx) { _per_fragment_instance_idx = idx; }
@@ -352,6 +356,11 @@ public:
         return _query_options.__isset.skip_delete_bitmap && _query_options.skip_delete_bitmap;
     }
 
+    bool enable_page_cache() const {
+        return !config::disable_storage_page_cache &&
+               (_query_options.__isset.enable_page_cache && _query_options.enable_page_cache);
+    }
+
     int partitioned_hash_join_rows_threshold() const {
         if (!_query_options.__isset.partitioned_hash_join_rows_threshold) {
             return 0;
@@ -394,7 +403,9 @@ public:
 
     void set_tracer(OpentelemetryTracer&& tracer) { _tracer = std::move(tracer); }
 
-    bool enable_profile() const { return _query_options.is_report_success; }
+    bool enable_profile() const {
+        return _query_options.__isset.enable_profile && _query_options.enable_profile;
+    }
 
     bool enable_scan_node_run_serial() const {
         return _query_options.__isset.enable_scan_node_run_serial &&
@@ -539,6 +550,7 @@ private:
     std::string _db_name;
     std::string _load_dir;
     int64_t _load_job_id;
+    int64_t _wal_id = -1;
 
     // mini load
     int64_t _normal_row_number;

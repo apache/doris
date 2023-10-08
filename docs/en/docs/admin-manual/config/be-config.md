@@ -127,6 +127,12 @@ There are two ways to configure BE configuration items:
 * Description: The port of BRPC on BE, used for communication between BEs
 * Default value: 8060
 
+#### `arrow_flight_sql_port`
+
+* Type: int32
+* Description: The port of Arrow Flight SQL server on BE, used for communication between Arrow Flight Client and BE
+* Default value: -1
+
 #### `enable_https`
 
 * Type: bool
@@ -1489,3 +1495,13 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 
 * Description: The batch size for sending data by brpc streaming client
 * Default value: 262144
+
+#### `grace_shutdown_wait_seconds`
+
+* Description: In cloud native deployment scenario, BE will be add to cluster and remove from cluster very frequently. User's query will fail if there is a fragment is running on the shuting down BE. Users could use stop_be.sh --grace, then BE will wait all running queries to stop to avoiding running query failure, but if the waiting time exceed the limit, then be will exit directly. During this period, FE will not send any queries to BE and waiting for all running queries to stop.
+* Default value: 120
+
+#### `enable_java_support`
+
+* Description: BE Whether to enable the use of java-jni. When enabled, mutual calls between c++ and java are allowed. Currently supports hudi, java-udf, jdbc, max-compute, paimon, preload, avro
+* Default value: true

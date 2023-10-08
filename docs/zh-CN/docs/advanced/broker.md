@@ -123,8 +123,8 @@ WITH BROKER "broker_name"
    该认证方式需提供以下信息：
 
    - `hadoop.security.authentication`：指定认证方式为 kerberos。
-   - `kerberos_principal`：指定 kerberos 的 principal。
-   - `kerberos_keytab`：指定 kerberos 的 keytab 文件路径。该文件必须为 Broker 进程所在服务器上的文件的绝对路径。并且可以被 Broker 进程访问。
+   - `hadoop.kerberos.principal`：指定 kerberos 的 principal。
+   - `hadoop.kerberos.keytab`：指定 kerberos 的 keytab 文件路径。该文件必须为 Broker 进程所在服务器上的文件的绝对路径。并且可以被 Broker 进程访问。
    - `kerberos_keytab_content`：指定 kerberos 中 keytab 文件内容经过 base64 编码之后的内容。这个跟 `kerberos_keytab` 配置二选一即可。
 
    示例如下：
@@ -132,15 +132,15 @@ WITH BROKER "broker_name"
    ```text
    (
        "hadoop.security.authentication" = "kerberos",
-       "kerberos_principal" = "doris@YOUR.COM",
-       "kerberos_keytab" = "/home/doris/my.keytab"
+       "hadoop.kerberos.principal" = "doris@YOUR.COM",
+       "hadoop.kerberos.keytab" = "/home/doris/my.keytab"
    )
    ```
 
    ```text
    (
        "hadoop.security.authentication" = "kerberos",
-       "kerberos_principal" = "doris@YOUR.COM",
+       "hadoop.kerberos.principal" = "doris@YOUR.COM",
        "kerberos_keytab_content" = "ASDOWHDLAWIDJHWLDKSALDJSDIWALD"
    )
    ```
@@ -174,6 +174,7 @@ WITH BROKER "broker_name"
 
    ```text
    (
+       "fs.defaultFS" = "hdfs://my_ha",
        "dfs.nameservices" = "my_ha",
        "dfs.ha.namenodes.my_ha" = "my_namenode1, my_namenode2",
        "dfs.namenode.rpc-address.my_ha.my_namenode1" = "nn1_host:rpc_port",
@@ -188,6 +189,7 @@ WITH BROKER "broker_name"
    (
        "username"="user",
        "password"="passwd",
+       "fs.defaultFS" = "hdfs://my_ha",
        "dfs.nameservices" = "my_ha",
        "dfs.ha.namenodes.my_ha" = "my_namenode1, my_namenode2",
        "dfs.namenode.rpc-address.my_ha.my_namenode1" = "nn1_host:rpc_port",

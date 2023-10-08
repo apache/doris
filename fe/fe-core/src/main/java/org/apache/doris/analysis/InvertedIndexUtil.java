@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 
+import java.util.HashMap;
 import java.util.Map;
 
 public class InvertedIndexUtil {
@@ -36,6 +37,12 @@ public class InvertedIndexUtil {
     public static String INVERTED_INDEX_PARSER_FINE_GRANULARITY = "fine_grained";
     public static String INVERTED_INDEX_PARSER_COARSE_GRANULARITY = "coarse_grained";
 
+    public static String INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE = "char_filter_type";
+    public static String INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN = "char_filter_pattern";
+    public static String INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT = "char_filter_replacement";
+
+    public static String INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE = "char_replace";
+
     public static String getInvertedIndexParser(Map<String, String> properties) {
         String parser = properties == null ? null : properties.get(INVERTED_INDEX_PARSER_KEY);
         // default is "none" if not set
@@ -45,7 +52,42 @@ public class InvertedIndexUtil {
     public static String getInvertedIndexParserMode(Map<String, String> properties) {
         String mode = properties == null ? null : properties.get(INVERTED_INDEX_PARSER_MODE_KEY);
         // default is "none" if not set
-        return mode != null ? mode : INVERTED_INDEX_PARSER_FINE_GRANULARITY;
+        return mode != null ? mode : INVERTED_INDEX_PARSER_COARSE_GRANULARITY;
+    }
+
+    public static Map<String, String> getInvertedIndexCharFilter(Map<String, String> properties) {
+        if (properties == null) {
+            return new HashMap<>();
+        }
+
+        if (!properties.containsKey(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE)) {
+            return new HashMap<>();
+        }
+        String type = properties.get(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE);
+
+        Map<String, String> charFilterMap = new HashMap<>();
+        if (type.equals(INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE)) {
+            // type
+            charFilterMap.put(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE);
+
+            // pattern
+            if (!properties.containsKey(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN)) {
+                return new HashMap<>();
+            }
+            String pattern = properties.get(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN);
+            charFilterMap.put(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, pattern);
+
+            // placement
+            String replacement = " ";
+            if (properties.containsKey(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT)) {
+                replacement = properties.get(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT);
+            }
+            charFilterMap.put(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, replacement);
+        } else {
+            return new HashMap<>();
+        }
+
+        return charFilterMap;
     }
 
     public static void checkInvertedIndexParser(String indexColName, PrimitiveType colType,

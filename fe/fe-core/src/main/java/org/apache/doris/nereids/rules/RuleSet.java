@@ -73,6 +73,8 @@ import org.apache.doris.nereids.rules.implementation.LogicalTVFRelationToPhysica
 import org.apache.doris.nereids.rules.implementation.LogicalTopNToPhysicalTopN;
 import org.apache.doris.nereids.rules.implementation.LogicalUnionToPhysicalUnion;
 import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow;
+import org.apache.doris.nereids.rules.rewrite.ConvertOuterJoinToAntiJoin;
+import org.apache.doris.nereids.rules.rewrite.CreatePartitionTopNFromWindow;
 import org.apache.doris.nereids.rules.rewrite.EliminateOuterJoin;
 import org.apache.doris.nereids.rules.rewrite.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.MergeGenerates;
@@ -82,6 +84,7 @@ import org.apache.doris.nereids.rules.rewrite.PushdownAliasThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushdownExpressionsInHashCondition;
 import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughAggregation;
 import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughPartitionTopN;
 import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughProject;
 import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughRepeat;
 import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughSetOperation;
@@ -120,6 +123,7 @@ public class RuleSet {
             .build();
 
     public static final List<RuleFactory> PUSH_DOWN_FILTERS = ImmutableList.of(
+            new CreatePartitionTopNFromWindow(),
             new PushdownFilterThroughProject(),
             new PushdownFilterThroughSort(),
             new PushdownJoinOtherCondition(),
@@ -128,14 +132,17 @@ public class RuleSet {
             new PushdownFilterThroughAggregation(),
             new PushdownFilterThroughRepeat(),
             new PushdownFilterThroughSetOperation(),
-            new PushdownFilterThroughWindow(),
             new PushdownProjectThroughLimit(),
             new EliminateOuterJoin(),
+            new ConvertOuterJoinToAntiJoin(),
             new MergeProjects(),
             new MergeFilters(),
             new MergeGenerates(),
             new MergeLimits(),
-            new PushdownAliasThroughJoin());
+            new PushdownAliasThroughJoin(),
+            new PushdownFilterThroughWindow(),
+            new PushdownFilterThroughPartitionTopN()
+    );
 
     public static final List<Rule> IMPLEMENTATION_RULES = planRuleFactories()
             .add(new LogicalCTEProducerToPhysicalCTEProducer())

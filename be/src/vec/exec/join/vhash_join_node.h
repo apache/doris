@@ -65,6 +65,8 @@ class HashJoinBuildSinkLocalState;
 
 namespace vectorized {
 
+constexpr size_t CHECK_FRECUENCY = 65536;
+
 struct UInt128;
 struct UInt256;
 template <int JoinOpType>
@@ -77,7 +79,7 @@ struct RuntimeFilterContext {
     std::vector<TRuntimeFilterDesc>& _runtime_filter_descs;
     std::shared_ptr<VRuntimeFilterSlots>& _runtime_filter_slots;
     VExprContextSPtrs& _build_expr_ctxs;
-    size_t& _build_bf_cardinality;
+    size_t& _build_rf_cardinality;
     std::unordered_map<const Block*, std::vector<int>>& _inserted_rows;
     RuntimeProfile::Counter* _push_down_timer;
     RuntimeProfile::Counter* _push_compute_timer;
@@ -87,7 +89,29 @@ template <class HashTableContext>
 struct ProcessRuntimeFilterBuild {
     ProcessRuntimeFilterBuild(RuntimeFilterContext* context) : _context(context) {}
 
-    Status operator()(RuntimeState* state, HashTableContext& hash_table_ctx);
+    Status operator()(RuntimeState* state, HashTableContext& hash_table_ctx) {
+        if (_context->_runtime_filter_descs.empty()) {
+            return Status::OK();
+        }
+        _context->_runtime_filter_slots = std::make_shared<VRuntimeFilterSlots>(
+                _context->_build_expr_ctxs, _context->_runtime_filter_descs);
+
+        RETURN_IF_ERROR(_context->_runtime_filter_slots->init(
+                state, hash_table_ctx.hash_table.size(), _context->_build_rf_cardinality));
+
+        if (!_context->_runtime_filter_slots->empty() && !_context->_inserted_rows.empty()) {
+            {
+                SCOPED_TIMER(_context->_push_compute_timer);
+                _context->_runtime_filter_slots->insert(_context->_inserted_rows);
+            }
+        }
+        {
+            SCOPED_TIMER(_context->_push_down_timer);
+            RETURN_IF_ERROR(_context->_runtime_filter_slots->publish());
+        }
+
+        return Status::OK();
+    }
 
 private:
     RuntimeFilterContext* _context;
@@ -97,10 +121,10 @@ struct HashJoinBuildContext {
     HashJoinBuildContext(HashJoinNode* join_node);
     HashJoinBuildContext(pipeline::HashJoinBuildSinkLocalState* local_state);
 
-    void add_hash_buckets_info(const std::string& info) {
+    void add_hash_buckets_info(const std::string& info) const {
         _profile->add_info_string("HashTableBuckets", info);
     }
-    void add_hash_buckets_filled_info(const std::string& info) {
+    void add_hash_buckets_filled_info(const std::string& info) const {
         _profile->add_info_string("HashTableFilledBuckets", info);
     }
     RuntimeProfile::Counter* _hash_table_memory_usage;
@@ -119,14 +143,10 @@ struct HashJoinBuildContext {
     std::vector<TRuntimeFilterDesc>& _runtime_filter_descs;
     std::unordered_map<const Block*, std::vector<int>>& _inserted_rows;
     std::shared_ptr<Arena>& _arena;
-    size_t& _build_bf_cardinality;
+    size_t& _build_rf_cardinality;
 };
 
 using ProfileCounter = RuntimeProfile::Counter;
-
-// TODO: Best prefetch step is decided by machine. We should also provide a
-//  SQL hint to allow users to tune by hand.
-static constexpr int PREFETCH_STEP = 64;
 
 template <class HashTableContext>
 struct ProcessHashTableBuild {
@@ -195,21 +215,22 @@ struct ProcessHashTableBuild {
             inserted_rows.reserve(_batch_size);
         }
 
+        if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<KeyGetter>::value) {
+            auto old_keys_memory = hash_table_ctx.keys_memory_usage;
+            hash_table_ctx.serialize_keys(_build_raw_ptrs, _rows);
+            key_getter.set_serialized_keys(hash_table_ctx.keys.data());
+            _join_context->_build_arena_memory_usage->add(hash_table_ctx.keys_memory_usage -
+                                                          old_keys_memory);
+        }
+
         _build_side_hash_values.resize(_rows);
         auto& arena = *(_join_context->_arena);
         auto old_build_arena_memory = arena.size();
+        const auto& keys = key_getter.get_keys();
         {
             SCOPED_TIMER(_build_side_compute_hash_timer);
-            if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<KeyGetter>::value) {
-                auto old_keys_memory = hash_table_ctx.keys_memory_usage;
-                hash_table_ctx.serialize_keys(_build_raw_ptrs, _rows);
-                key_getter.set_serialized_keys(hash_table_ctx.keys.data());
-                _join_context->_build_arena_memory_usage->add(hash_table_ctx.keys_memory_usage -
-                                                              old_keys_memory);
-            }
-
             for (size_t k = 0; k < _rows; ++k) {
-                if (k % 65536 == 0) {
+                if (k % CHECK_FRECUENCY == 0) {
                     RETURN_IF_CANCELLED(_state);
                 }
                 if constexpr (ignore_null) {
@@ -226,35 +247,29 @@ struct ProcessHashTableBuild {
                         return Status::OK();
                     }
                 }
-                if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
-                                      KeyGetter>::value) {
-                    _build_side_hash_values[k] =
-                            hash_table_ctx.hash_table.hash(key_getter.get_key_holder(k, arena).key);
-                } else {
-                    _build_side_hash_values[k] =
-                            hash_table_ctx.hash_table.hash(key_getter.get_key_holder(k, arena));
-                }
+                _build_side_hash_values[k] = hash_table_ctx.hash_table.hash(keys[k]);
             }
         }
 
         bool build_unique = _join_context->_build_unique;
-#define EMPLACE_IMPL(stmt)                                                                  \
-    for (size_t k = 0; k < _rows; ++k) {                                                    \
-        if (k % 65536 == 0) {                                                               \
-            RETURN_IF_CANCELLED(_state);                                                    \
-        }                                                                                   \
-        if constexpr (ignore_null) {                                                        \
-            if ((*null_map)[k]) {                                                           \
-                continue;                                                                   \
-            }                                                                               \
-        }                                                                                   \
-        auto emplace_result = key_getter.emplace_key(hash_table_ctx.hash_table,             \
-                                                     _build_side_hash_values[k], k, arena); \
-        if (k + PREFETCH_STEP < _rows) {                                                    \
-            key_getter.template prefetch_by_hash<false>(                                    \
-                    hash_table_ctx.hash_table, _build_side_hash_values[k + PREFETCH_STEP]); \
-        }                                                                                   \
-        stmt;                                                                               \
+#define EMPLACE_IMPL(stmt)                                                                    \
+    for (size_t k = 0; k < _rows; ++k) {                                                      \
+        if (k % CHECK_FRECUENCY == 0) {                                                       \
+            RETURN_IF_CANCELLED(_state);                                                      \
+        }                                                                                     \
+        if constexpr (ignore_null) {                                                          \
+            if ((*null_map)[k]) {                                                             \
+                continue;                                                                     \
+            }                                                                                 \
+        }                                                                                     \
+        auto emplace_result = key_getter.emplace_with_key(hash_table_ctx.hash_table, keys[k], \
+                                                          _build_side_hash_values[k]);        \
+        if (LIKELY(k + HASH_MAP_PREFETCH_DIST < _rows)) {                                     \
+            key_getter.template prefetch_by_hash<false>(                                      \
+                    hash_table_ctx.hash_table,                                                \
+                    _build_side_hash_values[k + HASH_MAP_PREFETCH_DIST]);                     \
+        }                                                                                     \
+        stmt;                                                                                 \
     }
 
         if (has_runtime_filter && build_unique) {
@@ -262,14 +277,12 @@ struct ProcessHashTableBuild {
                     if (emplace_result.is_inserted()) {
                         new (&emplace_result.get_mapped()) Mapped({k, _offset});
                         inserted_rows.push_back(k);
-                        _join_context->_build_bf_cardinality++;
                     } else { _skip_rows++; });
         } else if (has_runtime_filter && !build_unique) {
             EMPLACE_IMPL(
                     if (emplace_result.is_inserted()) {
                         new (&emplace_result.get_mapped()) Mapped({k, _offset});
                         inserted_rows.push_back(k);
-                        _join_context->_build_bf_cardinality++;
                     } else {
                         emplace_result.get_mapped().insert({k, _offset}, *(_join_context->_arena));
                         inserted_rows.push_back(k);
@@ -287,7 +300,7 @@ struct ProcessHashTableBuild {
                         emplace_result.get_mapped().insert({k, _offset}, *(_join_context->_arena));
                     });
         }
-#undef EMPLACE_IMPL
+        _join_context->_build_rf_cardinality += inserted_rows.size();
 
         _join_context->_build_arena_memory_usage->add(arena.size() - old_build_arena_memory);
 
@@ -503,6 +516,7 @@ struct HashJoinProbeContext {
     Block* _probe_block;
     ColumnRawPtrs* _probe_columns;
     int* _probe_index;
+    bool* _ready_probe;
 
     Sizes _probe_key_sz;
 
@@ -650,6 +664,7 @@ private:
     bool _has_set_need_null_map_for_build = false;
     bool _probe_ignore_null = false;
     int _probe_index = -1;
+    bool _ready_probe = false;
     bool _probe_eos = false;
 
     bool _build_side_ignore_null = false;
@@ -702,6 +717,10 @@ private:
     // add tuple is null flag column to Block for filter conjunct and output expr
     void _add_tuple_is_null_column(Block* block) override;
 
+    Status _filter_data_and_build_output(RuntimeState* state, vectorized::Block* output_block,
+                                         bool* eos, Block* temp_block,
+                                         bool check_rows_count = true);
+
     template <class HashTableContext>
     friend struct ProcessHashTableBuild;
 
@@ -715,7 +734,7 @@ private:
     std::unordered_map<const Block*, std::vector<int>> _inserted_rows;
 
     std::vector<IRuntimeFilter*> _runtime_filters;
-    size_t _build_bf_cardinality = 0;
+    size_t _build_rf_cardinality = 0;
     std::atomic_bool _probe_open_finish = false;
 
     std::unique_ptr<HashJoinProbeContext> _probe_context;

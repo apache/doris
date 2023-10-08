@@ -55,13 +55,15 @@ void set_up() {
 
     doris::EngineOptions options;
     options.store_paths = paths;
-    Status s = doris::StorageEngine::open(options, &k_engine);
+    k_engine = std::make_unique<StorageEngine>(options);
+    Status s = k_engine->open();
     EXPECT_TRUE(s.ok()) << s.to_string();
-
+    ExecEnv::GetInstance()->set_storage_engine(k_engine.get());
     k_flush_executor = k_engine->memtable_flush_executor();
 }
 
 void tear_down() {
+    ExecEnv::GetInstance()->set_storage_engine(nullptr);
     k_engine.reset();
     system("rm -rf ./flush_test");
     EXPECT_TRUE(io::global_local_filesystem()

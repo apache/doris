@@ -62,7 +62,7 @@ class TFileScanRangeParams;
 
 namespace io {
 class FileSystem;
-class IOContext;
+struct IOContext;
 } // namespace io
 struct TypeDescriptor;
 
@@ -98,7 +98,7 @@ private:
     Status _get_range_params();
     void _init_system_properties();
     void _init_file_description();
-    Status _open_file_reader();
+    Status _open_file_reader(bool need_schema);
     Status _open_line_reader();
     Status _parse_jsonpath_and_json_root();
 

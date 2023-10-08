@@ -72,7 +72,7 @@
 
 namespace doris {
 namespace io {
-class IOContext;
+struct IOContext;
 enum class FileCachePolicy : uint8_t;
 } // namespace io
 } // namespace doris
@@ -151,8 +151,7 @@ void NewJsonReader::_init_system_properties() {
 
 void NewJsonReader::_init_file_description() {
     _file_description.path = _range.path;
-    _file_description.start_offset = _range.start_offset;
-    _file_description.file_size = _range.__isset.file_size ? _range.file_size : 0;
+    _file_description.file_size = _range.__isset.file_size ? _range.file_size : -1;
 
     if (_range.__isset.fs_name) {
         _file_description.fs_name = _range.fs_name;
@@ -171,7 +170,7 @@ Status NewJsonReader::init_reader(
     }
     RETURN_IF_ERROR(_get_range_params());
 
-    RETURN_IF_ERROR(_open_file_reader());
+    RETURN_IF_ERROR(_open_file_reader(false));
     if (_read_json_by_line) {
         RETURN_IF_ERROR(_open_line_reader());
     }
@@ -238,7 +237,7 @@ Status NewJsonReader::get_parsed_schema(std::vector<std::string>* col_names,
                                         std::vector<TypeDescriptor>* col_types) {
     RETURN_IF_ERROR(_get_range_params());
 
-    RETURN_IF_ERROR(_open_file_reader());
+    RETURN_IF_ERROR(_open_file_reader(true));
     if (_read_json_by_line) {
         RETURN_IF_ERROR(_open_line_reader());
     }
@@ -374,20 +373,22 @@ Status NewJsonReader::_get_range_params() {
     return Status::OK();
 }
 
-Status NewJsonReader::_open_file_reader() {
+Status NewJsonReader::_open_file_reader(bool need_schema) {
     int64_t start_offset = _range.start_offset;
     if (start_offset != 0) {
         start_offset -= 1;
     }
 
     _current_offset = start_offset;
-    _file_description.start_offset = start_offset;
 
     if (_params.file_type == TFileType::FILE_STREAM) {
-        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader, _state));
+        // Due to http_stream needs to pre read a portion of the data to parse column information, so it is set to true here
+        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader, _state,
+                                                        need_schema));
     } else {
-        io::FileReaderOptions reader_options = FileFactory::get_reader_options(_state);
         _file_description.mtime = _range.__isset.modification_time ? _range.modification_time : 0;
+        io::FileReaderOptions reader_options =
+                FileFactory::get_reader_options(_state, _file_description);
         RETURN_IF_ERROR(io::DelegateReader::create_file_reader(
                 _profile, _system_properties, _file_description, reader_options, &_file_system,
                 &_file_reader, io::DelegateReader::AccessMode::SEQUENTIAL, _io_ctx,
@@ -979,7 +980,7 @@ Status NewJsonReader::_read_one_message(std::unique_ptr<uint8_t[]>* file_buf, si
 Status NewJsonReader::_simdjson_init_reader() {
     RETURN_IF_ERROR(_get_range_params());
 
-    RETURN_IF_ERROR(_open_file_reader());
+    RETURN_IF_ERROR(_open_file_reader(false));
     if (_read_json_by_line) {
         RETURN_IF_ERROR(_open_line_reader());
     }

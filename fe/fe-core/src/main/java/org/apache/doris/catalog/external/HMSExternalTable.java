@@ -32,7 +32,7 @@ import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.HMSAnalysisTask;
-import org.apache.doris.statistics.TableStats;
+import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -57,6 +57,7 @@ import org.apache.iceberg.Table;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.time.LocalDate;
@@ -435,7 +436,7 @@ public class HMSExternalTable extends ExternalTable {
     @Override
     public long estimatedRowCount() {
         try {
-            TableStats tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(id);
+            TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(id);
             if (tableStats != null) {
                 long rowCount = tableStats.rowCount;
                 LOG.debug("Estimated row count for db {} table {} is {}.", dbName, name, rowCount);
@@ -627,6 +628,12 @@ public class HMSExternalTable extends ExternalTable {
         } else {
             builder.setMaxValue(Double.MAX_VALUE);
         }
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        super.gsonPostProcess();
+        estimatedRowCount = -1;
     }
 }
 

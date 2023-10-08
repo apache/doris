@@ -20,7 +20,6 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TPrimitiveType;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.Lists;
@@ -88,7 +87,7 @@ public enum PrimitiveType {
     private static final int STRING_INDEX_LEN = 20;
     private static final int DECIMAL_INDEX_LEN = 12;
 
-    public static ImmutableSet<PrimitiveType> typeWithPrecision;
+    public static final ImmutableSet<PrimitiveType> typeWithPrecision;
 
     static {
         ImmutableSet.Builder<PrimitiveType> builder = ImmutableSet.builder();
@@ -99,7 +98,7 @@ public enum PrimitiveType {
         typeWithPrecision = builder.build();
     }
 
-    private static ImmutableSetMultimap<PrimitiveType, PrimitiveType> implicitCastMap;
+    private static final ImmutableSetMultimap<PrimitiveType, PrimitiveType> implicitCastMap;
 
     public static ImmutableSetMultimap<PrimitiveType, PrimitiveType> getImplicitCastMap() {
         return implicitCastMap;
@@ -128,6 +127,7 @@ public enum PrimitiveType {
         builder.put(NULL_TYPE, VARCHAR);
         builder.put(NULL_TYPE, STRING);
         builder.put(NULL_TYPE, JSONB);
+        builder.put(NULL_TYPE, VARIANT);
         builder.put(NULL_TYPE, BITMAP); //TODO(weixiang):why null type can cast to bitmap?
         builder.put(NULL_TYPE, TIME);
         builder.put(NULL_TYPE, TIMEV2);
@@ -414,6 +414,7 @@ public enum PrimitiveType {
         builder.put(VARCHAR, DECIMAL128);
         builder.put(VARCHAR, VARCHAR);
         builder.put(VARCHAR, JSONB);
+        builder.put(VARCHAR, VARIANT);
         builder.put(VARCHAR, STRING);
         builder.put(VARCHAR, TIME);
         builder.put(VARCHAR, TIMEV2);
@@ -437,6 +438,7 @@ public enum PrimitiveType {
         builder.put(STRING, DECIMAL128);
         builder.put(STRING, VARCHAR);
         builder.put(STRING, JSONB);
+        builder.put(STRING, VARIANT);
         builder.put(STRING, STRING);
         builder.put(STRING, TIME);
         builder.put(STRING, TIMEV2);
@@ -503,8 +505,26 @@ public enum PrimitiveType {
         builder.put(DECIMAL128, STRING);
 
         // JSONB
+        builder.put(JSONB, BOOLEAN);
+        builder.put(JSONB, TINYINT);
+        builder.put(JSONB, SMALLINT);
+        builder.put(JSONB, INT);
+        builder.put(JSONB, BIGINT);
+        builder.put(JSONB, LARGEINT);
+        builder.put(JSONB, FLOAT);
+        builder.put(JSONB, DOUBLE);
+        builder.put(JSONB, DECIMALV2);
+        builder.put(JSONB, DECIMAL32);
+        builder.put(JSONB, DECIMAL64);
+        builder.put(JSONB, DECIMAL128);
         builder.put(JSONB, VARCHAR);
         builder.put(JSONB, STRING);
+        builder.put(JSONB, VARIANT);
+
+        // VARIANT
+        builder.put(VARIANT, VARCHAR);
+        builder.put(VARIANT, STRING);
+        builder.put(VARIANT, JSONB);
 
         // HLL
         builder.put(HLL, HLL);
@@ -531,9 +551,9 @@ public enum PrimitiveType {
         implicitCastMap = builder.build();
     }
 
-    private static ArrayList<PrimitiveType> integerTypes;
-    private static ArrayList<PrimitiveType> numericTypes;
-    private static ArrayList<PrimitiveType> supportedTypes;
+    private static final ArrayList<PrimitiveType> integerTypes;
+    private static final ArrayList<PrimitiveType> numericTypes;
+    private static final ArrayList<PrimitiveType> supportedTypes;
 
     static {
         integerTypes = Lists.newArrayList();
@@ -568,6 +588,7 @@ public enum PrimitiveType {
         supportedTypes.add(DOUBLE);
         supportedTypes.add(VARCHAR);
         supportedTypes.add(JSONB);
+        supportedTypes.add(VARIANT);
         supportedTypes.add(STRING);
         supportedTypes.add(HLL);
         supportedTypes.add(CHAR);
@@ -585,7 +606,6 @@ public enum PrimitiveType {
         supportedTypes.add(ARRAY);
         supportedTypes.add(MAP);
         supportedTypes.add(QUANTILE_STATE);
-        supportedTypes.add(VARIANT);
         supportedTypes.add(AGG_STATE);
     }
 
@@ -606,358 +626,13 @@ public enum PrimitiveType {
         return implicitCastMap.get(type).contains(target);
     }
 
-    /**
-     * Matrix that records "smallest" assignment-compatible type of two types
-     * (INVALID_TYPE if no such type exists, ie, if the input types are fundamentally
-     * incompatible). A value of any of the two types could be assigned to a slot
-     * of the assignment-compatible type without loss of precision.
-     * <p/>
-     * We chose not to follow MySQL's type casting behavior as described here:
-     * http://dev.mysql.com/doc/refman/5.0/en/type-conversion.html
-     * for the following reasons:
-     * conservative casting in arithmetic exprs: TINYINT + TINYINT -> BIGINT
-     * comparison of many types as double: INT < FLOAT -> comparison as DOUBLE
-     * special cases when dealing with dates and timestamps
-     */
-    private static PrimitiveType[][] compatibilityMatrix;
-
-    static {
-        compatibilityMatrix = new PrimitiveType[PrimitiveType.values().length][PrimitiveType.values().length];
-
-        // NULL_TYPE is compatible with any type and results in the non-null type.
-        compatibilityMatrix[NULL_TYPE.ordinal()][NULL_TYPE.ordinal()] = NULL_TYPE;
-        compatibilityMatrix[NULL_TYPE.ordinal()][BOOLEAN.ordinal()] = BOOLEAN;
-        compatibilityMatrix[NULL_TYPE.ordinal()][TINYINT.ordinal()] = TINYINT;
-        compatibilityMatrix[NULL_TYPE.ordinal()][SMALLINT.ordinal()] = SMALLINT;
-        compatibilityMatrix[NULL_TYPE.ordinal()][INT.ordinal()] = INT;
-        compatibilityMatrix[NULL_TYPE.ordinal()][BIGINT.ordinal()] = BIGINT;
-        compatibilityMatrix[NULL_TYPE.ordinal()][LARGEINT.ordinal()] = LARGEINT;
-        compatibilityMatrix[NULL_TYPE.ordinal()][FLOAT.ordinal()] = FLOAT;
-        compatibilityMatrix[NULL_TYPE.ordinal()][DOUBLE.ordinal()] = DOUBLE;
-        compatibilityMatrix[NULL_TYPE.ordinal()][DATE.ordinal()] = DATE;
-        compatibilityMatrix[NULL_TYPE.ordinal()][DATETIME.ordinal()] = DATETIME;
-        compatibilityMatrix[NULL_TYPE.ordinal()][DATEV2.ordinal()] = DATEV2;
-        compatibilityMatrix[NULL_TYPE.ordinal()][DATETIMEV2.ordinal()] = DATETIMEV2;
-        compatibilityMatrix[NULL_TYPE.ordinal()][CHAR.ordinal()] = CHAR;
-        compatibilityMatrix[NULL_TYPE.ordinal()][VARCHAR.ordinal()] = VARCHAR;
-        compatibilityMatrix[NULL_TYPE.ordinal()][JSONB.ordinal()] = JSONB;
-        compatibilityMatrix[NULL_TYPE.ordinal()][STRING.ordinal()] = STRING;
-        compatibilityMatrix[NULL_TYPE.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
-        compatibilityMatrix[NULL_TYPE.ordinal()][DECIMAL32.ordinal()] = DECIMAL32;
-        compatibilityMatrix[NULL_TYPE.ordinal()][DECIMAL64.ordinal()] = DECIMAL64;
-        compatibilityMatrix[NULL_TYPE.ordinal()][DECIMAL128.ordinal()] = DECIMAL128;
-        compatibilityMatrix[NULL_TYPE.ordinal()][TIME.ordinal()] = TIME;
-        compatibilityMatrix[NULL_TYPE.ordinal()][TIMEV2.ordinal()] = TIMEV2;
-        compatibilityMatrix[NULL_TYPE.ordinal()][BITMAP.ordinal()] = BITMAP;
-        compatibilityMatrix[NULL_TYPE.ordinal()][QUANTILE_STATE.ordinal()] = QUANTILE_STATE;
-        compatibilityMatrix[NULL_TYPE.ordinal()][AGG_STATE.ordinal()] = AGG_STATE;
-
-        compatibilityMatrix[BOOLEAN.ordinal()][BOOLEAN.ordinal()] = BOOLEAN;
-        compatibilityMatrix[BOOLEAN.ordinal()][TINYINT.ordinal()] = TINYINT;
-        compatibilityMatrix[BOOLEAN.ordinal()][SMALLINT.ordinal()] = SMALLINT;
-        compatibilityMatrix[BOOLEAN.ordinal()][INT.ordinal()] = INT;
-        compatibilityMatrix[BOOLEAN.ordinal()][BIGINT.ordinal()] = BIGINT;
-        compatibilityMatrix[BOOLEAN.ordinal()][LARGEINT.ordinal()] = LARGEINT;
-        compatibilityMatrix[BOOLEAN.ordinal()][FLOAT.ordinal()] = FLOAT;
-        compatibilityMatrix[BOOLEAN.ordinal()][DOUBLE.ordinal()] = DOUBLE;
-        compatibilityMatrix[BOOLEAN.ordinal()][DATE.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[BOOLEAN.ordinal()][DATETIME.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[BOOLEAN.ordinal()][DATEV2.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[BOOLEAN.ordinal()][DATETIMEV2.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[BOOLEAN.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[BOOLEAN.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[BOOLEAN.ordinal()][JSONB.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[BOOLEAN.ordinal()][STRING.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[BOOLEAN.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
-        compatibilityMatrix[BOOLEAN.ordinal()][DECIMAL32.ordinal()] = DECIMAL32;
-        compatibilityMatrix[BOOLEAN.ordinal()][DECIMAL64.ordinal()] = DECIMAL64;
-        compatibilityMatrix[BOOLEAN.ordinal()][DECIMAL128.ordinal()] = DECIMAL128;
-        compatibilityMatrix[BOOLEAN.ordinal()][TIME.ordinal()] = TIME;
-        compatibilityMatrix[BOOLEAN.ordinal()][TIMEV2.ordinal()] = TIMEV2;
-
-        compatibilityMatrix[TINYINT.ordinal()][TINYINT.ordinal()] = TINYINT;
-        compatibilityMatrix[TINYINT.ordinal()][SMALLINT.ordinal()] = SMALLINT;
-        compatibilityMatrix[TINYINT.ordinal()][INT.ordinal()] = INT;
-        compatibilityMatrix[TINYINT.ordinal()][BIGINT.ordinal()] = BIGINT;
-        compatibilityMatrix[TINYINT.ordinal()][LARGEINT.ordinal()] = LARGEINT;
-        compatibilityMatrix[TINYINT.ordinal()][FLOAT.ordinal()] = FLOAT;
-        compatibilityMatrix[TINYINT.ordinal()][DOUBLE.ordinal()] = DOUBLE;
-        compatibilityMatrix[TINYINT.ordinal()][DATE.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[TINYINT.ordinal()][DATETIME.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[TINYINT.ordinal()][DATEV2.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[TINYINT.ordinal()][DATETIMEV2.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[TINYINT.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[TINYINT.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[TINYINT.ordinal()][JSONB.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[TINYINT.ordinal()][STRING.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[TINYINT.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
-        compatibilityMatrix[TINYINT.ordinal()][DECIMAL32.ordinal()] = DECIMAL32;
-        compatibilityMatrix[TINYINT.ordinal()][DECIMAL64.ordinal()] = DECIMAL64;
-        compatibilityMatrix[TINYINT.ordinal()][DECIMAL128.ordinal()] = DECIMAL128;
-        compatibilityMatrix[TINYINT.ordinal()][TIME.ordinal()] = TIME;
-        compatibilityMatrix[TINYINT.ordinal()][TIMEV2.ordinal()] = TIMEV2;
-
-        compatibilityMatrix[SMALLINT.ordinal()][SMALLINT.ordinal()] = SMALLINT;
-        compatibilityMatrix[SMALLINT.ordinal()][INT.ordinal()] = INT;
-        compatibilityMatrix[SMALLINT.ordinal()][BIGINT.ordinal()] = BIGINT;
-        compatibilityMatrix[SMALLINT.ordinal()][LARGEINT.ordinal()] = LARGEINT;
-        compatibilityMatrix[SMALLINT.ordinal()][FLOAT.ordinal()] = FLOAT;
-        compatibilityMatrix[SMALLINT.ordinal()][DOUBLE.ordinal()] = DOUBLE;
-        compatibilityMatrix[SMALLINT.ordinal()][DATE.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[SMALLINT.ordinal()][DATETIME.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[SMALLINT.ordinal()][DATEV2.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[SMALLINT.ordinal()][DATETIMEV2.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[SMALLINT.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[SMALLINT.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[SMALLINT.ordinal()][JSONB.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[SMALLINT.ordinal()][STRING.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[SMALLINT.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
-        compatibilityMatrix[SMALLINT.ordinal()][DECIMAL32.ordinal()] = DECIMAL32;
-        compatibilityMatrix[SMALLINT.ordinal()][DECIMAL64.ordinal()] = DECIMAL64;
-        compatibilityMatrix[SMALLINT.ordinal()][DECIMAL128.ordinal()] = DECIMAL128;
-        compatibilityMatrix[SMALLINT.ordinal()][TIME.ordinal()] = TIME;
-        compatibilityMatrix[SMALLINT.ordinal()][TIMEV2.ordinal()] = TIMEV2;
-
-        compatibilityMatrix[INT.ordinal()][INT.ordinal()] = INT;
-        compatibilityMatrix[INT.ordinal()][BIGINT.ordinal()] = BIGINT;
-        compatibilityMatrix[INT.ordinal()][LARGEINT.ordinal()] = LARGEINT;
-        compatibilityMatrix[INT.ordinal()][FLOAT.ordinal()] = FLOAT;
-        compatibilityMatrix[INT.ordinal()][DOUBLE.ordinal()] = DOUBLE;
-        compatibilityMatrix[INT.ordinal()][DATE.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[INT.ordinal()][DATETIME.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[INT.ordinal()][DATEV2.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[INT.ordinal()][DATETIMEV2.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[INT.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[INT.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[INT.ordinal()][JSONB.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[INT.ordinal()][STRING.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[INT.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
-        compatibilityMatrix[INT.ordinal()][DECIMAL32.ordinal()] = DECIMAL32;
-        compatibilityMatrix[INT.ordinal()][DECIMAL64.ordinal()] = DECIMAL64;
-        compatibilityMatrix[INT.ordinal()][DECIMAL128.ordinal()] = DECIMAL128;
-        compatibilityMatrix[INT.ordinal()][TIME.ordinal()] = TIME;
-        compatibilityMatrix[INT.ordinal()][TIMEV2.ordinal()] = TIMEV2;
-
-        compatibilityMatrix[BIGINT.ordinal()][BIGINT.ordinal()] = BIGINT;
-        compatibilityMatrix[BIGINT.ordinal()][LARGEINT.ordinal()] = LARGEINT;
-        compatibilityMatrix[BIGINT.ordinal()][FLOAT.ordinal()] = DOUBLE;
-        compatibilityMatrix[BIGINT.ordinal()][DOUBLE.ordinal()] = DOUBLE;
-        compatibilityMatrix[BIGINT.ordinal()][DATE.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[BIGINT.ordinal()][DATETIME.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[BIGINT.ordinal()][DATEV2.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[BIGINT.ordinal()][DATETIMEV2.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[BIGINT.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[BIGINT.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[BIGINT.ordinal()][JSONB.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[BIGINT.ordinal()][STRING.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[BIGINT.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
-        compatibilityMatrix[BIGINT.ordinal()][DECIMAL32.ordinal()] = DECIMAL32;
-        compatibilityMatrix[BIGINT.ordinal()][DECIMAL64.ordinal()] = DECIMAL64;
-        compatibilityMatrix[BIGINT.ordinal()][DECIMAL128.ordinal()] = DECIMAL128;
-        compatibilityMatrix[BIGINT.ordinal()][TIME.ordinal()] = TIME;
-        compatibilityMatrix[BIGINT.ordinal()][TIMEV2.ordinal()] = TIMEV2;
-
-        compatibilityMatrix[LARGEINT.ordinal()][LARGEINT.ordinal()] = LARGEINT;
-        compatibilityMatrix[LARGEINT.ordinal()][FLOAT.ordinal()] = DOUBLE;
-        compatibilityMatrix[LARGEINT.ordinal()][DOUBLE.ordinal()] = DOUBLE;
-        compatibilityMatrix[LARGEINT.ordinal()][DATE.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[LARGEINT.ordinal()][DATETIME.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[LARGEINT.ordinal()][DATEV2.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[LARGEINT.ordinal()][DATETIMEV2.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[LARGEINT.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[LARGEINT.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[LARGEINT.ordinal()][JSONB.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[LARGEINT.ordinal()][STRING.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[LARGEINT.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
-        compatibilityMatrix[LARGEINT.ordinal()][DECIMAL32.ordinal()] = DECIMAL32;
-        compatibilityMatrix[LARGEINT.ordinal()][DECIMAL64.ordinal()] = DECIMAL64;
-        compatibilityMatrix[LARGEINT.ordinal()][DECIMAL128.ordinal()] = DECIMAL128;
-        compatibilityMatrix[LARGEINT.ordinal()][TIME.ordinal()] = TIME;
-        compatibilityMatrix[LARGEINT.ordinal()][TIMEV2.ordinal()] = TIMEV2;
-
-        compatibilityMatrix[FLOAT.ordinal()][FLOAT.ordinal()] = FLOAT;
-        compatibilityMatrix[FLOAT.ordinal()][DOUBLE.ordinal()] = DOUBLE;
-        compatibilityMatrix[FLOAT.ordinal()][DATE.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[FLOAT.ordinal()][DATETIME.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[FLOAT.ordinal()][DATEV2.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[FLOAT.ordinal()][DATETIMEV2.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[FLOAT.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[FLOAT.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[FLOAT.ordinal()][JSONB.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[FLOAT.ordinal()][STRING.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[FLOAT.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
-        compatibilityMatrix[FLOAT.ordinal()][DECIMAL32.ordinal()] = DECIMAL32;
-        compatibilityMatrix[FLOAT.ordinal()][DECIMAL64.ordinal()] = DECIMAL64;
-        compatibilityMatrix[FLOAT.ordinal()][DECIMAL128.ordinal()] = DECIMAL128;
-        compatibilityMatrix[FLOAT.ordinal()][TIME.ordinal()] = TIME;
-        compatibilityMatrix[FLOAT.ordinal()][TIMEV2.ordinal()] = TIMEV2;
-
-        compatibilityMatrix[DOUBLE.ordinal()][DOUBLE.ordinal()] = DOUBLE;
-        compatibilityMatrix[DOUBLE.ordinal()][DATE.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DOUBLE.ordinal()][DATETIME.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DOUBLE.ordinal()][DATEV2.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DOUBLE.ordinal()][DATETIMEV2.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DOUBLE.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DOUBLE.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DOUBLE.ordinal()][JSONB.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DOUBLE.ordinal()][STRING.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DOUBLE.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
-        compatibilityMatrix[DOUBLE.ordinal()][DECIMAL32.ordinal()] = DECIMAL32;
-        compatibilityMatrix[DOUBLE.ordinal()][DECIMAL64.ordinal()] = DECIMAL64;
-        compatibilityMatrix[DOUBLE.ordinal()][DECIMAL128.ordinal()] = DECIMAL128;
-        compatibilityMatrix[DOUBLE.ordinal()][TIME.ordinal()] = TIME;
-        compatibilityMatrix[DOUBLE.ordinal()][TIMEV2.ordinal()] = TIMEV2;
-
-        compatibilityMatrix[DATE.ordinal()][DATE.ordinal()] = DATE;
-        compatibilityMatrix[DATE.ordinal()][DATETIME.ordinal()] = DATETIME;
-        compatibilityMatrix[DATE.ordinal()][DATEV2.ordinal()] = DATEV2;
-        compatibilityMatrix[DATE.ordinal()][DATETIMEV2.ordinal()] = DATETIMEV2;
-        compatibilityMatrix[DATE.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DATE.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DATE.ordinal()][STRING.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DATE.ordinal()][JSONB.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DATE.ordinal()][DECIMALV2.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DATE.ordinal()][DECIMAL32.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DATE.ordinal()][DECIMAL64.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DATE.ordinal()][DECIMAL128.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DATE.ordinal()][TIME.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DATE.ordinal()][TIMEV2.ordinal()] = INVALID_TYPE;
-
-        compatibilityMatrix[DATEV2.ordinal()][DATE.ordinal()] = DATEV2;
-        compatibilityMatrix[DATEV2.ordinal()][DATETIME.ordinal()] = DATETIMEV2;
-        compatibilityMatrix[DATEV2.ordinal()][DATEV2.ordinal()] = DATEV2;
-        compatibilityMatrix[DATEV2.ordinal()][DATETIMEV2.ordinal()] = DATETIMEV2;
-        compatibilityMatrix[DATEV2.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DATEV2.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DATEV2.ordinal()][STRING.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DATEV2.ordinal()][DECIMALV2.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DATEV2.ordinal()][DECIMAL32.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DATEV2.ordinal()][DECIMAL64.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DATEV2.ordinal()][DECIMAL128.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DATEV2.ordinal()][TIME.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DATEV2.ordinal()][TIMEV2.ordinal()] = INVALID_TYPE;
-
-        compatibilityMatrix[DATETIME.ordinal()][DATETIME.ordinal()] = DATETIME;
-        compatibilityMatrix[DATETIME.ordinal()][DATETIMEV2.ordinal()] = DATETIMEV2;
-        compatibilityMatrix[DATETIME.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DATETIME.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DATETIME.ordinal()][JSONB.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DATETIME.ordinal()][STRING.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DATETIME.ordinal()][DECIMALV2.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DATETIME.ordinal()][DECIMAL32.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DATETIME.ordinal()][DECIMAL64.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DATETIME.ordinal()][DECIMAL128.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DATETIME.ordinal()][TIME.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DATETIME.ordinal()][TIMEV2.ordinal()] = INVALID_TYPE;
-
-        compatibilityMatrix[DATETIMEV2.ordinal()][DATETIME.ordinal()] = DATETIMEV2;
-        compatibilityMatrix[DATETIMEV2.ordinal()][DATETIMEV2.ordinal()] = DATETIMEV2;
-        compatibilityMatrix[DATETIMEV2.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DATETIMEV2.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DATETIMEV2.ordinal()][STRING.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DATETIMEV2.ordinal()][DECIMALV2.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DATETIMEV2.ordinal()][DECIMAL32.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DATETIMEV2.ordinal()][DECIMAL64.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DATETIMEV2.ordinal()][DECIMAL128.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DATETIMEV2.ordinal()][TIME.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DATETIMEV2.ordinal()][TIMEV2.ordinal()] = INVALID_TYPE;
-
-        compatibilityMatrix[CHAR.ordinal()][CHAR.ordinal()] = CHAR;
-        compatibilityMatrix[CHAR.ordinal()][VARCHAR.ordinal()] = VARCHAR;
-        compatibilityMatrix[CHAR.ordinal()][JSONB.ordinal()] = CHAR;
-        compatibilityMatrix[CHAR.ordinal()][STRING.ordinal()] = STRING;
-        compatibilityMatrix[CHAR.ordinal()][DECIMALV2.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[CHAR.ordinal()][DECIMAL32.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[CHAR.ordinal()][DECIMAL64.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[CHAR.ordinal()][DECIMAL128.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[CHAR.ordinal()][TIME.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[CHAR.ordinal()][TIMEV2.ordinal()] = INVALID_TYPE;
-
-        compatibilityMatrix[VARCHAR.ordinal()][VARCHAR.ordinal()] = VARCHAR;
-        compatibilityMatrix[VARCHAR.ordinal()][STRING.ordinal()] = STRING;
-        compatibilityMatrix[VARCHAR.ordinal()][JSONB.ordinal()] = VARCHAR;
-        compatibilityMatrix[VARCHAR.ordinal()][DECIMALV2.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[VARCHAR.ordinal()][DECIMAL32.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[VARCHAR.ordinal()][DECIMAL64.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[VARCHAR.ordinal()][DECIMAL128.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[VARCHAR.ordinal()][TIME.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[VARCHAR.ordinal()][TIMEV2.ordinal()] = INVALID_TYPE;
-
-        compatibilityMatrix[STRING.ordinal()][STRING.ordinal()] = STRING;
-        compatibilityMatrix[STRING.ordinal()][DECIMALV2.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[STRING.ordinal()][DECIMAL32.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[STRING.ordinal()][DECIMAL64.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[STRING.ordinal()][DECIMAL128.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[STRING.ordinal()][JSONB.ordinal()] = STRING;
-        compatibilityMatrix[STRING.ordinal()][TIME.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[STRING.ordinal()][TIMEV2.ordinal()] = INVALID_TYPE;
-
-        compatibilityMatrix[JSONB.ordinal()][JSONB.ordinal()] = JSONB;
-        compatibilityMatrix[JSONB.ordinal()][STRING.ordinal()] = STRING;
-        compatibilityMatrix[JSONB.ordinal()][VARCHAR.ordinal()] = VARCHAR;
-        compatibilityMatrix[JSONB.ordinal()][CHAR.ordinal()] = CHAR;
-
-        compatibilityMatrix[DECIMALV2.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
-        compatibilityMatrix[DECIMALV2.ordinal()][DECIMAL32.ordinal()] = DECIMALV2;
-        compatibilityMatrix[DECIMALV2.ordinal()][DECIMAL64.ordinal()] = DECIMALV2;
-        compatibilityMatrix[DECIMALV2.ordinal()][DECIMAL128.ordinal()] = DECIMAL128;
-        compatibilityMatrix[DECIMALV2.ordinal()][TIME.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DECIMALV2.ordinal()][TIMEV2.ordinal()] = INVALID_TYPE;
-
-        compatibilityMatrix[DECIMAL32.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
-        compatibilityMatrix[DECIMAL32.ordinal()][DECIMAL32.ordinal()] = DECIMAL32;
-        compatibilityMatrix[DECIMAL32.ordinal()][DECIMAL64.ordinal()] = DECIMAL64;
-        compatibilityMatrix[DECIMAL32.ordinal()][DECIMAL128.ordinal()] = DECIMAL128;
-        compatibilityMatrix[DECIMAL32.ordinal()][TIME.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DECIMAL32.ordinal()][TIMEV2.ordinal()] = INVALID_TYPE;
-
-        compatibilityMatrix[DECIMAL64.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
-        compatibilityMatrix[DECIMAL64.ordinal()][DECIMAL32.ordinal()] = DECIMAL64;
-        compatibilityMatrix[DECIMAL64.ordinal()][DECIMAL64.ordinal()] = DECIMAL64;
-        compatibilityMatrix[DECIMAL64.ordinal()][DECIMAL128.ordinal()] = DECIMAL128;
-        compatibilityMatrix[DECIMAL64.ordinal()][TIME.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DECIMAL64.ordinal()][TIMEV2.ordinal()] = INVALID_TYPE;
-
-        compatibilityMatrix[DECIMAL128.ordinal()][DECIMALV2.ordinal()] = DECIMAL128;
-        compatibilityMatrix[DECIMAL128.ordinal()][DECIMAL32.ordinal()] = DECIMAL128;
-        compatibilityMatrix[DECIMAL128.ordinal()][DECIMAL64.ordinal()] = DECIMAL128;
-        compatibilityMatrix[DECIMAL128.ordinal()][DECIMAL128.ordinal()] = DECIMAL128;
-        compatibilityMatrix[DECIMAL128.ordinal()][TIME.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DECIMAL128.ordinal()][TIMEV2.ordinal()] = INVALID_TYPE;
-
-        compatibilityMatrix[HLL.ordinal()][HLL.ordinal()] = HLL;
-        compatibilityMatrix[HLL.ordinal()][TIME.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[HLL.ordinal()][TIMEV2.ordinal()] = INVALID_TYPE;
-
-        compatibilityMatrix[BITMAP.ordinal()][BITMAP.ordinal()] = BITMAP;
-
-        compatibilityMatrix[TIME.ordinal()][TIME.ordinal()] = TIME;
-        compatibilityMatrix[TIME.ordinal()][TIMEV2.ordinal()] = TIMEV2;
-
-        compatibilityMatrix[TIMEV2.ordinal()][TIME.ordinal()] = TIMEV2;
-        compatibilityMatrix[TIMEV2.ordinal()][TIMEV2.ordinal()] = TIMEV2;
-
-        compatibilityMatrix[QUANTILE_STATE.ordinal()][QUANTILE_STATE.ordinal()] = QUANTILE_STATE;
-
-        compatibilityMatrix[AGG_STATE.ordinal()][AGG_STATE.ordinal()] = INVALID_TYPE;
-    }
-
-    static {
-        // NULL_TYPE is compatible with any type and results in the non-null type.
-        compatibilityMatrix[NULL_TYPE.ordinal()][NULL_TYPE.ordinal()] = NULL_TYPE;
-        compatibilityMatrix[NULL_TYPE.ordinal()][BOOLEAN.ordinal()] = BOOLEAN;
-        compatibilityMatrix[NULL_TYPE.ordinal()][TINYINT.ordinal()] = TINYINT;
-        compatibilityMatrix[NULL_TYPE.ordinal()][SMALLINT.ordinal()] = SMALLINT;
-        compatibilityMatrix[NULL_TYPE.ordinal()][INT.ordinal()] = INT;
-    }
-
     private final String description;
     private final int slotSize;  // size of tuple slot for this type
     private final TPrimitiveType thriftType;
     private final boolean availableInDdl;
     private boolean isTimeType = false;
 
-    private PrimitiveType(String description, int slotSize, TPrimitiveType thriftType, boolean availableInDdl) {
+    PrimitiveType(String description, int slotSize, TPrimitiveType thriftType, boolean availableInDdl) {
         this.description = description;
         this.slotSize = slotSize;
         this.thriftType = thriftType;
@@ -968,9 +643,6 @@ public enum PrimitiveType {
         isTimeType = true;
     }
 
-    /**
-     * @return
-     */
     public boolean isTimeType() {
         return isTimeType;
     }
@@ -1058,31 +730,6 @@ public enum PrimitiveType {
 
     public static int getMaxSlotSize() {
         return ARRAY.slotSize;
-    }
-
-    /**
-     * Return type t such that values from both t1 and t2 can be assigned to t
-     * without loss of precision. Returns INVALID_TYPE if there is no such type
-     * or if any of t1 and t2 is INVALID_TYPE.
-     */
-    public static PrimitiveType getAssignmentCompatibleType(PrimitiveType t1, PrimitiveType t2) {
-        if (!t1.isValid() || !t2.isValid()) {
-            return INVALID_TYPE;
-        }
-
-        PrimitiveType smallerType = (t1.ordinal() < t2.ordinal() ? t1 : t2);
-        PrimitiveType largerType = (t1.ordinal() > t2.ordinal() ? t1 : t2);
-        PrimitiveType result = compatibilityMatrix[smallerType.ordinal()][largerType.ordinal()];
-        Preconditions.checkNotNull(result);
-        return result;
-    }
-
-    /**
-     * Returns if it is compatible to implicitly cast from t1 to t2 (casting from
-     * t1 to t2 results in no loss of precision.
-     */
-    public static boolean isImplicitlyCastable(PrimitiveType t1, PrimitiveType t2) {
-        return getAssignmentCompatibleType(t1, t2) == t2;
     }
 
     @Override
@@ -1233,6 +880,7 @@ public enum PrimitiveType {
             case STRING:
                 return MysqlColType.MYSQL_TYPE_BLOB;
             case JSONB:
+            case VARIANT:
                 return MysqlColType.MYSQL_TYPE_JSON;
             case MAP:
                 return MysqlColType.MYSQL_TYPE_MAP;

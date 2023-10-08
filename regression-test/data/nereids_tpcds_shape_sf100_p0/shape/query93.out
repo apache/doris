@@ -8,14 +8,14 @@ PhysicalResultSink
 ----------PhysicalDistribute
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN](store_returns.sr_item_sk = store_sales.ss_item_sk)(store_returns.sr_ticket_number = store_sales.ss_ticket_number)
+----------------hashJoin[INNER_JOIN] hashCondition=((store_returns.sr_item_sk = store_sales.ss_item_sk) and (store_returns.sr_ticket_number = store_sales.ss_ticket_number))otherCondition=()
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[store_sales]
-------------------hashJoin[INNER_JOIN](store_returns.sr_reason_sk = reason.r_reason_sk)
+------------------hashJoin[INNER_JOIN] hashCondition=((store_returns.sr_reason_sk = reason.r_reason_sk))otherCondition=()
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[store_returns]
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
-------------------------filter((cast(r_reason_desc as VARCHAR(*)) = 'duplicate purchase'))
+------------------------filter((reason.r_reason_desc = 'duplicate purchase'))
 --------------------------PhysicalOlapScan[reason]
 

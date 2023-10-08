@@ -16,6 +16,10 @@
 // under the License.
 
 suite("test_export_max_file_size", "p2") {
+    // open nereids
+    sql """ set enable_nereids_planner=true """
+    sql """ set enable_fallback_to_original_planner=false """
+
     String nameNodeHost = context.config.otherConfigs.get("extHiveHmsHost")
     String hdfsPort = context.config.otherConfigs.get("extHdfsPort")
     String fs = "hdfs://${nameNodeHost}:${hdfsPort}"
@@ -73,8 +77,8 @@ suite("test_export_max_file_size", "p2") {
             insert into ${table_export_name}
             select * from hdfs(
             "uri" = "hdfs://${nameNodeHost}:${hdfsPort}${load_data_path}",
-            "fs.defaultFS" = "${fs}",
             "hadoop.username" = "${user_name}",
+            "column_separator" = ",",
             "format" = "csv");
         """
 
@@ -117,17 +121,17 @@ suite("test_export_max_file_size", "p2") {
         def outfile_info = waiting_export.call(uuid)
         def json = parseJson(outfile_info)
         assert json instanceof List
-        assertEquals("3", json.fileNumber[0])
-        def outfile_url = json.url[0]
+        assertEquals("3", json.fileNumber[0][0])
+        def outfile_url = json.url[0][0]
 
-        for (int j = 0; j < json.fileNumber[0].toInteger(); ++j ) {
+        for (int j = 0; j < json.fileNumber[0][0].toInteger(); ++j ) {
             // check data correctness
             sql """ 
                 insert into ${table_load_name}
                 select * from hdfs(
                 "uri" = "${outfile_url}${j}.csv",
-                "fs.defaultFS" = "${fs}",
                 "hadoop.username" = "${user_name}",
+                "column_separator" = ",",
                 "format" = "csv");
             """
         }

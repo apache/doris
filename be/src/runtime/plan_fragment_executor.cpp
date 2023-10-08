@@ -39,6 +39,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "common/version_internal.h"
 #include "exec/data_sink.h"
 #include "exec/exec_node.h"
@@ -62,6 +63,7 @@
 #include "util/time.h"
 #include "util/uid_util.h"
 #include "vec/core/block.h"
+#include "vec/core/future_block.h"
 #include "vec/exec/scan/new_es_scan_node.h"
 #include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/exec/scan/new_jdbc_scan_node.h"
@@ -119,12 +121,12 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     }
     _span = tracer->StartSpan("Plan_fragment_executor");
     OpentelemetryScope scope {_span};
-
     if (request.__isset.query_options) {
         _timeout_second = request.query_options.execution_timeout;
     }
 
     const TPlanFragmentExecParams& params = request.params;
+    _group_commit = params.group_commit;
     LOG_INFO("PlanFragmentExecutor::prepare")
             .tag("query_id", print_id(_query_ctx->query_id()))
             .tag("instance_id", print_id(params.fragment_instance_id))
@@ -140,7 +142,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     _runtime_state->set_tracer(std::move(tracer));
 
     SCOPED_ATTACH_TASK(_runtime_state.get());
-    _runtime_state->runtime_filter_mgr()->init();
+    static_cast<void>(_runtime_state->runtime_filter_mgr()->init());
     _runtime_state->set_be_number(request.backend_num);
     if (request.__isset.backend_id) {
         _runtime_state->set_backend_id(request.backend_id);
@@ -153,6 +155,9 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     }
     if (request.__isset.load_job_id) {
         _runtime_state->set_load_job_id(request.load_job_id);
+    }
+    if (request.__isset.wal_id) {
+        _runtime_state->set_wal_id(request.wal_id);
     }
 
     if (request.query_options.__isset.is_report_success) {
@@ -204,7 +209,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
             ScanNode* scan_node = static_cast<ScanNode*>(scan_nodes[i]);
             auto scan_ranges =
                     find_with_default(params.per_node_scan_ranges, scan_node->id(), no_scan_ranges);
-            scan_node->set_scan_ranges(scan_ranges);
+            static_cast<void>(scan_node->set_scan_ranges(scan_ranges));
             VLOG_CRITICAL << "scan_node_Id=" << scan_node->id()
                           << " size=" << scan_ranges.get().size();
         }
@@ -264,10 +269,10 @@ Status PlanFragmentExecutor::open() {
     // at end, otherwise the coordinator hangs in case we finish w/ an error
     if (_is_report_success && config::status_report_interval > 0) {
         std::unique_lock<std::mutex> l(_report_thread_lock);
-        _exec_env->send_report_thread_pool()->submit_func([this] {
+        static_cast<void>(_exec_env->send_report_thread_pool()->submit_func([this] {
             Defer defer {[&]() { this->_report_thread_promise.set_value(true); }};
             this->report_profile();
-        });
+        }));
         // make sure the thread started up, otherwise report_profile() might get into a race
         // with stop_report_thread()
         _report_thread_started_cv.wait(l);
@@ -293,7 +298,7 @@ Status PlanFragmentExecutor::open() {
         std::lock_guard<std::mutex> l(_status_lock);
         _status = status;
         if (status.is<MEM_LIMIT_EXCEEDED>()) {
-            _runtime_state->set_mem_limit_exceeded(status.to_string());
+            static_cast<void>(_runtime_state->set_mem_limit_exceeded(status.to_string()));
         }
         if (_runtime_state->query_type() == TQueryType::EXTERNAL) {
             TUniqueId fragment_instance_id = _runtime_state->fragment_instance_id();
@@ -316,20 +321,40 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
             return Status::OK();
         }
         RETURN_IF_ERROR(_sink->open(runtime_state()));
-        doris::vectorized::Block block;
+        std::unique_ptr<doris::vectorized::Block> block =
+                _group_commit ? doris::vectorized::FutureBlock::create_unique()
+                              : doris::vectorized::Block::create_unique();
         bool eos = false;
 
         while (!eos) {
             RETURN_IF_CANCELLED(_runtime_state);
-            RETURN_IF_ERROR(get_vectorized_internal(&block, &eos));
+            RETURN_IF_ERROR(get_vectorized_internal(block.get(), &eos));
 
             // Collect this plan and sub plan statistics, and send to parent plan.
             if (_collect_query_statistics_with_every_batch) {
                 _collect_query_statistics();
             }
 
-            if (!eos || block.rows() > 0) {
-                auto st = _sink->send(runtime_state(), &block);
+            if (!eos || block->rows() > 0) {
+                auto st = _sink->send(runtime_state(), block.get());
+                //TODO: Asynchronisation need refactor this
+                if (st.is<NEED_SEND_AGAIN>()) { // created partition, do it again.
+                    st = _sink->send(runtime_state(), block.get());
+                    if (st.is<NEED_SEND_AGAIN>()) {
+                        LOG(WARNING) << "have to create partition again...";
+                    }
+                }
+                if (UNLIKELY(!st.ok() || block->rows() == 0)) {
+                    // Used for group commit insert
+                    if (_group_commit) {
+                        auto* future_block = dynamic_cast<vectorized::FutureBlock*>(block.get());
+                        std::unique_lock<doris::Mutex> l(*(future_block->lock));
+                        if (!future_block->is_handled()) {
+                            future_block->set_result(st, 0, 0);
+                            future_block->cv->notify_all();
+                        }
+                    }
+                }
                 if (st.is<END_OF_FILE>()) {
                     break;
                 }
@@ -514,9 +539,11 @@ void PlanFragmentExecutor::send_report(bool done) {
         return;
     }
     ReportStatusRequest report_req = {
+            false,
             status,
-            _is_report_success ? _runtime_state->runtime_profile() : nullptr,
-            _is_report_success ? _runtime_state->load_channel_profile() : nullptr,
+            {},
+            _runtime_state->enable_profile() ? _runtime_state->runtime_profile() : nullptr,
+            _runtime_state->enable_profile() ? _runtime_state->load_channel_profile() : nullptr,
             done || !status.ok(),
             _query_ctx->coord_addr,
             _query_ctx->query_id(),
@@ -567,7 +594,8 @@ void PlanFragmentExecutor::cancel(const PPlanFragmentCancelReason& reason, const
             .tag("reason", reason)
             .tag("error message", msg);
     if (_runtime_state->is_cancelled()) {
-        LOG(INFO) << "instance is already cancelled, skip cancel again";
+        LOG(INFO) << "instance << " << print_id(_runtime_state->fragment_instance_id())
+                  << "is already cancelled, skip cancel again";
         return;
     }
     DCHECK(_prepared);
@@ -581,7 +609,7 @@ void PlanFragmentExecutor::cancel(const PPlanFragmentCancelReason& reason, const
     _query_ctx->set_ready_to_execute(true);
 
     // must close stream_mgr to avoid dead lock in Exchange Node
-    _exec_env->vstream_mgr()->cancel(_fragment_instance_id);
+    _exec_env->vstream_mgr()->cancel(_fragment_instance_id, Status::Cancelled(msg));
     // Cancel the result queue manager used by spark doris connector
     _exec_env->result_queue_mgr()->update_queue_status(_fragment_instance_id, Status::Aborted(msg));
 #ifndef BE_TEST
@@ -616,7 +644,7 @@ void PlanFragmentExecutor::close() {
     if (_runtime_state != nullptr) {
         // _runtime_state init failed
         if (_plan != nullptr) {
-            _plan->close(_runtime_state.get());
+            static_cast<void>(_plan->close(_runtime_state.get()));
         }
 
         if (_sink != nullptr) {
@@ -626,9 +654,10 @@ void PlanFragmentExecutor::close() {
                     std::lock_guard<std::mutex> l(_status_lock);
                     status = _status;
                 }
-                _sink->close(runtime_state(), status);
+                static_cast<void>(_sink->close(runtime_state(), status));
             } else {
-                _sink->close(runtime_state(), Status::InternalError("prepare failed"));
+                static_cast<void>(
+                        _sink->close(runtime_state(), Status::InternalError("prepare failed")));
             }
         }
 

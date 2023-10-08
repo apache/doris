@@ -52,9 +52,9 @@ Status BlockSpillReader::open() {
 
     io::FileDescription file_description;
     file_description.path = file_path_;
-    io::FileReaderOptions reader_options = io::FileReaderOptions::DEFAULT;
     RETURN_IF_ERROR(FileFactory::create_file_reader(system_properties, file_description,
-                                                    reader_options, &file_system, &file_reader_));
+                                                    io::FileReaderOptions::DEFAULT, &file_system,
+                                                    &file_reader_));
 
     size_t file_size = file_reader_->size();
 
@@ -154,7 +154,7 @@ Status BlockSpillReader::close() {
     ExecEnv::GetInstance()->block_spill_mgr()->remove(stream_id_);
     file_reader_.reset();
     if (delete_after_read_) {
-        io::global_local_filesystem()->delete_file(file_path_);
+        static_cast<void>(io::global_local_filesystem()->delete_file(file_path_));
     }
     return Status::OK();
 }

@@ -29,6 +29,7 @@
 #include <unistd.h>
 
 #include <functional>
+#include <memory>
 
 #include "common/config.h"
 #include "common/status.h"
@@ -132,7 +133,7 @@ void construct_schema(OlapTableSchemaParam* schema) {
     tschema.indexes[1].id = NORMAL_INDEX_ID + 1;
     tschema.indexes[1].columns = {"c1", "c2", "c3"};
 
-    schema->init(tschema);
+    static_cast<void>(schema->init(tschema));
 }
 
 // copied from delta_writer_test.cpp
@@ -505,7 +506,7 @@ public:
         size_t hdr_len = header.ByteSizeLong();
         append_buf.append((char*)&hdr_len, sizeof(size_t));
         append_buf.append(header.SerializeAsString());
-        client.send(&append_buf);
+        static_cast<void>(client.send(&append_buf));
     }
 
     void write_one_tablet(MockSinkClient& client, UniqueId load_id, uint32_t sender_id,
@@ -530,7 +531,7 @@ public:
         append_buf.append((char*)&data_len, sizeof(size_t));
         append_buf.append(data);
         LOG(INFO) << "send " << header.DebugString() << data;
-        client.send(&append_buf);
+        static_cast<void>(client.send(&append_buf));
     }
 
     void write_abnormal_load(MockSinkClient& client) {
@@ -582,14 +583,14 @@ public:
 
         doris::EngineOptions options;
         options.store_paths = paths;
-        Status s = doris::StorageEngine::open(options, &k_engine);
+        k_engine = std::make_unique<StorageEngine>(options);
+        Status s = k_engine->open();
         EXPECT_TRUE(s.ok()) << s.to_string();
-
-        _env = doris::ExecEnv::GetInstance();
+        doris::ExecEnv::GetInstance()->set_storage_engine(k_engine.get());
 
         EXPECT_TRUE(io::global_local_filesystem()->create_directory(zTestDir).ok());
 
-        k_engine->start_bg_threads();
+        static_cast<void>(k_engine->start_bg_threads());
 
         _load_stream_mgr = std::make_unique<LoadStreamMgr>(4, &_heavy_work_pool, &_light_work_pool);
         _stream_service = new StreamService(_load_stream_mgr.get());
@@ -611,6 +612,7 @@ public:
     }
 
     void TearDown() override {
+        ExecEnv::GetInstance()->set_storage_engine(nullptr);
         k_engine.reset();
         _server->Stop(1000);
         _load_stream_mgr.reset();
@@ -628,8 +630,7 @@ public:
             if (tablet.tablet_id != tablet_id || rowset == nullptr) {
                 continue;
             }
-            auto path =
-                    BetaRowset::segment_file_path(rowset->rowset_dir(), rowset->rowset_id(), segid);
+            auto path = static_cast<BetaRowset*>(rowset.get())->segment_file_path(segid);
             LOG(INFO) << "read data from " << path;
             std::ifstream inputFile(path, std::ios::binary);
             inputFile.seekg(0, std::ios::end);

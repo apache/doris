@@ -38,20 +38,16 @@
 #include "exec/tablet_info.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "gtest/gtest_pred_impl.h"
-#include "io/fs/file_reader_options.h"
-#include "io/fs/file_reader_writer_fwd.h"
+#include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
-#include "olap/data_dir.h"
 #include "olap/delta_writer.h"
 #include "olap/olap_common.h"
 #include "olap/options.h"
 #include "olap/rowset/beta_rowset.h"
-#include "olap/rowset/rowset.h"
-#include "olap/rowset/segment_v2/segment.h"
 #include "olap/storage_engine.h"
 #include "olap/storage_policy.h"
 #include "olap/tablet.h"
@@ -77,16 +73,11 @@ static const std::string kTestDir = "ut_dir/tablet_cooldown_test";
 static constexpr int64_t kResourceId = 10000;
 static constexpr int64_t kStoragePolicyId = 10002;
 static constexpr int64_t kTabletId = 10005;
-static constexpr int64_t kTabletId2 = 10006;
 static constexpr int64_t kReplicaId = 10009;
 static constexpr int32_t kSchemaHash = 270068377;
-static constexpr int64_t kReplicaId2 = 10010;
-static constexpr int32_t kSchemaHash2 = 270068381;
 
 static constexpr int32_t kTxnId = 20003;
 static constexpr int32_t kPartitionId = 30003;
-static constexpr int32_t kTxnId2 = 40003;
-static constexpr int32_t kPartitionId2 = 50003;
 
 using io::Path;
 
@@ -135,7 +126,8 @@ public:
     ~RemoteFileSystemMock() override = default;
 
 protected:
-    Status create_file_impl(const Path& path, io::FileWriterPtr* writer) override {
+    Status create_file_impl(const Path& path, io::FileWriterPtr* writer,
+                            const io::FileWriterOptions* opts = nullptr) override {
         Path fs_path = path;
         *writer = std::make_unique<FileWriterMock>(fs_path);
         return Status::OK();
@@ -178,7 +170,7 @@ protected:
     }
 
     Status upload_impl(const Path& local_path, const Path& dest_path) override {
-        return _local_fs->link_file(local_path.string(), get_remote_path(dest_path));
+        return _local_fs->link_file(local_path, get_remote_path(dest_path));
     }
 
     Status batch_upload_impl(const std::vector<Path>& local_paths,
@@ -206,11 +198,10 @@ protected:
         return Status::OK();
     }
 
-    Status open_file_internal(const io::FileDescription& fd, const Path& abs_path,
-                              io::FileReaderSPtr* reader) override {
-        io::FileDescription tmp_fd;
-        tmp_fd.path = get_remote_path(abs_path);
-        return _local_fs->open_file(tmp_fd, io::FileReaderOptions::DEFAULT, reader);
+    Status open_file_internal(const Path& file, io::FileReaderSPtr* reader,
+                              const io::FileReaderOptions& opts) override {
+        auto path = get_remote_path(file);
+        return _local_fs->open_file(path, reader);
     }
 
     Status connect_impl() override { return Status::OK(); }
@@ -250,23 +241,24 @@ public:
                             ->delete_and_create_directory(config::storage_root_path)
                             .ok());
         EXPECT_TRUE(io::global_local_filesystem()
-                            ->create_directory(get_remote_path(fmt::format("data/{}", kTabletId)))
-                            .ok());
-        EXPECT_TRUE(io::global_local_filesystem()
-                            ->create_directory(get_remote_path(fmt::format("data/{}", kTabletId2)))
+                            ->create_directory(get_remote_path(remote_tablet_path(kTabletId)))
                             .ok());
 
         std::vector<StorePath> paths {{config::storage_root_path, -1}};
 
         EngineOptions options;
         options.store_paths = paths;
-        doris::StorageEngine::open(options, &k_engine);
+        k_engine = std::make_unique<StorageEngine>(options);
+        auto st = k_engine->open();
+        EXPECT_TRUE(st.ok()) << st.to_string();
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
         exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
+        exec_env->set_storage_engine(k_engine.get());
     }
 
     static void TearDownTestSuite() {
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
+        exec_env->set_storage_engine(nullptr);
         exec_env->set_memtable_memory_limiter(nullptr);
         k_engine.reset();
     }
@@ -349,7 +341,7 @@ void createTablet(TabletSharedPtr* tablet, int64_t replica_id, int32_t schema_ha
     TDescriptorTable tdesc_tbl = create_descriptor_tablet_with_sequence_col();
     ObjectPool obj_pool;
     DescriptorTbl* desc_tbl = nullptr;
-    DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
+    static_cast<void>(DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl));
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
     OlapTableSchemaParam param;
 
@@ -371,7 +363,7 @@ void createTablet(TabletSharedPtr* tablet, int64_t replica_id, int32_t schema_ha
 
     DeltaWriter* delta_writer = nullptr;
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
-    DeltaWriter::open(&write_req, &delta_writer, profile.get());
+    static_cast<void>(DeltaWriter::open(&write_req, &delta_writer, profile.get()));
     ASSERT_NE(delta_writer, nullptr);
 
     vectorized::Block block;
@@ -435,7 +427,6 @@ TEST_F(TabletCooldownTest, normal) {
     TabletSharedPtr tablet1;
     TabletSharedPtr tablet2;
     createTablet(&tablet1, kReplicaId, kSchemaHash, kTabletId, kTxnId, kPartitionId);
-    createTablet(&tablet2, kReplicaId2, kSchemaHash2, kTabletId2, kTxnId2, kPartitionId2);
     // test cooldown
     tablet1->set_storage_policy_id(kStoragePolicyId);
     Status st = tablet1->cooldown(); // rowset [0-1]
@@ -446,7 +437,6 @@ TEST_F(TabletCooldownTest, normal) {
     ASSERT_EQ(Status::OK(), st);
     st = tablet1->cooldown(); // rowset [2-2]
     ASSERT_EQ(Status::OK(), st);
-    sleep(30);
     auto rs = tablet1->get_rowset_by_version({2, 2});
     ASSERT_FALSE(rs->is_local());
 
@@ -456,32 +446,6 @@ TEST_F(TabletCooldownTest, normal) {
     st = std::static_pointer_cast<BetaRowset>(rs)->load_segments(&segments);
     ASSERT_EQ(Status::OK(), st);
     ASSERT_EQ(segments.size(), 1);
-
-    st = io::global_local_filesystem()->link_file(
-            get_remote_path(fmt::format("data/{}/{}.{}.meta", kTabletId, kReplicaId, 1)),
-            get_remote_path(fmt::format("data/{}/{}.{}.meta", kTabletId2, kReplicaId, 2)));
-    ASSERT_EQ(Status::OK(), st);
-    // follow cooldown
-    tablet2->set_storage_policy_id(kStoragePolicyId);
-    tablet2->update_cooldown_conf(1, 111111111);
-    st = tablet2->cooldown(); // rowset [0-1]
-    ASSERT_NE(Status::OK(), st);
-    tablet2->update_cooldown_conf(1, kReplicaId);
-    st = tablet2->cooldown(); // rowset [0-1]
-    ASSERT_NE(Status::OK(), st);
-    tablet2->update_cooldown_conf(2, kReplicaId);
-    st = tablet2->cooldown(); // rowset [0-1]
-    ASSERT_EQ(Status::OK(), st);
-    sleep(30);
-    auto rs2 = tablet2->get_rowset_by_version({2, 2});
-    ASSERT_FALSE(rs2->is_local());
-
-    // test read tablet2
-    ASSERT_EQ(Status::OK(), st);
-    std::vector<segment_v2::SegmentSharedPtr> segments2;
-    st = std::static_pointer_cast<BetaRowset>(rs2)->load_segments(&segments2);
-    ASSERT_EQ(Status::OK(), st);
-    ASSERT_EQ(segments2.size(), 1);
 }
 
 } // namespace doris

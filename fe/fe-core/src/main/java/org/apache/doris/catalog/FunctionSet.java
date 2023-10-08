@@ -572,6 +572,8 @@ public class FunctionSet<T> {
 
     public static final String GROUP_ARRAY = "group_array";
 
+    public static final String ARRAY_AGG = "array_agg";
+
     // Populate all the aggregate builtins in the catalog.
     // null symbols indicate the function does not need that step of the evaluation.
     // An empty symbol indicates a TODO for the BE to implement the function.
@@ -1402,6 +1404,9 @@ public class FunctionSet<T> {
                     AggregateFunction.createBuiltin(GROUP_ARRAY, Lists.newArrayList(t, Type.INT), new ArrayType(t),
                             t, "", "", "", "", "", true, false, true, true));
 
+            addBuiltin(AggregateFunction.createBuiltin(ARRAY_AGG, Lists.newArrayList(t), new ArrayType(t), t, "", "", "", "", "",
+                    true, false, true, true));
+
             //first_value/last_value for array
             addBuiltin(AggregateFunction.createAnalyticBuiltin("first_value",
                     Lists.newArrayList(new ArrayType(t)), new ArrayType(t), Type.ARRAY,
@@ -1670,6 +1675,13 @@ public class FunctionSet<T> {
             builtinFunctions.addAll(entry.getValue());
         }
         return builtinFunctions;
+    }
+
+    public List<Function> getAllFunctions() {
+        List<Function> functions = Lists.newArrayList();
+        vectorizedFunctions.forEach((k, v) -> functions.addAll(v));
+        tableFunctions.forEach((k, v) -> functions.addAll(v));
+        return functions;
     }
 
     public static final String EXPLODE_SPLIT = "explode_split";

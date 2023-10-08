@@ -6,7 +6,7 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ------PhysicalDistribute
 --------hashAgg[LOCAL]
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN](date_dim.d_date_sk = wscs.sold_date_sk)
+------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_date_sk = wscs.sold_date_sk))otherCondition=()
 --------------PhysicalUnion
 ----------------PhysicalDistribute
 ------------------PhysicalProject
@@ -22,25 +22,25 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ------PhysicalDistribute
 --------PhysicalQuickSort
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN](expr_cast(d_week_seq1 as BIGINT) = expr_(d_week_seq2 - 53))
+------------hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_week_seq1 as BIGINT) = expr_(d_week_seq2 - 53)))otherCondition=()
 --------------PhysicalDistribute
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN](date_dim.d_week_seq = d_week_seq2)
---------------------PhysicalDistribute
-----------------------PhysicalProject
-------------------------PhysicalCteConsumer ( cteId=CTEId#1 )
---------------------PhysicalDistribute
-----------------------PhysicalProject
-------------------------filter((date_dim.d_year = 1999))
---------------------------PhysicalOlapScan[date_dim]
---------------PhysicalDistribute
-----------------PhysicalProject
-------------------hashJoin[INNER_JOIN](date_dim.d_week_seq = d_week_seq1)
+------------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_week_seq = d_week_seq1))otherCondition=()
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
 ------------------------PhysicalCteConsumer ( cteId=CTEId#1 )
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
 ------------------------filter((date_dim.d_year = 1998))
+--------------------------PhysicalOlapScan[date_dim]
+--------------PhysicalDistribute
+----------------PhysicalProject
+------------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_week_seq = d_week_seq2))otherCondition=()
+--------------------PhysicalDistribute
+----------------------PhysicalProject
+------------------------PhysicalCteConsumer ( cteId=CTEId#1 )
+--------------------PhysicalDistribute
+----------------------PhysicalProject
+------------------------filter((date_dim.d_year = 1999))
 --------------------------PhysicalOlapScan[date_dim]
 

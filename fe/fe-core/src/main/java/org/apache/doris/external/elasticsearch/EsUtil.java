@@ -39,6 +39,9 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Spliterator;
+import java.util.Spliterators;
+import java.util.stream.StreamSupport;
 
 /**
  * Util for ES, some static method.
@@ -110,15 +113,18 @@ public class EsUtil {
             // remove dynamic templates, for ES 7.x and 8.x
             checkNonPropertiesFields(mappings, arrayFields);
             String firstType = mappings.fieldNames().next();
-            if (!"properties".equals(firstType)) {
-                // If type is not passed in takes the first type.
+            //The first parameter may not be properties, so we need to first determine whether it is 7.x or above.
+            if (StreamSupport.stream(Spliterators
+                            .spliteratorUnknownSize(mappings.fieldNames(), Spliterator.ORDERED), false)
+                    .anyMatch(s -> s.contains("properties"))) {
+                // Equal 7.x and after
+                return mappings;
+            } else {
                 ObjectNode firstData = (ObjectNode) mappings.get(firstType);
                 // check for ES 6.x and before
                 checkNonPropertiesFields(firstData, arrayFields);
                 return firstData;
             }
-            // Equal 7.x and after
-            return mappings;
         } else {
             if (mappings.has(mappingType)) {
                 ObjectNode jsonData = (ObjectNode) mappings.get(mappingType);
@@ -154,6 +160,10 @@ public class EsUtil {
         mappings.remove("dynamic_templates");
         // remove `dynamic` field
         mappings.remove("dynamic");
+        // remove `_default` field, we do not parse `_default_` mapping, only explicit mapping.
+        // `_default` _mapping type is deprecated in 7.0 and removed in 8.0
+        // https://www.elastic.co/guide/en/elasticsearch/reference/7.17/removal-of-types.html
+        mappings.remove("_default_");
         // check explicit mapping
         if (mappings.isEmpty()) {
             throw new DorisEsException("Do not support index without explicit mapping.");

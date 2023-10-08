@@ -88,6 +88,7 @@ github:
     - nanfeng1999
     - gitccl
     - shuke987
+    - wm1581066
 
 notifications:
     pullrequests_status:  commits@doris.apache.org
