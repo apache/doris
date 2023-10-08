@@ -3316,7 +3316,7 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset,
 
     OlapStopWatch watch;
     std::vector<segment_v2::SegmentSharedPtr> segments;
-    static_cast<void>(_load_rowset_segments(rowset, &segments));
+    RETURN_IF_ERROR(_load_rowset_segments(rowset, &segments));
     auto t1 = watch.get_elapse_time_us();
 
     {
