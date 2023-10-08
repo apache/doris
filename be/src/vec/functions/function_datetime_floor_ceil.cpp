@@ -556,13 +556,13 @@ struct TimeRoundOpt {
             // Optimize the performance of the datetimev2 type on the floor operation.
             // Now supports unit month hour minute seconde
             if constexpr (Impl::Unit == MONTH && !std::is_same_v<DateValueType, VecDateTimeValue>) {
-                int month = ts2.month();
+                int month = ts2.month() - 1;
                 int new_month = month / period * period;
                 if (new_month >= 12) {
                     new_month = new_month % 12;
                 }
                 ts1.set_time(ts2.year(), ts2.month(), 1, 0, 0, 0);
-                ts1.template set_time_unit<TimeUnit::MONTH>(new_month);
+                ts1.template set_time_unit<TimeUnit::MONTH>(new_month + 1);
             }
             if constexpr (Impl::Unit == HOUR && !std::is_same_v<DateValueType, VecDateTimeValue>) {
                 int hour = ts2.hour();
