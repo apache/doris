@@ -2774,6 +2774,7 @@ show data （其他用法：HELP SHOW DATA）
 默认值：true
 
 禁止LocalDeployManager删除节点，防止cluster.info文件有误导致节点被删除。
+
 #### `mysqldb_replace_name`
 
 Default: mysql

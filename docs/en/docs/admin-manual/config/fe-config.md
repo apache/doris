@@ -2771,6 +2771,7 @@ Temporary configuration option. After it is enabled, a background thread will be
 Default：true
 
 Forbid LocalDeployManager drop nodes to prevent errors in the cluster.info file from causing nodes to be dropped.
+
 #### `mysqldb_replace_name`
 
 Default: mysql
