@@ -165,7 +165,7 @@ void MemTrackerLimiter::make_process_snapshots(std::vector<MemTracker::Snapshot>
 }
 
 void MemTrackerLimiter::make_type_snapshots(std::vector<MemTracker::Snapshot>* snapshots,
-                                            MemTrackerLimiter::Type type, bool with_child = true) {
+                                            MemTrackerLimiter::Type type, bool with_child) {
     if (type == Type::GLOBAL) {
         std::lock_guard<std::mutex> l(mem_tracker_limiter_pool[0].group_lock);
         for (auto tracker : mem_tracker_limiter_pool[0].trackers) {
