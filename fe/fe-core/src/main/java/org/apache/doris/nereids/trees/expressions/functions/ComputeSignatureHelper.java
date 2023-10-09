@@ -64,6 +64,46 @@ public class ComputeSignatureHelper {
         return signature;
     }
 
+    private static DataType replaceAnyDataTypeWithOutIndex(DataType sigType, DataType expressionType) {
+        if (expressionType instanceof NullType) {
+            if (sigType instanceof ArrayType) {
+                return ArrayType.of(replaceAnyDataTypeWithOutIndex(
+                        ((ArrayType) sigType).getItemType(), NullType.INSTANCE));
+            } else if (sigType instanceof MapType) {
+                return MapType.of(replaceAnyDataTypeWithOutIndex(((MapType) sigType).getKeyType(), NullType.INSTANCE),
+                        replaceAnyDataTypeWithOutIndex(((MapType) sigType).getValueType(), NullType.INSTANCE));
+            } else if (sigType instanceof StructType) {
+                // TODO: do not support struct type now
+                // throw new AnalysisException("do not support struct type now");
+                return sigType;
+            } else {
+                if (sigType instanceof AnyDataType
+                        && ((AnyDataType) sigType).getIndex() == AnyDataType.INDEX_OF_INSTANCE_WITHOUT_INDEX) {
+                    return expressionType;
+                }
+                return sigType;
+            }
+        } else if (sigType instanceof ArrayType && expressionType instanceof ArrayType) {
+            return ArrayType.of(replaceAnyDataTypeWithOutIndex(
+                    ((ArrayType) sigType).getItemType(), ((ArrayType) expressionType).getItemType()));
+        } else if (sigType instanceof MapType && expressionType instanceof MapType) {
+            return MapType.of(replaceAnyDataTypeWithOutIndex(
+                            ((MapType) sigType).getKeyType(), ((MapType) expressionType).getKeyType()),
+                    replaceAnyDataTypeWithOutIndex(
+                            ((MapType) sigType).getValueType(), ((MapType) expressionType).getValueType()));
+        } else if (sigType instanceof StructType && expressionType instanceof StructType) {
+            // TODO: do not support struct type now
+            // throw new AnalysisException("do not support struct type now");
+            return sigType;
+        } else {
+            if (sigType instanceof AnyDataType
+                    && ((AnyDataType) sigType).getIndex() == AnyDataType.INDEX_OF_INSTANCE_WITHOUT_INDEX) {
+                return expressionType;
+            }
+            return sigType;
+        }
+    }
+
     private static void collectAnyDataType(DataType sigType, DataType expressionType,
             Map<Integer, List<DataType>> indexToArgumentTypes) {
         if (expressionType instanceof NullType) {
@@ -171,6 +211,26 @@ public class ComputeSignatureHelper {
             }
             return dataType;
         }
+    }
+
+    /** implementFollowToAnyDataType */
+    public static FunctionSignature implementAnyDataTypeWithOutIndex(
+            FunctionSignature signature, List<Expression> arguments) {
+        // collect all any data type with index
+        List<DataType> newArgTypes = Lists.newArrayList();
+        for (int i = 0; i < arguments.size(); i++) {
+            DataType sigType;
+            if (i >= signature.argumentsTypes.size()) {
+                sigType = signature.getVarArgType().orElseThrow(
+                        () -> new AnalysisException("function arity not match with signature"));
+            } else {
+                sigType = signature.argumentsTypes.get(i);
+            }
+            DataType expressionType = arguments.get(i).getDataType();
+            newArgTypes.add(replaceAnyDataTypeWithOutIndex(sigType, expressionType));
+        }
+        signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
+        return signature;
     }
 
     /** implementFollowToAnyDataType */
