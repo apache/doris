@@ -33,6 +33,7 @@ import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
@@ -339,6 +340,16 @@ public class ResourceTagQueryTest {
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         System.out.println(explainString);
         Assert.assertTrue(explainString.contains("tablets=2/2"));
+        //alter db change `replication_allocation` to null
+        alterDbStmtStr = "alter database test_prop set PROPERTIES('replication_allocation' = '');";
+        alterDbStmt = (AlterDatabasePropertyStmt) UtFrameUtils
+                .parseAndAnalyzeStmt(alterDbStmtStr, connectContext);
+        Env.getCurrentEnv().alterDatabaseProperty(alterDbStmt);
+        // create table with default tag
+        String createTableStr4 = "create table test_prop.tbl4\n"
+                + "(k1 date, k2 int)\n"
+                + "distributed by hash(k2) buckets 2;";
+        ExceptionChecker.expectThrows(DdlException.class, () -> createTable(createTableStr4));
     }
 
     private void checkTableReplicaAllocation(OlapTable tbl) throws InterruptedException {
