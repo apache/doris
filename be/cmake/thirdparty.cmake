@@ -212,6 +212,9 @@ set_target_properties(aws-checksums PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DI
 add_library(aws-c-s3 STATIC IMPORTED)
 set_target_properties(aws-c-s3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-s3.a)
 
+add_library(aws-c-sdkutils STATIC IMPORTED)
+set_target_properties(aws-c-sdkutils PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-sdkutils.a)
+
 if (NOT OS_MACOSX)
     add_library(aws-s2n STATIC IMPORTED)
     set_target_properties(aws-s2n PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libs2n.a)
