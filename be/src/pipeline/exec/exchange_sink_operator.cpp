@@ -112,7 +112,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     _split_block_hash_compute_timer = ADD_TIMER(_profile, "SplitBlockHashComputeTime");
     _split_block_distribute_by_channel_timer =
             ADD_TIMER(_profile, "SplitBlockDistributeByChannelTime");
-    _blocks_sent_counter = ADD_COUNTER(_profile, "BlocksSent", TUnit::UNIT);
+    _blocks_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "BlocksSent", TUnit::UNIT, 1);
     _overall_throughput = _profile->add_derived_counter(
             "OverallThroughput", TUnit::BYTES_PER_SECOND,
             std::bind<int64_t>(&RuntimeProfile::units_per_second, _bytes_sent_counter,
@@ -278,7 +278,8 @@ template <typename ChannelPtrType>
 void ExchangeSinkOperatorX::_handle_eof_channel(RuntimeState* state, ChannelPtrType channel,
                                                 Status st) {
     channel->set_receiver_eof(st);
-    channel->close(state);
+    // Chanel will not send RPC to the downstream when eof, so close chanel by OK status.
+    static_cast<void>(channel->close(state, Status::OK()));
 }
 
 Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block,
@@ -324,8 +325,9 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                 if (serialized) {
                     auto cur_block = local_state._serializer.get_block()->to_block();
                     if (!cur_block.empty()) {
-                        local_state._serializer.serialize_block(
-                                &cur_block, block_holder->get_block(), local_state.channels.size());
+                        static_cast<void>(local_state._serializer.serialize_block(
+                                &cur_block, block_holder->get_block(),
+                                local_state.channels.size()));
                     } else {
                         block_holder->get_block()->Clear();
                     }
@@ -337,8 +339,8 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                                 status = channel->send_local_block(&cur_block);
                             } else {
                                 SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-                                status = channel->send_block(block_holder, &sent,
-                                                             source_state == SourceState::FINISHED);
+                                status = channel->send_broadcast_block(
+                                        block_holder, &sent, source_state == SourceState::FINISHED);
                             }
                             HANDLE_CHANNEL_STATUS(state, channel, status);
                         }
@@ -365,8 +367,8 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                 SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
                 RETURN_IF_ERROR(local_state._serializer.serialize_block(
                         block, current_channel->ch_cur_pb_block()));
-                auto status = current_channel->send_block(current_channel->ch_cur_pb_block(),
-                                                          source_state == SourceState::FINISHED);
+                auto status = current_channel->send_remote_block(
+                        current_channel->ch_cur_pb_block(), source_state == SourceState::FINISHED);
                 HANDLE_CHANNEL_STATUS(state, current_channel, status);
                 current_channel->ch_roll_pb_block();
             }
@@ -520,8 +522,9 @@ Status ExchangeSinkOperatorX::try_close(RuntimeState* state, Status exec_status)
     CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
     local_state._serializer.reset_block();
     Status final_st = Status::OK();
+    Status final_status = exec_status;
     for (int i = 0; i < local_state.channels.size(); ++i) {
-        Status st = local_state.channels[i]->close(state);
+        Status st = local_state.channels[i]->close(state, exec_status);
         if (!st.ok() && final_st.ok()) {
             final_st = st;
         }

@@ -105,7 +105,7 @@ public:
 
     // nullIf(col1, col2) == if(col1 = col2, NULL, col1)
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         const ColumnsWithTypeAndName eq_columns {
                 block.get_by_position(arguments[0]),
                 block.get_by_position(arguments[1]),

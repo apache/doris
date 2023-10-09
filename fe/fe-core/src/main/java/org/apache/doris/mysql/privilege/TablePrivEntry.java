@@ -123,4 +123,8 @@ public class TablePrivEntry extends DbPrivEntry {
         isAnyTbl = origTbl.equals(ANY_TBL);
     }
 
+    @Override
+    protected PrivEntry copy() throws AnalysisException, PatternMatcherException {
+        return TablePrivEntry.create(this.getOrigCtl(), this.getOrigDb(), this.getOrigTbl(), this.getPrivSet().copy());
+    }
 }

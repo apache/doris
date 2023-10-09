@@ -169,6 +169,19 @@ public class MarkDownParser {
         // Also, the header in md file is like "## STREAM-LOAD", we need to convert it to "STREAM LOAD",
         // so that we can execute "help stream load" to show the help doc.
         return Maps.immutableEntry(key.substring(headLevel).trim().replaceAll("-", " "),
-                sb.toString().replaceAll("\\s+$", "\n"));
+                processWhitespace(sb));
+    }
+
+    private String processWhitespace(StringBuilder sb) {
+        int index = sb.length() - 1;
+        while (index >= 0 && Character.isWhitespace(sb.charAt(index))) {
+            index--;
+        }
+
+        if (index < sb.length() - 1) {
+            sb.setLength(index + 1);
+            sb.append('\n');
+        }
+        return sb.toString();
     }
 }

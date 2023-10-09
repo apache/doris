@@ -157,8 +157,8 @@ Status FullCompaction::_full_compaction_update_delete_bitmap(const RowsetSharedP
     int64_t max_version = _tablet->max_version().second;
     DCHECK(max_version >= rowset->version().second);
     if (max_version > rowset->version().second) {
-        _tablet->capture_consistent_rowsets({rowset->version().second + 1, max_version},
-                                            &tmp_rowsets);
+        static_cast<void>(_tablet->capture_consistent_rowsets(
+                {rowset->version().second + 1, max_version}, &tmp_rowsets));
     }
 
     for (const auto& it : tmp_rowsets) {
@@ -169,6 +169,7 @@ Status FullCompaction::_full_compaction_update_delete_bitmap(const RowsetSharedP
 
     std::lock_guard rowset_update_lock(_tablet->get_rowset_update_lock());
     std::lock_guard header_lock(_tablet->get_header_lock());
+    SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
     for (const auto& it : _tablet->rowset_map()) {
         const int64_t& cur_version = it.first.first;
         const RowsetSharedPtr& published_rowset = it.second;

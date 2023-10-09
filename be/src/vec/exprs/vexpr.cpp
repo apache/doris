@@ -61,79 +61,80 @@ TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, in
 
     switch (type) {
     case TYPE_BOOLEAN: {
-        create_texpr_literal_node<TYPE_BOOLEAN>(data, &node);
+        static_cast<void>(create_texpr_literal_node<TYPE_BOOLEAN>(data, &node));
         break;
     }
     case TYPE_TINYINT: {
-        create_texpr_literal_node<TYPE_TINYINT>(data, &node);
+        static_cast<void>(create_texpr_literal_node<TYPE_TINYINT>(data, &node));
         break;
     }
     case TYPE_SMALLINT: {
-        create_texpr_literal_node<TYPE_SMALLINT>(data, &node);
+        static_cast<void>(create_texpr_literal_node<TYPE_SMALLINT>(data, &node));
         break;
     }
     case TYPE_INT: {
-        create_texpr_literal_node<TYPE_INT>(data, &node);
+        static_cast<void>(create_texpr_literal_node<TYPE_INT>(data, &node));
         break;
     }
     case TYPE_BIGINT: {
-        create_texpr_literal_node<TYPE_BIGINT>(data, &node);
+        static_cast<void>(create_texpr_literal_node<TYPE_BIGINT>(data, &node));
         break;
     }
     case TYPE_LARGEINT: {
-        create_texpr_literal_node<TYPE_LARGEINT>(data, &node);
+        static_cast<void>(create_texpr_literal_node<TYPE_LARGEINT>(data, &node));
         break;
     }
     case TYPE_FLOAT: {
-        create_texpr_literal_node<TYPE_FLOAT>(data, &node);
+        static_cast<void>(create_texpr_literal_node<TYPE_FLOAT>(data, &node));
         break;
     }
     case TYPE_DOUBLE: {
-        create_texpr_literal_node<TYPE_DOUBLE>(data, &node);
+        static_cast<void>(create_texpr_literal_node<TYPE_DOUBLE>(data, &node));
         break;
     }
     case TYPE_DATEV2: {
-        create_texpr_literal_node<TYPE_DATEV2>(data, &node);
+        static_cast<void>(create_texpr_literal_node<TYPE_DATEV2>(data, &node));
         break;
     }
     case TYPE_DATETIMEV2: {
-        create_texpr_literal_node<TYPE_DATETIMEV2>(data, &node);
+        static_cast<void>(create_texpr_literal_node<TYPE_DATETIMEV2>(data, &node));
         break;
     }
     case TYPE_DATE: {
-        create_texpr_literal_node<TYPE_DATE>(data, &node);
+        static_cast<void>(create_texpr_literal_node<TYPE_DATE>(data, &node));
         break;
     }
     case TYPE_DATETIME: {
-        create_texpr_literal_node<TYPE_DATETIME>(data, &node);
+        static_cast<void>(create_texpr_literal_node<TYPE_DATETIME>(data, &node));
         break;
     }
     case TYPE_DECIMALV2: {
-        create_texpr_literal_node<TYPE_DECIMALV2>(data, &node, precision, scale);
+        static_cast<void>(create_texpr_literal_node<TYPE_DECIMALV2>(data, &node, precision, scale));
         break;
     }
     case TYPE_DECIMAL32: {
-        create_texpr_literal_node<TYPE_DECIMAL32>(data, &node, precision, scale);
+        static_cast<void>(create_texpr_literal_node<TYPE_DECIMAL32>(data, &node, precision, scale));
         break;
     }
     case TYPE_DECIMAL64: {
-        create_texpr_literal_node<TYPE_DECIMAL64>(data, &node, precision, scale);
+        static_cast<void>(create_texpr_literal_node<TYPE_DECIMAL64>(data, &node, precision, scale));
         break;
     }
     case TYPE_DECIMAL128I: {
-        create_texpr_literal_node<TYPE_DECIMAL128I>(data, &node, precision, scale);
+        static_cast<void>(
+                create_texpr_literal_node<TYPE_DECIMAL128I>(data, &node, precision, scale));
         break;
     }
     case TYPE_CHAR: {
-        create_texpr_literal_node<TYPE_CHAR>(data, &node);
+        static_cast<void>(create_texpr_literal_node<TYPE_CHAR>(data, &node));
         break;
     }
     case TYPE_VARCHAR: {
-        create_texpr_literal_node<TYPE_VARCHAR>(data, &node);
+        static_cast<void>(create_texpr_literal_node<TYPE_VARCHAR>(data, &node));
         break;
     }
     case TYPE_STRING: {
-        create_texpr_literal_node<TYPE_STRING>(data, &node);
+        static_cast<void>(create_texpr_literal_node<TYPE_STRING>(data, &node));
         break;
     }
     default:
@@ -524,9 +525,9 @@ void VExpr::close_function_context(VExprContext* context, FunctionContext::Funct
                                    const FunctionBasePtr& function) const {
     if (_fn_context_index != -1) {
         FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
-        function->close(fn_ctx, FunctionContext::THREAD_LOCAL);
+        static_cast<void>(function->close(fn_ctx, FunctionContext::THREAD_LOCAL));
         if (scope == FunctionContext::FRAGMENT_LOCAL) {
-            function->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
+            static_cast<void>(function->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
         }
     }
 }
