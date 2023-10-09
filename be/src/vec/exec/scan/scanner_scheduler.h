@@ -73,7 +73,8 @@ private:
     // schedule scanners in a certain ScannerContext
     void _schedule_scanners(ScannerContext* ctx);
     // execution thread function
-    void _scanner_scan(ScannerScheduler* scheduler, ScannerContext* ctx, VScannerSPtr scanner);
+    void _scanner_scan(ScannerScheduler* scheduler, ScannerContext* ctx, VScannerSPtr scanner,
+                       const std::string thread_name);
 
 private:
     // Scheduling queue number.
