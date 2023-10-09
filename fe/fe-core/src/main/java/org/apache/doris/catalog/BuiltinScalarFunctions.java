@@ -17,6 +17,8 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.nereids.trees.expressions.Like;
+import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Acos;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AesDecrypt;
@@ -558,6 +560,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Least.class, "least"),
             scalar(Left.class, "left"),
             scalar(Length.class, "length"),
+            scalar(Like.class, "like"),
             scalar(Ln.class, "ln"),
             scalar(Locate.class, "locate"),
             scalar(Log.class, "log"),
@@ -614,6 +617,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Quarter.class, "quarter"),
             scalar(Radians.class, "radians"),
             scalar(Random.class, "rand", "random"),
+            scalar(Regexp.class, "regexp"),
             scalar(RegexpExtract.class, "regexp_extract"),
             scalar(RegexpExtractAll.class, "regexp_extract_all"),
             scalar(RegexpReplace.class, "regexp_replace"),

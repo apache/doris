@@ -25,6 +25,8 @@ suite("nereids_scalar_fn_R") {
 	sql "select random() from fn_test_not_nullable"
 	sql "select random(1000) from fn_test order by kbint"
 	sql "select random(1000) from fn_test_not_nullable order by kbint"
+	qt_sql_regexp_Varchar_Varchar "select regexp(kvchrs1, kvchrs2) from fn_test order by kvchrs1"
+	qt_sql_regexp_Varchar_Varchar_not_null "select regexp(kvchrs1, kvchrs2) from fn_test_not_nullable order by kvchrs1"
 	qt_sql_regexp_extract_Varchar_Varchar_BigInt "select regexp_extract(kvchrs1, kvchrs1, kbint) from fn_test order by kvchrs1, kvchrs1, kbint"
 	qt_sql_regexp_extract_Varchar_Varchar_BigInt_notnull "select regexp_extract(kvchrs1, kvchrs1, kbint) from fn_test_not_nullable order by kvchrs1, kvchrs1, kbint"
 	qt_sql_regexp_extract_String_String_BigInt "select regexp_extract(kstr, kstr, kbint) from fn_test order by kstr, kstr, kbint"
