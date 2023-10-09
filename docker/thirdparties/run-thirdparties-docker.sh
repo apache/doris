@@ -260,7 +260,6 @@ if [[ "${RUN_KAFKA}" -eq 1 ]]; then
         for topic in "${topics[@]}"; do
             while IFS= read -r line; do
                 docker exec "${container_id}" bash -c "echo '$line' | /opt/kafka/bin/kafka-console-producer.sh --broker-list '${ip_host}:19193' --topic '${topic}'"
-                sleep 1
             done < "${ROOT}/docker-compose/kafka/scripts/${topic}.csv"
         done
     }
