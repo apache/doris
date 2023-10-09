@@ -279,7 +279,8 @@ std::pair<ColumnPtr, size_t> check_column_const_set_readability(const IColumn& c
  * @warning use this function sometimes cause performance problem in GCC.
 */
 template <typename T>
-requires std::is_integral_v<T> T index_check_const(T arg, bool constancy) noexcept {
+    requires std::is_integral_v<T> 
+T index_check_const(T arg, bool constancy) noexcept {
     return constancy ? 0 : arg;
 }
 

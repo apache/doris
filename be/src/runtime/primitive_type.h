@@ -270,9 +270,7 @@ struct PredicatePrimitiveTypeTraits<TYPE_DATETIMEV2> {
 };
 
 template <typename Traits>
-concept HaveCppType = requires() {
-    sizeof(typename Traits::CppType);
-};
+concept HaveCppType = requires() { sizeof(typename Traits::CppType); };
 
 template <PrimitiveNative type>
 struct PrimitiveTypeSizeReducer {
