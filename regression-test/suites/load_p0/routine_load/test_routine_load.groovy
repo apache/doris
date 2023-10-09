@@ -138,13 +138,27 @@ suite("test_routine_load","p0,external,external_docker,external_docker_routine_l
                     if (state == "NEED_SCHEDULE") {
                         continue;
                     }
-                    log.info(res[0][17].toString());
                     assertEquals(res[0][8].toString(), "RUNNING")
                     break;
                 }
 
-                sleep(10000)
+                def count = 0
                 def tableName1 =  "routine_load_" + tableName
+                while (true) {
+                    def res
+                    res = sql "select count(*) from ${tableName1}"
+                    if (res[0][0] > 0) {
+                        break
+                    }
+                    if (count >= 60) {
+                        log.error("stream load commit can not visible for long time")
+                        assertEquals(20, res[0][0])
+                        break
+                    }
+                    sleep(1000)
+                    count++
+                }
+                
                 if (i <= 3) {
                     qt_sql_exec_mem_limit "select * from ${tableName1} order by k00,k01"
                 } else {
@@ -205,8 +219,23 @@ suite("test_routine_load","p0,external,external_docker,external_docker_routine_l
                     break;
                 }
 
-                sleep(10000)
+                def count = 0
                 def tableName1 =  "routine_load_" + tableName
+                while (true) {
+                    def res
+                    res = sql "select count(*) from ${tableName1}"
+                    if (res[0][0] > 0) {
+                        break
+                    }
+                    if (count >= 60) {
+                        log.error("stream load commit can not visible for long time")
+                        assertEquals(20, res[0][0])
+                        break
+                    }
+                    sleep(1000)
+                    count++
+                }
+
                 if (i <= 3) {
                     qt_sql_timezone_shanghai "select * from ${tableName1} order by k00,k01"
                 } else {
@@ -260,15 +289,28 @@ suite("test_routine_load","p0,external,external_docker,external_docker_routine_l
                     sleep(1000)
                     def res = sql "show routine load for ${jobs[i]}"
                     def state = res[0][8].toString()
-                    if (state == "NEED_SCHEDULE") {
-                        continue;
+                    if (state != "NEED_SCHEDULE") {
+                        break;
                     }
-                    assertEquals(res[0][8].toString(), "RUNNING")
-                    break;
                 }
 
-                sleep(10000)
+                def count = 0
                 def tableName1 =  "routine_load_" + tableName
+                while (true) {
+                    def res
+                    res = sql "select count(*) from ${tableName1}"
+                    if (res[0][0] > 0) {
+                        break
+                    }
+                    if (count >= 60) {
+                        log.error("stream load commit can not visible for long time")
+                        assertEquals(20, res[0][0])
+                        break
+                    }
+                    sleep(1000)
+                    count++
+                }
+
                 if (i <= 3) {
                     qt_sql_strict_mode "select * from ${tableName1} order by k00,k01"
                 } else {
@@ -329,8 +371,23 @@ suite("test_routine_load","p0,external,external_docker,external_docker_routine_l
                     break;
                 }
 
-                sleep(10000)
+                def count = 0
                 def tableName1 =  "routine_load_" + tableName
+                while (true) {
+                    def res
+                    res = sql "select count(*) from ${tableName1}"
+                    if (res[0][0] > 0) {
+                        break
+                    }
+                    if (count >= 60) {
+                        log.error("stream load commit can not visible for long time")
+                        assertEquals(20, res[0][0])
+                        break
+                    }
+                    sleep(1000)
+                    count++
+                }
+
                 if (i <= 3) {
                     qt_sql_max_error_number "select * from ${tableName1} order by k00,k01"
                 } else {
@@ -392,8 +449,23 @@ suite("test_routine_load","p0,external,external_docker,external_docker_routine_l
                     break;
                 }
 
-                sleep(10000)
+                def count = 0
                 def tableName1 =  "routine_load_" + tableName
+                while (true) {
+                    def res
+                    res = sql "select count(*) from ${tableName1}"
+                    if (res[0][0] > 0) {
+                        break
+                    }
+                    if (count >= 60) {
+                        log.error("stream load commit can not visible for long time")
+                        assertEquals(20, res[0][0])
+                        break
+                    }
+                    sleep(1000)
+                    count++
+                }
+                
                 if (i <= 3) {
                     qt_sql_max_filter_ratio "select * from ${tableName1} order by k00,k01"
                 } else {
@@ -452,7 +524,6 @@ suite("test_routine_load","p0,external,external_docker,external_docker_routine_l
                     }
                 }
 
-                sleep(10000)
                 def tableName1 =  "routine_load_" + tableName
                 if (i <= 3) {
                     qt_sql_load_to_single_tablet "select * from ${tableName1} order by k00,k01"
