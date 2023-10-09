@@ -37,10 +37,17 @@ import java.util.List;
 public class Ltrim extends ScalarFunction
         implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullable {
 
-    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+    private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
+                    .args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(StringType.INSTANCE).args(StringType.INSTANCE, StringType.INSTANCE),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(StringType.INSTANCE).args(StringType.INSTANCE)
     );
+
+    private Ltrim(List<Expression> args) {
+        super("ltrim", args);
+    }
 
     /**
      * constructor with 1 argument.
@@ -50,12 +57,19 @@ public class Ltrim extends ScalarFunction
     }
 
     /**
+     * constructor with 2 argument.
+     */
+    public Ltrim(Expression arg0, Expression arg1) {
+        super("ltrim", arg0, arg1);
+    }
+
+    /**
      * withChildren.
      */
     @Override
     public Ltrim withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1);
-        return new Ltrim(children.get(0));
+        Preconditions.checkArgument(children.size() == 1 || children.size() == 2);
+        return new Ltrim(children);
     }
 
     @Override

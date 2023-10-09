@@ -1072,3 +1072,61 @@ string3
 string3
 string3
 
+-- !sql_ltrim_Varchar_Varchar --
+null
+char11
+char11
+char11
+char11
+char12
+char12
+char12
+char12
+char13
+char13
+char13
+char13
+
+-- !sql_ltrim_Varchar_Varchar_notnull --
+char11
+char11
+char11
+char11
+char12
+char12
+char12
+char12
+char13
+char13
+char13
+char13
+
+-- !sql_ltrim_String_String --
+null
+ing1
+ing1
+ing1
+ing1
+ing2
+ing2
+ing2
+ing2
+ing3
+ing3
+ing3
+ing3
+
+-- !sql_ltrim_String_String_notnull --
+ing1
+ing1
+ing1
+ing1
+ing2
+ing2
+ing2
+ing2
+ing3
+ing3
+ing3
+ing3
+
