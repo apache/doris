@@ -618,8 +618,8 @@ public class BrokerFileSystem extends RemoteFileSystem {
         // invoke 'isSplittable' interface
         boolean needReturn = true;
         try {
-            TBrokerIsSplittableRequest req = new TBrokerIsSplittableRequest(TBrokerVersion.VERSION_ONE, remotePath,
-                    inputFormat, properties);
+            TBrokerIsSplittableRequest req = new TBrokerIsSplittableRequest().setVersion(TBrokerVersion.VERSION_ONE)
+                    .setPath(remotePath).setInputFormat(inputFormat).setProperties(properties);
             TBrokerIsSplittableResponse response = client.isSplittable(req);
             TBrokerOperationStatus operationStatus = response.getOpStatus();
             if (operationStatus.getStatusCode() != TBrokerOperationStatusCode.OK) {
