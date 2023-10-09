@@ -339,13 +339,14 @@ public class StatisticsAutoCollectorTest {
                 return 0;
             }
         };
+        final List<Column> cols = Lists.newArrayList(new Column("test", PrimitiveType.INT));
         new MockUp<OlapTable>() {
 
             int count = 0;
 
             @Mock
             public List<Column> getBaseSchema() {
-                return Lists.newArrayList(new Column("test", PrimitiveType.INT));
+                return cols;
             }
 
             @Mock
@@ -368,7 +369,7 @@ public class StatisticsAutoCollectorTest {
 
         StatisticsAutoCollector sac = new StatisticsAutoCollector();
         List<AnalysisInfo> jobInfos = new ArrayList<>();
-        sac.createAnalyzeJobForTbl(db, jobInfos, t1);
+        sac.createAnalyzeJobForTbl(jobInfos, db,  t1, cols, AnalyzePriority.NORMAL);
         AnalysisInfo jobInfo = jobInfos.get(0);
         Map<String, Set<String>> colToPartitions = new HashMap<>();
         colToPartitions.put("test", new HashSet<String>() {
@@ -404,13 +405,14 @@ public class StatisticsAutoCollectorTest {
                 return 0;
             }
         };
+        List<Column> schema = Lists.newArrayList(new Column("test", PrimitiveType.INT));
         new MockUp<OlapTable>() {
 
             int count = 0;
 
             @Mock
             public List<Column> getBaseSchema() {
-                return Lists.newArrayList(new Column("test", PrimitiveType.INT));
+                return schema;
             }
 
             @Mock
@@ -433,7 +435,7 @@ public class StatisticsAutoCollectorTest {
 
         StatisticsAutoCollector sac = new StatisticsAutoCollector();
         List<AnalysisInfo> jobInfos = new ArrayList<>();
-        sac.createAnalyzeJobForTbl(db, jobInfos, t1);
+        sac.createAnalyzeJobForTbl(jobInfos, db, t1, schema, AnalyzePriority.NORMAL);
         AnalysisInfo jobInfo = jobInfos.get(0);
         Map<String, Set<String>> colToPartitions = new HashMap<>();
         colToPartitions.put("test", new HashSet<String>() {

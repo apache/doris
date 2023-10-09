@@ -30,12 +30,15 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -44,7 +47,10 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.persist.AnalyzeDeletionLog;
 import org.apache.doris.persist.TableStatsDeletionLog;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -59,6 +65,11 @@ import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
 import org.apache.doris.statistics.util.DBObjects;
 import org.apache.doris.statistics.util.SimpleQueue;
 import org.apache.doris.statistics.util.StatisticsUtil;
+import org.apache.doris.system.Frontend;
+import org.apache.doris.thrift.FrontendService;
+import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TSyncCriticalColumn;
+import org.apache.doris.thrift.TSyncCriticalColumns;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
@@ -78,7 +89,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedList;
@@ -96,7 +106,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
@@ -104,8 +113,7 @@ public class AnalysisManager implements Writable {
 
     private static final Logger LOG = LogManager.getLogger(AnalysisManager.class);
 
-    // Tracking running manually submitted async tasks, keep in mem only
-    protected final ConcurrentMap<Long, Map<Long, BaseAnalysisTask>> analysisJobIdToTaskMap = new ConcurrentHashMap<>();
+    private final Map<Long, AnalysisJob> idToJob = new ConcurrentHashMap<>();
 
     private StatisticsCache statisticsCache;
 
@@ -127,124 +135,21 @@ public class AnalysisManager implements Writable {
 
     private final Map<Long, TableStatsMeta> idToTblStats = new ConcurrentHashMap<>();
 
-    private final Map<Long, AnalysisJob> idToAnalysisJob = new ConcurrentHashMap<>();
-
     protected SimpleQueue<AnalysisInfo> autoJobs = createSimpleQueue(null, this);
 
-    private final Function<TaskStatusWrapper, Void> userJobStatusUpdater = w -> {
-        AnalysisInfo info = w.info;
-        AnalysisState taskState = w.taskState;
-        String message = w.message;
-        long time = w.time;
-        if (analysisJobIdToTaskMap.get(info.jobId) == null) {
-            return null;
-        }
-        info.state = taskState;
-        info.message = message;
-        // Update the task cost time when task finished or failed. And only log the final state.
-        if (taskState.equals(AnalysisState.FINISHED) || taskState.equals(AnalysisState.FAILED)) {
-            info.timeCostInMs = time - info.lastExecTimeInMs;
-            info.lastExecTimeInMs = time;
-            logCreateAnalysisTask(info);
-        }
-        info.lastExecTimeInMs = time;
-        AnalysisInfo job = analysisJobInfoMap.get(info.jobId);
-        // Job may get deleted during execution.
-        if (job == null) {
-            return null;
-        }
-        // Synchronize the job state change in job level.
-        synchronized (job) {
-            job.lastExecTimeInMs = time;
-            // Set the job state to RUNNING when its first task becomes RUNNING.
-            if (info.state.equals(AnalysisState.RUNNING) && job.state.equals(AnalysisState.PENDING)) {
-                job.state = AnalysisState.RUNNING;
-                job.markStartTime(System.currentTimeMillis());
-                replayCreateAnalysisJob(job);
-            }
-            boolean allFinished = true;
-            boolean hasFailure = false;
-            for (BaseAnalysisTask task : analysisJobIdToTaskMap.get(info.jobId).values()) {
-                AnalysisInfo taskInfo = task.info;
-                if (taskInfo.state.equals(AnalysisState.RUNNING) || taskInfo.state.equals(AnalysisState.PENDING)) {
-                    allFinished = false;
-                    break;
-                }
-                if (taskInfo.state.equals(AnalysisState.FAILED)) {
-                    hasFailure = true;
-                }
-            }
-            if (allFinished) {
-                if (hasFailure) {
-                    job.markFailed();
-                } else {
-                    job.markFinished();
-                    try {
-                        updateTableStats(job);
-                    } catch (Throwable e) {
-                        LOG.warn("Failed to update Table statistics in job: {}", info.toString(), e);
-                    }
-                }
-                logCreateAnalysisJob(job);
-                analysisJobIdToTaskMap.remove(job.jobId);
-            }
-        }
-        return null;
-    };
+    /**
+     * Mem only.
+     */
+    public final Map<CriticalColumn, Long/* query time*/> columnUsedInPredicate = new ConcurrentHashMap<>();
 
-    private final String progressDisplayTemplate = "%d Finished  |  %d Failed  |  %d In Progress  |  %d Total";
+    /**
+     * Mem only.
+     */
+    public final Map<CriticalColumn, Long/* query time*/> queriedColumns = new ConcurrentHashMap<>();
 
-    protected final Function<TaskStatusWrapper, Void> systemJobStatusUpdater = w -> {
-        AnalysisInfo info = w.info;
-        info.state = w.taskState;
-        info.message = w.message;
-        AnalysisInfo job = systemJobInfoMap.get(info.jobId);
-        if (job == null) {
-            return null;
-        }
-        synchronized (job) {
-            // Set the job state to RUNNING when its first task becomes RUNNING.
-            if (info.state.equals(AnalysisState.RUNNING) && job.state.equals(AnalysisState.PENDING)) {
-                job.state = AnalysisState.RUNNING;
-                job.markStartTime(System.currentTimeMillis());
-            }
-        }
-        int failedCount = 0;
-        StringJoiner reason = new StringJoiner(", ");
-        Map<Long, BaseAnalysisTask> taskMap = analysisJobIdToTaskMap.get(info.jobId);
-        for (BaseAnalysisTask task : taskMap.values()) {
-            if (task.info.state.equals(AnalysisState.RUNNING) || task.info.state.equals(AnalysisState.PENDING)) {
-                return null;
-            }
-            if (task.info.state.equals(AnalysisState.FAILED)) {
-                failedCount++;
-                reason.add(task.info.message);
-            }
-        }
-        try {
-            updateTableStats(job);
-        } catch (Throwable e) {
-            LOG.warn("Failed to update Table statistics in job: {}", info.toString(), e);
-        } finally {
-            job.lastExecTimeInMs = System.currentTimeMillis();
-            job.message = reason.toString();
-            job.progress = String.format(progressDisplayTemplate,
-                    taskMap.size() - failedCount, failedCount, 0, taskMap.size());
-            if (failedCount > 0) {
-                job.message = reason.toString();
-                job.markFailed();
-            } else {
-                job.markFinished();
-            }
-            autoJobs.offer(job);
-            systemJobInfoMap.remove(info.jobId);
-            analysisJobIdToTaskMap.remove(info.jobId);
-        }
-        return null;
-    };
+    private long lastClearTime = System.currentTimeMillis();
 
-    private final Function<TaskStatusWrapper, Void>[] updaters =
-            new Function[] {userJobStatusUpdater, systemJobStatusUpdater};
+    private long lastSyncTime = System.currentTimeMillis();
 
     public AnalysisManager() {
         if (!Env.isCheckpointThread()) {
@@ -359,7 +264,6 @@ public class AnalysisManager implements Writable {
             return null;
         }
         recordAnalysisJob(jobInfo);
-        analysisJobIdToTaskMap.put(jobInfo.jobId, analysisTaskInfos);
         // TODO: maybe we should update table stats only when all task succeeded.
         updateTableStats(jobInfo);
         if (!jobInfo.scheduleType.equals(ScheduleType.PERIOD)) {
@@ -391,7 +295,7 @@ public class AnalysisManager implements Writable {
                 Optional<? extends TableIf> table = databaseIf.get().getTable(analysisInfo.tblId);
                 row.add(table.isPresent() ? table.get().getName() : "Table may get deleted");
             } else {
-                row.add("DB not exists anymore");
+                row.add("DB may get deleted");
             }
             row.add(analysisInfo.colName);
             resultRows.add(row);
@@ -528,9 +432,7 @@ public class AnalysisManager implements Writable {
         if (jobInfo.scheduleType == ScheduleType.PERIOD && jobInfo.lastExecTimeInMs > 0) {
             return;
         }
-        AnalysisInfoBuilder jobInfoBuilder = new AnalysisInfoBuilder(jobInfo);
-        AnalysisInfo analysisInfo = jobInfoBuilder.setTaskId(-1).build();
-        replayCreateAnalysisJob(analysisInfo);
+        replayCreateAnalysisJob(jobInfo);
     }
 
     public void createTaskForEachColumns(AnalysisInfo jobInfo, Map<Long, BaseAnalysisTask> analysisTasks,
@@ -545,8 +447,13 @@ public class AnalysisManager implements Writable {
                 colTaskInfoBuilder.setAnalysisType(AnalysisType.FUNDAMENTALS);
                 colTaskInfoBuilder.setColToPartitions(Collections.singletonMap(colName, entry.getValue()));
             }
-            AnalysisInfo analysisInfo = colTaskInfoBuilder.setColName(colName).setIndexId(indexId)
-                    .setTaskId(taskId).setLastExecTimeInMs(System.currentTimeMillis()).build();
+            AnalysisInfo analysisInfo = colTaskInfoBuilder
+                    .setColName(colName)
+                    .setIndexId(indexId)
+                    .setTaskId(taskId)
+                    .setLastExecTimeInMs(System.currentTimeMillis())
+                    .setAnalyzePriority(jobInfo.analyzePriority)
+                    .build();
             analysisTasks.put(taskId, createTask(analysisInfo));
             jobInfo.addTaskId(taskId);
             if (isSync) {
@@ -597,11 +504,6 @@ public class AnalysisManager implements Writable {
         } catch (Exception e) {
             throw new DdlException("Failed to create analysis task", e);
         }
-    }
-
-    public void updateTaskStatus(AnalysisInfo info, AnalysisState taskState, String message, long time) {
-        TaskStatusWrapper taskStatusWrapper = new TaskStatusWrapper(info, taskState, message, time);
-        updaters[info.jobType.ordinal()].apply(taskStatusWrapper);
     }
 
     @VisibleForTesting
@@ -671,6 +573,7 @@ public class AnalysisManager implements Writable {
                     break;
             }
         }
+        String progressDisplayTemplate = "%d Finished  |  %d Failed  |  %d In Progress  |  %d Total";
         return String.format(progressDisplayTemplate, finished, failed, inProgress, total);
     }
 
@@ -740,17 +643,18 @@ public class AnalysisManager implements Writable {
     }
 
     public void handleKillAnalyzeStmt(KillAnalysisJobStmt killAnalysisJobStmt) throws DdlException {
-        Map<Long, BaseAnalysisTask> analysisTaskMap = analysisJobIdToTaskMap.remove(killAnalysisJobStmt.jobId);
-        if (analysisTaskMap == null) {
+        AnalysisJob job = idToJob.remove(killAnalysisJobStmt.jobId);
+        if (job == null) {
             throw new DdlException("Job not exists or already finished");
         }
-        BaseAnalysisTask anyTask = analysisTaskMap.values().stream().findFirst().orElse(null);
+        BaseAnalysisTask anyTask = job.tasks().stream().findFirst().orElse(null);
         if (anyTask == null) {
             return;
         }
         checkPriv(anyTask);
         logKilled(analysisJobInfoMap.get(anyTask.getJobId()));
-        for (BaseAnalysisTask taskInfo : analysisTaskMap.values()) {
+        job.kill();
+        for (BaseAnalysisTask taskInfo : job.tasks()) {
             taskInfo.cancel();
             logKilled(taskInfo.info);
         }
@@ -789,10 +693,26 @@ public class AnalysisManager implements Writable {
         try {
             TableIf table = StatisticsUtil.findTable(analysisInfo.catalogId,
                     analysisInfo.dbId, analysisInfo.tblId);
-            return table.createAnalysisTask(analysisInfo);
+
+            BaseAnalysisTask analysisTask = table.createAnalysisTask(analysisInfo);
+            analysisTask.priority = analysisInfo.analyzePriority;
+            return analysisTask;
         } catch (Throwable t) {
             LOG.warn("Failed to find table", t);
             throw new DdlException("Failed to create task", t);
+        }
+    }
+
+    public AnalyzePriority getPriority(TableIf tbl, Column col) {
+        CriticalColumn criticalColumn = new CriticalColumn(tbl.getId(), col.getName());
+        if (isMostCriticalColumn(tbl, col)) {
+            return AnalyzePriority.HIGHEST;
+        } else if (queriedColumns.containsKey(criticalColumn)) {
+            return AnalyzePriority.HIGH;
+        } else if (tbl.getBaseSchema().size() <= StatisticConstants.NORMAL_TABLE_WIDTH_UPPER_BOUND) {
+            return AnalyzePriority.NORMAL;
+        } else {
+            return AnalyzePriority.LOW;
         }
     }
 
@@ -868,24 +788,6 @@ public class AnalysisManager implements Writable {
                 throw new RuntimeException("Failed to analyze following columns:[" + String.join(",", colNames)
                         + "] Reasons: " + String.join(",", errorMessages));
             }
-        }
-    }
-
-    public List<AnalysisInfo> findPeriodicJobs() {
-        synchronized (analysisJobInfoMap) {
-            Predicate<AnalysisInfo> p = a -> {
-                if (a.state.equals(AnalysisState.RUNNING)) {
-                    return false;
-                }
-                if (a.cronExpression == null) {
-                    return a.scheduleType.equals(ScheduleType.PERIOD)
-                            && System.currentTimeMillis() - a.lastExecTimeInMs > a.periodTimeInMs;
-                }
-                return a.cronExpression.getTimeAfter(new Date(a.lastExecTimeInMs)).before(new Date());
-            };
-            return analysisJobInfoMap.values().stream()
-                    .filter(p)
-                    .collect(Collectors.toList());
         }
     }
 
@@ -967,7 +869,8 @@ public class AnalysisManager implements Writable {
     }
 
     private static void readAutoJobs(DataInput in, AnalysisManager analysisManager) throws IOException {
-        Type type = new TypeToken<LinkedList<AnalysisInfo>>() {}.getType();
+        Type type = new TypeToken<LinkedList<AnalysisInfo>>() {
+        }.getType();
         Collection<AnalysisInfo> autoJobs = GsonUtils.GSON.fromJson(Text.readString(in), type);
         analysisManager.autoJobs = analysisManager.createSimpleQueue(autoJobs, analysisManager);
     }
@@ -995,14 +898,10 @@ public class AnalysisManager implements Writable {
     }
 
     private void writeAutoJobsStatus(DataOutput output) throws IOException {
-        Type type = new TypeToken<LinkedList<AnalysisInfo>>() {}.getType();
+        Type type = new TypeToken<LinkedList<AnalysisInfo>>() {
+        }.getType();
         String autoJobs = GsonUtils.GSON.toJson(this.autoJobs, type);
         Text.writeString(output, autoJobs);
-    }
-
-    // For unit test use only.
-    public void addToJobIdTasksMap(long jobId, Map<Long, BaseAnalysisTask> tasks) {
-        analysisJobIdToTaskMap.put(jobId, tasks);
     }
 
     public TableStatsMeta findTableStatsStatus(long tblId) {
@@ -1029,11 +928,6 @@ public class AnalysisManager implements Writable {
 
     public void logCreateTableStats(TableStatsMeta tableStats) {
         Env.getCurrentEnv().getEditLog().logCreateTableStats(tableStats);
-    }
-
-    public void registerSysJob(AnalysisInfo jobInfo, Map<Long, BaseAnalysisTask> taskInfos) {
-        systemJobInfoMap.put(jobInfo.jobId, jobInfo);
-        analysisJobIdToTaskMap.put(jobInfo.jobId, taskInfos);
     }
 
     protected void logAutoJob(AnalysisInfo autoJob) {
@@ -1070,13 +964,19 @@ public class AnalysisManager implements Writable {
         }
     }
 
-    public void removeTableStats(long tblId) {
+    public void clearStatsMeta(Table tbl) {
+        long tblId = tbl.getId();
         if (!idToTblStats.containsKey(tblId)) {
             return;
         }
         TableStatsDeletionLog log = new TableStatsDeletionLog(tblId);
         Env.getCurrentEnv().getEditLog().logDeleteTableStats(log);
         replayTableStatsDeletion(log);
+        for (Column c : tbl.getBaseSchema()) {
+            CriticalColumn criticalColumn = new CriticalColumn(tbl.getId(), c.getName());
+            columnUsedInPredicate.remove(criticalColumn);
+            queriedColumns.remove(criticalColumn);
+        }
     }
 
     public void replayTableStatsDeletion(TableStatsDeletionLog log) {
@@ -1091,21 +991,118 @@ public class AnalysisManager implements Writable {
         return tableStats.findColumnStatsMeta(colName);
     }
 
-    public AnalysisJob findJob(long id) {
-        return idToAnalysisJob.get(id);
-    }
-
     public void constructJob(AnalysisInfo jobInfo, Collection<? extends BaseAnalysisTask> tasks) {
-        AnalysisJob job = new AnalysisJob(jobInfo, tasks);
-        idToAnalysisJob.put(jobInfo.jobId, job);
+        idToJob.put(jobInfo.jobId, new AnalysisJob(jobInfo, tasks));
     }
 
     public void removeJob(long id) {
-        idToAnalysisJob.remove(id);
+        idToJob.remove(id);
     }
 
-    public boolean hasUnFinished() {
-        return !analysisJobIdToTaskMap.isEmpty();
+    public void updateColumnUsedInPredicate(Set<Slot> slotReferences) {
+        updateColumn(slotReferences, columnUsedInPredicate);
+    }
+
+    public void updateQueriedColumn(Collection<Slot> slotReferences) {
+        updateColumn(slotReferences, queriedColumns);
+    }
+
+    protected void updateColumn(Collection<Slot> slotReferences, Map<CriticalColumn, Long/* query time*/> map) {
+        clearCriticalColumn();
+        syncToMaster();
+        for (Slot s : slotReferences) {
+            if (!(s instanceof SlotReference)) {
+                return;
+            }
+            Optional<Column> optionalColumn = ((SlotReference) s).getColumn();
+            Optional<TableIf> optionalTable = ((SlotReference) s).getTable();
+            if (optionalColumn.isPresent() && optionalTable.isPresent()) {
+                map.put(new CriticalColumn(optionalTable.get().getId(),
+                        optionalColumn.get().getName()), System.currentTimeMillis());
+            }
+        }
+    }
+
+    private void clearCriticalColumn() {
+        long now = System.currentTimeMillis();
+        if (now - lastClearTime < StatisticConstants.CRITICAL_COLUMN_VALID_TIME_IN_MILLIS) {
+            return;
+        }
+        lastClearTime = now;
+        Predicate<Entry<CriticalColumn, Long>> p = e
+                -> now - e.getValue() > StatisticConstants.CRITICAL_COLUMN_VALID_TIME_IN_MILLIS;
+        queriedColumns.entrySet()
+                .removeIf(p);
+        columnUsedInPredicate.entrySet().removeIf(p);
+    }
+
+    private void syncToMaster() {
+        if (!Env.getCurrentEnv().isMaster()) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (!(now - lastSyncTime > StatisticConstants.CRITICAL_COLUMN_SYNC_IN_MILLIS)) {
+            return;
+        }
+        lastSyncTime = now;
+        List<TSyncCriticalColumn> tQueried
+                = queriedColumns.keySet().stream().map(CriticalColumn::toThrift).collect(Collectors.toList());
+        List<TSyncCriticalColumn> tPredicate
+                = columnUsedInPredicate.keySet().stream().map(CriticalColumn::toThrift).collect(Collectors.toList());
+        queriedColumns.clear();
+        columnUsedInPredicate.clear();
+        TSyncCriticalColumns tSyncCriticalColumns = new TSyncCriticalColumns();
+        tSyncCriticalColumns.usedInPredicate = tPredicate;
+        tSyncCriticalColumns.usedInQuery = tQueried;
+        for (Frontend frontend : Env.getCurrentEnv().getFrontends(FrontendNodeType.FOLLOWER)) {
+            if (StatisticsUtil.isMaster(frontend)) {
+                continue;
+            }
+            TNetworkAddress address = new TNetworkAddress(frontend.getHost(),
+                    frontend.getRpcPort());
+            FrontendService.Client client = null;
+            try {
+                client = ClientPool.frontendPool.borrowObject(address);
+                client.syncTCriticalColumn(tSyncCriticalColumns);
+            } catch (Throwable t) {
+                LOG.warn("Failed to sync stats to follower: {}", address, t);
+            } finally {
+                if (client != null) {
+                    ClientPool.frontendPool.returnObject(address, client);
+                }
+            }
+        }
+    }
+
+    public void mergeFollowerCriticalColumn(Collection<TSyncCriticalColumn> usedInPredicate,
+            Collection<TSyncCriticalColumn> queried) {
+        long now = System.currentTimeMillis();
+        this.columnUsedInPredicate.putAll(
+                usedInPredicate
+                        .stream()
+                        .collect(Collectors.toMap(k -> new CriticalColumn(k.tblId, k.colName), v -> now)));
+        this.queriedColumns.putAll(
+                queried
+                        .stream()
+                        .collect(Collectors.toMap(k -> new CriticalColumn(k.tblId, k.colName), v -> now)));
+    }
+
+    private boolean isMostCriticalColumn(TableIf tbl, Column column) {
+        if (column.isKey()) {
+            return true;
+        }
+        if (columnUsedInPredicate.containsKey(new CriticalColumn(tbl.getId(), column.getName()))) {
+            return true;
+        }
+        if (!(tbl instanceof OlapTable)) {
+            return false;
+        }
+        OlapTable olapTable = (OlapTable) tbl;
+        PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+        if (partitionInfo.getPartitionColumns().contains(column)) {
+            return true;
+        }
+        return olapTable.getDistributionColumnNames().contains(column.getName());
     }
 
     /**

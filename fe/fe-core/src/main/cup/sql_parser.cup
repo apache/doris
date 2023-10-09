@@ -664,7 +664,8 @@ terminal String
     KW_EXECUTE,
     KW_LINES,
     KW_IGNORE,
-    KW_CONVERT_LSC;
+    KW_CONVERT_LSC,
+    KW_PREDICATE;
 
 terminal COMMA, COLON, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, LBRACE, RBRACE, DIVIDE, MOD, ADD, SUBTRACT, PLACEHOLDER, ARROW;
 terminal BITAND, BITOR, BITXOR, BITNOT;
@@ -6034,7 +6035,6 @@ with_analysis_properties ::=
              put(AnalyzeProperties.PROPERTY_PARTITION_COLUMN_FROM_SQL, "true");
         }};
     :}
-
     ;
 
 opt_with_analysis_properties ::=

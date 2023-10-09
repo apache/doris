@@ -1291,6 +1291,16 @@ struct TGetColumnInfoResult {
     2: optional string column_info
 }
 
+struct TSyncCriticalColumn {
+    1: optional i64 tblId
+    2: optional string colName
+}
+
+struct TSyncCriticalColumns {
+    1: optional list<TSyncCriticalColumn> usedInPredicate;
+    2: optional list<TSyncCriticalColumn> usedInQuery;
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1366,4 +1376,5 @@ service FrontendService {
     TGetBackendMetaResult getBackendMeta(1: TGetBackendMetaRequest request)
 
     TGetColumnInfoResult getColumnInfo(1: TGetColumnInfoRequest request)
+    Status.TStatus syncTCriticalColumn(1: TSyncCriticalColumns request);
 }

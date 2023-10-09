@@ -91,7 +91,6 @@ public class AnalysisManagerTest {
         task2.info = taskInfo2;
         tasks.put(2L, task1);
         tasks.put(3L, task2);
-        manager.addToJobIdTasksMap(1, tasks);
 
         Assertions.assertEquals(job.state, AnalysisState.PENDING);
         manager.updateTaskStatus(taskInfo1, AnalysisState.RUNNING, "", 0);
@@ -269,60 +268,6 @@ public class AnalysisManagerTest {
     }
 
     @Test
-    public void testSystemJobStatusUpdater() {
-        new MockUp<BaseAnalysisTask>() {
-
-            @Mock
-            protected void init(AnalysisInfo info) {
-
-            }
-        };
-
-        new MockUp<AnalysisManager>() {
-            @Mock
-            public void updateTableStats(AnalysisInfo jobInfo) {}
-
-            @Mock
-            protected void logAutoJob(AnalysisInfo autoJob) {
-
-            }
-        };
-
-        AnalysisManager analysisManager = new AnalysisManager();
-        AnalysisInfo job = new AnalysisInfoBuilder()
-                .setJobId(0)
-                .setColName("col1, col2").build();
-        analysisManager.systemJobInfoMap.put(job.jobId, job);
-        AnalysisInfo task1 = new AnalysisInfoBuilder()
-                .setJobId(0)
-                .setTaskId(1)
-                .setState(AnalysisState.RUNNING)
-                .setColName("col1").build();
-        AnalysisInfo task2 = new AnalysisInfoBuilder()
-                .setJobId(0)
-                .setTaskId(1)
-                .setState(AnalysisState.FINISHED)
-                .setColName("col2").build();
-        OlapAnalysisTask ot1 = new OlapAnalysisTask(task1);
-        OlapAnalysisTask ot2 = new OlapAnalysisTask(task2);
-        Map<Long, BaseAnalysisTask> taskMap = new HashMap<>();
-        taskMap.put(ot1.info.taskId, ot1);
-        taskMap.put(ot2.info.taskId, ot2);
-        analysisManager.analysisJobIdToTaskMap.put(job.jobId, taskMap);
-
-        // test invalid job
-        AnalysisInfo invalidJob = new AnalysisInfoBuilder().setJobId(-1).build();
-        analysisManager.systemJobStatusUpdater.apply(new TaskStatusWrapper(invalidJob,
-                AnalysisState.FAILED, "", 0));
-
-        // test finished
-        analysisManager.systemJobStatusUpdater.apply(new TaskStatusWrapper(task1, AnalysisState.FAILED, "", 0));
-        analysisManager.systemJobStatusUpdater.apply(new TaskStatusWrapper(task1, AnalysisState.FINISHED, "", 0));
-        Assertions.assertEquals(1, analysisManager.autoJobs.size());
-        Assertions.assertTrue(analysisManager.systemJobInfoMap.isEmpty());
-    }
-
-    @Test
     public void testSystemJobStartTime() {
         new MockUp<BaseAnalysisTask>() {
 
@@ -363,13 +308,10 @@ public class AnalysisManagerTest {
         Map<Long, BaseAnalysisTask> taskMap = new HashMap<>();
         taskMap.put(ot1.info.taskId, ot1);
         taskMap.put(ot2.info.taskId, ot2);
-        analysisManager.analysisJobIdToTaskMap.put(job.jobId, taskMap);
 
         job.state = AnalysisState.PENDING;
         long l = System.currentTimeMillis();
         analysisManager.systemJobInfoMap.put(job.jobId, job);
-        analysisManager.systemJobStatusUpdater.apply(new TaskStatusWrapper(task1,
-            AnalysisState.RUNNING, "", 0));
         Assertions.assertTrue(job.startTime >= l);
     }
 

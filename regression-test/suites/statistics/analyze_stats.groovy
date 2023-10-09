@@ -1210,7 +1210,7 @@ PARTITION `p599` VALUES IN (599)
         return (r[0][7]).equals(expected_value)
     }
     expected_max(max, "测试")
-
+    Thread.sleep(30 * 1000)
     show_result = sql """
         SHOW ANALYZE ${tbl}
     """

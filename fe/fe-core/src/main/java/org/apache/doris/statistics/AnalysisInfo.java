@@ -197,6 +197,9 @@ public class AnalysisInfo implements Writable {
      */
     public final long tblUpdateTime;
 
+    @SerializedName("priority")
+    public final AnalyzePriority analyzePriority;
+
     public AnalysisInfo(long jobId, long taskId, List<Long> taskIds, long catalogId, long dbId, long tblId,
             Map<String, Set<String>> colToPartitions, Set<String> partitionNames, String colName, Long indexId,
             JobType jobType, AnalysisMode analysisMode, AnalysisMethod analysisMethod, AnalysisType analysisType,
@@ -204,7 +207,7 @@ public class AnalysisInfo implements Writable {
             long lastExecTimeInMs, long timeCostInMs, AnalysisState state, ScheduleType scheduleType,
             boolean isExternalTableLevelTask, boolean partitionOnly, boolean samplingPartition,
             boolean isAllPartition, long partitionCount, CronExpression cronExpression, boolean forceFull,
-            boolean usingSqlForPartitionColumn, long tblUpdateTime) {
+            boolean usingSqlForPartitionColumn, long tblUpdateTime, AnalyzePriority analyzePriority) {
         this.jobId = jobId;
         this.taskId = taskId;
         this.taskIds = taskIds;
@@ -240,6 +243,7 @@ public class AnalysisInfo implements Writable {
         this.forceFull = forceFull;
         this.usingSqlForPartitionColumn = usingSqlForPartitionColumn;
         this.tblUpdateTime = tblUpdateTime;
+        this.analyzePriority = analyzePriority;
     }
 
     @Override

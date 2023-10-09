@@ -46,7 +46,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 public class AnalysisTaskExecutorTest extends TestWithFeService {
 
@@ -84,15 +83,6 @@ public class AnalysisTaskExecutorTest extends TestWithFeService {
                 return new Column("col1", PrimitiveType.INT);
             }
         };
-        final AtomicBoolean cancelled = new AtomicBoolean();
-        new MockUp<AnalysisTaskWrapper>() {
-
-            @Mock
-            public boolean cancel(String msg) {
-                cancelled.set(true);
-                return true;
-            }
-        };
         AnalysisInfo analysisJobInfo = new AnalysisInfoBuilder().setJobId(0).setTaskId(0)
                 .setCatalogId(0)
                 .setDBId(0)
@@ -110,7 +100,6 @@ public class AnalysisTaskExecutorTest extends TestWithFeService {
         Deencapsulation.setField(analysisTaskWrapper, "startTime", 5);
         b.put(analysisTaskWrapper);
         analysisTaskExecutor.tryToCancel();
-        Assertions.assertTrue(cancelled.get());
         Assertions.assertTrue(b.isEmpty());
 
     }
