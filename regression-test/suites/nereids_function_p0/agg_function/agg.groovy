@@ -28,6 +28,8 @@ suite("nereids_agg_fn") {
 	sql '''
 		select count(distinct id), any_value(kint) from fn_test'''
 	sql '''
+		select count(bitmap_empty()) from fn_test'''
+	sql '''
 		select /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_DISTINCT, TWO_PHASE_AGGREGATE_WITH_DISTINCT')*/ count(distinct id, kint), any_value(kint) from fn_test group by kbool order by kbool'''
 	sql '''
 		select /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_DISTINCT, TWO_PHASE_AGGREGATE_WITH_DISTINCT')*/ count(distinct id), any_value(kint) from fn_test'''
