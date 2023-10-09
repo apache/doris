@@ -34,7 +34,6 @@ suite("test_mariadb_jdbc_catalog", "p0,external,mariadb,external_docker,external
         String test_insert2 = "test_insert2";
         String auto_default_t = "auto_default_t";
         String dt = "dt";
-        String dt_null = "dt_null";
 
         sql """create database if not exists ${internal_db_name}; """
 
