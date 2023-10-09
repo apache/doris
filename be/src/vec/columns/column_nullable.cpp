@@ -367,8 +367,10 @@ Status ColumnNullable::filter_by_selector(const uint16_t* sel, size_t sel_size, 
                                 const_cast<doris::vectorized::IColumn*>(null_map_ptr.get()))
                                 ->get_data();
     DCHECK(res_nullmap.empty());
+    res_nullmap.resize(sel_size);
+    auto& cur_nullmap = get_null_map_column().get_data();
     for (size_t i = 0; i < sel_size; i++) {
-        res_nullmap[i] = get_null_map_data()[sel[i]];
+        res_nullmap[i] = cur_nullmap[sel[i]];
     }
     return Status::OK();
 }
