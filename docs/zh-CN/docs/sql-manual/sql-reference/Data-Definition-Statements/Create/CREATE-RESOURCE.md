@@ -129,7 +129,7 @@ Spark 用于 ETL 时需要指定 working_dir 和 broker。说明如下：
    );
    ```
 
-   如果 s3 reource 在[冷热分层](../../../../../docs/advanced/cold_hot_separation.md)中使用，需要添加额外的字段。
+   如果 s3 reource 在[冷热分层](../../../../../docs/advanced/cold-hot-separation.md)中使用，需要添加额外的字段。
    ```sql
    CREATE RESOURCE "remote_s3"
    PROPERTIES
@@ -157,6 +157,7 @@ Spark 用于 ETL 时需要指定 working_dir 和 broker。说明如下：
         - `s3.connection.maximum`：s3 最大连接数量，默认为 50
         - `s3.connection.request.timeout`：s3 请求超时时间，单位毫秒，默认为 3000
         - `s3.connection.timeout`：s3 连接超时时间，单位毫秒，默认为 1000
+    **创建S3 resource需要注意的是，要有对桶上文件的读写以及删除权限**
 
 4. 创建 JDBC resource
 

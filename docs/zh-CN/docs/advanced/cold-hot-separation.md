@@ -55,7 +55,8 @@ under the License.
 
 此外，需要新增fe配置：`enable_storage_policy=true`  
 
-注意：这个属性不会被CCR同步，如果这个表是被CCR复制而来的，即PROPERTIES中包含`is_being_synced = true`时，这个属性将会在这个表中被擦除。
+注意：这个属性不会被CCR同步，如果这个表是被CCR复制而来的，即PROPERTIES中包含`is_being_synced = true`时，这个属性将会在这个表中被擦除。  
+创建S3 resource需要注意的是，要有对桶上文件的读写以及删除权限
 
 例如：
 
