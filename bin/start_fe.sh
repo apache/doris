@@ -138,6 +138,13 @@ if [[ ! -x "${JAVA}" ]]; then
     exit 1
 fi
 
+for var in http_proxy HTTP_PROXY https_proxy HTTPS_PROXY; do
+    if [[ -n ${!var} ]]; then
+        echo "env '${var}' = '${!var}', need unset it using 'unset ${var}'"
+        exit 1
+    fi
+done
+
 # get jdk version, return version as an Integer.
 # 1.8 => 8, 13.0 => 13
 jdk_version() {
@@ -194,7 +201,7 @@ for f in "${DORIS_HOME}/lib"/*.jar; do
     CLASSPATH="${f}:${CLASSPATH}"
 done
 
-# add custome_libs to CLASSPATH
+# add custom_libs to CLASSPATH
 if [[ -d "${DORIS_HOME}/custom_lib" ]]; then
     for f in "${DORIS_HOME}/custom_lib"/*.jar; do
         CLASSPATH="${f}:${CLASSPATH}"

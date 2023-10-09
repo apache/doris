@@ -54,32 +54,35 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
 
-    private static final Logger LOG = LogManager.getLogger(WorkloadGroupMgr.class);
-
     public static final String DEFAULT_GROUP_NAME = "normal";
-
     public static final ImmutableList<String> WORKLOAD_GROUP_PROC_NODE_TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("Id").add("Name").add("Item").add("Value")
             .build();
 
+    private static final Logger LOG = LogManager.getLogger(WorkloadGroupMgr.class);
     @SerializedName(value = "idToWorkloadGroup")
     private final Map<Long, WorkloadGroup> idToWorkloadGroup = Maps.newHashMap();
-
     private final Map<String, WorkloadGroup> nameToWorkloadGroup = Maps.newHashMap();
-
     private final ResourceProcNode procNode = new ResourceProcNode();
-
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
     public static final String QUERY_CPU_HARD_LIMIT = "query_cpu_hard_limit";
     private int queryCPUHardLimit = 0;
+    // works when user not set cpu hard limit, we fill a default value
+    private int cpuHardLimitDefaultVal = 0;
 
     public WorkloadGroupMgr() {
+    }
+
+    public static WorkloadGroupMgr read(DataInput in) throws IOException {
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, WorkloadGroupMgr.class);
     }
 
     private void readLock() {
@@ -122,7 +125,17 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
             }
             workloadGroups.add(workloadGroup.toThrift());
             // note(wb) -1 to tell be no need to update cgroup
-            int thriftVal = Config.enable_cpu_hard_limit ? this.queryCPUHardLimit : -1;
+            int thriftVal = -1;
+            if (Config.enable_cpu_hard_limit) {
+                // reset cpu_share according to cpu hard limit
+                int cpuHardLimitShare = workloadGroup.getCpuHardLimit() == 0
+                        ? this.cpuHardLimitDefaultVal : workloadGroup.getCpuHardLimit();
+                workloadGroups.get(0).getProperties()
+                        .put(WorkloadGroup.CPU_SHARE, String.valueOf(cpuHardLimitShare));
+
+                // reset sum of all groups cpu hard limit
+                thriftVal = this.queryCPUHardLimit;
+            }
             workloadGroups.get(0).getProperties().put(QUERY_CPU_HARD_LIMIT, String.valueOf(thriftVal));
             context.setWorkloadGroupName(groupName);
         } finally {
@@ -187,9 +200,6 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
     public void createWorkloadGroup(CreateWorkloadGroupStmt stmt) throws DdlException {
         checkWorkloadGroupEnabled();
 
-        if (!Config.enable_cpu_hard_limit) {
-            stmt.getProperties().remove(WorkloadGroup.CPU_HARD_LIMIT);
-        }
         WorkloadGroup workloadGroup = WorkloadGroup.create(stmt.getWorkloadGroupName(), stmt.getProperties());
         String workloadGroupName = workloadGroup.getName();
         writeLock();
@@ -222,17 +232,51 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
                     "The sum of all workload group " + WorkloadGroup.MEMORY_LIMIT + " cannot be greater than 100.0%.");
         }
 
-        if (!Config.enable_cpu_hard_limit) {
-            return;
-        }
-        int sumCPULimit = queryCPUHardLimit + workloadGroup.getCpuHardLimit();
-        if (!Objects.isNull(old)) {
-            sumCPULimit -= old.getCpuHardLimit();
-        }
-        if (sumCPULimit > 100 || sumCPULimit <= 0) {
+        // 1, check new group
+        int newGroupCpuHardLimit = workloadGroup.getCpuHardLimit();
+        if (newGroupCpuHardLimit > 100 || newGroupCpuHardLimit < 0) {
             throw new DdlException(
-                    "The sum of all workload group " + WorkloadGroup.CPU_HARD_LIMIT
-                            + " can not be greater than 100% or less than or equal 0%");
+                    "new group's " + WorkloadGroup.CPU_HARD_LIMIT
+                            + " value can not be greater than 100% or less than or equal 0%");
+        }
+
+        // 2, calculate new query hard cpu limit
+        int tmpCpuHardLimit = 0;
+        int zeroCpuHardLimitCount = 0;
+        for (Map.Entry<Long, WorkloadGroup> entry : idToWorkloadGroup.entrySet()) {
+            if (old != null && entry.getKey() == old.getId()) {
+                continue;
+            }
+            int cpuHardLimit = entry.getValue().getCpuHardLimit();
+            if (cpuHardLimit == 0) {
+                zeroCpuHardLimitCount++;
+            }
+            tmpCpuHardLimit += cpuHardLimit;
+        }
+        if (newGroupCpuHardLimit == 0) {
+            zeroCpuHardLimitCount++;
+        }
+        tmpCpuHardLimit += newGroupCpuHardLimit;
+
+        if (tmpCpuHardLimit > 100) {
+            throw new DdlException("sum of all workload group " + WorkloadGroup.CPU_HARD_LIMIT
+                    + " can not be greater than 100% ");
+        }
+
+        if (tmpCpuHardLimit == 100 && zeroCpuHardLimitCount > 0) {
+            throw new DdlException("some workload group may not be assigned "
+                    + "cpu hard limit but all query cpu hard limit exceeds 100%");
+        }
+
+        int leftCpuHardLimitVal = 100 - tmpCpuHardLimit;
+        if (zeroCpuHardLimitCount != 0) {
+            int tmpCpuHardLimitDefaultVal = leftCpuHardLimitVal / zeroCpuHardLimitCount;
+            if (tmpCpuHardLimitDefaultVal == 0) {
+                throw new DdlException("remaining cpu can not be assigned to the "
+                        + "workload group without cpu hard limit value; "
+                        + leftCpuHardLimitVal + "%," + newGroupCpuHardLimit
+                        + "%," + zeroCpuHardLimitCount);
+            }
         }
     }
 
@@ -241,9 +285,6 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
 
         String workloadGroupName = stmt.getWorkloadGroupName();
         Map<String, String> properties = stmt.getProperties();
-        if (!Config.enable_cpu_hard_limit) {
-            properties.remove(WorkloadGroup.CPU_HARD_LIMIT);
-        }
         WorkloadGroup newWorkloadGroup;
         writeLock();
         try {
@@ -290,6 +331,7 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
             long groupId = workloadGroup.getId();
             idToWorkloadGroup.remove(groupId);
             nameToWorkloadGroup.remove(workloadGroupName);
+            calQueryCPUHardLimit();
             Env.getCurrentEnv().getEditLog().logDropWorkloadGroup(new DropWorkloadGroupOperationLog(groupId));
         } finally {
             writeUnlock();
@@ -302,6 +344,7 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
         try {
             nameToWorkloadGroup.put(workloadGroup.getName(), workloadGroup);
             idToWorkloadGroup.put(workloadGroup.getId(), workloadGroup);
+            calQueryCPUHardLimit();
         } finally {
             writeUnlock();
         }
@@ -334,6 +377,7 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
             WorkloadGroup workloadGroup = idToWorkloadGroup.get(id);
             nameToWorkloadGroup.remove(workloadGroup.getName());
             idToWorkloadGroup.remove(id);
+            calQueryCPUHardLimit();
         } finally {
             writeUnlock();
         }
@@ -360,19 +404,24 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
     }
 
     private void calQueryCPUHardLimit() {
-        this.queryCPUHardLimit =
-                idToWorkloadGroup.values().stream().mapToInt(WorkloadGroup::getCpuHardLimit).sum();
+        int zeroCpuHardLimitCount = 0;
+        int ret = 0;
+        for (Map.Entry<Long, WorkloadGroup> entry : idToWorkloadGroup.entrySet()) {
+            if (entry.getValue().getCpuHardLimit() == 0) {
+                zeroCpuHardLimitCount++;
+            }
+            ret += entry.getValue().getCpuHardLimit();
+        }
+        this.queryCPUHardLimit = ret;
+        if (zeroCpuHardLimitCount != 0) {
+            this.cpuHardLimitDefaultVal = (100 - this.queryCPUHardLimit) / zeroCpuHardLimitCount;
+        }
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this);
         Text.writeString(out, json);
-    }
-
-    public static WorkloadGroupMgr read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, WorkloadGroupMgr.class);
     }
 
     @Override

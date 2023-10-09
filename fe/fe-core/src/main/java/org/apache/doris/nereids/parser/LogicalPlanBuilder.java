@@ -500,11 +500,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Map<String, String> visitPropertyClause(PropertyClauseContext ctx) {
-        return ctx == null ? null : visitPropertyItemList(ctx.fileProperties);
+        return ctx == null ? ImmutableMap.of() : visitPropertyItemList(ctx.fileProperties);
     }
 
     @Override
     public Map<String, String> visitPropertyItemList(PropertyItemListContext ctx) {
+        if (ctx == null || ctx.properties == null) {
+            return ImmutableMap.of();
+        }
         Builder<String, String> propertiesMap = ImmutableMap.builder();
         for (PropertyItemContext argument : ctx.properties) {
             String key = parsePropertyKey(argument.key);
@@ -1425,7 +1428,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public Expression visitCast(DorisParser.CastContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             DataType dataType = ((DataType) typedVisit(ctx.dataType())).conversion();
-            Expression cast = new Cast(getExpression(ctx.expression()), dataType);
+            Expression cast = new Cast(getExpression(ctx.expression()), dataType, true);
             return processCast(cast, dataType);
         });
     }
@@ -1470,7 +1473,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public Expression visitConvertType(DorisParser.ConvertTypeContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             DataType dataType = ((DataType) typedVisit(ctx.type)).conversion();
-            Expression cast = new Cast(getExpression(ctx.argument), dataType);
+            Expression cast = new Cast(getExpression(ctx.argument), dataType, true);
             return processCast(cast, dataType);
         });
     }

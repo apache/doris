@@ -82,16 +82,23 @@ struct HashTableBuild {
             key_getter.set_serialized_keys(hash_table_ctx.keys.data());
         }
 
+        _build_side_hash_values.resize(_rows);
+        const auto& keys = key_getter.get_keys();
+        for (size_t k = 0; k < _rows; ++k) {
+            _build_side_hash_values[k] = hash_table_ctx.hash_table.hash(keys[k]);
+        }
+
         for (size_t k = 0; k < _rows; ++k) {
             if (k % CHECK_FRECUENCY == 0) {
                 RETURN_IF_CANCELLED(_state);
             }
-            auto emplace_result = key_getter.emplace_key(hash_table_ctx.hash_table, k,
-                                                         *(_operation_node->_arena));
+            auto emplace_result = key_getter.emplace_with_key(hash_table_ctx.hash_table, keys[k],
+                                                              _build_side_hash_values[k], k);
 
-            if (k + 1 < _rows) {
-                key_getter.prefetch_by_key(hash_table_ctx.hash_table, k + 1,
-                                           *(_operation_node->_arena));
+            if (LIKELY(k + HASH_MAP_PREFETCH_DIST < _rows)) {
+                key_getter.template prefetch_by_hash<false>(
+                        hash_table_ctx.hash_table,
+                        _build_side_hash_values[k + HASH_MAP_PREFETCH_DIST]);
             }
 
             if (emplace_result.is_inserted()) { //only inserted once as the same key, others skip
@@ -107,6 +114,7 @@ private:
     ColumnRawPtrs& _build_raw_ptrs;
     VSetOperationNode<is_intersect>* _operation_node;
     RuntimeState* _state;
+    std::vector<size_t> _build_side_hash_values;
 };
 
 template <class HashTableContext, bool is_intersected>
@@ -455,9 +463,9 @@ Status VSetOperationNode<is_intersect>::hash_table_build(RuntimeState* state) {
                           _children[0], std::placeholders::_1, std::placeholders::_2,
                           std::placeholders::_3)));
         if (eos) {
-            child(0)->close(state);
+            static_cast<void>(child(0)->close(state));
         }
-        sink(state, &block, eos);
+        static_cast<void>(sink(state, &block, eos));
     }
 
     return Status::OK();
@@ -481,7 +489,7 @@ Status VSetOperationNode<is_intersect>::process_build_block(Block& block, uint8_
                 if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
                     HashTableBuild<HashTableCtxType, is_intersect> hash_table_build_process(
                             rows, raw_ptrs, this, offset, state);
-                    hash_table_build_process(arg);
+                    static_cast<void>(hash_table_build_process(arg));
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";
                 }

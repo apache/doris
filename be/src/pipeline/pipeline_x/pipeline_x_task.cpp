@@ -78,6 +78,7 @@ Status PipelineXTask::prepare(RuntimeState* state, const TPipelineInstanceParams
     std::vector<TScanRangeParams> no_scan_ranges;
     auto scan_ranges = find_with_default(local_params.per_node_scan_ranges,
                                          _operators.front()->id(), no_scan_ranges);
+
     for (int op_idx = _operators.size() - 1; op_idx >= 0; op_idx--) {
         auto& deps = get_upstream_dependency(_operators[op_idx]->id());
         std::vector<LocalStateInfo> infos;

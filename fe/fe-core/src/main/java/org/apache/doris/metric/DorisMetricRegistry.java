@@ -21,60 +21,111 @@ import org.apache.doris.catalog.Env;
 
 import com.google.common.collect.Lists;
 
-import java.util.Collection;
-import java.util.Comparator;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.TreeMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 public class DorisMetricRegistry {
-
-    private Collection<Metric> metrics = Lists.newArrayList();
-    private Collection<Metric> systemMetrics = Lists.newArrayList();
+    ConcurrentHashMap<String, MetricList> metrics = new ConcurrentHashMap<>();
+    ConcurrentHashMap<String, MetricList> systemMetrics = new ConcurrentHashMap<>();
 
     public DorisMetricRegistry() {
 
     }
 
-    public synchronized void addMetrics(Metric metric) {
+    public void addMetrics(Metric metric) {
         // No metric needs to be added to the Checkpoint thread.
         // And if you add a metric in Checkpoint thread, it will cause the metric to be added repeatedly,
         // and the Checkpoint Catalog may be saved incorrectly, resulting in FE memory leaks.
         if (!Env.isCheckpointThread()) {
-            metrics.add(metric);
+            String labelId = computeLabelId(metric.getLabels());
+            metrics.computeIfAbsent(metric.getName(), (k) -> new MetricList())
+                    .addMetrics(labelId, metric);
         }
     }
 
-    public synchronized void addSystemMetrics(Metric sysMetric) {
+    public void addSystemMetrics(Metric sysMetric) {
         if (!Env.isCheckpointThread()) {
-            systemMetrics.add(sysMetric);
+            String labelId = computeLabelId(sysMetric.getLabels());
+            systemMetrics.computeIfAbsent(sysMetric.getName(), (k) -> new MetricList())
+                    .addMetrics(labelId, sysMetric);
         }
     }
 
-    public synchronized int getAllMetricSize() {
-        return metrics.size() + systemMetrics.size();
-    }
-
-    public synchronized List<Metric> getMetrics() {
-        return metrics.stream().sorted(Comparator.comparing(Metric::getName)).collect(Collectors.toList());
-    }
-
-    public synchronized List<Metric> getSystemMetrics() {
-        return systemMetrics.stream().sorted(Comparator.comparing(Metric::getName)).collect(Collectors.toList());
+    public void accept(MetricVisitor visitor) {
+        final List<MetricList> metricsList = Lists.newArrayList();
+        metrics.forEach((name, list) -> metricsList.add(list));
+        final List<MetricList> sysMetricsList = Lists.newArrayList();
+        systemMetrics.forEach((name, list) -> sysMetricsList.add(list));
+        for (MetricList list : metricsList) {
+            for (Metric metric : list.getMetrics()) {
+                visitor.visit(MetricVisitor.FE_PREFIX, metric);
+            }
+        }
+        for (MetricList list : sysMetricsList) {
+            for (Metric metric : list.getMetrics()) {
+                visitor.visit(MetricVisitor.SYS_PREFIX, metric);
+            }
+        }
     }
 
     // the metrics by metric name
-    public synchronized List<Metric> getMetricsByName(String name) {
-        List<Metric> list = metrics.stream().filter(m -> m.getName().equals(name)).collect(Collectors.toList());
-        if (list.isEmpty()) {
-            list = systemMetrics.stream().filter(m -> m.getName().equals(name)).collect(Collectors.toList());
+    public List<Metric> getMetricsByName(String name) {
+        MetricList list = metrics.get(name);
+        if (list == null) {
+            list = systemMetrics.get(name);
         }
-        return list;
+        if (list == null) {
+            return Lists.newArrayList();
+        }
+        return list.getMetrics();
     }
 
-    public synchronized void removeMetrics(String name) {
+    public void removeMetrics(String name) {
         // Same reason as comment in addMetrics()
         if (!Env.isCheckpointThread()) {
-            metrics = metrics.stream().filter(m -> !(m.getName().equals(name))).collect(Collectors.toList());
+            metrics.remove(name);
+        }
+    }
+
+    public void removeMetricsByNameAndLabels(String name, List<MetricLabel> labels) {
+        // Same reason as comment in addMetrics()
+        if (!Env.isCheckpointThread()) {
+            MetricList metricList = metrics.get(name);
+            if (metricList != null) {
+                String labelId = computeLabelId(labels);
+                metricList.removeByLabelId(labelId);
+            }
+        }
+    }
+
+    private static String computeLabelId(List<MetricLabel> labels) {
+        TreeMap<String, String> labelMap = new TreeMap<>();
+        for (MetricLabel label : labels) {
+            labelMap.put(label.getKey(), label.getValue().replace("\\", "\\\\").replace("\"", "\\\""));
+        }
+        return labelMap.entrySet()
+                .stream()
+                .map(e -> String.format("%s=\"%s\"", e.getKey(), e.getValue()))
+                .collect(Collectors.joining(" "));
+    }
+
+    public static class MetricList {
+        private final HashMap<String, Metric> metrics = new HashMap<>();
+
+        private synchronized void addMetrics(String labelId, Metric metric) {
+            metrics.put(labelId, metric);
+        }
+
+        private synchronized List<Metric> getMetrics() {
+            return new ArrayList<>(metrics.values());
+        }
+
+        private synchronized void removeByLabelId(String labelId) {
+            metrics.remove(labelId);
         }
     }
 }

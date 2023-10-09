@@ -24,6 +24,7 @@
 #include <exception>
 #include <ostream>
 
+#include "common/status.h"
 #include "gutil/strings/numbers.h"
 #include "io/fs/file_writer.h"
 #include "runtime/define_primitive_type.h"
@@ -41,9 +42,12 @@
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/pod_array.h"
+#include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
+#include "vec/data_types/serde/data_type_serde.h"
+#include "vec/exec/format/csv/csv_reader.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -85,165 +89,39 @@ Status VCSVTransformer::close() {
 }
 
 Status VCSVTransformer::write(const Block& block) {
-    using doris::operator<<;
+    auto ser_col = ColumnString::create();
+    ser_col->reserve(block.columns());
+    VectorBufferWriter buffer_writer(*ser_col.get());
     for (size_t i = 0; i < block.rows(); i++) {
         for (size_t col_id = 0; col_id < block.columns(); col_id++) {
-            auto col = block.get_by_position(col_id);
-            if (col.column->is_null_at(i)) {
-                fmt::format_to(_outstream_buffer, "{}", NULL_IN_CSV);
-            } else {
-                switch (_output_vexpr_ctxs[col_id]->root()->type().type) {
-                case TYPE_BOOLEAN:
-                case TYPE_TINYINT:
-                    fmt::format_to(
-                            _outstream_buffer, "{}",
-                            (int)*reinterpret_cast<const int8_t*>(col.column->get_data_at(i).data));
-                    break;
-                case TYPE_SMALLINT:
-                    fmt::format_to(
-                            _outstream_buffer, "{}",
-                            *reinterpret_cast<const int16_t*>(col.column->get_data_at(i).data));
-                    break;
-                case TYPE_INT:
-                    fmt::format_to(
-                            _outstream_buffer, "{}",
-                            *reinterpret_cast<const int32_t*>(col.column->get_data_at(i).data));
-                    break;
-                case TYPE_BIGINT:
-                    fmt::format_to(
-                            _outstream_buffer, "{}",
-                            *reinterpret_cast<const int64_t*>(col.column->get_data_at(i).data));
-                    break;
-                case TYPE_LARGEINT:
-                    fmt::format_to(
-                            _outstream_buffer, "{}",
-                            *reinterpret_cast<const __int128*>(col.column->get_data_at(i).data));
-                    break;
-                case TYPE_FLOAT: {
-                    char buffer[MAX_FLOAT_STR_LENGTH + 2];
-                    float float_value =
-                            *reinterpret_cast<const float*>(col.column->get_data_at(i).data);
-                    buffer[0] = '\0';
-                    int length = FloatToBuffer(float_value, MAX_FLOAT_STR_LENGTH, buffer);
-                    DCHECK(length >= 0) << "gcvt float failed, float value=" << float_value;
-                    fmt::format_to(_outstream_buffer, "{}", buffer);
-                    break;
-                }
-                case TYPE_DOUBLE: {
-                    // To prevent loss of precision on float and double types,
-                    // they are converted to strings before output.
-                    // For example: For a double value 27361919854.929001,
-                    // the direct output of using std::stringstream is 2.73619e+10,
-                    // and after conversion to a string, it outputs 27361919854.929001
-                    char buffer[MAX_DOUBLE_STR_LENGTH + 2] = "\0";
-                    double double_value =
-                            *reinterpret_cast<const double*>(col.column->get_data_at(i).data);
-                    buffer[0] = '\0';
-                    int length = DoubleToBuffer(double_value, MAX_DOUBLE_STR_LENGTH, buffer);
-                    DCHECK(length >= 0) << "gcvt double failed, double value=" << double_value;
-                    fmt::format_to(_outstream_buffer, "{}", buffer);
-                    break;
-                }
-                case TYPE_DATEV2: {
-                    char buf[64] = "\0";
-                    const DateV2Value<DateV2ValueType>* time_val =
-                            (const DateV2Value<DateV2ValueType>*)(col.column->get_data_at(i).data);
-                    time_val->to_string(buf);
-                    fmt::format_to(_outstream_buffer, "{}", buf);
-                    break;
-                }
-                case TYPE_DATETIMEV2: {
-                    char buf[64] = "\0";
-                    const DateV2Value<DateTimeV2ValueType>* time_val =
-                            (const DateV2Value<DateTimeV2ValueType>*)(col.column->get_data_at(i)
-                                                                              .data);
-                    time_val->to_string(buf, _output_vexpr_ctxs[col_id]->root()->type().scale);
-                    fmt::format_to(_outstream_buffer, "{}", buf);
-                    break;
-                }
-                case TYPE_DATE:
-                case TYPE_DATETIME: {
-                    char buf[64] = "\0";
-                    const VecDateTimeValue* time_val =
-                            (const VecDateTimeValue*)(col.column->get_data_at(i).data);
-                    time_val->to_string(buf);
-                    fmt::format_to(_outstream_buffer, "{}", buf);
-                    break;
-                }
-                case TYPE_OBJECT:
-                case TYPE_HLL: {
-                    if (!_output_object_data) {
-                        fmt::format_to(_outstream_buffer, "{}", NULL_IN_CSV);
-                        break;
-                    }
-                    [[fallthrough]];
-                }
-                case TYPE_VARCHAR:
-                case TYPE_CHAR:
-                case TYPE_STRING: {
-                    auto value = col.column->get_data_at(i);
-                    fmt::format_to(_outstream_buffer, "{}", value);
-                    break;
-                }
-                case TYPE_DECIMALV2: {
-                    const DecimalV2Value decimal_val(
-                            reinterpret_cast<const PackedInt128*>(col.column->get_data_at(i).data)
-                                    ->value);
-                    fmt::format_to(_outstream_buffer, "{}", decimal_val.to_string());
-                    break;
-                }
-                case TYPE_DECIMAL32: {
-                    fmt::format_to(_outstream_buffer, "{}", col.type->to_string(*col.column, i));
-                    break;
-                }
-                case TYPE_DECIMAL64: {
-                    fmt::format_to(_outstream_buffer, "{}", col.type->to_string(*col.column, i));
-                    break;
-                }
-                case TYPE_DECIMAL128I: {
-                    fmt::format_to(_outstream_buffer, "{}", col.type->to_string(*col.column, i));
-                    break;
-                }
-                case TYPE_ARRAY: {
-                    fmt::format_to(_outstream_buffer, "{}", col.type->to_string(*col.column, i));
-                    break;
-                }
-                case TYPE_MAP: {
-                    fmt::format_to(_outstream_buffer, "{}", col.type->to_string(*col.column, i));
-                    break;
-                }
-                case TYPE_STRUCT: {
-                    fmt::format_to(_outstream_buffer, "{}", col.type->to_string(*col.column, i));
-                    break;
-                }
-                default: {
-                    // not supported type, like BITMAP, just export null
-                    fmt::format_to(_outstream_buffer, "{}", NULL_IN_CSV);
-                }
-                }
+            if (col_id != 0) {
+                buffer_writer.write(_column_separator.data(), _column_separator.size());
             }
-            if (col_id < block.columns() - 1) {
-                fmt::format_to(_outstream_buffer, "{}", _column_separator);
+            Status st = _serdes[col_id]->serialize_one_cell_to_json(
+                    *(block.get_by_position(col_id).column), i, buffer_writer, _options);
+            if (!st.ok()) {
+                // VectorBufferWriter must do commit before deconstruct,
+                // or it may throw DCHECK failure.
+                buffer_writer.commit();
+                return st;
             }
         }
-        fmt::format_to(_outstream_buffer, "{}", _line_delimiter);
+        buffer_writer.write(_line_delimiter.data(), _line_delimiter.size());
+        buffer_writer.commit();
     }
-
-    return _flush_plain_text_outstream();
+    return _flush_plain_text_outstream(*ser_col.get());
 }
 
-Status VCSVTransformer::_flush_plain_text_outstream() {
-    size_t pos = _outstream_buffer.size();
-    if (pos == 0) {
+Status VCSVTransformer::_flush_plain_text_outstream(ColumnString& ser_col) {
+    if (ser_col.byte_size() == 0) {
         return Status::OK();
     }
 
     RETURN_IF_ERROR(
-            _file_writer->append(Slice(_outstream_buffer.data(), _outstream_buffer.size())));
+            _file_writer->append(Slice(ser_col.get_chars().data(), ser_col.get_chars().size())));
 
     // clear the stream
-    _outstream_buffer.clear();
-
+    ser_col.clear();
     return Status::OK();
 }
 
@@ -259,6 +137,4 @@ std::string VCSVTransformer::_gen_csv_header_types() {
     types += _line_delimiter;
     return types;
 }
-
-const std::string VCSVTransformer::NULL_IN_CSV = "\\N";
 } // namespace doris::vectorized

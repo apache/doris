@@ -430,7 +430,7 @@ FROM data_source [data_source_properties]
        "max_batch_interval" = "20",
        "max_batch_rows" = "300000",
        "max_batch_size" = "209715200",
-       "strict_mode" = "false"
+       "strict_mode" = "true"
    )
    FROM KAFKA
    (
