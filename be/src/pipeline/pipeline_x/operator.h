@@ -58,14 +58,7 @@ struct LocalSinkStateInfo {
 
 class PipelineXLocalStateBase {
 public:
-    PipelineXLocalStateBase(RuntimeState* state, OperatorXBase* parent)
-            : _num_rows_returned(0),
-              _rows_returned_counter(nullptr),
-              _rows_returned_rate(nullptr),
-              _memory_used_counter(nullptr),
-              _peak_memory_usage_counter(nullptr),
-              _parent(parent),
-              _state(state) {}
+    PipelineXLocalStateBase(RuntimeState* state, OperatorXBase* parent);
     virtual ~PipelineXLocalStateBase() = default;
 
     template <class TARGET>
@@ -147,6 +140,7 @@ protected:
     vectorized::VExprContextSPtrs _projections;
     bool _closed = false;
     vectorized::Block _origin_block;
+    std::shared_ptr<FinishDependency> _finish_dependency;
 };
 
 class OperatorXBase : public OperatorBase {
@@ -222,7 +216,7 @@ public:
 
     virtual Dependency* wait_for_dependency(RuntimeState* state) { return nullptr; }
 
-    virtual bool is_pending_finish(RuntimeState* state) const { return false; }
+    virtual FinishDependency* finish_blocked_by(RuntimeState* state) const { return nullptr; }
 
     [[nodiscard]] virtual const RowDescriptor& intermediate_row_desc() const {
         return _row_descriptor;
@@ -334,8 +328,7 @@ class DataSinkOperatorXBase;
 
 class PipelineXSinkLocalStateBase {
 public:
-    PipelineXSinkLocalStateBase(DataSinkOperatorXBase* parent_, RuntimeState* state_)
-            : _parent(parent_), _state(state_) {}
+    PipelineXSinkLocalStateBase(DataSinkOperatorXBase* parent_, RuntimeState* state_);
     virtual ~PipelineXSinkLocalStateBase() = default;
 
     // Do initialization. This step should be executed only once and in bthread, so we can do some
@@ -397,6 +390,8 @@ protected:
     RuntimeProfile::Counter* _open_timer = nullptr;
     RuntimeProfile::Counter* _close_timer = nullptr;
     RuntimeProfile::Counter* _wait_for_dependency_timer;
+
+    std::shared_ptr<FinishDependency> _finish_dependency;
 };
 
 class DataSinkOperatorXBase : public OperatorBase {
@@ -464,7 +459,7 @@ public:
 
     virtual WriteDependency* wait_for_dependency(RuntimeState* state) { return nullptr; }
 
-    virtual bool is_pending_finish(RuntimeState* state) const { return false; }
+    virtual FinishDependency* finish_blocked_by(RuntimeState* state) const { return nullptr; }
 
     [[nodiscard]] std::string debug_string() const override { return ""; }
 
@@ -616,8 +611,6 @@ public:
     Status close(RuntimeState* state, Status exec_status) override;
 
     Status try_close(RuntimeState* state, Status exec_status) override;
-
-    bool is_pending_finish();
 
 protected:
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;

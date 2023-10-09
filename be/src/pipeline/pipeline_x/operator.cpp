@@ -353,6 +353,22 @@ Status OperatorX<UnionSourceLocalState>::setup_local_states(RuntimeState* state,
     return Status::OK();
 }
 
+PipelineXSinkLocalStateBase::PipelineXSinkLocalStateBase(DataSinkOperatorXBase* parent,
+                                                         RuntimeState* state)
+        : _parent(parent),
+          _state(state),
+          _finish_dependency(new FinishDependency(parent->id(), parent->get_name())) {}
+
+PipelineXLocalStateBase::PipelineXLocalStateBase(RuntimeState* state, OperatorXBase* parent)
+        : _num_rows_returned(0),
+          _rows_returned_counter(nullptr),
+          _rows_returned_rate(nullptr),
+          _memory_used_counter(nullptr),
+          _peak_memory_usage_counter(nullptr),
+          _parent(parent),
+          _state(state),
+          _finish_dependency(new FinishDependency(parent->id(), parent->get_name())) {}
+
 template <typename DependencyType>
 Status PipelineXLocalState<DependencyType>::init(RuntimeState* state, LocalStateInfo& info) {
     _runtime_profile.reset(new RuntimeProfile(_parent->get_name() +
@@ -494,7 +510,7 @@ Status AsyncWriterSink<Writer, Parent>::init(RuntimeState* state, LocalSinkState
 
     _writer.reset(new Writer(info.tsink, _output_vexpr_ctxs));
     _async_writer_dependency = AsyncWriterDependency::create_shared(_parent->id());
-    _writer->set_dependency(_async_writer_dependency.get());
+    _writer->set_dependency(_async_writer_dependency.get(), _finish_dependency.get());
 
     _wait_for_dependency_timer =
             ADD_TIMER(_profile, "WaitForDependency[" + _async_writer_dependency->name() + "]Time");
@@ -541,11 +557,6 @@ Status AsyncWriterSink<Writer, Parent>::try_close(RuntimeState* state, Status ex
         _writer->force_close(!exec_status.ok() ? exec_status : Status::Cancelled("Cancelled"));
     }
     return Status::OK();
-}
-
-template <typename Writer, typename Parent>
-bool AsyncWriterSink<Writer, Parent>::is_pending_finish() {
-    return _writer->is_pending_finish();
 }
 
 #define DECLARE_OPERATOR_X(LOCAL_STATE) template class DataSinkOperatorX<LOCAL_STATE>;

@@ -35,6 +35,7 @@ class TExpr;
 namespace pipeline {
 class AsyncWriterDependency;
 class WriteDependency;
+class FinishDependency;
 
 } // namespace pipeline
 
@@ -56,7 +57,8 @@ class AsyncResultWriter : public ResultWriter {
 public:
     AsyncResultWriter(const VExprContextSPtrs& output_expr_ctxs);
 
-    void set_dependency(pipeline::AsyncWriterDependency* dep) { _dependency = dep; }
+    void set_dependency(pipeline::AsyncWriterDependency* dep,
+                        pipeline::FinishDependency* finish_dep);
 
     void force_close(Status s);
 
@@ -113,6 +115,7 @@ private:
 
     // Used by pipelineX
     pipeline::AsyncWriterDependency* _dependency;
+    pipeline::FinishDependency* _finish_dependency;
 
     moodycamel::ConcurrentQueue<std::unique_ptr<Block>> _free_blocks;
 };

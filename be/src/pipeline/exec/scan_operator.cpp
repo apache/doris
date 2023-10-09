@@ -1189,7 +1189,8 @@ Status ScanLocalState<Derived>::_start_scanners(
     _data_ready_dependency = DataReadyDependency::create_shared(p.id(), _scanner_ctx.get());
     _source_dependency->add_child(_data_ready_dependency);
 
-    _scanner_ctx->set_dependency(_data_ready_dependency, _scanner_done_dependency);
+    _scanner_ctx->set_dependency(_data_ready_dependency, _scanner_done_dependency,
+                                 _finish_dependency);
     return Status::OK();
 }
 
@@ -1291,9 +1292,9 @@ Dependency* ScanOperatorX<LocalStateType>::wait_for_dependency(RuntimeState* sta
 }
 
 template <typename LocalStateType>
-bool ScanOperatorX<LocalStateType>::is_pending_finish(RuntimeState* state) const {
+FinishDependency* ScanOperatorX<LocalStateType>::finish_blocked_by(RuntimeState* state) const {
     auto& local_state = state->get_local_state(id())->template cast<LocalStateType>();
-    return local_state._scanner_ctx && !local_state._scanner_ctx->no_schedule();
+    return local_state._finish_dependency->finish_blocked_by();
 }
 
 template <typename LocalStateType>
