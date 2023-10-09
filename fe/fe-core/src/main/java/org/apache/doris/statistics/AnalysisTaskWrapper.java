@@ -62,7 +62,7 @@ public class AnalysisTaskWrapper extends FutureTask<Void> {
                                 + "doesn't get executed within specified time range");
                 return;
             }
-            executor.putJob(this);
+            // executor.putJob(this);
             super.run();
             Object result = get();
             if (result instanceof Throwable) {
@@ -93,5 +93,9 @@ public class AnalysisTaskWrapper extends FutureTask<Void> {
 
     public long getStartTime() {
         return startTime;
+    }
+
+    public AnalyzePriority priority() {
+        return task.priority;
     }
 }

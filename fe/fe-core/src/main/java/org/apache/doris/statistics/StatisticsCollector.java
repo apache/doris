@@ -52,8 +52,8 @@ public abstract class StatisticsCollector extends MasterDaemon {
         if (Env.isCheckpointThread()) {
             return;
         }
-        if (Env.getCurrentEnv().getAnalysisManager().hasUnFinished()) {
-            LOG.info("Analyze tasks those submitted in last time is not finished, skip");
+        if (!analysisTaskExecutor.highPriorityTaskEmpty()) {
+            LOG.info("High priority analyze tasks those submitted in last time is not finished, skip");
             return;
         }
         collect();
@@ -76,7 +76,6 @@ public abstract class StatisticsCollector extends MasterDaemon {
             analysisManager.createTableLevelTaskForExternalTable(jobInfo, analysisTasks, false);
         }
         Env.getCurrentEnv().getAnalysisManager().constructJob(jobInfo, analysisTasks.values());
-        Env.getCurrentEnv().getAnalysisManager().registerSysJob(jobInfo, analysisTasks);
         analysisTasks.values().forEach(analysisTaskExecutor::submitTask);
     }
 

@@ -25,10 +25,11 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.Comparator;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.PriorityBlockingQueue;
+import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
@@ -38,9 +39,12 @@ public class AnalysisTaskExecutor {
 
     protected final ThreadPoolExecutor executors;
 
-    private final BlockingQueue<AnalysisTaskWrapper> taskQueue =
-            new PriorityBlockingQueue<AnalysisTaskWrapper>(20,
-                    Comparator.comparingLong(AnalysisTaskWrapper::getStartTime));
+    private BlockingQueue<BaseAnalysisTask> highPriorityAnalysisTasks;
+
+    private BlockingQueue<BaseAnalysisTask> lowPriorityAnalysisTasks;
+
+
+    protected List<Executor> executorList = new ArrayList<>();
 
     public AnalysisTaskExecutor(int simultaneouslyRunningTaskNum) {
         this(simultaneouslyRunningTaskNum, Integer.MAX_VALUE);
@@ -51,10 +55,17 @@ public class AnalysisTaskExecutor {
             executors = ThreadPoolManager.newDaemonThreadPool(
                     simultaneouslyRunningTaskNum,
                     simultaneouslyRunningTaskNum, 0,
-                    TimeUnit.DAYS, new LinkedBlockingQueue<>(taskQueueSize),
+                    TimeUnit.DAYS, new SynchronousQueue<>(),
                     new BlockedPolicy("Analysis Job Executor", Integer.MAX_VALUE),
                     "Analysis Job Executor", true);
+            highPriorityAnalysisTasks = new LinkedBlockingQueue<>(taskQueueSize);
+            lowPriorityAnalysisTasks = new LinkedBlockingQueue<>(taskQueueSize);
             cancelExpiredTask();
+            for (int i = 0; i < simultaneouslyRunningTaskNum; i++) {
+                Executor executor = new Executor(highPriorityAnalysisTasks, lowPriorityAnalysisTasks);
+                executors.submit(executor);
+                executorList.add(executor);
+            }
         } else {
             executors = null;
         }
@@ -75,13 +86,14 @@ public class AnalysisTaskExecutor {
 
     protected void tryToCancel() {
         try {
-            AnalysisTaskWrapper taskWrapper = taskQueue.take();
-            try {
-                long timeout = TimeUnit.SECONDS.toMillis(StatisticsUtil.getAnalyzeTimeout())
-                        - (System.currentTimeMillis() - taskWrapper.getStartTime());
-                taskWrapper.get(timeout < 0 ? 0 : timeout, TimeUnit.MILLISECONDS);
-            } catch (Exception e) {
-                taskWrapper.cancel(e.getMessage());
+            long now = System.currentTimeMillis();
+            for (Executor executor : executorList) {
+                synchronized (executor.lock) {
+                    if (executor.cur != null && (now - executor.cur.startTime)
+                            > TimeUnit.SECONDS.toMillis(StatisticsUtil.getAnalyzeTimeout())) {
+                        executor.cur.cancel();
+                    }
+                }
             }
         } catch (Throwable throwable) {
             LOG.warn("cancel analysis task failed", throwable);
@@ -89,20 +101,63 @@ public class AnalysisTaskExecutor {
     }
 
     public void submitTask(BaseAnalysisTask task) {
-        AnalysisTaskWrapper taskWrapper = new AnalysisTaskWrapper(this, task);
-        executors.submit(taskWrapper);
+        if (task.priority == null) {
+            lowPriorityAnalysisTasks.add(task);
+        } else if (task.priority.ordinal() >= AnalyzePriority.NORMAL.ordinal()) {
+            lowPriorityAnalysisTasks.add(task);
+        } else {
+            highPriorityAnalysisTasks.add(task);
+        }
     }
 
-    public void putJob(AnalysisTaskWrapper wrapper) throws Exception {
-        taskQueue.put(wrapper);
+    protected static class Executor implements Runnable {
+        public BaseAnalysisTask cur = null;
+
+        public final Object lock = new Object();
+
+        private final BlockingQueue<BaseAnalysisTask> highPriorityAnalysisTasks;
+
+        public final BlockingQueue<BaseAnalysisTask> lowPriorityAnalysisTasks;
+
+        public Executor(BlockingQueue<BaseAnalysisTask> highPriorityAnalysisTasks,
+                BlockingQueue<BaseAnalysisTask> lowPriorityAnalysisTasks) {
+            this.highPriorityAnalysisTasks = highPriorityAnalysisTasks;
+            this.lowPriorityAnalysisTasks = lowPriorityAnalysisTasks;
+        }
+
+        @Override
+        public void run() {
+            while (true) {
+                try {
+                    if (!highPriorityAnalysisTasks.isEmpty()) {
+                        synchronized (lock) {
+                            cur = highPriorityAnalysisTasks.take();
+                        }
+                        cur.execute();
+                    } else if (!lowPriorityAnalysisTasks.isEmpty()) {
+                        synchronized (lock) {
+                            cur = lowPriorityAnalysisTasks.take();
+                        }
+                        cur.execute();
+                    } else {
+                        synchronized (lock) {
+                            cur = null;
+                        }
+                        Thread.sleep(StatisticConstants.AUTO_TASK_CHECK_INTERVAL_IN_SEC * 1000);
+                    }
+                } catch (Exception e) {
+                    LOG.warn("Failed to execute task", e);
+                }
+            }
+        }
     }
 
-    public boolean idle() {
-        return executors.getQueue().isEmpty();
+    public boolean highPriorityTaskEmpty() {
+        return highPriorityAnalysisTasks.isEmpty();
     }
 
-    public void clear() {
-        executors.getQueue().clear();
-        taskQueue.clear();
+    public boolean lowPriorityTaskEmpty() {
+        return lowPriorityAnalysisTasks.isEmpty();
     }
+
 }

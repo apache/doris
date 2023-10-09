@@ -29,6 +29,7 @@ import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMode;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
+import org.apache.doris.statistics.AnalysisTaskExecutor.Executor;
 import org.apache.doris.statistics.util.DBObjects;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.utframe.TestWithFeService;
@@ -46,6 +47,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class AnalysisTaskExecutorTest extends TestWithFeService {
@@ -84,13 +86,20 @@ public class AnalysisTaskExecutorTest extends TestWithFeService {
                 return new Column("col1", PrimitiveType.INT);
             }
         };
-        final AtomicBoolean cancelled = new AtomicBoolean();
-        new MockUp<AnalysisTaskWrapper>() {
+        AtomicBoolean cancelled = new AtomicBoolean();
+        new MockUp<OlapAnalysisTask>() {
+            @Mock
+            public void cancel() {
+                cancelled.set(true);
+            }
 
             @Mock
-            public boolean cancel(String msg) {
-                cancelled.set(true);
-                return true;
+            public void execute() {
+                try {
+                    Thread.sleep(100 * 1000);
+                } catch (Exception e) {
+                    // DO NOTHING
+                }
             }
         };
         AnalysisInfo analysisJobInfo = new AnalysisInfoBuilder().setJobId(0).setTaskId(0)
@@ -102,17 +111,17 @@ public class AnalysisTaskExecutorTest extends TestWithFeService {
                 .setAnalysisMethod(AnalysisMethod.FULL)
                 .setAnalysisType(AnalysisType.FUNDAMENTALS)
                 .build();
-        OlapAnalysisTask analysisJob = new OlapAnalysisTask(analysisJobInfo);
-
-        AnalysisTaskExecutor analysisTaskExecutor = new AnalysisTaskExecutor(1);
-        BlockingQueue<AnalysisTaskWrapper> b = Deencapsulation.getField(analysisTaskExecutor, "taskQueue");
-        AnalysisTaskWrapper analysisTaskWrapper = new AnalysisTaskWrapper(analysisTaskExecutor, analysisJob);
-        Deencapsulation.setField(analysisTaskWrapper, "startTime", 5);
-        b.put(analysisTaskWrapper);
+        OlapAnalysisTask analysisTask = new OlapAnalysisTask(analysisJobInfo);
+        analysisTask.startTime = 0;
+        AnalysisTaskExecutor analysisTaskExecutor
+                = new AnalysisTaskExecutor(1, 2);
+        BlockingQueue<BaseAnalysisTask> highPriorityAnalysisTasks = new LinkedBlockingQueue<>(2);
+        BlockingQueue<BaseAnalysisTask> lowPriorityAnalysisTasks = new LinkedBlockingQueue<>(2);
+        Executor executor = new Executor(highPriorityAnalysisTasks, lowPriorityAnalysisTasks);
+        executor.cur = analysisTask;
+        analysisTaskExecutor.executorList.add(executor);
         analysisTaskExecutor.tryToCancel();
         Assertions.assertTrue(cancelled.get());
-        Assertions.assertTrue(b.isEmpty());
-
     }
 
     @Test

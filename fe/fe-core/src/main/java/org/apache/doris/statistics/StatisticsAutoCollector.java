@@ -41,6 +41,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -59,7 +60,6 @@ public class StatisticsAutoCollector extends StatisticsCollector {
     @Override
     protected void collect() {
         if (!StatisticsUtil.inAnalyzeTime(LocalTime.now(TimeUtils.getTimeZone().toZoneId()))) {
-            analysisTaskExecutor.clear();
             return;
         }
         if (StatisticsUtil.enableAutoAnalyze()) {
@@ -102,7 +102,6 @@ public class StatisticsAutoCollector extends StatisticsCollector {
                 analysisInfo.message = t.getMessage();
                 LOG.warn("Failed to auto analyze table {}.{}, reason {}",
                         databaseIf.getFullName(), analysisInfo.tblId, analysisInfo.message, t);
-                continue;
             }
         }
     }
@@ -114,11 +113,22 @@ public class StatisticsAutoCollector extends StatisticsCollector {
                 if (skip(table)) {
                     continue;
                 }
-                createAnalyzeJobForTbl(db, analysisInfos, table);
+                List<Column> columns = table.getBaseSchema();
+                Map<AnalyzePriority, List<Column>> priorityToColumns
+                        = columns
+                        .stream()
+                        .collect(Collectors
+                                .groupingBy(p -> Env.getCurrentEnv().getAnalysisManager().getPriority(table, p)));
+                for (Entry<AnalyzePriority, List<Column>> entry : priorityToColumns.entrySet()) {
+                    if (entry.getKey().ordinal() >= AnalyzePriority.NORMAL.ordinal()
+                            && !analysisTaskExecutor.lowPriorityTaskEmpty()) {
+                        continue;
+                    }
+                    createAnalyzeJobForTbl(analysisInfos, db, table, entry.getValue(), entry.getKey());
+                }
             } catch (Throwable t) {
                 LOG.warn("Failed to analyze table {}.{}.{}",
                         db.getCatalog().getName(), db.getFullName(), table.getName(), t);
-                continue;
             }
         }
         return analysisInfos;
@@ -146,9 +156,11 @@ public class StatisticsAutoCollector extends StatisticsCollector {
                 - tableStats.updatedTime < StatisticsUtil.getHugeTableAutoAnalyzeIntervalInMillis();
     }
 
-    protected void createAnalyzeJobForTbl(DatabaseIf<? extends TableIf> db,
-            List<AnalysisInfo> analysisInfos, TableIf table) {
-        AnalysisMethod analysisMethod = table.getDataSize(true) > StatisticsUtil.getHugeTableLowerBoundSizeInBytes()
+    protected void createAnalyzeJobForTbl(List<AnalysisInfo> analysisInfos,
+            DatabaseIf<? extends TableIf> db, TableIf table,
+            List<Column> columns, AnalyzePriority priority) {
+        AnalysisMethod analysisMethod = table.getDataSize(true)
+                > StatisticsUtil.getHugeTableLowerBoundSizeInBytes()
                 ? AnalysisMethod.SAMPLE : AnalysisMethod.FULL;
         AnalysisInfo jobInfo = new AnalysisInfoBuilder()
                 .setJobId(Env.getCurrentEnv().getNextId())
@@ -156,8 +168,9 @@ public class StatisticsAutoCollector extends StatisticsCollector {
                 .setDBId(db.getId())
                 .setTblId(table.getId())
                 .setColName(
-                        table.getBaseSchema().stream().filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
-                                .map(Column::getName).collect(Collectors.joining(","))
+                        columns.stream().filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
+                                .map(
+                                        Column::getName).collect(Collectors.joining(","))
                 )
                 .setAnalysisType(AnalysisInfo.AnalysisType.FUNDAMENTALS)
                 .setAnalysisMode(AnalysisInfo.AnalysisMode.INCREMENTAL)
@@ -170,6 +183,7 @@ public class StatisticsAutoCollector extends StatisticsCollector {
                 .setLastExecTimeInMs(System.currentTimeMillis())
                 .setJobType(JobType.SYSTEM)
                 .setTblUpdateTime(table.getUpdateTime())
+                .setAnalyzePriority(priority)
                 .build();
         analysisInfos.add(jobInfo);
     }
@@ -190,11 +204,9 @@ public class StatisticsAutoCollector extends StatisticsCollector {
         }
 
         Map<String, Set<String>> needRunPartitions = table.findReAnalyzeNeededPartitions();
-
         if (needRunPartitions.isEmpty()) {
             return null;
         }
-
         return new AnalysisInfoBuilder(jobInfo).setColToPartitions(needRunPartitions).build();
     }
 }

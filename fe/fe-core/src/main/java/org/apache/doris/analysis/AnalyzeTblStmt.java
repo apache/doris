@@ -34,6 +34,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
+import org.apache.doris.statistics.CriticalColumn;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.Sets;
@@ -86,8 +87,8 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
     private PartitionNames partitionNames;
     private boolean isAllColumns;
 
-    // after analyzed
     private long catalogId;
+
     private long dbId;
     private TableIf table;
 
@@ -137,7 +138,7 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
         DatabaseIf db = catalog.getDbOrAnalysisException(dbName);
         dbId = db.getId();
         table = db.getTableOrAnalysisException(tblName);
-        isAllColumns = columnNames == null;
+        isAllColumns = columnNames == null && !analyzeProperties.predicateColumnOnly();
         check();
     }
 
@@ -146,10 +147,17 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
             throw new AnalysisException("Analyze view is not allowed");
         }
         checkAnalyzePriv(tableName.getDb(), tableName.getTbl());
+        if (analyzeProperties.predicateColumnOnly() && columnNames != null) {
+            throw new AnalysisException("column can't be specified explicitly"
+                    + "when analyzing column used as predicate only");
+        }
         if (columnNames == null) {
             // Filter unsupported type columns.
             columnNames = table.getBaseSchema(false).stream()
                 .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
+                .filter(c -> !analyzeProperties.predicateColumnOnly()
+                        || Env.getCurrentEnv().getAnalysisManager().columnUsedInPredicate
+                        .containsKey(new CriticalColumn(table.getId(), c.getName())))
                 .map(Column::getName)
                 .collect(Collectors.toList());
         }

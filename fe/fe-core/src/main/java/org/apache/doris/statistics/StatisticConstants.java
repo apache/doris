@@ -54,14 +54,10 @@ public class StatisticConstants {
 
     public static final long PRELOAD_RETRY_INTERVAL_IN_SECONDS = TimeUnit.SECONDS.toMillis(10);
 
-    public static final int ANALYSIS_JOB_INFO_EXPIRATION_TIME_IN_DAYS = 7;
-
     public static final int FETCH_LIMIT = 10000;
     public static final int FETCH_INTERVAL_IN_MS = 500;
 
     public static final int HISTOGRAM_MAX_BUCKET_NUM = 128;
-
-    public static final int ANALYZE_MANAGER_INTERVAL_IN_SECS = 60;
 
     public static List<String> SYSTEM_DBS = new ArrayList<>();
 
@@ -101,6 +97,14 @@ public class StatisticConstants {
     public static final int AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD = 70;
 
     public static final int MSG_LEN_UPPER_BOUND = 1024;
+
+    public static final long CRITICAL_COLUMN_VALID_TIME_IN_MILLIS = TimeUnit.DAYS.toMillis(1);
+
+    public static final long CRITICAL_COLUMN_SYNC_IN_MILLIS = TimeUnit.MINUTES.toMinutes(3);
+
+    public static final int NORMAL_TABLE_WIDTH_UPPER_BOUND = 36;
+
+    public static final int AUTO_TASK_CHECK_INTERVAL_IN_SEC = 1;
 
     static {
         SYSTEM_DBS.add(SystemInfoService.DEFAULT_CLUSTER

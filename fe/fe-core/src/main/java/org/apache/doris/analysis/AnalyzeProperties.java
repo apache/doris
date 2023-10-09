@@ -45,6 +45,8 @@ public class AnalyzeProperties {
     public static final String PROPERTY_FORCE_FULL = "force.full";
     public static final String PROPERTY_PARTITION_COLUMN_FROM_SQL = "partition.column.from.sql";
 
+    public static final String PROPERTY_PREDICATE = "predicate";
+
     public static final AnalyzeProperties DEFAULT_PROP = new AnalyzeProperties(new HashMap<String, String>() {
         {
             put(AnalyzeProperties.PROPERTY_SYNC, "false");
@@ -297,5 +299,9 @@ public class AnalyzeProperties {
 
     public AnalysisType getAnalysisType() {
         return AnalysisType.valueOf(properties.get(PROPERTY_ANALYSIS_TYPE));
+    }
+
+    public boolean predicateColumnOnly() {
+        return properties.containsKey(PROPERTY_PREDICATE);
     }
 }

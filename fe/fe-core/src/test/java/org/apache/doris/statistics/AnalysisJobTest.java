@@ -17,7 +17,6 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
@@ -39,6 +38,7 @@ public class AnalysisJobTest {
     // make user task has been set corresponding job
     @Test
     public void initTest(@Mocked AnalysisInfo jobInfo, @Mocked OlapAnalysisTask task) {
+        task.info = new AnalysisInfoBuilder().build();
         AnalysisJob analysisJob = new AnalysisJob(jobInfo, Arrays.asList(task));
         Assertions.assertSame(task.job, analysisJob);
     }
@@ -47,6 +47,9 @@ public class AnalysisJobTest {
     public void testAppendBufTest1(@Mocked AnalysisInfo analysisInfo,
             @Mocked OlapAnalysisTask olapAnalysisTask,
             @Mocked OlapAnalysisTask olapAnalysisTask2) {
+        olapAnalysisTask.info = new AnalysisInfoBuilder().build();
+        olapAnalysisTask.info = new AnalysisInfoBuilder().setTaskId(1).build();
+
         AtomicInteger writeBufInvokeTimes = new AtomicInteger();
         new MockUp<AnalysisJob>() {
             @Mock
@@ -78,7 +81,7 @@ public class AnalysisJobTest {
     public void testAppendBufTest2(@Mocked AnalysisInfo analysisInfo, @Mocked OlapAnalysisTask olapAnalysisTask) {
         AtomicInteger writeBufInvokeTimes = new AtomicInteger();
         AtomicInteger deregisterTimes = new AtomicInteger();
-
+        olapAnalysisTask.info = new AnalysisInfoBuilder().build();
         new MockUp<AnalysisJob>() {
             @Mock
             protected void writeBuf() {
@@ -109,6 +112,7 @@ public class AnalysisJobTest {
     @Test
     public void testAppendBufTest3(@Mocked AnalysisInfo analysisInfo, @Mocked OlapAnalysisTask olapAnalysisTask) {
         AtomicInteger writeBufInvokeTimes = new AtomicInteger();
+        olapAnalysisTask.info = new AnalysisInfoBuilder().build();
 
         new MockUp<AnalysisJob>() {
             @Mock
@@ -140,34 +144,10 @@ public class AnalysisJobTest {
     }
 
     @Test
-    public void testUpdateTaskState(
-            @Mocked AnalysisInfo info,
-            @Mocked OlapAnalysisTask task1,
-            @Mocked OlapAnalysisTask task2) {
-        AtomicInteger updateTaskStatusInvokeTimes = new AtomicInteger();
-        new MockUp<AnalysisManager>() {
-            @Mock
-            public void updateTaskStatus(AnalysisInfo info, AnalysisState taskState, String message, long time) {
-                updateTaskStatusInvokeTimes.getAndIncrement();
-            }
-        };
-        AnalysisManager analysisManager = new AnalysisManager();
-        new MockUp<Env>() {
-            @Mock
-            public AnalysisManager getAnalysisManager() {
-                return analysisManager;
-            }
-        };
-        AnalysisJob job = new AnalysisJob(info, Collections.singletonList(task1));
-        job.queryFinished = new HashSet<>();
-        job.queryFinished.add(task2);
-        job.updateTaskState(AnalysisState.FAILED, "");
-        Assertions.assertEquals(2, updateTaskStatusInvokeTimes.get());
-    }
-
-    @Test
     public void testWriteBuf1(@Mocked AnalysisInfo info,
             @Mocked OlapAnalysisTask task1, @Mocked OlapAnalysisTask task2) {
+        task1.info = new AnalysisInfoBuilder().build();
+        task2.info = new AnalysisInfoBuilder().setTaskId(1).build();
         AnalysisJob job = new AnalysisJob(info, Collections.singletonList(task1));
         job.queryFinished = new HashSet<>();
         job.queryFinished.add(task2);
@@ -199,6 +179,8 @@ public class AnalysisJobTest {
     @Test
     public void testWriteBuf2(@Mocked AnalysisInfo info,
             @Mocked OlapAnalysisTask task1, @Mocked OlapAnalysisTask task2) {
+        task1.info = new AnalysisInfoBuilder().build();
+        task2.info = new AnalysisInfoBuilder().setTaskId(1).build();
         new MockUp<AnalysisJob>() {
             @Mock
             public void updateTaskState(AnalysisState state, String msg) {
@@ -219,6 +201,38 @@ public class AnalysisJobTest {
         job.queryFinished.add(task2);
         job.writeBuf();
         Assertions.assertEquals(0, job.queryFinished.size());
+    }
+
+    @Test
+    public void testWriteException(@Mocked AnalysisInfo info,
+            @Mocked OlapAnalysisTask task1, @Mocked OlapAnalysisTask task2) {
+        task1.info = new AnalysisInfoBuilder().build();
+        task2.info = new AnalysisInfoBuilder().setTaskId(1).build();
+        new MockUp<AnalysisJob>() {
+            @Mock
+            public void updateTaskState(AnalysisState state, String msg) {
+            }
+
+            @Mock
+            protected void executeWithExceptionOnFail(StmtExecutor stmtExecutor) throws Exception {
+                throw new RuntimeException();
+            }
+
+            @Mock
+            protected void syncLoadStats() {
+            }
+        };
+        AnalysisJob job = new AnalysisJob(info, Collections.singletonList(task1));
+        job.buf.add(new ColStatsData());
+        job.queryFinished = new HashSet<>();
+        job.queryFinished.add(task2);
+        Exception exp = null;
+        try {
+            job.writeBuf();
+        } catch (Exception e) {
+            exp = e;
+        }
+        Assertions.assertNotNull(exp);
     }
 
 }
