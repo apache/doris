@@ -30,7 +30,7 @@ FileMetaData::FileMetaData(tparquet::FileMetaData& metadata) : _metadata(metadat
 
 Status FileMetaData::init_schema() {
     if (_metadata.schema[0].num_children <= 0) {
-        Status::Corruption("Invalid parquet schema");
+        return Status::Corruption("Invalid parquet schema");
     }
     return _schema.parse_from_thrift(_metadata.schema);
 }

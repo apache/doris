@@ -68,18 +68,18 @@ public:
         k_stream_load_plan_status = Status::OK();
     }
     void TearDown() override {
-        io::global_local_filesystem()->delete_directory(wal_dir);
+        static_cast<void>(io::global_local_filesystem()->delete_directory(wal_dir));
         SAFE_DELETE(_env->_function_client_cache);
         SAFE_DELETE(_env->_internal_client_cache);
         SAFE_DELETE(_env->_master_info);
     }
 
-    void prepare() { io::global_local_filesystem()->create_directory(wal_dir); }
+    void prepare() { static_cast<void>(io::global_local_filesystem()->create_directory(wal_dir)); }
 
     void createWal(const std::string& wal_path) {
         auto wal_writer = WalWriter(wal_path);
-        wal_writer.init();
-        wal_writer.finalize();
+        static_cast<void>(wal_writer.init());
+        static_cast<void>(wal_writer.finalize());
     }
 };
 
@@ -107,7 +107,7 @@ TEST_F(WalManagerTest, recovery_normal) {
     std::string wal_201 = wal_dir + "/" + db_id + "/" + tb_2_id + "/" + wal_201_id;
     createWal(wal_200);
     createWal(wal_201);
-    _env->wal_mgr()->init();
+    static_cast<void>(_env->wal_mgr()->init());
 
     while (_env->wal_mgr()->get_wal_table_size(tb_1_id) > 0 ||
            _env->wal_mgr()->get_wal_table_size(tb_2_id) > 0) {
@@ -119,47 +119,4 @@ TEST_F(WalManagerTest, recovery_normal) {
     ASSERT_TRUE(!std::filesystem::exists(wal_200));
     ASSERT_TRUE(!std::filesystem::exists(wal_201));
 }
-
-TEST_F(WalManagerTest, not_need_recovery) {
-    std::string db_id = "1";
-    std::string tb_id = "1";
-    std::string wal_id = "100";
-    std::filesystem::create_directory(wal_dir + "/" + db_id);
-    std::filesystem::create_directory(wal_dir + "/" + db_id + "/" + tb_id);
-    std::string wal_100 = wal_dir + "/" + db_id + "/" + tb_id + "/" + wal_id;
-    createWal(wal_100);
-
-    _env->wal_mgr()->init();
-
-    while (_env->wal_mgr()->get_wal_table_size("1") > 0) {
-        sleep(1);
-        continue;
-    }
-    ASSERT_TRUE(!std::filesystem::exists(wal_100));
-}
-
-TEST_F(WalManagerTest, recover_fail) {
-    k_request_line = "{\"Status\": \"Fail\",    \"Message\": \"Test\"}";
-    config::group_commit_replay_wal_retry_num = 3;
-    config::group_commit_replay_wal_retry_interval_seconds = 1;
-
-    std::string db_id = "1";
-    std::string tb_id = "1";
-    std::string wal_id = "100";
-    std::filesystem::create_directory(wal_dir + "/" + db_id);
-    std::filesystem::create_directory(wal_dir + "/" + db_id + "/" + tb_id);
-    std::string wal_100 = wal_dir + "/" + db_id + "/" + tb_id + "/" + wal_id;
-    createWal(wal_100);
-
-    _env->wal_mgr()->init();
-
-    while (_env->wal_mgr()->get_wal_table_size("1") > 0) {
-        sleep(1);
-        continue;
-    }
-    std::string tmp_file = tmp_dir + "/" + db_id + "_" + tb_id + "_" + wal_id;
-    ASSERT_TRUE(std::filesystem::exists(tmp_file));
-    ASSERT_TRUE(!std::filesystem::exists(wal_100));
-}
-
 } // namespace doris

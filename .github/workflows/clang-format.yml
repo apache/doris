@@ -19,7 +19,7 @@
 ---
 name: BE Code Formatter
 
-on: [push, pull_request]
+on: [push, pull_request_target]
 
 jobs:
   clang-format:

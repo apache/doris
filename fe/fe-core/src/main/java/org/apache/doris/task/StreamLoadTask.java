@@ -37,13 +37,13 @@ import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.StringReader;
 import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
 
 public class StreamLoadTask implements LoadTaskInfo {
 
@@ -269,7 +269,6 @@ public class StreamLoadTask implements LoadTaskInfo {
         return !Strings.isNullOrEmpty(sequenceCol);
     }
 
-
     @Override
     public String getSequenceCol() {
         return sequenceCol;
@@ -358,11 +357,12 @@ public class StreamLoadTask implements LoadTaskInfo {
             headerType = request.getHeaderType();
         }
         if (request.isSetPartitions()) {
-            String[] partNames = request.getPartitions().trim().split("\\s*,\\s*");
+            String[] splitPartNames = request.getPartitions().trim().split(",");
+            List<String> partNames = Arrays.stream(splitPartNames).map(String::trim).collect(Collectors.toList());
             if (request.isSetIsTempPartition()) {
-                partitions = new PartitionNames(request.isIsTempPartition(), Lists.newArrayList(partNames));
+                partitions = new PartitionNames(request.isIsTempPartition(), partNames);
             } else {
-                partitions = new PartitionNames(false, Lists.newArrayList(partNames));
+                partitions = new PartitionNames(false, partNames);
             }
         }
         switch (request.getFileType()) {

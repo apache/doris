@@ -118,7 +118,6 @@ public class MVAnalysisTask extends BaseAnalysisTask {
                 params.put("colName", colName);
                 params.put("tblName", String.valueOf(info.tblName));
                 params.put("sql", sql);
-                params.put("sampleExpr", getSampleExpression());
                 StatisticsUtil.execUpdate(ANALYZE_MV_PART, params);
             }
             params.remove("partId");
