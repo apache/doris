@@ -3,8 +3,8 @@
 1	doris1	{"a":100, "b":111}
 2	doris2	{"a":200, "b":222}
 3	doris3	{"a":NULL, "b":333, "c":399, "d":399999999999999}
-4	doris4	{NULL:NULL, NULL:NULL}
-5	doris5	{NULL:100, "b":NULL}
+4	doris4	{"null":NULL, "null":NULL}
+5	doris5	{"null":100, "b":NULL}
 6	\N	\N
 7	doris7	\N
 
@@ -12,17 +12,17 @@
 1	doris1	{"a":"100", "b":"111"}
 2	doris2	{"a":"200", "b":"222"}
 3	doris3	{"a":NULL, "b":"333", "c":"399", "d":"399999999999999"}
-4	doris4	{}
-5	doris5	{"b":NULL}
+4	doris4	{"null":NULL, "null":NULL}
+5	doris5	{"null":"100", "b":NULL}
 6	\N	\N
 7	doris7	\N
 
 -- !select_base2 --
 1	doris1	{100:"null", 111:"b"}
 2	doris2	{200:"a", 222:"b"}
-3	doris3	{NULL:"a", 333:"b", 399:"c", 399999999999999:"d"}
-4	doris4	{NULL:NULL, NULL:NULL}
-5	doris5	{NULL:"100", NULL:"b"}
+3	doris3	{111:"a", 333:"b", 399:"c", 399999999999999:"d"}
+4	doris4	{111:NULL, 111:NULL}
+5	doris5	{111:"100", 111:"b"}
 6	\N	\N
 7	doris7	\N
 8	doris8	{-170141183460469231731687303715884105728:"min_largeint", 170141183460469231731687303715884105727:"max_largeint"}
@@ -32,9 +32,9 @@
 -- !select_load2 --
 1	doris1	{"100":"null", "111":"b"}
 2	doris2	{"200":"a", "222":"b"}
-3	doris3	{"333":"b", "399":"c", "399999999999999":"d"}
-4	doris4	{}
-5	doris5	{}
+3	doris3	{"111":"a", "333":"b", "399":"c", "399999999999999":"d"}
+4	doris4	{"111":NULL, "111":NULL}
+5	doris5	{"111":"100", "111":"b"}
 6	\N	\N
 7	doris7	\N
 8	doris8	{"-170141183460469231731687303715884105728":"min_largeint", "170141183460469231731687303715884105727":"max_largeint"}
@@ -44,9 +44,9 @@
 -- !select_base3 --
 1	doris1	{100:0.12300, 111:1.23450}
 2	doris2	{200:8738931.12312, 222:999.99900}
-3	doris3	{NULL:1111034.12300, 333:7771.12310, 399:0.44124, 39999:0.44124}
-4	doris4	{NULL:NULL, NULL:NULL}
-5	doris5	{NULL:1111034.12300, NULL:8738931.12312}
+3	doris3	{111:1111034.12300, 333:7771.12310, 399:0.44124, 39999:0.44124}
+4	doris4	{111:NULL, 111:NULL}
+5	doris5	{111:1111034.12300, 111:8738931.12312}
 6	\N	\N
 7	doris7	\N
 8	doris8	{-2147483648:1.23450, 2147483647:999.99900}
@@ -56,9 +56,9 @@
 -- !select_load3 --
 1	doris1	{100:0.12300, 111:1.23450}
 2	doris2	{200:8738931.12312, 222:999.99900}
-3	doris3	{333:7771.12310, 399:0.44124, 39999:0.44124}
-4	doris4	{}
-5	doris5	{}
+3	doris3	{111:1111034.12300, 333:7771.12310, 399:0.44124, 39999:0.44124}
+4	doris4	{111:NULL, 111:NULL}
+5	doris5	{111:1111034.12300, 111:8738931.12312}
 6	\N	\N
 7	doris7	\N
 8	doris8	{-2147483648:1.23450, 2147483647:999.99900}
@@ -68,9 +68,9 @@
 -- !select_base4 --
 1	doris1	{100:4.94065645841247e-324, 111:1.7976931348623157e+308}
 2	doris2	{200:123.123, 222:0.9999999}
-3	doris3	{NULL:187.123, 333:555.6767, 399:129312.113, 3999:123.12314}
-4	doris4	{NULL:NULL, NULL:NULL}
-5	doris5	{NULL:187.123, NULL:187.123}
+3	doris3	{111:187.123, 333:555.6767, 399:129312.113, 3999:123.12314}
+4	doris4	{111:NULL, 111:NULL}
+5	doris5	{111:187.123, 111:187.123}
 6	\N	\N
 7	doris7	\N
 8	doris8	{-2147483648:4.94065645841247e-324, 2147483647:1.7976931348623157e+308}
@@ -79,9 +79,9 @@
 -- !select_load4 --
 1	doris1	{100:4.94065645841247e-324, 111:1.7976931348623157e+308}
 2	doris2	{200:123.123, 222:0.9999999}
-3	doris3	{333:555.6767, 399:129312.113, 3999:123.12314}
-4	doris4	{}
-5	doris5	{}
+3	doris3	{111:187.123, 333:555.6767, 399:129312.113, 3999:123.12314}
+4	doris4	{111:NULL, 111:NULL}
+5	doris5	{111:187.123, 111:187.123}
 6	\N	\N
 7	doris7	\N
 8	doris8	{-2147483648:4.94065645841247e-324, 2147483647:1.7976931348623157e+308}
@@ -90,9 +90,9 @@
 -- !select_base5 --
 1	doris1	{"k1":0.12300, "111":1.23450}
 2	doris2	{"200":8738931.12312, "doris":999.99900}
-3	doris3	{NULL:1111034.12300, "333":7771.12310, "399":0.44124, "3999999999":0.44124}
-4	doris4	{NULL:NULL, NULL:NULL}
-5	doris5	{"null":1111034.12300, NULL:8738931.12312}
+3	doris3	{"null":1111034.12300, "333":7771.12310, "399":0.44124, "3999999999":0.44124}
+4	doris4	{"null":NULL, "null":NULL}
+5	doris5	{"null":1111034.12300, "null":8738931.12312}
 6	\N	\N
 7	doris7	\N
 8	doris8	{"-2147483648":1.23450, "2147483647":999.99900}
@@ -102,9 +102,9 @@
 -- !select_load5 --
 1	doris1	{"k1":0.12300, "111":1.23450}
 2	doris2	{"200":8738931.12312, "doris":999.99900}
-3	doris3	{"333":7771.12310, "399":0.44124, "3999999999":0.44124}
-4	doris4	{}
-5	doris5	{"null":1111034.12300}
+3	doris3	{"null":1111034.12300, "333":7771.12310, "399":0.44124, "3999999999":0.44124}
+4	doris4	{"null":NULL, "null":NULL}
+5	doris5	{"null":1111034.12300, "null":8738931.12312}
 6	\N	\N
 7	doris7	\N
 8	doris8	{"-2147483648":1.23450, "2147483647":999.99900}
@@ -114,9 +114,9 @@
 -- !select_base6 --
 1	doris1	{"100":4.94065645841247e-324, "doris":1.7976931348623157e+308}
 2	doris2	{"nereids":123.123, "222":0.9999999}
-3	doris3	{NULL:187.123, "333":555.6767, "399":129312.113, "39999999999":123.12314}
-4	doris4	{NULL:NULL, NULL:NULL}
-5	doris5	{NULL:187.123, "null":187.123}
+3	doris3	{"null":187.123, "333":555.6767, "399":129312.113, "39999999999":123.12314}
+4	doris4	{"null":NULL, "null":NULL}
+5	doris5	{"null":187.123, "null":187.123}
 6	\N	\N
 7	doris7	\N
 8	doris8	{"-2147483648":4.94065645841247e-324, "2147483647":1.7976931348623157e+308}
@@ -125,9 +125,9 @@
 -- !select_load6 --
 1	doris1	{"100":4.94065645841247e-324, "doris":1.7976931348623157e+308}
 2	doris2	{"nereids":123.123, "222":0.9999999}
-3	doris3	{"333":555.6767, "399":129312.113, "39999999999":123.12314}
-4	doris4	{}
-5	doris5	{"null":187.123}
+3	doris3	{"null":187.123, "333":555.6767, "399":129312.113, "39999999999":123.12314}
+4	doris4	{"null":NULL, "null":NULL}
+5	doris5	{"null":187.123, "null":187.123}
 6	\N	\N
 7	doris7	\N
 8	doris8	{"-2147483648":4.94065645841247e-324, "2147483647":1.7976931348623157e+308}
@@ -137,8 +137,8 @@
 1	doris1	{"a":100, "b":111}
 2	doris2	{"a":200, "b":222}
 3	doris3	{"a":NULL, "b":333, "c":399, "d":399999999999999}
-4	doris4	{NULL:NULL, NULL:NULL}
-5	doris5	{NULL:100, "b":NULL}
+4	doris4	{"null":NULL, "null":NULL}
+5	doris5	{"null":100, "b":NULL}
 6	\N	\N
 7	doris7	\N
 8	doris8	{"max_bigint":9223372036854775807, "min_bigint":-9223372036854775808}
@@ -147,8 +147,8 @@
 1	doris1	{"a":100, "b":111}
 2	doris2	{"a":200, "b":222}
 3	doris3	{"a":NULL, "b":333, "c":399, "d":399999999999999}
-4	doris4	{}
-5	doris5	{"b":NULL}
+4	doris4	{"null":NULL, "null":NULL}
+5	doris5	{"null":100, "b":NULL}
 6	\N	\N
 7	doris7	\N
 8	doris8	{"max_bigint":9223372036854775807, "min_bigint":-9223372036854775808}
@@ -157,8 +157,8 @@
 1	doris1	{"a":1, "b":0}
 2	doris2	{"a":0, "b":0}
 3	doris3	{"a":1, "b":NULL, "c":1, "d":0}
-4	doris4	{NULL:NULL, NULL:NULL}
-5	doris5	{NULL:0, "b":1}
+4	doris4	{"null":NULL, "null":NULL}
+5	doris5	{"null":0, "b":1}
 6	\N	\N
 7	doris7	\N
 8	doris8	{"true":1, "false":0}
@@ -167,8 +167,8 @@
 1	doris1	{"a":1, "b":0}
 2	doris2	{"a":0, "b":0}
 3	doris3	{"a":1, "b":NULL, "c":1, "d":0}
-4	doris4	{}
-5	doris5	{"b":1}
+4	doris4	{"null":NULL, "null":NULL}
+5	doris5	{"null":0, "b":1}
 6	\N	\N
 7	doris7	\N
 8	doris8	{"true":1, "false":0}
@@ -176,9 +176,9 @@
 -- !select_base9 --
 1	doris1	{100:1, 111:1}
 2	doris2	{200:0, 222:0}
-3	doris3	{NULL:1, 333:0, 399:0, 3999:1}
-4	doris4	{NULL:NULL, NULL:NULL}
-5	doris5	{NULL:1, NULL:1}
+3	doris3	{111:1, 333:0, 399:0, 3999:1}
+4	doris4	{111:NULL, 111:NULL}
+5	doris5	{111:1, 111:1}
 6	\N	\N
 7	doris7	\N
 8	doris8	{-2147483648:0, 2147483647:0}
@@ -187,9 +187,9 @@
 -- !select_load9 --
 1	doris1	{100:1, 111:1}
 2	doris2	{200:0, 222:0}
-3	doris3	{333:0, 399:0, 3999:1}
-4	doris4	{}
-5	doris5	{}
+3	doris3	{111:1, 333:0, 399:0, 3999:1}
+4	doris4	{111:NULL, 111:NULL}
+5	doris5	{111:1, 111:1}
 6	\N	\N
 7	doris7	\N
 8	doris8	{-2147483648:0, 2147483647:0}
@@ -198,9 +198,9 @@
 -- !select_base10 --
 1	doris1	{2023-04-20 01:02:03:"null", 2018-04-20 10:40:35:"b"}
 2	doris2	{2000-04-20 00:00:00:"a", 1967-12-31 12:24:56:"b"}
-3	doris3	{NULL:"a", 2023-01-01 00:00:00:"b", 2023-02-27 00:01:02:"d"}
-4	doris4	{NULL:NULL, NULL:NULL}
-5	doris5	{NULL:"100", NULL:"b"}
+3	doris3	{2023-01-01 00:00:00:"b", 2023-02-27 00:01:02:"d"}
+4	doris4	{}
+5	doris5	{}
 6	\N	\N
 7	doris7	\N
 8	doris8	{2025-12-31 12:01:41:"min_largeint", 2006-02-19 09:01:02:"max_largeint"}
@@ -222,9 +222,9 @@
 -- !select_base11 --
 1	doris1	{2023-04-20 01:02:03:NULL, 2018-04-20 10:40:35:123}
 2	doris2	{2000-04-20 00:00:00:-2147483648, 1967-12-31 12:24:56:2147483647}
-3	doris3	{NULL:4574, 2023-01-01 00:00:00:1246, 2023-02-27 00:01:02:5646}
-4	doris4	{NULL:NULL, NULL:NULL}
-5	doris5	{NULL:87676, NULL:234}
+3	doris3	{2023-01-01 00:00:00:1246, 2023-02-27 00:01:02:5646}
+4	doris4	{}
+5	doris5	{}
 6	\N	\N
 7	doris7	\N
 8	doris8	{2025-12-31 12:01:41:524524, 2006-02-19 09:01:02:2534}
@@ -242,9 +242,9 @@
 -- !select_base12 --
 1	doris1	{2023-04-20:NULL, 2018-04-20:123}
 2	doris2	{2000-04-20:-2147483648, 1967-12-31:2147483647}
-3	doris3	{NULL:4574, 2023-01-01:1246, 2023-02-27:5646}
-4	doris4	{NULL:NULL, NULL:NULL}
-5	doris5	{NULL:87676, NULL:234}
+3	doris3	{2023-01-01:1246, 2023-02-27:5646}
+4	doris4	{}
+5	doris5	{}
 6	\N	\N
 7	doris7	\N
 8	doris8	{2025-12-31:524524, 2006-02-19:2534}
@@ -262,9 +262,9 @@
 -- !select_base13 --
 1	doris1	{2023-04-20:"null", 2018-04-20:NULL}
 2	doris2	{2000-04-20:"-2147483648", 1967-12-31:"2147483647"}
-3	doris3	{NULL:"4574", 2023-01-01:"1246", 2023-02-27:"5646"}
-4	doris4	{NULL:NULL, NULL:NULL}
-5	doris5	{NULL:"doris", NULL:"nereids"}
+3	doris3	{2023-01-01:"1246", 2023-02-27:"5646"}
+4	doris4	{}
+5	doris5	{}
 6	\N	\N
 7	doris7	\N
 8	doris8	{2025-12-31:"min_largeint", 2006-02-19:"max_largeint"}
@@ -282,9 +282,9 @@
 -- !select_base14 --
 1	doris1	{2023-04-20 12:20:03:"null", 2018-04-20 12:59:59:NULL}
 2	doris2	{2000-04-20 23:59:59:"-2147483648", 1967-12-31 00:00:00:"2147483647"}
-3	doris3	{NULL:"4574", 2023-01-01 07:24:54:"1246", 2023-02-27 15:12:13:"5646"}
-4	doris4	{NULL:NULL, NULL:NULL}
-5	doris5	{NULL:"doris", NULL:"nereids"}
+3	doris3	{2023-01-01 07:24:54:"1246", 2023-02-27 15:12:13:"5646"}
+4	doris4	{}
+5	doris5	{}
 6	\N	\N
 7	doris7	\N
 8	doris8	{2025-12-31 11:22:33:"min_largeint", 2006-02-19 00:44:55:"max_largeint"}
@@ -302,9 +302,9 @@
 -- !select_base15 --
 1	doris1	{100:"null", 111:"b"}
 2	doris2	{200:"a", 222:"b"}
-3	doris3	{NULL:"a", 333:"b", 399:"c", 399999999999999:"d"}
-4	doris4	{NULL:NULL, NULL:NULL}
-5	doris5	{NULL:"100", NULL:"b"}
+3	doris3	{111:"a", 333:"b", 399:"c", 399999999999999:"d"}
+4	doris4	{111:NULL, 111:NULL}
+5	doris5	{111:"100", 111:"b"}
 6	\N	\N
 7	doris7	\N
 8	doris8	{-9223372036854775808:"min_bigint", 9223372036854775807:"max_bigint"}
@@ -314,9 +314,9 @@
 -- !select_load15 --
 1	doris1	{100:"null", 111:"b"}
 2	doris2	{200:"a", 222:"b"}
-3	doris3	{333:"b", 399:"c", 399999999999999:"d"}
-4	doris4	{}
-5	doris5	{}
+3	doris3	{111:"a", 333:"b", 399:"c", 399999999999999:"d"}
+4	doris4	{111:NULL, 111:NULL}
+5	doris5	{111:"100", 111:"b"}
 6	\N	\N
 7	doris7	\N
 8	doris8	{-9223372036854775808:"min_bigint", 9223372036854775807:"max_bigint"}
@@ -326,9 +326,9 @@
 -- !select_base16 --
 1	doris1	{1:"null", 0:"b"}
 2	doris2	{1:"a", 1:"b"}
-3	doris3	{NULL:"a", 1:"b", 0:"c", 0:"d"}
-4	doris4	{NULL:NULL, NULL:NULL}
-5	doris5	{NULL:"100", NULL:"b"}
+3	doris3	{1:"a", 1:"b", 0:"c", 0:"d"}
+4	doris4	{1:NULL, 1:NULL}
+5	doris5	{1:"100", 1:"b"}
 6	\N	\N
 7	doris7	\N
 8	doris8	{0:"min_bigint", 0:"max_bigint"}
@@ -338,9 +338,9 @@
 -- !select_load16 --
 1	doris1	{1:"null", 0:"b"}
 2	doris2	{1:"a", 1:"b"}
-3	doris3	{1:"b", 0:"c", 0:"d"}
-4	doris4	{}
-5	doris5	{}
+3	doris3	{1:"a", 1:"b", 0:"c", 0:"d"}
+4	doris4	{1:NULL, 1:NULL}
+5	doris5	{1:"100", 1:"b"}
 6	\N	\N
 7	doris7	\N
 8	doris8	{0:"min_bigint", 0:"max_bigint"}
@@ -350,9 +350,9 @@
 -- !select_base17 --
 1	doris1	{1:"xxx", 0:"b"}
 2	doris2	{1:"a", 1:"b"}
-3	doris3	{NULL:"a", 1:"b", 0:"c", 0:"d"}
-4	doris4	{NULL:NULL, NULL:NULL}
-5	doris5	{NULL:"100", NULL:"b"}
+3	doris3	{1:"a", 1:"b", 0:"c", 0:"d"}
+4	doris4	{1:NULL, 1:NULL}
+5	doris5	{1:"100", 1:"b"}
 6	\N	\N
 7	doris7	\N
 8	doris8	{0:"min_bigint", 0:"max_bigint"}
@@ -362,9 +362,9 @@
 -- !select_load17 --
 1	doris1	{1:"xxx", 0:"b"}
 2	doris2	{1:"a", 1:"b"}
-3	doris3	{1:"b", 0:"c", 0:"d"}
-4	doris4	{}
-5	doris5	{}
+3	doris3	{1:"a", 1:"b", 0:"c", 0:"d"}
+4	doris4	{1:NULL, 1:NULL}
+5	doris5	{1:"100", 1:"b"}
 6	\N	\N
 7	doris7	\N
 8	doris8	{0:"min_bigint", 0:"max_bigint"}
@@ -374,9 +374,9 @@
 -- !select_base18 --
 1	doris1	{"doris":"null", "nereids":"b"}
 2	doris2	{"ftw":"a", "cyx":"b"}
-3	doris3	{NULL:"a", "333":"b", "399":"c", "399999999999999":"d"}
-4	doris4	{NULL:NULL, NULL:NULL}
-5	doris5	{"null":"100", NULL:"b"}
+3	doris3	{"null":"a", "333":"b", "399":"c", "399999999999999":"d"}
+4	doris4	{"null":NULL, "null":NULL}
+5	doris5	{"null":"100", "null":"b"}
 6	\N	\N
 7	doris7	\N
 8	doris8	{"170141183460469231731687303715884105728":"min_largeint", "170141183460469231731687303715884105727":"max_largeint"}
@@ -386,9 +386,9 @@
 -- !select_load18 --
 1	doris1	{"doris":"null", "nereids":"b"}
 2	doris2	{"ftw":"a", "cyx":"b"}
-3	doris3	{"333":"b", "399":"c", "399999999999999":"d"}
-4	doris4	{}
-5	doris5	{"null":"100"}
+3	doris3	{"null":"a", "333":"b", "399":"c", "399999999999999":"d"}
+4	doris4	{"null":NULL, "null":NULL}
+5	doris5	{"null":"100", "null":"b"}
 6	\N	\N
 7	doris7	\N
 8	doris8	{"170141183460469231731687303715884105728":"min_largeint", "170141183460469231731687303715884105727":"max_largeint"}

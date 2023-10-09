@@ -80,8 +80,8 @@ suite("test_outfile_parquet_map_type", "p0") {
         // insert data
         sql """ insert into ${export_table_name} values (1, 'doris1', {'a': 100, 'b': 111}), (2, 'doris2', {'a': 200, 'b': 222}); """
         sql """ insert into ${export_table_name} values (3, 'doris3', {'a': null, 'b': 333, 'c':399, 'd':399999999999999}); """
-        sql """ insert into ${export_table_name} values (4, 'doris4', {null: null, null:null}); """
-        sql """ insert into ${export_table_name} values (5, 'doris5', {null: 100, 'b': null}); """
+        sql """ insert into ${export_table_name} values (4, 'doris4', {'null': null, 'null':null}); """
+        sql """ insert into ${export_table_name} values (5, 'doris5', {'null': 100, 'b': null}); """
         sql """ insert into ${export_table_name} values (6, null, null); """
         sql """ insert into ${export_table_name} values (7, 'doris7', null); """
 
@@ -113,9 +113,9 @@ suite("test_outfile_parquet_map_type", "p0") {
 
         // insert data
         sql """ insert into ${export_table_name} values (1, 'doris1', {100: 'null', 111:'b'}), (2, 'doris2', {200:'a', 222:'b'}); """
-        sql """ insert into ${export_table_name} values (3, 'doris3', {null: 'a', 333:'b', 399:'c', 399999999999999:'d'}); """
-        sql """ insert into ${export_table_name} values (4, 'doris4', {null: null, null:null}); """
-        sql """ insert into ${export_table_name} values (5, 'doris5', {null: '100', null:'b'}); """
+        sql """ insert into ${export_table_name} values (3, 'doris3', {111: 'a', 333:'b', 399:'c', 399999999999999:'d'}); """
+        sql """ insert into ${export_table_name} values (4, 'doris4', {111: null, 111:null}); """
+        sql """ insert into ${export_table_name} values (5, 'doris5', {111: '100', 111:'b'}); """
         sql """ insert into ${export_table_name} values (6, null, null); """
         sql """ insert into ${export_table_name} values (7, 'doris7', null); """
         sql """ insert into ${export_table_name} values (8, 'doris8', {-170141183460469231731687303715884105728: 'min_largeint', 170141183460469231731687303715884105727: 'max_largeint'}); """
@@ -149,9 +149,9 @@ suite("test_outfile_parquet_map_type", "p0") {
 
         // insert data
         sql """ insert into ${export_table_name} values (1, 'doris1', {100: 0.123, 111:1.2345}), (2, 'doris2', {200:8738931.12312, 222:999.999}); """
-        sql """ insert into ${export_table_name} values (3, 'doris3', {null: 1111034.123, 333:7771.1231, 399:0.441241, 39999:0.441241}); """
-        sql """ insert into ${export_table_name} values (4, 'doris4', {null: null, null:null}); """
-        sql """ insert into ${export_table_name} values (5, 'doris5', {null: 1111034.123, null:8738931.12312}); """
+        sql """ insert into ${export_table_name} values (3, 'doris3', {111: 1111034.123, 333:7771.1231, 399:0.441241, 39999:0.441241}); """
+        sql """ insert into ${export_table_name} values (4, 'doris4', {111: null, 111:null}); """
+        sql """ insert into ${export_table_name} values (5, 'doris5', {111: 1111034.123, 111:8738931.12312}); """
         sql """ insert into ${export_table_name} values (6, null, null); """
         sql """ insert into ${export_table_name} values (7, 'doris7', null); """
         sql """ insert into ${export_table_name} values (8, 'doris8', {${Integer.MIN_VALUE}: 1.2345, ${Integer.MAX_VALUE}: 999.999}); """
@@ -185,9 +185,9 @@ suite("test_outfile_parquet_map_type", "p0") {
 
         // insert data
         sql """ insert into ${export_table_name} values (1, 'doris1', {100: ${Double.MIN_VALUE}, 111:${Double.MAX_VALUE}}), (2, 'doris2', {200: 123.123, 222:0.9999999}); """
-        sql """ insert into ${export_table_name} values (3, 'doris3', {null: 187.123, 333:555.6767, 399:129312.113, 3999:123.12314}); """
-        sql """ insert into ${export_table_name} values (4, 'doris4', {null: null, null:null}); """
-        sql """ insert into ${export_table_name} values (5, 'doris5', {null: 187.123, null:187.123}); """
+        sql """ insert into ${export_table_name} values (3, 'doris3', {111: 187.123, 333:555.6767, 399:129312.113, 3999:123.12314}); """
+        sql """ insert into ${export_table_name} values (4, 'doris4', {111: null, 111:null}); """
+        sql """ insert into ${export_table_name} values (5, 'doris5', {111: 187.123, 111:187.123}); """
         sql """ insert into ${export_table_name} values (6, null, null); """
         sql """ insert into ${export_table_name} values (7, 'doris7', null); """
         sql """ insert into ${export_table_name} values (8, 'doris8', {${Integer.MIN_VALUE}: ${Double.MIN_VALUE}, ${Integer.MAX_VALUE}: ${Double.MAX_VALUE}}); """
@@ -221,9 +221,9 @@ suite("test_outfile_parquet_map_type", "p0") {
 
         // insert data
         sql """ insert into ${export_table_name} values (1, 'doris1', {'k1': 0.123, '111':1.2345}), (2, 'doris2', {'200':8738931.12312, 'doris':999.999}); """
-        sql """ insert into ${export_table_name} values (3, 'doris3', {null: 1111034.123, '333':7771.1231, '399':0.441241, '3999999999':0.441241}); """
-        sql """ insert into ${export_table_name} values (4, 'doris4', {null: null, null:null}); """
-        sql """ insert into ${export_table_name} values (5, 'doris5', {'null': 1111034.123, null:8738931.12312}); """
+        sql """ insert into ${export_table_name} values (3, 'doris3', {'null': 1111034.123, '333':7771.1231, '399':0.441241, '3999999999':0.441241}); """
+        sql """ insert into ${export_table_name} values (4, 'doris4', {'null': null, 'null':null}); """
+        sql """ insert into ${export_table_name} values (5, 'doris5', {'null': 1111034.123, 'null':8738931.12312}); """
         sql """ insert into ${export_table_name} values (6, null, null); """
         sql """ insert into ${export_table_name} values (7, 'doris7', null); """
         sql """ insert into ${export_table_name} values (8, 'doris8', {'${Integer.MIN_VALUE}': 1.2345, '${Integer.MAX_VALUE}': 999.999}); """
@@ -259,9 +259,9 @@ suite("test_outfile_parquet_map_type", "p0") {
 
         // insert data
         sql """ insert into ${export_table_name} values (1, 'doris1', {'100': ${Double.MIN_VALUE}, 'doris':${Double.MAX_VALUE}}), (2, 'doris2', {'nereids': 123.123, '222':0.9999999}); """
-        sql """ insert into ${export_table_name} values (3, 'doris3', {null: 187.123, '333':555.6767, '399':129312.113, '39999999999':123.12314}); """
-        sql """ insert into ${export_table_name} values (4, 'doris4', {null: null, null:null}); """
-        sql """ insert into ${export_table_name} values (5, 'doris5', {null: 187.123, 'null':187.123}); """
+        sql """ insert into ${export_table_name} values (3, 'doris3', {'null': 187.123, '333':555.6767, '399':129312.113, '39999999999':123.12314}); """
+        sql """ insert into ${export_table_name} values (4, 'doris4', {'null': null, 'null':null}); """
+        sql """ insert into ${export_table_name} values (5, 'doris5', {'null': 187.123, 'null':187.123}); """
         sql """ insert into ${export_table_name} values (6, null, null); """
         sql """ insert into ${export_table_name} values (7, 'doris7', null); """
         sql """ insert into ${export_table_name} values (8, 'doris8', {'${Integer.MIN_VALUE}': ${Double.MIN_VALUE}, '${Integer.MAX_VALUE}': ${Double.MAX_VALUE}}); """
@@ -296,8 +296,8 @@ suite("test_outfile_parquet_map_type", "p0") {
         // insert data
         sql """ insert into ${export_table_name} values (1, 'doris1', {'a': 100, 'b': 111}), (2, 'doris2', {'a': 200, 'b': 222}); """
         sql """ insert into ${export_table_name} values (3, 'doris3', {'a': null, 'b': 333, 'c':399, 'd':399999999999999}); """
-        sql """ insert into ${export_table_name} values (4, 'doris4', {null: null, null:null}); """
-        sql """ insert into ${export_table_name} values (5, 'doris5', {null: 100, 'b': null}); """
+        sql """ insert into ${export_table_name} values (4, 'doris4', {'null': null, 'null':null}); """
+        sql """ insert into ${export_table_name} values (5, 'doris5', {'null': 100, 'b': null}); """
         sql """ insert into ${export_table_name} values (6, null, null); """
         sql """ insert into ${export_table_name} values (7, 'doris7', null); """
         sql """ insert into ${export_table_name} values (8, 'doris8', {'max_bigint': ${Long.MAX_VALUE}, 'min_bigint': ${Long.MIN_VALUE}}); """
@@ -331,8 +331,8 @@ suite("test_outfile_parquet_map_type", "p0") {
         // insert data
         sql """ insert into ${export_table_name} values (1, 'doris1', {'a': true, 'b': false}), (2, 'doris2', {'a': false, 'b': false}); """
         sql """ insert into ${export_table_name} values (3, 'doris3', {'a': true, 'b': null, 'c':399, 'd':false}); """
-        sql """ insert into ${export_table_name} values (4, 'doris4', {null: null, null:null}); """
-        sql """ insert into ${export_table_name} values (5, 'doris5', {null: false, 'b': true}); """
+        sql """ insert into ${export_table_name} values (4, 'doris4', {'null': null, 'null':null}); """
+        sql """ insert into ${export_table_name} values (5, 'doris5', {'null': false, 'b': true}); """
         sql """ insert into ${export_table_name} values (6, null, null); """
         sql """ insert into ${export_table_name} values (7, 'doris7', null); """
         sql """ insert into ${export_table_name} values (8, 'doris8', {'true': true, 'false': false}); """
@@ -365,9 +365,9 @@ suite("test_outfile_parquet_map_type", "p0") {
 
         // insert data
         sql """ insert into ${export_table_name} values (1, 'doris1', {100: true, 111:true}), (2, 'doris2', {200: false, 222:false}); """
-        sql """ insert into ${export_table_name} values (3, 'doris3', {null: true, 333:false, 399:false, 3999:true}); """
-        sql """ insert into ${export_table_name} values (4, 'doris4', {null: null, null:null}); """
-        sql """ insert into ${export_table_name} values (5, 'doris5', {null: true, null:true}); """
+        sql """ insert into ${export_table_name} values (3, 'doris3', {111: true, 333:false, 399:false, 3999:true}); """
+        sql """ insert into ${export_table_name} values (4, 'doris4', {111: null, 111:null}); """
+        sql """ insert into ${export_table_name} values (5, 'doris5', {111: true, 111:true}); """
         sql """ insert into ${export_table_name} values (6, null, null); """
         sql """ insert into ${export_table_name} values (7, 'doris7', null); """
         sql """ insert into ${export_table_name} values (8, 'doris8', {${Integer.MIN_VALUE}: false, ${Integer.MAX_VALUE}: false}); """
@@ -400,9 +400,9 @@ suite("test_outfile_parquet_map_type", "p0") {
 
         // insert data
         sql """ insert into ${export_table_name} values (1, 'doris1', {'2023-04-20 01:02:03': 'null', '2018-04-20 10:40:35':'b'}), (2, 'doris2', {'2000-04-20 00:00:00':'a', '1967-12-31 12:24:56':'b'}); """
-        sql """ insert into ${export_table_name} values (3, 'doris3', {null: 'a', '2023-01-01 00:00:00':'b', '2023-02-27 00:01:02':'d'}); """
-        sql """ insert into ${export_table_name} values (4, 'doris4', {null: null, null:null}); """
-        sql """ insert into ${export_table_name} values (5, 'doris5', {null: '100', null:'b'}); """
+        sql """ insert into ${export_table_name} values (3, 'doris3', {'2023-01-01 00:00:00':'b', '2023-02-27 00:01:02':'d'}); """
+        sql """ insert into ${export_table_name} values (4, 'doris4', {}); """
+        sql """ insert into ${export_table_name} values (5, 'doris5', {}); """
         sql """ insert into ${export_table_name} values (6, null, null); """
         sql """ insert into ${export_table_name} values (7, 'doris7', null); """
         sql """ insert into ${export_table_name} values (8, 'doris8', {'2025-12-31 12:01:41': 'min_largeint', '2006-02-19 09:01:02': 'max_largeint'}); """
@@ -437,9 +437,9 @@ suite("test_outfile_parquet_map_type", "p0") {
 
         // insert data
         sql """ insert into ${export_table_name} values (1, 'doris1', {'2023-04-20 01:02:03': null, '2018-04-20 10:40:35': 123}), (2, 'doris2', {'2000-04-20 00:00:00':${Integer.MIN_VALUE}, '1967-12-31 12:24:56':${Integer.MAX_VALUE}}); """
-        sql """ insert into ${export_table_name} values (3, 'doris3', {null: 4574, '2023-01-01 00:00:00':1246, '2023-02-27 00:01:02':5646}); """
-        sql """ insert into ${export_table_name} values (4, 'doris4', {null: null, null:null}); """
-        sql """ insert into ${export_table_name} values (5, 'doris5', {null: 87676, null:234}); """
+        sql """ insert into ${export_table_name} values (3, 'doris3', {'2023-01-01 00:00:00':1246, '2023-02-27 00:01:02':5646}); """
+        sql """ insert into ${export_table_name} values (4, 'doris4', {}); """
+        sql """ insert into ${export_table_name} values (5, 'doris5', {}); """
         sql """ insert into ${export_table_name} values (6, null, null); """
         sql """ insert into ${export_table_name} values (7, 'doris7', null); """
         sql """ insert into ${export_table_name} values (8, 'doris8', {'2025-12-31 12:01:41': 524524, '2006-02-19 09:01:02': 2534}); """
@@ -472,9 +472,9 @@ suite("test_outfile_parquet_map_type", "p0") {
 
         // insert data
         sql """ insert into ${export_table_name} values (1, 'doris1', {'2023-04-20': null, '2018-04-20': 123}), (2, 'doris2', {'2000-04-20':${Integer.MIN_VALUE}, '1967-12-31':${Integer.MAX_VALUE}}); """
-        sql """ insert into ${export_table_name} values (3, 'doris3', {null: 4574, '2023-01-01':1246, '2023-02-27':5646}); """
-        sql """ insert into ${export_table_name} values (4, 'doris4', {null: null, null:null}); """
-        sql """ insert into ${export_table_name} values (5, 'doris5', {null: 87676, null:234}); """
+        sql """ insert into ${export_table_name} values (3, 'doris3', {'2023-01-01':1246, '2023-02-27':5646}); """
+        sql """ insert into ${export_table_name} values (4, 'doris4', {}); """
+        sql """ insert into ${export_table_name} values (5, 'doris5', {}); """
         sql """ insert into ${export_table_name} values (6, null, null); """
         sql """ insert into ${export_table_name} values (7, 'doris7', null); """
         sql """ insert into ${export_table_name} values (8, 'doris8', {'2025-12-31': 524524, '2006-02-19': 2534}); """
@@ -507,9 +507,9 @@ suite("test_outfile_parquet_map_type", "p0") {
 
         // insert data
         sql """ insert into ${export_table_name} values (1, 'doris1', {'2023-04-20': 'null', '2018-04-20': null}), (2, 'doris2', {'2000-04-20':'${Integer.MIN_VALUE}', '1967-12-31':'${Integer.MAX_VALUE}'}); """
-        sql """ insert into ${export_table_name} values (3, 'doris3', {null: '4574', '2023-01-01':'1246', '2023-02-27':'5646'}); """
-        sql """ insert into ${export_table_name} values (4, 'doris4', {null: null, null:null}); """
-        sql """ insert into ${export_table_name} values (5, 'doris5', {null: 'doris', null:'nereids'}); """
+        sql """ insert into ${export_table_name} values (3, 'doris3', {'2023-01-01':'1246', '2023-02-27':'5646'}); """
+        sql """ insert into ${export_table_name} values (4, 'doris4', {}); """
+        sql """ insert into ${export_table_name} values (5, 'doris5', {}); """
         sql """ insert into ${export_table_name} values (6, null, null); """
         sql """ insert into ${export_table_name} values (7, 'doris7', null); """
         sql """ insert into ${export_table_name} values (8, 'doris8', {'2025-12-31': 'min_largeint', '2006-02-19': 'max_largeint'}); """
@@ -542,9 +542,9 @@ suite("test_outfile_parquet_map_type", "p0") {
 
         // insert data
         sql """ insert into ${export_table_name} values (1, 'doris1', {'2023-04-20 12:20:03': 'null', '2018-04-20 12:59:59': null}), (2, 'doris2', {'2000-04-20 23:59:59':'${Integer.MIN_VALUE}', '1967-12-31 00:00:00':'${Integer.MAX_VALUE}'}); """
-        sql """ insert into ${export_table_name} values (3, 'doris3', {null: '4574', '2023-01-01 07:24:54':'1246', '2023-02-27 15:12:13':'5646'}); """
-        sql """ insert into ${export_table_name} values (4, 'doris4', {null: null, null:null}); """
-        sql """ insert into ${export_table_name} values (5, 'doris5', {null: 'doris', null:'nereids'}); """
+        sql """ insert into ${export_table_name} values (3, 'doris3', {'2023-01-01 07:24:54':'1246', '2023-02-27 15:12:13':'5646'}); """
+        sql """ insert into ${export_table_name} values (4, 'doris4', {}); """
+        sql """ insert into ${export_table_name} values (5, 'doris5', {}); """
         sql """ insert into ${export_table_name} values (6, null, null); """
         sql """ insert into ${export_table_name} values (7, 'doris7', null); """
         sql """ insert into ${export_table_name} values (8, 'doris8', {'2025-12-31 11:22:33': 'min_largeint', '2006-02-19 00:44:55': 'max_largeint'}); """
@@ -577,9 +577,9 @@ suite("test_outfile_parquet_map_type", "p0") {
 
         // insert data
         sql """ insert into ${export_table_name} values (1, 'doris1', {100: 'null', 111:'b'}), (2, 'doris2', {200:'a', 222:'b'}); """
-        sql """ insert into ${export_table_name} values (3, 'doris3', {null: 'a', 333:'b', 399:'c', 399999999999999:'d'}); """
-        sql """ insert into ${export_table_name} values (4, 'doris4', {null: null, null:null}); """
-        sql """ insert into ${export_table_name} values (5, 'doris5', {null: '100', null:'b'}); """
+        sql """ insert into ${export_table_name} values (3, 'doris3', {111: 'a', 333:'b', 399:'c', 399999999999999:'d'}); """
+        sql """ insert into ${export_table_name} values (4, 'doris4', {111: null, 111:null}); """
+        sql """ insert into ${export_table_name} values (5, 'doris5', {111: '100', 111:'b'}); """
         sql """ insert into ${export_table_name} values (6, null, null); """
         sql """ insert into ${export_table_name} values (7, 'doris7', null); """
         sql """ insert into ${export_table_name} values (8, 'doris8', {${Long.MIN_VALUE}: 'min_bigint', ${Long.MAX_VALUE}: 'max_bigint'}); """
@@ -614,9 +614,9 @@ suite("test_outfile_parquet_map_type", "p0") {
 
         // insert data
         sql """ insert into ${export_table_name} values (1, "doris1", {true:"null",false:"b"}), (2, "doris2", {true:"a", true:"b"}); """
-        sql """ insert into ${export_table_name} values (3, "doris3", {null: "a", true:"b", false:"c", false:"d"}); """
-        sql """ insert into ${export_table_name} values (4, "doris4", {null: null, null:null}); """
-        sql """ insert into ${export_table_name} values (5, "doris5", {null: "100", null:"b"}); """
+        sql """ insert into ${export_table_name} values (3, "doris3", {true: "a", true:"b", false:"c", false:"d"}); """
+        sql """ insert into ${export_table_name} values (4, "doris4", {true: null, true:null}); """
+        sql """ insert into ${export_table_name} values (5, "doris5", {true: "100", true:"b"}); """
         sql """ insert into ${export_table_name} values (6, null, null); """
         sql """ insert into ${export_table_name} values (7, "doris7", null); """
         sql """ insert into ${export_table_name} values (8, "doris8", {false: "min_bigint", false: "max_bigint"}); """
@@ -650,9 +650,9 @@ suite("test_outfile_parquet_map_type", "p0") {
 
         // insert data
         sql """ insert into ${export_table_name} values (1, 'doris1', {1: 'xxx', 0:'b'}), (2, 'doris2', {1:'a', 1:'b'}); """
-        sql """ insert into ${export_table_name} values (3, 'doris3', {null: 'a', 1:'b', 0:'c', 0:'d'}); """
-        sql """ insert into ${export_table_name} values (4, 'doris4', {null: null, null:null}); """
-        sql """ insert into ${export_table_name} values (5, 'doris5', {null: '100', null:'b'}); """
+        sql """ insert into ${export_table_name} values (3, 'doris3', {1: 'a', 1:'b', 0:'c', 0:'d'}); """
+        sql """ insert into ${export_table_name} values (4, 'doris4', {1: null, 1:null}); """
+        sql """ insert into ${export_table_name} values (5, 'doris5', {1: '100', 1:'b'}); """
         sql """ insert into ${export_table_name} values (6, null, null); """
         sql """ insert into ${export_table_name} values (7, 'doris7', null); """
         sql """ insert into ${export_table_name} values (8, 'doris8', {0: 'min_bigint', 0: 'max_bigint'}); """
@@ -686,9 +686,9 @@ suite("test_outfile_parquet_map_type", "p0") {
 
         // insert data
         sql """ insert into ${export_table_name} values (1, 'doris1', {'doris': 'null', 'nereids':'b'}), (2, 'doris2', {'ftw':'a', 'cyx':'b'}); """
-        sql """ insert into ${export_table_name} values (3, 'doris3', {null: 'a', '333':'b', '399':'c', '399999999999999':'d'}); """
-        sql """ insert into ${export_table_name} values (4, 'doris4', {null: null, null:null}); """
-        sql """ insert into ${export_table_name} values (5, 'doris5', {'null': '100', null:'b'}); """
+        sql """ insert into ${export_table_name} values (3, 'doris3', {'null': 'a', '333':'b', '399':'c', '399999999999999':'d'}); """
+        sql """ insert into ${export_table_name} values (4, 'doris4', {'null': null, 'null':null}); """
+        sql """ insert into ${export_table_name} values (5, 'doris5', {'null': '100', 'null':'b'}); """
         sql """ insert into ${export_table_name} values (6, null, null); """
         sql """ insert into ${export_table_name} values (7, 'doris7', null); """
         sql """ insert into ${export_table_name} values (8, 'doris8', {'170141183460469231731687303715884105728': 'min_largeint', '170141183460469231731687303715884105727': 'max_largeint'}); """

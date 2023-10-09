@@ -39,8 +39,8 @@
 1	doris1	{"a":100, "b":111}
 2	doris2	{"a":200, "b":222}
 3	doris3	{"a":NULL, "b":333, "c":399, "d":399999999999999}
-4	doris4	{NULL:NULL, NULL:NULL}
-5	doris5	{NULL:100, "b":NULL}
+4	doris4	{"null":NULL, "null":NULL}
+5	doris5	{"null":100, "b":NULL}
 6	\N	\N
 7	doris7	\N
 
@@ -48,8 +48,8 @@
 1	doris1	{"a":"100", "b":"111"}
 2	doris2	{"a":"200", "b":"222"}
 3	doris3	{"a":NULL, "b":"333", "c":"399", "d":"399999999999999"}
-4	doris4	{}
-5	doris5	{"b":NULL}
+4	doris4	{"null":NULL, "null":NULL}
+5	doris5	{"null":"100", "b":NULL}
 6	\N	\N
 7	doris7	\N
 
@@ -57,15 +57,15 @@
 1	doris1	{"a":100, "b":111}
 2	doris2	{"a":200, "b":222}
 3	doris3	{"a":NULL, "b":333, "c":399, "d":399999999999999}
-4	doris4	{NULL:NULL, NULL:NULL}
-5	doris5	{NULL:100, "b":NULL}
+4	doris4	{"null":NULL, "null":NULL}
+5	doris5	{"null":100, "b":NULL}
 
 -- !select_load4 --
 1	doris1	{"a":"100", "b":"111"}
 2	doris2	{"a":"200", "b":"222"}
 3	doris3	{"a":NULL, "b":"333", "c":"399", "d":"399999999999999"}
-4	doris4	{}
-5	doris5	{"b":NULL}
+4	doris4	{"null":NULL, "null":NULL}
+5	doris5	{"null":"100", "b":NULL}
 
 -- !select_base5 --
 1	doris1	[9, 99, 999]

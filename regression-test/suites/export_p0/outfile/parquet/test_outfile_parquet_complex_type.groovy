@@ -149,8 +149,8 @@ suite("test_outfile_parquet_complex_type", "p0") {
         // insert data
         sql """ insert into ${export_table_name} values (1, 'doris1', {'a': 100, 'b': 111}), (2, 'doris2', {'a': 200, 'b': 222}); """
         sql """ insert into ${export_table_name} values (3, 'doris3', {'a': null, 'b': 333, 'c':399, 'd':399999999999999}); """
-        sql """ insert into ${export_table_name} values (4, 'doris4', {null: null, null:null}); """
-        sql """ insert into ${export_table_name} values (5, 'doris5', {null: 100, 'b': null}); """
+        sql """ insert into ${export_table_name} values (4, 'doris4', {'null': null, 'null':null}); """
+        sql """ insert into ${export_table_name} values (5, 'doris5', {'null': 100, 'b': null}); """
         sql """ insert into ${export_table_name} values (6, null, null); """
         sql """ insert into ${export_table_name} values (7, 'doris7', null); """
 
@@ -181,8 +181,8 @@ suite("test_outfile_parquet_complex_type", "p0") {
         // insert data
         sql """ insert into ${export_table_name} values (1, 'doris1', {'a': 100, 'b': 111}), (2, 'doris2', {'a': 200, 'b': 222}); """
         sql """ insert into ${export_table_name} values (3, 'doris3', {'a': null, 'b': 333, 'c':399, 'd':399999999999999}); """
-        sql """ insert into ${export_table_name} values (4, 'doris4', {null: null, null:null}); """
-        sql """ insert into ${export_table_name} values (5, 'doris5', {null: 100, 'b': null}); """
+        sql """ insert into ${export_table_name} values (4, 'doris4', {'null': null, 'null':null}); """
+        sql """ insert into ${export_table_name} values (5, 'doris5', {'null': 100, 'b': null}); """
 
         // test base data
         qt_select_base4 """ SELECT * FROM ${export_table_name} t ORDER BY user_id; """
