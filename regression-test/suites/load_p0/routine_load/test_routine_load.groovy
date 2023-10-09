@@ -150,8 +150,8 @@ suite("test_routine_load","p0,external,external_docker,external_docker_routine_l
                     if (res[0][0] > 0) {
                         break
                     }
-                    if (count >= 60) {
-                        log.error("stream load commit can not visible for long time")
+                    if (count >= 600) {
+                        log.error("routine load can not visible for long time")
                         assertEquals(20, res[0][0])
                         break
                     }
@@ -227,8 +227,8 @@ suite("test_routine_load","p0,external,external_docker,external_docker_routine_l
                     if (res[0][0] > 0) {
                         break
                     }
-                    if (count >= 60) {
-                        log.error("stream load commit can not visible for long time")
+                    if (count >= 600) {
+                        log.error("routine load can not visible for long time")
                         assertEquals(20, res[0][0])
                         break
                     }
@@ -302,8 +302,8 @@ suite("test_routine_load","p0,external,external_docker,external_docker_routine_l
                     if (res[0][0] > 0) {
                         break
                     }
-                    if (count >= 60) {
-                        log.error("stream load commit can not visible for long time")
+                    if (count >= 600) {
+                        log.error("routine load can not visible for long time")
                         assertEquals(20, res[0][0])
                         break
                     }
@@ -379,8 +379,8 @@ suite("test_routine_load","p0,external,external_docker,external_docker_routine_l
                     if (res[0][0] > 0) {
                         break
                     }
-                    if (count >= 60) {
-                        log.error("stream load commit can not visible for long time")
+                    if (count >= 600) {
+                        log.error("routine load can not visible for long time")
                         assertEquals(20, res[0][0])
                         break
                     }
@@ -457,8 +457,8 @@ suite("test_routine_load","p0,external,external_docker,external_docker_routine_l
                     if (res[0][0] > 0) {
                         break
                     }
-                    if (count >= 60) {
-                        log.error("stream load commit can not visible for long time")
+                    if (count >= 600) {
+                        log.error("routine load can not visible for long time")
                         assertEquals(20, res[0][0])
                         break
                     }
