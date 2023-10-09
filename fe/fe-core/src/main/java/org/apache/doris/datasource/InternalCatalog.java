@@ -3140,6 +3140,21 @@ public class InternalCatalog implements CatalogIf<Database> {
             Database db = new Database();
             db.readFields(dis);
             newChecksum ^= db.getId();
+
+            Database dbPrev = fullNameToDb.get(db.getFullName());
+            if (dbPrev != null) {
+                String errMsg;
+                if (dbPrev.isMysqlCompatibleDatabase() || db.isMysqlCompatibleDatabase()) {
+                    errMsg = String.format(
+                        "Mysql compatibility problem, previous checkpoint already has a database with full name "
+                        + "%s. If its name is mysql, try to add mysqldb_replace_name=\"mysql_comp\" in fe.conf.",
+                        db.getFullName());
+                } else {
+                    errMsg = String.format("Logical error, duplicated database fullname: %s, id: %d %d.",
+                                    db.getFullName(), db.getId(), fullNameToDb.get(db.getFullName()).getId());
+                }
+                throw new IOException(errMsg);
+            }
             idToDb.put(db.getId(), db);
             fullNameToDb.put(db.getFullName(), db);
             Env.getCurrentGlobalTransactionMgr().addDatabaseTransactionMgr(db.getId());

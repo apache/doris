@@ -2760,3 +2760,9 @@ show data （其他用法：HELP SHOW DATA）
 默认值：true
 
 暂时性配置项，开启后会启动后台线程自动将所有的olap表修改为可light schema change，修改结果可通过命令`show convert_light_schema_change [from db]` 来查看，将会展示所有非light schema change表的转换结果
+
+#### `mysqldb_replace_name`
+
+Default: mysql
+
+Doris 为了兼用 mysql 周边工具生态，会内置一个名为 mysql 的数据库，如果该数据库与用户自建数据库冲突，请修改这个字段，为 doris 内置的 mysql database 更换一个名字
