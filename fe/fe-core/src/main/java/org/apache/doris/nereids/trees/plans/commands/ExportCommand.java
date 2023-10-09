@@ -79,10 +79,7 @@ public class ExportCommand extends Command implements ForwardWithSync {
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(LABEL)
             .add(PARALLELISM)
-            .add(LoadStmt.EXEC_MEM_LIMIT)
-            .add(LoadStmt.TIMEOUT_PROPERTY)
             .add(LoadStmt.KEY_IN_PARAM_COLUMNS)
-            .add(LoadStmt.TIMEOUT_PROPERTY)
             .add(OutFileClause.PROP_MAX_FILE_SIZE)
             .add(OutFileClause.PROP_DELETE_EXISTING_FILES)
             .add(PropertyAnalyzer.PROPERTIES_COLUMN_SEPARATOR)
@@ -304,11 +301,11 @@ public class ExportCommand extends Command implements ForwardWithSync {
         exportJob.setQualifiedUser(ctx.getQualifiedUser());
         exportJob.setUserIdentity(ctx.getCurrentUserIdentity());
 
-        Optional<SessionVariable> optionalSessionVariable = Optional.ofNullable(
-                ConnectContext.get().getSessionVariable());
-        exportJob.setSessionVariables(optionalSessionVariable.orElse(VariableMgr.getDefaultSessionVariable()));
-        exportJob.setTimeoutSecond(optionalSessionVariable.orElse(VariableMgr.getDefaultSessionVariable())
-                .getQueryTimeoutS());
+        // Must copy session variable, because session variable may be changed during export job running.
+        SessionVariable clonedSessionVariable = VariableMgr.cloneSessionVariable(Optional.ofNullable(
+                ConnectContext.get().getSessionVariable()).orElse(VariableMgr.getDefaultSessionVariable()));
+        exportJob.setSessionVariables(clonedSessionVariable);
+        exportJob.setTimeoutSecond(clonedSessionVariable.getQueryTimeoutS());
 
         // exportJob generate outfile sql
         exportJob.generateOutfileLogicalPlans(RelationUtil.getQualifierName(ctx, this.nameParts));

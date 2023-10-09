@@ -2622,6 +2622,10 @@ public class SelectStmt extends QueryStmt {
         if (tbl.getTable().getType() != Table.TableType.OLAP) {
             return false;
         }
+        // ensure no sub query
+        if (!analyzer.isRootAnalyzer()) {
+            return false;
+        }
         OlapTable olapTable = (OlapTable) tbl.getTable();
         Preconditions.checkNotNull(eqPredicates);
         eqPredicates = getExpectedBinaryPredicates(eqPredicates, whereClause, TExprOpcode.EQ);

@@ -78,8 +78,8 @@ if [[ "$(uname -s)" != 'Darwin' ]]; then
 fi
 
 MAX_FILE_COUNT="$(ulimit -n)"
-if [[ "${MAX_FILE_COUNT}" -lt 65536 ]]; then
-    echo "Please set the maximum number of open file descriptors to be 65536 using 'ulimit -n 65536'."
+if [[ "${MAX_FILE_COUNT}" -lt 60000 ]]; then
+    echo "Please set the maximum number of open file descriptors larger than 60000, eg: 'ulimit -n 60000'."
     exit 1
 fi
 
@@ -208,6 +208,13 @@ if [[ -z "${JAVA_HOME}" ]]; then
     echo "You can set it in be.conf"
     exit 1
 fi
+
+for var in http_proxy HTTP_PROXY https_proxy HTTPS_PROXY; do
+    if [[ -n ${!var} ]]; then
+        echo "env '${var}' = '${!var}', need unset it using 'unset ${var}'"
+        exit 1
+    fi
+done
 
 if [[ ! -d "${LOG_DIR}" ]]; then
     mkdir -p "${LOG_DIR}"

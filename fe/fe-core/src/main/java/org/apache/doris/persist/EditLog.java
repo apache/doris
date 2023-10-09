@@ -87,7 +87,7 @@ import org.apache.doris.scheduler.job.Job;
 import org.apache.doris.scheduler.job.JobTask;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.AnalysisManager;
-import org.apache.doris.statistics.TableStats;
+import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -1124,11 +1124,15 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_UPDATE_TABLE_STATS: {
-                    env.getAnalysisManager().replayUpdateTableStatsStatus((TableStats) journal.getData());
+                    env.getAnalysisManager().replayUpdateTableStatsStatus((TableStatsMeta) journal.getData());
                     break;
                 }
                 case OperationType.OP_PERSIST_AUTO_JOB: {
                     env.getAnalysisManager().replayPersistSysJob((AnalysisInfo) journal.getData());
+                    break;
+                }
+                case OperationType.OP_DELETE_TABLE_STATS: {
+                    env.getAnalysisManager().replayTableStatsDeletion((TableStatsDeletionLog) journal.getData());
                     break;
                 }
                 default: {
@@ -1977,7 +1981,7 @@ public class EditLog {
         logEdit(OperationType.OP_UPDATE_AUTO_INCREMENT_ID, log);
     }
 
-    public void logCreateTableStats(TableStats tableStats) {
+    public void logCreateTableStats(TableStatsMeta tableStats) {
         logEdit(OperationType.OP_UPDATE_TABLE_STATS, tableStats);
     }
 
@@ -1985,4 +1989,7 @@ public class EditLog {
         logEdit(OperationType.OP_PERSIST_AUTO_JOB, analysisInfo);
     }
 
+    public void logDeleteTableStats(TableStatsDeletionLog log) {
+        logEdit(OperationType.OP_DELETE_TABLE_STATS, log);
+    }
 }

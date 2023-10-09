@@ -61,6 +61,7 @@ PARTITION BY RANGE(k01)
 )
 DISTRIBUTED BY HASH(k00) BUCKETS 32
 PROPERTIES (
+    "function_column.sequence_col" = "k12",
     "bloom_filter_columns"="k05",
     "replication_num" = "1",
     "enable_unique_key_merge_on_write" = "true"

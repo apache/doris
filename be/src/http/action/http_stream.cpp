@@ -160,10 +160,6 @@ int HttpStreamAction::on_header(HttpRequest* req) {
     ctx->load_type = TLoadType::MANUL_LOAD;
     ctx->load_src_type = TLoadSourceType::RAW;
 
-    ctx->label = req->header(HTTP_LABEL_KEY);
-    if (ctx->label.empty()) {
-        ctx->label = generate_uuid_string();
-    }
     ctx->group_commit = iequal(req->header(HTTP_GROUP_COMMIT), "true");
 
     LOG(INFO) << "new income streaming load request." << ctx->brief()
@@ -249,13 +245,13 @@ void HttpStreamAction::on_chunk_data(HttpRequest* req) {
             if (ctx->schema_buffer->pos + remove_bytes < config::stream_tvf_buffer_size) {
                 ctx->schema_buffer->put_bytes(bb->ptr, remove_bytes);
             } else {
-                ctx->need_schema = true;
+                LOG(INFO) << "use a portion of data to request fe to obtain column information";
                 ctx->is_read_schema = false;
                 ctx->status = _process_put(req, ctx);
             }
         }
 
-        if (!st.ok()) {
+        if (!st.ok() && !ctx->status.ok()) {
             LOG(WARNING) << "append body content failed. errmsg=" << st << ", " << ctx->brief();
             ctx->status = st;
             return;
@@ -264,7 +260,8 @@ void HttpStreamAction::on_chunk_data(HttpRequest* req) {
     }
     // after all the data has been read and it has not reached 1M, it will execute here
     if (ctx->is_read_schema) {
-        ctx->need_schema = true;
+        LOG(INFO) << "after all the data has been read and it has not reached 1M, it will execute "
+                  << "here";
         ctx->is_read_schema = false;
         ctx->status = _process_put(req, ctx);
     }
@@ -315,6 +312,7 @@ Status HttpStreamAction::_process_put(HttpRequest* http_req,
     ctx->db = ctx->put_result.params.db_name;
     ctx->table = ctx->put_result.params.table_name;
     ctx->txn_id = ctx->put_result.params.txn_conf.txn_id;
+    ctx->label = ctx->put_result.params.import_label;
     ctx->put_result.params.__set_wal_id(ctx->wal_id);
 
     if (ctx->group_commit) {

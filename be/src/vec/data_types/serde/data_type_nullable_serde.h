@@ -35,10 +35,11 @@ class DataTypeNullableSerDe : public DataTypeSerDe {
 public:
     DataTypeNullableSerDe(const DataTypeSerDeSPtr& _nested_serde) : nested_serde(_nested_serde) {}
 
-    void serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
-                                    FormatOptions& options) const override;
-    void serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
-                                  BufferWritable& bw, FormatOptions& options) const override;
+    Status serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
+                                      FormatOptions& options, int nesting_level = 1) const override;
+    Status serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
+                                    BufferWritable& bw, FormatOptions& options,
+                                    int nesting_level = 1) const override;
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                           const FormatOptions& options,
                                           int nesting_level = 1) const override;
@@ -87,6 +88,10 @@ public:
         DataTypeSerDe::set_return_object_as_string(value);
         nested_serde->set_return_object_as_string(value);
     }
+
+    static const std::string NULL_IN_CSV_FOR_ORDINARY_TYPE;
+
+    static const std::string NULL_IN_CSV_FOR_NESTED_TYPE;
 
 private:
     template <bool is_binary_format>

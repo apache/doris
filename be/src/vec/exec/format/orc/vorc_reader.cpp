@@ -786,7 +786,7 @@ Status OrcReader::set_fill_columns(
         _batch = _row_reader->createRowBatch(_batch_size);
         auto& selected_type = _row_reader->getSelectedType();
         int idx = 0;
-        _init_select_types(selected_type, idx);
+        static_cast<void>(_init_select_types(selected_type, idx));
 
         _remaining_rows = _row_reader->getNumberOfRows();
 
@@ -826,7 +826,7 @@ Status OrcReader::_init_select_types(const orc::Type& type, int idx) {
         const orc::Type* sub_type = type.getSubtype(i);
         _col_orc_type.push_back(sub_type);
         if (_is_acid && sub_type->getKind() == orc::TypeKind::STRUCT) {
-            _init_select_types(*sub_type, idx);
+            static_cast<void>(_init_select_types(*sub_type, idx));
         }
     }
     return Status::OK();
@@ -1509,7 +1509,7 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                 _fill_missing_columns(block, _batch->numElements, _lazy_read_ctx.missing_columns));
 
         if (block->rows() == 0) {
-            _convert_dict_cols_to_string_cols(block, nullptr);
+            static_cast<void>(_convert_dict_cols_to_string_cols(block, nullptr));
             *eof = true;
             return Status::OK();
         }
@@ -1545,11 +1545,11 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                     std::move(*block->get_by_position(col).column).assume_mutable()->clear();
                 }
                 Block::erase_useless_column(block, column_to_keep);
-                _convert_dict_cols_to_string_cols(block, &batch_vec);
+                static_cast<void>(_convert_dict_cols_to_string_cols(block, &batch_vec));
                 return Status::OK();
             }
             if (!_not_single_slot_filter_conjuncts.empty()) {
-                _convert_dict_cols_to_string_cols(block, &batch_vec);
+                static_cast<void>(_convert_dict_cols_to_string_cols(block, &batch_vec));
                 std::vector<IColumn::Filter*> merged_filters;
                 merged_filters.push_back(&result_filter);
                 RETURN_IF_CATCH_EXCEPTION(
@@ -1560,7 +1560,7 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                 RETURN_IF_CATCH_EXCEPTION(
                         Block::filter_block_internal(block, columns_to_filter, result_filter));
                 Block::erase_useless_column(block, column_to_keep);
-                _convert_dict_cols_to_string_cols(block, &batch_vec);
+                static_cast<void>(_convert_dict_cols_to_string_cols(block, &batch_vec));
             }
         } else {
             if (_delete_rows_filter_ptr) {
@@ -1568,7 +1568,7 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                                                                        (*_delete_rows_filter_ptr)));
             }
             Block::erase_useless_column(block, column_to_keep);
-            _convert_dict_cols_to_string_cols(block, &batch_vec);
+            static_cast<void>(_convert_dict_cols_to_string_cols(block, &batch_vec));
         }
     }
     return Status::OK();
@@ -1710,9 +1710,9 @@ Status OrcReader::filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t s
     }
     data.numElements = new_size;
     if (data.numElements > 0) {
-        _convert_dict_cols_to_string_cols(block, &batch_vec);
+        static_cast<void>(_convert_dict_cols_to_string_cols(block, &batch_vec));
     } else {
-        _convert_dict_cols_to_string_cols(block, nullptr);
+        static_cast<void>(_convert_dict_cols_to_string_cols(block, nullptr));
     }
     return Status::OK();
 }
@@ -1936,7 +1936,7 @@ Status OrcReader::on_string_dicts_loaded(
         }
 
         // 4. Rewrite conjuncts.
-        _rewrite_dict_conjuncts(dict_codes, slot_id, dict_column->is_nullable());
+        static_cast<void>(_rewrite_dict_conjuncts(dict_codes, slot_id, dict_column->is_nullable()));
         ++it;
     }
     return Status::OK();

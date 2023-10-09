@@ -243,9 +243,7 @@ Status StreamingAggSinkLocalState::_pre_agg_with_serialized_key(
     }
 
     int rows = in_block->rows();
-    if (_places.size() < rows) {
-        _places.resize(rows);
-    }
+    _places.resize(rows);
 
     // Stop expanding hash tables if we're not reducing the input sufficiently. As our
     // hash tables expand out of each level of cache hierarchy, every hash table lookup

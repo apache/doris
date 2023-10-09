@@ -289,7 +289,7 @@ Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
     }
     RETURN_IF_ERROR(new_rowset->load(false));
     new_rowset->rowset_meta()->to_rowset_pb(new_rs_meta_pb);
-    org_rowset->remove();
+    RETURN_IF_ERROR(org_rowset->remove());
     return Status::OK();
 }
 

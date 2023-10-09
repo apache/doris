@@ -532,7 +532,8 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
             auto gram_bf_size = tablet_index->get_gram_bf_size();
             auto gram_size = tablet_index->get_gram_size();
 
-            segment_v2::BloomFilter::create(segment_v2::NGRAM_BLOOM_FILTER, &ng_bf, gram_bf_size);
+            static_cast<void>(segment_v2::BloomFilter::create(segment_v2::NGRAM_BLOOM_FILTER,
+                                                              &ng_bf, gram_bf_size));
             NgramTokenExtractor _token_extractor(gram_size);
 
             if (_token_extractor.string_like_to_bloom_filter(pattern.data(), pattern.length(),

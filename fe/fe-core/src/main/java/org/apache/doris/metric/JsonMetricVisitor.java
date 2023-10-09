@@ -25,26 +25,22 @@ import java.util.List;
 
 public class JsonMetricVisitor extends MetricVisitor {
     private int ordinal = 0;
-    private int metricNumber = 0;
+    private boolean closed = false;
 
     public JsonMetricVisitor() {
         super();
+        sb.append("[\n");
     }
 
     @Override
-    public void setMetricNumber(int metricNumber) {
-        this.metricNumber = metricNumber;
-    }
-
-    @Override
-    public void visitJvm(StringBuilder sb, JvmStats jvmStats) {
+    public void visitJvm(JvmStats jvmStats) {
         return;
     }
 
     @Override
-    public void visit(StringBuilder sb, String prefix, @SuppressWarnings("rawtypes") Metric metric) {
-        if (ordinal++ == 0) {
-            sb.append("[\n");
+    public void visit(String prefix, @SuppressWarnings("rawtypes") Metric metric) {
+        if (ordinal++ != 0) {
+            sb.append(",\n");
         }
         sb.append("{\n\t\"tags\":\n\t{\n");
         sb.append("\t\t\"metric\":\"").append(prefix).append(metric.getName()).append("\"");
@@ -66,20 +62,24 @@ public class JsonMetricVisitor extends MetricVisitor {
 
         // value
         sb.append("\t\"value\":").append(metric.getValue().toString()).append("\n}");
-        if (ordinal < metricNumber) {
-            sb.append(",\n");
-        } else {
+    }
+
+    @Override
+    public void visitHistogram(String prefix, String name, Histogram histogram) {
+        return;
+    }
+
+    @Override
+    public void getNodeInfo() {
+        return;
+    }
+
+    @Override
+    public String finish() {
+        if (!closed) {
             sb.append("\n]");
+            closed = true;
         }
-    }
-
-    @Override
-    public void visitHistogram(StringBuilder sb, String prefix, String name, Histogram histogram) {
-        return;
-    }
-
-    @Override
-    public void getNodeInfo(StringBuilder sb) {
-        return;
+        return sb.toString();
     }
 }

@@ -306,6 +306,10 @@ struct TPaimonFileDesc {
     4: optional string table_name
     5: optional string paimon_predicate
     6: optional map<string, string> paimon_options
+    7: optional i64 ctl_id
+    8: optional i64 db_id
+    9: optional i64 tbl_id
+    10: optional i64 last_update_time
 }
 
 
@@ -850,12 +854,20 @@ enum TopNAlgorithm {
    ROW_NUMBER
  }
 
+enum TPartTopNPhase {
+  UNKNOWN,
+  ONE_PHASE_GLOBAL,
+  TWO_PHASE_LOCAL,
+  TWO_PHASE_GLOBAL
+}
+
  struct TPartitionSortNode {
    1: optional list<Exprs.TExpr> partition_exprs
    2: optional TSortInfo sort_info
    3: optional bool has_global_limit
    4: optional TopNAlgorithm top_n_algorithm
    5: optional i64 partition_inner_limit
+   6: optional TPartTopNPhase ptopn_phase
  }
 enum TAnalyticWindowType {
   // Specifies the window as a logical offset
