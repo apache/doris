@@ -450,12 +450,7 @@ public:
 
         if (node->need_more_input_data()) {
             _child_block->clear_column_data();
-            Status status = child->get_block(state, _child_block.get(), _child_source_state);
-            if (status.is<777>()) {
-                LOG(INFO) << "Scan block nullptr error _source_state:" << int(source_state)
-                          << " query id:" << print_id(state->query_id());
-            }
-            RETURN_IF_ERROR(status);
+            RETURN_IF_ERROR(child->get_block(state, _child_block.get(), _child_source_state));
             source_state = _child_source_state;
             if (_child_block->rows() == 0 && _child_source_state != SourceState::FINISHED) {
                 return Status::OK();
