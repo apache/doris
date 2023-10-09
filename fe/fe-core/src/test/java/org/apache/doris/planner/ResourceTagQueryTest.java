@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.analysis.AlterDatabasePropertyStmt;
 import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
@@ -279,6 +280,65 @@ public class ResourceTagQueryTest {
 
         List<List<String>> userProps = Env.getCurrentEnv().getAuth().getUserProperties(Auth.ROOT_USER);
         Assert.assertEquals(10, userProps.size());
+
+        // now :
+        // be1 be2 be3 ==>tag1;
+        // be4,be5  ==> default;
+        // root ==> zone1;
+
+        // create database
+        String createDbStmtStr
+                = "create database test_prop PROPERTIES('replication_allocation' = 'tag.location.default:3');";
+        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
+        Env.getCurrentEnv().createDb(createDbStmt);
+
+        // create table with default tag
+        String createTableStr2 = "create table test_prop.tbl2\n"
+                + "(k1 date, k2 int)\n"
+                + "distributed by hash(k2) buckets 2;";
+        // table will inherit db prop
+        ExceptionChecker.expectThrows(AnalysisException.class, () -> createTable(createTableStr2));
+        //alter db change `replication_allocation`
+        String alterDbStmtStr
+                = "alter database test_prop set PROPERTIES('replication_allocation' = 'tag.location.default:2');";
+        AlterDatabasePropertyStmt alterDbStmt = (AlterDatabasePropertyStmt) UtFrameUtils
+                .parseAndAnalyzeStmt(alterDbStmtStr, connectContext);
+        Env.getCurrentEnv().alterDatabaseProperty(alterDbStmt);
+        ExceptionChecker.expectThrowsNoException(() -> createTable(createTableStr2));
+        Database propDb = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:test_prop");
+        OlapTable tbl2 = (OlapTable) propDb.getTableNullable("tbl2");
+        // should same with db
+        Map<Tag, Short> tbl2ExpectedAllocMap = Maps.newHashMap();
+        tbl2ExpectedAllocMap.put(Tag.DEFAULT_BACKEND_TAG, (short) 2);
+        for (Partition partition : tbl2.getPartitions()) {
+            ReplicaAllocation replicaAllocation = tbl2.getPartitionInfo().getReplicaAllocation(partition.getId());
+            Map<Tag, Short> allocMap = replicaAllocation.getAllocMap();
+            Assert.assertEquals(tbl2ExpectedAllocMap, allocMap);
+        }
+        // can not query due root ==> zone1
+        queryStr = "explain select * from test_prop.tbl2";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        System.out.println(explainString);
+        Assert.assertTrue(explainString.contains("have no queryable replicas"));
+
+        // The priority of table is higher than db,should same with table
+        String createTableStr3 = "create table test_prop.tbl3\n"
+                + "(k1 date, k2 int)\n"
+                + "distributed by hash(k2) buckets 2 PROPERTIES('replication_allocation' = 'tag.location.zone1:3');";
+        ExceptionChecker.expectThrowsNoException(() -> createTable(createTableStr3));
+        OlapTable tbl3 = (OlapTable) propDb.getTableNullable("tbl3");
+        Map<Tag, Short> tbl3ExpectedAllocMap = Maps.newHashMap();
+        tbl3ExpectedAllocMap.put(tag1, (short) 3);
+        for (Partition partition : tbl3.getPartitions()) {
+            ReplicaAllocation replicaAllocation = tbl3.getPartitionInfo().getReplicaAllocation(partition.getId());
+            Map<Tag, Short> allocMap = replicaAllocation.getAllocMap();
+            Assert.assertEquals(tbl3ExpectedAllocMap, allocMap);
+        }
+        // can still query
+        queryStr = "explain select * from test_prop.tbl3";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        System.out.println(explainString);
+        Assert.assertTrue(explainString.contains("tablets=2/2"));
     }
 
     private void checkTableReplicaAllocation(OlapTable tbl) throws InterruptedException {

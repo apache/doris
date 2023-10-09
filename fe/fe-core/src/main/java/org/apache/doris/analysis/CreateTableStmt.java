@@ -51,6 +51,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -697,11 +698,16 @@ public class CreateTableStmt extends DdlStmt {
         if (dbProperties == null) {
             return properties;
         }
-        if (dbProperties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION)) {
+        if (properties == null) {
+            properties = Maps.newHashMap();
+        }
+        if (dbProperties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION) && StringUtils
+                .isNotEmpty(dbProperties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION))) {
             properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
                     dbProperties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION));
         }
-        if (dbProperties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
+        if (dbProperties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM) && StringUtils
+                .isNotEmpty(dbProperties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM))) {
             properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM,
                     dbProperties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
         }
