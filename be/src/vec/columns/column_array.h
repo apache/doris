@@ -252,7 +252,6 @@ public:
         offsets->clear();
     }
 
-    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override;
     size_t get_number_of_dimensions() const {
         const auto* nested_array = check_and_get_column<ColumnArray>(*data);
         if (!nested_array) {
