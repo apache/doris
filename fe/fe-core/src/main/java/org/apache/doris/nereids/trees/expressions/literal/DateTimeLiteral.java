@@ -209,6 +209,11 @@ public class DateTimeLiteral extends DateLiteral {
                 DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER, getStringValue()).plusMonths(months));
     }
 
+    public Expression plusWeeks(long weeks) {
+        return fromJavaDateType(
+                DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER, getStringValue()).plusWeeks(weeks));
+    }
+
     public Expression plusDays(long days) {
         return fromJavaDateType(
                 DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER, getStringValue()).plusDays(days));
