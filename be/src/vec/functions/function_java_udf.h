@@ -165,10 +165,6 @@ private:
             env->DeleteGlobalRef(executor);
             is_closed = true;
         }
-
-        /// These functions are cross-compiled to IR and used by codegen.
-        static void SetInputNullsBufferElement(JniContext* jni_ctx, int index, uint8_t value);
-        static uint8_t* GetInputValuesBufferAtOffset(JniContext* jni_ctx, int offset);
     };
 };
 
