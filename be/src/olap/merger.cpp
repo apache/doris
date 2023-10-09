@@ -268,7 +268,9 @@ Status Merger::vertical_compact_one_group(
         output_rows += block.rows();
         block.clear_column_data();
     }
-    process_block_mem_tracker->consume(total_process_block_mem);
+    if (process_block_mem_tracker != nullptr) {
+        process_block_mem_tracker->consume(total_process_block_mem);
+    }
     if (StorageEngine::instance()->stopped()) {
         return Status::Error<INTERNAL_ERROR>("tablet {} failed to do compaction, engine stopped",
                                              tablet->full_name());
@@ -284,7 +286,9 @@ Status Merger::vertical_compact_one_group(
         SCOPED_MEM_COUNT(&flush_mem_size);
         RETURN_IF_ERROR(dst_rowset_writer->flush_columns(is_key));
     }
-    process_block_mem_tracker->consume(flush_mem_size);
+    if (process_block_mem_tracker != nullptr) {
+        process_block_mem_tracker->consume(flush_mem_size);
+    }
 
     return Status::OK();
 }
@@ -383,7 +387,9 @@ Status Merger::vertical_merge_rowsets(TabletSharedPtr tablet, ReaderType reader_
         SCOPED_MEM_COUNT(&final_flush_mem_size);
         RETURN_IF_ERROR(dst_rowset_writer->final_flush());
     }
-    process_block_mem_tracker->consume(final_flush_mem_size);
+    if (process_block_mem_tracker != nullptr) {
+        process_block_mem_tracker->consume(final_flush_mem_size);
+    }
 
     return Status::OK();
 }
