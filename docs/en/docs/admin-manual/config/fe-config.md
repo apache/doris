@@ -2771,3 +2771,9 @@ Temporary configuration option. After it is enabled, a background thread will be
 Default：true
 
 Forbid LocalDeployManager drop nodes to prevent errors in the cluster.info file from causing nodes to be dropped.
+
+#### `mysqldb_replace_name`
+
+Default: mysql
+
+To ensure compatibility with the MySQL ecosystem, Doris includes a built-in database called mysql. If this database conflicts with a user's own database, please modify this field to replace the name of the Doris built-in MySQL database with a different name.

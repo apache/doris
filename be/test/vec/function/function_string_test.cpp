@@ -1003,6 +1003,10 @@ TEST(function_string_test, function_parse_url_test) {
                 {{std::string("facebook.com/path/p1"), std::string("HOST")}, {Null()}},
                 {{std::string("http://fb.com/path/p1.p?q=1#f"), std::string("HOST")},
                  {std::string("fb.com")}},
+                {{std::string("https://www.facebook.com/aa/bb?returnpage=https://www.facebook.com/"
+                              "aa/bb/cc"),
+                  std::string("HOST")},
+                 {std::string("www.facebook.com")}},
                 {{std::string("http://facebook.com/path/p1.php?query=1"), std::string("AUTHORITY")},
                  {std::string("facebook.com")}},
                 {{std::string("http://facebook.com/path/p1.php?query=1"), std::string("authority")},
