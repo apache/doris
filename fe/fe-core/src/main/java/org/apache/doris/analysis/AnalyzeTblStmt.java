@@ -89,6 +89,8 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
     private PartitionNames partitionNames;
     private boolean isAllColumns;
 
+    private long catalogId;
+
     // after analyzed
     private long dbId;
     private TableIf table;
@@ -131,6 +133,7 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
         String tblName = tableName.getTbl();
         CatalogIf catalog = analyzer.getEnv().getCatalogMgr()
                 .getCatalogOrAnalysisException(catalogName);
+        this.catalogId = catalog.getId();
         DatabaseIf db = catalog.getDbOrAnalysisException(dbName);
         dbId = db.getId();
         table = db.getTableOrAnalysisException(tblName);
@@ -334,5 +337,9 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
 
     public boolean isAllColumns() {
         return isAllColumns;
+    }
+
+    public long getCatalogId() {
+        return catalogId;
     }
 }

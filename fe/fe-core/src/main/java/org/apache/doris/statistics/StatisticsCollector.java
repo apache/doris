@@ -76,7 +76,7 @@ public abstract class StatisticsCollector extends MasterDaemon {
         Map<Long, BaseAnalysisTask> analysisTaskInfos = new HashMap<>();
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         analysisManager.createTaskForEachColumns(jobInfo, analysisTaskInfos, false);
-        if (StatisticsUtil.isExternalTable(jobInfo.catalogName, jobInfo.dbName, jobInfo.tblName)) {
+        if (StatisticsUtil.isExternalTable(jobInfo.catalogId, jobInfo.dbId, jobInfo.tblId)) {
             analysisManager.createTableLevelTaskForExternalTable(jobInfo, analysisTaskInfos, false);
         }
         Env.getCurrentEnv().getAnalysisManager().registerSysJob(jobInfo, analysisTaskInfos);

@@ -90,7 +90,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
     @SerializedName(value = "idToCatalog")
-    private final Map<Long, CatalogIf> idToCatalog = Maps.newConcurrentMap();
+    private final Map<Long, CatalogIf<? extends DatabaseIf<? extends TableIf>>> idToCatalog = Maps.newConcurrentMap();
     // this map will be regenerated from idToCatalog, so not need to persist.
     private final Map<String, CatalogIf> nameToCatalog = Maps.newConcurrentMap();
     // record last used database of every catalog
@@ -161,7 +161,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         return nameToCatalog.get(name);
     }
 
-    public CatalogIf getCatalog(long id) {
+    public CatalogIf<? extends DatabaseIf<? extends TableIf>> getCatalog(long id) {
         return idToCatalog.get(id);
     }
 
@@ -171,7 +171,8 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                         ErrorCode.ERR_UNKNOWN_CATALOG));
     }
 
-    public <E extends Exception> CatalogIf getCatalogOrException(long id, Function<Long, E> e) throws E {
+    public <E extends Exception> CatalogIf<? extends DatabaseIf<? extends TableIf>>
+            getCatalogOrException(long id, Function<Long, E> e) throws E {
         CatalogIf catalog = idToCatalog.get(id);
         if (catalog == null) {
             throw e.apply(id);
@@ -1111,7 +1112,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         internalCatalog = (InternalCatalog) idToCatalog.get(InternalCatalog.INTERNAL_CATALOG_ID);
     }
 
-    public Map<Long, CatalogIf> getIdToCatalog() {
+    public Map<Long, CatalogIf<? extends DatabaseIf<? extends TableIf>>> getIdToCatalog() {
         return idToCatalog;
     }
 

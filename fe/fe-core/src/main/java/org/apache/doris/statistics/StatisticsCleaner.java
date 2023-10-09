@@ -55,7 +55,7 @@ public class StatisticsCleaner extends MasterDaemon {
     private OlapTable colStatsTbl;
     private OlapTable histStatsTbl;
 
-    private Map<Long, CatalogIf> idToCatalog;
+    private Map<Long, CatalogIf<? extends DatabaseIf<? extends TableIf>>> idToCatalog;
     private Map<Long, DatabaseIf> idToDb;
     private Map<Long, TableIf> idToTbl;
 
