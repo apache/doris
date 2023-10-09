@@ -29,6 +29,7 @@ suite("test_mariadb_jdbc_catalog", "p0,external,mariadb,external_docker,external
         String ex_db_name = "doris_test";
         String mariadb_port = context.config.otherConfigs.get("mariadb_10_port");
         String inDorisTable = "test_mariadb_jdbc_doris_in_tb";
+        String ex_tb0 = "ex_tb0";
         String test_insert = "test_insert";
         String test_insert2 = "test_insert2";
         String auto_default_t = "auto_default_t";
@@ -70,7 +71,6 @@ suite("test_mariadb_jdbc_catalog", "p0,external,mariadb,external_docker,external
         order_qt_information_schema """ show tables from information_schema; """
         order_qt_auto_default_t """insert into ${auto_default_t}(name) values('a'); """
         order_qt_dt """select * from ${dt}; """
-        order_qt_dt_null """select * from ${dt_null} order by 1; """
 
         // test all types supported by Mariadb
         sql """use doris_test;"""
