@@ -112,7 +112,7 @@ class RequestPropertyDeriverTest {
                 ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE, Optional.empty(),
                 logicalProperties,
                 groupPlan, groupPlan);
-        GroupExpression groupExpression = new GroupExpression(join);
+        GroupExpression groupExpression = new GroupExpression(join, Lists.newArrayList(group, group));
         new Group(null, groupExpression, null);
 
         RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(jobContext);

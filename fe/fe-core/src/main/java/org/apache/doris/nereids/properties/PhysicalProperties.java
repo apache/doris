@@ -106,7 +106,7 @@ public class PhysicalProperties {
         return distributionSpec;
     }
 
-    public boolean isDistributorProperties() {
+    public boolean isDistributionOnlyProperties() {
         return orderSpec.getOrderKeys().isEmpty();
     }
 
