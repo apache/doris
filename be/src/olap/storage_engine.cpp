@@ -363,7 +363,7 @@ Status StorageEngine::get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_i
 }
 
 void StorageEngine::get_special_dir_info(SpecialDirInfo* special_dir_infos,
-                                           TaskWorkerPool::DiskType type) {
+                                         TaskWorkerPool::DiskType type) {
     switch (type) {
     case TaskWorkerPool::DiskType::LOG:
         _log_dir->health_check();
