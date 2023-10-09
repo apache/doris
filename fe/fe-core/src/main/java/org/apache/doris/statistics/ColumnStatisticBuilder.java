@@ -190,7 +190,7 @@ public class ColumnStatisticBuilder {
     }
 
     public ColumnStatistic build() {
-        dataSize = Math.max((count - numNulls + 1) * avgSizeByte, 0);
+        dataSize = dataSize > 0 ? dataSize : Math.max((count - numNulls + 1) * avgSizeByte, 0);
         if (original == null && !isUnknown) {
             original = new ColumnStatistic(count, ndv, null, avgSizeByte, numNulls,
                     dataSize, minValue, maxValue, minExpr, maxExpr,

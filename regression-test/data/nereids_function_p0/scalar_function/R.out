@@ -28,6 +28,35 @@
 0.019198621771937627
 0.020943951023931952
 
+-- !sql_regexp_Varchar_Varchar --
+true
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+
+-- !sql_regexp_Varchar_Varchar_not_null --
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+
 -- !sql_regexp_extract_Varchar_Varchar_BigInt --
 \N
 
