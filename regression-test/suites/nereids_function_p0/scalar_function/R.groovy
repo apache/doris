@@ -95,4 +95,8 @@ suite("nereids_scalar_fn_R") {
 	qt_sql_rtrim_Varchar_notnull "select rtrim(kvchrs1) from fn_test_not_nullable order by kvchrs1"
 	qt_sql_rtrim_String "select rtrim(kstr) from fn_test order by kstr"
 	qt_sql_rtrim_String_notnull "select rtrim(kstr) from fn_test_not_nullable order by kstr"
+	qt_sql_rtrim_Varchar_Varchar "select rtrim(kvchrs1, '1') from fn_test order by kvchrs1"
+	qt_sql_rtrim_Varchar_Varchar_notnull "select rtrim(kvchrs1, '1') from fn_test_not_nullable order by kvchrs1"
+	qt_sql_rtrim_String_String "select rtrim(kstr, '1') from fn_test order by kstr"
+	qt_sql_rtrim_String_String_notnull "select rtrim(kstr, '1') from fn_test_not_nullable order by kstr"
 }
