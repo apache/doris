@@ -49,7 +49,7 @@
                 FROM
                     sequence_count_test3 e 
         """)
-        contains "HAS_COLOCATE_PLAN_NODE: true"
+        contains "HAS_COLO_PLAN_NODE: true"
      }
 
      sql """drop table if exists sequence_count_test3;"""

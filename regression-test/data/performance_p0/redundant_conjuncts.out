@@ -5,6 +5,8 @@ PLAN FRAGMENT 0
     `v1`
   PARTITION: HASH_PARTITIONED: `default_cluster:regression_test_performance_p0`.`redundant_conjuncts`.`k1`
 
+  HAS_COLO_PLAN_NODE: false
+
   VRESULT SINK
      MYSQL_PROTOCAL
 
@@ -20,6 +22,8 @@ PLAN FRAGMENT 0
   OUTPUT EXPRS:
     `v1`
   PARTITION: HASH_PARTITIONED: `default_cluster:regression_test_performance_p0`.`redundant_conjuncts`.`k1`
+
+  HAS_COLO_PLAN_NODE: false
 
   VRESULT SINK
      MYSQL_PROTOCAL
