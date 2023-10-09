@@ -3,30 +3,30 @@
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[INNER_JOIN](partsupp.ps_suppkey = supplier.s_suppkey)
---------hashJoin[INNER_JOIN](nation.n_nationkey = supplier.s_suppkey)
-----------hashJoin[INNER_JOIN](region.r_regionkey = nation.n_regionkey)
+------hashJoin[INNER_JOIN] hashCondition=((partsupp.ps_suppkey = supplier.s_suppkey))otherCondition=()
+--------hashJoin[INNER_JOIN] hashCondition=((nation.n_nationkey = supplier.s_suppkey))otherCondition=()
+----------hashJoin[INNER_JOIN] hashCondition=((region.r_regionkey = nation.n_regionkey))otherCondition=()
 ------------PhysicalOlapScan[region]
 ------------PhysicalDistribute
---------------filter(( not n_nationkey IS NULL)(nation.n_nationkey > 1))
+--------------filter(( not n_nationkey IS NULL) and (nation.n_nationkey > 1))
 ----------------PhysicalOlapScan[nation]
 ----------PhysicalDistribute
-------------filter((supplier.s_suppkey > 1)( not s_suppkey IS NULL))
+------------filter(( not s_suppkey IS NULL) and (supplier.s_suppkey > 1))
 --------------PhysicalOlapScan[supplier]
 --------PhysicalDistribute
-----------filter(( not ps_suppkey IS NULL)(partsupp.ps_suppkey > 1))
+----------filter(( not ps_suppkey IS NULL) and (partsupp.ps_suppkey > 1))
 ------------PhysicalOlapScan[partsupp]
 
 -- !2 --
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[RIGHT_OUTER_JOIN](partsupp.ps_suppkey = supplier.s_suppkey)
+------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((partsupp.ps_suppkey = supplier.s_suppkey))otherCondition=()
 --------PhysicalDistribute
 ----------filter((supplier.s_suppkey > 1))
-------------hashJoin[FULL_OUTER_JOIN](nation.n_nationkey = supplier.s_suppkey)
+------------hashJoin[FULL_OUTER_JOIN] hashCondition=((nation.n_nationkey = supplier.s_suppkey))otherCondition=()
 --------------PhysicalDistribute
-----------------hashJoin[FULL_OUTER_JOIN](region.r_regionkey = nation.n_regionkey)
+----------------hashJoin[FULL_OUTER_JOIN] hashCondition=((region.r_regionkey = nation.n_regionkey))otherCondition=()
 ------------------PhysicalDistribute
 --------------------PhysicalOlapScan[region]
 ------------------PhysicalDistribute
@@ -34,18 +34,18 @@ PhysicalResultSink
 --------------PhysicalDistribute
 ----------------PhysicalOlapScan[supplier]
 --------PhysicalDistribute
-----------filter(( not ps_suppkey IS NULL)(partsupp.ps_suppkey > 1))
+----------filter(( not ps_suppkey IS NULL) and (partsupp.ps_suppkey > 1))
 ------------PhysicalOlapScan[partsupp]
 
 -- !3 --
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[RIGHT_OUTER_JOIN](partsupp.ps_suppkey = supplier.s_suppkey)
+------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((partsupp.ps_suppkey = supplier.s_suppkey))otherCondition=()
 --------PhysicalDistribute
 ----------filter((supplier.s_suppkey > 1))
-------------hashJoin[LEFT_OUTER_JOIN](nation.n_nationkey = supplier.s_suppkey)
---------------hashJoin[FULL_OUTER_JOIN](region.r_regionkey = nation.n_regionkey)
+------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((nation.n_nationkey = supplier.s_suppkey))otherCondition=()
+--------------hashJoin[FULL_OUTER_JOIN] hashCondition=((region.r_regionkey = nation.n_regionkey))otherCondition=()
 ----------------PhysicalDistribute
 ------------------PhysicalOlapScan[region]
 ----------------PhysicalDistribute
@@ -53,15 +53,15 @@ PhysicalResultSink
 --------------PhysicalDistribute
 ----------------PhysicalOlapScan[supplier]
 --------PhysicalDistribute
-----------filter(( not ps_suppkey IS NULL)(partsupp.ps_suppkey > 1))
+----------filter(( not ps_suppkey IS NULL) and (partsupp.ps_suppkey > 1))
 ------------PhysicalOlapScan[partsupp]
 
 -- !4 --
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[LEFT_OUTER_JOIN](region.r_regionkey = nation.n_regionkey)
---------filter(( not r_name IS NULL)(region.r_name = ''))
+------hashJoin[LEFT_OUTER_JOIN] hashCondition=((region.r_regionkey = nation.n_regionkey))otherCondition=()
+--------filter(( not r_name IS NULL) and (region.r_name = ''))
 ----------PhysicalOlapScan[region]
 --------PhysicalDistribute
 ----------PhysicalOlapScan[nation]
@@ -70,9 +70,9 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[LEFT_OUTER_JOIN](nation.n_nationkey = supplier.s_suppkey)
---------hashJoin[LEFT_OUTER_JOIN](region.r_regionkey = nation.n_regionkey)
-----------filter(( not r_name IS NULL)(region.r_name = ''))
+------hashJoin[LEFT_OUTER_JOIN] hashCondition=((nation.n_nationkey = supplier.s_suppkey))otherCondition=()
+--------hashJoin[LEFT_OUTER_JOIN] hashCondition=((region.r_regionkey = nation.n_regionkey))otherCondition=()
+----------filter(( not r_name IS NULL) and (region.r_name = ''))
 ------------PhysicalOlapScan[region]
 ----------PhysicalDistribute
 ------------PhysicalOlapScan[nation]
@@ -83,10 +83,10 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[LEFT_OUTER_JOIN](partsupp.ps_suppkey = supplier.s_suppkey)
---------hashJoin[LEFT_OUTER_JOIN](nation.n_nationkey = supplier.s_suppkey)
-----------hashJoin[LEFT_OUTER_JOIN](region.r_regionkey = nation.n_regionkey)
-------------filter(( not r_name IS NULL)(region.r_name = ''))
+------hashJoin[LEFT_OUTER_JOIN] hashCondition=((partsupp.ps_suppkey = supplier.s_suppkey))otherCondition=()
+--------hashJoin[LEFT_OUTER_JOIN] hashCondition=((nation.n_nationkey = supplier.s_suppkey))otherCondition=()
+----------hashJoin[LEFT_OUTER_JOIN] hashCondition=((region.r_regionkey = nation.n_regionkey))otherCondition=()
+------------filter(( not r_name IS NULL) and (region.r_name = ''))
 --------------PhysicalOlapScan[region]
 ------------PhysicalDistribute
 --------------PhysicalOlapScan[nation]
@@ -99,10 +99,10 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[FULL_OUTER_JOIN](partsupp.ps_suppkey = supplier.s_suppkey)
+------hashJoin[FULL_OUTER_JOIN] hashCondition=((partsupp.ps_suppkey = supplier.s_suppkey))otherCondition=()
 --------PhysicalDistribute
-----------hashJoin[LEFT_OUTER_JOIN](nation.n_nationkey = supplier.s_suppkey)
-------------hashJoin[INNER_JOIN](region.r_regionkey = nation.n_regionkey)
+----------hashJoin[LEFT_OUTER_JOIN] hashCondition=((nation.n_nationkey = supplier.s_suppkey))otherCondition=()
+------------hashJoin[INNER_JOIN] hashCondition=((region.r_regionkey = nation.n_regionkey))otherCondition=()
 --------------filter(( not r_regionkey IS NULL))
 ----------------PhysicalOlapScan[region]
 --------------PhysicalDistribute
@@ -117,11 +117,11 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[LEFT_OUTER_JOIN](partsupp.ps_suppkey = supplier.s_suppkey)
---------hashJoin[LEFT_OUTER_JOIN](nation.n_nationkey = supplier.s_suppkey)
-----------hashJoin[INNER_JOIN](region.r_regionkey = nation.n_regionkey)
+------hashJoin[LEFT_OUTER_JOIN] hashCondition=((partsupp.ps_suppkey = supplier.s_suppkey))otherCondition=()
+--------hashJoin[LEFT_OUTER_JOIN] hashCondition=((nation.n_nationkey = supplier.s_suppkey))otherCondition=()
+----------hashJoin[INNER_JOIN] hashCondition=((region.r_regionkey = nation.n_regionkey))otherCondition=()
 ------------PhysicalDistribute
---------------filter(( not r_regionkey IS NULL)( not r_name IS NULL)(region.r_name = ''))
+--------------filter(( not r_name IS NULL) and ( not r_regionkey IS NULL) and (region.r_name = ''))
 ----------------PhysicalOlapScan[region]
 ------------PhysicalDistribute
 --------------filter(( not n_regionkey IS NULL))
@@ -135,10 +135,10 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[LEFT_OUTER_JOIN](partsupp.ps_suppkey = supplier.s_suppkey)
---------hashJoin[INNER_JOIN](nation.n_nationkey = supplier.s_suppkey)
-----------hashJoin[INNER_JOIN](region.r_regionkey = nation.n_regionkey)
-------------filter(( not r_regionkey IS NULL)( not r_name IS NULL)(region.r_name = ''))
+------hashJoin[LEFT_OUTER_JOIN] hashCondition=((partsupp.ps_suppkey = supplier.s_suppkey))otherCondition=()
+--------hashJoin[INNER_JOIN] hashCondition=((nation.n_nationkey = supplier.s_suppkey))otherCondition=()
+----------hashJoin[INNER_JOIN] hashCondition=((region.r_regionkey = nation.n_regionkey))otherCondition=()
+------------filter(( not r_name IS NULL) and ( not r_regionkey IS NULL) and (region.r_name = ''))
 --------------PhysicalOlapScan[region]
 ------------PhysicalDistribute
 --------------filter(( not n_regionkey IS NULL))
