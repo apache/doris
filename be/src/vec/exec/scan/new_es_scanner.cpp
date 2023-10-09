@@ -215,7 +215,7 @@ Status NewEsScanner::_get_next(std::vector<vectorized::MutableColumnPtr>& column
         COUNTER_UPDATE(rows_read_counter, 1);
         SCOPED_TIMER(materialize_timer);
         RETURN_IF_ERROR(_es_scroll_parser->fill_columns(_tuple_desc, columns, &_line_eof,
-                                                        _docvalue_context));
+                                                        _docvalue_context, _state->timezone_obj()));
         if (!_line_eof) {
             break;
         }
