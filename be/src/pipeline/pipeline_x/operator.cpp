@@ -49,6 +49,9 @@
 #include "pipeline/exec/result_sink_operator.h"
 #include "pipeline/exec/schema_scan_operator.h"
 #include "pipeline/exec/select_operator.h"
+#include "pipeline/exec/set_probe_sink_operator.h"
+#include "pipeline/exec/set_sink_operator.h"
+#include "pipeline/exec/set_source_operator.h"
 #include "pipeline/exec/sort_sink_operator.h"
 #include "pipeline/exec/sort_source_operator.h"
 #include "pipeline/exec/streaming_aggregation_sink_operator.h"
@@ -443,6 +446,76 @@ Status PipelineXSinkLocalState<DependencyType>::close(RuntimeState* state, Statu
     return Status::OK();
 }
 
+template <>
+Status OperatorX<SetSourceLocalState<true>>::setup_local_states(
+        RuntimeState* state, std::vector<LocalStateInfo>& infos) {
+    for (auto& info : infos) {
+        auto local_state = SetSourceLocalState<true>::create_shared(state, this);
+        state->emplace_local_state(id(), local_state);
+        RETURN_IF_ERROR(local_state->init(state, info));
+
+        local_state->_shared_state->_hash_table_variants =
+                std::make_unique<vectorized::HashTableVariants>();
+
+        vector<bool> nullable_flags;
+        auto& child_exprs_lists = local_state->_shared_state->_child_exprs_lists;
+
+        nullable_flags.resize(child_exprs_lists[0].size(), false);
+        for (int i = 0; i < child_exprs_lists.size(); ++i) {
+            for (int j = 0; j < child_exprs_lists[i].size(); ++j) {
+                nullable_flags[j] =
+                        nullable_flags[j] || child_exprs_lists[i][j]->root()->is_nullable();
+            }
+        }
+
+        for (int i = 0; i < child_exprs_lists[0].size(); ++i) {
+            const auto& ctx = child_exprs_lists[0][i];
+            local_state->_shared_state->_build_not_ignore_null.push_back(
+                    ctx->root()->is_nullable());
+            local_state->_shared_state->_left_table_data_types.push_back(
+                    nullable_flags[i] ? make_nullable(ctx->root()->data_type())
+                                      : ctx->root()->data_type());
+        }
+        local_state->_shared_state->hash_table_init();
+    }
+    return Status::OK();
+}
+
+template <>
+Status OperatorX<SetSourceLocalState<false>>::setup_local_states(
+        RuntimeState* state, std::vector<LocalStateInfo>& infos) {
+    for (auto& info : infos) {
+        auto local_state = SetSourceLocalState<false>::create_shared(state, this);
+        state->emplace_local_state(id(), local_state);
+        RETURN_IF_ERROR(local_state->init(state, info));
+
+        local_state->_shared_state->_hash_table_variants =
+                std::make_unique<vectorized::HashTableVariants>();
+
+        vector<bool> nullable_flags;
+        auto& child_exprs_lists = local_state->_shared_state->_child_exprs_lists;
+
+        nullable_flags.resize(child_exprs_lists[0].size(), false);
+        for (int i = 0; i < child_exprs_lists.size(); ++i) {
+            for (int j = 0; j < child_exprs_lists[i].size(); ++j) {
+                nullable_flags[j] =
+                        nullable_flags[j] || child_exprs_lists[i][j]->root()->is_nullable();
+            }
+        }
+
+        for (int i = 0; i < child_exprs_lists[0].size(); ++i) {
+            const auto& ctx = child_exprs_lists[0][i];
+            local_state->_shared_state->_build_not_ignore_null.push_back(
+                    ctx->root()->is_nullable());
+            local_state->_shared_state->_left_table_data_types.push_back(
+                    nullable_flags[i] ? make_nullable(ctx->root()->data_type())
+                                      : ctx->root()->data_type());
+        }
+        local_state->_shared_state->hash_table_init();
+    }
+    return Status::OK();
+}
+
 template <typename LocalStateType>
 Status StreamingOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized::Block* block,
                                                      SourceState& source_state) {
@@ -563,6 +636,10 @@ DECLARE_OPERATOR_X(NestedLoopJoinBuildSinkLocalState)
 DECLARE_OPERATOR_X(UnionSinkLocalState)
 DECLARE_OPERATOR_X(MultiCastDataStreamSinkLocalState)
 DECLARE_OPERATOR_X(PartitionSortSinkLocalState)
+DECLARE_OPERATOR_X(SetProbeSinkLocalState<true>)
+DECLARE_OPERATOR_X(SetProbeSinkLocalState<false>)
+DECLARE_OPERATOR_X(SetSinkLocalState<true>)
+DECLARE_OPERATOR_X(SetSinkLocalState<false>)
 
 #undef DECLARE_OPERATOR_X
 
@@ -584,6 +661,8 @@ DECLARE_OPERATOR_X(EmptySetLocalState)
 DECLARE_OPERATOR_X(UnionSourceLocalState)
 DECLARE_OPERATOR_X(MultiCastDataStreamSourceLocalState)
 DECLARE_OPERATOR_X(PartitionSortSourceLocalState)
+DECLARE_OPERATOR_X(SetSourceLocalState<true>)
+DECLARE_OPERATOR_X(SetSourceLocalState<false>)
 DECLARE_OPERATOR_X(DataGenLocalState)
 DECLARE_OPERATOR_X(SchemaScanLocalState)
 DECLARE_OPERATOR_X(MetaScanLocalState)
@@ -606,6 +685,8 @@ template class PipelineXSinkLocalState<AggDependency>;
 template class PipelineXSinkLocalState<FakeDependency>;
 template class PipelineXSinkLocalState<UnionDependency>;
 template class PipelineXSinkLocalState<PartitionSortDependency>;
+template class PipelineXSinkLocalState<MultiCastDependency>;
+template class PipelineXSinkLocalState<SetDependency>;
 
 template class PipelineXLocalState<HashJoinDependency>;
 template class PipelineXLocalState<SortDependency>;
@@ -615,8 +696,8 @@ template class PipelineXLocalState<AggDependency>;
 template class PipelineXLocalState<FakeDependency>;
 template class PipelineXLocalState<UnionDependency>;
 template class PipelineXLocalState<MultiCastDependency>;
-template class PipelineXSinkLocalState<MultiCastDependency>;
 template class PipelineXLocalState<PartitionSortDependency>;
+template class PipelineXLocalState<SetDependency>;
 
 template class AsyncWriterSink<doris::vectorized::VFileResultWriter, ResultFileSinkOperatorX>;
 template class AsyncWriterSink<doris::vectorized::VJdbcTableWriter, JdbcTableSinkOperatorX>;

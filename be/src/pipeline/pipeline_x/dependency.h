@@ -605,5 +605,152 @@ public:
     void* shared_state() override { return nullptr; }
 };
 
+struct SetSharedState {
+    /// default init
+    //record memory during running
+    int64_t _mem_used = 0;
+    bool _build_finished = false;
+    std::vector<vectorized::Block> _build_blocks; // build to source
+    int _build_block_index = 0;                   // build to source
+    //record element size in hashtable
+    int64_t _valid_element_in_hash_tbl = 0;
+    //first:column_id, could point to origin column or cast column
+    //second:idx mapped to column types
+    std::unordered_map<int, int> _build_col_idx;
+
+    //// shared static states (shared, decided in prepare/open...)
+
+    /// init in setup_local_states
+    std::unique_ptr<vectorized::HashTableVariants> _hash_table_variants; // the real data HERE.
+    std::vector<bool> _build_not_ignore_null;
+    std::vector<size_t> _probe_key_sz;
+    std::vector<size_t> _build_key_sz;
+
+    /// init in both upstream side.
+    //The i-th result expr list refers to the i-th child.
+    std::vector<vectorized::VExprContextSPtrs> _child_exprs_lists;
+
+    /// init in build side
+    int _childs;
+    vectorized::VExprContextSPtrs _build_child_exprs;
+    std::vector<bool> _probe_finished_children_index; // use in probe side
+
+    /// init in probe side
+    //record build column type
+    vectorized::DataTypes _left_table_data_types;
+    std::vector<vectorized::VExprContextSPtrs> _probe_child_exprs_lists;
+
+public:
+    /// called in setup_local_states
+    void hash_table_init() {
+        if (_child_exprs_lists[0].size() == 1 && (!_build_not_ignore_null[0])) {
+            // Single column optimization
+            switch (_child_exprs_lists[0][0]->root()->result_type()) {
+            case TYPE_BOOLEAN:
+            case TYPE_TINYINT:
+                _hash_table_variants->emplace<
+                        vectorized::I8HashTableContext<vectorized::RowRefListWithFlags>>();
+                break;
+            case TYPE_SMALLINT:
+                _hash_table_variants->emplace<
+                        vectorized::I16HashTableContext<vectorized::RowRefListWithFlags>>();
+                break;
+            case TYPE_INT:
+            case TYPE_FLOAT:
+            case TYPE_DATEV2:
+            case TYPE_DECIMAL32:
+                _hash_table_variants->emplace<
+                        vectorized::I32HashTableContext<vectorized::RowRefListWithFlags>>();
+                break;
+            case TYPE_BIGINT:
+            case TYPE_DOUBLE:
+            case TYPE_DATETIME:
+            case TYPE_DATE:
+            case TYPE_DECIMAL64:
+            case TYPE_DATETIMEV2:
+                _hash_table_variants->emplace<
+                        vectorized::I64HashTableContext<vectorized::RowRefListWithFlags>>();
+                break;
+            case TYPE_LARGEINT:
+            case TYPE_DECIMALV2:
+            case TYPE_DECIMAL128I:
+                _hash_table_variants->emplace<
+                        vectorized::I128HashTableContext<vectorized::RowRefListWithFlags>>();
+                break;
+            default:
+                _hash_table_variants->emplace<
+                        vectorized::SerializedHashTableContext<vectorized::RowRefListWithFlags>>();
+            }
+            return;
+        }
+
+        bool use_fixed_key = true;
+        bool has_null = false;
+        size_t key_byte_size = 0;
+        size_t bitmap_size = vectorized::get_bitmap_size(_child_exprs_lists[0].size());
+
+        _build_key_sz.resize(_child_exprs_lists[0].size());
+        _probe_key_sz.resize(_child_exprs_lists[0].size());
+        for (int i = 0; i < _child_exprs_lists[0].size(); ++i) {
+            const auto vexpr = _child_exprs_lists[0][i]->root();
+            const auto& data_type = vexpr->data_type();
+
+            if (!data_type->have_maximum_size_of_value()) {
+                use_fixed_key = false;
+                break;
+            }
+
+            auto is_null = data_type->is_nullable();
+            has_null |= is_null;
+            _build_key_sz[i] = data_type->get_maximum_size_of_value_in_memory() - (is_null ? 1 : 0);
+            _probe_key_sz[i] = _build_key_sz[i];
+            key_byte_size += _probe_key_sz[i];
+        }
+
+        if (bitmap_size + key_byte_size > sizeof(vectorized::UInt256)) {
+            use_fixed_key = false;
+        }
+        if (use_fixed_key) {
+            if (has_null) {
+                if (bitmap_size + key_byte_size <= sizeof(vectorized::UInt64)) {
+                    _hash_table_variants->emplace<vectorized::I64FixedKeyHashTableContext<
+                            true, vectorized::RowRefListWithFlags>>();
+                } else if (bitmap_size + key_byte_size <= sizeof(vectorized::UInt128)) {
+                    _hash_table_variants->emplace<vectorized::I128FixedKeyHashTableContext<
+                            true, vectorized::RowRefListWithFlags>>();
+                } else {
+                    _hash_table_variants->emplace<vectorized::I256FixedKeyHashTableContext<
+                            true, vectorized::RowRefListWithFlags>>();
+                }
+            } else {
+                if (key_byte_size <= sizeof(vectorized::UInt64)) {
+                    _hash_table_variants->emplace<vectorized::I64FixedKeyHashTableContext<
+                            false, vectorized::RowRefListWithFlags>>();
+                } else if (key_byte_size <= sizeof(vectorized::UInt128)) {
+                    _hash_table_variants->emplace<vectorized::I128FixedKeyHashTableContext<
+                            false, vectorized::RowRefListWithFlags>>();
+                } else {
+                    _hash_table_variants->emplace<vectorized::I256FixedKeyHashTableContext<
+                            false, vectorized::RowRefListWithFlags>>();
+                }
+            }
+        } else {
+            _hash_table_variants->emplace<
+                    vectorized::SerializedHashTableContext<vectorized::RowRefListWithFlags>>();
+        }
+    }
+};
+
+class SetDependency final : public WriteDependency {
+public:
+    using SharedState = SetSharedState;
+    SetDependency(int id) : WriteDependency(id, "SetDependency") {}
+    ~SetDependency() override = default;
+    void* shared_state() override { return (void*)&_set_state; };
+
+private:
+    SetSharedState _set_state;
+};
+
 } // namespace pipeline
 } // namespace doris
