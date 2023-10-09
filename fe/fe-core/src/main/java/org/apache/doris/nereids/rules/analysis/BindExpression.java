@@ -698,7 +698,7 @@ public class BindExpression implements AnalysisRuleFactory {
         String functionName = unboundTVFRelation.getFunctionName();
         TVFProperties arguments = unboundTVFRelation.getProperties();
         FunctionBuilder functionBuilder = functionRegistry.findFunctionBuilder(functionName, arguments);
-        BoundFunction function = functionBuilder.build(functionName, arguments);
+        Expression function = functionBuilder.build(functionName, arguments);
         if (!(function instanceof TableValuedFunction)) {
             throw new AnalysisException(function.toSql() + " is not a TableValuedFunction");
         }
@@ -726,12 +726,11 @@ public class BindExpression implements AnalysisRuleFactory {
 
         String functionName = unboundFunction.getName();
         FunctionBuilder functionBuilder = functionRegistry.findFunctionBuilder(functionName, boundArguments);
-        BoundFunction function = functionBuilder.build(functionName, boundArguments);
+        Expression function = functionBuilder.build(functionName, boundArguments);
         if (!(function instanceof TableGeneratingFunction)) {
             throw new AnalysisException(function.toSql() + " is not a TableGeneratingFunction");
         }
-        function = (BoundFunction) TypeCoercionUtils.processBoundFunction(function);
-        return function;
+        return (BoundFunction) TypeCoercionUtils.processBoundFunction((BoundFunction) function);
     }
 
     private void checkIfOutputAliasNameDuplicatedForGroupBy(List<Expression> expressions,

@@ -104,14 +104,13 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
                     .accept(this, context);
         }
 
-        FunctionBuilder builder = functionRegistry.findFunctionBuilder(unboundFunction.getDbName(),
-                functionName, arguments);
-        BoundFunction boundFunction = builder.build(functionName, arguments);
+        FunctionBuilder builder = functionRegistry.findFunctionBuilder(
+                unboundFunction.getDbName(), functionName, arguments);
         if (builder instanceof AliasUdfBuilder) {
             // we do type coercion in build function in alias function, so it's ok to return directly.
-            return boundFunction;
+            return builder.build(functionName, arguments);
         } else {
-            return TypeCoercionUtils.processBoundFunction(boundFunction);
+            return TypeCoercionUtils.processBoundFunction((BoundFunction) builder.build(functionName, arguments));
         }
     }
 
