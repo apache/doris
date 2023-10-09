@@ -99,7 +99,6 @@ private:
     std::vector<size_t> _build_key_sz;
     std::vector<bool> _build_not_ignore_null;
 
-    std::unique_ptr<Arena> _arena;
     //record element size in hashtable
     int64_t _valid_element_in_hash_tbl;
 

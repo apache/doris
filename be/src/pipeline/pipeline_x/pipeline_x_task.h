@@ -118,7 +118,7 @@ public:
 
     std::vector<DependencySPtr>& get_downstream_dependency() { return _downstream_dependency; }
 
-    void set_upstream_dependency(std::vector<DependencySPtr>& multi_upstream_dependency) {
+    void add_upstream_dependency(std::vector<DependencySPtr>& multi_upstream_dependency) {
         for (auto dep : multi_upstream_dependency) {
             int dst_id = dep->id();
             if (!_upstream_dependency.contains(dst_id)) {
