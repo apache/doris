@@ -2498,10 +2498,13 @@ public class InternalCatalog implements CatalogIf<Database> {
                                 "Can not create UNIQUE KEY table that enables Merge-On-write"
                                         + " with storage policy(" + partionStoragePolicy + ")");
                     }
-                    if (!partionStoragePolicy.equals("")) {
-                        storagePolicy = partionStoragePolicy;
+                    // The table's storage policy has higher priority than partition's policy,
+                    // so we'll directly use table's policy when it's set. Otherwise we use the
+                    // partition's policy
+                    if (!storagePolicy.isEmpty()) {
+                        partionStoragePolicy = storagePolicy;
                     }
-                    Env.getCurrentEnv().getPolicyMgr().checkStoragePolicyExist(storagePolicy);
+                    Env.getCurrentEnv().getPolicyMgr().checkStoragePolicyExist(partionStoragePolicy);
 
                     Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(),
                             olapTable.getId(), olapTable.getName(), olapTable.getBaseIndexId(), entry.getValue(),
@@ -2509,8 +2512,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                             dataProperty.getStorageMedium(), partitionInfo.getReplicaAllocation(entry.getValue()),
                             versionInfo, bfColumns, bfFpp, tabletIdSet, olapTable.getCopiedIndexes(), isInMemory,
                             storageFormat, partitionInfo.getTabletType(entry.getValue()), compressionType,
-                            olapTable.getDataSortInfo(), olapTable.getEnableUniqueKeyMergeOnWrite(), storagePolicy,
-                            idGeneratorBuffer, olapTable.disableAutoCompaction(),
+                            olapTable.getDataSortInfo(), olapTable.getEnableUniqueKeyMergeOnWrite(),
+                            partionStoragePolicy, idGeneratorBuffer, olapTable.disableAutoCompaction(),
                             olapTable.enableSingleReplicaCompaction(), skipWriteIndexOnLoad,
                             olapTable.getCompactionPolicy(), olapTable.getTimeSeriesCompactionGoalSizeMbytes(),
                             olapTable.getTimeSeriesCompactionFileCountThreshold(),
@@ -2518,6 +2521,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                             storeRowColumn, isDynamicSchema, binlogConfigForTask,
                             dataProperty.isStorageMediumSpecified());
                     olapTable.addPartition(partition);
+                    olapTable.getPartitionInfo().getDataProperty(partition.getId())
+                            .setStoragePolicy(partionStoragePolicy);
                 }
             } else {
                 throw new DdlException("Unsupported partition method: " + partitionInfo.getType().name());
