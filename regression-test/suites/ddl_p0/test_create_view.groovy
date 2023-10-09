@@ -54,13 +54,13 @@ suite("test_create_view") {
     select aa.RQ as RQ, aa.v1 as v1,aa.v2 as v2 , bb.v3 as v3  from
     (
         select RQ, count(distinct v1) as v1 , count(distinct  v2 ) as v2
-        from count_distinct  
+        from count_distinct
         group by RQ
     ) aa
     LEFT JOIN
     (
-        select RQ, max(v3) as v3 
-        from count_distinct  
+        select RQ, max(v3) as v3
+        from count_distinct
         group by RQ
     ) bb
     on aa.RQ = bb.RQ;
@@ -153,4 +153,54 @@ suite("test_create_view") {
             select *, array_map(x->x>0,k3) from view_baseall order by k1;
     """
     qt_test_view_5 """ select * from test_view8 order by k1; """
+
+    sql """DROP TABLE IF EXISTS view_column_name_test"""
+    sql """
+     CREATE TABLE IF NOT EXISTS view_column_name_test
+    (
+        `timestamp` DATE NOT NULL COMMENT "['0000-01-01', '9999-12-31']",
+        `type` TINYINT NOT NULL COMMENT "[-128, 127]",
+        `error_code` INT COMMENT "[-2147483648, 2147483647]",
+        `error_msg` VARCHAR(300) COMMENT "[1-65533]",
+        `op_id` BIGINT COMMENT "[-9223372036854775808, 9223372036854775807]",
+        `op_time` DATETIME COMMENT "['0000-01-01 00:00:00', '9999-12-31 23:59:59']",
+        `target` float COMMENT "4 字节",
+        `source` double COMMENT "8 字节",
+        `lost_cost` decimal(12,2) COMMENT "",
+        `remark` string COMMENT "1m size",
+        `op_userid` LARGEINT COMMENT "[-2^127 + 1 ~ 2^127 - 1]",
+        `plate` SMALLINT COMMENT "[-32768, 32767]",
+        `iscompleted` boolean COMMENT "true 或者 false"
+    )
+    DISTRIBUTED BY HASH(`type`) BUCKETS 1
+    PROPERTIES ('replication_num' = '1');
+    """
+
+    sql """
+    DROP VIEW IF EXISTS v1
+    """
+    sql """
+    CREATE VIEW v1 AS 
+    SELECT
+      error_code, 
+      1, 
+      'string', 
+      now(), 
+      dayofyear(op_time), 
+      cast (source AS BIGINT), 
+      min(`timestamp`) OVER (
+        ORDER BY 
+          op_time DESC ROWS BETWEEN UNBOUNDED PRECEDING
+          AND 1 FOLLOWING
+      ), 
+      1 > 2,
+      2 + 3,
+      1 IN (1, 2, 3, 4), 
+      remark LIKE '%like', 
+      CASE WHEN remark = 's' THEN 1 ELSE 2 END,
+      TRUE | FALSE 
+    FROM 
+      view_column_name_test
+    """
+    qt_test_view_6 """ SHOW VIEW FROM view_column_name_test;"""
 }
