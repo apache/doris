@@ -248,7 +248,14 @@ public class StatisticsRepository {
             builder.setMaxValue(StatisticsUtil.convertToDouble(column.getType(), max));
         }
         if (dataSize != null) {
-            builder.setDataSize(Double.parseDouble(dataSize));
+            double size = Double.parseDouble(dataSize);
+            double rows = Double.parseDouble(rowCount);
+            if (size > 0) {
+                builder.setDataSize(size);
+                if (rows > 0) {
+                    builder.setAvgSizeByte(size / rows);
+                }
+            }
         }
 
         ColumnStatistic columnStatistic = builder.build();
