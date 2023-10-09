@@ -2443,7 +2443,7 @@ public class Env {
                 deleteHandler.removeOldDeleteInfos();
 
                 if (Config.label_num_threshold > 0) {
-                    loadManager.removeFinishedLoadJob();
+                    loadManager.removeOverLimitLoadJob();
                 }
             }
         };

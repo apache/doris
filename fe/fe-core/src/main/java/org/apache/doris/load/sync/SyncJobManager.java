@@ -41,6 +41,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
@@ -60,7 +61,7 @@ public class SyncJobManager implements Writable {
 
     public SyncJobManager() {
         idToSyncJob = Maps.newConcurrentMap();
-        dbIdToJobNameToSyncJobs = Maps.newConcurrentMap();
+        dbIdToJobNameToSyncJobs = Collections.synchronizedMap(Maps.newLinkedHashMap());
         lock = new ReentrantReadWriteLock(true);
     }
 
@@ -285,26 +286,26 @@ public class SyncJobManager implements Writable {
     // Stopped jobs will be removed after Config.label_keep_max_second.
     public void cleanOldSyncJobs() {
         LOG.debug("begin to clean old sync jobs ");
-        cleanFinishedSyncJobsIf(job -> job.isExpired(System.currentTimeMillis()));
+        cleanFinishedSyncJobsIf(job -> job.isExpired(System.currentTimeMillis()), -1);
     }
 
     /**
      * Remove completed jobs if total job num exceed Config.label_num_threshold
      */
-    public void cleanFinishedSyncJobs() {
-        if (idToSyncJob.size() < Config.label_num_threshold) {
+    public void cleanOverLimitSyncJobs() {
+        if (idToSyncJob.size() <= Config.label_num_threshold) {
             return;
         }
         LOG.debug("begin to clean finished sync jobs ");
-        cleanFinishedSyncJobsIf(SyncJob::isCompleted);
+        cleanFinishedSyncJobsIf(SyncJob::isCompleted, Config.label_num_threshold);
     }
 
-    public void cleanFinishedSyncJobsIf(Predicate<SyncJob> pred) {
+    public void cleanFinishedSyncJobsIf(Predicate<SyncJob> pred, int numLimit) {
         long currentTimeMs = System.currentTimeMillis();
         writeLock();
         try {
             Iterator<Map.Entry<Long, SyncJob>> iterator = idToSyncJob.entrySet().iterator();
-            while (iterator.hasNext()) {
+            while (iterator.hasNext() && idToSyncJob.size() > numLimit) {
                 SyncJob syncJob = iterator.next().getValue();
                 if (pred.test(syncJob)) {
                     if (!dbIdToJobNameToSyncJobs.containsKey(syncJob.getDbId())) {

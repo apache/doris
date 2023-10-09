@@ -63,6 +63,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -80,7 +81,7 @@ public class RoutineLoadManager implements Writable {
     private Map<Long, Integer> beIdToMaxConcurrentTasks = Maps.newHashMap();
 
     // routine load job meta
-    private Map<Long, RoutineLoadJob> idToRoutineLoadJob = Maps.newConcurrentMap();
+    private Map<Long, RoutineLoadJob> idToRoutineLoadJob = Collections.synchronizedMap(Maps.newLinkedHashMap());
     private Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newConcurrentMap();
 
     private ConcurrentHashMap<Long, Long> multiLoadTaskTxnIdToRoutineLoadJobId = new ConcurrentHashMap<>();
@@ -687,7 +688,7 @@ public class RoutineLoadManager implements Writable {
     // Cancelled and stopped job will be removed after Configure.label_keep_max_second seconds
     public void cleanOldRoutineLoadJobs() {
         LOG.debug("begin to clean old routine load jobs ");
-        clearRoutineLoadJobIf(RoutineLoadJob::isExpired);
+        clearRoutineLoadJobIf(RoutineLoadJob::isExpired, -1);
     }
 
     /**
@@ -695,20 +696,20 @@ public class RoutineLoadManager implements Writable {
      * This function is called periodically if Config.label_num_threshold is set.
      * Cancelled and stopped job will be removed.
      */
-    public void cleanFinishedRoutineLoadJobs() {
-        if (idToRoutineLoadJob.size() < Config.label_num_threshold) {
+    public void cleanOverLimitRoutineLoadJobs() {
+        if (idToRoutineLoadJob.size() <= Config.label_num_threshold) {
             return;
         }
-        LOG.debug("begin to clean routine load jobs ");
-        clearRoutineLoadJobIf(RoutineLoadJob::isFinal);
+        LOG.debug("begin to clean routine load jobs");
+        clearRoutineLoadJobIf(RoutineLoadJob::isFinal, Config.label_num_threshold);
     }
 
-    private void clearRoutineLoadJobIf(Predicate<RoutineLoadJob> pred) {
+    private void clearRoutineLoadJobIf(Predicate<RoutineLoadJob> pred, int numLimit) {
         writeLock();
         try {
             Iterator<Map.Entry<Long, RoutineLoadJob>> iterator = idToRoutineLoadJob.entrySet().iterator();
             long currentTimestamp = System.currentTimeMillis();
-            while (iterator.hasNext()) {
+            while (iterator.hasNext() && idToRoutineLoadJob.size() > numLimit) {
                 RoutineLoadJob routineLoadJob = iterator.next().getValue();
                 if (pred.test(routineLoadJob)) {
                     unprotectedRemoveJobFromDb(routineLoadJob);

@@ -127,7 +127,7 @@ public class RoutineLoadScheduler extends MasterDaemon {
         routineLoadManager.cleanOldRoutineLoadJobs();
 
         if (Config.label_num_threshold > 0) {
-            routineLoadManager.cleanFinishedRoutineLoadJobs();
+            routineLoadManager.cleanOverLimitRoutineLoadJobs();
         }
     }
 

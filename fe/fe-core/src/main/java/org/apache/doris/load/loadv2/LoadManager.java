@@ -67,6 +67,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -90,7 +91,7 @@ import java.util.stream.Collectors;
 public class LoadManager implements Writable {
     private static final Logger LOG = LogManager.getLogger(LoadManager.class);
 
-    private Map<Long, LoadJob> idToLoadJob = Maps.newConcurrentMap();
+    private Map<Long, LoadJob> idToLoadJob = Collections.synchronizedMap(Maps.newLinkedHashMap());
     private Map<Long, Map<String, List<LoadJob>>> dbIdToLabelToLoadJobs = Maps.newConcurrentMap();
     private LoadJobScheduler loadJobScheduler;
 
@@ -408,24 +409,24 @@ public class LoadManager implements Writable {
      **/
     public void removeOldLoadJob() {
         long currentTimeMs = System.currentTimeMillis();
-        removeLoadJobIf(job -> job.isExpired(currentTimeMs));
+        removeLoadJobIf(job -> job.isExpired(currentTimeMs), -1);
     }
 
     /**
      * Remove completed jobs if total job num exceed Config.label_num_threshold
      */
-    public void removeFinishedLoadJob() {
-        if (idToLoadJob.size() < Config.label_num_threshold) {
+    public void removeOverLimitLoadJob() {
+        if (idToLoadJob.size() <= Config.label_num_threshold) {
             return;
         }
-        removeLoadJobIf(LoadJob::isCompleted);
+        removeLoadJobIf(LoadJob::isCompleted, Config.label_num_threshold);
     }
 
-    private void removeLoadJobIf(Predicate<LoadJob> pred) {
+    private void removeLoadJobIf(Predicate<LoadJob> pred, int numLimit) {
         writeLock();
         try {
             Iterator<Map.Entry<Long, LoadJob>> iter = idToLoadJob.entrySet().iterator();
-            while (iter.hasNext()) {
+            while (iter.hasNext() && idToLoadJob.size() > numLimit) {
                 LoadJob job = iter.next().getValue();
                 if (pred.test(job)) {
                     iter.remove();
