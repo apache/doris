@@ -104,7 +104,7 @@ public:
     RuntimeProfile::Counter* memory_used_counter() { return _memory_used_counter; }
     RuntimeProfile::Counter* projection_timer() { return _projection_timer; }
     RuntimeProfile::Counter* wait_for_dependency_timer() { return _wait_for_dependency_timer; }
-    RuntimeProfile::Counter* blocks_returned_counter() { return _rows_returned_counter; }
+    RuntimeProfile::Counter* blocks_returned_counter() { return _blocks_returned_counter; }
 
     OperatorXBase* parent() { return _parent; }
     RuntimeState* state() { return _state; }

@@ -63,7 +63,9 @@ public class ProfileStatistics {
     public void addInfoFromProfile(RuntimeProfile profile, String name, String info) {
         if (isPipelineX) {
             if (profile.sinkOperator()) {
-                name = name + "Sink";
+                name = name + "(Sink)";
+            } else {
+                name = name + "(Operator)";
             }
             addPlanNodeInfo(profile.nodeId(), name + ": " + info);
         } else {
