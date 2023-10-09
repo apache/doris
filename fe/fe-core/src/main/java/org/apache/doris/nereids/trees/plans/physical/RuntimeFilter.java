@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.planner.RuntimeFilterId;
+import org.apache.doris.thrift.TMinMaxRuntimeFilterType;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.collect.ImmutableList;
@@ -45,21 +46,31 @@ public class RuntimeFilter {
     private final boolean bitmapFilterNotIn;
 
     private final long buildSideNdv;
+    // use for min-max filter only. specify if the min or max side is valid
+    private final TMinMaxRuntimeFilterType tMinMaxType;
 
     /**
      * constructor
      */
     public RuntimeFilter(RuntimeFilterId id, Expression src, List<Slot> targets, TRuntimeFilterType type,
             int exprOrder, AbstractPhysicalJoin builderNode, long buildSideNdv) {
-        this(id, src, targets, ImmutableList.copyOf(targets), type, exprOrder, builderNode, false, buildSideNdv);
+        this(id, src, targets, ImmutableList.copyOf(targets), type, exprOrder,
+                builderNode, false, buildSideNdv, TMinMaxRuntimeFilterType.MIN_MAX);
+    }
+
+    public RuntimeFilter(RuntimeFilterId id, Expression src, List<Slot> targets, List<Expression> targetExpressions,
+                         TRuntimeFilterType type, int exprOrder, AbstractPhysicalJoin builderNode,
+                         boolean bitmapFilterNotIn, long buildSideNdv) {
+        this(id, src, targets, targetExpressions, type, exprOrder,
+                builderNode, bitmapFilterNotIn, buildSideNdv, TMinMaxRuntimeFilterType.MIN_MAX);
     }
 
     /**
      * constructor
      */
     public RuntimeFilter(RuntimeFilterId id, Expression src, List<Slot> targets, List<Expression> targetExpressions,
-            TRuntimeFilterType type, int exprOrder, AbstractPhysicalJoin builderNode, boolean bitmapFilterNotIn,
-            long buildSideNdv) {
+                         TRuntimeFilterType type, int exprOrder, AbstractPhysicalJoin builderNode,
+                         boolean bitmapFilterNotIn, long buildSideNdv, TMinMaxRuntimeFilterType tMinMaxType) {
         this.id = id;
         this.srcSlot = src;
         this.targetSlots = Lists.newArrayList(targets);
@@ -69,7 +80,12 @@ public class RuntimeFilter {
         this.builderNode = builderNode;
         this.bitmapFilterNotIn = bitmapFilterNotIn;
         this.buildSideNdv = buildSideNdv <= 0 ? -1L : buildSideNdv;
+        this.tMinMaxType = tMinMaxType;
         builderNode.addRuntimeFilter(this);
+    }
+
+    public TMinMaxRuntimeFilterType gettMinMaxType() {
+        return tMinMaxType;
     }
 
     public Expression getSrcExpr() {
