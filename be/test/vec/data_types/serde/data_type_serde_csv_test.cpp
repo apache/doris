@@ -221,11 +221,14 @@ TEST(CsvSerde, ScalaDataTypeSerdeCsvTest) {
             auto ser_col = ColumnString::create();
             ser_col->reserve(3);
             VectorBufferWriter buffer_writer(*ser_col.get());
-            serde->serialize_one_cell_to_json(*col, 0, buffer_writer, formatOptions);
+            st = serde->serialize_one_cell_to_json(*col, 0, buffer_writer, formatOptions);
+            EXPECT_EQ(st.ok(), true);
             buffer_writer.commit();
-            serde->serialize_one_cell_to_json(*col, 1, buffer_writer, formatOptions);
+            st = serde->serialize_one_cell_to_json(*col, 1, buffer_writer, formatOptions);
+            EXPECT_EQ(st.ok(), true);
             buffer_writer.commit();
-            serde->serialize_one_cell_to_json(*col, 2, buffer_writer, formatOptions);
+            st = serde->serialize_one_cell_to_json(*col, 2, buffer_writer, formatOptions);
+            EXPECT_EQ(st.ok(), true);
             buffer_writer.commit();
             rtrim(min_s);
             rtrim(max_s);
@@ -259,7 +262,9 @@ TEST(CsvSerde, ScalaDataTypeSerdeCsvTest) {
         auto ser_col = ColumnString::create();
         ser_col->reserve(1);
         VectorBufferWriter buffer_writer(*ser_col.get());
-        serde->serialize_one_cell_to_json(*col, 0, buffer_writer, default_format_option);
+        Status st =
+                serde->serialize_one_cell_to_json(*col, 0, buffer_writer, default_format_option);
+        EXPECT_EQ(st.ok(), true);
         buffer_writer.commit();
         StringRef rand_s_d = ser_col->get_data_at(0);
         EXPECT_EQ(rand_wf->to_string(), rand_s_d.to_string());

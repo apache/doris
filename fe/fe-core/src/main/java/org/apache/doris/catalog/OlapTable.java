@@ -56,7 +56,7 @@ import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.HistogramTask;
 import org.apache.doris.statistics.MVAnalysisTask;
 import org.apache.doris.statistics.OlapAnalysisTask;
-import org.apache.doris.statistics.TableStats;
+import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -1125,12 +1125,15 @@ public class OlapTable extends Table {
         return new MVAnalysisTask(info);
     }
 
-    @Override
-    public boolean needReAnalyzeTable(TableStats tblStats) {
+    public boolean needReAnalyzeTable(TableStatsMeta tblStats) {
         if (tblStats == null) {
             return true;
         }
         long rowCount = getRowCount();
+        // TODO: Do we need to analyze an empty table?
+        if (rowCount == 0) {
+            return false;
+        }
         if (!tblStats.analyzeColumns().containsAll(getBaseSchema()
                 .stream()
                 .map(Column::getName)
@@ -1145,7 +1148,7 @@ public class OlapTable extends Table {
     @Override
     public Map<String, Set<String>> findReAnalyzeNeededPartitions() {
         TableIf table = this;
-        TableStats tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(table.getId());
+        TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(table.getId());
         Set<String> allPartitions = table.getPartitionNames().stream().map(table::getPartition)
                 .filter(Partition::hasData).map(Partition::getName).collect(Collectors.toSet());
         if (tableStats == null) {

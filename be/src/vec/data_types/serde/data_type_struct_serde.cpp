@@ -18,6 +18,7 @@
 #include "data_type_struct_serde.h"
 
 #include "arrow/array/builder_nested.h"
+#include "common/status.h"
 #include "util/jsonb_document.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
@@ -37,6 +38,34 @@ std::optional<size_t> DataTypeStructSerDe::try_get_position_by_name(const String
         }
     }
     return std::nullopt;
+}
+
+Status DataTypeStructSerDe::serialize_column_to_json(const IColumn& column, int start_idx,
+                                                     int end_idx, BufferWritable& bw,
+                                                     FormatOptions& options,
+                                                     int nesting_level) const {
+    SERIALIZE_COLUMN_TO_JSON();
+}
+
+Status DataTypeStructSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+                                                       BufferWritable& bw, FormatOptions& options,
+                                                       int nesting_level) const {
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
+
+    const ColumnStruct& struct_column = assert_cast<const ColumnStruct&>(*ptr);
+    bw.write('{');
+    for (int i = 0; i < struct_column.get_columns().size(); i++) {
+        if (i != 0) {
+            bw.write(',');
+            bw.write(' ');
+        }
+        RETURN_IF_ERROR(elemSerDeSPtrs[i]->serialize_one_cell_to_json(
+                struct_column.get_column(i), row_num, bw, options, nesting_level + 1));
+    }
+    bw.write('}');
+    return Status::OK();
 }
 
 Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
