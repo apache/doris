@@ -160,7 +160,6 @@ public:
                                 int nan_direction_hint) const override {
         LOG(FATAL) << "compare_at not implemented";
     }
-    void get_extremes(Field& min, Field& max) const override;
     void reserve(size_t n) override;
     void resize(size_t n) override;
     size_t byte_size() const override;

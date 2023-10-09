@@ -132,6 +132,11 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
     }
 
     @Override
+    protected String getExpressionName() {
+        return "literal";
+    }
+
+    @Override
     public boolean nullable() throws UnboundException {
         return this instanceof NullLiteral;
     }

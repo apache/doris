@@ -357,6 +357,11 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         }
     }
 
+    @Override
+    protected String getExprName() {
+        return "literal";
+    }
+
     // Port from mysql get_param_length
     public static int getParmLen(ByteBuffer data) {
         int maxLen = data.remaining();

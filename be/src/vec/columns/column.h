@@ -535,14 +535,6 @@ public:
     /// TODO: interface decoupled from ColumnGathererStream that allows non-generic specializations.
     //    virtual void gather(ColumnGathererStream & gatherer_stream) = 0;
 
-    /** Computes minimum and maximum element of the column.
-      * In addition to numeric types, the function is completely implemented for Date and DateTime.
-      * For strings and arrays function should return default value.
-      *  (except for constant columns; they should return value of the constant).
-      * If column is empty function should return default value.
-      */
-    virtual void get_extremes(Field& min, Field& max) const = 0;
-
     /// Reserves memory for specified amount of elements. If reservation isn't possible, does nothing.
     /// It affects performance only (not correctness).
     virtual void reserve(size_t /*n*/) {}
