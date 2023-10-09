@@ -24,7 +24,6 @@ import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.DataType;
 
@@ -36,6 +35,7 @@ import org.antlr.v4.runtime.atn.PredictionMode;
 import org.antlr.v4.runtime.misc.ParseCancellationException;
 
 import java.util.List;
+import java.util.Map;
 import java.util.function.Function;
 
 /**
@@ -80,7 +80,7 @@ public class NereidsParser {
         return parse(dataType, DorisParser::dataType);
     }
 
-    public Properties parseProperties(String properties) {
+    public Map<String, String> parseProperties(String properties) {
         return parse(properties, DorisParser::propertyItemList);
     }
 
