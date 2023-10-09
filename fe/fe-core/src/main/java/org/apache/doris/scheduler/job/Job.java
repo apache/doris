@@ -151,6 +151,10 @@ public class Job implements Writable {
         return jobStatus == JobStatus.STOPPED;
     }
 
+    public boolean isFinished() {
+        return jobStatus == JobStatus.FINISHED;
+    }
+
     public boolean isExpired(long nextExecuteTimestamp) {
         if (endTimeMs == 0L) {
             return false;
