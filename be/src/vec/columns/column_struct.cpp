@@ -363,20 +363,6 @@ void ColumnStruct::protect() {
     }
 }
 
-void ColumnStruct::get_extremes(Field& min, Field& max) const {
-    const size_t tuple_size = columns.size();
-
-    Tuple min_tuple(tuple_size);
-    Tuple max_tuple(tuple_size);
-
-    for (size_t i = 0; i < tuple_size; ++i) {
-        columns[i]->get_extremes(min_tuple[i], max_tuple[i]);
-    }
-
-    min = min_tuple;
-    max = max_tuple;
-}
-
 void ColumnStruct::for_each_subcolumn(ColumnCallback callback) {
     for (auto& column : columns) {
         callback(column);
