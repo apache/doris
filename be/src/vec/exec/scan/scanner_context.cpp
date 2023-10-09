@@ -295,7 +295,11 @@ void ScannerContext::update_num_running(int32_t scanner_inc, int32_t sched_inc) 
     _num_running_scanners += scanner_inc;
     _num_scheduling_ctx += sched_inc;
     if (_finish_dependency) {
-        _finish_dependency->block_finishing();
+        if (_num_running_scanners == 0 && _num_scheduling_ctx == 0) {
+            _finish_dependency->set_ready_to_finish();
+        } else {
+            _finish_dependency->block_finishing();
+        }
     }
     _blocks_queue_added_cv.notify_one();
     _ctx_finish_cv.notify_one();
