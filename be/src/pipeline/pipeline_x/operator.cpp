@@ -417,8 +417,7 @@ template <typename DependencyType>
 Status PipelineXSinkLocalState<DependencyType>::init(RuntimeState* state,
                                                      LocalSinkStateInfo& info) {
     // create profile
-    _profile = state->obj_pool()->add(new RuntimeProfile(
-            _parent->get_name() + " (id=" + std::to_string(_parent->node_id()) + ")"));
+    _profile = state->obj_pool()->add(new RuntimeProfile(_parent->get_name() + id_name()));
     _profile->set_metadata(_parent->node_id());
     _profile->set_is_sink(true);
     if constexpr (!std::is_same_v<FakeDependency, Dependency>) {

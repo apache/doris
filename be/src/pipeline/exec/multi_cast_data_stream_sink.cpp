@@ -23,27 +23,14 @@ OperatorPtr MultiCastDataStreamSinkOperatorBuilder::build_operator() {
     return std::make_shared<MultiCastDataStreamSinkOperator>(this, _sink);
 }
 
-Status MultiCastDataStreamSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
+std::string MultiCastDataStreamSinkLocalState::id_name() {
     auto& sinks = static_cast<MultiCastDataStreamSinkOperatorX*>(_parent)->sink_node().sinks;
     std::string id_name = " (dst id : ";
     for (auto& sink : sinks) {
         id_name += std::to_string(sink.dest_node_id) + ",";
     }
     id_name += ")";
-    // create profile
-    _profile = state->obj_pool()->add(new RuntimeProfile(_parent->get_name() + id_name));
-    _dependency = (MultiCastDependency*)info.dependency;
-    if (_dependency) {
-        _shared_state = (typename MultiCastDependency::SharedState*)_dependency->shared_state();
-        _wait_for_dependency_timer =
-                ADD_TIMER(_profile, "WaitForDependency[" + _dependency->name() + "]Time");
-    }
-    _rows_input_counter = ADD_COUNTER(_profile, "InputRows", TUnit::UNIT);
-    _open_timer = ADD_TIMER(_profile, "OpenTime");
-    _close_timer = ADD_TIMER(_profile, "CloseTime");
-    info.parent_profile->add_child(_profile, true, nullptr);
-    _mem_tracker = std::make_unique<MemTracker>(_parent->get_name());
-    return Status::OK();
+    return id_name;
 }
 
 } // namespace doris::pipeline

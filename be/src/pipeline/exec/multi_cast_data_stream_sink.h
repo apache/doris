@@ -51,7 +51,7 @@ class MultiCastDataStreamSinkLocalState final
     friend class DataSinkOperatorX<MultiCastDataStreamSinkLocalState>;
     using Base = PipelineXSinkLocalState<MultiCastDependency>;
     using Parent = MultiCastDataStreamSinkOperatorX;
-    Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    std::string id_name() override;
 
 private:
     std::shared_ptr<pipeline::MultiCastDataStreamer> _multi_cast_data_streamer;

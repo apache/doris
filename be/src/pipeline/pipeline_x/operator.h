@@ -562,6 +562,8 @@ public:
     [[nodiscard]] std::string debug_string(int indentation_level) const override;
     typename DependencyType::SharedState*& get_shared_state() { return _shared_state; }
 
+    virtual std::string id_name() { return " (id=" + std::to_string(_parent->node_id()) + ")"; }
+
 protected:
     DependencyType* _dependency = nullptr;
     typename DependencyType::SharedState* _shared_state;
