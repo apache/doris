@@ -91,13 +91,13 @@ ALTER DATABASE example_db SET REPLICA QUOTA 102400;
 4. Modify the default replica distribution policy for tables in db (this operation only applies to newly created tables and will not modify existing tables in db)
 
 ```sql
-ALTER DATABASE example_db set PROPERTIES("replication_allocation" = "tag.location.default:2");
+ALTER DATABASE example_db SET PROPERTIES("replication_allocation" = "tag.location.default:2");
 ```
 
 5. Cancel the default replica distribution policy for tables in db (this operation only applies to newly created tables and will not modify existing tables in db)
 
 ```sql
-ALTER DATABASE example_db set PROPERTIES("replication_allocation" = "");
+ALTER DATABASE example_db SET PROPERTIES("replication_allocation" = "");
 ```
 
 ### Keywords

@@ -91,13 +91,13 @@ ALTER DATABASE example_db SET REPLICA QUOTA 102400;
 4. 修改db下table的默认副本分布策略（该操作仅对新建的table生效，不会修改db下已存在的table）
 
 ```sql
-ALTER DATABASE example_db set PROPERTIES("replication_allocation" = "tag.location.default:2");
+ALTER DATABASE example_db SET PROPERTIES("replication_allocation" = "tag.location.default:2");
 ```
 
 5. 取消db下table的默认副本分布策略（该操作仅对新建的table生效，不会修改db下已存在的table）
 
 ```sql
-ALTER DATABASE example_db set PROPERTIES("replication_allocation" = "");
+ALTER DATABASE example_db SET PROPERTIES("replication_allocation" = "");
 ```
 
 ### Keywords
