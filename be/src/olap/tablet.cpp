@@ -153,7 +153,7 @@ static bvar::Adder<uint64_t> g_tablet_pk_not_found("doris_pk", "lookup_not_found
 static bvar::PerSecond<bvar::Adder<uint64_t>> g_tablet_pk_not_found_per_second(
         "doris_pk", "lookup_not_found_per_second", &g_tablet_pk_not_found, 60);
 
-const std::chrono::seconds TRACE_TABLET_LOCK_THRESHOLD = 3s;
+const std::chrono::seconds TRACE_TABLET_LOCK_THRESHOLD = 1s;
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(flush_bytes, MetricUnit::BYTES);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(flush_finish_count, MetricUnit::OPERATIONS);
