@@ -30,6 +30,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
+#include "util/runtime_profile.h"
 #include "util/telemetry/telemetry.h"
 #include "util/threadpool.h"
 #include "vec/columns/column.h"
@@ -111,12 +112,16 @@ Status VJoinNodeBase::prepare(RuntimeState* state) {
     runtime_profile()->add_info_string("JoinType", to_string(_join_op));
     _build_phase_profile = runtime_profile()->create_child("BuildPhase", true, true);
 
+    _build_get_next_timer = ADD_TIMER(_build_phase_profile, "BuildGetNextTime");
+    _build_timer = ADD_TIMER_WITH_LEVEL(_build_phase_profile, "BuildTime", 1);
+    _build_rows_counter = ADD_COUNTER_WITH_LEVEL(_build_phase_profile, "BuildRows", TUnit::UNIT, 1);
+
     _probe_phase_profile = runtime_profile()->create_child("ProbePhase", true, true);
-    _probe_timer = ADD_TIMER(_probe_phase_profile, "ProbeTime");
+    _probe_timer = ADD_TIMER_WITH_LEVEL(_probe_phase_profile, "ProbeTime", 1);
     _join_filter_timer = ADD_CHILD_TIMER(_probe_phase_profile, "JoinFilterTimer", "ProbeTime");
     _build_output_block_timer =
             ADD_CHILD_TIMER(_probe_phase_profile, "BuildOutputBlock", "ProbeTime");
-    _probe_rows_counter = ADD_COUNTER(_probe_phase_profile, "ProbeRows", TUnit::UNIT);
+    _probe_rows_counter = ADD_COUNTER_WITH_LEVEL(_probe_phase_profile, "ProbeRows", TUnit::UNIT, 1);
 
     _push_down_timer = ADD_TIMER(runtime_profile(), "PublishRuntimeFilterTime");
     _push_compute_timer = ADD_TIMER(runtime_profile(), "PushDownComputeTime");
@@ -141,11 +146,9 @@ void VJoinNodeBase::_construct_mutable_join_block() {
             _join_block.insert({type_ptr->create_column(), type_ptr, slot_desc->col_name()});
         }
     }
-    if (_is_mark_join) {
-        _join_block.replace_by_position(
-                _join_block.columns() - 1,
-                remove_nullable(_join_block.get_by_position(_join_block.columns() - 1).column));
-    }
+
+    DCHECK(!_is_mark_join ||
+           _join_block.get_by_position(_join_block.columns() - 1).column->is_nullable());
 }
 
 Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_block,
@@ -241,10 +244,10 @@ Status VJoinNodeBase::open(RuntimeState* state) {
 
     std::promise<Status> thread_status;
     try {
-        state->exec_env()->join_node_thread_pool()->submit_func(
+        static_cast<void>(state->exec_env()->join_node_thread_pool()->submit_func(
                 [this, state, thread_status_p = &thread_status] {
                     this->_probe_side_open_thread(state, thread_status_p);
-                });
+                }));
     } catch (const std::system_error& e) {
         return Status::InternalError("In VJoinNodeBase::open create thread fail, reason={}",
                                      e.what());

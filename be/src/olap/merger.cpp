@@ -350,9 +350,9 @@ Status Merger::vertical_merge_rowsets(TabletSharedPtr tablet, ReaderType reader_
                 tablet, reader_type, tablet_schema, is_key, column_groups[i], &row_sources_buf,
                 src_rowset_readers, dst_rowset_writer, max_rows_per_segment, stats_output));
         if (is_key) {
-            row_sources_buf.flush();
+            static_cast<void>(row_sources_buf.flush());
         }
-        row_sources_buf.seek_to_begin();
+        static_cast<void>(row_sources_buf.seek_to_begin());
     }
 
     // finish compact, build output rowset

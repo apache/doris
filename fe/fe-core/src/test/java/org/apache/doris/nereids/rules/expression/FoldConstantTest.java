@@ -309,7 +309,8 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
 
         String[] answer = {
                 "2000-01-30", "1999-12-01", "2029-12-31", "1969-12-31",
-                "2002-06-30", "1997-06-30", "2000-01-30", "1999-12-01",
+                "2002-06-30", "1997-06-30", "2000-07-28", "1999-06-04",
+                "2000-01-30", "1999-12-01",
                 "1999", "4", "12", "6", "31", "365", "31",
                 "'1999-12-31'", "1999-12-27", "1999-12-31"
         };
@@ -321,6 +322,8 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         Assertions.assertEquals(DateTimeArithmetic.yearsSub(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
         Assertions.assertEquals(DateTimeArithmetic.monthsAdd(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
         Assertions.assertEquals(DateTimeArithmetic.monthsSub(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.weeksAdd(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.weeksSub(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
         Assertions.assertEquals(DateTimeArithmetic.daysAdd(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
         Assertions.assertEquals(DateTimeArithmetic.daysSub(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
 
@@ -488,10 +491,10 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         Assertions.assertEquals(DateTimeExtractAndTransform.dateV2(dateLiteral).toSql(), answer[answerIdx]);
 
         Assertions.assertEquals("'2021 52 2022 01'", DateTimeExtractAndTransform.dateFormat(
-                new DateLiteral("2022-01-01 00:12:42"),
+                new DateTimeLiteral("2022-01-01 00:12:42"),
                 new VarcharLiteral("%x %v %X %V")).toSql());
         Assertions.assertEquals("'2023 18 2023 19'", DateTimeExtractAndTransform.dateFormat(
-                new DateLiteral("2023-05-07 02:41:42"),
+                new DateTimeLiteral("2023-05-07 02:41:42"),
                 new VarcharLiteral("%x %v %X %V")).toSql());
     }
 

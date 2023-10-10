@@ -18,6 +18,7 @@
 package org.apache.doris.scheduler.disruptor;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.scheduler.constants.JobCategory;
 import org.apache.doris.scheduler.executor.JobExecutor;
 import org.apache.doris.scheduler.job.ExecutorResult;
 import org.apache.doris.scheduler.job.Job;
@@ -61,6 +62,7 @@ public class TaskDisruptorTest {
     void testPublishEventAndConsumer() {
         Job job = new Job("test", 6000L, null,
                 null, new TestExecutor());
+        job.setJobCategory(JobCategory.COMMON);
         new Expectations() {{
                 timerJobManager.getJob(anyLong);
                 result = job;

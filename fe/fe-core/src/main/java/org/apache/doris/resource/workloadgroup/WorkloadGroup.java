@@ -192,7 +192,7 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         if (properties.containsKey(CPU_HARD_LIMIT)) {
             String cpuHardLimit = properties.get(CPU_HARD_LIMIT);
             if (!StringUtils.isNumeric(cpuHardLimit) || Long.parseLong(cpuHardLimit) <= 0) {
-                throw new DdlException(CPU_HARD_LIMIT + " " + cpuSchedulingWeight + " requires a positive integer.");
+                throw new DdlException(CPU_HARD_LIMIT + " " + cpuHardLimit + " requires a positive integer.");
             }
         }
 

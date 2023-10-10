@@ -115,10 +115,10 @@ int main(int argc, char** argv) {
 
     // init s3 write buffer pool
     std::unique_ptr<doris::ThreadPool> buffered_reader_prefetch_thread_pool;
-    doris::ThreadPoolBuilder("BufferedReaderPrefetchThreadPool")
-            .set_min_threads(num_cores)
-            .set_max_threads(num_cores)
-            .build(&buffered_reader_prefetch_thread_pool);
+    static_cast<void>(doris::ThreadPoolBuilder("BufferedReaderPrefetchThreadPool")
+                              .set_min_threads(num_cores)
+                              .set_max_threads(num_cores)
+                              .build(&buffered_reader_prefetch_thread_pool));
     doris::io::S3FileBufferPool* s3_buffer_pool = doris::io::S3FileBufferPool::GetInstance();
     s3_buffer_pool->init(524288000, 5242880, buffered_reader_prefetch_thread_pool.get());
 

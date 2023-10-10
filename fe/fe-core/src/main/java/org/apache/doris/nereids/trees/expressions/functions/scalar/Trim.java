@@ -37,10 +37,17 @@ import java.util.List;
 public class Trim extends ScalarFunction
         implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullable {
 
-    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+    private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
+                    .args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(StringType.INSTANCE).args(StringType.INSTANCE, StringType.INSTANCE),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(StringType.INSTANCE).args(StringType.INSTANCE)
     );
+
+    private Trim(List<Expression> args) {
+        super("trim", args);
+    }
 
     /**
      * constructor with 1 argument.
@@ -50,12 +57,19 @@ public class Trim extends ScalarFunction
     }
 
     /**
+     * constructor with 2 argument.
+     */
+    public Trim(Expression arg0, Expression arg1) {
+        super("trim", arg0, arg1);
+    }
+
+    /**
      * withChildren.
      */
     @Override
     public Trim withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1);
-        return new Trim(children.get(0));
+        Preconditions.checkArgument(children.size() == 1 || children.size() == 2);
+        return new Trim(children);
     }
 
     @Override

@@ -31,7 +31,6 @@ import org.apache.doris.nereids.properties.ChildrenPropertiesRegulator;
 import org.apache.doris.nereids.properties.EnforceMissingPropertiesHelper;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.RequestPropertyDeriver;
-import org.apache.doris.nereids.stats.StatsCalculator;
 
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
@@ -189,9 +188,17 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                         curNodeCost,
                         lowestCostExpr.getCostValueByProperties(requestChildProperty),
                         curChildIndex);
-                if (curTotalCost.getValue() > context.getCostUpperBound()) {
-                    curTotalCost = Cost.infinite();
-                }
+
+                // Not performing lower bound group pruning here is to avoid redundant optimization of children.
+                // For example:
+                //      Group1 : betterExpr, currentExpr(child: Group2), otherExpr(child: Group)
+                //      steps
+                //          1. CostAndEnforce(currentExpr) with upperBound betterExpr.cost
+                //          2. OptimzeGroup(Group2) with upperBound bestExpr.cost - currentExpr.nodeCost
+                //          3. CostAndEnforce(Expr in Group2) trigger here and exit
+                //              ...
+                //          n.  CostAndEnforce(otherExpr) can trigger optimize group2 again for the same requireProp
+
                 // the request child properties will be covered by the output properties
                 // that corresponding to the request properties. so if we run a costAndEnforceJob of the same
                 // group expression, that request child properties will be different of this.
@@ -236,23 +243,11 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
         PhysicalProperties outputProperty = childOutputPropertyDeriver.getOutputProperties(groupExpression);
 
         // update current group statistics and re-compute costs.
-        if (groupExpression.children().stream().anyMatch(group -> group.getStatistics() == null)) {
-            // TODO: If it's error, add some warning log at least.
+        if (groupExpression.children().stream().anyMatch(group -> group.getStatistics() == null)
+                && groupExpression.getOwnerGroup().getStatistics() == null) {
             // if we come here, mean that we have some error in stats calculator and should fix it.
+            LOG.warn("Nereids try to calculate cost without stats for group expression {}", groupExpression);
             return false;
-        }
-
-        StatsCalculator statsCalculator = StatsCalculator.estimate(groupExpression,
-                context.getCascadesContext().getConnectContext().getSessionVariable().getForbidUnknownColStats(),
-                context.getCascadesContext().getConnectContext().getTotalColumnStatisticMap(),
-                context.getCascadesContext().getConnectContext().getSessionVariable().isPlayNereidsDump(),
-                context.getCascadesContext());
-        if (!context.getCascadesContext().getConnectContext().getSessionVariable().isPlayNereidsDump()
-                && context.getCascadesContext().getConnectContext().getSessionVariable().isEnableMinidump()) {
-            context.getCascadesContext().getConnectContext().getTotalColumnStatisticMap()
-                    .putAll(statsCalculator.getTotalColumnStatisticMap());
-            context.getCascadesContext().getConnectContext().getTotalHistogramMap()
-                    .putAll(statsCalculator.getTotalHistogramMap());
         }
 
         // recompute cost after adjusting property
@@ -288,6 +283,23 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
             }
             return;
         }
+
+        if (context.getRequiredProperties().isDistributionOnlyProperties()) {
+            // For properties without an orderSpec, enforceMissingPropertiesHelper always adds a distributor
+            // above this group expression. The cost of the distributor is equal to the cost of the groupExpression
+            // plus the cost of the distributor. The distributor remains unchanged for different groupExpressions.
+            // Therefore, if there is a better groupExpr, it is preferable to enforce the better groupExpr.
+            // Consequently, we can avoid this enforcement.
+            Optional<Pair<Cost, GroupExpression>> bestExpr = groupExpression.getOwnerGroup()
+                    .getLowestCostPlan(context.getRequiredProperties());
+            double bestCost = bestExpr
+                    .map(costGroupExpressionPair -> costGroupExpressionPair.first.getValue())
+                    .orElse(Double.POSITIVE_INFINITY);
+            if (curTotalCost.getValue() > bestCost) {
+                return;
+            }
+        }
+
         EnforceMissingPropertiesHelper enforceMissingPropertiesHelper
                 = new EnforceMissingPropertiesHelper(context, groupExpression, curTotalCost);
         PhysicalProperties addEnforcedProperty = enforceMissingPropertiesHelper

@@ -79,7 +79,7 @@ static const std::string kTestDir = "./data_test/data/beta_rowset_test";
 class BetaRowsetTest : public testing::Test {
 public:
     BetaRowsetTest() : _data_dir(std::make_unique<DataDir>(kTestDir)) {
-        _data_dir->update_capacity();
+        static_cast<void>(_data_dir->update_capacity());
     }
 
     static void SetUpTestSuite() {

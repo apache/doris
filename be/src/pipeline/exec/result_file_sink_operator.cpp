@@ -146,7 +146,7 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
         }
         _only_local_exchange = local_size == _channels.size();
     }
-    _writer->set_dependency(_async_writer_dependency.get());
+    _writer->set_dependency(_async_writer_dependency.get(), _finish_dependency.get());
     _writer->set_header_info(p._header_type, p._header);
     return Status::OK();
 }
@@ -182,11 +182,11 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
         // close sender, this is normal path end
         if (_sender) {
             _sender->update_num_written_rows(_writer == nullptr ? 0 : _writer->get_written_rows());
-            _sender->close(final_status);
+            static_cast<void>(_sender->close(final_status));
         }
-        state->exec_env()->result_mgr()->cancel_at_time(
+        static_cast<void>(state->exec_env()->result_mgr()->cancel_at_time(
                 time(nullptr) + config::result_buffer_cancelled_interval_time,
-                state->fragment_instance_id());
+                state->fragment_instance_id()));
     } else {
         if (final_status.ok()) {
             bool all_receiver_eof = true;
@@ -234,8 +234,8 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
                                     status = channel->send_local_block(&cur_block);
                                 } else {
                                     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-                                    status =
-                                            channel->send_block(_block_holder.get(), nullptr, true);
+                                    status = channel->send_broadcast_block(_block_holder.get(),
+                                                                           nullptr, true);
                                 }
                                 HANDLE_CHANNEL_STATUS(state, channel, status);
                             }
@@ -256,7 +256,8 @@ template <typename ChannelPtrType>
 void ResultFileSinkLocalState::_handle_eof_channel(RuntimeState* state, ChannelPtrType channel,
                                                    Status st) {
     channel->set_receiver_eof(st);
-    channel->close(state);
+    // Chanel will not send RPC to the downstream when eof, so close chanel by OK status.
+    static_cast<void>(channel->close(state, Status::OK()));
 }
 
 Status ResultFileSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
@@ -267,9 +268,9 @@ Status ResultFileSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_
     return local_state.sink(state, in_block, source_state);
 }
 
-bool ResultFileSinkOperatorX::is_pending_finish(RuntimeState* state) const {
+FinishDependency* ResultFileSinkOperatorX::finish_blocked_by(RuntimeState* state) const {
     auto& local_state = state->get_sink_local_state(id())->cast<ResultFileSinkLocalState>();
-    return local_state.is_pending_finish();
+    return local_state._finish_dependency->finish_blocked_by();
 }
 
 WriteDependency* ResultFileSinkOperatorX::wait_for_dependency(RuntimeState* state) {
