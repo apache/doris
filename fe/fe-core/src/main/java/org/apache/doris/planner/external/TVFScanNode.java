@@ -65,10 +65,6 @@ public class TVFScanNode extends FileQueryScanNode {
         tableValuedFunction = (ExternalFileTableValuedFunction) table.getTvf();
     }
 
-    public String getTvfName() {
-        return table.getName();
-    }
-
     @Override
     protected void initBackendPolicy() throws UserException {
         List<String> preferLocations = new ArrayList<>();
