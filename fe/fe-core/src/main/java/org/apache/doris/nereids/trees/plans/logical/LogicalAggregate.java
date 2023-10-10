@@ -161,7 +161,8 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
     }
 
     public boolean isDistinct() {
-        return outputExpressions.equals(groupByExpressions);
+        return outputExpressions.stream().allMatch(e -> e instanceof Slot)
+                && groupByExpressions.stream().allMatch(e -> e instanceof Slot);
     }
 
     public boolean isGenerated() {

@@ -55,7 +55,7 @@ public:
                 SourceState source_state) override;
 
     WriteDependency* wait_for_dependency(RuntimeState* state) override;
-    bool is_pending_finish(RuntimeState* state) const override;
+    FinishDependency* finish_blocked_by(RuntimeState* state) const override;
 
 private:
     friend class JdbcTableSinkLocalState;

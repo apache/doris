@@ -415,10 +415,6 @@ public:
         LOG(FATAL) << "compare_at not supported in PredicateColumnType";
     }
 
-    void get_extremes(Field& min, Field& max) const override {
-        LOG(FATAL) << "get_extremes not supported in PredicateColumnType";
-    }
-
     bool can_be_inside_nullable() const override { return true; }
 
     bool is_fixed_and_contiguous() const override { return true; }
@@ -469,7 +465,19 @@ public:
 
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
         ColumnType* column = assert_cast<ColumnType*>(col_ptr);
-        if constexpr (std::is_same_v<ColumnVector<T>, ColumnType>) {
+        // DateV1 and DateTimeV1 is special, its storage format is different from compute format
+        // should convert here.
+        if constexpr (Type == TYPE_DATE || Type == TYPE_DATETIME) {
+            if constexpr (std::is_same_v<T, uint32_t>) {
+                insert_date_to_res_column(sel, sel_size, column);
+            } else if constexpr (std::is_same_v<T, uint64_t>) {
+                insert_datetime_to_res_column(sel, sel_size, column);
+            } else {
+                LOG(FATAL) << "not reachable";
+            }
+        } else if constexpr (std::is_same_v<ColumnVector<T>, ColumnType>) {
+            // DateV2 and DateTimeV2, its storage format is equal to compute format
+            // not need convert
             insert_default_value_res_column(sel, sel_size, column);
         } else if constexpr (std::is_same_v<ColumnDecimal<T>, ColumnType>) {
             insert_default_value_res_column(sel, sel_size, column);
@@ -477,18 +485,6 @@ public:
             insert_string_to_res_column(sel, sel_size, column);
         } else if constexpr (std::is_same_v<T, decimal12_t>) {
             insert_decimal_to_res_column(sel, sel_size, column);
-        } else if constexpr (std::is_same_v<T, uint64_t>) {
-            if constexpr (Type == TYPE_DATETIMEV2) {
-                insert_default_value_res_column(sel, sel_size, column);
-            } else {
-                insert_datetime_to_res_column(sel, sel_size, column);
-            }
-        } else if constexpr (std::is_same_v<T, uint32_t>) {
-            if constexpr (Type == TYPE_DATEV2) {
-                insert_default_value_res_column(sel, sel_size, column);
-            } else {
-                insert_date_to_res_column(sel, sel_size, column);
-            }
         } else if (std::is_same_v<T, bool>) {
             insert_byte_to_res_column(sel, sel_size, col_ptr);
         } else {

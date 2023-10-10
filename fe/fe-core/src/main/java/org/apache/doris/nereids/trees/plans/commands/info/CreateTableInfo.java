@@ -34,6 +34,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.DataType;
@@ -158,6 +159,15 @@ public class CreateTableInfo {
         }
         if (properties == null) {
             properties = Maps.newHashMap();
+        }
+
+        try {
+            FeNameFormat.checkTableName(tableName);
+            if (dbName != null) {
+                FeNameFormat.checkDbName(dbName);
+            }
+        } catch (Exception e) {
+            throw new AnalysisException(e.getMessage(), e);
         }
 
         // analyze table name
@@ -314,9 +324,12 @@ public class CreateTableInfo {
                 }
                 partitionNames.add(partitionName);
             }
-            Set<String> partitionColumnSets = Sets.newHashSet(partitionColumns);
-            if (partitionColumnSets.size() != partitionColumns.size()) {
-                throw new AnalysisException("Duplicate partition keys is not allowed");
+            Set<String> partitionColumnSets = Sets.newHashSet();
+            List<String> duplicatesKeys = partitionColumns.stream()
+                    .filter(c -> !partitionColumnSets.add(c))
+                    .collect(Collectors.toList());
+            if (!duplicatesKeys.isEmpty()) {
+                throw new AnalysisException("Duplicated partition column " + duplicatesKeys.get(0));
             }
             partitions.forEach(p -> {
                 p.setPartitionTypes(partitionColumns.stream().map(s -> columnMap.get(s).getType())

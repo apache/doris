@@ -121,6 +121,13 @@ public class DateTimeV2Literal extends DateTimeLiteral {
     }
 
     @Override
+    public Expression plusWeeks(long weeks) {
+        return fromJavaDateType(
+                DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
+                        .plusWeeks(weeks), getDataType().getScale());
+    }
+
+    @Override
     public Expression plusDays(long days) {
         return fromJavaDateType(
                 DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())

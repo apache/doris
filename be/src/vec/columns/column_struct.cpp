@@ -262,16 +262,6 @@ size_t ColumnStruct::filter(const Filter& filter) {
     return result_size;
 }
 
-Status ColumnStruct::filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
-    auto to = reinterpret_cast<vectorized::ColumnStruct*>(col_ptr);
-    const size_t tuple_size = columns.size();
-    DCHECK_EQ(to->tuple_size(), tuple_size);
-    for (size_t i = 0; i < tuple_size; ++i) {
-        static_cast<void>(columns[i]->filter_by_selector(sel, sel_size, &to->get_column(i)));
-    }
-    return Status::OK();
-}
-
 ColumnPtr ColumnStruct::permute(const Permutation& perm, size_t limit) const {
     const size_t tuple_size = columns.size();
     Columns new_columns(tuple_size);
@@ -361,20 +351,6 @@ void ColumnStruct::protect() {
     for (auto& column : columns) {
         column->protect();
     }
-}
-
-void ColumnStruct::get_extremes(Field& min, Field& max) const {
-    const size_t tuple_size = columns.size();
-
-    Tuple min_tuple(tuple_size);
-    Tuple max_tuple(tuple_size);
-
-    for (size_t i = 0; i < tuple_size; ++i) {
-        columns[i]->get_extremes(min_tuple[i], max_tuple[i]);
-    }
-
-    min = min_tuple;
-    max = max_tuple;
 }
 
 void ColumnStruct::for_each_subcolumn(ColumnCallback callback) {

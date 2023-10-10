@@ -55,7 +55,7 @@ public:
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
 
-    int sender_id() const { return _sender_id; }
+    [[nodiscard]] int sender_id() const { return _sender_id; }
 
     RuntimeProfile::Counter* brpc_wait_timer() { return _brpc_wait_timer; }
 
@@ -94,7 +94,7 @@ public:
 
     WriteDependency* wait_for_dependency(RuntimeState* state) override;
 
-    bool is_pending_finish(RuntimeState* state) const override;
+    FinishDependency* finish_blocked_by(RuntimeState* state) const override;
 
 private:
     friend class ResultFileSinkLocalState;

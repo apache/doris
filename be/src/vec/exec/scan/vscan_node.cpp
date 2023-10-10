@@ -663,6 +663,12 @@ bool VScanNode::_is_predicate_acting_on_slot(
     if (_slot_id_to_value_range.end() == entry) {
         return false;
     }
+    // if the slot is a complex type(array/map/struct), we do not push down the predicate, because
+    // we delete pack these type into predict column, and origin pack action is wrong. we should
+    // make sense to push down this complex type after we delete predict column.
+    if (is_complex_type(remove_nullable(slot_ref->data_type()))) {
+        return false;
+    }
     *slot_desc = entry->second.first;
     DCHECK(child_contains_slot != nullptr);
     if (child_contains_slot->type().type != (*slot_desc)->type().type ||

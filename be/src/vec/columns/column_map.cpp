@@ -405,42 +405,6 @@ size_t ColumnMap::filter(const Filter& filter) {
     return get_offsets().size();
 }
 
-Status ColumnMap::filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
-    auto to = reinterpret_cast<vectorized::ColumnMap*>(col_ptr);
-
-    auto& to_offsets = to->get_offsets();
-
-    size_t element_size = 0;
-    size_t max_offset = 0;
-    for (size_t i = 0; i < sel_size; ++i) {
-        element_size += size_at(sel[i]);
-        max_offset = std::max(max_offset, offset_at(sel[i]));
-    }
-    if (max_offset > std::numeric_limits<uint16_t>::max()) {
-        return Status::Corruption("map elements too large than uint16_t::max");
-    }
-
-    to_offsets.reserve(to_offsets.size() + sel_size);
-    auto nested_sel = std::make_unique<uint16_t[]>(element_size);
-    size_t nested_sel_size = 0;
-    for (size_t i = 0; i < sel_size; ++i) {
-        auto row_off = offset_at(sel[i]);
-        auto row_size = size_at(sel[i]);
-        to_offsets.push_back(to_offsets.back() + row_size);
-        for (auto j = 0; j < row_size; ++j) {
-            nested_sel[nested_sel_size++] = row_off + j;
-        }
-    }
-
-    if (nested_sel_size > 0) {
-        static_cast<void>(keys_column->filter_by_selector(nested_sel.get(), nested_sel_size,
-                                                          &to->get_keys()));
-        static_cast<void>(values_column->filter_by_selector(nested_sel.get(), nested_sel_size,
-                                                            &to->get_values()));
-    }
-    return Status::OK();
-}
-
 ColumnPtr ColumnMap::permute(const Permutation& perm, size_t limit) const {
     // Make a temp column array
     auto k_arr =

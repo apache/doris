@@ -179,9 +179,6 @@ public:
     ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override;
     void replicate(const uint32_t* counts, size_t target_size, IColumn& column) const override;
     ColumnPtr convert_to_full_column_if_const() const override;
-    void get_extremes(Field& min, Field& max) const override {
-        LOG(FATAL) << "get_extremes not implemented";
-    }
 
     /** More efficient methods of manipulation */
     IColumn& get_data() { return *data; }
@@ -252,7 +249,6 @@ public:
         offsets->clear();
     }
 
-    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override;
     size_t get_number_of_dimensions() const {
         const auto* nested_array = check_and_get_column<ColumnArray>(*data);
         if (!nested_array) {
