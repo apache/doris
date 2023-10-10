@@ -271,14 +271,20 @@ Status VPartitionSortNode::pull(doris::RuntimeState* state, vectorized::Block* o
         if (_blocks_buffer.empty() == false) {
             _blocks_buffer.front().swap(*output_block);
             _blocks_buffer.pop();
+            RETURN_IF_ERROR(
+                    VExprContext::filter_block(_conjuncts, output_block, output_block->columns()));
             return Status::OK();
         }
     }
-
+    // notice: must output block from _blocks_buffer firstly, and then get_sorted_block.
+    // as when the child is eos, then set _can_read = true, and _partition_sorts have push_back sorter.
+    // if we move the _blocks_buffer output at last(behind 286 line),
+    // it's maybe eos but not output all data: when _blocks_buffer.empty() and _can_read = false (this: _sort_idx && _partition_sorts.size() are 0)
     if (_can_read) {
         bool current_eos = false;
         RETURN_IF_ERROR(get_sorted_block(state, output_block, &current_eos));
     }
+    RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, output_block, output_block->columns()));
     {
         std::lock_guard<std::mutex> lock(_buffer_mutex);
         if (_blocks_buffer.empty() && _sort_idx >= _partition_sorts.size()) {
