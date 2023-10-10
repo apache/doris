@@ -91,7 +91,7 @@ suite("nereids_function") {
     qt_subquery3 """ select a.number from numbers("number" = "10") a where number in (select number from numbers("number" = "10") b where a.number=b.number); """
 
     test {
-        sql """select `number` from numbers("number" = -1, 'backend_num' = `1`)"""
+        sql """select `number` from numbers("number" = "-1")"""
         result([])
     }
 
