@@ -127,8 +127,10 @@ import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.OriginalPlanner;
+import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.planner.external.TVFScanNode;
 import org.apache.doris.proto.Data;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PGroupCommitInsertRequest;
@@ -2736,9 +2738,54 @@ public class StmtExecutor {
         return resultRows;
     }
 
-    public void genPlan(TUniqueId queryId) throws Exception {
+    public void generateStreamLoadNereidsPlan(TUniqueId queryId) throws Exception {
+        LOG.info("TUniqueId: {} generate stream load plan", queryId);
+        context.setQueryId(queryId);
+        context.setStartTime();
+        profile.getSummaryProfile().setQueryBeginTime();
+        context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
+
+        parseByNereids();
+        Preconditions.checkState(parsedStmt instanceof LogicalPlanAdapter,
+                "Nereids only process LogicalPlanAdapter, but parsedStmt is " + parsedStmt.getClass().getName());
+        context.getState().setNereids(true);
+        InsertIntoTableCommand insert = (InsertIntoTableCommand) ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
         try {
-            executeByNereids(queryId);
+            insert.initPlan(context, this);
+            if (context.getTxnEntry() == null) {
+                TransactionEntry transactionEntry =
+                        new TransactionEntry(new TTxnParams().setTxnId(insert.getTxn().getTxnId()),
+                        insert.getTxn().getDatabase(), insert.getTxn().getTable());
+                transactionEntry.setLabel(insert.getTxn().getLabelName());
+                context.setTxnEntry(transactionEntry);
+            }
+            // Determine if it can be converted to TVFScanNode
+            PlanNode planRoot = planner.getFragments().get(0).getPlanRoot();
+            Preconditions.checkState(planRoot instanceof TVFScanNode,
+                    "Nereids' planNode cannot be converted to " + planRoot.getClass().getName());
+        } catch (QueryStateException e) {
+            LOG.debug("Command(" + originStmt.originStmt + ") process failed.", e);
+            context.setState(e.getQueryState());
+            throw new NereidsException("Command(" + originStmt.originStmt + ") process failed",
+                    new AnalysisException(e.getMessage(), e));
+        } catch (UserException e) {
+            // Return message to info client what happened.
+            LOG.debug("Command(" + originStmt.originStmt + ") process failed.", e);
+            context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
+            throw new NereidsException("Command (" + originStmt.originStmt + ") process failed",
+                    new AnalysisException(e.getMessage(), e));
+        } catch (Exception e) {
+            // Maybe our bug
+            LOG.debug("Command (" + originStmt.originStmt + ") process failed.", e);
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());
+            throw new NereidsException("Command (" + originStmt.originStmt + ") process failed.",
+                    new AnalysisException(e.getMessage(), e));
+        }
+    }
+
+    public void getStreamLoadPlan(TUniqueId queryId) throws Exception {
+        try {
+            generateStreamLoadNereidsPlan(queryId);
         } catch (NereidsException | ParseException e) {
             if (context.getMinidump() != null) {
                 MinidumpUtils.saveMinidumpString(context.getMinidump(), DebugUtil.printId(context.queryId()));
