@@ -390,10 +390,22 @@ public class TabletInvertedIndex {
         if (backendTabletInfo.getVersion() > versionInFe) {
             // backend replica's version is larger or newer than replica in FE, sync it.
             return true;
-        } else if (versionInFe == backendTabletInfo.getVersion() && replicaInFe.isBad()) {
-            // backend replica's version is equal to replica in FE, but replica in FE is bad,
-            // while backend replica is good, sync it
-            return true;
+        } else if (versionInFe == backendTabletInfo.getVersion()) {
+                // backend replica's version is equal to replica in FE, but replica in FE is bad,
+                // while backend replica is good, sync it
+                if (replicaInFe.isBad()) {
+                    return true;
+                }
+
+                // FE' s replica last failed version > partition's committed version
+                // this can be occur when be report miss version, fe will set last failed version = visible version + 1
+                // then last failed version may greater than partition's committed version
+                //
+                // But here cannot got variable partition, we just check lastFailedVersion = version + 1,
+                // In ReportHandler.sync, we will check if last failed version > partition's committed version again.
+                if (replicaInFe.getLastFailedVersion() == versionInFe + 1) {
+                    return true;
+                }
         }
 
         return false;
@@ -501,6 +513,12 @@ public class TabletInvertedIndex {
             // so we only return true if version_miss is true.
             return true;
         }
+
+        // backend versions regressive due to bugs
+        if (replicaInFe.checkVersionRegressive(backendTabletInfo.getVersion())) {
+            return true;
+        }
+
         return false;
     }
 
