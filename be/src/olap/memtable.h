@@ -43,7 +43,6 @@ class Schema;
 class SlotDescriptor;
 class TabletSchema;
 class TupleDescriptor;
-struct PartialUpdateInfo;
 enum KeysType : int;
 
 // row pos in _input_mutable_block
