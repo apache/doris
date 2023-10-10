@@ -57,6 +57,7 @@
 #include "pipeline/exec/union_sink_operator.h"
 #include "pipeline/exec/union_source_operator.h"
 #include "util/debug_util.h"
+#include "util/runtime_profile.h"
 
 namespace doris::pipeline {
 
@@ -356,8 +357,9 @@ Status OperatorX<UnionSourceLocalState>::setup_local_states(RuntimeState* state,
 template <typename DependencyType>
 Status PipelineXLocalState<DependencyType>::init(RuntimeState* state, LocalStateInfo& info) {
     _runtime_profile.reset(new RuntimeProfile(_parent->get_name() +
-                                              " (id=" + std::to_string(_parent->id()) + ")"));
-    _runtime_profile->set_metadata(_parent->id());
+                                              " (id=" + std::to_string(_parent->node_id()) + ")"));
+    _runtime_profile->set_metadata(_parent->node_id());
+    _runtime_profile->set_is_sink(false);
     info.parent_profile->add_child(_runtime_profile.get(), true, nullptr);
     if constexpr (!std::is_same_v<FakeDependency, Dependency>) {
         _dependency = (DependencyType*)info.dependency;
@@ -376,11 +378,13 @@ Status PipelineXLocalState<DependencyType>::init(RuntimeState* state, LocalState
     for (size_t i = 0; i < _projections.size(); i++) {
         RETURN_IF_ERROR(_parent->_projections[i]->clone(state, _projections[i]));
     }
-    _rows_returned_counter = ADD_COUNTER(_runtime_profile, "RowsReturned", TUnit::UNIT);
-    _blocks_returned_counter = ADD_COUNTER(_runtime_profile, "BlocksReturned", TUnit::UNIT);
-    _projection_timer = ADD_TIMER(_runtime_profile, "ProjectionTime");
-    _open_timer = ADD_TIMER(_runtime_profile, "OpenTime");
-    _close_timer = ADD_TIMER(_runtime_profile, "CloseTime");
+    _rows_returned_counter =
+            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "RowsReturned", TUnit::UNIT, 1);
+    _blocks_returned_counter =
+            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "BlocksReturned", TUnit::UNIT, 1);
+    _projection_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "ProjectionTime", 1);
+    _open_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "OpenTime", 1);
+    _close_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "CloseTime", 1);
     _rows_returned_rate = profile()->add_derived_counter(
             doris::ExecNode::ROW_THROUGHPUT_COUNTER, TUnit::UNIT_PER_SECOND,
             std::bind<int64_t>(&RuntimeProfile::units_per_second, _rows_returned_counter,
@@ -413,8 +417,9 @@ template <typename DependencyType>
 Status PipelineXSinkLocalState<DependencyType>::init(RuntimeState* state,
                                                      LocalSinkStateInfo& info) {
     // create profile
-    _profile = state->obj_pool()->add(new RuntimeProfile(
-            _parent->get_name() + " (id=" + std::to_string(_parent->id()) + ")"));
+    _profile = state->obj_pool()->add(new RuntimeProfile(_parent->get_name() + id_name()));
+    _profile->set_metadata(_parent->node_id());
+    _profile->set_is_sink(true);
     if constexpr (!std::is_same_v<FakeDependency, Dependency>) {
         _dependency = (DependencyType*)info.dependency;
         if (_dependency) {
@@ -423,9 +428,9 @@ Status PipelineXSinkLocalState<DependencyType>::init(RuntimeState* state,
                     ADD_TIMER(_profile, "WaitForDependency[" + _dependency->name() + "]Time");
         }
     }
-    _rows_input_counter = ADD_COUNTER(_profile, "InputRows", TUnit::UNIT);
-    _open_timer = ADD_TIMER(_profile, "OpenTime");
-    _close_timer = ADD_TIMER(_profile, "CloseTime");
+    _rows_input_counter = ADD_COUNTER_WITH_LEVEL(_profile, "InputRows", TUnit::UNIT, 1);
+    _open_timer = ADD_TIMER_WITH_LEVEL(_profile, "OpenTime", 1);
+    _close_timer = ADD_TIMER_WITH_LEVEL(_profile, "CloseTime", 1);
     info.parent_profile->add_child(_profile, true, nullptr);
     _mem_tracker = std::make_unique<MemTracker>(_parent->get_name());
     return Status::OK();
