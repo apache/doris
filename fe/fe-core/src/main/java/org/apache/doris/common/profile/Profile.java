@@ -85,6 +85,9 @@ public class Profile {
     }
 
     public ProfileStatistics getStatisticsFromProfile() {
+        if (rootProfile == null) {
+            return null;
+        }
         return rootProfile.getStatisticsFromProfile();
     }
 }

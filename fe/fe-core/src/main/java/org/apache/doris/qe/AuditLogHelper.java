@@ -44,7 +44,10 @@ public class AuditLogHelper {
         long endTime = System.currentTimeMillis();
         long elapseMs = endTime - ctx.getStartTime();
         SpanContext spanContext = Span.fromContext(Context.current()).getSpanContext();
-        ProfileStatistics statisticsFromProfile = ctx.executor.getProfile().getStatisticsFromProfile();
+        ProfileStatistics statisticsFromProfile = null;
+        if (ctx.executor != null) {
+            statisticsFromProfile = ctx.executor.getProfile().getStatisticsFromProfile();
+        }
         ctx.getAuditEventBuilder().setEventType(EventType.AFTER_QUERY)
                 .setDb(ClusterNamespace.getNameFromFullName(ctx.getDatabase()))
                 .setState(ctx.getState().toString())
@@ -53,8 +56,8 @@ public class AuditLogHelper {
                 .setErrorMessage((ctx.getState().getErrorMessage() == null ? ""
                         : ctx.getState().getErrorMessage().replace("\n", " ").replace("\t", " ")))
                 .setQueryTime(elapseMs)
-                .setScanBytes(statistics == null ? 0 : statisticsFromProfile.getScanBytes())
-                .setScanRows(statistics == null ? 0 : statisticsFromProfile.getScanRows())
+                .setScanBytes(statisticsFromProfile == null ? 0 : statisticsFromProfile.getScanBytes())
+                .setScanRows(statisticsFromProfile == null ? 0 : statisticsFromProfile.getScanRows())
                 .setCpuTimeMs(statistics == null ? 0 : elapseMs)
                 .setPeakMemoryBytes(statistics == null ? 0 : statistics.getMaxPeakMemoryBytes())
                 .setReturnRows(ctx.getReturnRows())
