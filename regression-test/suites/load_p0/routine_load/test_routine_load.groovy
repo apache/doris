@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_routine_load","p0,external,external_docker,external_docker_routine_load") {
+suite("test_routine_load","p0") {
 
     def tables = [
                   "dup_tbl_basic",
