@@ -749,18 +749,6 @@ void VerticalSegmentWriter::_handle_delete_sign_col(const vectorized::Block* blo
 static const uint32_t MAX_SEGMENT_SIZE = static_cast<uint32_t>(OLAP_MAX_COLUMN_SEGMENT_FILE_SIZE *
                                                                OLAP_COLUMN_FILE_SEGMENT_SIZE_SCALE);
 
-int64_t VerticalSegmentWriter::max_row_to_add(size_t row_avg_size_in_bytes) {
-    auto segment_size = _estimated_segment_size();
-    if (PREDICT_FALSE(segment_size >= MAX_SEGMENT_SIZE ||
-                      _num_rows_written >= _max_row_per_segment)) {
-        return 0;
-    }
-    int64_t size_rows = ((int64_t)MAX_SEGMENT_SIZE - (int64_t)segment_size) / row_avg_size_in_bytes;
-    int64_t count_rows = (int64_t)_max_row_per_segment - _num_rows_written;
-
-    return std::min(size_rows, count_rows);
-}
-
 std::string VerticalSegmentWriter::_full_encode_keys(
         const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos,
         bool null_first) {
@@ -830,14 +818,9 @@ std::string VerticalSegmentWriter::_encode_keys(
 
 // TODO(lingbin): Currently this function does not include the size of various indexes,
 // We should make this more precise.
-// NOTE: This function will be called when any row of data is added, so we need to
-// make this function efficient.
-uint64_t VerticalSegmentWriter::_estimated_segment_size() {
+uint64_t VerticalSegmentWriter::_estimated_remaining_size() {
     // footer_size(4) + checksum(4) + segment_magic(4)
     uint64_t size = 12;
-    //for (auto& column_writer : _column_writers) {
-    //    size += column_writer->estimate_buffer_size();
-    //}
     if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
         size += _primary_key_index_builder->size();
     } else {
@@ -900,7 +883,7 @@ Status VerticalSegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* in
     timer.start();
     // check disk capacity
     if (_data_dir != nullptr &&
-        _data_dir->reach_capacity_limit((int64_t)_estimated_segment_size())) {
+        _data_dir->reach_capacity_limit((int64_t)_estimated_remaining_size())) {
         return Status::Error<DISK_REACH_CAPACITY_LIMIT>("disk {} exceed capacity limit.",
                                                         _data_dir->path_hash());
     }

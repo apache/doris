@@ -95,8 +95,6 @@ public:
     Status batch_block(const vectorized::Block* block, size_t row_pos, size_t num_rows);
     Status write_batch();
 
-    int64_t max_row_to_add(size_t row_avg_size_in_bytes);
-
     size_t inverted_index_file_size() const { return _inverted_index_file_size; }
     uint32_t num_rows_written() const { return _num_rows_written; }
     int64_t num_rows_filtered() const { return _num_rows_filtered; }
@@ -123,7 +121,7 @@ private:
     void _handle_delete_sign_col(const vectorized::Block* block, size_t row_pos, size_t num_rows,
                                  size_t segment_start_pos);
     size_t _calculate_inverted_index_file_size();
-    uint64_t _estimated_segment_size();
+    uint64_t _estimated_remaining_size();
     Status _write_ordinal_index();
     Status _write_zone_map();
     Status _write_bitmap_index();
