@@ -81,6 +81,7 @@ namespace doris {
 class Status;
 
 // If you want to modify the value of config, please go to common/config.cpp to modify.
+// test
 namespace config {
 // Dir of custom config file
 DECLARE_String(custom_config_dir);
