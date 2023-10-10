@@ -65,7 +65,8 @@ SlotDescriptor::SlotDescriptor(const TSlotDescriptor& tdesc)
           _is_key(tdesc.is_key),
           _need_materialize(tdesc.need_materialize),
           _column_paths(tdesc.column_paths),
-          _is_auto_increment(tdesc.__isset.is_auto_increment ? tdesc.is_auto_increment : false) {}
+          _is_auto_increment(tdesc.__isset.is_auto_increment ? tdesc.is_auto_increment : false),
+          _col_default_value(tdesc.__isset.col_default_value ? tdesc.col_default_value : "") {}
 
 SlotDescriptor::SlotDescriptor(const PSlotDescriptor& pdesc)
         : _id(pdesc.id()),

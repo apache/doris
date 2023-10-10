@@ -40,6 +40,7 @@
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/serde/data_type_serde.h"
+#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 
@@ -71,10 +72,12 @@ void JsonbSerializeUtil::block_to_jsonb(const TabletSchema& schema, const Block&
 void JsonbSerializeUtil::jsonb_to_block(const DataTypeSerDeSPtrs& serdes,
                                         const ColumnString& jsonb_column,
                                         const std::unordered_map<uint32_t, uint32_t>& col_id_to_idx,
-                                        Block& dst) {
+                                        Block& dst,
+                                        const std::vector<std::string>& default_values) {
     for (int i = 0; i < jsonb_column.size(); ++i) {
         StringRef jsonb_data = jsonb_column.get_data_at(i);
-        jsonb_to_block(serdes, jsonb_data.data, jsonb_data.size, col_id_to_idx, dst);
+        jsonb_to_block(serdes, jsonb_data.data, jsonb_data.size, col_id_to_idx, dst,
+                       default_values);
     }
 }
 
@@ -82,7 +85,8 @@ void JsonbSerializeUtil::jsonb_to_block(const DataTypeSerDeSPtrs& serdes,
 void JsonbSerializeUtil::jsonb_to_block(const DataTypeSerDeSPtrs& serdes, const char* data,
                                         size_t size,
                                         const std::unordered_map<uint32_t, uint32_t>& col_id_to_idx,
-                                        Block& dst) {
+                                        Block& dst,
+                                        const std::vector<std::string>& default_values) {
     auto pdoc = JsonbDocument::createDocument(data, size);
     JsonbDocument& doc = *pdoc;
     size_t num_rows = dst.rows();
@@ -98,11 +102,20 @@ void JsonbSerializeUtil::jsonb_to_block(const DataTypeSerDeSPtrs& serdes, const 
     }
     if (filled_columns < dst.columns()) {
         // fill missing slot
-        for (auto& column_type_name : dst) {
+        for (int i = 0; i < dst.columns(); ++i) {
+            const auto& column_type_name = dst.get_by_position(i);
             MutableColumnPtr col = column_type_name.column->assume_mutable();
             if (col->size() < num_rows + 1) {
                 DCHECK(col->size() == num_rows);
-                col->insert_default();
+                if (default_values[i].empty()) {
+                    col->insert_default();
+                } else {
+                    // col->insert_default();
+                    ReadBuffer value(
+                            reinterpret_cast<const unsigned char*>(default_values[i].data()),
+                            default_values[i].size());
+                    static_cast<void>(column_type_name.type->from_string(value, col.get()));
+                }
             }
             DCHECK(col->size() == num_rows + 1);
         }

@@ -62,6 +62,7 @@ struct TSlotDescriptor {
   14: optional bool is_auto_increment = false;
   // subcolumn path info list for semi structure column(variant)
   15: optional list<string> column_paths
+  16: optional string col_default_value
 }
 
 struct TTupleDescriptor {
