@@ -368,6 +368,15 @@ public:
 
     bool is_set_metadata() const { return _is_set_metadata; }
 
+    void set_is_sink(bool is_sink) {
+        _is_set_sink = true;
+        _is_sink = is_sink;
+    }
+
+    bool is_sink() const { return _is_sink; }
+
+    bool is_set_sink() const { return _is_set_sink; }
+
     time_t timestamp() const { return _timestamp; }
     void set_timestamp(time_t ss) { _timestamp = ss; }
 
@@ -429,6 +438,9 @@ private:
     // user-supplied, uninterpreted metadata.
     int64_t _metadata;
     bool _is_set_metadata = false;
+
+    bool _is_sink = false;
+    bool _is_set_sink = false;
 
     // The timestamp when the profile was modified, make sure the update is up to date.
     time_t _timestamp;

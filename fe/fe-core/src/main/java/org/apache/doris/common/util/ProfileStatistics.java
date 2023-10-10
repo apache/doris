@@ -18,6 +18,7 @@
 package org.apache.doris.common.util;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 
 /**
@@ -35,11 +36,14 @@ public class ProfileStatistics {
 
     private boolean isDataSink;
 
-    public ProfileStatistics() {
+    private boolean isPipelineX;
+
+    public ProfileStatistics(boolean isPipelineX) {
         statisticalInfo = new HashMap<Integer, ArrayList<String>>();
         fragmentInfo = new HashMap<Integer, ArrayList<String>>();
         fragmentId = 0;
         isDataSink = false;
+        this.isPipelineX = isPipelineX;
     }
 
     private void addPlanNodeInfo(int id, String info) {
@@ -56,11 +60,20 @@ public class ProfileStatistics {
         fragmentInfo.get(fragmentId).add(info);
     }
 
-    public void addInfoFromProfile(RuntimeProfile profile, String info) {
-        if (isDataSink) {
-            addDataSinkInfo(info);
+    public void addInfoFromProfile(RuntimeProfile profile, String name, String info) {
+        if (isPipelineX) {
+            if (profile.sinkOperator()) {
+                name = name + "(Sink)";
+            } else {
+                name = name + "(Operator)";
+            }
+            addPlanNodeInfo(profile.nodeId(), name + ": " + info);
         } else {
-            addPlanNodeInfo(profile.nodeId(), info);
+            if (isDataSink) {
+                addDataSinkInfo(name + ": " + info);
+            } else {
+                addPlanNodeInfo(profile.nodeId(), name + ": " + info);
+            }
         }
     }
 
@@ -73,6 +86,7 @@ public class ProfileStatistics {
             return;
         }
         ArrayList<String> infos = statisticalInfo.get(id);
+        Collections.sort(infos);
         for (String info : infos) {
             str.append(prefix + info + "\n");
         }
@@ -83,6 +97,7 @@ public class ProfileStatistics {
             return;
         }
         ArrayList<String> infos = fragmentInfo.get(fragmentIdx);
+        Collections.sort(infos);
         for (String info : infos) {
             str.append(prefix + info + "\n");
         }

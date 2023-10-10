@@ -101,18 +101,17 @@ public:
     std::string debug_string() override;
 
     bool is_pending_finish() override {
-        bool source_ret = _source->is_pending_finish(_state);
-        if (source_ret) {
-            return true;
-        } else {
-            set_src_pending_finish_time();
+        for (auto& op : _operators) {
+            auto dep = op->finish_blocked_by(_state);
+            if (dep != nullptr) {
+                dep->start_finish_watcher();
+                return true;
+            }
         }
-
-        bool sink_ret = _sink->is_pending_finish(_state);
-        if (sink_ret) {
+        auto dep = _sink->finish_blocked_by(_state);
+        if (dep != nullptr) {
+            dep->start_finish_watcher();
             return true;
-        } else {
-            set_dst_pending_finish_time();
         }
         return false;
     }

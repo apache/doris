@@ -108,7 +108,7 @@ Status UnionSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) 
 
 UnionSinkOperatorX::UnionSinkOperatorX(int child_id, int sink_id, ObjectPool* pool,
                                        const TPlanNode& tnode, const DescriptorTbl& descs)
-        : Base(sink_id, tnode.node_id),
+        : Base(sink_id, tnode.node_id, tnode.node_id),
           _first_materialized_child_idx(tnode.union_node.first_materialized_child_idx),
           _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
           _cur_child_id(child_id),
