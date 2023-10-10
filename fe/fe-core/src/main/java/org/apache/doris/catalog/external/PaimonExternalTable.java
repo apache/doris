@@ -56,6 +56,7 @@ public class PaimonExternalTable extends ExternalTable {
         super.makeSureInitialized();
         if (!objectCreated) {
             originTable = ((PaimonExternalCatalog) catalog).getPaimonTable(dbName, name);
+            schemaUpdateTime = System.currentTimeMillis();
             objectCreated = true;
         }
     }
