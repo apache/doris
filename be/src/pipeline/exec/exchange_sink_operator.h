@@ -235,7 +235,7 @@ public:
 
     Status try_close(RuntimeState* state, Status exec_status) override;
     WriteDependency* wait_for_dependency(RuntimeState* state) override;
-    bool is_pending_finish(RuntimeState* state) const override;
+    FinishDependency* finish_blocked_by(RuntimeState* state) const override;
 
 private:
     friend class ExchangeSinkLocalState;

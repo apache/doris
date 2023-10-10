@@ -146,7 +146,7 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
         }
         _only_local_exchange = local_size == _channels.size();
     }
-    _writer->set_dependency(_async_writer_dependency.get());
+    _writer->set_dependency(_async_writer_dependency.get(), _finish_dependency.get());
     _writer->set_header_info(p._header_type, p._header);
     return Status::OK();
 }
@@ -268,9 +268,9 @@ Status ResultFileSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_
     return local_state.sink(state, in_block, source_state);
 }
 
-bool ResultFileSinkOperatorX::is_pending_finish(RuntimeState* state) const {
+FinishDependency* ResultFileSinkOperatorX::finish_blocked_by(RuntimeState* state) const {
     auto& local_state = state->get_sink_local_state(id())->cast<ResultFileSinkLocalState>();
-    return local_state.is_pending_finish();
+    return local_state._finish_dependency->finish_blocked_by();
 }
 
 WriteDependency* ResultFileSinkOperatorX::wait_for_dependency(RuntimeState* state) {

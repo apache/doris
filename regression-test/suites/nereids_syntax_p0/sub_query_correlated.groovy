@@ -51,6 +51,14 @@ suite ("sub_query_correlated") {
     """
 
     sql """
+        DROP TABLE IF EXISTS `sub_query_correlated_subquery8`
+    """
+
+    sql """
+        DROP TABLE IF EXISTS `sub_query_correlated_subquery9`
+    """
+
+    sql """
         create table if not exists sub_query_correlated_subquery1
         (k1 bigint, k2 bigint)
         duplicate key(k1)
@@ -106,6 +114,21 @@ suite ("sub_query_correlated") {
     """
 
     sql """
+        create table if not exists sub_query_correlated_subquery8
+        (k1 bigint, k2 bigint)
+        duplicate key(k1)
+        distributed by hash(k2) buckets 1
+        properties('replication_num' = '1')
+    """
+
+    sql """
+        create table if not exists sub_query_correlated_subquery9
+            (k1 int, k2 varchar(128), k3 bigint, v1 bigint, v2 bigint)
+            distributed by hash(k2) buckets 1
+            properties('replication_num' = '1');
+    """
+
+    sql """
         insert into sub_query_correlated_subquery1 values (1,2), (1,3), (2,4), (2,5), (3,3), (3,4), (20,2), (22,3), (24,4)
     """
 
@@ -126,13 +149,22 @@ suite ("sub_query_correlated") {
         insert into sub_query_correlated_subquery5 values (5,4), (5,2), (8,3), (5,4), (6,7), (8,9)
     """
 
-     sql """
+    sql """
         insert into sub_query_correlated_subquery6 values (1,null),(null,1),(1,2), (null,2),(1,3), (2,4), (2,5), (3,3), (3,4), (20,2), (22,3), (24,4),(null,null);
     """
 
     sql """
         insert into sub_query_correlated_subquery7 values (1,"abc",2,3,4), (1,"abcd",3,3,4), (2,"xyz",2,4,2),
             (2,"uvw",3,4,2), (2,"uvw",3,4,2), (3,"abc",4,5,3), (3,"abc",4,5,3), (null,null,null,null,null);
+    """
+
+    sql """
+        insert into sub_query_correlated_subquery8 values (1,null),(null,1),(1,2), (null,2),(1,3), (2,4), (2,5), (3,3), (3,4), (20,2), (22,3), (24,4),(null,null);
+    """
+
+    sql """
+        insert into sub_query_correlated_subquery9 values (1,"abc",2,3,4), (1,"abcd",3,3,4),
+            (2,"xyz",2,4,2),(2,"uvw",3,4,2), (2,"uvw",3,4,2), (3,"abc",4,5,3), (3,"abc",4,5,3), (null,null,null,null,null);
     """
 
     sql "SET enable_fallback_to_original_planner=false"
@@ -494,6 +526,10 @@ suite ("sub_query_correlated") {
             WHERE sub_query_correlated_subquery1.k1 > sub_query_correlated_subquery3.v1)
                 OR k1 < 10
         order by k1, k2;
+    """
+
+    qt_mark_join_nullable """
+        select sub_query_correlated_subquery8.k1 in (select sub_query_correlated_subquery9.k3 from sub_query_correlated_subquery9) from sub_query_correlated_subquery8 order by k1, k2;
     """
 
     // order_qt_doris_6937_2 """
