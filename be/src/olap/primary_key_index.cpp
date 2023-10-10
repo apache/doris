@@ -94,7 +94,11 @@ Status PrimaryKeyIndexBuilder::finalize(segment_v2::PrimaryKeyIndexMetaPB* meta)
 
 void PrimaryKeyIndexBuilder::update_mem_tracker() {
     if (_bloom_filter_index_mem_tracker.get() != nullptr) {
-        _bloom_filter_index_mem_tracker->set_consumption(_bloom_filter_index_builder->size());
+        if (_bloom_filter_index_builder.get() != nullptr) {
+            _bloom_filter_index_mem_tracker->set_consumption(_bloom_filter_index_builder->size());
+        } else {
+            _bloom_filter_index_mem_tracker->set_consumption(0);
+        }
     }
 }
 
