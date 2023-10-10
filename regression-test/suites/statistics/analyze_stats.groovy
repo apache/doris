@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_analyze") {
-    String db = "regression_test_statistics"
+    String db = "test_analyze"
     String tbl = "analyzetestlimited_duplicate_all"
 
     sql """
