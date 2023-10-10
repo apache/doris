@@ -13,7 +13,11 @@ PhysicalResultSink
 --------------------PhysicalDistribute
 ----------------------hashAgg[LOCAL]
 ------------------------PhysicalProject
+<<<<<<< HEAD
 --------------------------filter((lineitem.l_shipdate < 1995-01-01)(lineitem.l_shipdate >= 1994-01-01))
+=======
+--------------------------filter((lineitem.l_shipdate < '1995-01-01') and (lineitem.l_shipdate >= '1994-01-01'))
+>>>>>>> 85d4a0dbf6 (fix tosql of date literal)
 ----------------------------PhysicalOlapScan[lineitem]
 ------------------PhysicalDistribute
 --------------------hashJoin[LEFT_SEMI_JOIN](partsupp.ps_partkey = part.p_partkey)

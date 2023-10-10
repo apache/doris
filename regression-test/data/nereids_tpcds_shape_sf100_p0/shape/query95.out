@@ -47,6 +47,15 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------------------------PhysicalOlapScan[customer_address]
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
+<<<<<<< HEAD
 ----------------------------------filter((cast(web_company_name as VARCHAR(*)) = 'pri'))
 ------------------------------------PhysicalOlapScan[web_site]
+=======
+----------------------------------filter((date_dim.d_date <= '1999-04-02') and (date_dim.d_date >= '1999-02-01'))
+------------------------------------PhysicalOlapScan[date_dim]
+----------------------------PhysicalDistribute
+------------------------------PhysicalProject
+--------------------------------filter((web_site.web_company_name = 'pri'))
+----------------------------------PhysicalOlapScan[web_site]
+>>>>>>> 85d4a0dbf6 (fix tosql of date literal)
 

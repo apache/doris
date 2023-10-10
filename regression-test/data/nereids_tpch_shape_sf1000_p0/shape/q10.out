@@ -4,6 +4,7 @@ PhysicalResultSink
 --PhysicalTopN
 ----PhysicalDistribute
 ------PhysicalTopN
+<<<<<<< HEAD
 --------PhysicalProject
 ----------hashAgg[GLOBAL]
 ------------PhysicalDistribute
@@ -15,6 +16,27 @@ PhysicalResultSink
 ------------------------PhysicalOlapScan[lineitem]
 --------------------PhysicalDistribute
 ----------------------hashJoin[INNER_JOIN](customer.c_nationkey = nation.n_nationkey)
+=======
+--------hashAgg[GLOBAL]
+----------PhysicalDistribute
+------------hashAgg[LOCAL]
+--------------PhysicalProject
+----------------hashJoin[INNER_JOIN] hashCondition=((lineitem.l_orderkey = orders.o_orderkey))otherCondition=()
+------------------PhysicalProject
+--------------------filter((lineitem.l_returnflag = 'R'))
+----------------------PhysicalOlapScan[lineitem]
+------------------PhysicalDistribute
+--------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_nationkey = nation.n_nationkey))otherCondition=()
+----------------------PhysicalProject
+------------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_custkey = orders.o_custkey))otherCondition=()
+--------------------------PhysicalProject
+----------------------------PhysicalOlapScan[customer]
+--------------------------PhysicalDistribute
+----------------------------PhysicalProject
+------------------------------filter((orders.o_orderdate < '1994-01-01') and (orders.o_orderdate >= '1993-10-01'))
+--------------------------------PhysicalOlapScan[orders]
+----------------------PhysicalDistribute
+>>>>>>> 85d4a0dbf6 (fix tosql of date literal)
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN](customer.c_custkey = orders.o_custkey)
 ----------------------------PhysicalProject

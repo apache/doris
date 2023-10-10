@@ -30,9 +30,14 @@ PhysicalResultSink
 ----------------------------------------------filter((date_dim.d_date >= 1998-08-28)(date_dim.d_date <= 1998-09-27))
 ------------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------------------PhysicalDistribute
+<<<<<<< HEAD
 ------------------------------------------PhysicalProject
 --------------------------------------------filter((item.i_current_price > 50.00))
 ----------------------------------------------PhysicalOlapScan[item]
+=======
+------------------------------------------filter((date_dim.d_date <= '1998-09-27') and (date_dim.d_date >= '1998-08-28'))
+--------------------------------------------PhysicalOlapScan[date_dim]
+>>>>>>> 85d4a0dbf6 (fix tosql of date literal)
 --------------------------------------PhysicalDistribute
 ----------------------------------------PhysicalProject
 ------------------------------------------filter((cast(p_channel_tv as VARCHAR(*)) = 'N'))
@@ -62,9 +67,14 @@ PhysicalResultSink
 ----------------------------------------------filter((date_dim.d_date >= 1998-08-28)(date_dim.d_date <= 1998-09-27))
 ------------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------------------PhysicalDistribute
+<<<<<<< HEAD
 ------------------------------------------PhysicalProject
 --------------------------------------------filter((item.i_current_price > 50.00))
 ----------------------------------------------PhysicalOlapScan[item]
+=======
+------------------------------------------filter((date_dim.d_date <= '1998-09-27') and (date_dim.d_date >= '1998-08-28'))
+--------------------------------------------PhysicalOlapScan[date_dim]
+>>>>>>> 85d4a0dbf6 (fix tosql of date literal)
 --------------------------------------PhysicalDistribute
 ----------------------------------------PhysicalProject
 ------------------------------------------filter((cast(p_channel_tv as VARCHAR(*)) = 'N'))
@@ -89,6 +99,12 @@ PhysicalResultSink
 ----------------------------------------hashJoin[INNER_JOIN](web_sales.ws_sold_date_sk = date_dim.d_date_sk)
 ------------------------------------------PhysicalProject
 --------------------------------------------PhysicalOlapScan[web_sales]
+<<<<<<< HEAD
+=======
+--------------------------------------------PhysicalDistribute
+----------------------------------------------filter((date_dim.d_date <= '1998-09-27') and (date_dim.d_date >= '1998-08-28'))
+------------------------------------------------PhysicalOlapScan[date_dim]
+>>>>>>> 85d4a0dbf6 (fix tosql of date literal)
 ------------------------------------------PhysicalDistribute
 --------------------------------------------PhysicalProject
 ----------------------------------------------filter((date_dim.d_date >= 1998-08-28)(date_dim.d_date <= 1998-09-27))

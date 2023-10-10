@@ -18,8 +18,16 @@ PhysicalResultSink
 ------------------------------PhysicalOlapScan[store_sales]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
+<<<<<<< HEAD
 --------------------------------filter((date_dim.d_date <= 2002-06-19)(date_dim.d_date >= 2002-05-20))
 ----------------------------------PhysicalOlapScan[date_dim]
+=======
+--------------------------------PhysicalOlapScan[store_sales]
+------------------------------PhysicalDistribute
+--------------------------------PhysicalProject
+----------------------------------filter((date_dim.d_date <= '2002-06-19') and (date_dim.d_date >= '2002-05-20'))
+------------------------------------PhysicalOlapScan[date_dim]
+>>>>>>> 85d4a0dbf6 (fix tosql of date literal)
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
 ------------------------------filter(i_category IN ('Sports', 'Music', 'Shoes'))

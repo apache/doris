@@ -25,7 +25,11 @@ PhysicalResultSink
 --------------------------------------PhysicalProject
 ----------------------------------------PhysicalOlapScan[store_returns]
 ----------------------------------PhysicalDistribute
+<<<<<<< HEAD
 ------------------------------------filter((date_dim.d_date <= 2000-09-02)(date_dim.d_date >= 2000-08-19))
+=======
+------------------------------------filter((date_dim.d_date <= '2000-09-02') and (date_dim.d_date >= '2000-08-19'))
+>>>>>>> 85d4a0dbf6 (fix tosql of date literal)
 --------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalOlapScan[store]
@@ -45,6 +49,7 @@ PhysicalResultSink
 ----------------------------------------PhysicalOlapScan[catalog_returns]
 ----------------------------------PhysicalDistribute
 <<<<<<< HEAD
+<<<<<<< HEAD
 ------------------------------------PhysicalProject
 --------------------------------------filter((date_dim.d_date >= 2000-08-19)(date_dim.d_date <= 2000-09-02))
 ----------------------------------------PhysicalOlapScan[date_dim]
@@ -53,6 +58,9 @@ PhysicalResultSink
 ------------------------------------PhysicalOlapScan[catalog_page]
 =======
 ------------------------------------filter((date_dim.d_date >= 2000-08-19)(date_dim.d_date <= 2000-09-02))
+=======
+------------------------------------filter((date_dim.d_date <= '2000-09-02') and (date_dim.d_date >= '2000-08-19'))
+>>>>>>> 85d4a0dbf6 (fix tosql of date literal)
 --------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalOlapScan[catalog_page]
@@ -74,7 +82,11 @@ PhysicalResultSink
 ------------------------------------------PhysicalOlapScan[web_sales]
 ------------------------------------------PhysicalOlapScan[web_returns]
 ----------------------------------PhysicalDistribute
+<<<<<<< HEAD
 ------------------------------------filter((date_dim.d_date >= 2000-08-19)(date_dim.d_date <= 2000-09-02))
+=======
+------------------------------------filter((date_dim.d_date <= '2000-09-02') and (date_dim.d_date >= '2000-08-19'))
+>>>>>>> 85d4a0dbf6 (fix tosql of date literal)
 --------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalOlapScan[web_site]
