@@ -77,7 +77,6 @@ VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32
           _tablet_schema(tablet_schema),
           _tablet(tablet),
           _data_dir(data_dir),
-          _max_row_per_segment(max_row_per_segment),
           _opts(opts),
           _file_writer(file_writer),
           _mem_tracker(std::make_unique<MemTracker>("VerticalSegmentWriter:Segment-" +
@@ -550,8 +549,8 @@ Status VerticalSegmentWriter::_fill_missing_columns(
                 auto default_value = _tablet_schema->column(cids_missing[i]).default_value();
                 vectorized::ReadBuffer rb(const_cast<char*>(default_value.c_str()),
                                           default_value.size());
-                old_value_block.get_by_position(i).type->from_string(
-                        rb, mutable_default_value_columns[i].get());
+                RETURN_IF_ERROR(old_value_block.get_by_position(i).type->from_string(
+                        rb, mutable_default_value_columns[i].get()));
             }
         }
     }
@@ -744,10 +743,6 @@ void VerticalSegmentWriter::_handle_delete_sign_col(const vectorized::Block* blo
         }
     }
 }
-
-// TODO(lingbin): Should be a conf that can be dynamically adjusted, or a member in the context
-static const uint32_t MAX_SEGMENT_SIZE = static_cast<uint32_t>(OLAP_MAX_COLUMN_SEGMENT_FILE_SIZE *
-                                                               OLAP_COLUMN_FILE_SEGMENT_SIZE_SCALE);
 
 std::string VerticalSegmentWriter::_full_encode_keys(
         const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos,

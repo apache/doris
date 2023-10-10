@@ -155,7 +155,6 @@ private:
     TabletSchemaSPtr _tablet_schema;
     TabletSharedPtr _tablet;
     DataDir* _data_dir;
-    uint32_t _max_row_per_segment;
     VerticalSegmentWriterOptions _opts;
 
     // Not owned. owned by RowsetWriter
