@@ -655,7 +655,8 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
                                    size_t num_rows) {
     if (_opts.rowset_ctx->partial_update_info &&
         _opts.rowset_ctx->partial_update_info->is_partial_update &&
-        _opts.write_type == DataWriteType::TYPE_DIRECT) {
+        _opts.write_type == DataWriteType::TYPE_DIRECT &&
+        !_opts.rowset_ctx->is_transient_rowset_writer) {
         RETURN_IF_ERROR(append_block_with_partial_content(block, row_pos, num_rows));
         return Status::OK();
     }

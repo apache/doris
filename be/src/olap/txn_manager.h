@@ -121,8 +121,7 @@ public:
 
     Status commit_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
                       TTransactionId transaction_id, const PUniqueId& load_id,
-                      const RowsetSharedPtr& rowset_ptr, bool is_recovery,
-                      std::shared_ptr<PartialUpdateInfo> partial_update_info);
+                      const RowsetSharedPtr& rowset_ptr, bool is_recovery);
 
     Status publish_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
                        TTransactionId transaction_id, const Version& version,
@@ -137,8 +136,7 @@ public:
 
     Status commit_txn(OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
                       TTabletId tablet_id, TabletUid tablet_uid, const PUniqueId& load_id,
-                      const RowsetSharedPtr& rowset_ptr, bool is_recovery,
-                      std::shared_ptr<PartialUpdateInfo> partial_update_info);
+                      const RowsetSharedPtr& rowset_ptr, bool is_recovery);
 
     // remove a txn from txn manager
     // not persist rowset meta because
@@ -188,7 +186,8 @@ public:
                                        TTabletId tablet_id, TabletUid tablet_uid,
                                        bool unique_key_merge_on_write,
                                        DeleteBitmapPtr delete_bitmap,
-                                       const RowsetIdUnorderedSet& rowset_ids);
+                                       const RowsetIdUnorderedSet& rowset_ids,
+                                       std::shared_ptr<PartialUpdateInfo> partial_update_info);
     void get_all_commit_tablet_txn_info_by_tablet(
             const TabletSharedPtr& tablet, CommitTabletTxnInfoVec* commit_tablet_txn_info_vec);
 

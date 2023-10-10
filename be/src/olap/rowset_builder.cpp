@@ -272,8 +272,7 @@ Status RowsetBuilder::commit_txn() {
     std::lock_guard<std::mutex> l(_lock);
     SCOPED_TIMER(_commit_txn_timer);
     Status res = _storage_engine->txn_manager()->commit_txn(_req.partition_id, _tablet, _req.txn_id,
-                                                            _req.load_id, _rowset, false,
-                                                            _partial_update_info);
+                                                            _req.load_id, _rowset, false);
 
     if (!res && !res.is<PUSH_TRANSACTION_ALREADY_EXIST>()) {
         LOG(WARNING) << "Failed to commit txn: " << _req.txn_id
@@ -283,7 +282,7 @@ Status RowsetBuilder::commit_txn() {
     if (_tablet->enable_unique_key_merge_on_write()) {
         _storage_engine->txn_manager()->set_txn_related_delete_bitmap(
                 _req.partition_id, _req.txn_id, _tablet->tablet_id(), _tablet->tablet_uid(), true,
-                _delete_bitmap, _rowset_ids);
+                _delete_bitmap, _rowset_ids, _partial_update_info);
     }
 
     _is_committed = true;

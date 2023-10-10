@@ -107,6 +107,8 @@ struct RowsetWriterContext {
     bool enable_segcompaction = true;
 
     std::shared_ptr<PartialUpdateInfo> partial_update_info;
+
+    bool is_transient_rowset_writer = false;
 };
 
 } // namespace doris

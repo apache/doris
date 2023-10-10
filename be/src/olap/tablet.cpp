@@ -2020,6 +2020,7 @@ Status Tablet::create_transient_rowset_writer(
     context.tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id());
     context.write_type = DataWriteType::TYPE_DIRECT;
     context.partial_update_info = partial_update_info;
+    context.is_transient_rowset_writer = true;
     RETURN_IF_ERROR(
             create_transient_rowset_writer(context, rowset_ptr->rowset_id(), rowset_writer));
     (*rowset_writer)->set_segment_start_id(rowset_ptr->num_segments());

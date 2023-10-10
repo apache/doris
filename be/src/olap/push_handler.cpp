@@ -223,8 +223,7 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
         del_preds.pop();
     }
     Status commit_status = StorageEngine::instance()->txn_manager()->commit_txn(
-            request.partition_id, tablet, request.transaction_id, load_id, rowset_to_add, false,
-            nullptr);
+            request.partition_id, tablet, request.transaction_id, load_id, rowset_to_add, false);
     if (!commit_status.ok() && !commit_status.is<PUSH_TRANSACTION_ALREADY_EXIST>()) {
         res = std::move(commit_status);
     }

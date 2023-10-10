@@ -687,7 +687,7 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
                     it.rowset_ids.insert(_output_rowset->rowset_id());
                     StorageEngine::instance()->txn_manager()->set_txn_related_delete_bitmap(
                             it.partition_id, it.transaction_id, _tablet->tablet_id(),
-                            _tablet->tablet_uid(), true, it.delete_bitmap, it.rowset_ids);
+                            _tablet->tablet_uid(), true, it.delete_bitmap, it.rowset_ids, nullptr);
                 }
             }
 
