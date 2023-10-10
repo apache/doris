@@ -15,11 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/parquet_types.h>
-#include <glog/logging.h>
 
 #include <algorithm>
 #include <functional>
@@ -149,7 +147,7 @@ static Status convert_data_type_from_parquet(tparquet::Type::type parquet_type,
         ans_data_type = std::make_shared<DataTypeInt128>();
         break;
     default:
-        std::cout << "--->" << parquet_type << "\n";
+        //        std::cout << "--->" << parquet_type << "\n";
         break;
     }
     if (ans_data_type->get_type_id() == src_type->get_type_id()) {
@@ -174,13 +172,13 @@ static Status convert_data_type_from_parquet(tparquet::Type::type parquet_type,
 }
 
 struct ColumnConvert {
-    Status virtual convert(const IColumn* src_col, IColumn* dst_col) { return Status::OK(); }
+    virtual Status convert(const IColumn* src_col, IColumn* dst_col) { return Status::OK(); }
     virtual ~ColumnConvert() = default;
 };
 
 template <typename src_type, typename dst_type, bool is_nullable>
 struct NumberColumnConvert : public ColumnConvert {
-    virtual Status convert(const IColumn* src_col, IColumn* dst_col) override;
+    Status convert(const IColumn* src_col, IColumn* dst_col) override;
 };
 void convert_null(const IColumn** src_col, IColumn** dst_col) {
     size_t rows = (*src_col)->size();
@@ -219,7 +217,7 @@ Status NumberColumnConvert<src_type, dst_type, is_nullable>::convert(const IColu
 }
 template <typename src_type, bool is_nullable>
 struct NumberColumnToStringConvert : public ColumnConvert {
-    virtual Status convert(const IColumn* src_col, IColumn* dst_col) override;
+    Status convert(const IColumn* src_col, IColumn* dst_col) override;
 };
 
 template <typename src_type, bool is_nullable>
@@ -242,11 +240,11 @@ template <bool is_nullable>
 struct int128totimestamp : public ColumnConvert {
     int128totimestamp(DocTime* pTime) { doc = pTime; }
 
-    inline uint64_t to_timestamp_micros(uint32_t hi, uint64_t lo) const {
+    [[nodiscard]] inline uint64_t to_timestamp_micros(uint32_t hi, uint64_t lo) const {
         return (hi - ParquetInt96::JULIAN_EPOCH_OFFSET_DAYS) * ParquetInt96::MICROS_IN_DAY +
                lo / ParquetInt96::NANOS_PER_MICROSECOND;
     }
-    Status convert(const IColumn* src_col, IColumn* dst_col) {
+    Status convert(const IColumn* src_col, IColumn* dst_col) override {
         size_t rows = src_col->size();
         if constexpr (is_nullable) {
             convert_null(&src_col, &dst_col);
@@ -275,7 +273,7 @@ struct int64totimestamp : public ColumnConvert {
 public:
     int64totimestamp(DocTime* pTime) { doc = pTime; }
 
-    Status convert(const IColumn* src_col, IColumn* dst_col) {
+    Status convert(const IColumn* src_col, IColumn* dst_col) override {
         size_t rows = src_col->size();
         if constexpr (is_nullable) {
             convert_null(&src_col, &dst_col);
@@ -303,7 +301,7 @@ class int32todate : public ColumnConvert {
 public:
     DocTime* doc;
     int32todate(DocTime* pTime) { doc = pTime; }
-    Status convert(const IColumn* src_col, IColumn* dst_col) {
+    Status convert(const IColumn* src_col, IColumn* dst_col) override {
         size_t rows = src_col->size();
         if constexpr (is_nullable) {
             convert_null(&src_col, &dst_col);
@@ -331,7 +329,7 @@ class stringtodecimal : public ColumnConvert {
 public:
     DocTime* doc;
     stringtodecimal(DocTime* pTime) { doc = pTime; }
-    Status convert(const IColumn* src_col, IColumn* dst_col) {
+    Status convert(const IColumn* src_col, IColumn* dst_col) override {
         size_t rows = src_col->size();
         if constexpr (is_nullable) {
             convert_null(&src_col, &dst_col);
@@ -364,7 +362,7 @@ class numbertodecimal : public ColumnConvert {
     DocTime* doc;
 
 public:
-    Status convert(const IColumn* src_col, IColumn* dst_col) {
+    Status convert(const IColumn* src_col, IColumn* dst_col) override {
         size_t rows = src_col->size();
         if constexpr (is_nullable) {
             convert_null(&src_col, &dst_col);
@@ -386,7 +384,6 @@ public:
         return Status::OK();
     }
 
-public:
     numbertodecimal(DocTime* pTime) { doc = pTime; }
 };
 /*
@@ -486,7 +483,7 @@ static Status get_converter_impl(std::shared_ptr<const IDataType> src_data_type,
         break;
     }
 
-    if (converter->get() == nullptr) {
+    if (*converter == nullptr) {
         return Status::NotSupported("Can't cast type {} to type {}", getTypeName(src_type),
                                     getTypeName(dst_type));
     }
@@ -505,7 +502,6 @@ static Status get_converter(std::shared_ptr<const IDataType> src_type,
     } else {
         return get_converter_impl<false>(src_type, dst_type, converter, doc);
     }
-    return Status::OK();
 }
 }; // namespace convert
 

@@ -19,11 +19,9 @@
 
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/PlanNodes_types.h>
-#include <gen_cpp/Types_types.h>
 #include <gen_cpp/parquet_types.h>
 #include <glog/logging.h>
 
-#include <algorithm>
 #include <functional>
 #include <ostream>
 #include <utility>
@@ -44,23 +42,12 @@
 #include "runtime/types.h"
 #include "util/slice.h"
 #include "util/timezone_utils.h"
-#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/columns/column_string.h"
-#include "vec/columns/column_vector.h"
-#include "vec/common/string_ref.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
-#include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_factory.hpp"
-#include "vec/data_types/data_type_nullable.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_string.h"
 #include "vec/exec/format/convert.h"
-#include "vec/exec/format/format_common.h"
 #include "vec/exec/format/parquet/parquet_common.h"
 #include "vec/exec/format/parquet/schema_desc.h"
 #include "vec/exec/format/parquet/vparquet_file_metadata.h"
@@ -555,8 +542,8 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
                 tparquet::Type::type parquet_type =
                         _file_metadata->schema().get_column(col_name)->physical_type;
                 bool conv = false;
-                convert::convert_data_type_from_parquet(parquet_type, data_type,
-                                                        block->get_by_name(col_name).type, &conv);
+                RETURN_IF_ERROR(convert::convert_data_type_from_parquet(
+                        parquet_type, data_type, block->get_by_name(col_name).type, &conv));
                 std::cout << col_name << "->" << conv << "\n";
                 need_convert[col_name] = conv;
                 if (conv) {
@@ -589,8 +576,10 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
                 RETURN_IF_ERROR(convert::get_converter(src_block->get_data_type(i),
                                                        block->get_data_type(i), &converter, doc));
                 //                block->get_columns()[i]=src_block->get_columns()[i];
-                converter->convert(src_block->get_columns()[i].get(),
-                                   const_cast<IColumn*>(block->get_columns()[i].get()));
+                RETURN_IF_ERROR(
+
+                        converter->convert(src_block->get_columns()[i].get(),
+                                           const_cast<IColumn*>(block->get_columns()[i].get())));
             }
         }
     }
