@@ -35,6 +35,13 @@ namespace vectorized {
 AsyncResultWriter::AsyncResultWriter(const doris::vectorized::VExprContextSPtrs& output_expr_ctxs)
         : _vec_output_expr_ctxs(output_expr_ctxs), _dependency(nullptr) {};
 
+void AsyncResultWriter::set_dependency(pipeline::AsyncWriterDependency* dep,
+                                       pipeline::FinishDependency* finish_dep) {
+    _dependency = dep;
+    _finish_dependency = finish_dep;
+    _finish_dependency->block_finishing();
+}
+
 Status AsyncResultWriter::sink(Block* block, bool eos) {
     auto rows = block->rows();
     auto status = Status::OK();
@@ -132,6 +139,9 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
         _need_normal_close = false;
     }
     _writer_thread_closed = true;
+    if (_finish_dependency) {
+        _finish_dependency->set_ready_to_finish();
+    }
 }
 
 Status AsyncResultWriter::_projection_block(doris::vectorized::Block& input_block,
