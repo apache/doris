@@ -41,9 +41,6 @@
       "test9": {
         "type": "long"
       },
-      "test10": {
-        "type": "date"
-      },
       "c_bool": {
         "type": "boolean"
       },

@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -48,11 +47,7 @@ public class ArrayExists extends ScalarFunction
      * array_exists(lambda, a1, ...) = array_exists(array_map(lambda, a1, ...))
      */
     public ArrayExists(Expression arg) {
-        super("array_exists", new ArrayMap(arg));
-        if (!(arg instanceof Lambda)) {
-            throw new AnalysisException(
-                    String.format("The 1st arg of %s must be lambda but is %s", getName(), arg));
-        }
+        super("array_exists", arg instanceof Lambda ? new ArrayMap(arg) : arg);
     }
 
     /**
