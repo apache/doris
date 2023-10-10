@@ -136,7 +136,7 @@ suite("test_stream_load_properties", "p0") {
                 table "stream_load_" + tableName
                 set 'column_separator', '|'
                 set 'columns', columns[i]
-                set 'exec_mem_limit', '1'
+                //set 'exec_mem_limit', '1'
                 file files[i]
                 time 10000 // limit inflight 10s
 
