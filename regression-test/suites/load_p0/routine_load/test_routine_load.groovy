@@ -145,12 +145,11 @@ suite("test_routine_load","p0,external,external_docker,external_docker_routine_l
                 def count = 0
                 def tableName1 =  "routine_load_" + tableName
                 while (true) {
-                    def res
-                    res = sql "select count(*) from ${tableName1}"
-                    def res1 = sql "show routine load for ${jobs[i]}"
-                    log.info(res1[0][8].toString())
-                    log.info(res1[0][14].toString())
-                    log.info(res1[0][17].toString())
+                    def res = sql "select count(*) from ${tableName1}"
+                    def state = sql "show routine load for ${jobs[i]}"
+                    log.info("routine load state: ${state[0][8].toString()}".toString())
+                    log.info("routine load statistic: ${state[0][14].toString()}".toString())
+                    log.info("reason of state changed: ${state[0][17].toString()}".toString())
                     if (res[0][0] > 0) {
                         break
                     }
@@ -226,12 +225,11 @@ suite("test_routine_load","p0,external,external_docker,external_docker_routine_l
                 def count = 0
                 def tableName1 =  "routine_load_" + tableName
                 while (true) {
-                    def res
-                    res = sql "select count(*) from ${tableName1}"
-                    def res1 = sql "show routine load for ${jobs[i]}"
-                    log.info(res1[0][8].toString())
-                    log.info(res1[0][14].toString())
-                    log.info(res1[0][17].toString())
+                    def res = sql "select count(*) from ${tableName1}"
+                    def state = sql "show routine load for ${jobs[i]}"
+                    log.info("routine load state: ${state[0][8].toString()}".toString())
+                    log.info("routine load statistic: ${state[0][14].toString()}".toString())
+                    log.info("reason of state changed: ${state[0][17].toString()}".toString())
                     if (res[0][0] > 0) {
                         break
                     }
@@ -305,12 +303,11 @@ suite("test_routine_load","p0,external,external_docker,external_docker_routine_l
                 def count = 0
                 def tableName1 =  "routine_load_" + tableName
                 while (true) {
-                    def res
-                    res = sql "select count(*) from ${tableName1}"
-                    def res1 = sql "show routine load for ${jobs[i]}"
-                    log.info(res1[0][8].toString())
-                    log.info(res1[0][14].toString())
-                    log.info(res1[0][17].toString())
+                    def res = sql "select count(*) from ${tableName1}"
+                    def state = sql "show routine load for ${jobs[i]}"
+                    log.info("routine load state: ${state[0][8].toString()}".toString())
+                    log.info("routine load statistic: ${state[0][14].toString()}".toString())
+                    log.info("reason of state changed: ${state[0][17].toString()}".toString())
                     if (res[0][0] > 0) {
                         break
                     }
@@ -386,12 +383,11 @@ suite("test_routine_load","p0,external,external_docker,external_docker_routine_l
                 def count = 0
                 def tableName1 =  "routine_load_" + tableName
                 while (true) {
-                    def res
-                    res = sql "select count(*) from ${tableName1}"
-                    def res1 = sql "show routine load for ${jobs[i]}"
-                    log.info(res1[0][8].toString())
-                    log.info(res1[0][14].toString())
-                    log.info(res1[0][17].toString())
+                    def res = sql "select count(*) from ${tableName1}"
+                    def state = sql "show routine load for ${jobs[i]}"
+                    log.info("routine load state: ${state[0][8].toString()}".toString())
+                    log.info("routine load statistic: ${state[0][14].toString()}".toString())
+                    log.info("reason of state changed: ${state[0][17].toString()}".toString())
                     if (res[0][0] > 0) {
                         break
                     }
@@ -468,12 +464,11 @@ suite("test_routine_load","p0,external,external_docker,external_docker_routine_l
                 def count = 0
                 def tableName1 =  "routine_load_" + tableName
                 while (true) {
-                    def res
-                    res = sql "select count(*) from ${tableName1}"
-                    def res1 = sql "show routine load for ${jobs[i]}"
-                    log.info(res1[0][8].toString())
-                    log.info(res1[0][14].toString())
-                    log.info(res1[0][17].toString())
+                    def res = sql "select count(*) from ${tableName1}"
+                    def state = sql "show routine load for ${jobs[i]}"
+                    log.info("routine load state: ${state[0][8].toString()}".toString())
+                    log.info("routine load statistic: ${state[0][14].toString()}".toString())
+                    log.info("reason of state changed: ${state[0][17].toString()}".toString())
                     if (res[0][0] > 0) {
                         break
                     }
