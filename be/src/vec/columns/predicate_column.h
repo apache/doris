@@ -459,10 +459,6 @@ public:
         LOG(FATAL) << "append_data_by_selector is not supported in PredicateColumnType!";
     }
 
-    [[noreturn]] TypeIndex get_data_type() const override {
-        LOG(FATAL) << "PredicateColumnType get_data_type not implemeted";
-    }
-
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
         ColumnType* column = assert_cast<ColumnType*>(col_ptr);
         // DateV1 and DateTimeV1 is special, its storage format is different from compute format
