@@ -124,6 +124,7 @@ struct VOlapTablePartition {
     int64_t num_buckets = 0;
     std::vector<OlapTableIndexTablets> indexes;
     bool is_mutable;
+    int64_t load_tablet_idx = 0;
 
     VOlapTablePartition(vectorized::Block* partition_block)
             : start_key {partition_block, -1}, end_key {partition_block, -1} {}
@@ -191,7 +192,7 @@ private:
 
     Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key, uint16_t pos);
 
-    std::function<uint32_t(BlockRow*, int64_t)> _compute_tablet_index;
+    std::function<uint32_t(BlockRow*, const VOlapTablePartition&)> _compute_tablet_index;
 
     // check if this partition contain this key
     bool _part_contains(VOlapTablePartition* part, BlockRowWithIndicator key) const;
