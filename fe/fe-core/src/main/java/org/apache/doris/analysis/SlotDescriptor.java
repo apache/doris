@@ -92,6 +92,7 @@ public class SlotDescriptor {
         this.isAgg = false;
         this.stats = src.stats;
         this.type = src.type;
+        this.sourceExprs.add(new SlotRef(src));
     }
 
     public boolean isMultiRef() {
