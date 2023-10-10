@@ -89,7 +89,6 @@ public:
     int64_t partition_id() const;
 
     int64_t mem_consumption(MemType mem);
-    int64_t active_memtable_mem_consumption();
 
     int64_t tablet_id() { return _req.tablet_id; }
 

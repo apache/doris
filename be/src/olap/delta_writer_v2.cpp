@@ -196,10 +196,6 @@ int64_t DeltaWriterV2::mem_consumption(MemType mem) {
     return _memtable_writer->mem_consumption(mem);
 }
 
-int64_t DeltaWriterV2::active_memtable_mem_consumption() {
-    return _memtable_writer->active_memtable_mem_consumption();
-}
-
 int64_t DeltaWriterV2::partition_id() const {
     return _req.partition_id;
 }
