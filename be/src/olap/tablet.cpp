@@ -3384,6 +3384,10 @@ void Tablet::calc_compaction_output_rowset_delete_bitmap(
         const DeleteBitmap& input_delete_bitmap, DeleteBitmap* output_rowset_delete_bitmap) {
     RowLocation src;
     RowLocation dst;
+    int64_t max_out_version = 0;
+    for (auto& rowset : input_rowsets) {
+        max_out_version = std::max(max_out_version, rowset->end_version());
+    }
     for (auto& rowset : input_rowsets) {
         src.rowset_id = rowset->rowset_id();
         for (uint32_t seg_id = 0; seg_id < rowset->num_segments(); ++seg_id) {
@@ -3395,6 +3399,10 @@ void Tablet::calc_compaction_output_rowset_delete_bitmap(
             for (auto iter = subset_map.delete_bitmap.begin();
                  iter != subset_map.delete_bitmap.end(); ++iter) {
                 auto cur_version = std::get<2>(iter->first);
+                // we don't need to keep the version that already compacted.
+                if (cur_version < max_out_version) {
+                    cur_version = max_out_version;
+                }
                 for (auto index = iter->second.begin(); index != iter->second.end(); ++index) {
                     src.row_id = *index;
                     if (rowid_conversion.get(src, &dst) != 0) {
