@@ -2067,9 +2067,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         ctx.setThreadLocalInfo();
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setQueryId(request.getLoadId());
-        ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
-        ctx.setCurrentUserIdentity(UserIdentity.ROOT);
-        ctx.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
+        UserIdentity currentUserIdentity = UserIdentity.createAnalyzedUserIdentWithIp(request.getUser(), "%");
+        ctx.setCluster(cluster);
+        ctx.setCurrentUserIdentity(currentUserIdentity);
+        ctx.setQualifiedUser(request.getUser());
         ctx.setBackendId(request.getBackendId());
 
         try {

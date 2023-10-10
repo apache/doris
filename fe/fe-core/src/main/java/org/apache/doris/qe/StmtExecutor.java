@@ -2740,8 +2740,6 @@ public class StmtExecutor {
     public void generateStreamLoadNereidsPlan(TUniqueId queryId) throws Exception {
         LOG.info("TUniqueId: {} generate stream load plan", queryId);
         context.setQueryId(queryId);
-        context.setStartTime();
-        profile.getSummaryProfile().setQueryBeginTime();
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
 
         parseByNereids();
@@ -2803,8 +2801,6 @@ public class StmtExecutor {
             context.getState().setNereids(false);
             context.setTxnEntry(null);
             context.setQueryId(queryId);
-            context.setStartTime();
-            profile.getSummaryProfile().setQueryBeginTime();
             context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
             analyze(context.getSessionVariable().toThrift());
         } catch (Exception e) {

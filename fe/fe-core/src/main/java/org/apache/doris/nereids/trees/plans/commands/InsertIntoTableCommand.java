@@ -106,7 +106,9 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
     }
 
     /**
-     * init plan
+     * This function is used to generate the plan for Nereids.
+     * There are some load functions that only need to the plan, such as stream_load.
+     * Therefore, this section will be presented separately.
      */
     public PhysicalOlapTableSink<?> initPlan(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (!ctx.getSessionVariable().isEnableNereidsDML()) {
