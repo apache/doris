@@ -190,7 +190,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
         return Status::OK();
     }
     if (local_state._shared_state->_has_null_in_build_side &&
-        local_state._shared_state->short_circuit_for_probe) {
+        _short_circuit_for_null_in_build_side) {
         /// `_has_null_in_build_side` means have null value in build side.
         /// `_short_circuit_for_null_in_build_side` means short circuit if has null in build side(e.g. null aware left anti join).
         /// We need to create a column as mark with all rows set to NULL.
