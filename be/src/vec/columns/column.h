@@ -148,11 +148,6 @@ public:
     virtual void set_rowset_segment_id(std::pair<RowsetId, uint32_t> rowset_segment_id) {}
 
     virtual std::pair<RowsetId, uint32_t> get_rowset_segment_id() const { return {}; }
-    // todo(Amory) from column to get data type is not correct ,column is memory data,can not to assume memory data belong to which data type
-    virtual TypeIndex get_data_type() const {
-        LOG(FATAL) << "Cannot get_data_type() column " << get_name();
-        __builtin_unreachable();
-    }
 
     /// Returns number of values in column.
     virtual size_t size() const = 0;
@@ -425,9 +420,13 @@ public:
      *  convert(convert MutablePtr to ImmutablePtr or convert ImmutablePtr to MutablePtr)
      *  happends in filter_by_selector because of mem-reuse logic or ColumnNullable, I think this is meaningless;
      *  So using raw ptr directly here.
+     *  NOTICE: only column_nullable and predict_column, column_dictionary now support filter_by_selector
      */
     virtual Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
-        LOG(FATAL) << "column not support filter_by_selector";
+        LOG(FATAL) << get_name()
+                   << " do not support filter_by_selector, only column_nullable, column_dictionary "
+                      "and predict_column "
+                      "support";
         __builtin_unreachable();
     }
 
@@ -530,14 +529,6 @@ public:
     /// (descendants should call gatherer_stream.gather(*this) to implement this function.)
     /// TODO: interface decoupled from ColumnGathererStream that allows non-generic specializations.
     //    virtual void gather(ColumnGathererStream & gatherer_stream) = 0;
-
-    /** Computes minimum and maximum element of the column.
-      * In addition to numeric types, the function is completely implemented for Date and DateTime.
-      * For strings and arrays function should return default value.
-      *  (except for constant columns; they should return value of the constant).
-      * If column is empty function should return default value.
-      */
-    virtual void get_extremes(Field& min, Field& max) const = 0;
 
     /// Reserves memory for specified amount of elements. If reservation isn't possible, does nothing.
     /// It affects performance only (not correctness).

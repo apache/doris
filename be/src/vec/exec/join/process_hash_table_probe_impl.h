@@ -21,6 +21,7 @@
 #include "process_hash_table_probe.h"
 #include "runtime/thread_context.h" // IWYU pragma: keep
 #include "util/simd/bits.h"
+#include "vec/columns/column_filter_helper.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vhash_join_node.h"
 
@@ -330,6 +331,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
     int current_offset = 0;
     bool all_match_one = true;
     size_t probe_size = 0;
+
     auto& probe_row_match_iter = _probe_row_match<Mapped, with_other_conjuncts>(
             current_offset, probe_index, probe_size, all_match_one);
 
@@ -352,6 +354,11 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
     const auto& keys = key_getter.get_keys();
 
     _probe_hash<need_null_map_for_probe, HashTableType>(keys, hash_table_ctx, null_map);
+
+    std::unique_ptr<ColumnFilterHelper> mark_column;
+    if (is_mark_join) {
+        mark_column = std::make_unique<ColumnFilterHelper>(*mcol[mcol.size() - 1]);
+    }
 
     {
         SCOPED_TIMER(_search_hashtable_timer);
@@ -399,9 +406,14 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                         (JoinOpType != TJoinOp::LEFT_SEMI_JOIN) ^ find_result.is_found();
                 if constexpr (is_mark_join) {
                     ++current_offset;
-                    assert_cast<ColumnVector<UInt8>&>(*mcol[mcol.size() - 1])
-                            .get_data()
-                            .template push_back(need_go_ahead);
+                    bool null_result =
+                            (*null_map)[probe_index] ||
+                            (!need_go_ahead && _join_context->_has_null_value_in_build_side);
+                    if (null_result) {
+                        mark_column->insert_null();
+                    } else {
+                        mark_column->insert_value(need_go_ahead);
+                    }
                 } else {
                     current_offset += need_go_ahead;
                 }
@@ -650,21 +662,21 @@ Status ProcessHashTableProbe<JoinOpType>::do_other_join_conjuncts(
             }
         }
 
+        /// FIXME: incorrect result of semi mark join with other conjuncts(null value missed).
         if (is_mark_join) {
-            auto& matched_map = assert_cast<ColumnVector<UInt8>&>(
-                                        *(output_block->get_by_position(orig_columns - 1)
-                                                  .column->assume_mutable()))
-                                        .get_data();
+            auto mark_column =
+                    output_block->get_by_position(orig_columns - 1).column->assume_mutable();
+            ColumnFilterHelper helper(*mark_column);
 
             // For mark join, we only filter rows which have duplicate join keys.
             // And then, we set matched_map to the join result to do the mark join's filtering.
             for (size_t i = 1; i < row_count; ++i) {
                 if (!_same_to_prev[i]) {
-                    matched_map.push_back(filter_map[i - 1]);
+                    helper.insert_value(filter_map[i - 1]);
                     filter_map[i - 1] = true;
                 }
             }
-            matched_map.push_back(filter_map[filter_map.size() - 1]);
+            helper.insert_value(filter_map[filter_map.size() - 1]);
             filter_map[filter_map.size() - 1] = true;
         }
 

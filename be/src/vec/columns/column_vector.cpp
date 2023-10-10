@@ -561,47 +561,6 @@ void ColumnVector<T>::replicate(const uint32_t* __restrict indexs, size_t target
 }
 
 template <typename T>
-void ColumnVector<T>::get_extremes(Field& min, Field& max) const {
-    size_t size = data.size();
-
-    if (size == 0) {
-        min = T(0);
-        max = T(0);
-        return;
-    }
-
-    bool has_value = false;
-
-    /** Skip all NaNs in extremes calculation.
-        * If all values are NaNs, then return NaN.
-        * NOTE: There exist many different NaNs.
-        * Different NaN could be returned: not bit-exact value as one of NaNs from column.
-        */
-
-    T cur_min = nan_or_zero<T>();
-    T cur_max = nan_or_zero<T>();
-
-    for (const T x : data) {
-        if (is_nan(x)) continue;
-
-        if (!has_value) {
-            cur_min = x;
-            cur_max = x;
-            has_value = true;
-            continue;
-        }
-
-        if (x < cur_min)
-            cur_min = x;
-        else if (x > cur_max)
-            cur_max = x;
-    }
-
-    min = NearestFieldType<T>(cur_min);
-    max = NearestFieldType<T>(cur_max);
-}
-
-template <typename T>
 ColumnPtr ColumnVector<T>::index(const IColumn& indexes, size_t limit) const {
     return select_index_impl(*this, indexes, limit);
 }

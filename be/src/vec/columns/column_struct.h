@@ -83,7 +83,6 @@ public:
 
     std::string get_name() const override;
     const char* get_family_name() const override { return "Struct"; }
-    TypeIndex get_data_type() const override { return TypeIndex::Struct; }
     bool can_be_inside_nullable() const override { return true; }
     MutableColumnPtr clone_empty() const override;
     MutableColumnPtr clone_resized(size_t size) const override;
@@ -150,7 +149,6 @@ public:
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
-    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override;
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
     ColumnPtr replicate(const Offsets& offsets) const override;
     void replicate(const uint32_t* counts, size_t target_size, IColumn& column) const override;
@@ -161,7 +159,6 @@ public:
                                 int nan_direction_hint) const override {
         LOG(FATAL) << "compare_at not implemented";
     }
-    void get_extremes(Field& min, Field& max) const override;
     void reserve(size_t n) override;
     void resize(size_t n) override;
     size_t byte_size() const override;

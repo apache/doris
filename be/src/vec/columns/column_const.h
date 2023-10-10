@@ -95,8 +95,6 @@ public:
 
     StringRef get_data_at(size_t) const override { return data->get_data_at(0); }
 
-    TypeIndex get_data_type() const override { return data->get_data_type(); }
-
     UInt64 get64(size_t) const override { return data->get64(0); }
 
     UInt64 get_uint(size_t) const override { return data->get_uint(0); }
@@ -227,8 +225,6 @@ public:
                                  const IColumn::Selector& selector) const override {
         LOG(FATAL) << "append_data_by_selector is not supported in ColumnConst!";
     }
-
-    void get_extremes(Field& min, Field& max) const override { data->get_extremes(min, max); }
 
     void for_each_subcolumn(ColumnCallback callback) override { callback(data); }
 

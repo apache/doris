@@ -158,14 +158,13 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
                     .accept(this, context);
         }
 
-        FunctionBuilder builder = functionRegistry.findFunctionBuilder(unboundFunction.getDbName(),
-                functionName, arguments);
-        BoundFunction boundFunction = builder.build(functionName, arguments);
+        FunctionBuilder builder = functionRegistry.findFunctionBuilder(
+                unboundFunction.getDbName(), functionName, arguments);
         if (builder instanceof AliasUdfBuilder) {
             // we do type coercion in build function in alias function, so it's ok to return directly.
-            return boundFunction;
+            return builder.build(functionName, arguments);
         } else {
-            return TypeCoercionUtils.processBoundFunction(boundFunction);
+            return TypeCoercionUtils.processBoundFunction((BoundFunction) builder.build(functionName, arguments));
         }
     }
 
@@ -315,9 +314,11 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
         Expression left = match.left().accept(this, context);
         Expression right = match.right().accept(this, context);
         // check child type
-        if (!left.getDataType().isStringLikeType()) {
+        if (!left.getDataType().isStringLikeType()
+                && !(left.getDataType() instanceof ArrayType
+                && ((ArrayType) left.getDataType()).getItemType().isStringLikeType())) {
             throw new AnalysisException(String.format(
-                    "left operand '%s' part of predicate " + "'%s' should return type 'STRING' but "
+                    "left operand '%s' part of predicate " + "'%s' should return type 'STRING' or 'ARRAY<STRING>' but "
                             + "returns type '%s'.",
                     left.toSql(), match.toSql(), left.getDataType()));
         }

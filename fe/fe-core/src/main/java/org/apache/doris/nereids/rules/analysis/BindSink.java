@@ -268,7 +268,7 @@ public class BindSink implements AnalysisRuleFactory {
     private List<Column> bindTargetColumns(OlapTable table, List<String> colsName, boolean isNeedSequenceCol) {
         // if the table set sequence column in stream load phase, the sequence map column is null, we query it.
         return colsName.isEmpty()
-                ? table.getFullSchema().stream()
+                ? table.getBaseSchema(true).stream()
                 .filter(c -> validColumn(c, isNeedSequenceCol))
                 .collect(ImmutableList.toImmutableList())
                 : colsName.stream().map(cn -> {
