@@ -30,9 +30,6 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.thrift.TFileType;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -42,12 +39,18 @@ import java.util.Map;
  * group_commit().
  */
 public class GroupCommitTableValuedFunction extends ExternalFileTableValuedFunction {
-    private static final Logger LOG = LogManager.getLogger(GroupCommitTableValuedFunction.class);
+
     public static final String NAME = "group_commit";
-    private long tableId = -1;
+
+    private static final String TABLE_ID_KEY = "table_id";
+
+    private final long tableId;
 
     public GroupCommitTableValuedFunction(Map<String, String> params) throws AnalysisException {
-        tableId = Long.parseLong(params.get("table_id"));
+        if (params == null || !params.containsKey(TABLE_ID_KEY)) {
+            throw new AnalysisException(NAME + " should contains property " + TABLE_ID_KEY);
+        }
+        tableId = Long.parseLong(params.get(TABLE_ID_KEY));
     }
 
     // =========== implement abstract methods of ExternalFileTableValuedFunction =================
@@ -56,11 +59,18 @@ public class GroupCommitTableValuedFunction extends ExternalFileTableValuedFunct
     public List<Column> getTableColumns() throws AnalysisException {
         List<Column> fileColumns = new ArrayList<>();
         Table table = Env.getCurrentInternalCatalog().getTableByTableId(tableId);
+        if (table == null) {
+            throw new AnalysisException("table with table_id " + tableId + " is not exists");
+        }
+        if (!(table instanceof OlapTable)) {
+            throw new AnalysisException("Only support OLAP table, but table type of table_id "
+                    + tableId + " is " + table.getType());
+        }
+        Column deleteSignColumn = ((OlapTable) table).getDeleteSignColumn();
         List<Column> tableColumns = table.getBaseSchema(false);
         for (int i = 1; i <= tableColumns.size(); i++) {
             fileColumns.add(new Column("c" + i, tableColumns.get(i - 1).getDataType(), true));
         }
-        Column deleteSignColumn = ((OlapTable) table).getDeleteSignColumn();
         if (deleteSignColumn != null) {
             fileColumns.add(new Column("c" + (tableColumns.size() + 1), deleteSignColumn.getDataType(), true));
         }
