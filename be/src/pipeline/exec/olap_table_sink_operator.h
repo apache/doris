@@ -98,10 +98,10 @@ public:
         return local_state.sink(state, in_block, source_state);
     }
 
-    bool is_pending_finish(RuntimeState* state) const override {
+    FinishDependency* finish_blocked_by(RuntimeState* state) const override {
         auto& local_state = state->get_sink_local_state(id())->cast<OlapTableSinkLocalState>();
-        return local_state.is_pending_finish();
-    }
+        return local_state._finish_dependency->finish_blocked_by();
+    };
 
     WriteDependency* wait_for_dependency(RuntimeState* state) override {
         CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
