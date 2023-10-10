@@ -218,6 +218,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                                        CascadesContext cascadesContext) {
         switch (table.getType()) {
             case OLAP:
+            case MATERIALIZED_VIEW:
                 return makeOlapScan(table, unboundRelation, tableQualifier);
             case VIEW:
                 Plan viewPlan = parseAndAnalyzeView(((View) table).getDdlSql(), cascadesContext);
@@ -242,7 +243,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
             case ES_EXTERNAL_TABLE:
                 return new LogicalEsScan(unboundRelation.getRelationId(), (EsExternalTable) table, tableQualifier);
             default:
-                throw new AnalysisException("Unsupported tableType:" + table.getType());
+                throw new AnalysisException("Unsupported tableType " + table.getType());
         }
     }
 
