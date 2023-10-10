@@ -64,16 +64,13 @@ public:
     using Parent = SetSourceOperatorX<is_intersect>;
     SetSourceLocalState(RuntimeState* state, OperatorXBase* parent) : Base(state, parent) {};
 
-    Status init(RuntimeState* state, LocalStateInfo& info) override {
-        RETURN_IF_ERROR(PipelineXLocalState<SetDependency>::init(state, info));
-        _pull_timer = ADD_TIMER(_runtime_profile, "PullTime");
-        return Status::OK();
-    }
+    Status init(RuntimeState* state, LocalStateInfo& info) override;
 
 private:
     friend class SetSourceOperatorX<is_intersect>;
-    friend class OperatorX<SetSourceLocalState>;
+    friend class OperatorX<SetSourceLocalState<is_intersect>>;
     RuntimeProfile::Counter* _pull_timer; // time to pull data
+    std::vector<vectorized::MutableColumnPtr> _mutable_cols;
 };
 
 template <bool is_intersect>
@@ -101,19 +98,16 @@ public:
 private:
     friend class SetSourceLocalState<is_intersect>;
 
-    void create_mutable_cols(SetSourceLocalState<is_intersect>& local_state,
-                             vectorized::Block* output_block);
+    void _create_mutable_cols(SetSourceLocalState<is_intersect>& local_state,
+                              vectorized::Block* output_block);
 
     template <typename HashTableContext>
-    Status get_data_in_hashtable(SetSourceLocalState<is_intersect>& local_state,
-                                 HashTableContext& hash_table_ctx, vectorized::Block* output_block,
-                                 const int batch_size, SourceState& source_state);
+    Status _get_data_in_hashtable(SetSourceLocalState<is_intersect>& local_state,
+                                  HashTableContext& hash_table_ctx, vectorized::Block* output_block,
+                                  const int batch_size, SourceState& source_state);
 
-    void add_result_columns(SetSourceLocalState<is_intersect>& local_state,
-                            vectorized::RowRefListWithFlags& value, int& block_size);
-
-    using Base::_conjuncts;
-    std::vector<vectorized::MutableColumnPtr> _mutable_cols;
+    void _add_result_columns(SetSourceLocalState<is_intersect>& local_state,
+                             vectorized::RowRefListWithFlags& value, int& block_size);
 };
 
 } // namespace pipeline

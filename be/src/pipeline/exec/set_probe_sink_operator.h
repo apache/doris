@@ -80,22 +80,7 @@ public:
     SetProbeSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : Base(parent, state) {}
 
-    Status init(RuntimeState* state, LocalSinkStateInfo& info) override {
-        RETURN_IF_ERROR(PipelineXSinkLocalState<SetDependency>::init(state, info));
-        _probe_timer = ADD_TIMER(_profile, "ProbeTime");
-
-        Parent& parent = _parent->cast<Parent>();
-        _shared_state->_childs = parent._child_quantity;
-        _shared_state->_probe_finished_children_index.assign(parent._child_quantity, false);
-
-        auto& child_exprs_lists = _shared_state->_child_exprs_lists;
-        DCHECK(child_exprs_lists.size() == 0 || child_exprs_lists.size() == parent._child_quantity);
-        if (child_exprs_lists.size() == 0) {
-            child_exprs_lists.resize(parent._child_quantity);
-        }
-        child_exprs_lists[parent._cur_child_id] = parent._child_exprs;
-        return Status::OK();
-    }
+    Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
 private:
     friend class SetProbeSinkOperatorX<is_intersect>;
@@ -106,6 +91,8 @@ private:
     //record insert column id during probe
     std::vector<uint16_t> _probe_column_inserted_id;
     vectorized::ColumnRawPtrs _probe_columns;
+    // every child has its result expr list
+    vectorized::VExprContextSPtrs _child_exprs;
 };
 
 template <bool is_intersect>
@@ -118,7 +105,7 @@ public:
     friend class SetProbeSinkLocalState<is_intersect>;
     SetProbeSinkOperatorX(int child_id, int sink_id, ObjectPool* pool, const TPlanNode& tnode,
                           const DescriptorTbl& descs)
-            : Base(sink_id, tnode.node_id), _cur_child_id(child_id) {}
+            : Base(sink_id, tnode.node_id, tnode.node_id), _cur_child_id(child_id) {}
     ~SetProbeSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {
         return Status::InternalError(
@@ -132,10 +119,8 @@ public:
         // Create result_expr_ctx_lists_ from thrift exprs.
         if (tnode.node_type == TPlanNodeType::type::INTERSECT_NODE) {
             result_texpr_lists = &(tnode.intersect_node.result_expr_lists);
-            _child_quantity = tnode.intersect_node.result_expr_lists.size();
         } else if (tnode.node_type == TPlanNodeType::type::EXCEPT_NODE) {
             result_texpr_lists = &(tnode.except_node.result_expr_lists);
-            _child_quantity = tnode.except_node.result_expr_lists.size();
         } else {
             return Status::NotSupported("Not Implemented, Check The Operation Node.");
         }
@@ -148,21 +133,32 @@ public:
 
     Status prepare(RuntimeState* state) override {
         RETURN_IF_ERROR(DataSinkOperatorX<SetProbeSinkLocalState<is_intersect>>::prepare(state));
-        RETURN_IF_ERROR(vectorized::VExpr::prepare(_child_exprs, state, _child_x->row_desc()));
-        return Status::OK();
+        return vectorized::VExpr::prepare(_child_exprs, state, _child_x->row_desc());
+    }
+
+    Status open(RuntimeState* state) override {
+        RETURN_IF_ERROR(DataSinkOperatorX<SetProbeSinkLocalState<is_intersect>>::open(state));
+        return vectorized::VExpr::open(_child_exprs, state);
     }
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
 
+    WriteDependency* wait_for_dependency(RuntimeState* state) override {
+        CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
+        return ((SetSharedState*)local_state._dependency->shared_state())
+                               ->probe_finished_children_index[_cur_child_id - 1]
+                       ? nullptr
+                       : local_state._dependency;
+    }
+
 private:
     void _finalize_probe(SetProbeSinkLocalState<is_intersect>& local_state);
-    Status extract_probe_column(SetProbeSinkLocalState<is_intersect>& local_state,
-                                vectorized::Block& block, vectorized::ColumnRawPtrs& raw_ptrs,
-                                int child_id);
-    void refresh_hash_table(SetProbeSinkLocalState<is_intersect>& local_state);
+    Status _extract_probe_column(SetProbeSinkLocalState<is_intersect>& local_state,
+                                 vectorized::Block& block, vectorized::ColumnRawPtrs& raw_ptrs,
+                                 int child_id);
+    void _refresh_hash_table(SetProbeSinkLocalState<is_intersect>& local_state);
     const int _cur_child_id;
-    int _child_quantity;
     // every child has its result expr list
     vectorized::VExprContextSPtrs _child_exprs;
     using OperatorBase::_child_x;

@@ -800,49 +800,28 @@ Status PipelineXFragmentContext::_build_operators_for_set_operation_node(
         _dag.insert({downstream_pipeline_id, {}});
     }
 
-    // the source pipeline rely on build/probe
-    PipelinePtr build_side_pipe = add_pipeline();
-    _dag[downstream_pipeline_id].push_back(build_side_pipe->id());
+    int parent_id = tnode.node_id;
 
-    int father_id = tnode.node_id;
-
-    DataSinkOperatorXPtr sink;
-    sink.reset(new SetSinkOperatorX<is_intersect>(0, father_id + 1000, pool, tnode, descs));
-    RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
-    RETURN_IF_ERROR(build_side_pipe->sink_x()->init(tnode, _runtime_state.get()));
-    _build_side_pipelines.insert({sink->id(), build_side_pipe});
-
-    if (_set_child_pipelines.find(father_id) == _set_child_pipelines.end()) {
-        _set_child_pipelines.insert({father_id, {build_side_pipe}});
-    } else {
-        _set_child_pipelines[father_id].push_back(build_side_pipe);
-    }
-
-    for (int child_id = 1; child_id < tnode.num_children; child_id++) {
+    for (int child_id = 0; child_id < tnode.num_children; child_id++) {
         PipelinePtr probe_side_pipe = add_pipeline();
         _dag[downstream_pipeline_id].push_back(probe_side_pipe->id());
 
-        // we must probe after build
-        if (_dag.find(probe_side_pipe->id()) == _dag.end()) {
-            _dag.insert({probe_side_pipe->id(), {}});
-        }
-        // serially probe
-        if (child_id == 1) {
-            _dag[probe_side_pipe->id()].push_back(build_side_pipe->id());
-        } else {
-            _dag[probe_side_pipe->id()].push_back(_set_child_pipelines[father_id].back()->id());
-        }
-
         DataSinkOperatorXPtr sink;
-        sink.reset(new SetProbeSinkOperatorX<is_intersect>(
-                child_id, father_id + 1000 * (child_id + 1), pool, tnode, descs));
+        if (child_id == 0) {
+            sink.reset(new SetSinkOperatorX<is_intersect>(child_id, next_operator_id(), pool, tnode,
+                                                          descs));
+        } else {
+            sink.reset(new SetProbeSinkOperatorX<is_intersect>(child_id, next_operator_id(), pool,
+                                                               tnode, descs));
+        }
         RETURN_IF_ERROR(probe_side_pipe->set_sink(sink));
         RETURN_IF_ERROR(probe_side_pipe->sink_x()->init(tnode, _runtime_state.get()));
         // prepare children pipelines. if any pipeline found this as its father, will use the prepared pipeline to build.
-        if (_set_child_pipelines.find(father_id) == _set_child_pipelines.end()) {
-            _set_child_pipelines.insert({father_id, {probe_side_pipe}});
+        if (child_id == 0) {
+            DCHECK(_set_child_pipelines.find(parent_id) == _set_child_pipelines.end());
+            _set_child_pipelines.insert({parent_id, {probe_side_pipe}});
         } else {
-            _set_child_pipelines[father_id].push_back(probe_side_pipe);
+            _set_child_pipelines[parent_id].push_back(probe_side_pipe);
         }
     }
 

@@ -470,34 +470,18 @@ Status PipelineXSinkLocalState<DependencyType>::close(RuntimeState* state, Statu
 template <>
 Status OperatorX<SetSourceLocalState<true>>::setup_local_states(
         RuntimeState* state, std::vector<LocalStateInfo>& infos) {
-    for (auto& info : infos) {
-        auto local_state = SetSourceLocalState<true>::create_shared(state, this);
-        state->emplace_local_state(id(), local_state);
-        RETURN_IF_ERROR(local_state->init(state, info));
-
-        local_state->_shared_state->_hash_table_variants =
-                std::make_unique<vectorized::HashTableVariants>();
-
-        vector<bool> nullable_flags;
-        auto& child_exprs_lists = local_state->_shared_state->_child_exprs_lists;
-
-        nullable_flags.resize(child_exprs_lists[0].size(), false);
-        for (int i = 0; i < child_exprs_lists.size(); ++i) {
-            for (int j = 0; j < child_exprs_lists[i].size(); ++j) {
-                nullable_flags[j] =
-                        nullable_flags[j] || child_exprs_lists[i][j]->root()->is_nullable();
-            }
+    std::shared_ptr<typename SetDependency::SharedState> ss = nullptr;
+    for (int i = 0; i < infos.size(); i++) {
+        auto& info = infos[i];
+        if (i == 0) {
+            auto local_state = SetSourceLocalState<true>::create_shared(state, this);
+            state->emplace_local_state(id(), local_state);
+            ss.reset(new typename SetDependency::SharedState());
+            ((SetDependency*)info.dependency)->set_shared_state(ss);
+            RETURN_IF_ERROR(local_state->init(state, info));
+        } else {
+            ((SetDependency*)info.dependency)->set_shared_state(ss);
         }
-
-        for (int i = 0; i < child_exprs_lists[0].size(); ++i) {
-            const auto& ctx = child_exprs_lists[0][i];
-            local_state->_shared_state->_build_not_ignore_null.push_back(
-                    ctx->root()->is_nullable());
-            local_state->_shared_state->_left_table_data_types.push_back(
-                    nullable_flags[i] ? make_nullable(ctx->root()->data_type())
-                                      : ctx->root()->data_type());
-        }
-        local_state->_shared_state->hash_table_init();
     }
     return Status::OK();
 }
@@ -505,34 +489,18 @@ Status OperatorX<SetSourceLocalState<true>>::setup_local_states(
 template <>
 Status OperatorX<SetSourceLocalState<false>>::setup_local_states(
         RuntimeState* state, std::vector<LocalStateInfo>& infos) {
-    for (auto& info : infos) {
-        auto local_state = SetSourceLocalState<false>::create_shared(state, this);
-        state->emplace_local_state(id(), local_state);
-        RETURN_IF_ERROR(local_state->init(state, info));
-
-        local_state->_shared_state->_hash_table_variants =
-                std::make_unique<vectorized::HashTableVariants>();
-
-        vector<bool> nullable_flags;
-        auto& child_exprs_lists = local_state->_shared_state->_child_exprs_lists;
-
-        nullable_flags.resize(child_exprs_lists[0].size(), false);
-        for (int i = 0; i < child_exprs_lists.size(); ++i) {
-            for (int j = 0; j < child_exprs_lists[i].size(); ++j) {
-                nullable_flags[j] =
-                        nullable_flags[j] || child_exprs_lists[i][j]->root()->is_nullable();
-            }
+    std::shared_ptr<typename SetDependency::SharedState> ss = nullptr;
+    for (int i = 0; i < infos.size(); i++) {
+        auto& info = infos[i];
+        if (i == 0) {
+            auto local_state = SetSourceLocalState<false>::create_shared(state, this);
+            state->emplace_local_state(id(), local_state);
+            ss.reset(new typename SetDependency::SharedState());
+            ((SetDependency*)info.dependency)->set_shared_state(ss);
+            RETURN_IF_ERROR(local_state->init(state, info));
+        } else {
+            ((SetDependency*)info.dependency)->set_shared_state(ss);
         }
-
-        for (int i = 0; i < child_exprs_lists[0].size(); ++i) {
-            const auto& ctx = child_exprs_lists[0][i];
-            local_state->_shared_state->_build_not_ignore_null.push_back(
-                    ctx->root()->is_nullable());
-            local_state->_shared_state->_left_table_data_types.push_back(
-                    nullable_flags[i] ? make_nullable(ctx->root()->data_type())
-                                      : ctx->root()->data_type());
-        }
-        local_state->_shared_state->hash_table_init();
     }
     return Status::OK();
 }

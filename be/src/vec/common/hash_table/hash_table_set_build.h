@@ -98,10 +98,10 @@ struct HashTableBuildX {
 
         Defer defer {[&]() {
             int64_t bucket_bytes = hash_table_ctx.hash_table.get_buffer_size_in_bytes();
-            local_state._shared_state->_mem_used += bucket_bytes - old_bucket_bytes;
+            local_state._shared_state->mem_used += bucket_bytes - old_bucket_bytes;
         }};
 
-        KeyGetter key_getter(_build_raw_ptrs, local_state._shared_state->_build_key_sz, nullptr);
+        KeyGetter key_getter(_build_raw_ptrs, local_state._shared_state->build_key_sz, nullptr);
 
         if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<KeyGetter>::value) {
             hash_table_ctx.serialize_keys(_build_raw_ptrs, _rows);

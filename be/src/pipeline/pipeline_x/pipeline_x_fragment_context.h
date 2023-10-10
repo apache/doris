@@ -168,6 +168,8 @@ private:
 
     std::map<UniqueId, RuntimeState*> _instance_id_to_runtime_state;
     std::mutex _state_map_lock;
+
+    // TODO: Unify `_union_child_pipelines`, `_set_child_pipelines`, `_build_side_pipelines`.
     std::map<int, std::vector<PipelinePtr>> _union_child_pipelines;
     std::map<int, std::vector<PipelinePtr>> _set_child_pipelines;
     // The number of operators is generally greater than the number of plan nodes,

@@ -86,7 +86,7 @@ struct HashTableProbeX {
                                   HashTableContext& hash_table_ctx) {
         using KeyGetter = typename HashTableContext::State;
 
-        KeyGetter key_getter(_probe_raw_ptrs, local_state._shared_state->_probe_key_sz, nullptr);
+        KeyGetter key_getter(_probe_raw_ptrs, local_state._shared_state->probe_key_sz, nullptr);
         if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<KeyGetter>::value) {
             if (_probe_keys.size() < _probe_rows) {
                 _probe_keys.resize(_probe_rows);
@@ -108,9 +108,9 @@ struct HashTableProbeX {
                     if (!(it->visited)) {
                         it->visited = true;
                         if constexpr (is_intersected) { //intersected
-                            local_state._shared_state->_valid_element_in_hash_tbl++;
+                            local_state._shared_state->valid_element_in_hash_tbl++;
                         } else {
-                            local_state._shared_state->_valid_element_in_hash_tbl--; //except
+                            local_state._shared_state->valid_element_in_hash_tbl--; //except
                         }
                     }
                 }

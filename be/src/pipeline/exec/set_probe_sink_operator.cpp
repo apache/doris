@@ -74,20 +74,18 @@ template <bool is_intersect>
 Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Block* in_block,
                                                  SourceState source_state) {
     RETURN_IF_CANCELLED(state);
-    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
     SCOPED_TIMER(local_state._probe_timer);
 
-    CHECK(local_state._shared_state->_build_finished)
-            << "cannot sink probe data before build finished";
     if (_cur_child_id > 1) {
-        CHECK(local_state._shared_state->_probe_finished_children_index[_cur_child_id - 1])
+        CHECK(local_state._shared_state->probe_finished_children_index[_cur_child_id - 1])
                 << fmt::format("child with id: {} should be probed first", _cur_child_id);
     }
 
     auto probe_rows = in_block->rows();
     if (probe_rows > 0) {
-        RETURN_IF_ERROR(extract_probe_column(local_state, *in_block, local_state._probe_columns,
-                                             _cur_child_id));
+        RETURN_IF_ERROR(_extract_probe_column(local_state, *in_block, local_state._probe_columns,
+                                              _cur_child_id));
         RETURN_IF_ERROR(std::visit(
                 [&](auto&& arg) -> Status {
                     using HashTableCtxType = std::decay_t<decltype(arg)>;
@@ -99,7 +97,7 @@ Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized
                         LOG(FATAL) << "FATAL: uninited hash table";
                     }
                 },
-                *local_state._shared_state->_hash_table_variants));
+                *local_state._shared_state->hash_table_variants));
     }
 
     if (source_state == SourceState::FINISHED) {
@@ -107,11 +105,36 @@ Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized
     }
     return Status::OK();
 }
+
 template <bool is_intersect>
-Status SetProbeSinkOperatorX<is_intersect>::extract_probe_column(
+Status SetProbeSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSinkStateInfo& info) {
+    RETURN_IF_ERROR(PipelineXSinkLocalState<SetDependency>::init(state, info));
+    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(_open_timer);
+    _probe_timer = ADD_TIMER(_profile, "ProbeTime");
+
+    Parent& parent = _parent->cast<Parent>();
+
+    _child_exprs.resize(parent._child_exprs.size());
+    for (size_t i = 0; i < _child_exprs.size(); i++) {
+        RETURN_IF_ERROR(parent._child_exprs[i]->clone(state, _child_exprs[i]));
+    }
+
+    auto& child_exprs_lists = _shared_state->child_exprs_lists;
+    child_exprs_lists[parent._cur_child_id] = _child_exprs;
+
+    // Add the if check only for compatible with old optimiser
+    if (child_exprs_lists.size() > 1) {
+        _probe_columns.resize(child_exprs_lists[1].size());
+    }
+    return Status::OK();
+}
+
+template <bool is_intersect>
+Status SetProbeSinkOperatorX<is_intersect>::_extract_probe_column(
         SetProbeSinkLocalState<is_intersect>& local_state, vectorized::Block& block,
         vectorized::ColumnRawPtrs& raw_ptrs, int child_id) {
-    auto& build_not_ignore_null = local_state._shared_state->_build_not_ignore_null;
+    auto& build_not_ignore_null = local_state._shared_state->build_not_ignore_null;
 
     for (size_t i = 0; i < _child_exprs.size(); ++i) {
         int result_col_id = -1;
@@ -147,12 +170,12 @@ Status SetProbeSinkOperatorX<is_intersect>::extract_probe_column(
 template <bool is_intersect>
 void SetProbeSinkOperatorX<is_intersect>::_finalize_probe(
         SetProbeSinkLocalState<is_intersect>& local_state) {
-    auto& valid_element_in_hash_tbl = local_state._shared_state->_valid_element_in_hash_tbl;
-    auto& hash_table_variants = local_state._shared_state->_hash_table_variants;
-    auto& probe_finished_children_index = local_state._shared_state->_probe_finished_children_index;
+    auto& valid_element_in_hash_tbl = local_state._shared_state->valid_element_in_hash_tbl;
+    auto& hash_table_variants = local_state._shared_state->hash_table_variants;
+    auto& probe_finished_children_index = local_state._shared_state->probe_finished_children_index;
 
-    if (_cur_child_id != (local_state._shared_state->_childs - 1)) {
-        refresh_hash_table(local_state);
+    if (_cur_child_id != (local_state._shared_state->child_quantity - 1)) {
+        _refresh_hash_table(local_state);
         if constexpr (is_intersect) {
             valid_element_in_hash_tbl = 0;
         } else {
@@ -166,7 +189,7 @@ void SetProbeSinkOperatorX<is_intersect>::_finalize_probe(
                     *hash_table_variants);
         }
         local_state._probe_columns.resize(
-                local_state._shared_state->_child_exprs_lists[_cur_child_id + 1].size());
+                local_state._shared_state->child_exprs_lists[_cur_child_id + 1].size());
     } else {
         local_state._dependency->set_ready_for_read();
     }
@@ -174,10 +197,10 @@ void SetProbeSinkOperatorX<is_intersect>::_finalize_probe(
 }
 
 template <bool is_intersect>
-void SetProbeSinkOperatorX<is_intersect>::refresh_hash_table(
+void SetProbeSinkOperatorX<is_intersect>::_refresh_hash_table(
         SetProbeSinkLocalState<is_intersect>& local_state) {
-    auto& valid_element_in_hash_tbl = local_state._shared_state->_valid_element_in_hash_tbl;
-    auto& hash_table_variants = local_state._shared_state->_hash_table_variants;
+    auto& valid_element_in_hash_tbl = local_state._shared_state->valid_element_in_hash_tbl;
+    auto& hash_table_variants = local_state._shared_state->hash_table_variants;
     std::visit(
             [&](auto&& arg) {
                 using HashTableCtxType = std::decay_t<decltype(arg)>;
