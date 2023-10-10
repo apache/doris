@@ -283,7 +283,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
 
     {
         SCOPED_TIMER(_search_hashtable_timer);
-        using FindResult = decltype(key_getter)::FindResult;
+        using FindResult = KeyGetter::FindResult;
         FindResult empty = {nullptr, false};
         while (current_offset < _batch_size && probe_index < probe_rows) {
             if constexpr (ignore_null && need_null_map_for_probe) {
@@ -319,7 +319,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                 if constexpr (is_mark_join) {
                     ++current_offset;
                     bool null_result =
-                            (*null_map)[probe_index] ||
+                            (need_null_map_for_probe && (*null_map)[probe_index]) ||
                             (!need_go_ahead && _join_context->_has_null_value_in_build_side);
                     if (null_result) {
                         mark_column->insert_null();
