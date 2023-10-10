@@ -472,10 +472,6 @@ public:
         LOG(FATAL) << "append_data_by_selector is not supported in PredicateColumnType!";
     }
 
-    [[noreturn]] TypeIndex get_data_type() const override {
-        LOG(FATAL) << "PredicateColumnType get_data_type not implemeted";
-    }
-
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
         if constexpr (std::is_same_v<T, StringRef>) {
             insert_string_to_res_column(sel, sel_size,

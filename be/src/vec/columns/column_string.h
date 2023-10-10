@@ -592,8 +592,6 @@ public:
         return shrinked_column;
     }
 
-    TypeIndex get_data_type() const override { return TypeIndex::String; }
-
     void get_indices_of_non_default_rows(Offsets64& indices, size_t from,
                                          size_t limit) const override {
         return get_indices_of_non_default_rows_impl<ColumnString>(indices, from, limit);

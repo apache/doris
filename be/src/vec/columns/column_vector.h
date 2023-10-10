@@ -470,7 +470,6 @@ public:
     void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
                           int direction, std::vector<uint8>& cmp_res,
                           uint8* __restrict filter) const override;
-    TypeIndex get_data_type() const override { return TypeId<T>::value; }
     void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
                                          size_t limit) const override {
         return this->template get_indices_of_non_default_rows_impl<Self>(indices, from, limit);
