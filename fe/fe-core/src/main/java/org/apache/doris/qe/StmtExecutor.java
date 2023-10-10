@@ -2738,7 +2738,7 @@ public class StmtExecutor {
         return resultRows;
     }
 
-    public void generateStreamLoadNereidsPlan(TUniqueId queryId) throws Exception {
+    private void generateStreamLoadNereidsPlan(TUniqueId queryId) throws Exception {
         LOG.info("TUniqueId: {} generate stream load plan", queryId);
         context.setQueryId(queryId);
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
@@ -2750,6 +2750,7 @@ public class StmtExecutor {
         InsertIntoTableCommand insert = (InsertIntoTableCommand) ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
         try {
             insert.initPlan(context, this);
+            context.getExecutor().setPlanner(insert.getPlanner());
             if (context.getTxnEntry() == null) {
                 TransactionEntry transactionEntry =
                         new TransactionEntry(new TTxnParams().setTxnId(insert.getTxn().getTxnId()),

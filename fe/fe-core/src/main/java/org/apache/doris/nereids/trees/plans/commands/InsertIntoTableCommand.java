@@ -145,7 +145,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
 
         if (isOverwrite) {
             dealOverwrite(ctx, executor, physicalOlapTableSink);
-            return null;
+            return physicalOlapTableSink;
         }
 
         OlapTableSink sink = ((OlapTableSink) planner.getFragments().get(0).getSink());
@@ -175,7 +175,6 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         state.addTableIndexes(physicalOlapTableSink.getTargetTable());
 
         executor.setProfileType(ProfileType.LOAD);
-        executor.setPlanner(planner);
         return physicalOlapTableSink;
     }
 

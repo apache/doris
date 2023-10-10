@@ -2031,9 +2031,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TExecPlanFragmentParams plan;
         try {
             StmtExecutor executor = new StmtExecutor(ctx, originStmt);
+            ctx.setExecutor(executor);
             executor.getStreamLoadPlan(ctx.queryId());
 
-            ctx.setExecutor(executor);
             Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
             Coordinator coord = new Coordinator(ctx, analyzer, executor.planner());
             coord.setLoadMemLimit(request.getExecMemLimit());

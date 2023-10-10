@@ -50,7 +50,6 @@ public class BuiltinTableValuedFunctions implements FunctionHelper {
             tableValued(Hdfs.class, "hdfs"),
             tableValued(Numbers.class, "numbers"),
             tableValued(S3.class, "s3"),
-            tableValued(Local.class, "local"),
             tableValued(HttpStream.class, "http_stream"),
             tableValued(WorkloadGroups.class, "workload_groups")
     );
