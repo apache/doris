@@ -19,6 +19,7 @@ suite("test_array_distance_functions") {
     qt_sql "SELECT l1_distance([0, 0, 0], [1, 2, 3])"
     qt_sql "SELECT l2_distance([1, 2, 3], [0, 0, 0])"
     qt_sql "SELECT cosine_distance([1, 2, 3], [3, 5, 7])"
+    qt_sql "SELECT cosine_distance([0], [0])"
     qt_sql "SELECT inner_product([1, 2], [2, 3])"
 
     qt_sql "SELECT l2_distance([1, 2, 3], NULL)"

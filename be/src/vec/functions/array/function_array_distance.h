@@ -161,6 +161,7 @@ public:
             }
             if (!dst_null_data[row]) {
                 dst_data[row] = DistanceImpl::finalize(st);
+                dst_null_data[row] = std::isnan(dst_data[row]);
             }
         }
 
