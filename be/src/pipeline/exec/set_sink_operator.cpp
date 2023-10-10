@@ -223,13 +223,13 @@ Status SetSinkOperatorX<is_intersect>::init(const TPlanNode& tnode, RuntimeState
 
 template <bool is_intersect>
 Status SetSinkOperatorX<is_intersect>::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(DataSinkOperatorX<SetSinkOperatorX<is_intersect>>::prepare(state));
+    RETURN_IF_ERROR(DataSinkOperatorX<SetSinkLocalState<is_intersect>>::prepare(state));
     return vectorized::VExpr::prepare(_child_exprs, state, _child_x->row_desc());
 }
 
 template <bool is_intersect>
 Status SetSinkOperatorX<is_intersect>::open(RuntimeState* state) {
-    RETURN_IF_ERROR(DataSinkOperatorX<SetSinkOperatorX<is_intersect>>::open(state));
+    RETURN_IF_ERROR(DataSinkOperatorX<SetSinkLocalState<is_intersect>>::open(state));
     return vectorized::VExpr::open(_child_exprs, state);
 }
 
