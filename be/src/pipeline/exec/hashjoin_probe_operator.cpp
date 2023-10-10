@@ -19,6 +19,7 @@
 
 #include <string>
 
+#include "common/logging.h"
 #include "pipeline/exec/operator.h"
 
 namespace doris {
@@ -183,6 +184,11 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
     CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
     local_state.init_for_probe(state);
     SCOPED_TIMER(local_state._probe_timer);
+    if (local_state._shared_state->short_circuit_for_probe) {
+        // If we use a short-circuit strategy, should return empty block directly.
+        source_state = SourceState::FINISHED;
+        return Status::OK();
+    }
     if (local_state._shared_state->_has_null_in_build_side &&
         local_state._shared_state->short_circuit_for_probe) {
         /// `_has_null_in_build_side` means have null value in build side.
@@ -223,9 +229,6 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
             local_state.reached_limit(output_block, source_state);
             return Status::OK();
         }
-        // If we use a short-circuit strategy, should return empty block directly.
-        source_state = SourceState::FINISHED;
-        return Status::OK();
     }
     local_state._join_block.clear_column_data();
 
