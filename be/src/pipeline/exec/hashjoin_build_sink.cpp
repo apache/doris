@@ -140,7 +140,7 @@ void HashJoinBuildSinkLocalState::init_short_circuit_for_probe() {
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
     _shared_state->short_circuit_for_probe =
             (_shared_state->_has_null_in_build_side &&
-             p._join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) ||
+             p._join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN && !p._is_mark_join) ||
             (_shared_state->build_blocks->empty() && p._join_op == TJoinOp::INNER_JOIN &&
              !p._is_mark_join) ||
             (_shared_state->build_blocks->empty() && p._join_op == TJoinOp::LEFT_SEMI_JOIN &&
