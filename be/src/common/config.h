@@ -366,7 +366,7 @@ DECLARE_Bool(disable_storage_row_cache);
 // whether to disable pk page cache feature in storage
 DECLARE_Bool(disable_pk_storage_page_cache);
 
-// Cache for mow primary key storage page size, it's seperated from
+// Cache for mow primary key storage page size, it's seperated from.
 // storage_page_cache_limit
 DECLARE_String(pk_storage_page_cache_limit);
 // data page size for primary key index
