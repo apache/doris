@@ -632,7 +632,15 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
         std::vector<Arguments> arguments;
         for (int i = 0; i < _output_vexpr_ctxs.size(); ++i) {
             const auto& [column_ptr, col_const] = unpack_if_const(block.get_by_position(i).column);
-            auto serde = block.get_by_position(i).type->get_serde();
+            int scale = _output_vexpr_ctxs[i]->root()->type().scale;
+            // decimalv2 scale and precision is hard code, so we should get real scale and precision
+            // from expr
+            DataTypeSerDeSPtr serde;
+            if (_output_vexpr_ctxs[i]->root()->type().is_decimal_v2_type()) {
+                serde = std::make_shared<DataTypeDecimalSerDe<vectorized::Decimal128>>(scale, 27);
+            } else {
+                serde = block.get_by_position(i).type->get_serde();
+            }
             serde->set_return_object_as_string(output_object_data());
             arguments.emplace_back(column_ptr.get(), col_const, serde);
         }
