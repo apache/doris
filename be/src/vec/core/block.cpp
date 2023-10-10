@@ -17,7 +17,7 @@
 // This file is copied from
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Core/Block.cpp
 // and modified by Doris
-
+// test
 #include "vec/core/block.h"
 
 #include <assert.h>

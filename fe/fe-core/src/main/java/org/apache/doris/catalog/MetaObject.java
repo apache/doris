@@ -31,7 +31,7 @@ public class MetaObject implements Writable {
     @SerializedName(value = "signature")
     protected long signature;
     @SerializedName(value = "lastCheckTime")
-    protected long lastCheckTime; // last check consistency time
+    protected long lastCheckTime; // last check consistency time test
 
     public MetaObject() {
         signature = -1L;
