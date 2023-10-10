@@ -313,7 +313,6 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 
     The system view table names in information_schema are case-insensitive and behave as 2 when the value of `lower_case_table_names` is 0.
 
-Translated with www.DeepL.com/Translator (free version)
 
 * `max_allowed_packet`
 
