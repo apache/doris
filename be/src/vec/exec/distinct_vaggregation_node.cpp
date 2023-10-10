@@ -92,10 +92,7 @@ void DistinctAggregationNode::_emplace_into_hash_table_to_distinct(IColumn::Sele
 
                 size_t row = 0;
                 auto creator = [&](const auto& ctor, auto& key, auto& origin) {
-                    if constexpr (HashMethodType::is_serialized()) {
-                        key.data = _agg_arena_pool->insert(key.data, key.size);
-                        origin = key;
-                    }
+                    HashMethodType::try_presis_key(key, origin, *_agg_arena_pool);
                     ctor(key, dummy_mapped_data);
                     distinct_row.push_back(row);
                 };

@@ -112,10 +112,7 @@ void VPartitionSortNode::_emplace_into_hash_table(const ColumnRawPtrs& key_colum
                 agg_method.init_serialized_keys(key_columns, _partition_key_sz, num_rows);
 
                 auto creator = [&](const auto& ctor, auto& key, auto& origin) {
-                    if constexpr (HashMethodType::is_serialized()) {
-                        key.data = _agg_arena_pool->insert(key.data, key.size);
-                        origin = key;
-                    }
+                    HashMethodType::try_presis_key(key, origin, *_agg_arena_pool);
                     auto aggregate_data = _pool->add(new PartitionBlocks());
                     _value_places.push_back(aggregate_data);
                     ctor(key, aggregate_data);

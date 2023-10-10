@@ -505,10 +505,7 @@ void AggSinkLocalState<DependencyType, Derived>::_emplace_into_hash_table(
                                                 num_rows);
 
                 auto creator = [this](const auto& ctor, auto& key, auto& origin) {
-                    if constexpr (HashMethodType::is_serialized()) {
-                        key.data = _agg_arena_pool->insert(key.data, key.size);
-                        origin = key;
-                    }
+                    HashMethodType::try_presis_key(key, origin, *_agg_arena_pool);
                     auto mapped =
                             Base::_shared_state->aggregate_data_container->append_data(origin);
                     auto st = Base::_dependency->create_agg_status(mapped);

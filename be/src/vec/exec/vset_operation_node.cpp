@@ -79,10 +79,7 @@ struct HashTableBuild {
 
         size_t k = 0;
         auto creator = [&](const auto& ctor, auto& key, auto& origin) {
-            if constexpr (HashTableContext::is_serialized()) {
-                key.data = arena.insert(key.data, key.size);
-                origin = key;
-            }
+            HashTableContext::try_presis_key(key, origin, arena);
             ctor(key, Mapped {k, _offset});
         };
         auto creator_for_null_key = [&](auto& mapped) { mapped = {k, _offset}; };

@@ -887,10 +887,7 @@ void AggregationNode::_emplace_into_hash_table(AggregateDataPtr* places, ColumnR
                 agg_method.init_serialized_keys(key_columns, _probe_key_sz, num_rows);
 
                 auto creator = [this](const auto& ctor, auto& key, auto& origin) {
-                    if constexpr (HashMethodType::is_serialized()) {
-                        key.data = _agg_arena_pool->insert(key.data, key.size);
-                        origin = key;
-                    }
+                    HashMethodType::try_presis_key(key, origin, *_agg_arena_pool);
                     auto mapped = _aggregate_data_container->append_data(origin);
                     auto st = _create_agg_status(mapped);
                     if (!st) {

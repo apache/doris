@@ -183,10 +183,7 @@ void PartitionSortSinkOperatorX::_emplace_into_hash_table(
                                                 num_rows);
 
                 auto creator = [&](const auto& ctor, auto& key, auto& origin) {
-                    if constexpr (HashMethodType::is_serialized()) {
-                        key.data = local_state._agg_arena_pool->insert(key.data, key.size);
-                        origin = key;
-                    }
+                    HashMethodType::try_presis_key(key, origin, *local_state._agg_arena_pool);
                     auto aggregate_data = _pool->add(new vectorized::PartitionBlocks());
                     local_state._value_places.push_back(aggregate_data);
                     ctor(key, aggregate_data);

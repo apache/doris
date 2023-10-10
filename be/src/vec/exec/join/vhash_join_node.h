@@ -224,10 +224,7 @@ struct ProcessHashTableBuild {
         size_t k = 0;
         bool inserted = false;
         auto creator = [&](const auto& ctor, auto& key, auto& origin) {
-            if constexpr (HashTableContext::is_serialized()) {
-                key.data = arena.insert(key.data, key.size);
-                origin = key;
-            }
+            HashTableContext::try_presis_key(key, origin, arena);
             inserted = true;
             ctor(key, Mapped {k, _offset});
         };

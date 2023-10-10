@@ -26,10 +26,15 @@
 #include "vec/common/assert_cast.h"
 #include "vec/common/columns_hashing.h"
 #include "vec/common/hash_table/partitioned_hash_map.h"
+#include "vec/common/hash_table/string_hash_map.h"
 #include "vec/common/string_ref.h"
+#include "vec/core/types.h"
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
+
+template <typename Base>
+struct DataWithNullKey;
 
 template <typename HashMap>
 struct MethodBase {
@@ -104,9 +109,22 @@ struct MethodBase {
                                       creator_for_null_key);
     }
 
-    // todo: try to remove those flag judge
-    static constexpr bool is_serialized() { return false; }
-    static constexpr bool is_single_nullable() { return false; }
+    static constexpr bool need_presis() { return std::is_same_v<Key, StringRef>; }
+
+    static constexpr bool is_string_hash_map() {
+        return std::is_same_v<StringHashMap<Mapped>, HashMap> ||
+               std::is_same_v<DataWithNullKey<StringHashMap<Mapped>>, HashMap>;
+    }
+
+    template <typename Key, typename Origin>
+    static void try_presis_key(Key& key, Origin& origin, Arena& arena) {
+        if constexpr (need_presis()) {
+            origin.data = arena.insert(origin.data, origin.size);
+            if constexpr (!is_string_hash_map()) {
+                key = origin;
+            }
+        }
+    }
 
     virtual void insert_keys_into_columns(std::vector<Key>& keys, MutableColumns& key_columns,
                                           const size_t num_rows, const Sizes&) = 0;
@@ -117,6 +135,7 @@ struct MethodSerialized : public MethodBase<TData> {
     using Base = MethodBase<TData>;
     using Base::init_iterator;
     using State = ColumnsHashing::HashMethodSerialized<typename Base::Value, typename Base::Mapped>;
+    using Base::try_presis_key;
 
     std::vector<StringRef> stored_keys;
 
@@ -174,8 +193,6 @@ struct MethodSerialized : public MethodBase<TData> {
             column->deserialize_vec(keys, num_rows);
         }
     }
-
-    static constexpr bool is_serialized() { return true; }
 };
 
 inline size_t get_bitmap_size(size_t key_number) {
@@ -454,8 +471,6 @@ struct MethodSingleNullableColumn : public SingleColumnMethod {
             col->insert_many_raw_data(reinterpret_cast<char*>(keys.data()), num_rows);
         }
     }
-
-    static constexpr bool is_single_nullable() { return true; }
 };
 
 template <typename RowRefListType>
