@@ -244,10 +244,6 @@ public:
         this->template append_data_by_selector_impl<Self>(res, selector);
     }
 
-    void get_extremes(Field& min, Field& max) const override {
-        LOG(FATAL) << "get_extremes not supported";
-    }
-
     size_t byte_size() const override { return _data.size(); }
 
     size_t item_size() const { return _item_size; }

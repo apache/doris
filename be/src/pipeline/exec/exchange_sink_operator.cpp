@@ -179,6 +179,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
 
     _exchange_sink_dependency = AndDependency::create_shared(_parent->id());
     _queue_dependency = ExchangeSinkQueueDependency::create_shared(_parent->id());
+    _sink_buffer->set_dependency(_queue_dependency, _finish_dependency);
     _exchange_sink_dependency->add_child(_queue_dependency);
     if ((p._part_type == TPartitionType::UNPARTITIONED || channels.size() == 1) &&
         !only_local_exchange) {
@@ -557,9 +558,9 @@ WriteDependency* ExchangeSinkOperatorX::wait_for_dependency(RuntimeState* state)
     return local_state._exchange_sink_dependency->write_blocked_by();
 }
 
-bool ExchangeSinkOperatorX::is_pending_finish(RuntimeState* state) const {
+FinishDependency* ExchangeSinkOperatorX::finish_blocked_by(RuntimeState* state) const {
     auto& local_state = state->get_sink_local_state(id())->cast<ExchangeSinkLocalState>();
-    return local_state._sink_buffer->is_pending_finish();
+    return local_state._finish_dependency->finish_blocked_by();
 }
 
 } // namespace doris::pipeline

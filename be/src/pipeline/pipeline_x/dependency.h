@@ -151,6 +151,48 @@ protected:
     MonotonicStopWatch _write_dependency_watcher;
 };
 
+class FinishDependency : public Dependency {
+public:
+    FinishDependency(int id, std::string name) : Dependency(id, name), _ready_to_finish(true) {}
+    ~FinishDependency() override = default;
+
+    void start_finish_watcher() {
+        for (auto& child : _children) {
+            ((FinishDependency*)child.get())->start_finish_watcher();
+        }
+        _finish_dependency_watcher.start();
+    }
+
+    [[nodiscard]] virtual int64_t finish_watcher_elapse_time() {
+        return _finish_dependency_watcher.elapsed_time();
+    }
+
+    [[nodiscard]] virtual FinishDependency* finish_blocked_by() {
+        if (config::enable_fuzzy_mode && !_ready_to_finish &&
+            _finish_dependency_watcher.elapsed_time() > SLOW_DEPENDENCY_THRESHOLD) {
+            LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
+                         << id();
+        }
+        return _ready_to_finish ? nullptr : this;
+    }
+
+    void set_ready_to_finish() {
+        if (_ready_to_finish) {
+            return;
+        }
+        _finish_dependency_watcher.stop();
+        _ready_to_finish = true;
+    }
+
+    void block_finishing() { _ready_to_finish = false; }
+
+    void* shared_state() override { return nullptr; }
+
+protected:
+    std::atomic<bool> _ready_to_finish;
+    MonotonicStopWatch _finish_dependency_watcher;
+};
+
 class AndDependency : public WriteDependency {
 public:
     ENABLE_FACTORY_CREATOR(AndDependency);
@@ -504,7 +546,7 @@ private:
 
 struct JoinSharedState {
     // For some join case, we can apply a short circuit strategy
-    // 1. _short_circuit_for_null_in_probe_side = true
+    // 1. _has_null_in_build_side = true
     // 2. build side rows is empty, Join op is: inner join/right outer join/left semi/right semi/right anti
     bool short_circuit_for_probe = false;
     vectorized::JoinOpVariants join_op_variants;

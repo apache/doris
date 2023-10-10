@@ -228,8 +228,6 @@ public:
         LOG(FATAL) << "append_data_by_selector is not supported in ColumnConst!";
     }
 
-    void get_extremes(Field& min, Field& max) const override { data->get_extremes(min, max); }
-
     void for_each_subcolumn(ColumnCallback callback) override { callback(data); }
 
     bool structure_equals(const IColumn& rhs) const override {

@@ -306,6 +306,11 @@ public class SlotRef extends Expr {
     }
 
     @Override
+    protected String getExprName() {
+        return toColumnLabel();
+    }
+
+    @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.SLOT_REF;
         msg.slot_ref = new TSlotRef(desc.getId().asInt(), desc.getParent().getId().asInt());

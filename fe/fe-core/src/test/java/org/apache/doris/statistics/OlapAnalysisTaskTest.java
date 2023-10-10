@@ -17,6 +17,7 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.analysis.TableSample;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
@@ -45,8 +46,9 @@ public class OlapAnalysisTaskTest {
         olapAnalysisTask.info = analysisInfoBuilder.build();
         olapAnalysisTask.tbl = tableIf;
         Config.enable_auto_sample = true;
-        String sampleExpr = olapAnalysisTask.getSampleExpression();
-        Assertions.assertEquals("TABLESAMPLE(4194304 ROWS)", sampleExpr);
+        TableSample tableSample = olapAnalysisTask.getTableSample();
+        Assertions.assertEquals(4194304, tableSample.getSampleValue());
+        Assertions.assertFalse(tableSample.isPercent());
 
         new Expectations() {
             {
@@ -54,15 +56,15 @@ public class OlapAnalysisTaskTest {
                 result = 1_0000_0000L;
             }
         };
-        sampleExpr = olapAnalysisTask.getSampleExpression();
-        Assertions.assertEquals("", sampleExpr);
+        tableSample = olapAnalysisTask.getTableSample();
+        Assertions.assertNull(tableSample);
 
         analysisInfoBuilder.setSampleRows(10);
         analysisInfoBuilder.setAnalysisMethod(AnalysisMethod.SAMPLE);
         olapAnalysisTask.info = analysisInfoBuilder.build();
-        sampleExpr = olapAnalysisTask.getSampleExpression();
-        Assertions.assertEquals("TABLESAMPLE(10 ROWS)", sampleExpr);
-
+        tableSample = olapAnalysisTask.getTableSample();
+        Assertions.assertEquals(10, tableSample.getSampleValue());
+        Assertions.assertFalse(tableSample.isPercent());
     }
 
 }

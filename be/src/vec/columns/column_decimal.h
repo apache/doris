@@ -231,8 +231,6 @@ public:
 
     TypeIndex get_data_type() const override { return TypeId<T>::value; }
 
-    void get_extremes(Field& min, Field& max) const override;
-
     MutableColumns scatter(IColumn::ColumnIndex num_columns,
                            const IColumn::Selector& selector) const override {
         return this->template scatter_impl<Self>(num_columns, selector);
