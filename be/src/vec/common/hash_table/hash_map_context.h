@@ -202,13 +202,9 @@ struct MethodStringNoCache : public MethodBase<TData> {
         auto offsets = column_string.get_offsets().data();
         auto chars = column_string.get_chars().data();
 
-        auto* buffer = Base::arena.alloc(column_string.get_chars().size());
-        memcpy(buffer, chars, column_string.get_chars().size());
-
         stored_keys.resize(column_string.size());
         for (size_t row = 0; row < column_string.size(); row++) {
-            stored_keys[row] =
-                    StringRef(buffer + offsets[row - 1], offsets[row] - offsets[row - 1]);
+            stored_keys[row] = StringRef(chars + offsets[row - 1], offsets[row] - offsets[row - 1]);
         }
 
         Base::keys = stored_keys.data();
