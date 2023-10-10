@@ -75,6 +75,13 @@ public class RuntimeProfile {
 
     private Boolean isDone = false;
     private Boolean isCancel = false;
+    // In pipelineX, we have explicitly split the Operator into sink and operator,
+    // and we can distinguish them using tags.
+    // In the old pipeline, we can only differentiate them based on their position
+    // in the profile, which is quite tricky and only transitional.
+    private Boolean isPipelineX = false;
+    private Boolean isSinkOperator = false;
+
     private int profileLevel = 3;
     private Planner planner = null;
     private int nodeid = -1;
@@ -117,6 +124,14 @@ public class RuntimeProfile {
 
     public int nodeId() {
         return this.nodeid;
+    }
+
+    public Boolean sinkOperator() {
+        return this.isSinkOperator;
+    }
+
+    public void setIsPipelineX(boolean isPipelineX) {
+        this.isPipelineX = isPipelineX;
     }
 
     public Map<String, Counter> getCounterMap() {
@@ -180,6 +195,9 @@ public class RuntimeProfile {
         }
         if (node.isSetMetadata()) {
             this.nodeid = (int) node.getMetadata();
+        }
+        if (node.isSetIsSink()) {
+            this.isSinkOperator = node.is_sink;
         }
         Preconditions.checkState(timestamp == -1 || node.timestamp != -1);
         // update this level's counters
@@ -483,11 +501,10 @@ public class RuntimeProfile {
             long countNumber = rhsCounter.size() + 1;
             if (newCounter.getValue() > 0) {
                 newCounter.divValue(countNumber);
-                String infoString = counterName + ": "
-                        + AVG_TIME_PRE + printCounter(newCounter.getValue(), newCounter.getType()) + ", "
+                String infoString = AVG_TIME_PRE + printCounter(newCounter.getValue(), newCounter.getType()) + ", "
                         + MAX_TIME_PRE + printCounter(maxCounter.getValue(), maxCounter.getType()) + ", "
                         + MIN_TIME_PRE + printCounter(minCounter.getValue(), minCounter.getType());
-                statistics.addInfoFromProfile(src, infoString);
+                statistics.addInfoFromProfile(src, counterName, infoString);
             }
         } else {
             Counter newCounter = new Counter(counter.getType(), counter.getValue());
@@ -496,8 +513,8 @@ public class RuntimeProfile {
                     newCounter.addValue(cnt);
                 }
             }
-            String infoString = counterName + ": " + printCounter(newCounter.getValue(), newCounter.getType());
-            statistics.addInfoFromProfile(src, infoString);
+            String infoString = printCounter(newCounter.getValue(), newCounter.getType());
+            statistics.addInfoFromProfile(src, counterName, infoString);
         }
     }
 
@@ -516,7 +533,7 @@ public class RuntimeProfile {
         }
         StringBuilder builder = new StringBuilder();
         prettyPrint(builder, "");
-        ProfileStatistics statistics = new ProfileStatistics();
+        ProfileStatistics statistics = new ProfileStatistics(this.isPipelineX);
         simpleProfile(0, 0, statistics);
         String planerStr = this.planner.getExplainStringToProfile(statistics);
         return "Simple profile \n \n " + planerStr + "\n \n \n" + builder.toString();
