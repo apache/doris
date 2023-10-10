@@ -156,33 +156,12 @@ struct MethodSerialized : public MethodBase<TData> {
         Base::arena.clear();
         stored_keys.resize(num_rows);
 
-        size_t max_one_row_byte_size = 0;
-        for (const auto& column : key_columns) {
-            max_one_row_byte_size += column->get_max_row_byte_size();
+        size_t keys_size = key_columns.size();
+        for (size_t i = 0; i < num_rows; ++i) {
+            stored_keys[i] =
+                    serialize_keys_to_pool_contiguous(i, keys_size, key_columns, Base::arena);
         }
-        size_t total_bytes = max_one_row_byte_size * num_rows;
 
-        if (total_bytes > config::pre_serialize_keys_limit_bytes) {
-            // reach mem limit, don't serialize in batch
-            size_t keys_size = key_columns.size();
-            for (size_t i = 0; i < num_rows; ++i) {
-                stored_keys[i] =
-                        serialize_keys_to_pool_contiguous(i, keys_size, key_columns, Base::arena);
-            }
-        } else {
-            uint8_t* serialized_key_buffer =
-                    reinterpret_cast<uint8_t*>(Base::arena.alloc(total_bytes));
-
-            for (size_t i = 0; i < num_rows; ++i) {
-                stored_keys[i].data =
-                        reinterpret_cast<char*>(serialized_key_buffer + i * max_one_row_byte_size);
-                stored_keys[i].size = 0;
-            }
-
-            for (const auto& column : key_columns) {
-                column->serialize_vec(stored_keys, num_rows, max_one_row_byte_size);
-            }
-        }
         Base::keys = stored_keys.data();
         Base::init_hash_values(num_rows, null_map);
     }
