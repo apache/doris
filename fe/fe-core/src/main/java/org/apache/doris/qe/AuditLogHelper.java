@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.ProfileStatistics;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.plugin.AuditEvent.EventType;
 import org.apache.doris.qe.QueryState.MysqlStateType;
@@ -43,17 +44,18 @@ public class AuditLogHelper {
         long endTime = System.currentTimeMillis();
         long elapseMs = endTime - ctx.getStartTime();
         SpanContext spanContext = Span.fromContext(Context.current()).getSpanContext();
-
+        ProfileStatistics statisticsFromProfile = ctx.executor.getProfile().getStatisticsFromProfile();
         ctx.getAuditEventBuilder().setEventType(EventType.AFTER_QUERY)
                 .setDb(ClusterNamespace.getNameFromFullName(ctx.getDatabase()))
                 .setState(ctx.getState().toString())
-                .setErrorCode(ctx.getState().getErrorCode() == null ? 0 : ctx.getState().getErrorCode().getCode())
-                .setErrorMessage((ctx.getState().getErrorMessage() == null ? "" :
-                        ctx.getState().getErrorMessage().replace("\n", " ").replace("\t", " ")))
+                .setErrorCode(ctx.getState().getErrorCode() == null ? 0
+                        : ctx.getState().getErrorCode().getCode())
+                .setErrorMessage((ctx.getState().getErrorMessage() == null ? ""
+                        : ctx.getState().getErrorMessage().replace("\n", " ").replace("\t", " ")))
                 .setQueryTime(elapseMs)
-                .setScanBytes(statistics == null ? 0 : statistics.getScanBytes())
-                .setScanRows(statistics == null ? 0 : statistics.getScanRows())
-                .setCpuTimeMs(statistics == null ? 0 : statistics.getCpuMs())
+                .setScanBytes(statistics == null ? 0 : statisticsFromProfile.getScanBytes())
+                .setScanRows(statistics == null ? 0 : statisticsFromProfile.getScanRows())
+                .setCpuTimeMs(statistics == null ? 0 : elapseMs)
                 .setPeakMemoryBytes(statistics == null ? 0 : statistics.getMaxPeakMemoryBytes())
                 .setReturnRows(ctx.getReturnRows())
                 .setStmtId(ctx.getStmtId())

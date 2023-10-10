@@ -38,12 +38,26 @@ public class ProfileStatistics {
 
     private boolean isPipelineX;
 
+    private long scanRows;
+
+    private long scanBytes;
+
+    public static ProfileStatistics create() {
+        // statistical scanRow and scanByte
+        ProfileStatistics statistics = new ProfileStatistics(false);
+        statistics.statisticalInfo = null;
+        statistics.fragmentInfo = null;
+        return statistics;
+    }
+
     public ProfileStatistics(boolean isPipelineX) {
         statisticalInfo = new HashMap<Integer, ArrayList<String>>();
         fragmentInfo = new HashMap<Integer, ArrayList<String>>();
         fragmentId = 0;
         isDataSink = false;
         this.isPipelineX = isPipelineX;
+        scanRows = 0;
+        scanBytes = 0;
     }
 
     private void addPlanNodeInfo(int id, String info) {
@@ -109,6 +123,23 @@ public class ProfileStatistics {
 
     public void setIsDataSink(boolean dataSink) {
         this.isDataSink = dataSink;
+    }
+
+    public void statisticalInfoFromCounter(String name, Counter counter) {
+        if (name.equals("ScanRowsRead")) {
+            scanRows += counter.getValue();
+        }
+        if (name.equals("ScanByteRead")) {
+            scanBytes += counter.getValue();
+        }
+    }
+
+    public long getScanRows() {
+        return this.scanRows;
+    }
+
+    public long getScanBytes() {
+        return this.scanBytes;
     }
 
 }

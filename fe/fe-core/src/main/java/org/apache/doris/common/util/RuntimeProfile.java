@@ -539,6 +539,34 @@ public class RuntimeProfile {
         return "Simple profile \n \n " + planerStr + "\n \n \n" + builder.toString();
     }
 
+    public ProfileStatistics getStatisticsFromProfile() {
+        ProfileStatistics statistics = ProfileStatistics.create();
+        iterateProfile(this, statistics);
+        return statistics;
+    }
+
+    static void iterateProfile(RuntimeProfile src, ProfileStatistics statistics) {
+        for (int i = 0; i < src.childList.size(); i++) {
+            Pair<RuntimeProfile, Boolean> pair = src.childList.get(i);
+            RuntimeProfile childProfile = pair.first;
+            iterateProfile(childProfile, statistics);
+        }
+        iterateCounter(src, ROOT_COUNTER, statistics);
+    }
+
+    static void iterateCounter(RuntimeProfile src, String counterName, ProfileStatistics statistics) {
+        Set<String> childCounterSet = src.childCounterMap.get(counterName);
+        if (childCounterSet == null) {
+            return;
+        }
+        List<String> childCounterList = new LinkedList<>(childCounterSet);
+        for (String childCounterName : childCounterList) {
+            Counter counter = src.counterMap.get(childCounterName);
+            iterateCounter(src, childCounterName, statistics);
+            statistics.statisticalInfoFromCounter(childCounterName, counter);
+        }
+    }
+
     private void printChildCounters(String prefix, String counterName, StringBuilder builder) {
         Set<String> childCounterSet = childCounterMap.get(counterName);
         if (childCounterSet == null) {

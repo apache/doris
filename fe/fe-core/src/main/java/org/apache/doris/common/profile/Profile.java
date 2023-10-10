@@ -18,6 +18,7 @@
 package org.apache.doris.common.profile;
 
 import org.apache.doris.common.util.ProfileManager;
+import org.apache.doris.common.util.ProfileStatistics;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.planner.Planner;
 
@@ -81,5 +82,9 @@ public class Profile {
 
     public SummaryProfile getSummaryProfile() {
         return summaryProfile;
+    }
+
+    public ProfileStatistics getStatisticsFromProfile() {
+        return rootProfile.getStatisticsFromProfile();
     }
 }
