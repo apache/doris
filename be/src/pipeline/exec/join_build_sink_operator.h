@@ -40,7 +40,7 @@ protected:
     template <typename LocalStateType>
     friend class JoinBuildSinkOperatorX;
 
-    bool _short_circuit_for_null_in_probe_side = false;
+    bool _has_null_in_build_side = false;
 
     RuntimeProfile::Counter* _build_rows_counter;
     RuntimeProfile::Counter* _push_down_timer;
@@ -73,8 +73,8 @@ protected:
 
     // For null aware left anti join, we apply a short circuit strategy.
     // 1. Set _short_circuit_for_null_in_build_side to true if join operator is null aware left anti join.
-    // 2. In build phase, we stop materialize build side when we meet the first null value and set _short_circuit_for_null_in_probe_side to true.
-    // 3. In probe phase, if _short_circuit_for_null_in_probe_side is true, join node returns empty block directly. Otherwise, probing will continue as the same as generic left anti join.
+    // 2. In build phase, we stop materialize build side when we meet the first null value and set _has_null_in_build_side to true.
+    // 3. In probe phase, if _has_null_in_build_side is true, join node returns empty block directly. Otherwise, probing will continue as the same as generic left anti join.
     const bool _short_circuit_for_null_in_build_side;
 };
 
