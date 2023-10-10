@@ -66,9 +66,8 @@ void JoinProbeLocalState<DependencyType, Derived>::_construct_mutable_join_block
         }
     }
     if (p._is_mark_join) {
-        _join_block.replace_by_position(
-                _join_block.columns() - 1,
-                remove_nullable(_join_block.get_by_position(_join_block.columns() - 1).column));
+        DCHECK(!p._is_mark_join ||
+               _join_block.get_by_position(_join_block.columns() - 1).column->is_nullable());
     }
 }
 
