@@ -504,7 +504,7 @@ private:
 
 struct JoinSharedState {
     // For some join case, we can apply a short circuit strategy
-    // 1. _short_circuit_for_null_in_probe_side = true
+    // 1. _has_null_in_build_side = true
     // 2. build side rows is empty, Join op is: inner join/right outer join/left semi/right semi/right anti
     bool short_circuit_for_probe = false;
     vectorized::JoinOpVariants join_op_variants;
