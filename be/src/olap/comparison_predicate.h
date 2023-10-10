@@ -200,8 +200,16 @@ public:
             if constexpr (std::is_same_v<T, StringRef>) {
                 return bf->test_bytes(_value.data, _value.size);
             } else {
-                return bf->test_bytes(const_cast<char*>(reinterpret_cast<const char*>(&_value)),
-                                      sizeof(T));
+                // DecimalV2 using decimal12_t in bloom filter, should convert value to decimal12_t
+                if constexpr (Type == PrimitiveType::TYPE_DECIMALV2) {
+                    decimal12_t decimal12_t_val(_value.int_value(), _value.frac_value());
+                    return bf->test_bytes(
+                            const_cast<char*>(reinterpret_cast<const char*>(&decimal12_t_val)),
+                            sizeof(decimal12_t));
+                } else {
+                    return bf->test_bytes(const_cast<char*>(reinterpret_cast<const char*>(&_value)),
+                                          sizeof(T));
+                }
             }
         } else {
             LOG(FATAL) << "Bloom filter is not supported by predicate type.";

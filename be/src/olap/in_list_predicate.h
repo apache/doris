@@ -384,6 +384,15 @@ public:
                     if (bf->test_bytes(reinterpret_cast<const char*>(value), sizeof(uint24_t))) {
                         return true;
                     }
+                } else if constexpr (Type == PrimitiveType::TYPE_DECIMALV2) {
+                    // DecimalV2 using decimal12_t in bloom filter in storage layer, should convert value to decimal12_t
+                    const T* value = (const T*)(iter->get_value());
+                    decimal12_t decimal12_t_val(value.int_value(), value.frac_value());
+                    if (bf->test_bytes(
+                                const_cast<char*>(reinterpret_cast<const char*>(&decimal12_t_val)),
+                                sizeof(decimal12_t))) {
+                        return true;
+                    }
                 } else {
                     const T* value = (const T*)(iter->get_value());
                     if (bf->test_bytes(reinterpret_cast<const char*>(value), sizeof(*value))) {
