@@ -408,12 +408,6 @@ public:
     ColumnPtr filter(const IColumn::Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const IColumn::Filter& filter) override;
 
-    // note(wb) this method is only used in storage layer now
-    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
-        insert_res_column(sel, sel_size, reinterpret_cast<vectorized::ColumnVector<T>*>(col_ptr));
-        return Status::OK();
-    }
-
     ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
 
     //    ColumnPtr index(const IColumn & indexes, size_t limit) const override;
@@ -424,8 +418,6 @@ public:
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
 
     void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override;
-
-    void get_extremes(Field& min, Field& max) const override;
 
     MutableColumns scatter(IColumn::ColumnIndex num_columns,
                            const IColumn::Selector& selector) const override {

@@ -111,6 +111,8 @@ public:
         }
     }
 
+    int next_operator_id() { return _operator_id++; }
+
 private:
     void _close_action() override;
     Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request) override;
@@ -162,6 +164,9 @@ private:
     std::map<UniqueId, RuntimeState*> _instance_id_to_runtime_state;
     std::mutex _state_map_lock;
     std::map<int, std::vector<PipelinePtr>> _union_child_pipelines;
+    // The number of operators is generally greater than the number of plan nodes,
+    // so we need additional ID and cannot rely solely on plan node ID.
+    int _operator_id = {1000000};
 };
 
 } // namespace pipeline

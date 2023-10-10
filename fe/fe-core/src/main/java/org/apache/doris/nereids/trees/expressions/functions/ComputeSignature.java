@@ -119,6 +119,7 @@ public interface ComputeSignature extends FunctionTrait, ImplicitCastInputTypes 
     /** use processor to process computeSignature */
     static boolean processComplexType(DataType signatureType, DataType realType,
             BiFunction<DataType, DataType, Boolean> processor) {
+
         if (signatureType instanceof ArrayType && realType instanceof ArrayType) {
             return processor.apply(((ArrayType) signatureType).getItemType(),
                     ((ArrayType) realType).getItemType());

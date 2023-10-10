@@ -146,9 +146,10 @@ public class TypeCoercionUtils {
      * Return Optional.empty() if we cannot do implicit cast.
      */
     public static Optional<DataType> implicitCast(DataType input, DataType expected) {
-        if (input instanceof ArrayType && expected instanceof ArrayType) {
+        if ((input instanceof ArrayType || input instanceof NullType) && expected instanceof ArrayType) {
             Optional<DataType> itemType = implicitCast(
-                    ((ArrayType) input).getItemType(), ((ArrayType) expected).getItemType());
+                    input instanceof ArrayType ? ((ArrayType) input).getItemType() : input,
+                    ((ArrayType) expected).getItemType());
             return itemType.map(ArrayType::of);
         } else if (input instanceof MapType && expected instanceof MapType) {
             Optional<DataType> keyType = implicitCast(

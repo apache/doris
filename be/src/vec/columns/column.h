@@ -425,9 +425,13 @@ public:
      *  convert(convert MutablePtr to ImmutablePtr or convert ImmutablePtr to MutablePtr)
      *  happends in filter_by_selector because of mem-reuse logic or ColumnNullable, I think this is meaningless;
      *  So using raw ptr directly here.
+     *  NOTICE: only column_nullable and predict_column, column_dictionary now support filter_by_selector
      */
     virtual Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
-        LOG(FATAL) << "column not support filter_by_selector";
+        LOG(FATAL) << get_name()
+                   << " do not support filter_by_selector, only column_nullable, column_dictionary "
+                      "and predict_column "
+                      "support";
         __builtin_unreachable();
     }
 
@@ -530,14 +534,6 @@ public:
     /// (descendants should call gatherer_stream.gather(*this) to implement this function.)
     /// TODO: interface decoupled from ColumnGathererStream that allows non-generic specializations.
     //    virtual void gather(ColumnGathererStream & gatherer_stream) = 0;
-
-    /** Computes minimum and maximum element of the column.
-      * In addition to numeric types, the function is completely implemented for Date and DateTime.
-      * For strings and arrays function should return default value.
-      *  (except for constant columns; they should return value of the constant).
-      * If column is empty function should return default value.
-      */
-    virtual void get_extremes(Field& min, Field& max) const = 0;
 
     /// Reserves memory for specified amount of elements. If reservation isn't possible, does nothing.
     /// It affects performance only (not correctness).
@@ -699,11 +695,9 @@ public:
 
     virtual bool is_date_type() const { return is_date; }
     virtual bool is_datetime_type() const { return is_date_time; }
-    virtual bool is_decimalv2_type() const { return is_decimalv2; }
 
     virtual void set_date_type() { is_date = true; }
     virtual void set_datetime_type() { is_date_time = true; }
-    virtual void set_decimalv2_type() { is_decimalv2 = true; }
 
     void copy_date_types(const IColumn& col) {
         if (col.is_date_type()) {
@@ -717,7 +711,6 @@ public:
     // todo(wb): a temporary implemention, need re-abstract here
     bool is_date = false;
     bool is_date_time = false;
-    bool is_decimalv2 = false;
 
 protected:
     /// Template is to devirtualize calls to insert_from method.

@@ -46,7 +46,7 @@ public class AnalysisInfoBuilder {
     private AnalysisType analysisType;
     private int maxBucketNum;
     private int samplePercent;
-    private int sampleRows;
+    private long sampleRows;
     private long periodTimeInMs;
     private long lastExecTimeInMs;
     private long timeCostInMs;
@@ -179,7 +179,7 @@ public class AnalysisInfoBuilder {
         return this;
     }
 
-    public AnalysisInfoBuilder setSampleRows(int sampleRows) {
+    public AnalysisInfoBuilder setSampleRows(long sampleRows) {
         this.sampleRows = sampleRows;
         return this;
     }

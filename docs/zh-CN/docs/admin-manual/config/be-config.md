@@ -975,11 +975,6 @@ BaseCompaction:546859:
 * 描述：最大外部扫描缓存批次计数，表示缓存max_memory_cache_batch_count * batch_size row，默认为20，batch_size的默认值为1024，表示将缓存20 * 1024行
 * 默认值：20
 
-#### `memory_limitation_per_thread_for_schema_change`
-
-* 描述：单个schema change任务允许占用的最大内存
-* 默认值：2 （GB）
-
 #### `memory_max_alignment`
 
 * 描述：最大校对内存
@@ -1028,7 +1023,7 @@ BaseCompaction:546859:
 #### `memory_limitation_per_thread_for_schema_change_bytes`
 
 * 描述：单个schema change任务允许占用的最大内存
-* 默认值：2147483648
+* 默认值：2147483648 (2GB)
 
 #### `mem_tracker_consume_min_size_bytes`
 

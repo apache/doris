@@ -38,6 +38,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -307,6 +308,11 @@ public class FunctionCallExpr extends Expr {
     // only used restore from readFields.
     private FunctionCallExpr() {
         super();
+    }
+
+    @Override
+    protected String getExprName() {
+        return Utils.normalizeName(this.getFnName().getFunction(), DEFAULT_EXPR_NAME);
     }
 
     public FunctionCallExpr(String functionName, List<Expr> params) {

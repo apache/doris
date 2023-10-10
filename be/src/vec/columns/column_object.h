@@ -371,10 +371,6 @@ public:
         LOG(FATAL) << "should not call the method in column object";
     }
 
-    void get_extremes(Field& min, Field& max) const override {
-        LOG(FATAL) << "should not call the method in column object";
-    }
-
     void get_indices_of_non_default_rows(Offsets64&, size_t, size_t) const override {
         LOG(FATAL) << "should not call the method in column object";
     }
