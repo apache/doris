@@ -240,7 +240,7 @@ Status VerticalSegmentWriter::init() {
     return Status::OK();
 }
 
-void VerticalSegmentWriter::_maybe_invalid_row_cache(const std::string& key) {
+void VerticalSegmentWriter::_maybe_invalid_row_cache(const std::string& key) const {
     // Just invalid row cache for simplicity, since the rowset is not visible at present.
     // If we update/insert cache, if load failed rowset will not be visible but cached data
     // will be visible, and lead to inconsistency.
