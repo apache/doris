@@ -29,6 +29,7 @@
 
 namespace arrow {
 
+class DataType;
 class RecordBatch;
 class Schema;
 
