@@ -686,10 +686,14 @@ public class CreateTableStmt extends DdlStmt {
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM))) {
             return properties;
         }
-
-        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr()
-                .getCatalogOrAnalysisException(tableName.getCtl());
-        DatabaseIf db = catalog.getDbOrAnalysisException(tableName.getDb());
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalogNullable(tableName.getCtl());
+        if (catalog == null) {
+            return properties;
+        }
+        DatabaseIf db = catalog.getDbNullable(tableName.getDb());
+        if (db == null) {
+            return properties;
+        }
         // if db not have properties,not need rewrite
         if (db.getDbProperties() == null) {
             return properties;
