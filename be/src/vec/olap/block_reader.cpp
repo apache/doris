@@ -84,28 +84,6 @@ bool BlockReader::_rowsets_overlapping(const ReaderParams& read_params) {
         }
         CHECK(rs_split.rs_reader->rowset()->max_key(&cur_max_key));
     }
-
-    for (const auto& rs_reader : rs_splits) {
-        // version 0-1 of every tablet is empty, just skip this rowset
-        if (rs_reader.rs_reader->rowset()->version().second == 1) {
-            continue;
-        }
-        if (rs_reader.rs_reader->rowset()->num_rows() == 0) {
-            continue;
-        }
-        if (rs_reader.rs_reader->rowset()->is_segments_overlapping()) {
-            return true;
-        }
-        std::string min_key;
-        bool has_min_key = rs_reader.rs_reader->rowset()->min_key(&min_key);
-        if (!has_min_key) {
-            return true;
-        }
-        if (min_key <= cur_max_key) {
-            return true;
-        }
-        CHECK(rs_reader.rs_reader->rowset()->max_key(&cur_max_key));
-    }
     return false;
 }
 Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
