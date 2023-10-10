@@ -113,8 +113,6 @@ public:
     ExchangeSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs,
                             int num_senders);
     Dependency* wait_for_dependency(RuntimeState* state) override;
-    bool is_pending_finish(RuntimeState* state) const override;
-
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;

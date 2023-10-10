@@ -23,4 +23,14 @@ OperatorPtr MultiCastDataStreamSinkOperatorBuilder::build_operator() {
     return std::make_shared<MultiCastDataStreamSinkOperator>(this, _sink);
 }
 
+std::string MultiCastDataStreamSinkLocalState::id_name() {
+    auto& sinks = static_cast<MultiCastDataStreamSinkOperatorX*>(_parent)->sink_node().sinks;
+    std::string id_name = " (dst id : ";
+    for (auto& sink : sinks) {
+        id_name += std::to_string(sink.dest_node_id) + ",";
+    }
+    id_name += ")";
+    return id_name;
+}
+
 } // namespace doris::pipeline
