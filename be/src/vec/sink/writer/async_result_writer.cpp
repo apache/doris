@@ -33,7 +33,9 @@ class TExpr;
 namespace vectorized {
 
 AsyncResultWriter::AsyncResultWriter(const doris::vectorized::VExprContextSPtrs& output_expr_ctxs)
-        : _vec_output_expr_ctxs(output_expr_ctxs), _dependency(nullptr) {};
+        : _vec_output_expr_ctxs(output_expr_ctxs),
+          _dependency(nullptr),
+          _finish_dependency(nullptr) {}
 
 void AsyncResultWriter::set_dependency(pipeline::AsyncWriterDependency* dep,
                                        pipeline::FinishDependency* finish_dep) {
