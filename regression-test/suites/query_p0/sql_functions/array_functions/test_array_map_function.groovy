@@ -70,7 +70,16 @@ suite("test_array_map_function") {
         qt_select_23 "select *,array_filter(x->x%2=0,c_array2) from array_test2 order by id;"
 
         qt_select_24 "select * from array_test2 order by array_max(array_map(x->x,c_array1));"
-        
+
+        // array_map with countequal param should return error
+        test {
+            sql"""select c_array1,array_max(array_map(x->countequal(c_array1,x),c_array1)) from array_test2;"""
+            check{result, exception, startTime, endTime ->
+                assertTrue(exception != null)
+                logger.info(exception.message)
+            }
+        }
+
         // Array not equal
         sql """INSERT INTO ${tableName} values
             (11, [6,7,8],[10,12,13]),
@@ -79,7 +88,7 @@ suite("test_array_map_function") {
         """
         
         test {
-            sql"""select /*+SET_VAR(experimental_enable_pipeline_engine=false)*/ array_map((x,y)->x+y, c_array1, c_array2) from array_test2 where id > 10 order by id;"""
+            sql"""select array_map((x,y)->x+y, c_array1, c_array2) from array_test2 where id > 10 order by id;"""
             check{result, exception, startTime, endTime ->
                 assertTrue(exception != null)
                 logger.info(exception.message)
