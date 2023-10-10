@@ -380,9 +380,15 @@ static void toStringEveryLineImpl([[maybe_unused]] const std::string dwarf_locat
                 reinterpret_cast<const void*>(uintptr_t(virtual_addr) - virtual_offset);
 
         std::stringstream out;
-        out << "\t" << i << ". ";
+        out << "\t" << i << "# ";
         if (i < 10) { // for alignment
             out << " ";
+        }
+
+        if (const auto* const symbol = symbol_index.findSymbol(virtual_addr)) {
+            out << collapseNames(demangle(symbol->name));
+        } else {
+            out << "?";
         }
 
         if (std::error_code ec; object && std::filesystem::exists(object->name, ec) && !ec) {
@@ -392,14 +398,8 @@ static void toStringEveryLineImpl([[maybe_unused]] const std::string dwarf_locat
 
             if (dwarf_it->second.findAddress(uintptr_t(physical_addr), location, mode,
                                              inline_frames)) {
-                out << location.file.toString() << ":" << location.line;
+                out << " at " << location.file.toString() << ":" << location.line;
             }
-        }
-
-        if (const auto* const symbol = symbol_index.findSymbol(virtual_addr)) {
-            out << "  " << collapseNames(demangle(symbol->name));
-        } else {
-            out << " ?";
         }
 
         // Do not display the stack address and file name, it is not important.
