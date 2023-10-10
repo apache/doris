@@ -25,6 +25,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.proc.ProcService;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
@@ -190,7 +191,8 @@ public class NodeAction extends RestBaseController {
             List<Long> beIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
             if (!beIds.isEmpty()) {
                 Backend be = Env.getCurrentSystemInfo().getBackend(beIds.get(0));
-                String url = "http://" + be.getHost() + ":" + be.getHttpPort() + "/api/show_config";
+                String url = "http://" + NetUtils.getHostPortInAccessibleFormat(be.getHost(), be.getHttpPort())
+                        + "/api/show_config";
                 String questResult = HttpUtils.doGet(url, null);
                 List<List<String>> configs = GsonUtils.GSON.fromJson(questResult, new TypeToken<List<List<String>>>() {
                 }.getType());
@@ -227,14 +229,15 @@ public class NodeAction extends RestBaseController {
     }
 
     private static List<String> getFeList() {
-        return Env.getCurrentEnv().getFrontends(null).stream().map(fe -> fe.getHost() + ":" + Config.http_port)
+        return Env.getCurrentEnv().getFrontends(null).stream()
+                .map(fe -> NetUtils.getHostPortInAccessibleFormat(fe.getHost(), Config.http_port))
                 .collect(Collectors.toList());
     }
 
     private static List<String> getBeList() {
         return Env.getCurrentSystemInfo().getAllBackendIds(false).stream().map(beId -> {
             Backend be = Env.getCurrentSystemInfo().getBackend(beId);
-            return be.getHost() + ":" + be.getHttpPort();
+            return NetUtils.getHostPortInAccessibleFormat(be.getHost(), be.getHttpPort());
         }).collect(Collectors.toList());
     }
 
