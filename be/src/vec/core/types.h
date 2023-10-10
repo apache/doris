@@ -37,6 +37,7 @@ class QuantileState;
 
 struct decimal12_t;
 struct uint24_t;
+struct StringRef;
 
 namespace vectorized {
 

@@ -17,21 +17,6 @@
 
 #pragma once
 
-#include <re2/re2.h>
-#include <stdint.h>
-
-// IWYU pragma: no_include <bits/chrono.h>
-#include <chrono>
-#include <cstddef>
-#include <iostream>
-
-#include "cctz/civil_time.h"
-#include "cctz/time_zone.h"
-#include "udf/udf.h"
-#include "util/hash_util.hpp"
-#include "util/timezone_utils.h"
-#include "vec/runtime/vdatetime_value.h"
-
 namespace doris {
 
 enum TimeUnit {
@@ -57,72 +42,9 @@ enum TimeUnit {
     YEAR_MONTH
 };
 
-struct TimeInterval {
-    int64_t year;
-    int64_t month;
-    int64_t day;
-    int64_t hour;
-    int64_t minute;
-    int64_t second;
-    int64_t microsecond;
-    bool is_neg;
-
-    TimeInterval()
-            : year(0),
-              month(0),
-              day(0),
-              hour(0),
-              minute(0),
-              second(0),
-              microsecond(0),
-              is_neg(false) {}
-
-    TimeInterval(TimeUnit unit, int64_t count, bool is_neg_param)
-            : year(0),
-              month(0),
-              day(0),
-              hour(0),
-              minute(0),
-              second(0),
-              microsecond(0),
-              is_neg(is_neg_param) {
-        switch (unit) {
-        case YEAR:
-            year = count;
-            break;
-        case MONTH:
-            month = count;
-            break;
-        case WEEK:
-            day = 7 * count;
-            break;
-        case DAY:
-            day = count;
-            break;
-        case HOUR:
-            hour = count;
-            break;
-        case MINUTE:
-            minute = count;
-            break;
-        case SECOND:
-            second = count;
-            break;
-        case MICROSECOND:
-            microsecond = count;
-            break;
-        default:
-            break;
-        }
-    }
-};
-
 enum TimeType { TIME_TIME = 1, TIME_DATE = 2, TIME_DATETIME = 3 };
 
 // 9999-99-99 99:99:99.999999; 26 + 1('\0')
 const int MAX_DTVALUE_STR_LEN = 27;
 
-constexpr size_t const_length(const char* str) {
-    return (str == nullptr || *str == 0) ? 0 : const_length(str + 1) + 1;
-}
 } // namespace doris
