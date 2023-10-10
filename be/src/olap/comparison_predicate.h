@@ -32,7 +32,8 @@ namespace doris {
 template <PrimitiveType Type, PredicateType PT>
 class ComparisonPredicateBase : public ColumnPredicate {
 public:
-    using T = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
+    using T = std::conditional_t<Type == PrimitiveType::TYPE_DECIMALV2, DecimalV2Value,
+                                 PredicatePrimitiveTypeTraits<Type>::PredicateFieldType>;
     ComparisonPredicateBase(uint32_t column_id, const T& value, bool opposite = false)
             : ColumnPredicate(column_id, opposite),
               _cached_code(_InvalidateCodeValue),
@@ -150,17 +151,13 @@ public:
         _evaluate_bit<true>(column, sel, size, flags);
     }
 
-    using WarpperFieldType = std::conditional_t<Type == TYPE_DATE, uint24_t, T>;
-
     bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
         if (statistic.first->is_null()) {
             return true;
         }
 
-        T tmp_min_value {};
-        T tmp_max_value {};
-        memcpy((char*)(&tmp_min_value), statistic.first->cell_ptr(), sizeof(WarpperFieldType));
-        memcpy((char*)(&tmp_max_value), statistic.second->cell_ptr(), sizeof(WarpperFieldType));
+        T tmp_min_value = _get_zone_map_value<T>(statistic.first->cell_ptr());
+        T tmp_max_value = _get_zone_map_value<T>(statistic.second->cell_ptr());
 
         if constexpr (PT == PredicateType::EQ) {
             return _operator(tmp_min_value <= _value && tmp_max_value >= _value, true);
@@ -179,10 +176,8 @@ public:
             return false;
         }
 
-        T tmp_min_value {};
-        T tmp_max_value {};
-        memcpy((char*)(&tmp_min_value), statistic.first->cell_ptr(), sizeof(WarpperFieldType));
-        memcpy((char*)(&tmp_max_value), statistic.second->cell_ptr(), sizeof(WarpperFieldType));
+        T tmp_min_value = _get_zone_map_value<T>(statistic.first->cell_ptr());
+        T tmp_max_value = _get_zone_map_value<T>(statistic.second->cell_ptr());
 
         if constexpr (PT == PredicateType::EQ) {
             return tmp_min_value == _value && tmp_max_value == _value;
@@ -206,7 +201,7 @@ public:
                 return bf->test_bytes(_value.data, _value.size);
             } else {
                 return bf->test_bytes(const_cast<char*>(reinterpret_cast<const char*>(&_value)),
-                                      sizeof(WarpperFieldType));
+                                      sizeof(T));
             }
         } else {
             LOG(FATAL) << "Bloom filter is not supported by predicate type.";

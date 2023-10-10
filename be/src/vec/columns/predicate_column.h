@@ -45,7 +45,8 @@ private:
     PredicateColumnType(const size_t n) : data(n) {}
     PredicateColumnType(const PredicateColumnType& src) : data(src.data.begin(), src.data.end()) {}
     friend class COWHelper<IColumn, PredicateColumnType<Type>>;
-    using T = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
+    using T = std::conditional_t<Type == PrimitiveType::TYPE_DECIMALV2, DecimalV2Value,
+                                 PredicatePrimitiveTypeTraits<Type>::PredicateFieldType>;
     using ColumnType = typename PrimitiveTypeTraits<Type>::ColumnType;
 
     uint64_t get_date_at(uint16_t idx) {
@@ -96,16 +97,6 @@ private:
         res_ptr->get_offsets().reserve(sel_size + res_ptr->get_offsets().size());
         res_ptr->get_chars().reserve(length + res_ptr->get_chars().size());
         res_ptr->insert_many_strings_without_reserve(refs, sel_size);
-    }
-
-    void insert_decimal_to_res_column(const uint16_t* sel, size_t sel_size,
-                                      ColumnDecimal<Decimal128>* res_ptr) {
-        for (size_t i = 0; i < sel_size; i++) {
-            uint16_t n = sel[i];
-            auto& dv = reinterpret_cast<const decimal12_t&>(data[n]);
-            DecimalV2Value dv_data(dv.integer, dv.fraction);
-            res_ptr->insert_data(reinterpret_cast<char*>(&dv_data), 0);
-        }
     }
 
     template <typename Y, template <typename> typename ColumnContainer>
@@ -200,37 +191,6 @@ public:
         data.push_back_without_reserve(sv);
     }
 
-    void insert_decimal_value(const char* data_ptr, size_t length) {
-        decimal12_t dc12_value;
-        dc12_value.integer = *(int64_t*)(data_ptr);
-        dc12_value.fraction = *(int32_t*)(data_ptr + sizeof(int64_t));
-        data.push_back_without_reserve(dc12_value);
-    }
-
-    // used for int128
-    void insert_in_copy_way(const char* data_ptr, size_t length) {
-        T val {};
-        memcpy(&val, data_ptr, sizeof(val));
-        data.push_back_without_reserve(val);
-    }
-
-    void insert_default_type(const char* data_ptr, size_t length) {
-        T* val = (T*)data_ptr;
-        data.push_back_without_reserve(*val);
-    }
-
-    void insert_data(const char* data_ptr, size_t length) override {
-        if constexpr (std::is_same_v<T, StringRef>) {
-            insert_string_value(data_ptr, length);
-        } else if constexpr (std::is_same_v<T, decimal12_t>) {
-            insert_decimal_value(data_ptr, length);
-        } else if constexpr (std::is_same_v<T, Int128>) {
-            insert_in_copy_way(data_ptr, length);
-        } else {
-            insert_default_type(data_ptr, length);
-        }
-    }
-
     void insert_many_date(const char* data_ptr, size_t num) {
         size_t intput_type_size = sizeof(uint24_t);
         size_t res_type_size = sizeof(uint32_t);
@@ -246,15 +206,34 @@ public:
         data.set_end_ptr(res_ptr);
     }
 
+    // The logic is same to ColumnDecimal::insert_many_fix_len_data
+    void insert_many_decimalv2(const char* data_ptr, size_t num) {
+        size_t old_size = data.size();
+        data.resize(old_size + num);
+
+        DecimalV2Value* target = (DecimalV2Value*)(data.data() + old_size);
+        for (int i = 0; i < num; i++) {
+            const char* cur_ptr = data_ptr + sizeof(decimal12_t) * i;
+            int64_t int_value = unaligned_load<int64_t>(cur_ptr);
+            int32_t frac_value = *(int32_t*)(cur_ptr + sizeof(int64_t));
+            target[i].from_olap_decimal(int_value, frac_value);
+        }
+    }
+
     void insert_many_fix_len_data(const char* data_ptr, size_t num) override {
-        if constexpr (std::is_same_v<T, decimal12_t>) {
-            insert_many_in_copy_way(data_ptr, num);
+        if constexpr (Type == TYPE_DECIMALV2) {
+            // DecimalV2 is special, its storage is <int64, int32>, but its compute type is <int64,int64>
+            // should convert here, but it may have some performance lost
+            insert_many_decimalv2(data_ptr, num);
+        } else if constexpr (Type == TYPE_DATE) {
+            // Datev1 is special, its storage is uint24, but its compute type is uint32, we will change
+            // to its actual type int64, in the future.
+            insert_many_date(data_ptr, num);
         } else if constexpr (std::is_same_v<T, Int128>) {
+            // Int128 need copy to ensure alignment, or the code may core during SIMD
             insert_many_in_copy_way(data_ptr, num);
         } else if constexpr (std::is_same_v<T, StringRef>) {
             // here is unreachable, just for compilation to be able to pass
-        } else if constexpr (Type == TYPE_DATE) {
-            insert_many_date(data_ptr, num);
         } else {
             insert_many_default_type(data_ptr, num);
         }
@@ -479,8 +458,6 @@ public:
             insert_default_value_res_column(sel, sel_size, column);
         } else if constexpr (std::is_same_v<T, StringRef>) {
             insert_string_to_res_column(sel, sel_size, column);
-        } else if constexpr (std::is_same_v<T, decimal12_t>) {
-            insert_decimal_to_res_column(sel, sel_size, column);
         } else if (std::is_same_v<T, bool>) {
             insert_byte_to_res_column(sel, sel_size, col_ptr);
         } else {

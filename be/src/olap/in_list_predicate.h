@@ -42,20 +42,7 @@ struct std::equal_to<doris::StringRef> {
         return lhs == rhs;
     }
 };
-// for decimal12_t
-template <>
-struct std::hash<doris::decimal12_t> {
-    int64_t operator()(const doris::decimal12_t& rhs) const {
-        return hash<int64_t>()(rhs.integer) ^ hash<int32_t>()(rhs.fraction);
-    }
-};
 
-template <>
-struct std::equal_to<doris::decimal12_t> {
-    bool operator()(const doris::decimal12_t& lhs, const doris::decimal12_t& rhs) const {
-        return lhs == rhs;
-    }
-};
 // for uint24_t
 template <>
 struct std::hash<doris::uint24_t> {
@@ -83,7 +70,8 @@ namespace doris {
 template <PrimitiveType Type, PredicateType PT, typename HybridSetType>
 class InListPredicateBase : public ColumnPredicate {
 public:
-    using T = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
+    using T = std::conditional_t<Type == PrimitiveType::TYPE_DECIMALV2, DecimalV2Value,
+                                 PredicatePrimitiveTypeTraits<Type>::PredicateFieldType>;
     template <typename ConditionType, typename ConvertFunc>
     InListPredicateBase(uint32_t column_id, const ConditionType& conditions,
                         const ConvertFunc& convert, bool is_opposite = false,
@@ -135,8 +123,7 @@ public:
                 HybridSetBase::IteratorBase* iter = hybrid_set->begin();
                 while (iter->has_next()) {
                     const DecimalV2Value* value = (const DecimalV2Value*)(iter->get_value());
-                    decimal12_t decimal12 = {value->int_value(), value->frac_value()};
-                    _values->insert(&decimal12);
+                    _values->insert(value);
                     iter->next();
                 }
             } else if constexpr (Type == TYPE_DATE) {

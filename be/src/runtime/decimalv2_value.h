@@ -320,3 +320,10 @@ template <>
 struct std::hash<doris::DecimalV2Value> {
     size_t operator()(const doris::DecimalV2Value& v) const { return doris::hash_value(v); }
 };
+
+template <>
+struct std::equal_to<doris::DecimalV2Value> {
+    bool operator()(const doris::DecimalV2Value& lhs, const doris::DecimalV2Value& rhs) const {
+        return lhs == rhs;
+    }
+};

@@ -261,10 +261,19 @@ public:
 
 protected:
     // Just prevent access not align memory address coredump
-    template <class T>
+    template <PrimitiveType Type, class T>
     T _get_zone_map_value(void* data_ptr) const {
         T res;
-        memcpy(&res, data_ptr, sizeof(T));
+        // DecimalV2's storage value is different from predicate or compute value type
+        // need convert it to DecimalV2Value
+        if constexpr (Type == PrimitiveType::TYPE_DECIMALV2) {
+            decimal12_t decimal_12_t_value;
+            memcpy((char*)(&decimal_12_t_value), data_ptr, sizeof(decimal12_t));
+            res->from_olap_decimal(decimal_12_t_value.integer, decimal_12_t_value.fraction);
+        } else {
+            // TODO add datev1 convert here
+            memcpy(&res, data_ptr, sizeof(T));
+        }
         return res;
     }
 
