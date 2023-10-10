@@ -113,7 +113,7 @@ suite("test_routine_load","p0,external,external_docker,external_docker_routine_l
                     COLUMNS TERMINATED BY "|"
                     PROPERTIES
                     (
-                        "exec_mem_limit" = "1",
+                        "exec_mem_limit" = "5",
                         "max_batch_interval" = "1",
                         "max_batch_rows" = "300000",
                         "max_batch_size" = "209715200"
@@ -153,12 +153,12 @@ suite("test_routine_load","p0,external,external_docker,external_docker_routine_l
                     if (res[0][0] > 0) {
                         break
                     }
-                    if (count >= 600) {
+                    if (count >= 120) {
                         log.error("routine load can not visible for long time")
                         assertEquals(20, res[0][0])
                         break
                     }
-                    sleep(1000)
+                    sleep(5000)
                     count++
                 }
                 
@@ -194,7 +194,7 @@ suite("test_routine_load","p0,external,external_docker,external_docker_routine_l
                     PROPERTIES
                     (
                         "timezone" = "Asia/Shanghai",
-                        "max_batch_interval" = "1",
+                        "max_batch_interval" = "5",
                         "max_batch_rows" = "300000",
                         "max_batch_size" = "209715200"
                     )
@@ -233,12 +233,12 @@ suite("test_routine_load","p0,external,external_docker,external_docker_routine_l
                     if (res[0][0] > 0) {
                         break
                     }
-                    if (count >= 600) {
+                    if (count >= 120) {
                         log.error("routine load can not visible for long time")
                         assertEquals(20, res[0][0])
                         break
                     }
-                    sleep(1000)
+                    sleep(5000)
                     count++
                 }
 
@@ -274,7 +274,7 @@ suite("test_routine_load","p0,external,external_docker,external_docker_routine_l
                     PROPERTIES
                     (
                         "strict_mode" = "true",
-                        "max_batch_interval" = "1",
+                        "max_batch_interval" = "5",
                         "max_batch_rows" = "300000",
                         "max_batch_size" = "209715200"
                     )
@@ -311,12 +311,12 @@ suite("test_routine_load","p0,external,external_docker,external_docker_routine_l
                     if (res[0][0] > 0) {
                         break
                     }
-                    if (count >= 600) {
+                    if (count >= 120) {
                         log.error("routine load can not visible for long time")
                         assertEquals(20, res[0][0])
                         break
                     }
-                    sleep(1000)
+                    sleep(5000)
                     count++
                 }
 
@@ -352,7 +352,7 @@ suite("test_routine_load","p0,external,external_docker,external_docker_routine_l
                     PROPERTIES
                     (
                         "max_error_number" = "${filteredRows[i]}",
-                        "max_batch_interval" = "1",
+                        "max_batch_interval" = "5",
                         "max_batch_rows" = "300000",
                         "max_batch_size" = "209715200"
                     )
@@ -391,12 +391,12 @@ suite("test_routine_load","p0,external,external_docker,external_docker_routine_l
                     if (res[0][0] > 0) {
                         break
                     }
-                    if (count >= 600) {
+                    if (count >= 120) {
                         log.error("routine load can not visible for long time")
                         assertEquals(20, res[0][0])
                         break
                     }
-                    sleep(1000)
+                    sleep(5000)
                     count++
                 }
 
@@ -433,7 +433,7 @@ suite("test_routine_load","p0,external,external_docker,external_docker_routine_l
                     (
                         "max_filter_ratio" = "${maxFilterRatio[i]}",
                         "max_error_number" = "1000",
-                        "max_batch_interval" = "1",
+                        "max_batch_interval" = "5",
                         "max_batch_rows" = "300000",
                         "max_batch_size" = "209715200"
                     )
@@ -472,12 +472,12 @@ suite("test_routine_load","p0,external,external_docker,external_docker_routine_l
                     if (res[0][0] > 0) {
                         break
                     }
-                    if (count >= 600) {
+                    if (count >= 120) {
                         log.error("routine load can not visible for long time")
                         assertEquals(20, res[0][0])
                         break
                     }
-                    sleep(1000)
+                    sleep(5000)
                     count++
                 }
                 
