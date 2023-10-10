@@ -38,6 +38,9 @@ POST /api/query/<ns_name>/<db_name>
 Statement Execution Action 用于执行语句并返回结果。
     
 ## Path parameters
+* `<ns_name>`
+
+  指定集群的名称，默认值取default_cluster即可
 
 * `<db_name>`
 

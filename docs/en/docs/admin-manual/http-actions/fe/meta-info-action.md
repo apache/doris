@@ -42,7 +42,9 @@ Get a list of all database names, arranged in alphabetical order.
     
 ### Path parameters
 
-None
+* `<ns_name>`
+
+    Specify cluster name, default value is 'default_cluster'
 
 ### Query parameters
 
@@ -86,6 +88,9 @@ GET /api/meta/namespaces/<ns_name>/databases/<db_name>/tables
 Get a list of tables in the specified database, arranged in alphabetical order.
     
 ### Path parameters
+* `<ns_name>`
+
+  Specify cluster name, default value is 'default_cluster'
 
 * `<db_name>`
 
@@ -133,6 +138,9 @@ GET /api/meta/namespaces/<ns_name>/databases/<db_name>/tables/<tbl_name>/schema
 Get the table structure information of the specified table in the specified database.
     
 ### Path parameters
+* `<ns_name>`
+
+  Specify cluster name, default value is 'default_cluster'
 
 * `<db_name>`
 
