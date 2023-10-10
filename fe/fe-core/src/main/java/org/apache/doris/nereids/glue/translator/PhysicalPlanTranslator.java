@@ -1794,29 +1794,27 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             SortNode sortNode = translateSortNode(topN, inputFragment.getPlanRoot(), context);
             sortNode.setOffset(topN.getOffset());
             sortNode.setLimit(topN.getLimit());
-            if (topN.isEnableRuntimeFilter()) {
+
+            PlanNode child = sortNode.getChild(0);
+            Preconditions.checkArgument(child instanceof OlapScanNode,
+                    "topN opt expect OlapScanNode, but we get " + child);
+            OlapScanNode scanNode = (OlapScanNode) child;
+            if (scanNode.isDupKeysOrMergeOnWrite()) {
                 sortNode.setUseTopnOpt(true);
-                PlanNode child = sortNode.getChild(0);
-                Preconditions.checkArgument(child instanceof OlapScanNode,
-                        "topN opt expect OlapScanNode, but we get " + child);
-                OlapScanNode scanNode = ((OlapScanNode) child);
                 scanNode.setUseTopnOpt(true);
             }
             // push sort to scan opt
-            if (sortNode.getChild(0) instanceof OlapScanNode) {
-                OlapScanNode scanNode = ((OlapScanNode) sortNode.getChild(0));
-                if (checkPushSort(sortNode, scanNode.getOlapTable())) {
-                    SortInfo sortInfo = sortNode.getSortInfo();
-                    scanNode.setSortInfo(sortInfo);
-                    scanNode.getSortInfo().setSortTupleSlotExprs(sortNode.getResolvedTupleExprs());
-                    for (Expr expr : sortInfo.getOrderingExprs()) {
-                        scanNode.getSortInfo().addMaterializedOrderingExpr(expr);
-                    }
-                    if (sortNode.getOffset() > 0) {
-                        scanNode.setSortLimit(sortNode.getLimit() + sortNode.getOffset());
-                    } else {
-                        scanNode.setSortLimit(sortNode.getLimit());
-                    }
+            if (checkPushSort(sortNode, scanNode.getOlapTable())) {
+                SortInfo sortInfo = sortNode.getSortInfo();
+                scanNode.setSortInfo(sortInfo);
+                scanNode.getSortInfo().setSortTupleSlotExprs(sortNode.getResolvedTupleExprs());
+                for (Expr expr : sortInfo.getOrderingExprs()) {
+                    scanNode.getSortInfo().addMaterializedOrderingExpr(expr);
+                }
+                if (sortNode.getOffset() > 0) {
+                    scanNode.setSortLimit(sortNode.getLimit() + sortNode.getOffset());
+                } else {
+                    scanNode.setSortLimit(sortNode.getLimit());
                 }
             }
             addPlanRoot(inputFragment, sortNode, topN);
