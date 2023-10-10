@@ -240,12 +240,12 @@ struct ProcessHashTableBuild {
         }                                                                     \
         if constexpr (short_circuit_for_null) {                               \
             if ((*null_map)[k]) {                                             \
-                DCHECK(has_null_key);                                         \
                 *has_null_key = true;                                         \
                 return Status::OK();                                          \
             }                                                                 \
         } else if constexpr (ignore_null) {                                   \
             if ((*null_map)[k]) {                                             \
+                *has_null_key = true;                                         \
                 continue;                                                     \
             }                                                                 \
         }                                                                     \
