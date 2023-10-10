@@ -340,9 +340,7 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
                 //TODO: Asynchronisation need refactor this
                 if (st.is<NEED_SEND_AGAIN>()) { // created partition, do it again.
                     st = _sink->send(runtime_state(), block.get());
-                    if (st.is<NEED_SEND_AGAIN>()) {
-                        LOG(WARNING) << "have to create partition again...";
-                    }
+                    DCHECK(!st.is<NEED_SEND_AGAIN>());
                 }
                 if (UNLIKELY(!st.ok() || block->rows() == 0)) {
                     // Used for group commit insert

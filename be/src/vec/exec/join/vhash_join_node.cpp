@@ -129,7 +129,8 @@ HashJoinProbeContext::HashJoinProbeContext(HashJoinNode* join_node)
           _probe_key_sz(join_node->_probe_key_sz),
           _left_output_slot_flags(&join_node->_left_output_slot_flags),
           _right_output_slot_flags(&join_node->_right_output_slot_flags),
-          _is_any_probe_match_row_output(&join_node->_is_any_probe_match_row_output) {}
+          _is_any_probe_match_row_output(&join_node->_is_any_probe_match_row_output),
+          _has_null_value_in_build_side(join_node->_has_null_in_build_side) {}
 
 HashJoinProbeContext::HashJoinProbeContext(pipeline::HashJoinProbeLocalState* local_state)
         : _have_other_join_conjunct(local_state->join_probe()->_have_other_join_conjunct),
@@ -435,10 +436,10 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
         return Status::OK();
     }
 
-    if (_short_circuit_for_null_in_probe_side && _is_mark_join) {
-        /// If `_short_circuit_for_null_in_probe_side` is true, this indicates no rows
-        /// match the join condition, and this is 'mark join', so we need to create a column as mark
-        /// with all rows set to 0.
+    /// `_has_null_in_build_side` means have null value in build side.
+    /// `_short_circuit_for_null_in_build_side` means short circuit if has null in build side(e.g. null aware left anti join).
+    if (_has_null_in_build_side && _short_circuit_for_null_in_build_side && _is_mark_join) {
+        /// We need to create a column as mark with all rows set to NULL.
         auto block_rows = _probe_block.rows();
         if (block_rows == 0) {
             *eos = _probe_eos;
@@ -452,8 +453,10 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
                 temp_block.insert(_probe_block.get_by_position(i));
             }
         }
-        auto mark_column = ColumnUInt8::create(block_rows, 0);
-        temp_block.insert({std::move(mark_column), std::make_shared<DataTypeUInt8>(), ""});
+        auto mark_column = ColumnNullable::create(ColumnUInt8::create(block_rows, 0),
+                                                  ColumnUInt8::create(block_rows, 1));
+        temp_block.insert(
+                {std::move(mark_column), make_nullable(std::make_shared<DataTypeUInt8>()), ""});
 
         {
             SCOPED_TIMER(_join_filter_timer);
@@ -810,7 +813,7 @@ Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
         Block block;
         // If eos or have already met a null value using short-circuit strategy, we do not need to pull
         // data from data.
-        while (!eos && !_short_circuit_for_null_in_probe_side &&
+        while (!eos && (!_short_circuit_for_null_in_build_side || !_has_null_in_build_side) &&
                (!_probe_open_finish || !_is_hash_join_early_start_probe_eos(state))) {
             block.clear_column_data();
             RETURN_IF_CANCELLED(state);
@@ -839,8 +842,8 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
     // make one block for each 4 gigabytes
     constexpr static auto BUILD_BLOCK_MAX_SIZE = 4 * 1024UL * 1024UL * 1024UL;
 
-    if (_short_circuit_for_null_in_probe_side) {
-        // TODO: if _short_circuit_for_null_in_probe_side is true we should finish current pipeline task.
+    if (_has_null_in_build_side) {
+        // TODO: if _has_null_in_build_side is true we should finish current pipeline task.
         DCHECK(state->enable_pipeline_exec());
         return Status::OK();
     }
@@ -913,7 +916,7 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
             _shared_hash_table_context->blocks = _build_blocks;
             _shared_hash_table_context->hash_table_variants = _hash_table_variants;
             _shared_hash_table_context->short_circuit_for_null_in_probe_side =
-                    _short_circuit_for_null_in_probe_side;
+                    _has_null_in_build_side;
             if (_runtime_filter_slots) {
                 _runtime_filter_slots->copy_to_shared_context(_shared_hash_table_context);
             }
@@ -930,8 +933,7 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
         _build_phase_profile->add_info_string(
                 "SharedHashTableFrom",
                 print_id(_shared_hashtable_controller->get_builder_fragment_instance_id(id())));
-        _short_circuit_for_null_in_probe_side =
-                _shared_hash_table_context->short_circuit_for_null_in_probe_side;
+        _has_null_in_build_side = _shared_hash_table_context->short_circuit_for_null_in_probe_side;
         _hash_table_variants = std::static_pointer_cast<HashTableVariants>(
                 _shared_hash_table_context->hash_table_variants);
         _build_blocks = _shared_hash_table_context->blocks;
@@ -1117,7 +1119,7 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block, uin
                                         has_null_value || short_circuit_for_null_in_build_side
                                                 ? &null_map_val->get_data()
                                                 : nullptr,
-                                        &_short_circuit_for_null_in_probe_side);
+                                        &_has_null_in_build_side);
                     }},
             *_hash_table_variants, make_bool_variant(_build_side_ignore_null),
             make_bool_variant(_short_circuit_for_null_in_build_side));

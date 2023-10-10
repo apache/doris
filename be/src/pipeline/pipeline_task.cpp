@@ -296,9 +296,6 @@ Status PipelineTask::execute(bool* eos) {
         if (_block->rows() != 0 || *eos) {
             SCOPED_TIMER(_sink_timer);
             auto status = _sink->sink(_state, block, _data_state);
-            if (status.is<ErrorCode::NEED_SEND_AGAIN>()) {
-                status = _sink->sink(_state, block, _data_state);
-            }
             if (UNLIKELY(!status.ok() || block->rows() == 0)) {
                 if (_fragment_context->is_group_commit()) {
                     auto* future_block = dynamic_cast<vectorized::FutureBlock*>(block);
