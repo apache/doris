@@ -192,7 +192,12 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
             while (iter != this_run.end()) {
                 (*iter)->start_wait_worker_timer();
                 auto s = ctx->thread_token->submit_func(
-                        [this, scanner = *iter, ctx] { this->_scanner_scan(this, ctx, scanner); });
+                        [this, scanner = *iter, ctx] {
+                            std::stringstream ss;
+                            ss << "ss0" << scanner->runtime_state()->query_type()
+                               << scanner->runtime_state()->query_id().lo%(int64_t)100000;
+                             this->_scanner_scan(this, ctx, scanner, ss.str());
+                        });
                 if (s.ok()) {
                     this_run.erase(iter++);
                 } else {
@@ -208,13 +213,19 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
                 if (type == TabletStorageType::STORAGE_TYPE_LOCAL) {
                     PriorityThreadPool::Task task;
                     task.work_function = [this, scanner = *iter, ctx] {
-                        this->_scanner_scan(this, ctx, scanner);
+                        std::stringstream ss;
+                        ss << "ss1" << scanner->runtime_state()->query_type()
+                           << scanner->runtime_state()->query_id().lo%(int64_t)100000;
+                        this->_scanner_scan(this, ctx, scanner, ss.str());
                     };
                     task.priority = nice;
                     ret = _local_scan_thread_pool->offer(task);
                 } else {
                     ret = _remote_scan_thread_pool->submit_func([this, scanner = *iter, ctx] {
-                        this->_scanner_scan(this, ctx, scanner);
+                        std::stringstream ss;
+                        ss << "ss2" << scanner->runtime_state()->query_type()
+                           << scanner->runtime_state()->query_id().lo%(int64_t)100000;
+                        this->_scanner_scan(this, ctx, scanner, ss.str());
                     });
                 }
                 if (ret) {
@@ -269,13 +280,13 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
 }
 
 void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext* ctx,
-                                     VScannerSPtr scanner) {
+                                     VScannerSPtr scanner, const std::string thread_name) {
     SCOPED_ATTACH_TASK(scanner->runtime_state());
 #if !defined(USE_BTHREAD_SCANNER)
-    Thread::set_self_name("_scanner_scan");
+    Thread::set_self_name(thread_name);
 #else
     if (dynamic_cast<NewOlapScanner*>(scanner) == nullptr) {
-        Thread::set_self_name("_scanner_scan");
+        Thread::set_self_name(thread_name);
     }
 #endif
 #ifndef __APPLE__
@@ -397,6 +408,7 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
     }
 
     ctx->push_back_scanner_and_reschedule(scanner);
+    Thread::set_self_name("idle_scanner_scan");
 }
 
 } // namespace doris::vectorized
