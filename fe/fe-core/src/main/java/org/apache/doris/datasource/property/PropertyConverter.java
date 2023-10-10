@@ -35,7 +35,6 @@ import org.apache.doris.datasource.property.constants.OssProperties;
 import org.apache.doris.datasource.property.constants.PaimonProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
 
-import com.aliyun.datalake.metastore.common.DataLakeConfig;
 import com.amazonaws.glue.catalog.util.AWSGlueConfig;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
@@ -50,6 +49,7 @@ import org.apache.hadoop.fs.s3a.TemporaryAWSCredentialsProvider;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import shade.doris.com.aliyun.datalake.metastore.common.DataLakeConfig;
 
 import java.util.HashMap;
 import java.util.Map;

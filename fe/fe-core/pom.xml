@@ -660,26 +660,6 @@ under the License.
             <artifactId>druid</artifactId>
         </dependency>
 
-        <!-- for aliyun dlf -->
-        <dependency>
-            <groupId>com.aliyun.datalake</groupId>
-            <artifactId>metastore-client-hive3</artifactId>
-            <exclusions>
-                <exclusion>
-                    <groupId>com.aliyun</groupId>
-                    <artifactId>tea</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>com.aliyun</groupId>
-                    <artifactId>tea-openapi</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>com.aliyun</groupId>
-                    <artifactId>tea-util</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-
         <!-- for fe recognize files stored on gcs -->
         <dependency>
             <groupId>com.google.cloud.bigdataoss</groupId>

@@ -21,17 +21,17 @@
 
 package com.aliyun.datalake.metastore.hive2;
 
-import com.aliyun.datalake.metastore.common.DataLakeConfig;
-import com.aliyun.datalake.metastore.common.ProxyMode;
-import com.aliyun.datalake.metastore.common.Version;
-import com.aliyun.datalake.metastore.common.functional.FunctionalUtils;
-import com.aliyun.datalake.metastore.common.functional.ThrowingConsumer;
-import com.aliyun.datalake.metastore.common.functional.ThrowingFunction;
-import com.aliyun.datalake.metastore.common.functional.ThrowingRunnable;
-import com.aliyun.datalake.metastore.common.util.DataLakeUtil;
-import com.aliyun.datalake.metastore.common.util.ProxyLogUtils;
-import com.aliyun.datalake.metastore.hive.common.utils.ClientUtils;
-import com.aliyun.datalake.metastore.hive.common.utils.ConfigUtils;
+import shade.doris.com.aliyun.datalake.metastore.common.DataLakeConfig;
+import shade.doris.com.aliyun.datalake.metastore.common.ProxyMode;
+import shade.doris.com.aliyun.datalake.metastore.common.Version;
+import shade.doris.com.aliyun.datalake.metastore.common.functional.FunctionalUtils;
+import shade.doris.com.aliyun.datalake.metastore.common.functional.ThrowingConsumer;
+import shade.doris.com.aliyun.datalake.metastore.common.functional.ThrowingFunction;
+import shade.doris.com.aliyun.datalake.metastore.common.functional.ThrowingRunnable;
+import shade.doris.com.aliyun.datalake.metastore.common.util.DataLakeUtil;
+import shade.doris.com.aliyun.datalake.metastore.common.util.ProxyLogUtils;
+import shade.doris.com.aliyun.datalake.metastore.hive.common.utils.ClientUtils;
+import shade.doris.com.aliyun.datalake.metastore.hive.common.utils.ConfigUtils;
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.common.ValidTxnList;
@@ -137,6 +137,7 @@ import org.apache.hadoop.hive.metastore.api.WMValidateResourcePlanResponse;
 import org.apache.hadoop.hive.metastore.partition.spec.PartitionSpecProxy;
 import org.apache.hadoop.hive.metastore.utils.ObjectPair;
 import org.apache.hadoop.hive.ql.session.SessionState;
+import shade.doris.com.aliyun.datalake.metastore.hive2.DlfSessionMetaStoreClient;
 import shade.doris.hive.org.apache.thrift.TException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

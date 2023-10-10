@@ -295,7 +295,6 @@ under the License.
         <httpcore.version>4.4.15</httpcore.version>
         <aws-java-sdk.version>1.12.519</aws-java-sdk.version>
         <mariadb-java-client.version>3.0.4</mariadb-java-client.version>
-        <dlf-metastore-client-hive.version>0.2.14</dlf-metastore-client-hive.version>
         <hadoop.version>3.3.6</hadoop.version>
         <joda.version>2.8.1</joda.version>
         <project.scm.id>github</project.scm.id>
@@ -1350,11 +1349,6 @@ under the License.
                 <groupId>org.mariadb.jdbc</groupId>
                 <artifactId>mariadb-java-client</artifactId>
                 <version>${mariadb-java-client.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.aliyun.datalake</groupId>
-                <artifactId>metastore-client-hive3</artifactId>
-                <version>${dlf-metastore-client-hive.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.hive</groupId>
