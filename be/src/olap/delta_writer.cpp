@@ -538,11 +538,7 @@ Status DeltaWriter::commit_txn(const PSlaveTabletNodes& slave_tablet_nodes,
         // _tabelt->tablet_schema:  A(bigint), B(double)
         //  => update_schema:       A(bigint), B(double), C(int), D(int)
         RowsetWriterContext& rw_ctx = _rowset_writer->mutable_context();
-        TabletSchemaSPtr update_schema = std::make_shared<TabletSchema>();
-        vectorized::schema_util::get_least_common_schema(
-                {_tablet->tablet_schema(), rw_ctx.tablet_schema}, update_schema);
-        _tablet->update_by_least_common_schema(update_schema);
-        VLOG_DEBUG << "dump updated tablet schema: " << update_schema->dump_structure();
+        _tablet->update_by_least_common_schema(rw_ctx.tablet_schema);
     }
 
     Status res = _storage_engine->txn_manager()->commit_txn(_req.partition_id, _tablet, _req.txn_id,
