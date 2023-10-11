@@ -210,8 +210,8 @@ Status VFileScanner::prepare(
         }
 
         _dest_row_desc.reset(new RowDescriptor(_state->desc_tbl(),
-                                              std::vector<TupleId>({_output_tuple_desc->id()}),
-                                              std::vector<bool>({false})));
+                                               std::vector<TupleId>({_output_tuple_desc->id()}),
+                                               std::vector<bool>({false})));
     }
 
     _default_val_row_desc.reset(new RowDescriptor(_state->desc_tbl(),
@@ -535,7 +535,7 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
     // After convert, the column_ptr should be copied into output block.
     // Can not use block->insert() because it may cause use_count() non-zero bug
     MutableBlock mutable_output_block =
-        VectorizedUtils::build_mutable_mem_reuse_block(block, *_dest_row_desc);
+            VectorizedUtils::build_mutable_mem_reuse_block(block, *_dest_row_desc);
     auto& mutable_output_columns = mutable_output_block.mutable_columns();
 
     // for (auto slot_desc : _output_tuple_desc->slots()) {
@@ -568,12 +568,12 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
                                  .column->is_null_at(i)) {
                         RETURN_IF_ERROR(_state->append_error_msg_to_file(
                                 [&]() -> std::string {
-                                    return _src_block_ptr->dump_one_line(i, _num_of_columns_from_file);
+                                    return _src_block_ptr->dump_one_line(i,
+                                                                         _num_of_columns_from_file);
                                 },
                                 [&]() -> std::string {
-                                    auto raw_value =
-                                            _src_block_ptr->get_by_position(ctx_idx).column->get_data_at(
-                                                    i);
+                                    auto raw_value = _src_block_ptr->get_by_position(ctx_idx)
+                                                             .column->get_data_at(i);
                                     std::string raw_string = raw_value.to_string();
                                     fmt::memory_buffer error_msg;
                                     fmt::format_to(error_msg,
@@ -588,7 +588,8 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
                     } else if (!slot_desc->is_nullable()) {
                         RETURN_IF_ERROR(_state->append_error_msg_to_file(
                                 [&]() -> std::string {
-                                    return _src_block_ptr->dump_one_line(i, _num_of_columns_from_file);
+                                    return _src_block_ptr->dump_one_line(i,
+                                                                         _num_of_columns_from_file);
                                 },
                                 [&]() -> std::string {
                                     fmt::memory_buffer error_msg;
