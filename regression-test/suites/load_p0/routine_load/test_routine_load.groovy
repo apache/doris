@@ -840,6 +840,7 @@ suite("test_routine_load","p0") {
                     if (state == "NEED_SCHEDULE") {
                         continue;
                     }
+                    log.info("reason of state changed: ${res[0][17].toString()}".toString())
                     assertEquals(res[0][8].toString(), "RUNNING")
                     break;
                 }
