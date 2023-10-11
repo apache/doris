@@ -82,6 +82,10 @@ class Suite implements GroovyInterceptable {
         return value == null ? defaultValue : value
     }
 
+    String getSuiteConf(String key, String defaultValue = null) {
+        return getConf("suites." + name + "." + key, defaultValue)
+    }
+
     Properties getConfs(String prefix) {
         Properties p = new Properties()
         for (String name : context.config.otherConfigs.stringPropertyNames()) {
@@ -154,11 +158,20 @@ class Suite implements GroovyInterceptable {
     }
 
     public <T> ListenableFuture<T> thread(String threadName = null, Closure<T> actionSupplier) {
+        def connInfo = context.threadLocalConn.get()
         return MoreExecutors.listeningDecorator(context.actionExecutors).submit((Callable<T>) {
             long startTime = System.currentTimeMillis()
             def originThreadName = Thread.currentThread().name
             try {
                 Thread.currentThread().setName(threadName == null ? originThreadName : threadName)
+                if (connInfo != null) {
+                    def newConnInfo = new ConnectionInfo()
+                    newConnInfo.conn = DriverManager.getConnection(connInfo.conn.getMetaData().getURL(),
+                            connInfo.username, connInfo.password)
+                    newConnInfo.username = connInfo.username
+                    newConnInfo.password = connInfo.password
+                    context.threadLocalConn.set(newConnInfo)
+                }
                 context.scriptContext.eventListeners.each { it.onThreadStarted(context) }
 
                 return actionSupplier.call()

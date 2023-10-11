@@ -61,6 +61,7 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_SHORT_KEY = "short_key";
     public static final String PROPERTIES_REPLICATION_NUM = "replication_num";
     public static final String PROPERTIES_REPLICATION_ALLOCATION = "replication_allocation";
+    public static final String PROPERTIES_MIN_LOAD_REPLICA_NUM = "min_load_replica_num";
     public static final String PROPERTIES_STORAGE_TYPE = "storage_type";
     public static final String PROPERTIES_STORAGE_MEDIUM = "storage_medium";
     public static final String PROPERTIES_STORAGE_COOLDOWN_TIME = "storage_cooldown_time";
@@ -343,6 +344,24 @@ public class PropertyAnalyzer {
             properties.remove(propKey);
         }
         return replicationNum;
+    }
+
+    public static short analyzeMinLoadReplicaNum(Map<String, String> properties) throws AnalysisException {
+        short minLoadReplicaNum = -1;
+        if (properties != null && properties.containsKey(PROPERTIES_MIN_LOAD_REPLICA_NUM)) {
+            try {
+                minLoadReplicaNum = Short.parseShort(properties.get(PROPERTIES_MIN_LOAD_REPLICA_NUM));
+            } catch (Exception e) {
+                throw new AnalysisException(e.getMessage());
+            }
+
+            if (minLoadReplicaNum <= 0 && minLoadReplicaNum != -1) {
+                throw new AnalysisException("min_load_replica_num should > 0 or =-1");
+            }
+
+            properties.remove(PROPERTIES_MIN_LOAD_REPLICA_NUM);
+        }
+        return minLoadReplicaNum;
     }
 
     public static String analyzeColumnSeparator(Map<String, String> properties, String oldColumnSeparator) {
