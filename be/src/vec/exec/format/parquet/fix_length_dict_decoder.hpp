@@ -72,9 +72,7 @@ public:
             return _decode_dict_values<has_filter>(doris_column, select_vector, is_dict_filter);
         }
 
-        _decode_numeric<has_filter>(doris_column, select_vector);
-
-        return Status::OK();
+        return _decode_numeric<has_filter>(doris_column, select_vector);
     }
 
     Status set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t length, size_t num_values) override {
