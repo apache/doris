@@ -179,6 +179,6 @@ for i in ${query_array[@]}; do
     fi
 done
 
-echo "Total cold run time: ${cold_run_sum} ms"
+echo "Total cold run time: $cold_run_sum ms"
 echo "Total hot run time: ${best_hot_run_sum} ms"
 echo 'Finish tpch queries.'
