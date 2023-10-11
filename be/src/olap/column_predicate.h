@@ -272,7 +272,7 @@ protected:
             res->from_olap_decimal(decimal_12_t_value.integer, decimal_12_t_value.fraction);
         } else {
             // TODO add datev1 convert here
-            memcpy(&res, data_ptr, sizeof(T));
+            memcpy(&res, data_ptr, sizeof(ResultType));
         }
         return res;
     }
