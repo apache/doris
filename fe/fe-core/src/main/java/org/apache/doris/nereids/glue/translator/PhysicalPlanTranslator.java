@@ -63,6 +63,7 @@ import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.properties.DistributionSpecStorageAny;
 import org.apache.doris.nereids.properties.DistributionSpecStorageGather;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow.WindowFrameGroup;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.UnaryNode;
@@ -1515,6 +1516,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PartitionSortNode partitionSortNode = translatePartitionSortNode(
                 partitionTopN, inputFragment.getPlanRoot(), context);
         addPlanRoot(inputFragment, partitionSortNode, partitionTopN);
+        // in pipeline engine, we use parallel scan by default, but it broke the rule of data distribution
+        // we need turn of parallel scan to ensure to get correct result.
+        // TODO: nereids forbid all parallel scan under PhysicalSetOperation temporary
+        if (findOlapScanNodesByPassExchangeAndJoinNode(inputFragment.getPlanRoot())) {
+            inputFragment.setHasColocatePlanNode(true);
+        }
         return inputFragment;
     }
 
@@ -1713,6 +1720,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 }
             }
             setPlanRoot(setOperationFragment, setOperationNode, setOperation);
+        }
+
+        // in pipeline engine, we use parallel scan by default, but it broke the rule of data distribution
+        // we need turn of parallel scan to ensure to get correct result.
+        // TODO: nereids forbid all parallel scan under PhysicalSetOperation temporary
+        if (!setOperation.getPhysicalProperties().equals(PhysicalProperties.ANY)
+                && findOlapScanNodesByPassExchangeAndJoinNode(setOperationFragment.getPlanRoot())) {
+            setOperationFragment.setHasColocatePlanNode(true);
         }
 
         return setOperationFragment;
@@ -1972,6 +1987,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 bufferedTupleDesc
         );
         inputPlanFragment.addPlanRoot(analyticEvalNode);
+
+        // in pipeline engine, we use parallel scan by default, but it broke the rule of data distribution
+        // we need turn of parallel scan to ensure to get correct result.
+        // TODO: nereids forbid all parallel scan under PhysicalSetOperation temporary
+        if (findOlapScanNodesByPassExchangeAndJoinNode(inputPlanFragment.getPlanRoot())) {
+            inputPlanFragment.setHasColocatePlanNode(true);
+        }
         return inputPlanFragment;
     }
 
@@ -2335,5 +2357,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         } else {
             return getCTEConsumerChild((PhysicalPlan) root.child(0));
         }
+    }
+
+    private boolean findOlapScanNodesByPassExchangeAndJoinNode(PlanNode root) {
+        if (root instanceof OlapScanNode) {
+            return true;
+        } else if (!(root instanceof JoinNodeBase || root instanceof ExchangeNode)) {
+            return root.getChildren().stream().anyMatch(child -> findOlapScanNodesByPassExchangeAndJoinNode(child));
+        }
+        return false;
     }
 }
