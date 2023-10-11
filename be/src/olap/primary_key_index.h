@@ -55,7 +55,7 @@ public:
               _num_rows(0),
               _size(0),
               _disk_size(0),
-              _seq_col_length(seq_col_length){}
+              _seq_col_length(seq_col_length) {}
 
     ~PrimaryKeyIndexBuilder();
 

@@ -261,7 +261,7 @@ std::string MemTrackerLimiter::log_process_usage_str() {
     detail += "\nProcess Memory Summary:\n    " + MemTrackerLimiter::process_mem_log_str();
     std::vector<MemTracker::Snapshot> snapshots;
     MemTrackerLimiter::make_process_snapshots(&snapshots);
-    MemTrackerLimiter::make_type_snapshots(&snapshots, MemTrackerLimiter::Type::GLOBAL);
+    MemTrackerLimiter::make_type_snapshots(&snapshots, MemTrackerLimiter::Type::GLOBAL, false);
     MemTrackerLimiter::make_type_snapshots(&snapshots, MemTrackerLimiter::Type::COMPACTION, false);
     MemTrackerLimiter::make_type_snapshots(&snapshots, MemTrackerLimiter::Type::QUERY, false);
     MemTrackerLimiter::make_type_snapshots(&snapshots, MemTrackerLimiter::Type::LOAD, false);
