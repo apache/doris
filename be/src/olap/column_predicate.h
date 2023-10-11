@@ -62,7 +62,7 @@ ResultType get_zone_map_value(void* data_ptr) {
     if constexpr (primitive_type == PrimitiveType::TYPE_DECIMALV2) {
         decimal12_t decimal_12_t_value;
         memcpy((char*)(&decimal_12_t_value), data_ptr, sizeof(decimal12_t));
-        res->from_olap_decimal(decimal_12_t_value.integer, decimal_12_t_value.fraction);
+        res.from_olap_decimal(decimal_12_t_value.integer, decimal_12_t_value.fraction);
     } else {
         // TODO add datev1 convert here
         memcpy(&res, data_ptr, sizeof(ResultType));
