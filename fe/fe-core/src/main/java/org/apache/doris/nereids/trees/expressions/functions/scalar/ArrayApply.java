@@ -22,7 +22,6 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -46,6 +45,9 @@ public class ArrayApply extends ScalarFunction
                     .args(ArrayType.of(new AnyDataType(0)), VarcharType.SYSTEM_DEFAULT,
                             new FollowToAnyDataType(0)));
 
+    /**
+     * constructor
+     */
     public ArrayApply(Expression arg0, Expression arg1, Expression arg2) {
         super("array_apply", arg0, arg1, arg2);
         if (!(arg1 instanceof StringLikeLiteral)) {
