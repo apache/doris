@@ -528,6 +528,9 @@ Status CsvReader::get_parsed_schema(std::vector<std::string>* col_names,
     bool is_parse_name = false;
     RETURN_IF_ERROR(_prepare_parse(&read_line, &is_parse_name));
 
+    if (_file_reader->size() == 0) {
+        return Status::OK();
+    }
     if (read_line == 1) {
         if (!is_parse_name) { //parse csv file without names and types
             size_t col_nums = 0;
@@ -833,10 +836,6 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
                                                         reader_options, &_file_system,
                                                         &_file_reader));
     }
-    if (_file_reader->size() == 0 && _params.file_type != TFileType::FILE_STREAM &&
-        _params.file_type != TFileType::FILE_BROKER) {
-        return Status::EndOfFile("get parsed schema failed, empty csv file: " + _range.path);
-    }
 
     // get column_separator and line_delimiter
     _value_separator = _params.file_attributes.text_params.column_separator;
@@ -927,7 +926,7 @@ Status CsvReader::_parse_col_names(std::vector<std::string>* col_names) {
     // no use of _line_reader_eof
     RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx));
     if (size == 0) {
-        return Status::InternalError("The first line is empty, can not parse column names");
+        return Status::OK();
     }
     if (!validate_utf8(const_cast<char*>(reinterpret_cast<const char*>(ptr)), size)) {
         return Status::InternalError("Only support csv data in utf8 codec");

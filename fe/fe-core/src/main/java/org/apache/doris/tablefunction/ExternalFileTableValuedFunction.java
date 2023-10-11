@@ -344,6 +344,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         TNetworkAddress address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
         try {
             PFetchTableSchemaRequest request = getFetchTableStructureRequest();
+            if (request == null) {
+                columns.add(new Column("__dummy_col", ScalarType.createStringType(), true));
+                return columns;
+            }
             Future<InternalService.PFetchTableSchemaResult> future = BackendServiceProxy.getInstance()
                     .fetchTableStructureAsync(address, request);
 
@@ -431,10 +435,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         return Pair.of(type, parsedNodes);
     }
 
-    private void fillColumns(InternalService.PFetchTableSchemaResult result)
-            throws AnalysisException {
+    private void fillColumns(InternalService.PFetchTableSchemaResult result) {
         if (result.getColumnNums() == 0) {
-            throw new AnalysisException("The amount of column is 0");
+            columns.add(new Column("__dummy_col", ScalarType.createStringType(), true));
+            return;
         }
         // add fetched file columns
         for (int idx = 0; idx < result.getColumnNums(); ++idx) {
@@ -450,7 +454,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
     }
 
-    private PFetchTableSchemaRequest getFetchTableStructureRequest() throws AnalysisException, TException {
+    private PFetchTableSchemaRequest getFetchTableStructureRequest() throws TException {
         // set TFileScanRangeParams
         TFileScanRangeParams fileScanRangeParams = new TFileScanRangeParams();
         fileScanRangeParams.setFormatType(fileFormatType);
@@ -482,7 +486,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             break;
         }
         if (firstFile == null) {
-            throw new AnalysisException("Can not get first file, please check uri.");
+            return null;
         }
 
         // set TFileRangeDesc
