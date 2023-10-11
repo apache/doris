@@ -25,9 +25,9 @@ import org.apache.doris.nereids.rules.expression.rules.SimplifyArithmeticRule;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
-public class SimplifyArithmeticRuleTest extends ExpressionRewriteTestHelper {
+class SimplifyArithmeticRuleTest extends ExpressionRewriteTestHelper {
     @Test
-    public void testSimplifyArithmetic() {
+    void testSimplifyArithmetic() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
                 SimplifyArithmeticRule.INSTANCE,
                 FunctionBinder.INSTANCE,
@@ -53,7 +53,7 @@ public class SimplifyArithmeticRuleTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    public void testSimplifyArithmeticComparison() {
+    void testSimplifyArithmeticComparison() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
                 SimplifyArithmeticRule.INSTANCE,
                 FoldConstantRule.INSTANCE,
@@ -92,5 +92,31 @@ public class SimplifyArithmeticRuleTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterTypeCoercion("1 - IA + 1 * 3 - 5 > 1", "(cast(IA as BIGINT) < -2)");
     }
 
+    @Test
+    void testSimplifyDateTimeComparison() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                SimplifyArithmeticRule.INSTANCE,
+                FoldConstantRule.INSTANCE,
+                SimplifyArithmeticComparisonRule.INSTANCE,
+                SimplifyArithmeticRule.INSTANCE,
+                FunctionBinder.INSTANCE,
+                FoldConstantRule.INSTANCE
+        ));
+        assertRewriteAfterTypeCoercion("years_add(IA, 1) > '2021-01-01 00:00:00'", "(cast(IA as DATETIMEV2(0)) > '2020-01-01 00:00:00')");
+        assertRewriteAfterTypeCoercion("years_sub(IA, 1) > '2021-01-01 00:00:00'", "(cast(IA as DATETIMEV2(0)) > '2022-01-01 00:00:00')");
+        assertRewriteAfterTypeCoercion("months_add(IA, 1) > '2021-01-01 00:00:00'", "(cast(IA as DATETIMEV2(0)) > '2020-12-01 00:00:00')");
+        assertRewriteAfterTypeCoercion("months_sub(IA, 1) > '2021-01-01 00:00:00'", "(cast(IA as DATETIMEV2(0)) > '2021-02-01 00:00:00')");
+        assertRewriteAfterTypeCoercion("weeks_add(IA, 1) > '2021-01-01 00:00:00'", "(cast(IA as DATETIMEV2(0)) > '2020-12-25 00:00:00')");
+        assertRewriteAfterTypeCoercion("weeks_sub(IA, 1) > '2021-01-01 00:00:00'", "(cast(IA as DATETIMEV2(0)) > '2021-01-08 00:00:00')");
+        assertRewriteAfterTypeCoercion("days_add(IA, 1) > '2021-01-01 00:00:00'", "(cast(IA as DATETIMEV2(0)) > '2020-12-31 00:00:00')");
+        assertRewriteAfterTypeCoercion("days_sub(IA, 1) > '2021-01-01 00:00:00'", "(cast(IA as DATETIMEV2(0)) > '2021-01-02 00:00:00')");
+        assertRewriteAfterTypeCoercion("hours_add(IA, 1) > '2021-01-01 00:00:00'", "(cast(IA as DATETIMEV2(0)) > '2020-12-31 23:00:00')");
+        assertRewriteAfterTypeCoercion("hours_sub(IA, 1) > '2021-01-01 00:00:00'", "(cast(IA as DATETIMEV2(0)) > '2021-01-01 01:00:00')");
+        assertRewriteAfterTypeCoercion("minutes_add(IA, 1) > '2021-01-01 00:00:00'", "(cast(IA as DATETIMEV2(0)) > '2020-12-31 23:59:00')");
+        assertRewriteAfterTypeCoercion("minutes_sub(IA, 1) > '2021-01-01 00:00:00'", "(cast(IA as DATETIMEV2(0)) > '2021-01-01 00:01:00')");
+        assertRewriteAfterTypeCoercion("seconds_add(IA, 1) > '2021-01-01 00:00:00'", "(cast(IA as DATETIMEV2(0)) > '2020-12-31 23:59:59')");
+        assertRewriteAfterTypeCoercion("seconds_sub(IA, 1) > '2021-01-01 00:00:00'", "(cast(IA as DATETIMEV2(0)) > '2021-01-01 00:00:01')");
+
+    }
 }
 

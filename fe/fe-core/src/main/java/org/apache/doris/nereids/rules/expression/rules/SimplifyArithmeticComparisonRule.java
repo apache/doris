@@ -25,6 +25,20 @@ import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.Subtract;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsSub;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
@@ -50,6 +64,20 @@ public class SimplifyArithmeticComparisonRule extends AbstractExpressionRewriteR
             .put(Add.class, Subtract.class)
             .put(Subtract.class, Add.class)
             .put(Divide.class, Multiply.class)
+            .put(YearsSub.class, YearsAdd.class)
+            .put(YearsAdd.class, YearsSub.class)
+            .put(MonthsSub.class, MonthsAdd.class)
+            .put(MonthsAdd.class, MonthsSub.class)
+            .put(WeeksSub.class, WeeksAdd.class)
+            .put(WeeksAdd.class, WeeksSub.class)
+            .put(DaysSub.class, DaysAdd.class)
+            .put(DaysAdd.class, DaysSub.class)
+            .put(HoursSub.class, HoursAdd.class)
+            .put(HoursAdd.class, HoursSub.class)
+            .put(MinutesSub.class, MinutesAdd.class)
+            .put(MinutesAdd.class, MinutesSub.class)
+            .put(SecondsSub.class, SecondsAdd.class)
+            .put(SecondsAdd.class, SecondsSub.class)
             .build();
 
     @Override
