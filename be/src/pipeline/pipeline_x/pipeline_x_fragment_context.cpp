@@ -65,6 +65,7 @@
 #include "pipeline/exec/nested_loop_join_build_operator.h"
 #include "pipeline/exec/nested_loop_join_probe_operator.h"
 #include "pipeline/exec/olap_scan_operator.h"
+#include "pipeline/exec/olap_table_sink_operator.h"
 #include "pipeline/exec/partition_sort_sink_operator.h"
 #include "pipeline/exec/partition_sort_source_operator.h"
 #include "pipeline/exec/repeat_operator.h"
@@ -264,6 +265,15 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
         _sink.reset(new ResultSinkOperatorX(row_desc, output_exprs, thrift_sink.result_sink));
         break;
     }
+    case TDataSinkType::OLAP_TABLE_SINK: {
+        if (state->query_options().enable_memtable_on_sink_node) {
+            return Status::InternalError(
+                    "Unsuported OLAP_TABLE_SINK with enable_memtable_on_sink_node ");
+        } else {
+            _sink.reset(new OlapTableSinkOperatorX(pool, row_desc, output_exprs, false));
+        }
+        break;
+    }
     case TDataSinkType::JDBC_TABLE_SINK: {
         if (!thrift_sink.__isset.jdbc_table_sink) {
             return Status::InternalError("Missing data jdbc sink.");
@@ -394,7 +404,7 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
 
         _runtime_states[i]->set_desc_tbl(_query_ctx->desc_tbl);
         _runtime_states[i]->set_per_fragment_instance_idx(local_params.sender_id);
-
+        _runtime_states[i]->set_num_per_fragment_instances(request.num_senders);
         std::map<PipelineId, PipelineXTask*> pipeline_id_to_task;
         for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
             auto task = std::make_unique<PipelineXTask>(_pipelines[pip_idx], _total_tasks++,
