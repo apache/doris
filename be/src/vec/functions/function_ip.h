@@ -117,4 +117,67 @@ public:
                 argument.name, get_name());
     }
 };
+
+template <typename Name>
+class FunctionIPv4StringToNum : public IFunction {
+private:
+    template <typename ResType>
+    Status execute_type(Block& block, const ColumnWithTypeAndName& argument, size_t result) const {
+        using ColumnType = ColumnString;
+        const ColumnPtr& column = argument.column;
+
+        if (const ColumnType* col = typeid_cast<const ColumnType*>(column.get())) {
+            const typename ColumnType::Chars& vec_in = col->get_chars();
+            const typename ColumnType::Offsets& offsets_in = col->get_offsets();
+            auto col_res = ColumnVector<ResType>::create();
+
+            typename ColumnVector<ResType>::Container& vec_res = col_res->get_data();
+            vec_res.resize(offsets_in.size());
+
+            for (size_t i = 0; i < offsets_in.size(); ++i) {
+                StringRef str_ref = col->get_string(i);
+                const char* begin = str_ref.data;
+                const char* end = begin + str_ref.size;
+
+                uint32_t value = 0;
+                if (parseIPv4(begin, end, value)) {
+                    vec_res[i] = value;
+                } else {
+                    return Status::RuntimeError("Invalid IPv4 address: {}", String(begin, end));
+                }
+            }
+
+            block.replace_by_position(result, std::move(col_res));
+            return Status::OK();
+        } else
+            return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                        argument.column->get_name(), get_name());
+    }
+
+public:
+    static constexpr auto name = "ipv4stringtonum";
+    static FunctionPtr create() { return std::make_shared<FunctionIPv4StringToNum<Name>>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeUInt32>();
+    }
+
+    bool use_default_implementation_for_nulls() const override { return true; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        ColumnWithTypeAndName& argument = block.get_by_position(arguments[0]);
+
+        if (argument.type->is_string()) {
+            return execute_type<UInt32>(block, argument, result);
+        } else {
+            return Status::RuntimeError("Illegal column {} of argument of function {}, expected String",
+                                        argument.name, get_name());
+        }
+    }
+};
 } // namespace doris::vectorized

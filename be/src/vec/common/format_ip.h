@@ -95,4 +95,40 @@ inline void formatIPv4(const unsigned char* src, char*& dst, uint8_t mask_tail_o
     formatIPv4(src, 4, dst, mask_tail_octets, mask_string);
 }
 
+inline bool parseIPv4(const char* begin, const char* end, uint32_t& value) {
+        value = 0;
+        int num_dots = 0;
+        int num_digits = 0;
+        uint32_t octet_value = 0;
+
+        for (const char* p = begin; p != end; ++p) {
+            if (*p == '.') {
+                if (num_digits == 0 || num_digits > 3 || num_dots >= 3) {
+                    return false;
+                }
+                value = (value << 8) + octet_value;
+                octet_value = 0;
+                num_digits = 0;
+                ++num_dots;
+            } else if (*p >= '0' && *p <= '9') {
+                octet_value = octet_value * 10 + (*p - '0');
+                if (octet_value > 255) {
+                    return false;
+                }
+                ++num_digits;
+            } else {
+                return false;
+            }
+        }
+
+        if (num_digits == 0 || num_digits > 3 || num_dots != 3) {
+            return false;
+        }
+
+        value = (value << 8) + octet_value;
+        return true;
+    }
+
+inline bool parseIPv4(const char* begin, const char* end, uint32_t& value);
+
 } // namespace doris::vectorized
