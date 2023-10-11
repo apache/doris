@@ -33,7 +33,6 @@ public class PrivPredicate {
             Operator.OR);
     // show create table 'view'
     public static final PrivPredicate SHOW_VIEW = PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
-            // TODO: 2023/10/11 add some priv 
             Privilege.SHOW_VIEW_PRIV),
             Operator.OR);
     // show resources
