@@ -2300,7 +2300,12 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
                 break;
             // Micro second
             case 'f':
-                tmp = val + min(6, val_end - val);
+                tmp = val;
+                // when there's still something to the end, fix the scale of ms.
+                while (tmp < val_end && isdigit(*tmp)) {
+                    tmp++;
+                }
+
                 if (!str_to_int64(val, &tmp, &int_value)) {
                     return false;
                 }
