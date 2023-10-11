@@ -17,36 +17,33 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.PrintableMap;
-import org.apache.doris.common.util.PropertyAnalyzer;
 
-import java.util.Map;
+import com.google.common.base.Strings;
 
-/**
- * Statement for alter the catalog property.
- */
-public class AlterCatalogPropertyStmt extends AlterCatalogStmt {
-    private final Map<String, String> newProperties;
+public class AlterCatalogCommentStmt extends AlterCatalogStmt {
+    private final String comment;
 
-    public AlterCatalogPropertyStmt(String catalogName, Map<String, String> newProperties) {
+    public AlterCatalogCommentStmt(String catalogName, String comment) {
         super(catalogName);
-        this.newProperties = newProperties;
+        this.comment = comment;
     }
 
-    public Map<String, String> getNewProperties() {
-        return newProperties;
+    public String getComment() {
+        return comment;
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
-        PropertyAnalyzer.checkCatalogProperties(newProperties, true);
+        if (Strings.isNullOrEmpty(comment)) {
+            throw new AnalysisException("New comment is not set.");
+        }
     }
 
     @Override
     public String toSql() {
-        return "ALTER CATALOG " + catalogName + " SET PROPERTIES ("
-                + new PrintableMap<>(newProperties, "=", true, false, ",") + ")";
+        return "ALTER CATALOG " + catalogName + " MODIFY COMMENT " + comment;
     }
 }
