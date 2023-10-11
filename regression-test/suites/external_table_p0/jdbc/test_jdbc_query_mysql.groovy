@@ -733,7 +733,7 @@ suite("test_jdbc_query_mysql", "p0,external,mysql,external_docker,external_docke
         order_qt_sql13 """ SELECT k2, sum(CAST(NULL AS BIGINT)) FROM $jdbcMysql57Table1 GROUP BY k2 """
         order_qt_sql14 """ SELECT `key`, COUNT(*) as c FROM (
                             SELECT CASE WHEN k8 % 3 = 0 THEN NULL WHEN k8 % 5 = 0 THEN 0 ELSE k8 END AS `key`
-                            FROM $jdbcMysql57Table1) as a GROUP BY `key` order by c desc key asc limit 10"""
+                            FROM $jdbcMysql57Table1) as a GROUP BY `key` order by c desc , `key` asc limit 10"""
         order_qt_sql15 """ SELECT lines, COUNT(*) as c FROM (SELECT k7, COUNT(*) lines FROM $jdbcMysql57Table1 GROUP BY k7) U GROUP BY lines order by c"""
         order_qt_sql16 """ SELECT COUNT(DISTINCT k8 + 1) FROM $jdbcMysql57Table1 """
         order_qt_sql17 """ SELECT COUNT(*) FROM (SELECT DISTINCT k8 + 1 FROM $jdbcMysql57Table1) t """
