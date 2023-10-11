@@ -219,6 +219,11 @@ struct TypeName<QuantileState> {
     static const char* get() { return "QuantileState"; }
 };
 
+template <>
+struct TypeName<DecimalV2Value> {
+    static const char* get() { return "decimalv2"; }
+};
+
 template <typename T>
 struct TypeId;
 template <>

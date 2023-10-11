@@ -343,8 +343,8 @@ public:
                        sizeof(uint24_t));
                 return tmp_min_uint32_value <= _max_value && tmp_max_uint32_value >= _min_value;
             } else {
-                return _get_zone_map_value2<Type, T>(statistic.first->cell_ptr()) <= _max_value &&
-                       _get_zone_map_value2<Type, T>(statistic.second->cell_ptr()) >= _min_value;
+                return _get_zone_map_value<Type, T>(statistic.first->cell_ptr()) <= _max_value &&
+                       _get_zone_map_value<Type, T>(statistic.second->cell_ptr()) >= _min_value;
             }
         } else {
             return true;
@@ -376,8 +376,8 @@ public:
                        sizeof(uint24_t));
                 return tmp_min_uint32_value > _max_value || tmp_max_uint32_value < _min_value;
             } else {
-                return _get_zone_map_value2<Type, T>(statistic.first->cell_ptr()) > _max_value ||
-                       _get_zone_map_value2<Type, T>(statistic.second->cell_ptr()) < _min_value;
+                return _get_zone_map_value<Type, T>(statistic.first->cell_ptr()) > _max_value ||
+                       _get_zone_map_value<Type, T>(statistic.second->cell_ptr()) < _min_value;
             }
         } else {
             return false;
