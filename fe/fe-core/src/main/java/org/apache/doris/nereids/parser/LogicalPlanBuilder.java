@@ -1111,7 +1111,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<String> types = typedVisit(ctx.dataType());
         DataType dataType = DataType.convertPrimitiveFromStrings(types, true);
         Expression cast = ParserUtils.withOrigin(ctx, () ->
-                new Cast(getExpression(ctx.expression()), dataType));
+                new Cast(getExpression(ctx.expression()), dataType, true));
         if (dataType.isStringLikeType() && ((CharacterType) dataType).getLen() >= 0) {
             List<Expression> args = ImmutableList.of(
                     cast,

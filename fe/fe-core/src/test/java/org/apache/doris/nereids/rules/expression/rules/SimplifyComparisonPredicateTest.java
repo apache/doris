@@ -36,7 +36,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
-
     @Test
     void testSimplifyComparisonPredicateRule() {
         executor = new ExpressionRuleExecutor(
@@ -111,5 +110,20 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
         expression = new GreaterThan(left, right);
         rewrittenExpression = executor.rewrite(typeCoercion(expression), context);
         Assertions.assertEquals(left.getDataType(), rewrittenExpression.child(0).getDataType());
+    }
+
+    @Test
+    void testRound() {
+        executor = new ExpressionRuleExecutor(
+                ImmutableList.of(SimplifyCastRule.INSTANCE, SimplifyComparisonPredicate.INSTANCE));
+
+        Expression left = new Cast(new DateTimeLiteral("2021-01-02 00:00:00.00"), DateTimeV2Type.of(1));
+        Expression right = new DateTimeV2Literal("2021-01-01 23:59:59.99");
+        // (cast(2021-01-02 00:00:00.00 as DATETIMEV2(1)) > 2021-01-01 23:59:59.99)
+        Expression expression = new GreaterThan(left, right);
+        Expression rewrittenExpression = executor.rewrite(typeCoercion(expression), context);
+
+        // right should round to be 2021-01-02 00:00:00.00
+        Assertions.assertEquals(new DateTimeV2Literal("2021-01-02 00:00:00"), rewrittenExpression.child(1));
     }
 }
