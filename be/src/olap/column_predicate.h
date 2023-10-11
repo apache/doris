@@ -55,7 +55,7 @@ enum class PredicateType {
 };
 
 template <PrimitiveType primitive_type, typename ResultType>
-ResultType get_zone_map_value(void* data_ptr) const {
+ResultType get_zone_map_value(void* data_ptr) {
     ResultType res;
     // DecimalV2's storage value is different from predicate or compute value type
     // need convert it to DecimalV2Value
