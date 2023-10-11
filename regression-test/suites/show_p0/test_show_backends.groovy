@@ -28,8 +28,15 @@ suite("test_show_backends", "show") {
     }
     println result1.toString()
     result2 = connect(user = 'test_show_backends_user1', password = '12345', url = context.config.jdbcUrl) {
-            sql 'show proc '/backends''
+            sql 'show proc \'\/backends\''
         }
     println result2.toString()
+    assertEquals(result1[0][0],result2[0][0])
+    assertEquals(result1[0][1],result2[0][1])
+    assertEquals(result1[0][2],result2[0][2])
+    assertEquals(result1[0][3],result2[0][3])
+    assertEquals(result1[0][4],result2[0][4])
+    assertEquals(result1[0][5],result2[0][5])
+    assertEquals(result1[0][6],result2[0][6])
 }
 
