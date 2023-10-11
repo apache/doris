@@ -362,8 +362,7 @@ Status StorageEngine::get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_i
     return res;
 }
 
-void StorageEngine::get_special_dir_info(SpecialDirInfo* special_dir_infos,
-                                         TDiskType::type type) {
+void StorageEngine::get_special_dir_info(SpecialDirInfo* special_dir_infos, TDiskType::type type) {
     switch (type) {
     case TDiskType::LOG:
         _log_dir->health_check();
