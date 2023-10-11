@@ -211,8 +211,7 @@ public class SystemHandler extends AlterHandler {
                     hostInfo.getPort());
             if (backend == null) {
                 throw new DdlException("Backend does not exist["
-                        + hostInfo.getHost()
-                        + ":" + hostInfo.getPort() + "]");
+                        + NetUtils.getHostPortInAccessibleFormat(hostInfo.getHost(), hostInfo.getPort()) + "]");
             }
             if (backend.isDecommissioned()) {
                 // already under decommission, ignore it

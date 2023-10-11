@@ -360,8 +360,9 @@ public class NodeAction extends RestBaseController {
             configInfoTotal.add(Lists.newArrayList());
 
             Pair<String, Integer> hostPort = hostPorts.get(i);
-            configRequestDoneSignal.addMark(hostPort.first + ":" + hostPort.second, -1);
-            String url = "http://" + hostPort.first + ":" + hostPort.second + questPath;
+            String address = NetUtils.getHostPortInAccessibleFormat(hostPort.first, hostPort.second);
+            configRequestDoneSignal.addMark(address, -1);
+            String url = "http://" + address + questPath;
             httpExecutor.submit(
                     new HttpConfigInfoTask(url, hostPort, authorization, nodeType, confNames, configRequestDoneSignal,
                             configInfoTotal.get(i)));
@@ -436,7 +437,8 @@ public class NodeAction extends RestBaseController {
                         addConfig(conf);
                     }
                 }
-                configRequestDoneSignal.markedCountDown(hostPort.first + ":" + hostPort.second, -1);
+                configRequestDoneSignal.markedCountDown(NetUtils
+                        .getHostPortInAccessibleFormat(hostPort.first, hostPort.second), -1);
             } catch (Exception e) {
                 LOG.warn("get config from {}:{} failed.", hostPort.first, hostPort.second, e);
                 configRequestDoneSignal.countDown();
@@ -444,7 +446,8 @@ public class NodeAction extends RestBaseController {
         }
 
         private void addConfig(List<String> conf) {
-            conf.add(1, hostPort.first + ":" + hostPort.second);
+            conf.add(1, NetUtils
+                    .getHostPortInAccessibleFormat(hostPort.first, hostPort.second));
             conf.add(2, nodeType);
             config.add(conf);
         }
@@ -521,7 +524,8 @@ public class NodeAction extends RestBaseController {
             List<Map<String, String>> failedTotal) {
         for (Map.Entry<String, String> entry : configs.entrySet()) {
             Map<String, String> failed = Maps.newHashMap();
-            addFailedConfig(entry.getKey(), entry.getValue(), hostPort.first + ":" + hostPort.second, err, failed);
+            addFailedConfig(entry.getKey(), entry.getValue(), NetUtils
+                    .getHostPortInAccessibleFormat(hostPort.first, hostPort.second), err, failed);
             failedTotal.add(failed);
         }
     }
@@ -537,7 +541,8 @@ public class NodeAction extends RestBaseController {
         for (SetConfigAction.ErrConfig errConfig : setConfigEntity.getErrConfigs()) {
             Map<String, String> failed = Maps.newHashMap();
             addFailedConfig(errConfig.getConfigName(), errConfig.getConfigValue(),
-                    hostPort.first + ":" + hostPort.second, errConfig.getErrInfo(), failed);
+                    NetUtils.getHostPortInAccessibleFormat(hostPort.first, hostPort.second), errConfig.getErrInfo(),
+                    failed);
             failedTotal.add(failed);
         }
     }
@@ -803,7 +808,8 @@ public class NodeAction extends RestBaseController {
     }
 
     private String concatNodeConfig(String host, Integer port, String configName, String configValue) {
-        return host + ":" + port + ":" + configName + ":" + configValue;
+        return NetUtils
+                .getHostPortInAccessibleFormat(host, port) + ":" + configName + ":" + configValue;
     }
 
     private Map<String, String> parseNodeConfig(String nodeConfig) {
@@ -844,13 +850,15 @@ public class NodeAction extends RestBaseController {
                 JsonObject jsonObject = JsonParser.parseString(response).getAsJsonObject();
                 String status = jsonObject.get("status").getAsString();
                 if (!status.equals("OK")) {
-                    addFailedConfig(configName, configValue, hostPort.first + ":" + hostPort.second,
+                    addFailedConfig(configName, configValue, NetUtils
+                            .getHostPortInAccessibleFormat(hostPort.first, hostPort.second),
                             jsonObject.get("msg").getAsString(), failed);
                 }
                 beSetConfigDoneSignal.markedCountDown(
                         concatNodeConfig(hostPort.first, hostPort.second, configName, configValue), -1);
             } catch (Exception e) {
-                LOG.warn("set be:{} config:{} failed.", hostPort.first + ":" + hostPort.second,
+                LOG.warn("set be:{} config:{} failed.", NetUtils
+                        .getHostPortInAccessibleFormat(hostPort.first, hostPort.second),
                         configName + "=" + configValue, e);
                 beSetConfigDoneSignal.countDown();
             }
