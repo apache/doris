@@ -42,10 +42,6 @@ AggregateFunctionPtr create_aggregate_function_count_not_null_unary_old(
     return std::make_shared<AggregateFunctionCountNotNullUnaryOld>(argument_types);
 }
 
-void register_aggregate_function_count_old(AggregateFunctionSimpleFactory& factory) {
-    factory.register_alternative_function("count", create_aggregate_function_count_old, false);
-    factory.register_alternative_function("count",
-                                          create_aggregate_function_count_not_null_unary_old, true);
-}
+void register_aggregate_function_count_old(AggregateFunctionSimpleFactory& factory) {}
 
 } // namespace doris::vectorized
