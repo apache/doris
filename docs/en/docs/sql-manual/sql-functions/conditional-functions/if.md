@@ -33,7 +33,15 @@ under the License.
 
 Returns valueTrue when condition is true, returns valueFalseOrNull otherwise. 
 
-The return type is the type of the result of the valueTrue/valueFalseOrNull expression
+The return type is the type of the result of the valueTrue/valueFalseOrNull expression  
+:::tip
+The if function has three parameters, and its calculation process is as follows:
+1. First calculate the results of the second parameter and the third parameter together
+
+2. Then, depending on the condition of the first parameter, select the value of the second or third
+
+Instead of choosing to execute the second or third parameter based on the condition of the first parameter, this needs to be paid attention to.
+:::
 
 ### example
 
