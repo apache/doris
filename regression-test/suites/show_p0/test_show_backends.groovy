@@ -24,11 +24,11 @@ suite("test_show_backends", "show") {
     sql """grant ADMIN_PRIV on *.*.* to test_show_backends_user1"""
 
     result1 = connect(user = 'test_show_backends_user1', password = '12345', url = context.config.jdbcUrl) {
-        sql 'show backends'
+        sql """ show backends """
     }
     println result1.toString()
     result2 = connect(user = 'test_show_backends_user1', password = '12345', url = context.config.jdbcUrl) {
-            sql 'show proc \'\/backends\''
+            sql """ show proc '/backends' """
         }
     println result2.toString()
     assertEquals(result1[0][0],result2[0][0])
