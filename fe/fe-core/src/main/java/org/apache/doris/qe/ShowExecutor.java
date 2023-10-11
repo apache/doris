@@ -172,6 +172,7 @@ import org.apache.doris.common.profile.ProfileTreePrinter;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.ProfileManager;
@@ -1404,10 +1405,11 @@ public class ShowExecutor {
         SystemInfoService infoService = Env.getCurrentSystemInfo();
         Backend be = infoService.getBackendWithHttpPort(host, port);
         if (be == null) {
-            throw new AnalysisException(host + ":" + port + " is not a valid backend");
+            throw new AnalysisException(NetUtils.getHostPortInAccessibleFormat(host, port) + " is not a valid backend");
         }
         if (!be.isAlive()) {
-            throw new AnalysisException("Backend " + host + ":" + port + " is not alive");
+            throw new AnalysisException(
+                    "Backend " + NetUtils.getHostPortInAccessibleFormat(host, port) + " is not alive");
         }
 
         if (!url.getPath().equals("/api/_load_error_log")) {
