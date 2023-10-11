@@ -1576,6 +1576,14 @@ public class Config extends ConfigBase {
     @ConfField
     public static int async_task_consumer_thread_num = 5;
 
+    /**
+     * When job is finished, it will be saved in job manager for a while.
+     * This configuration is used to control the max saved time.
+     * Default is 3 days.
+     */
+    @ConfField
+    public static int finish_job_max_saved_second = 60 * 60 * 24 * 3;
+
     // enable_workload_group should be immutable and temporarily set to mutable during the development test phase
     @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_workload_group = false;
