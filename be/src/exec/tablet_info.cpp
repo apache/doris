@@ -324,7 +324,8 @@ Status VOlapTablePartitionParam::init() {
         }
     }
     if (_distributed_slot_locs.empty()) {
-        _compute_tablet_index = [](BlockRow* key, const VOlapTablePartition& partition) -> uint32_t {
+        _compute_tablet_index = [](BlockRow* key,
+                                   const VOlapTablePartition& partition) -> uint32_t {
             if (partition.load_tablet_idx == -1) {
                 // load_to_single_tablet = false, just do random
                 return butil::fast_rand() % partition.num_buckets;
@@ -333,7 +334,8 @@ Status VOlapTablePartitionParam::init() {
             return partition.load_tablet_idx % partition.num_buckets;
         };
     } else {
-        _compute_tablet_index = [this](BlockRow* key, const VOlapTablePartition& partition) -> uint32_t {
+        _compute_tablet_index = [this](BlockRow* key,
+                                       const VOlapTablePartition& partition) -> uint32_t {
             uint32_t hash_val = 0;
             for (int i = 0; i < _distributed_slot_locs.size(); ++i) {
                 auto slot_desc = _slots[_distributed_slot_locs[i]];
