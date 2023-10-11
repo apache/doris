@@ -20,9 +20,9 @@
 #include <memory>
 
 #include "pipeline/exec/operator.h"
+#include "vec/columns/column_filter_helper.h"
 #include "vec/core/block.h"
 #include "vec/exec/join/vnested_loop_join_node.h"
-#include "vec/columns/column_filter_helper.h"
 
 namespace doris {
 class RuntimeState;
