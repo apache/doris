@@ -325,6 +325,11 @@ Status VOlapTablePartitionParam::init() {
     }
     if (_distributed_slot_locs.empty()) {
         _compute_tablet_index = [](BlockRow* key, const VOlapTablePartition& partition) -> uint32_t {
+            if (partition.load_tablet_idx == -1) {
+                // load_to_single_tablet = false, just do random
+                return butil::fast_rand() % partition.num_buckets;
+            }
+            // load_to_single_tablet = ture, do round-robin
             return partition.load_tablet_idx % partition.num_buckets;
         };
     } else {
@@ -416,7 +421,10 @@ Status VOlapTablePartitionParam::generate_partition_from(const TOlapTablePartiti
     part_result = _obj_pool.add(new VOlapTablePartition(&_partition_block));
     part_result->id = t_part.id;
     part_result->is_mutable = t_part.is_mutable;
-    part_result->load_tablet_idx = t_part.load_tablet_idx;
+    // only load_to_single_tablet = true will set load_tablet_idx
+    if (t_part.__isset.load_tablet_idx) {
+        part_result->load_tablet_idx = t_part.load_tablet_idx;
+    }
 
     if (!_is_in_partition) {
         if (t_part.__isset.start_keys) {

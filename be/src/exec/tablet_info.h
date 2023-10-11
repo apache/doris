@@ -124,7 +124,8 @@ struct VOlapTablePartition {
     int64_t num_buckets = 0;
     std::vector<OlapTableIndexTablets> indexes;
     bool is_mutable;
-    int64_t load_tablet_idx = 0;
+    // -1 indicates load_to_single_tablet = false
+    int64_t load_tablet_idx = -1;
 
     VOlapTablePartition(vectorized::Block* partition_block)
             : start_key {partition_block, -1}, end_key {partition_block, -1} {}

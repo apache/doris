@@ -25,6 +25,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.MasterDaemon;
 
 import lombok.Getter;
+import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -32,12 +33,12 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class SingleTabletLoadRecorderMgr extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(SingleTabletLoadRecorderMgr.class);
-    private static final long EXPIRY_TIME_INTERVAL_MS = 604800000; // 7 * 24 * 60 * 60 * 1000, 7 days
+    private static final long EXPIRY_TIME_INTERVAL_MS = 86400000; // 1 * 24 * 60 * 60 * 1000, 1 days
 
-    // <db_id -> <table_id -> <partition_id -> load_tablet_record>>>
+    // <<db_id, table_id, partition_id> -> load_tablet_record>
     // 0 =< load_tablet_index < number_buckets
-    private final ConcurrentHashMap<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, TabletUpdateRecord>>>
-            loadTabletRecordMap = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Triple<Long, Long, Long>, TabletUpdateRecord> loadTabletRecordMap =
+            new ConcurrentHashMap<>();
 
     public SingleTabletLoadRecorderMgr() {
         super("single_tablet_load_recorder", EXPIRY_TIME_INTERVAL_MS);
@@ -46,29 +47,20 @@ public class SingleTabletLoadRecorderMgr extends MasterDaemon {
     @Override
     protected void runAfterCatalogReady() {
         long expiryTime = System.currentTimeMillis() - EXPIRY_TIME_INTERVAL_MS;
-        loadTabletRecordMap.forEach((dbId, dbTableMap) -> {
-            dbTableMap.forEach((tableId, partitionMap) -> {
-                partitionMap.entrySet().removeIf(entry -> entry.getValue().getUpdateTimestamp() < expiryTime);
-                if (partitionMap.isEmpty()) {
-                    dbTableMap.remove(tableId);
-                }
-            });
-            if (dbTableMap.isEmpty()) {
-                loadTabletRecordMap.remove(dbId);
-            }
-        });
+        loadTabletRecordMap.entrySet().removeIf(entry ->
+                entry.getValue().getUpdateTimestamp() < expiryTime
+        );
         LOG.info("Remove expired load tablet record successfully.");
     }
 
     public int getCurrentLoadTabletIndex(long dbId, long tableId, long partitionId) throws UserException {
-        TabletUpdateRecord record = loadTabletRecordMap.computeIfAbsent(dbId, k -> new ConcurrentHashMap<>())
-                .computeIfAbsent(tableId, k -> new ConcurrentHashMap<>())
-                .get(partitionId);
+        Triple<Long, Long, Long> key = Triple.of(dbId, tableId, partitionId);
+        TabletUpdateRecord record = loadTabletRecordMap.get(key);
         int numBuckets = -1;
         if (record == null) {
             numBuckets = getNumBuckets(dbId, tableId, partitionId);
         }
-        return createOrUpdateLoadTabletRecord(dbId, tableId, partitionId, numBuckets);
+        return createOrUpdateLoadTabletRecord(key, numBuckets);
     }
 
     private int getNumBuckets(long dbId, long tableId, long partitionId) throws UserException {
@@ -76,24 +68,22 @@ public class SingleTabletLoadRecorderMgr extends MasterDaemon {
                 .flatMap(db -> db.getTable(tableId)).filter(t -> t.getType() == TableIf.TableType.OLAP)
                 .orElse(null);
         if (olapTable == null) {
-            throw new UserException("db[" + dbId + "], table[" + tableId + "] is not exist.");
+            throw new UserException("Olap table[" + dbId + "." + tableId + "] is not exist.");
         }
         return olapTable.getPartition(partitionId)
                 .getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)
                 .get(0).getTablets().size();
     }
 
-    private int createOrUpdateLoadTabletRecord(long dbId, long tableId, long partitionId, int numBuckets) {
-        TabletUpdateRecord record = loadTabletRecordMap.computeIfAbsent(dbId, k -> new ConcurrentHashMap<>())
-                .computeIfAbsent(tableId, k -> new ConcurrentHashMap<>())
-                .compute(partitionId, (k, existingRecord) -> {
-                    if (existingRecord == null) {
-                        return new TabletUpdateRecord(0, numBuckets);
-                    } else {
-                        existingRecord.updateRecord();
-                        return existingRecord;
-                    }
-                });
+    private int createOrUpdateLoadTabletRecord(Triple<Long, Long, Long> key, int numBuckets) {
+        TabletUpdateRecord record =  loadTabletRecordMap.compute(key, (k, existingRecord) -> {
+            if (existingRecord == null) {
+                return new TabletUpdateRecord(0, numBuckets);
+            } else {
+                existingRecord.updateRecord();
+                return existingRecord;
+            }
+        });
         return record.getTabletIndex();
     }
 
@@ -112,7 +102,10 @@ public class SingleTabletLoadRecorderMgr extends MasterDaemon {
 
         public synchronized void updateRecord() {
             this.tabletIndex = this.tabletIndex + 1 >= numBuckets ? 0 : this.tabletIndex + 1;
-            this.updateTimestamp = System.currentTimeMillis();
+            // To reduce the compute time cost, only update timestamp when index is 0
+            if (this.tabletIndex == 0) {
+                this.updateTimestamp = System.currentTimeMillis();
+            }
         }
 
     }
