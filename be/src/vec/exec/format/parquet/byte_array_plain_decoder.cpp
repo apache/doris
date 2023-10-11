@@ -56,73 +56,53 @@ template <bool has_filter>
 Status ByteArrayPlainDecoder::_decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                                              ColumnSelectVector& select_vector,
                                              bool is_dict_filter) {
-//    TypeIndex logical_type = remove_nullable(data_type)->get_type_id();
-//    switch (logical_type) {
-//    case TypeIndex::String:
-//        [[fallthrough]];
-//    case TypeIndex::FixedString: {
-        ColumnSelectVector::DataReadType read_type;
-        while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
-            switch (read_type) {
-            case ColumnSelectVector::CONTENT: {
-                std::vector<StringRef> string_values;
-                string_values.reserve(run_length);
-                for (size_t i = 0; i < run_length; ++i) {
-                    if (UNLIKELY(_offset + 4 > _data->size)) {
-                        return Status::IOError("Can't read byte array length from plain decoder");
-                    }
-                    uint32_t length = decode_fixed32_le(
-                            reinterpret_cast<const uint8_t*>(_data->data) + _offset);
-                    _offset += 4;
-                    if (UNLIKELY(_offset + length) > _data->size) {
-                        return Status::IOError("Can't read enough bytes in plain decoder");
-                    }
-                    string_values.emplace_back(_data->data + _offset, length);
-                    _offset += length;
+    ColumnSelectVector::DataReadType read_type;
+    while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
+        switch (read_type) {
+        case ColumnSelectVector::CONTENT: {
+            std::vector<StringRef> string_values;
+            string_values.reserve(run_length);
+            for (size_t i = 0; i < run_length; ++i) {
+                if (UNLIKELY(_offset + 4 > _data->size)) {
+                    return Status::IOError("Can't read byte array length from plain decoder");
                 }
-                doris_column->insert_many_strings(&string_values[0], run_length);
-                break;
-            }
-            case ColumnSelectVector::NULL_DATA: {
-                doris_column->insert_many_defaults(run_length);
-                break;
-            }
-            case ColumnSelectVector::FILTERED_CONTENT: {
-                for (int i = 0; i < run_length; ++i) {
-                    if (UNLIKELY(_offset + 4 > _data->size)) {
-                        return Status::IOError("Can't read byte array length from plain decoder");
-                    }
-                    uint32_t length = decode_fixed32_le(
-                            reinterpret_cast<const uint8_t*>(_data->data) + _offset);
-                    _offset += 4;
-                    if (UNLIKELY(_offset + length) > _data->size) {
-                        return Status::IOError("Can't read enough bytes in plain decoder");
-                    }
-                    _offset += length;
+                uint32_t length =
+                        decode_fixed32_le(reinterpret_cast<const uint8_t*>(_data->data) + _offset);
+                _offset += 4;
+                if (UNLIKELY(_offset + length) > _data->size) {
+                    return Status::IOError("Can't read enough bytes in plain decoder");
                 }
-                break;
+                string_values.emplace_back(_data->data + _offset, length);
+                _offset += length;
             }
-            case ColumnSelectVector::FILTERED_NULL: {
-                // do nothing
-                break;
-            }
-            }
+            doris_column->insert_many_strings(&string_values[0], run_length);
+            break;
         }
-        return Status::OK();
-//    }
-//    case TypeIndex::Decimal32:
-//        return _decode_binary_decimal<Int32, has_filter>(doris_column, data_type, select_vector);
-//    case TypeIndex::Decimal64:
-//        return _decode_binary_decimal<Int64, has_filter>(doris_column, data_type, select_vector);
-//    case TypeIndex::Decimal128:
-//        return _decode_binary_decimal<Int128, has_filter>(doris_column, data_type, select_vector);
-//    case TypeIndex::Decimal128I:
-//        return _decode_binary_decimal<Int128, has_filter>(doris_column, data_type, select_vector);
-//    default:
-//        break;
-//    }
-//    return Status::InvalidArgument(
-//            "Can't decode parquet physical type BYTE_ARRAY to doris logical type {}",
-//            getTypeName(logical_type));
+        case ColumnSelectVector::NULL_DATA: {
+            doris_column->insert_many_defaults(run_length);
+            break;
+        }
+        case ColumnSelectVector::FILTERED_CONTENT: {
+            for (int i = 0; i < run_length; ++i) {
+                if (UNLIKELY(_offset + 4 > _data->size)) {
+                    return Status::IOError("Can't read byte array length from plain decoder");
+                }
+                uint32_t length =
+                        decode_fixed32_le(reinterpret_cast<const uint8_t*>(_data->data) + _offset);
+                _offset += 4;
+                if (UNLIKELY(_offset + length) > _data->size) {
+                    return Status::IOError("Can't read enough bytes in plain decoder");
+                }
+                _offset += length;
+            }
+            break;
+        }
+        case ColumnSelectVector::FILTERED_NULL: {
+            // do nothing
+            break;
+        }
+        }
+    }
+    return Status::OK();
 }
 } // namespace doris::vectorized

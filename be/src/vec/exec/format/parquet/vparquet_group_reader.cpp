@@ -321,7 +321,7 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
         }
 
         RETURN_IF_ERROR(_build_pos_delete_filter(*read_rows));
-        /*
+
         std::vector<uint32_t> columns_to_filter;
         int column_to_keep = block->columns();
         columns_to_filter.resize(column_to_keep);
@@ -348,7 +348,7 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
                 _convert_dict_cols_to_string_cols(block);
                 return Status::OK();
             }
-            _pre_conjunct_ctxs
+
             if (!_not_single_slot_filter_conjuncts.empty()) {
                 _convert_dict_cols_to_string_cols(block);
                 std::vector<IColumn::Filter*> merged_filters;
@@ -367,7 +367,6 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
             RETURN_IF_CATCH_EXCEPTION(
                     RETURN_IF_ERROR(_filter_block(block, column_to_keep, columns_to_filter)));
         }
-*/
         *read_rows = block->rows();
         return Status::OK();
     }

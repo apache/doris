@@ -771,7 +771,7 @@ Status VFileScanner::_get_next_reader() {
                 for (size_t i = 0; i != _conjuncts.size(); ++i) {
                     RETURN_IF_ERROR(_conjuncts[i]->clone(_state, _push_down_conjuncts[i]));
                 }
-                //_discard_conjuncts();
+                _discard_conjuncts();
             }
             if (range.__isset.table_format_params &&
                 range.table_format_params.table_format_type == "iceberg") {

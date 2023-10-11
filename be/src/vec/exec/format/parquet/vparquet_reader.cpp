@@ -525,63 +525,13 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
     }
     DCHECK(_current_group_reader != nullptr);
 
-//    {
-//        BlockUPtr src_block;
-//        std::map<string, bool> need_convert;
-//        {
-//            //            std::cout <<"->";
-//            //            for(auto i  =0; i < block->columns();i++ ){
-//            //                std::cout << block->get_columns()[i]->get_name()<<" ";
-//            //            }
-//            //            std::cout <<"\n";
-//
-//            vector<ColumnWithTypeAndName> v;
-//            for (auto& col_name : block->get_names()) {
-//                vectorized::DataTypePtr data_type;
-//                tparquet::Type::type parquet_type =
-//                        _file_metadata->schema().get_column(col_name)->physical_type;
-//                bool conv = false;
-//                RETURN_IF_ERROR(convert::convert_data_type_from_parquet(
-//                        parquet_type, data_type, block->get_by_name(col_name).type, &conv));
-//                std::cout << col_name << "->" << conv << "\n";
-//                need_convert[col_name] = conv;
-//                if (conv) {
-//                    v.emplace_back(data_type, col_name);
-//                } else {
-//                    //                    v.emplace_back(  (*std::move(block->get_by_name(col_name).column)).mutate(),data_type,col_name );
-//                    v.emplace_back(block->get_by_name(col_name).column->assume_mutable(), data_type,
-//                                   col_name);
-//                }
-//            }
-//            src_block = vectorized::Block::create_unique(v);
-//        }
-        SCOPED_RAW_TIMER(&_statistics.column_read_time);
-        Status batch_st = _current_group_reader->next_batch(block, _batch_size, read_rows,
-                                                            &_row_group_eof);
-        if (!batch_st.ok()) {
-            return Status::InternalError("Read parquet file {} failed, reason = {}",
-                                         _scan_range.path, batch_st.to_string());
-        }
-
-        //convert
-//        for (auto i = 0; i < block->columns(); i++) {
-//            std::cout << "colname = " << block->get_names()[i] << " "
-//                      << need_convert[block->get_names()[i]] << "\n";
-//            if (need_convert[block->get_names()[i]]) {
-//                std::unique_ptr<convert::ColumnConvert> converter(nullptr);
-//                convert::DocTime doc;
-//                //                auto x =
-//                doc.init_time(_file_metadata->schema().get_column(i), _ctz);
-//                RETURN_IF_ERROR(convert::get_converter(src_block->get_data_type(i),
-//                                                       block->get_data_type(i), &converter, doc));
-//                //                block->get_columns()[i]=src_block->get_columns()[i];
-//                RETURN_IF_ERROR(
-//
-//                        converter->convert(src_block->get_columns()[i].get(),
-//                                           const_cast<IColumn*>(block->get_columns()[i].get())));
-//            }
-//        }
-//    }
+    SCOPED_RAW_TIMER(&_statistics.column_read_time);
+    Status batch_st =
+            _current_group_reader->next_batch(block, _batch_size, read_rows, &_row_group_eof);
+    if (!batch_st.ok()) {
+        return Status::InternalError("Read parquet file {} failed, reason = {}", _scan_range.path,
+                                     batch_st.to_string());
+    }
 
     if (_row_group_eof) {
         auto column_st = _current_group_reader->statistics();

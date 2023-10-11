@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <utility>
 
+#include "parquet_column_convert.h"
 #include "runtime/define_primitive_type.h"
 #include "schema_desc.h"
 #include "util/runtime_profile.h"
@@ -39,7 +40,6 @@
 #include "vec/data_types/data_type_struct.h"
 #include "vec/exec/format/parquet/level_decoder.h"
 #include "vparquet_column_chunk_reader.h"
-#include "vec/exec/format/convert.h"
 
 namespace cctz {
 class time_zone;
@@ -316,6 +316,16 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
                                                ColumnSelectVector& select_vector, size_t batch_size,
                                                size_t* read_rows, bool* eof, bool is_dict_filter,
                                                bool align_rows = false) {
+    bool need_convert = false;
+    auto& physical_type = _chunk_meta.meta_data.type;
+    DataTypePtr src_type;
+    ParquetConvert::convert_data_type_from_parquet(physical_type, src_type, type, &need_convert);
+
+    ColumnPtr src_column = doris_column;
+    if (need_convert) {
+        src_column = src_type->create_column();
+    }
+
     size_t origin_size = 0;
     if (align_rows) {
         origin_size = _rep_levels.size();
@@ -362,17 +372,20 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
     MutableColumnPtr data_column;
     std::vector<uint16_t> null_map;
     NullMap* map_data_column = nullptr;
-    if (doris_column->is_nullable()) {
+    if (src_column->is_nullable()) {
         SCOPED_RAW_TIMER(&_decode_null_map_time);
-        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-                (*std::move(doris_column)).mutate().get());
+        auto* nullable_column = const_cast<vectorized::ColumnNullable*>(
+                static_cast<const vectorized::ColumnNullable*>(src_column.get()));
+
+        //        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
+        //                (*std::move(src_column)).mutate().get());
         data_column = nullable_column->get_nested_column_ptr();
         map_data_column = &(nullable_column->get_null_map_data());
     } else {
         if (_field_schema->is_nullable) {
             return Status::Corruption("Not nullable column has null values in parquet file");
         }
-        data_column = doris_column->assume_mutable();
+        data_column = src_column->assume_mutable();
     }
     size_t has_read = origin_size;
     size_t ancestor_nulls = 0;
@@ -429,7 +442,7 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
             RETURN_IF_ERROR(_chunk_reader->next_page());
             RETURN_IF_ERROR(_chunk_reader->load_page_data());
             select_vector.reset();
-            return _read_nested_column(doris_column, type, select_vector, 0, read_rows, eof,
+            return _read_nested_column(src_column, type, select_vector, 0, read_rows, eof,
                                        is_dict_filter, true);
         } else {
             *eof = true;
@@ -440,6 +453,14 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
         // so the repetition level of first element should be 0, meaning a new row is started.
         DCHECK_EQ(_rep_levels[0], 0);
     }
+    if (need_convert) {
+        std::unique_ptr<ParquetConvert::ColumnConvert> converter;
+        ParquetConvert::ConvertParams convert_params;
+        convert_params.init(_field_schema, _ctz);
+        ParquetConvert::get_converter(src_type, type, &converter, &convert_params);
+        converter->convert(src_column, const_cast<IColumn*>(doris_column.get()));
+    }
+
     return Status::OK();
 }
 Status ScalarColumnReader::read_dict_values_to_column(MutableColumnPtr& doris_column,
@@ -481,12 +502,12 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
                                             ColumnSelectVector& select_vector, size_t batch_size,
                                             size_t* read_rows, bool* eof, bool is_dict_filter) {
     bool need_convert = false;
-    auto & physical_type = _chunk_meta.meta_data.type;
+    auto& physical_type = _chunk_meta.meta_data.type;
     DataTypePtr src_type;
-    ParquetConvert::convert_data_type_from_parquet(physical_type, src_type,type,&need_convert);
+    ParquetConvert::convert_data_type_from_parquet(physical_type, src_type, type, &need_convert);
 
     ColumnPtr src_column = doris_column;
-    if (need_convert ){
+    if (need_convert) {
         src_column = src_type->create_column();
     }
 
@@ -555,8 +576,8 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
             if (skip_whole_batch) {
                 RETURN_IF_ERROR(_skip_values(read_values));
             } else {
-                RETURN_IF_ERROR(_read_values(read_values, src_column, type, select_vector,
-                                             is_dict_filter));
+                RETURN_IF_ERROR(
+                        _read_values(read_values, src_column, type, select_vector, is_dict_filter));
             }
             has_read += read_values;
             _current_row_index += read_values;
@@ -570,12 +591,12 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
     if (_chunk_reader->remaining_num_values() == 0 && !_chunk_reader->has_next_page()) {
         *eof = true;
     }
-    if ( need_convert ){
+    if (need_convert) {
         std::unique_ptr<ParquetConvert::ColumnConvert> converter;
-        ParquetConvert::DocTime doc;
-        doc.init_time( _field_schema , _ctz);
-        ParquetConvert::get_converter(src_type,type,&converter, doc);
-        converter->convert(src_column,const_cast<IColumn*>(doris_column.get()));
+        ParquetConvert::ConvertParams convert_params;
+        convert_params.init(_field_schema, _ctz);
+        ParquetConvert::get_converter(src_type, type, &converter, &convert_params);
+        converter->convert(src_column, const_cast<IColumn*>(doris_column.get()));
     }
 
     return Status::OK();
