@@ -56,6 +56,8 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Blo
     RETURN_IF_CANCELLED(state);
     CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
 
+    SCOPED_TIMER(local_state.profile()->total_time_counter());
+
     auto& mem_used = local_state._shared_state->mem_used;
     auto& build_blocks = local_state._shared_state->build_blocks;
     auto& build_block_index = local_state._shared_state->build_block_index;
@@ -87,9 +89,6 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Blo
                         },
                         *local_state._shared_state->hash_table_variants);
             }
-            LOG(WARNING) << "=====#1 " << (int64_t)local_state._shared_state << ' ' << _cur_child_id
-                         << " "
-                         << local_state._shared_state->probe_finished_children_index[_cur_child_id];
             local_state._shared_state->probe_finished_children_index[_cur_child_id] = true;
             if (_child_quantity == 1) {
                 local_state._dependency->set_ready_for_read();
@@ -160,6 +159,8 @@ Status SetSinkOperatorX<is_intersect>::_extract_build_column(
 template <bool is_intersect>
 Status SetSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(PipelineXSinkLocalState<SetDependency>::init(state, info));
+    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(_open_timer);
     _build_timer = ADD_TIMER(_profile, "BuildTime");
 
     Parent& parent = _parent->cast<Parent>();
@@ -180,21 +181,9 @@ Status SetSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSinkState
 
     _shared_state->hash_table_variants = std::make_unique<vectorized::HashTableVariants>();
 
-    vector<bool> nullable_flags;
-
-    nullable_flags.resize(child_exprs_lists[0].size(), false);
-    for (int i = 0; i < child_exprs_lists.size(); ++i) {
-        for (int j = 0; j < child_exprs_lists[i].size(); ++j) {
-            nullable_flags[j] = nullable_flags[j] || child_exprs_lists[i][j]->root()->is_nullable();
-        }
-    }
-
     for (int i = 0; i < child_exprs_lists[0].size(); ++i) {
         const auto& ctx = child_exprs_lists[0][i];
         _shared_state->build_not_ignore_null.push_back(ctx->root()->is_nullable());
-        _shared_state->left_table_data_types.push_back(
-                nullable_flags[i] ? make_nullable(ctx->root()->data_type())
-                                  : ctx->root()->data_type());
     }
     _shared_state->hash_table_init();
     return Status::OK();
