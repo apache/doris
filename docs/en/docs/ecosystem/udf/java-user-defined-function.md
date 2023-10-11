@@ -342,7 +342,7 @@ Examples of Java UDF are provided in the `samples/doris-demo/java-udf-demo/` dir
 
 ## Instructions
 1. Complex data types (HLL, bitmap) are not supported.
-2. Currently, users are allowed to specify the maximum heap size of the JVM themselves. The configuration item is jvm_ max_ heap_ size. The configuration item is in the global configuration file 'be.conf' under the installation directory of the BE. The default value is 512M. If data aggregation is required, it is recommended to increase the value to improve performance and reduce the risk of memory overflow.
+2. Currently, users are allowed to specify the maximum heap size of the JVM themselves. The configuration item is jvm_max_heap_size. The configuration item is in the global configuration file 'be.conf' under the installation directory of the BE. The default value is 1024M. If data aggregation is required, it is recommended to increase the value to improve performance and reduce the risk of memory overflow.For example jvm_max_heap_size=2048M
 3. The udf of char type needs to use the String type when creating a function.
 4. Due to the problem that the jvm loads classes with the same name, do not use multiple classes with the same name as udf implementations at the same time. If you want to update the udf of a class with the same name, you need to restart be to reload the classpath.
 
