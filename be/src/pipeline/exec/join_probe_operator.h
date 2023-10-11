@@ -113,6 +113,7 @@ protected:
     // output expr
     vectorized::VExprContextSPtrs _output_expr_ctxs;
     OperatorXPtr _build_side_child;
+    const bool _short_circuit_for_null_in_build_side;
 };
 
 } // namespace pipeline
