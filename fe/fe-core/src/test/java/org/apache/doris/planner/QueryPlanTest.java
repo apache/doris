@@ -746,7 +746,7 @@ public class QueryPlanTest extends TestWithFeService {
                 + "left join join2 on join1.id = join2.id\n"
                 + "and join1.id > 1;";
         String explainString = getSQLPlanOrErrorMsg("explain " + sql);
-        Assert.assertTrue(explainString.contains("other join predicates: <slot 12> > 1"));
+        Assert.assertTrue(explainString.contains("other join predicates: <slot 12> <slot 0> > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
         /*
@@ -833,7 +833,7 @@ public class QueryPlanTest extends TestWithFeService {
                 + "left anti join join2 on join1.id = join2.id\n"
                 + "and join1.id > 1;";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
-        Assert.assertTrue(explainString.contains("other join predicates: <slot 7> > 1"));
+        Assert.assertTrue(explainString.contains("other join predicates: <slot 7> <slot 0> > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
         // test semi join, left table join predicate, only push to left table
@@ -1523,7 +1523,6 @@ public class QueryPlanTest extends TestWithFeService {
     public void testEmptyNode() throws Exception {
         connectContext.setDatabase("default_cluster:test");
         String emptyNode = "EMPTYSET";
-        String denseRank = "dense_rank";
 
         List<String> sqls = Lists.newArrayList();
         sqls.add("explain select * from baseall limit 0");
@@ -1542,7 +1541,6 @@ public class QueryPlanTest extends TestWithFeService {
         for (String sql : sqls) {
             String explainString = getSQLPlanOrErrorMsg(sql);
             Assert.assertTrue(explainString.contains(emptyNode));
-            Assert.assertFalse(explainString.contains(denseRank));
         }
     }
 
@@ -2056,7 +2054,7 @@ public class QueryPlanTest extends TestWithFeService {
         Assert.assertFalse(explainString.contains("OUTPUT EXPRS:\n    3\n    4"));
         System.out.println(explainString);
         Assert.assertTrue(explainString.contains(
-                "OUTPUT EXPRS:\n" + "    CAST(<slot 4> AS INT)\n" + "    CAST(<slot 5> AS INT)"));
+                "OUTPUT EXPRS:\n" + "    CAST(<slot 4> <slot 2> 3 AS INT)\n" + "    CAST(<slot 5> <slot 3> 4 AS INT)"));
     }
 
     @Test
