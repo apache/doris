@@ -107,6 +107,9 @@ public class HMSExternalTable extends ExternalTable {
 
     private DLAType dlaType = DLAType.UNKNOWN;
 
+    // record the partition update time when enable hms event listener
+    protected volatile long partitionUpdateTime;
+
     public enum DLAType {
         UNKNOWN, HIVE, HUDI, ICEBERG
     }
@@ -258,11 +261,6 @@ public class HMSExternalTable extends ExternalTable {
 
     @Override
     public long getCreateTime() {
-        return 0;
-    }
-
-    @Override
-    public long getUpdateTime() {
         return 0;
     }
 
@@ -607,6 +605,17 @@ public class HMSExternalTable extends ExternalTable {
         } else {
             builder.setMaxValue(Double.MAX_VALUE);
         }
+    }
+
+    public void setPartitionUpdateTime(long updateTime) {
+        this.partitionUpdateTime = updateTime;
+    }
+
+    @Override
+    // get the max value of `schemaUpdateTime` and `partitionUpdateTime`
+    // partitionUpdateTime will be refreshed after processing partition events with hms event listener enabled
+    public long getUpdateTime() {
+        return Math.max(this.schemaUpdateTime, this.partitionUpdateTime);
     }
 }
 
