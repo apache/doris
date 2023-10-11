@@ -2192,7 +2192,7 @@ When create a table(or partition), you can specify its storage medium(HDD or SSD
 - Whether to enable the Storage Policy feature. This config allows users to separate hot and cold data.
 Default: false
 
-Is it possible to dynamically configure: true
+Is it possible to dynamically configure: false
 
 Is it a configuration item unique to the Master FE node: true
 

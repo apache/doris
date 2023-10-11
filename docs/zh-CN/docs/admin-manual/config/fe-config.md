@@ -2198,7 +2198,7 @@ tablet 状态更新间隔
 
 默认值：false。即不开启
 
-是否可以动态配置：true
+是否可以动态配置：false
 
 是否为 Master FE 节点独有的配置项：true
 
