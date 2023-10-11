@@ -48,6 +48,7 @@
 #include "http/action/tablet_migration_action.h"
 #include "http/action/tablets_distribution_action.h"
 #include "http/action/tablets_info_action.h"
+#include "http/action/tablets_version_info_action.h"
 #include "http/action/version_action.h"
 #include "http/default_path_handlers.h"
 #include "http/ev_http_server.h"
@@ -143,6 +144,12 @@ Status HttpService::start() {
             new TabletsDistributionAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/tablets_distribution",
                                       tablets_distribution_action);
+
+    // Register Tablets Version Over Limit action
+    TabletsVersionInfoAction* tablets_version_info_action = _pool.add(
+            new TabletsVersionInfoAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/tablets_version_info",
+                                      tablets_version_info_action);
 
     // Register tablet migration action
     TabletMigrationAction* tablet_migration_action = _pool.add(
