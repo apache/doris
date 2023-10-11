@@ -20,7 +20,6 @@
 #include <fmt/format.h>
 #include <gen_cpp/AgentService_types.h>
 #include <gen_cpp/HeartbeatService_types.h>
-// #include <gen_cpp/MasterService_types.h>
 #include <gen_cpp/Status_types.h>
 #include <gen_cpp/Types_types.h>
 #include <unistd.h>
