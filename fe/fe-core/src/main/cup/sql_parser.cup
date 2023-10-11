@@ -1319,6 +1319,10 @@ alter_stmt ::=
     {:
         RESULT = new AlterCatalogPropertyStmt(catalogName, map);
     :}
+    | KW_ALTER KW_CATALOG ident:catalogName KW_MODIFY KW_COMMENT STRING_LITERAL:comment
+    {:
+        RESULT = new AlterCatalogCommentStmt(catalogName, comment);
+    :}
     | KW_ALTER KW_RESOURCE ident_or_text:resourceName opt_properties:properties
     {:
         RESULT = new AlterResourceStmt(resourceName, properties);

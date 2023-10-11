@@ -26,6 +26,7 @@ import org.apache.doris.analysis.AdminRebalanceDiskStmt;
 import org.apache.doris.analysis.AdminRepairTableStmt;
 import org.apache.doris.analysis.AdminSetConfigStmt;
 import org.apache.doris.analysis.AdminSetReplicaStatusStmt;
+import org.apache.doris.analysis.AlterCatalogCommentStmt;
 import org.apache.doris.analysis.AlterCatalogNameStmt;
 import org.apache.doris.analysis.AlterCatalogPropertyStmt;
 import org.apache.doris.analysis.AlterColumnStatsStmt;
@@ -311,6 +312,8 @@ public class DdlExecutor {
             env.getCatalogMgr().dropCatalog((DropCatalogStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterCatalogNameStmt) {
             env.getCatalogMgr().alterCatalogName((AlterCatalogNameStmt) ddlStmt);
+        } else if (ddlStmt instanceof AlterCatalogCommentStmt) {
+            env.getCatalogMgr().alterCatalogComment((AlterCatalogCommentStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterCatalogPropertyStmt) {
             env.getCatalogMgr().alterCatalogProps((AlterCatalogPropertyStmt) ddlStmt);
         } else if (ddlStmt instanceof CleanLabelStmt) {

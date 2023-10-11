@@ -409,7 +409,6 @@ public abstract class ExternalCatalog
 
     @Override
     public void modifyCatalogProps(Map<String, String> props) {
-        modifyComment(props);
         catalogProperty.modifyCatalogProps(props);
         notifyPropertiesUpdated(props);
     }
@@ -420,11 +419,6 @@ public abstract class ExternalCatalog
 
     public void rollBackCatalogProps(Map<String, String> props) {
         catalogProperty.rollBackCatalogProps(props);
-    }
-
-    private void modifyComment(Map<String, String> props) {
-        setComment(props.getOrDefault("comment", comment));
-        props.remove("comment");
     }
 
     public long getLastUpdateTime() {
