@@ -53,10 +53,10 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Locale;
 
-public class FoldConstantTest extends ExpressionRewriteTestHelper {
+class FoldConstantTest extends ExpressionRewriteTestHelper {
 
     @Test
-    public void testCaseWhenFold() {
+    void testCaseWhenFold() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(FoldConstantRuleOnFE.INSTANCE));
         // assertRewriteAfterTypeCoercion("case when 1 = 2 then 1 when '1' < 2 then 2 else 3 end", "2");
         // assertRewriteAfterTypeCoercion("case when 1 = 2 then 1 when '1' > 2 then 2 end", "null");
@@ -73,7 +73,7 @@ public class FoldConstantTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    public void testInFold() {
+    void testInFold() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(FoldConstantRuleOnFE.INSTANCE));
         assertRewriteAfterTypeCoercion("1 in (1,2,3,4)", "true");
         // Type Coercion trans all to string.
@@ -86,7 +86,7 @@ public class FoldConstantTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    public void testLogicalFold() {
+    void testLogicalFold() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(FoldConstantRuleOnFE.INSTANCE));
         assertRewriteAfterTypeCoercion("10 + 1 > 1 and 1 > 2", "false");
         assertRewriteAfterTypeCoercion("10 + 1 > 1 and 1 < 2", "true");
@@ -124,7 +124,7 @@ public class FoldConstantTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    public void testIsNullFold() {
+    void testIsNullFold() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(FoldConstantRuleOnFE.INSTANCE));
         assertRewriteAfterTypeCoercion("100 is null", "false");
         assertRewriteAfterTypeCoercion("null is null", "true");
@@ -135,7 +135,7 @@ public class FoldConstantTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    public void testNotPredicateFold() {
+    void testNotPredicateFold() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(FoldConstantRuleOnFE.INSTANCE));
         assertRewriteAfterTypeCoercion("not 1 > 2", "true");
         assertRewriteAfterTypeCoercion("not null + 1 > 2", "null");
@@ -143,7 +143,7 @@ public class FoldConstantTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    public void testCastFold() {
+    void testCastFold() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(FoldConstantRuleOnFE.INSTANCE));
 
         // cast '1' as tinyint
@@ -154,7 +154,7 @@ public class FoldConstantTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    public void testCompareFold() {
+    void testCompareFold() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(FoldConstantRuleOnFE.INSTANCE));
         assertRewriteAfterTypeCoercion("'1' = 2", "false");
         assertRewriteAfterTypeCoercion("1 = 2", "false");
@@ -171,7 +171,7 @@ public class FoldConstantTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    public void testArithmeticFold() {
+    void testArithmeticFold() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(FoldConstantRuleOnFE.INSTANCE));
         assertRewrite("1 + 1", Literal.of((short) 2));
         assertRewrite("1 - 1", Literal.of((short) 0));
@@ -204,7 +204,7 @@ public class FoldConstantTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    public void testTimestampFold() {
+    void testTimestampFold() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(FoldConstantRuleOnFE.INSTANCE));
         String interval = "'1991-05-01' - interval 1 day";
         Expression e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
@@ -290,7 +290,7 @@ public class FoldConstantTest extends ExpressionRewriteTestHelper {
         assertRewrite(process, process);
     }
 
-    public Expression process(TimestampArithmetic arithmetic) {
+    Expression process(TimestampArithmetic arithmetic) {
         String funcOpName;
         if (arithmetic.getFuncName() == null) {
             funcOpName = String.format("%sS_%s", arithmetic.getTimeUnit(),
@@ -302,16 +302,17 @@ public class FoldConstantTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    public void testDateTypeDateTimeArithmeticFunctions() {
+    void testDateTypeDateTimeArithmeticFunctions() {
         DateLiteral dateLiteral = new DateLiteral("1999-12-31");
         IntegerLiteral integerLiteral = new IntegerLiteral(30);
         VarcharLiteral format = new VarcharLiteral("%Y-%m-%d");
 
         String[] answer = {
-                "2000-01-30", "1999-12-01", "2029-12-31", "1969-12-31",
-                "2002-06-30", "1997-06-30", "2000-01-30", "1999-12-01",
+                "'2000-01-30'", "'1999-12-01'", "'2029-12-31'", "'1969-12-31'",
+                "'2002-06-30'", "'1997-06-30'", "'2000-07-28'", "'1999-06-04'",
+                "'2000-01-30'", "'1999-12-01'",
                 "1999", "4", "12", "6", "31", "365", "31",
-                "'1999-12-31'", "1999-12-27", "1999-12-31"
+                "'1999-12-31'", "'1999-12-27'", "'1999-12-31'"
         };
         int answerIdx = 0;
 
@@ -321,6 +322,8 @@ public class FoldConstantTest extends ExpressionRewriteTestHelper {
         Assertions.assertEquals(DateTimeArithmetic.yearsSub(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
         Assertions.assertEquals(DateTimeArithmetic.monthsAdd(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
         Assertions.assertEquals(DateTimeArithmetic.monthsSub(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.weeksAdd(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.weeksSub(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
         Assertions.assertEquals(DateTimeArithmetic.daysAdd(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
         Assertions.assertEquals(DateTimeArithmetic.daysSub(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
 
@@ -339,18 +342,18 @@ public class FoldConstantTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    public void testDateTimeTypeDateTimeArithmeticFunctions() {
+    void testDateTimeTypeDateTimeArithmeticFunctions() {
         DateTimeLiteral dateLiteral = new DateTimeLiteral("1999-12-31 23:59:59");
         IntegerLiteral integerLiteral = new IntegerLiteral(30);
         VarcharLiteral format = new VarcharLiteral("%Y-%m-%d");
 
         String[] answer = {
-                "2000-01-30 23:59:59", "1999-12-01 23:59:59", "2029-12-31 23:59:59", "1969-12-31 23:59:59",
-                "2002-06-30 23:59:59", "1997-06-30 23:59:59", "2000-01-30 23:59:59", "1999-12-01 23:59:59",
-                "2000-01-02 05:59:59", "1999-12-30 17:59:59", "2000-01-01 00:29:59",
-                "1999-12-31 23:29:59", "2000-01-01 00:00:29", "1999-12-31 23:59:29",
+                "'2000-01-30 23:59:59'", "'1999-12-01 23:59:59'", "'2029-12-31 23:59:59'", "'1969-12-31 23:59:59'",
+                "'2002-06-30 23:59:59'", "'1997-06-30 23:59:59'", "'2000-01-30 23:59:59'", "'1999-12-01 23:59:59'",
+                "'2000-01-02 05:59:59'", "'1999-12-30 17:59:59'", "'2000-01-01 00:29:59'",
+                "'1999-12-31 23:29:59'", "'2000-01-01 00:00:29'", "'1999-12-31 23:59:29'",
                 "1999", "4", "12", "6", "31", "365", "31", "23", "59", "59",
-                "'1999-12-31'", "1999-12-27", "1999-12-31", "1999-12-31", "730484", "1999-12-31"
+                "'1999-12-31'", "'1999-12-27'", "'1999-12-31'", "'1999-12-31'", "730484", "'1999-12-31'"
         };
         int answerIdx = 0;
 
@@ -394,16 +397,16 @@ public class FoldConstantTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    public void testDateV2TypeDateTimeArithmeticFunctions() {
+    void testDateV2TypeDateTimeArithmeticFunctions() {
         DateV2Literal dateLiteral = new DateV2Literal("1999-12-31");
         IntegerLiteral integerLiteral = new IntegerLiteral(30);
         VarcharLiteral format = new VarcharLiteral("%Y-%m-%d");
 
         String[] answer = {
-                "2000-01-30", "1999-12-01", "2029-12-31", "1969-12-31",
-                "2002-06-30", "1997-06-30", "2000-01-30", "1999-12-01",
+                "'2000-01-30'", "'1999-12-01'", "'2029-12-31'", "'1969-12-31'",
+                "'2002-06-30'", "'1997-06-30'", "'2000-01-30'", "'1999-12-01'",
                 "1999", "4", "12", "6", "31", "365", "31",
-                "'1999-12-31'", "1999-12-27", "1999-12-31"
+                "'1999-12-31'", "'1999-12-27'", "'1999-12-31'"
         };
         int answerIdx = 0;
 
@@ -431,18 +434,18 @@ public class FoldConstantTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    public void testDateTimeV2TypeDateTimeArithmeticFunctions() {
+    void testDateTimeV2TypeDateTimeArithmeticFunctions() {
         DateTimeV2Literal dateLiteral = new DateTimeV2Literal(DateTimeV2Type.SYSTEM_DEFAULT, "1999-12-31 23:59:59");
         IntegerLiteral integerLiteral = new IntegerLiteral(30);
         VarcharLiteral format = new VarcharLiteral("%Y-%m-%d");
 
         String[] answer = {
-                "2000-01-30 23:59:59", "1999-12-01 23:59:59", "2029-12-31 23:59:59", "1969-12-31 23:59:59",
-                "2002-06-30 23:59:59", "1997-06-30 23:59:59", "2000-01-30 23:59:59", "1999-12-01 23:59:59",
-                "2000-01-02 05:59:59", "1999-12-30 17:59:59", "2000-01-01 00:29:59",
-                "1999-12-31 23:29:59", "2000-01-01 00:00:29", "1999-12-31 23:59:29", "1999-12-31 23:59:59",
+                "'2000-01-30 23:59:59'", "'1999-12-01 23:59:59'", "'2029-12-31 23:59:59'", "'1969-12-31 23:59:59'",
+                "'2002-06-30 23:59:59'", "'1997-06-30 23:59:59'", "'2000-01-30 23:59:59'", "'1999-12-01 23:59:59'",
+                "'2000-01-02 05:59:59'", "'1999-12-30 17:59:59'", "'2000-01-01 00:29:59'",
+                "'1999-12-31 23:29:59'", "'2000-01-01 00:00:29'", "'1999-12-31 23:59:29'", "'1999-12-31 23:59:59'",
                 "1999", "4", "12", "6", "31", "365", "31", "23", "59", "59",
-                "'1999-12-31'", "1999-12-27", "1999-12-31", "1999-12-31", "730484", "1999-12-31", "1999-12-31"
+                "'1999-12-31'", "'1999-12-27'", "'1999-12-31'", "'1999-12-31'", "730484", "'1999-12-31'", "'1999-12-31'"
         };
         int answerIdx = 0;
 
@@ -488,15 +491,15 @@ public class FoldConstantTest extends ExpressionRewriteTestHelper {
         Assertions.assertEquals(DateTimeExtractAndTransform.dateV2(dateLiteral).toSql(), answer[answerIdx]);
 
         Assertions.assertEquals("'2021 52 2022 01'", DateTimeExtractAndTransform.dateFormat(
-                new DateLiteral("2022-01-01 00:12:42"),
+                new DateTimeLiteral("2022-01-01 00:12:42"),
                 new VarcharLiteral("%x %v %X %V")).toSql());
         Assertions.assertEquals("'2023 18 2023 19'", DateTimeExtractAndTransform.dateFormat(
-                new DateLiteral("2023-05-07 02:41:42"),
+                new DateTimeLiteral("2023-05-07 02:41:42"),
                 new VarcharLiteral("%x %v %X %V")).toSql());
     }
 
     @Test
-    public void testDateDiff() {
+    void testDateDiff() {
         DateTimeLiteral dateTimeLiteral = new DateTimeLiteral("2001-12-31 00:00:01");
         DateV2Literal dateV2Literal = new DateV2Literal("2001-12-31");
         DateTimeV2Literal dateTimeV2Literal = new DateTimeV2Literal("2001-12-31 00:00:01");
@@ -518,21 +521,21 @@ public class FoldConstantTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    public void testDateTrunc() {
+    void testDateTrunc() {
         DateTimeLiteral dateTimeLiteral = new DateTimeLiteral("2001-12-31 01:01:01");
         DateTimeV2Literal dateTimeV2Literal = new DateTimeV2Literal("2001-12-31 01:01:01");
 
         String[] tags = {"year", "month", "day", "hour", "minute", "second"};
 
         String[] answer = {
-                "2001-01-01 00:00:00", "2001-01-01 00:00:00", "2001-12-01 00:00:00", "2001-12-01 00:00:00",
-                "2001-12-31 00:00:00", "2001-12-31 00:00:00", "2001-12-31 01:00:00", "2001-12-31 01:00:00",
-                "2001-12-31 01:01:00", "2001-12-31 01:01:00", "2001-12-31 01:01:01", "2001-12-31 01:01:01",
-                "2001-01-01 00:00:00", "2001-01-01 00:00:00", "2001-01-01 00:00:00",
-                "2001-04-01 00:00:00", "2001-04-01 00:00:00", "2001-04-01 00:00:00",
-                "2001-07-01 00:00:00", "2001-07-01 00:00:00", "2001-07-01 00:00:00",
-                "2001-10-01 00:00:00", "2001-10-01 00:00:00", "2001-10-01 00:00:00",
-                "2001-01-15 00:00:00", "2001-02-12 00:00:00", "2001-03-12 00:00:00",
+                "'2001-01-01 00:00:00'", "'2001-01-01 00:00:00'", "'2001-12-01 00:00:00'", "'2001-12-01 00:00:00'",
+                "'2001-12-31 00:00:00'", "'2001-12-31 00:00:00'", "'2001-12-31 01:00:00'", "'2001-12-31 01:00:00'",
+                "'2001-12-31 01:01:00'", "'2001-12-31 01:01:00'", "'2001-12-31 01:01:01'", "'2001-12-31 01:01:01'",
+                "'2001-01-01 00:00:00'", "'2001-01-01 00:00:00'", "'2001-01-01 00:00:00'",
+                "'2001-04-01 00:00:00'", "'2001-04-01 00:00:00'", "'2001-04-01 00:00:00'",
+                "'2001-07-01 00:00:00'", "'2001-07-01 00:00:00'", "'2001-07-01 00:00:00'",
+                "'2001-10-01 00:00:00'", "'2001-10-01 00:00:00'", "'2001-10-01 00:00:00'",
+                "'2001-01-15 00:00:00'", "'2001-02-12 00:00:00'", "'2001-03-12 00:00:00'",
         };
         int answerIdx = 0;
 
@@ -556,9 +559,9 @@ public class FoldConstantTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    public void testDateConstructFunction() {
+    void testDateConstructFunction() {
         String[] answer = {
-                "2001-07-19", "6411-08-17", "0000-01-01", "'1977-06-03 17:57:24'",
+                "'2001-07-19'", "'6411-08-17'", "'0000-01-01'", "'1977-06-03 17:57:24'",
                 "'1977-06-03'", "1008909293", "1008864000"
         };
         int answerIdx = 0;
@@ -590,8 +593,8 @@ public class FoldConstantTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    public void testFoldNestedExpression() {
-        assertRewriteExpression("makedate(year('2010-04-10'), dayofyear('2010-04-11'))", "2010-04-11");
+    void testFoldNestedExpression() {
+        assertRewriteExpression("makedate(year('2010-04-10'), dayofyear('2010-04-11'))", "'2010-04-11'");
         assertRewriteExpression("null in ('d', null)", "NULL");
         assertRewriteExpression("null not in ('d', null)", "NULL");
         assertRewriteExpression("'a' in ('d', null)", "NULL");
@@ -604,7 +607,18 @@ public class FoldConstantTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    public void testFoldTypeOfNullLiteral() {
+    void testFoldCastStringToDate() {
+        assertRewriteExpression("cast('2021-01-01' as date)", "'2021-01-01'");
+        assertRewriteExpression("cast('20210101' as date)", "'2021-01-01'");
+        assertRewriteExpression("cast('2021-01-01T00:00:00' as date)", "'2021-01-01'");
+        assertRewriteExpression("cast('2021-01-01' as datetime)", "'2021-01-01 00:00:00'");
+        assertRewriteExpression("cast('20210101' as datetime)", "'2021-01-01 00:00:00'");
+        assertRewriteExpression("cast('2021-01-01T00:00:00' as datetime)", "'2021-01-01 00:00:00'");
+        assertRewriteExpression("cast ('2022-12-02 22:23:24.999999' as datetimev2(3))", "'2022-12-02 22:23:25.000'");
+    }
+
+    @Test
+    void testFoldTypeOfNullLiteral() {
         String actualExpression = "append_trailing_char_if_absent(cast(version() as varchar), cast(null as varchar))";
         ExpressionRewriteContext context = new ExpressionRewriteContext(
                 MemoTestUtils.createCascadesContext(new UnboundRelation(new RelationId(1), ImmutableList.of("test_table"))));

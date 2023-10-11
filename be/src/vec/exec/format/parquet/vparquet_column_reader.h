@@ -39,7 +39,7 @@ class time_zone;
 } // namespace cctz
 namespace doris {
 namespace io {
-class IOContext;
+struct IOContext;
 } // namespace io
 namespace vectorized {
 class ColumnString;

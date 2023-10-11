@@ -22,8 +22,8 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.exception.InternalException;
 import org.apache.doris.common.exception.UdfRuntimeException;
 import org.apache.doris.common.jni.utils.JNINativeMethod;
+import org.apache.doris.common.jni.utils.JavaUdfDataType;
 import org.apache.doris.common.jni.utils.UdfUtils;
-import org.apache.doris.common.jni.utils.UdfUtils.JavaUdfDataType;
 import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TJavaUdfExecutorCtorParams;
 
@@ -155,7 +155,7 @@ public abstract class BaseExecutor {
     public void copyTupleBasicResult(Object obj, long row, Class retClass,
             long outputBufferBase, long charsAddress, long offsetsAddr, JavaUdfDataType retType)
             throws UdfRuntimeException {
-        switch (retType) {
+        switch (retType.getPrimitiveType()) {
             case BOOLEAN: {
                 boolean val = (boolean) obj;
                 UdfUtils.UNSAFE.putByte(outputBufferBase + row * retType.getLen(),
@@ -251,7 +251,7 @@ public abstract class BaseExecutor {
             }
             case DECIMAL32:
             case DECIMAL64:
-            case DECIMAL128: {
+            case DECIMAL128I: {
                 BigDecimal retValue = ((BigDecimal) obj).setScale(retType.getScale(), RoundingMode.HALF_EVEN);
                 BigInteger data = retValue.unscaledValue();
                 byte[] bytes = UdfUtils.convertByteOrder(data.toByteArray());
@@ -282,7 +282,7 @@ public abstract class BaseExecutor {
                         bytes.length);
                 break;
             }
-            case ARRAY_TYPE:
+            case ARRAY:
             default:
                 throw new UdfRuntimeException("Unsupported return type: " + retType);
         }
@@ -290,7 +290,7 @@ public abstract class BaseExecutor {
 
     public Object[] convertBasicArg(boolean isUdf, int argIdx, boolean isNullable, int rowStart, int rowEnd,
             long nullMapAddr, long columnAddr, long strOffsetAddr) {
-        switch (argTypes[argIdx]) {
+        switch (argTypes[argIdx].getPrimitiveType()) {
             case BOOLEAN:
                 return UdfConvert.convertBooleanArg(isNullable, rowStart, rowEnd, nullMapAddr, columnAddr);
             case TINYINT:
@@ -329,7 +329,7 @@ public abstract class BaseExecutor {
                         .convertDateTimeV2Arg(isUdf ? argClass[argIdx] : argClass[argIdx + 1], isNullable, rowStart,
                                 rowEnd, nullMapAddr, columnAddr);
             case DECIMALV2:
-            case DECIMAL128:
+            case DECIMAL128I:
                 return UdfConvert
                         .convertDecimalArg(argTypes[argIdx].getScale(), 16L, isNullable, rowStart, rowEnd, nullMapAddr,
                                 columnAddr);
@@ -718,7 +718,7 @@ public abstract class BaseExecutor {
 
     public void copyBatchBasicResultImpl(boolean isNullable, int numRows, Object[] result, long nullMapAddr,
             long resColumnAddr, long strOffsetAddr, Method method) {
-        switch (retType) {
+        switch (retType.getPrimitiveType()) {
             case BOOLEAN: {
                 UdfConvert.copyBatchBooleanResult(isNullable, numRows, (Boolean[]) result, nullMapAddr, resColumnAddr);
                 break;
@@ -784,7 +784,7 @@ public abstract class BaseExecutor {
                 break;
             }
             case DECIMALV2:
-            case DECIMAL128: {
+            case DECIMAL128I: {
                 UdfConvert.copyBatchDecimal128Result(retType.getScale(), isNullable, numRows, (BigDecimal[]) result,
                         nullMapAddr,
                         resColumnAddr);

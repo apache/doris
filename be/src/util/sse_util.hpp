@@ -37,7 +37,6 @@ namespace sse_util {
 // Number of characters that fit in 64/128 bit register.
 // SSE provides instructions for loading 64 or 128 bits into a register
 // at a time.
-static const int CHARS_PER_64_BIT_REGISTER = 8;
 static const int CHARS_PER_128_BIT_REGISTER = 16;
 
 // SSE4.2 adds instructions for textprocessing.  The instructions accept
@@ -48,19 +47,9 @@ static const int CHARS_PER_128_BIT_REGISTER = 16;
 //   - SIDD_NEGATIVE_POLARITY - toggles whether to set result to 1 or 0 when a
 //     match is found.
 
-// In this mode, sse text processing functions will return a mask of all the characters that
-// matched
-static const int STRCHR_MODE = _SIDD_CMP_EQUAL_ANY | _SIDD_UBYTE_OPS;
-
 // In this mode, sse text processing functions will return the number of bytes that match
 // consecutively from the beginning.
 static const int STRCMP_MODE = _SIDD_CMP_EQUAL_EACH | _SIDD_UBYTE_OPS | _SIDD_NEGATIVE_POLARITY;
-
-// Precomputed mask values up to 16 bits.
-static const int SSE_BITMASK[CHARS_PER_128_BIT_REGISTER] = {
-        1 << 0, 1 << 1, 1 << 2,  1 << 3,  1 << 4,  1 << 5,  1 << 6,  1 << 7,
-        1 << 8, 1 << 9, 1 << 10, 1 << 11, 1 << 12, 1 << 13, 1 << 14, 1 << 15,
-};
 
 } // namespace sse_util
 } // namespace doris

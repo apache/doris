@@ -42,6 +42,7 @@ import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Histogram;
 
+import lombok.extern.slf4j.Slf4j;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -60,6 +61,7 @@ import java.util.Optional;
 /**
  * Util for minidump
  */
+@Slf4j
 public class MinidumpUtils {
 
     public static String DUMP_PATH = null;
@@ -73,7 +75,7 @@ public class MinidumpUtils {
         try (FileWriter file = new FileWriter(dumpPath + ".json")) {
             file.write(jsonMinidump);
         } catch (IOException e) {
-            e.printStackTrace();
+            log.info("failed to save minidump file", e);
         }
     }
 
@@ -156,7 +158,7 @@ public class MinidumpUtils {
             String inputString = sb.toString();
             return jsonMinidumpLoadFromString(inputString);
         } catch (IOException e) {
-            e.printStackTrace();
+            log.info("failed to open minidump file", e);
         }
         return null;
     }

@@ -23,6 +23,7 @@
 
 #include "common/status.h"
 #include "operator.h"
+#include "pipeline/exec/aggregation_source_operator.h"
 #include "vec/exec/distinct_vaggregation_node.h"
 #include "vec/exec/vaggregation_node.h"
 
@@ -61,6 +62,20 @@ public:
 private:
     int64_t rows_have_returned = 0;
     std::shared_ptr<DataQueue> _data_queue;
+};
+
+class DistinctStreamingAggSourceOperatorX final : public AggSourceOperatorX {
+public:
+    using Base = AggSourceOperatorX;
+    DistinctStreamingAggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+                                        const DescriptorTbl& descs);
+    ~DistinctStreamingAggSourceOperatorX() = default;
+
+    Status init(const TPlanNode& tnode, RuntimeState* state) override;
+
+    Status get_block(RuntimeState* state, vectorized::Block* block,
+                     SourceState& source_state) override;
+    bool _is_streaming_preagg = false;
 };
 
 } // namespace pipeline

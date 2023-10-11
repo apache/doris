@@ -212,17 +212,20 @@ public class StatisticsCache {
         }
     }
 
-    public void syncLoadColStats(long tableId, long idxId, String colName) {
+    /**
+     * Return false if the log of corresponding stats load is failed.
+     */
+    public boolean syncLoadColStats(long tableId, long idxId, String colName) {
         List<ResultRow> columnResults = StatisticsRepository.loadColStats(tableId, idxId, colName);
         final StatisticsCacheKey k =
                 new StatisticsCacheKey(tableId, idxId, colName);
         final ColumnStatistic c = ColumnStatistic.fromResultRow(columnResults);
         if (c == ColumnStatistic.UNKNOWN) {
-            return;
+            return false;
         }
         putCache(k, c);
         if (ColumnStatistic.UNKNOWN == c) {
-            return;
+            return false;
         }
         TUpdateFollowerStatsCacheRequest updateFollowerStatsCacheRequest = new TUpdateFollowerStatsCacheRequest();
         updateFollowerStatsCacheRequest.key = GsonUtils.GSON.toJson(k);
@@ -234,6 +237,7 @@ public class StatisticsCache {
             }
             sendStats(frontend, updateFollowerStatsCacheRequest);
         }
+        return true;
     }
 
     @VisibleForTesting
@@ -284,7 +288,7 @@ public class StatisticsCache {
                 StatsId statsId = new StatsId(r);
                 long tblId = statsId.tblId;
                 long idxId = statsId.idxId;
-                long partId = statsId.partId;
+                String partId = statsId.partId;
                 String colId = statsId.colId;
                 ColumnStatistic partStats = ColumnStatistic.fromResultRow(r);
                 keyToColStats.get(new StatisticsCacheKey(tblId, idxId, colId)).putPartStats(partId, partStats);

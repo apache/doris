@@ -60,7 +60,6 @@ import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import javax.annotation.Nullable;
 
 /**
  * The Receiver is used for cached the plan that has been emitted and build the new plan
@@ -118,7 +117,7 @@ public class PlanReceiver implements AbstractReceiver {
         List<Expression> hashConjuncts = new ArrayList<>();
         List<Expression> otherConjuncts = new ArrayList<>();
 
-        JoinType joinType = extractJoinTypeAndConjuncts(edges, hashConjuncts, otherConjuncts);
+        JoinType joinType = Edge.extractJoinTypeAndConjuncts(edges, hashConjuncts, otherConjuncts);
         if (joinType == null) {
             return true;
         }
@@ -235,21 +234,6 @@ public class PlanReceiver implements AbstractReceiver {
             }
         }
         return plans;
-    }
-
-    private @Nullable JoinType extractJoinTypeAndConjuncts(List<Edge> edges, List<Expression> hashConjuncts,
-            List<Expression> otherConjuncts) {
-        JoinType joinType = null;
-        for (Edge edge : edges) {
-            if (edge.getJoinType() != joinType && joinType != null) {
-                return null;
-            }
-            Preconditions.checkArgument(joinType == null || joinType == edge.getJoinType());
-            joinType = edge.getJoinType();
-            hashConjuncts.addAll(edge.getHashJoinConjuncts());
-            otherConjuncts.addAll(edge.getOtherJoinConjuncts());
-        }
-        return joinType;
     }
 
     private boolean extractIsMarkJoin(List<Edge> edges) {

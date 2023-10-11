@@ -152,8 +152,6 @@ curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_h
 
 28. comment: <version since="1.2.3" type="inline"> 字符串类型, 默认值为空. 给任务增加额外的信息. </version>
 
-29. ignore_mode: <version since="dev" type="inline"> ignore模式，仅当目标表为开启merge-on-write的unique表时有效。开启后，对于插入的行，如果该行的key在表中不存在，则插入该行数据。如果key在表中不存在，则丢弃这行数据。当目标表中存在sequence列时stream无法开启ignore mode。</version>
-
 ### Example
 
 1. 将本地文件'testData'中的数据导入到数据库'testDb'中'testTbl'的表，使用Label用于去重。指定超时时间为 100 秒

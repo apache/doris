@@ -48,14 +48,15 @@ public:
 template <typename LocalStateType>
 class AggSinkOperatorX;
 
-template <typename Derived>
-class AggSinkLocalState : public PipelineXSinkLocalState<AggDependency> {
+template <typename DependencyType, typename Derived>
+class AggSinkLocalState : public PipelineXSinkLocalState<DependencyType> {
 public:
-    virtual ~AggSinkLocalState() = default;
+    using Base = PipelineXSinkLocalState<DependencyType>;
+    ~AggSinkLocalState() override = default;
 
-    virtual Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
-    virtual Status open(RuntimeState* state) override;
-    virtual Status close(RuntimeState* state) override;
+    Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    Status open(RuntimeState* state) override;
+    Status close(RuntimeState* state, Status exec_status) override;
 
     Status try_spill_disk(bool eos = false);
 
@@ -102,8 +103,8 @@ protected:
     template <typename HashTableCtxType, typename HashTableType, typename KeyType>
     Status _serialize_hash_table_to_block(HashTableCtxType& context, HashTableType& hash_table,
                                           vectorized::Block& block, std::vector<KeyType>& keys_) {
-        int key_size = _shared_state->probe_expr_ctxs.size();
-        int agg_size = _shared_state->aggregate_evaluators.size();
+        int key_size = Base::_shared_state->probe_expr_ctxs.size();
+        int agg_size = Base::_shared_state->aggregate_evaluators.size();
 
         vectorized::MutableColumns value_columns(agg_size);
         vectorized::DataTypes value_data_types(agg_size);
@@ -111,31 +112,32 @@ protected:
 
         for (int i = 0; i < key_size; ++i) {
             key_columns.emplace_back(
-                    _shared_state->probe_expr_ctxs[i]->root()->data_type()->create_column());
+                    Base::_shared_state->probe_expr_ctxs[i]->root()->data_type()->create_column());
         }
 
-        for (size_t i = 0; i < _shared_state->aggregate_evaluators.size(); ++i) {
+        for (size_t i = 0; i < Base::_shared_state->aggregate_evaluators.size(); ++i) {
             value_data_types[i] =
-                    _shared_state->aggregate_evaluators[i]->function()->get_serialized_type();
-            value_columns[i] =
-                    _shared_state->aggregate_evaluators[i]->function()->create_serialize_column();
+                    Base::_shared_state->aggregate_evaluators[i]->function()->get_serialized_type();
+            value_columns[i] = Base::_shared_state->aggregate_evaluators[i]
+                                       ->function()
+                                       ->create_serialize_column();
         }
 
         context.init_once();
         const auto size = hash_table.size();
         std::vector<KeyType> keys(size);
-        if (_shared_state->values.size() < size) {
-            _shared_state->values.resize(size);
+        if (Base::_shared_state->values.size() < size) {
+            Base::_shared_state->values.resize(size);
         }
 
         size_t num_rows = 0;
-        _shared_state->aggregate_data_container->init_once();
-        auto& iter = _shared_state->aggregate_data_container->iterator;
+        Base::_shared_state->aggregate_data_container->init_once();
+        auto& iter = Base::_shared_state->aggregate_data_container->iterator;
 
         {
-            while (iter != _shared_state->aggregate_data_container->end()) {
-                keys[num_rows] = iter.get_key<KeyType>();
-                _shared_state->values[num_rows] = iter.get_aggregate_data();
+            while (iter != Base::_shared_state->aggregate_data_container->end()) {
+                keys[num_rows] = iter.template get_key<KeyType>();
+                Base::_shared_state->values[num_rows] = iter.get_aggregate_data();
                 ++iter;
                 ++num_rows;
             }
@@ -143,7 +145,7 @@ protected:
 
         {
             context.insert_keys_into_columns(keys, key_columns, num_rows,
-                                             _shared_state->probe_key_sz);
+                                             Base::_shared_state->probe_key_sz);
         }
 
         if (hash_table.has_null_key_data()) {
@@ -154,27 +156,28 @@ protected:
             key_columns[0]->insert_data(nullptr, 0);
 
             // Here is no need to set `keys[num_rows]`, keep it as default value.
-            _shared_state->values[num_rows] = hash_table.get_null_key_data();
+            Base::_shared_state->values[num_rows] = hash_table.get_null_key_data();
             ++num_rows;
         }
 
-        for (size_t i = 0; i < _shared_state->aggregate_evaluators.size(); ++i) {
-            _shared_state->aggregate_evaluators[i]->function()->serialize_to_column(
-                    _shared_state->values, _dependency->offsets_of_aggregate_states()[i],
-                    value_columns[i], num_rows);
+        for (size_t i = 0; i < Base::_shared_state->aggregate_evaluators.size(); ++i) {
+            Base::_shared_state->aggregate_evaluators[i]->function()->serialize_to_column(
+                    Base::_shared_state->values,
+                    Base::_dependency->offsets_of_aggregate_states()[i], value_columns[i],
+                    num_rows);
         }
 
         vectorized::ColumnsWithTypeAndName columns_with_schema;
         for (int i = 0; i < key_size; ++i) {
             columns_with_schema.emplace_back(
                     std::move(key_columns[i]),
-                    _shared_state->probe_expr_ctxs[i]->root()->data_type(),
-                    _shared_state->probe_expr_ctxs[i]->root()->expr_name());
+                    Base::_shared_state->probe_expr_ctxs[i]->root()->data_type(),
+                    Base::_shared_state->probe_expr_ctxs[i]->root()->expr_name());
         }
         for (int i = 0; i < agg_size; ++i) {
             columns_with_schema.emplace_back(
                     std::move(value_columns[i]), value_data_types[i],
-                    _shared_state->aggregate_evaluators[i]->function()->get_name());
+                    Base::_shared_state->aggregate_evaluators[i]->function()->get_name());
         }
 
         block = columns_with_schema;
@@ -190,47 +193,48 @@ protected:
         CHECK_EQ(block.rows(), hash_table.size());
         CHECK_EQ(keys.size(), block.rows());
 
-        if (!_shared_state->spill_context.has_data) {
-            _shared_state->spill_context.has_data = true;
-            _shared_state->spill_context.runtime_profile =
-                    profile()->create_child("Spill", true, true);
+        if (!Base::_shared_state->spill_context.has_data) {
+            Base::_shared_state->spill_context.has_data = true;
+            Base::_shared_state->spill_context.runtime_profile =
+                    Base::profile()->create_child("Spill", true, true);
         }
 
         vectorized::BlockSpillWriterUPtr writer;
         RETURN_IF_ERROR(ExecEnv::GetInstance()->block_spill_mgr()->get_writer(
                 std::numeric_limits<int32_t>::max(), writer,
-                _shared_state->spill_context.runtime_profile));
+                Base::_shared_state->spill_context.runtime_profile));
         Defer defer {[&]() {
             // redundant call is ok
-            writer->close();
+            static_cast<void>(writer->close());
         }};
-        _shared_state->spill_context.stream_ids.emplace_back(writer->get_id());
+        Base::_shared_state->spill_context.stream_ids.emplace_back(writer->get_id());
 
         std::vector<size_t> partitioned_indices(block.rows());
-        std::vector<size_t> blocks_rows(_shared_state->spill_partition_helper->partition_count);
+        std::vector<size_t> blocks_rows(
+                Base::_shared_state->spill_partition_helper->partition_count);
 
         // The last row may contain a null key.
         const size_t rows = hash_table.has_null_key_data() ? block.rows() - 1 : block.rows();
         for (size_t i = 0; i < rows; ++i) {
-            const auto index =
-                    _shared_state->spill_partition_helper->get_index(hash_table.hash(keys[i]));
+            const auto index = Base::_shared_state->spill_partition_helper->get_index(
+                    hash_table.hash(keys[i]));
             partitioned_indices[i] = index;
             blocks_rows[index]++;
         }
 
         if (hash_table.has_null_key_data()) {
             // Here put the row with null key at the last partition.
-            const auto index = _shared_state->spill_partition_helper->partition_count - 1;
+            const auto index = Base::_shared_state->spill_partition_helper->partition_count - 1;
             partitioned_indices[rows] = index;
             blocks_rows[index]++;
         }
 
-        for (size_t i = 0; i < _shared_state->spill_partition_helper->partition_count; ++i) {
+        for (size_t i = 0; i < Base::_shared_state->spill_partition_helper->partition_count; ++i) {
             vectorized::Block block_to_write = block.clone_empty();
             if (blocks_rows[i] == 0) {
                 /// Here write one empty block to ensure there are enough blocks in the file,
                 /// blocks' count should be equal with partition_count.
-                writer->write(block_to_write);
+                static_cast<void>(writer->write(block_to_write));
                 continue;
             }
 
@@ -313,13 +317,14 @@ protected:
     executor _executor;
 };
 
-class BlockingAggSinkLocalState : public AggSinkLocalState<BlockingAggSinkLocalState> {
+class BlockingAggSinkLocalState
+        : public AggSinkLocalState<AggDependency, BlockingAggSinkLocalState> {
 public:
     ENABLE_FACTORY_CREATOR(BlockingAggSinkLocalState);
     using Parent = AggSinkOperatorX<BlockingAggSinkLocalState>;
 
     BlockingAggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : AggSinkLocalState(parent, state) {}
+            : AggSinkLocalState<AggDependency, BlockingAggSinkLocalState>(parent, state) {}
     ~BlockingAggSinkLocalState() = default;
 };
 
@@ -327,7 +332,7 @@ template <typename LocalStateType = BlockingAggSinkLocalState>
 class AggSinkOperatorX : public DataSinkOperatorX<LocalStateType> {
 public:
     AggSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    virtual ~AggSinkOperatorX() = default;
+    ~AggSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",
                                      DataSinkOperatorX<LocalStateType>::_name);
@@ -338,17 +343,17 @@ public:
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
-    virtual Status sink(RuntimeState* state, vectorized::Block* in_block,
-                        SourceState source_state) override;
-
-    virtual bool can_write(RuntimeState* state) override { return true; }
+    Status sink(RuntimeState* state, vectorized::Block* in_block,
+                SourceState source_state) override;
 
     using DataSinkOperatorX<LocalStateType>::id;
 
 protected:
-    template <typename Derived>
+    using LocalState = LocalStateType;
+    template <typename DependencyType, typename Derived>
     friend class AggSinkLocalState;
     friend class StreamingAggSinkLocalState;
+    friend class DistinctStreamingAggSinkLocalState;
     std::vector<vectorized::AggFnEvaluator*> _aggregate_evaluators;
     bool _can_short_circuit = false;
 

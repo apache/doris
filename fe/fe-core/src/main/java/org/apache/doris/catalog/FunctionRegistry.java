@@ -35,6 +35,7 @@ import org.apache.commons.collections.CollectionUtils;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import javax.annotation.concurrent.ThreadSafe;
@@ -73,6 +74,13 @@ public class FunctionRegistry {
 
     public FunctionBuilder findFunctionBuilder(String name, Object argument) {
         return findFunctionBuilder(null, name, ImmutableList.of(argument));
+    }
+
+    public Optional<List<FunctionBuilder>> tryGetBuiltinBuilders(String name) {
+        List<FunctionBuilder> builders = name2InternalBuiltinBuilders.get(name);
+        return name2InternalBuiltinBuilders.get(name) == null
+                ? Optional.empty()
+                : Optional.of(ImmutableList.copyOf(builders));
     }
 
     // currently we only find function by name and arity and args' types.

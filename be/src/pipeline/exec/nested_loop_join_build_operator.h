@@ -90,8 +90,6 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
 
-    bool can_write(RuntimeState* state) override { return true; }
-
 private:
     friend class NestedLoopJoinBuildSinkLocalState;
 

@@ -46,7 +46,6 @@ import org.apache.avro.Schema;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
-import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hudi.avro.HoodieAvroUtils;
 import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.model.BaseFile;
@@ -62,7 +61,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
-import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -254,20 +252,9 @@ public class HudiScanNode extends HiveScanNode {
             snapshotTimestamp = Option.empty();
         }
         // Non partition table will get one dummy partition
-        UserGroupInformation ugi = HiveMetaStoreClientHelper.getUserGroupInformation(
-                HiveMetaStoreClientHelper.getConfiguration(hmsTable));
-        List<HivePartition> partitions;
-        if (ugi != null) {
-            try {
-                partitions = ugi.doAs(
-                        (PrivilegedExceptionAction<List<HivePartition>>) () -> getPrunedPartitions(hudiClient,
-                                snapshotTimestamp));
-            } catch (Exception e) {
-                throw new UserException(e);
-            }
-        } else {
-            partitions = getPrunedPartitions(hudiClient, snapshotTimestamp);
-        }
+        List<HivePartition> partitions = HiveMetaStoreClientHelper.ugiDoAs(
+                HiveMetaStoreClientHelper.getConfiguration(hmsTable),
+                () -> getPrunedPartitions(hudiClient, snapshotTimestamp));
         Executor executor = ((HudiCachedPartitionProcessor) Env.getCurrentEnv()
                 .getExtMetaCacheMgr().getHudiPartitionProcess(hmsTable.getCatalog())).getExecutor();
         List<Split> splits = Collections.synchronizedList(new ArrayList<>());

@@ -71,6 +71,10 @@ public class StructField {
         return new StructField(name, dataType, nullable, comment);
     }
 
+    public StructField withDataTypeAndNulalble(DataType dataType, boolean nullable) {
+        return new StructField(name, dataType, nullable, comment);
+    }
+
     public org.apache.doris.catalog.StructField toCatalogDataType() {
         return new org.apache.doris.catalog.StructField(
                 name, dataType.toCatalogDataType(), comment, nullable);

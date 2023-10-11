@@ -73,7 +73,6 @@ import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -103,8 +102,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.StringJoiner;
-import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -175,6 +174,7 @@ public class StatisticsUtil {
         sessionVariable.setMaxExecMemByte(Config.statistics_sql_mem_limit_in_bytes);
         sessionVariable.cpuResourceLimit = Config.cpu_resource_limit_per_analyze_task;
         sessionVariable.setEnableInsertStrict(true);
+        sessionVariable.enablePageCache = false;
         sessionVariable.parallelExecInstanceNum = Config.statistics_sql_parallel_exec_instance_num;
         sessionVariable.parallelPipelineTaskNum = Config.statistics_sql_parallel_exec_instance_num;
         sessionVariable.setEnableNereidsPlanner(false);
@@ -187,9 +187,6 @@ public class StatisticsUtil {
         connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
         connectContext.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
         connectContext.setCurrentUserIdentity(UserIdentity.ROOT);
-        UUID uuid = UUID.randomUUID();
-        TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-        connectContext.setQueryId(queryId);
         connectContext.setStartTime();
         connectContext.setCluster(SystemInfoService.DEFAULT_CLUSTER);
         return new AutoCloseConnectContext(connectContext);
@@ -439,6 +436,15 @@ public class StatisticsUtil {
                 ));
     }
 
+    public static Set<String> getPartitionIds(TableIf table) {
+        if (table instanceof OlapTable) {
+            return ((OlapTable) table).getPartitionIds().stream().map(String::valueOf).collect(Collectors.toSet());
+        } else if (table instanceof ExternalTable) {
+            return table.getPartitionNames();
+        }
+        throw new RuntimeException(String.format("Not supported Table %s", table.getClass().getName()));
+    }
+
     public static <T> String joinElementsToString(Collection<T> values, String delimiter) {
         StringJoiner builder = new StringJoiner(delimiter);
         values.forEach(v -> builder.add(String.valueOf(v)));
@@ -512,7 +518,11 @@ public class StatisticsUtil {
         }
         // Table parameters contains row count, simply get and return it.
         if (parameters.containsKey(NUM_ROWS)) {
-            return Long.parseLong(parameters.get(NUM_ROWS));
+            long rows = Long.parseLong(parameters.get(NUM_ROWS));
+            // Sometimes, the NUM_ROWS in hms is 0 but actually is not. Need to check TOTAL_SIZE if NUM_ROWS is 0.
+            if (rows != 0) {
+                return rows;
+            }
         }
         if (!parameters.containsKey(TOTAL_SIZE) || isInit) {
             return -1;
@@ -640,8 +650,8 @@ public class StatisticsUtil {
         TableScan tableScan = table.newScan().includeColumnStats();
         ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder();
         columnStatisticBuilder.setCount(0);
-        columnStatisticBuilder.setMaxValue(Double.MAX_VALUE);
-        columnStatisticBuilder.setMinValue(Double.MIN_VALUE);
+        columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
+        columnStatisticBuilder.setMinValue(Double.NEGATIVE_INFINITY);
         columnStatisticBuilder.setDataSize(0);
         columnStatisticBuilder.setAvgSizeByte(0);
         columnStatisticBuilder.setNumNulls(0);
@@ -720,15 +730,14 @@ public class StatisticsUtil {
         return table instanceof ExternalTable;
     }
 
-    public static boolean checkAnalyzeTime(LocalTime now) {
+    public static boolean inAnalyzeTime(LocalTime now) {
         try {
             Pair<LocalTime, LocalTime> range = findRangeFromGlobalSessionVar();
-            DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss");
-            LocalTime start = range == null
-                    ? LocalTime.parse(Config.full_auto_analyze_start_time, timeFormatter) : range.first;
-            LocalTime end = range == null
-                    ? LocalTime.parse(Config.full_auto_analyze_end_time, timeFormatter) : range.second;
-
+            if (range == null) {
+                return false;
+            }
+            LocalTime start = range.first;
+            LocalTime end = range.second;
             if (start.isAfter(end) && (now.isAfter(start) || now.isBefore(end))) {
                 return true;
             } else {
@@ -745,13 +754,14 @@ public class StatisticsUtil {
             String startTime =
                     findRangeFromGlobalSessionVar(SessionVariable.FULL_AUTO_ANALYZE_START_TIME)
                             .fullAutoAnalyzeStartTime;
+            // For compatibility
             if (StringUtils.isEmpty(startTime)) {
-                return null;
+                startTime = StatisticConstants.FULL_AUTO_ANALYZE_START_TIME;
             }
             String endTime = findRangeFromGlobalSessionVar(SessionVariable.FULL_AUTO_ANALYZE_END_TIME)
                     .fullAutoAnalyzeEndTime;
             if (StringUtils.isEmpty(startTime)) {
-                return null;
+                endTime = StatisticConstants.FULL_AUTO_ANALYZE_END_TIME;
             }
             DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss");
             return Pair.of(LocalTime.parse(startTime, timeFormatter), LocalTime.parse(endTime, timeFormatter));
@@ -765,5 +775,14 @@ public class StatisticsUtil {
         VariableExpr variableExpr = new VariableExpr(varName, SetType.GLOBAL);
         VariableMgr.getValue(sessionVariable, variableExpr);
         return sessionVariable;
+    }
+
+    public static boolean enableAutoAnalyze() {
+        try {
+            return findRangeFromGlobalSessionVar(SessionVariable.ENABLE_FULL_AUTO_ANALYZE).enableFullAutoAnalyze;
+        } catch (Exception e) {
+            LOG.warn("Fail to get value of enable auto analyze, return false by default", e);
+        }
+        return false;
     }
 }

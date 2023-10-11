@@ -39,8 +39,10 @@ public class StorageBackend implements ParseNode {
         if (Strings.isNullOrEmpty(path)) {
             throw new AnalysisException("No destination path specified.");
         }
+        checkUri(URI.create(path), type);
+    }
 
-        URI uri = URI.create(path);
+    public static void checkUri(URI uri, StorageBackend.StorageType type) throws AnalysisException {
         String schema = uri.getScheme();
         if (schema == null) {
             throw new AnalysisException(
@@ -65,8 +67,9 @@ public class StorageBackend implements ParseNode {
             }
         } else if (type == StorageBackend.StorageType.S3 && !schema.equalsIgnoreCase("s3")) {
             throw new AnalysisException("Invalid export path. please use valid 's3://' path.");
-        } else if (type == StorageBackend.StorageType.HDFS && !schema.equalsIgnoreCase("hdfs")) {
-            throw new AnalysisException("Invalid export path. please use valid 'HDFS://' path.");
+        } else if (type == StorageBackend.StorageType.HDFS && !schema.equalsIgnoreCase("hdfs")
+                && !schema.equalsIgnoreCase("viewfs")) {
+            throw new AnalysisException("Invalid export path. please use valid 'HDFS://' or 'viewfs://' path.");
         } else if (type == StorageBackend.StorageType.LOCAL && !schema.equalsIgnoreCase("file")) {
             throw new AnalysisException(
                     "Invalid export path. please use valid '" + OutFileClause.LOCAL_FILE_PREFIX + "' path.");

@@ -53,7 +53,8 @@ import java.util.stream.Collectors;
 public class JoinUtils {
     public static boolean couldShuffle(Join join) {
         // Cross-join and Null-Aware-Left-Anti-Join only can be broadcast join.
-        return !(join.getJoinType().isCrossJoin()) && !(join.getJoinType().isNullAwareLeftAntiJoin());
+        // Because mark join would consider null value from both build and probe side, so must use broadcast join too.
+        return !(join.getJoinType().isCrossJoin() || join.getJoinType().isNullAwareLeftAntiJoin() || join.isMarkJoin());
     }
 
     public static boolean couldBroadcast(Join join) {
@@ -228,21 +229,14 @@ public class JoinUtils {
                 || ConnectContext.get().getSessionVariable().isDisableColocatePlan()) {
             return false;
         }
-        // TODO: not rely on physical properties?
-        DistributionSpec joinDistributionSpec = join.getPhysicalProperties().getDistributionSpec();
         DistributionSpec leftDistributionSpec = join.left().getPhysicalProperties().getDistributionSpec();
         DistributionSpec rightDistributionSpec = join.right().getPhysicalProperties().getDistributionSpec();
         if (!(leftDistributionSpec instanceof DistributionSpecHash)
-                || !(rightDistributionSpec instanceof DistributionSpecHash)
-                || !(joinDistributionSpec instanceof DistributionSpecHash)) {
+                || !(rightDistributionSpec instanceof DistributionSpecHash)) {
             return false;
         }
-        DistributionSpecHash leftHash = (DistributionSpecHash) leftDistributionSpec;
-        DistributionSpecHash rightHash = (DistributionSpecHash) rightDistributionSpec;
-        DistributionSpecHash joinHash = (DistributionSpecHash) joinDistributionSpec;
-        return leftHash.getShuffleType() == ShuffleType.NATURAL
-                && rightHash.getShuffleType() == ShuffleType.NATURAL
-                && joinHash.getShuffleType() == ShuffleType.NATURAL;
+        return couldColocateJoin((DistributionSpecHash) leftDistributionSpec,
+                (DistributionSpecHash) rightDistributionSpec);
     }
 
     /**

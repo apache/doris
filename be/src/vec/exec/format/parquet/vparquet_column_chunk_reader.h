@@ -42,7 +42,7 @@ class BlockCompressionCodec;
 
 namespace io {
 class BufferedStreamReader;
-class IOContext;
+struct IOContext;
 } // namespace io
 namespace vectorized {
 class ColumnString;

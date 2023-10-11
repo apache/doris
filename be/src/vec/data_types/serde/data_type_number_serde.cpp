@@ -63,7 +63,7 @@ using DORIS_NUMERIC_ARROW_BUILDER =
                 arrow::Int64Builder, UInt128, arrow::FixedSizeBinaryBuilder, Int128,
                 arrow::FixedSizeBinaryBuilder, Float32, arrow::FloatBuilder, Float64,
                 arrow::DoubleBuilder, void,
-                void // 添加这一行来表示TypeMap的末端
+                void // Add this line to represent the end of the TypeMap
                 >;
 
 template <typename T>
@@ -101,7 +101,8 @@ void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const 
 
 template <typename T>
 Status DataTypeNumberSerDe<T>::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                                              const FormatOptions& options) const {
+                                                              const FormatOptions& options,
+                                                              int nesting_level) const {
     auto& column_data = reinterpret_cast<ColumnType&>(column);
     ReadBuffer rb(slice.data, slice.size);
     if constexpr (std::is_same<T, UInt128>::value) {
@@ -136,16 +137,18 @@ Status DataTypeNumberSerDe<T>::deserialize_one_cell_from_json(IColumn& column, S
 }
 
 template <typename T>
-void DataTypeNumberSerDe<T>::serialize_column_to_json(const IColumn& column, int start_idx,
-                                                      int end_idx, BufferWritable& bw,
-                                                      FormatOptions& options) const {
-    SERIALIZE_COLUMN_TO_JSON()
+Status DataTypeNumberSerDe<T>::serialize_column_to_json(const IColumn& column, int start_idx,
+                                                        int end_idx, BufferWritable& bw,
+                                                        FormatOptions& options,
+                                                        int nesting_level) const {
+    SERIALIZE_COLUMN_TO_JSON();
 }
 
 template <typename T>
-void DataTypeNumberSerDe<T>::serialize_one_cell_to_json(const IColumn& column, int row_num,
-                                                        BufferWritable& bw,
-                                                        FormatOptions& options) const {
+Status DataTypeNumberSerDe<T>::serialize_one_cell_to_json(const IColumn& column, int row_num,
+                                                          BufferWritable& bw,
+                                                          FormatOptions& options,
+                                                          int nesting_level) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -161,13 +164,16 @@ void DataTypeNumberSerDe<T>::serialize_one_cell_to_json(const IColumn& column, i
     } else if constexpr (std::is_integral<T>::value || std::numeric_limits<T>::is_iec559) {
         bw.write_number(data);
     }
+    return Status::OK();
 }
 
 template <typename T>
-Status DataTypeNumberSerDe<T>::deserialize_column_from_json_vector(
-        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
-        const FormatOptions& options) const {
-    DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
+Status DataTypeNumberSerDe<T>::deserialize_column_from_json_vector(IColumn& column,
+                                                                   std::vector<Slice>& slices,
+                                                                   int* num_deserialized,
+                                                                   const FormatOptions& options,
+                                                                   int nesting_level) const {
+    DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
     return Status::OK();
 }
 
@@ -234,6 +240,72 @@ Status DataTypeNumberSerDe<T>::write_column_to_mysql(const IColumn& column,
                                                      MysqlRowBuffer<false>& row_buffer, int row_idx,
                                                      bool col_const) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+}
+
+template <typename T>
+Status DataTypeNumberSerDe<T>::write_column_to_orc(const IColumn& column, const NullMap* null_map,
+                                                   orc::ColumnVectorBatch* orc_col_batch, int start,
+                                                   int end,
+                                                   std::vector<StringRef>& buffer_list) const {
+    auto& col_data = assert_cast<const ColumnType&>(column).get_data();
+
+    if constexpr (std::is_same_v<T, Int128>) {
+        orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
+
+        char* ptr = (char*)malloc(BUFFER_UNIT_SIZE);
+        if (!ptr) {
+            return Status::InternalError(
+                    "malloc memory error when write largeint column data to orc file.");
+        }
+        StringRef bufferRef;
+        bufferRef.data = ptr;
+        bufferRef.size = BUFFER_UNIT_SIZE;
+        size_t offset = 0;
+        const size_t begin_off = offset;
+
+        for (size_t row_id = start; row_id < end; row_id++) {
+            if (cur_batch->notNull[row_id] == 0) {
+                continue;
+            }
+            std::string value_str = fmt::format("{}", col_data[row_id]);
+            size_t len = value_str.size();
+
+            REALLOC_MEMORY_FOR_ORC_WRITER()
+
+            strcpy(const_cast<char*>(bufferRef.data) + offset, value_str.c_str());
+            offset += len;
+            cur_batch->length[row_id] = len;
+        }
+        size_t data_off = 0;
+        for (size_t row_id = start; row_id < end; row_id++) {
+            if (cur_batch->notNull[row_id] == 1) {
+                cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + begin_off + data_off;
+                data_off += cur_batch->length[row_id];
+            }
+        }
+        buffer_list.emplace_back(bufferRef);
+        cur_batch->numElements = end - start;
+    } else if constexpr ((std::is_integral<T>::value && std::is_signed<T>::value) ||
+                         std::is_same_v<T, UInt8>) { // tinyint/smallint/..int and boolean type
+        orc::LongVectorBatch* cur_batch = dynamic_cast<orc::LongVectorBatch*>(orc_col_batch);
+
+        for (size_t row_id = start; row_id < end; row_id++) {
+            if (cur_batch->notNull[row_id] == 1) {
+                cur_batch->data[row_id] = col_data[row_id];
+            }
+        }
+        cur_batch->numElements = end - start;
+    } else if constexpr (IsFloatNumber<T>) {
+        orc::DoubleVectorBatch* cur_batch = dynamic_cast<orc::DoubleVectorBatch*>(orc_col_batch);
+
+        for (size_t row_id = start; row_id < end; row_id++) {
+            if (cur_batch->notNull[row_id] == 1) {
+                cur_batch->data[row_id] = col_data[row_id];
+            }
+        }
+        cur_batch->numElements = end - start;
+    }
+    return Status::OK();
 }
 
 /// Explicit template instantiations - to avoid code bloat in headers.

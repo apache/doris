@@ -161,6 +161,46 @@
 22	3
 24	4
 
+-- !exist_unCorrelated_limit1 --
+1	2
+1	3
+2	4
+2	5
+3	3
+3	4
+20	2
+22	3
+24	4
+
+-- !exist_corr_limit1 --
+1	2
+1	3
+2	4
+3	3
+3	4
+20	2
+22	3
+24	4
+
+-- !exist_unCorrelated_limit0 --
+
+-- !exist_corr_limit0 --
+
+-- !exist_unCorrelated_limit1_offset1 --
+1	2
+1	3
+2	4
+2	5
+3	3
+3	4
+20	2
+22	3
+24	4
+
+-- !exist_unCorrelated_limit0_offset1 --
+
+-- !exist_corr_limit0_offset1 --
+
 -- !scalar_subquery1 --
 
 -- !scalar_subquery2 --
@@ -406,15 +446,22 @@
 2	5
 3	3
 3	4
-
--- !doris_6937_2 --
-1	2
-1	3
-2	4
-2	5
 20	2
 22	3
 24	4
-3	3
-3	4
+
+-- !mark_join_nullable --
+\N
+\N
+\N
+\N
+\N
+\N
+true
+true
+true
+true
+\N
+\N
+\N
 

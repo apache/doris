@@ -37,6 +37,8 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/common/aggregation_common.h"
 #include "vec/common/columns_hashing.h"
+#include "vec/common/hash_table/hash_table_set_build.h"
+#include "vec/common/hash_table/hash_table_set_probe.h"
 #include "vec/common/uint128.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/materialize_block.h"
@@ -53,116 +55,6 @@ class ObjectPool;
 
 namespace vectorized {
 
-//build hash table for operation node, intersect/except node
-template <class HashTableContext, bool is_intersect>
-struct HashTableBuild {
-    HashTableBuild(int rows, ColumnRawPtrs& build_raw_ptrs,
-                   VSetOperationNode<is_intersect>* operation_node, uint8_t offset,
-                   RuntimeState* state)
-            : _rows(rows),
-              _offset(offset),
-              _build_raw_ptrs(build_raw_ptrs),
-              _operation_node(operation_node),
-              _state(state) {}
-
-    Status operator()(HashTableContext& hash_table_ctx) {
-        using KeyGetter = typename HashTableContext::State;
-        using Mapped = typename HashTableContext::Mapped;
-        int64_t old_bucket_bytes = hash_table_ctx.hash_table.get_buffer_size_in_bytes();
-
-        Defer defer {[&]() {
-            int64_t bucket_bytes = hash_table_ctx.hash_table.get_buffer_size_in_bytes();
-            _operation_node->_mem_used += bucket_bytes - old_bucket_bytes;
-        }};
-
-        KeyGetter key_getter(_build_raw_ptrs, _operation_node->_build_key_sz, nullptr);
-
-        if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<KeyGetter>::value) {
-            hash_table_ctx.serialize_keys(_build_raw_ptrs, _rows);
-            key_getter.set_serialized_keys(hash_table_ctx.keys.data());
-        }
-
-        for (size_t k = 0; k < _rows; ++k) {
-            if (k % CHECK_FRECUENCY == 0) {
-                RETURN_IF_CANCELLED(_state);
-            }
-            auto emplace_result = key_getter.emplace_key(hash_table_ctx.hash_table, k,
-                                                         *(_operation_node->_arena));
-
-            if (k + 1 < _rows) {
-                key_getter.prefetch_by_key(hash_table_ctx.hash_table, k + 1,
-                                           *(_operation_node->_arena));
-            }
-
-            if (emplace_result.is_inserted()) { //only inserted once as the same key, others skip
-                new (&emplace_result.get_mapped()) Mapped({k, _offset});
-            }
-        }
-        return Status::OK();
-    }
-
-private:
-    const int _rows;
-    const uint8_t _offset;
-    ColumnRawPtrs& _build_raw_ptrs;
-    VSetOperationNode<is_intersect>* _operation_node;
-    RuntimeState* _state;
-};
-
-template <class HashTableContext, bool is_intersected>
-struct HashTableProbe {
-    HashTableProbe(VSetOperationNode<is_intersected>* operation_node, int probe_rows)
-            : _operation_node(operation_node),
-              _probe_rows(probe_rows),
-              _probe_raw_ptrs(operation_node->_probe_columns),
-              _arena(new Arena) {}
-
-    Status mark_data_in_hashtable(HashTableContext& hash_table_ctx) {
-        using KeyGetter = typename HashTableContext::State;
-
-        KeyGetter key_getter(_probe_raw_ptrs, _operation_node->_probe_key_sz, nullptr);
-        if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<KeyGetter>::value) {
-            if (_probe_keys.size() < _probe_rows) {
-                _probe_keys.resize(_probe_rows);
-            }
-            size_t keys_size = _probe_raw_ptrs.size();
-            for (size_t i = 0; i < _probe_rows; ++i) {
-                _probe_keys[i] =
-                        serialize_keys_to_pool_contiguous(i, keys_size, _probe_raw_ptrs, *_arena);
-            }
-            key_getter.set_serialized_keys(_probe_keys.data());
-        }
-
-        if constexpr (std::is_same_v<typename HashTableContext::Mapped, RowRefListWithFlags>) {
-            for (int probe_index = 0; probe_index < _probe_rows; probe_index++) {
-                auto find_result =
-                        key_getter.find_key(hash_table_ctx.hash_table, probe_index, *_arena);
-                if (find_result.is_found()) { //if found, marked visited
-                    auto it = find_result.get_mapped().begin();
-                    if (!(it->visited)) {
-                        it->visited = true;
-                        if constexpr (is_intersected) { //intersected
-                            _operation_node->_valid_element_in_hash_tbl++;
-                        } else {
-                            _operation_node->_valid_element_in_hash_tbl--; //except
-                        }
-                    }
-                }
-            }
-        } else {
-            LOG(FATAL) << "Invalid RowRefListType!";
-        }
-        return Status::OK();
-    }
-
-private:
-    VSetOperationNode<is_intersected>* _operation_node;
-    const size_t _probe_rows;
-    ColumnRawPtrs& _probe_raw_ptrs;
-    std::unique_ptr<Arena> _arena;
-    std::vector<StringRef> _probe_keys;
-};
-
 template <bool is_intersect>
 VSetOperationNode<is_intersect>::VSetOperationNode(ObjectPool* pool, const TPlanNode& tnode,
                                                    const DescriptorTbl& descs)
@@ -172,7 +64,6 @@ VSetOperationNode<is_intersect>::VSetOperationNode(ObjectPool* pool, const TPlan
           _build_block_index(0),
           _build_finished(false) {
     _hash_table_variants = std::make_unique<HashTableVariants>();
-    _arena = std::make_unique<Arena>();
 }
 
 template <bool is_intersect>
@@ -191,18 +82,18 @@ Status VSetOperationNode<is_intersect>::close(RuntimeState* state) {
 template <bool is_intersect>
 Status VSetOperationNode<is_intersect>::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
-    std::vector<std::vector<::doris::TExpr>> result_texpr_lists;
+    const std::vector<std::vector<::doris::TExpr>>* result_texpr_lists;
 
     // Create result_expr_ctx_lists_ from thrift exprs.
     if (tnode.node_type == TPlanNodeType::type::INTERSECT_NODE) {
-        result_texpr_lists = tnode.intersect_node.result_expr_lists;
+        result_texpr_lists = &(tnode.intersect_node.result_expr_lists);
     } else if (tnode.node_type == TPlanNodeType::type::EXCEPT_NODE) {
-        result_texpr_lists = tnode.except_node.result_expr_lists;
+        result_texpr_lists = &(tnode.except_node.result_expr_lists);
     } else {
         return Status::NotSupported("Not Implemented, Check The Operation Node.");
     }
 
-    for (auto& texprs : result_texpr_lists) {
+    for (auto& texprs : *result_texpr_lists) {
         VExprContextSPtrs ctxs;
         RETURN_IF_ERROR(VExpr::create_expr_trees(texprs, ctxs));
         _child_expr_lists.push_back(ctxs);
@@ -455,9 +346,9 @@ Status VSetOperationNode<is_intersect>::hash_table_build(RuntimeState* state) {
                           _children[0], std::placeholders::_1, std::placeholders::_2,
                           std::placeholders::_3)));
         if (eos) {
-            child(0)->close(state);
+            static_cast<void>(child(0)->close(state));
         }
-        sink(state, &block, eos);
+        static_cast<void>(sink(state, &block, eos));
     }
 
     return Status::OK();
@@ -481,7 +372,7 @@ Status VSetOperationNode<is_intersect>::process_build_block(Block& block, uint8_
                 if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
                     HashTableBuild<HashTableCtxType, is_intersect> hash_table_build_process(
                             rows, raw_ptrs, this, offset, state);
-                    hash_table_build_process(arg);
+                    static_cast<void>(hash_table_build_process(arg));
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";
                 }
@@ -586,10 +477,11 @@ Status VSetOperationNode<is_intersect>::extract_build_column(Block& block,
 
         if (auto* nullable = check_and_get_column<ColumnNullable>(*column)) {
             auto& col_nested = nullable->get_nested_column();
-            if (_build_not_ignore_null[i])
+            if (_build_not_ignore_null[i]) {
                 raw_ptrs[i] = nullable;
-            else
+            } else {
                 raw_ptrs[i] = &col_nested;
+            }
 
         } else {
             raw_ptrs[i] = column;
@@ -620,6 +512,9 @@ Status VSetOperationNode<is_intersect>::extract_probe_column(Block& block, Colum
             }
 
         } else {
+            if (i == 0) {
+                LOG(WARNING) << "=========1 " << _build_not_ignore_null[i];
+            }
             if (_build_not_ignore_null[i]) {
                 auto column_ptr = make_nullable(block.get_by_position(result_col_id).column, false);
                 _probe_column_inserted_id.emplace_back(block.columns());
@@ -664,7 +559,6 @@ void VSetOperationNode<is_intersect>::debug_string(int indentation_level,
 template <bool is_intersect>
 void VSetOperationNode<is_intersect>::release_mem() {
     _hash_table_variants = nullptr;
-    _arena = nullptr;
 
     std::vector<Block> tmp_build_blocks;
     _build_blocks.swap(tmp_build_blocks);

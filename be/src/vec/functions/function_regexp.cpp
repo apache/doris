@@ -424,7 +424,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         size_t argument_size = arguments.size();
 
         auto result_null_map = ColumnUInt8::create(input_rows_count, 0);

@@ -163,8 +163,8 @@ FE 不参与用户数据的处理计算等工作，因此是一个资源消耗�
    set exec_mem_limit=1G;
    # 设置全局变量 exec_mem_limit。则之后所有新会话（新连接）的所有查询都使用这个内存限制。
    set global exec_mem_limit=1G;
-   # 在 SQL 中设置变量 exec_mem_limit。则该变量仅影响这个 SQL。
-   select /*+ SET_VAR(exec_mem_limit=1G) */ id, name from tbl where xxx;
+   # 在 SQL 中设置变量 exec_mem_limit（单位：字节）。则该变量仅影响这个 SQL。
+   select /*+ SET_VAR(exec_mem_limit=1073741824) */ id, name from tbl where xxx;
    ```
 
    因为 Doris 的查询引擎是基于全内存的 MPP 查询框架。因此当一个查询的内存使用超过限制后，查询会被终止。因此，当一个查询无法在合理的内存限制下运行时，我们就需要通过一些 SQL 优化手段，或者集群扩容的方式来解决了。

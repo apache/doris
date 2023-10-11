@@ -37,6 +37,8 @@ class SuiteContext implements Closeable {
     public final String group
     public final String dbName
     public final ThreadLocal<Connection> threadLocalConn = new ThreadLocal<>()
+    public final ThreadLocal<Connection> threadHiveDockerConn = new ThreadLocal<>()
+    public final ThreadLocal<Connection> threadHiveRemoteConn = new ThreadLocal<>()
     private final ThreadLocal<Syncer> syncer = new ThreadLocal<>()
     public final Config config
     public final File dataPath
@@ -127,6 +129,24 @@ class SuiteContext implements Closeable {
         return threadConn
     }
 
+    Connection getHiveDockerConnection(){
+        def threadConn = threadHiveDockerConn.get()
+        if (threadConn == null) {
+            threadConn = getConnectionByHiveDockerConfig()
+            threadHiveDockerConn.set(threadConn)
+        }
+        return threadConn
+    }
+
+    Connection getHiveRemoteConnection(){
+        def threadConn = threadHiveRemoteConn.get()
+        if (threadConn == null) {
+            threadConn = getConnectionByHiveRemoteConfig()
+            threadHiveRemoteConn.set(threadConn)
+        }
+        return threadConn
+    }
+
     private String getJdbcNetInfo() {
         String subJdbc = config.jdbcUrl.substring(config.jdbcUrl.indexOf("://") + 3)
         return subJdbc.substring(0, subJdbc.indexOf("/"))
@@ -158,6 +178,26 @@ class SuiteContext implements Closeable {
         spec.put("database", "TEST_" + dbName)
 
         return spec
+    }
+
+    Connection getConnectionByHiveDockerConfig() {
+        Class.forName("org.apache.hive.jdbc.HiveDriver");
+        String hiveHost = config.otherConfigs.get("externalEnvIp")
+        String hivePort = config.otherConfigs.get("hiveServerPort")
+        String hiveJdbcUrl = "jdbc:hive2://${hiveHost}:${hivePort}/default"
+        String hiveJdbcUser =  "hadoop"
+        String hiveJdbcPassword = "hadoop"
+        return DriverManager.getConnection(hiveJdbcUrl, hiveJdbcUser, hiveJdbcPassword)
+    }
+
+    Connection getConnectionByHiveRemoteConfig() {
+        Class.forName("org.apache.hive.jdbc.HiveDriver");
+        String hiveHost = config.otherConfigs.get("extHiveHmsHost")
+        String hivePort = config.otherConfigs.get("extHiveServerPort")
+        String hiveJdbcUrl = "jdbc:hive2://${hiveHost}:${hivePort}/default"
+        String hiveJdbcUser =  "hadoop"
+        String hiveJdbcPassword = "hadoop"
+        return DriverManager.getConnection(hiveJdbcUrl, hiveJdbcUser, hiveJdbcPassword)
     }
 
     Connection getTargetConnection(Suite suite) {
@@ -281,6 +321,27 @@ class SuiteContext implements Closeable {
                 log.warn("Close connection failed", t)
             }
         }
+        
+        Connection hive_docker_conn = threadHiveDockerConn.get()
+        if (hive_docker_conn != null) {
+            threadHiveDockerConn.remove()
+            try {
+                hive_docker_conn.close()
+            } catch (Throwable t) {
+                log.warn("Close connection failed", t)
+            }
+        }
+        
+        Connection hive_remote_conn = threadHiveRemoteConn.get()
+        if (hive_remote_conn != null) {
+            threadHiveRemoteConn.remove()
+            try {
+                hive_remote_conn.close()
+            } catch (Throwable t) {
+                log.warn("Close connection failed", t)
+            }
+        }
+        
     }
 
     public <T> T start(Function<SuiteContext, T> func) {

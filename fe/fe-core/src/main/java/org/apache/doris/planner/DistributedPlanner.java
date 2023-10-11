@@ -268,6 +268,7 @@ public class DistributedPlanner {
         mergePlan.init(ctx.getRootAnalyzer());
         Preconditions.checkState(mergePlan.hasValidStats());
         PlanFragment fragment = new PlanFragment(ctx.getNextFragmentId(), mergePlan, DataPartition.UNPARTITIONED);
+        fragment.setResultSinkType(ctx.getRootAnalyzer().getContext().getResultSinkType());
         inputFragment.setDestination(mergePlan);
         return fragment;
     }

@@ -38,6 +38,11 @@ public:
         return std::make_shared<AggregateStateMerge>(function, argument_types, return_type);
     }
 
+    void set_version(const int version_) override {
+        IAggregateFunctionHelper::set_version(version_);
+        _function->set_version(version_);
+    }
+
     String get_name() const override { return _function->get_name() + AGG_MERGE_SUFFIX; }
 
     DataTypePtr get_return_type() const override { return _function->get_return_type(); }

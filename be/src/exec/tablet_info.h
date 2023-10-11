@@ -90,7 +90,6 @@ public:
         return _partial_update_input_columns;
     }
     bool is_strict_mode() const { return _is_strict_mode; }
-    bool is_unique_key_ignore_mode() const { return _is_unique_key_ignore_mode; }
     std::string debug_string() const;
 
 private:
@@ -105,7 +104,6 @@ private:
     bool _is_partial_update = false;
     std::set<std::string> _partial_update_input_columns;
     bool _is_strict_mode = false;
-    bool _is_unique_key_ignore_mode = false;
 };
 
 using OlapTableIndexTablets = TOlapTableIndexTablets;

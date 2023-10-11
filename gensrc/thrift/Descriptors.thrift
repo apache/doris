@@ -230,7 +230,6 @@ struct TOlapTableSchemaParam {
     8: optional bool is_partial_update
     9: optional list<string> partial_update_input_columns
     10: optional bool is_strict_mode = false;
-    11: optional bool is_unique_key_ignore_mode = false;
 }
 
 struct TTabletLocation {

@@ -33,11 +33,13 @@ OPTS="$(getopt \
     -l 'image:' \
     -l 'version' \
     -l 'metadata_failure_recovery' \
+    -l 'console' \
     -- "$@")"
 
 eval set -- "${OPTS}"
 
 RUN_DAEMON=0
+RUN_CONSOLE=0
 HELPER=''
 IMAGE_PATH=''
 IMAGE_TOOL=''
@@ -47,6 +49,10 @@ while true; do
     case "$1" in
     --daemon)
         RUN_DAEMON=1
+        shift
+        ;;
+    --console)
+        RUN_CONSOLE=1
         shift
         ;;
     --version)
@@ -113,8 +119,14 @@ if [[ -e "${DORIS_HOME}/bin/palo_env.sh" ]]; then
     source "${DORIS_HOME}/bin/palo_env.sh"
 fi
 
+#Due to the machine not being configured with Java home, in this case, when FE cannot start, it is necessary to prompt an error message indicating that it has not yet been configured with Java home.
+
 if [[ -z "${JAVA_HOME}" ]]; then
-    JAVA="$(command -v java)"
+    if ! command -v java &>/dev/null; then
+        JAVA=""
+    else
+        JAVA="$(command -v java)"
+    fi
 else
     JAVA="${JAVA_HOME}/bin/java"
 fi
@@ -125,6 +137,13 @@ if [[ ! -x "${JAVA}" ]]; then
     echo "NB: JAVA_HOME should point to a JDK not a JRE"
     exit 1
 fi
+
+for var in http_proxy HTTP_PROXY https_proxy HTTPS_PROXY; do
+    if [[ -n ${!var} ]]; then
+        echo "env '${var}' = '${!var}', need unset it using 'unset ${var}'"
+        exit 1
+    fi
+done
 
 # get jdk version, return version as an Integer.
 # 1.8 => 8, 13.0 => 13
@@ -182,7 +201,7 @@ for f in "${DORIS_HOME}/lib"/*.jar; do
     CLASSPATH="${f}:${CLASSPATH}"
 done
 
-# add custome_libs to CLASSPATH
+# add custom_libs to CLASSPATH
 if [[ -d "${DORIS_HOME}/custom_lib" ]]; then
     for f in "${DORIS_HOME}/custom_lib"/*.jar; do
         CLASSPATH="${f}:${CLASSPATH}"
@@ -227,9 +246,11 @@ if [[ "${IMAGE_TOOL}" -eq 1 ]]; then
     fi
 elif [[ "${RUN_DAEMON}" -eq 1 ]]; then
     nohup ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:-OmitStackTraceInFastThrow -XX:OnOutOfMemoryError="kill -9 %p" org.apache.doris.DorisFE ${HELPER:+${HELPER}} "${METADATA_FAILURE_RECOVERY}" "$@" >>"${LOG_DIR}/fe.out" 2>&1 </dev/null &
-else
+elif [[ "${RUN_CONSOLE}" -eq 1 ]]; then
     export DORIS_LOG_TO_STDERR=1
     ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:-OmitStackTraceInFastThrow -XX:OnOutOfMemoryError="kill -9 %p" org.apache.doris.DorisFE ${HELPER:+${HELPER}} ${OPT_VERSION:+${OPT_VERSION}} "${METADATA_FAILURE_RECOVERY}" "$@" </dev/null
+else
+    ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:-OmitStackTraceInFastThrow -XX:OnOutOfMemoryError="kill -9 %p" org.apache.doris.DorisFE ${HELPER:+${HELPER}} ${OPT_VERSION:+${OPT_VERSION}} "$@" >>"${LOG_DIR}/fe.out" 2>&1 </dev/null
 fi
 
 echo $! >"${pidfile}"

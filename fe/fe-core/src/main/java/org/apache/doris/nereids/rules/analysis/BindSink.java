@@ -32,9 +32,13 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.rules.FunctionBinder;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
@@ -43,6 +47,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -54,6 +60,7 @@ import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -64,119 +71,161 @@ public class BindSink implements AnalysisRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                RuleType.BINDING_INSERT_TARGET_TABLE.build(
-                        unboundOlapTableSink().thenApply(ctx -> {
-                            UnboundOlapTableSink<?> sink = ctx.root;
-                            Pair<Database, OlapTable> pair = bind(ctx.cascadesContext, sink);
-                            Database database = pair.first;
-                            OlapTable table = pair.second;
+                RuleType.BINDING_INSERT_TARGET_TABLE.build(unboundOlapTableSink().thenApply(ctx -> {
+                    UnboundOlapTableSink<?> sink = ctx.root;
+                    Pair<Database, OlapTable> pair = bind(ctx.cascadesContext, sink);
+                    Database database = pair.first;
+                    OlapTable table = pair.second;
 
-                            LogicalPlan child = ((LogicalPlan) sink.child());
+                    LogicalPlan child = ((LogicalPlan) sink.child());
+                    boolean isNeedSequenceCol = child.getOutput().stream()
+                            .anyMatch(slot -> slot.getName().equals(Column.SEQUENCE_COL));
 
-                            LogicalOlapTableSink<?> boundSink = new LogicalOlapTableSink<>(
-                                    database,
-                                    table,
-                                    bindTargetColumns(table, sink.getColNames()),
-                                    bindPartitionIds(table, sink.getPartitions()),
-                                    child.getOutput().stream()
-                                            .map(NamedExpression.class::cast)
-                                            .collect(ImmutableList.toImmutableList()),
-                                    sink.isPartialUpdate(),
-                                    sink.child());
+                    LogicalOlapTableSink<?> boundSink = new LogicalOlapTableSink<>(
+                            database,
+                            table,
+                            bindTargetColumns(table, sink.getColNames(), isNeedSequenceCol),
+                            bindPartitionIds(table, sink.getPartitions()),
+                            child.getOutput().stream()
+                                    .map(NamedExpression.class::cast)
+                                    .collect(ImmutableList.toImmutableList()),
+                            sink.isPartialUpdate(),
+                            sink.isFromNativeInsertStmt(),
+                            sink.child());
 
-                            // we need to insert all the columns of the target table
-                            // although some columns are not mentions.
-                            // so we add a projects to supply the default value.
+                    // we need to insert all the columns of the target table
+                    // although some columns are not mentions.
+                    // so we add a projects to supply the default value.
 
-                            if (boundSink.getCols().size() != child.getOutput().size()) {
-                                throw new AnalysisException(
-                                        "insert into cols should be corresponding to the query output");
+                    if (boundSink.getCols().size() != child.getOutput().size()) {
+                        throw new AnalysisException("insert into cols should be corresponding to the query output");
+                    }
+
+                    Map<Column, NamedExpression> columnToChildOutput = Maps.newHashMap();
+                    for (int i = 0; i < boundSink.getCols().size(); ++i) {
+                        columnToChildOutput.put(boundSink.getCols().get(i), child.getOutput().get(i));
+                    }
+
+                    Map<String, NamedExpression> columnToOutput = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+                    NereidsParser expressionParser = new NereidsParser();
+
+                    // generate slots not mentioned in sql, mv slots and shaded slots.
+                    for (Column column : boundSink.getTargetTable().getFullSchema()) {
+                        if (column.isMaterializedViewColumn()) {
+                            List<SlotRef> refs = column.getRefColumns();
+                            // now we have to replace the column to slots.
+                            Preconditions.checkArgument(refs != null,
+                                    "mv column %s 's ref column cannot be null", column);
+                            Expression parsedExpression = expressionParser.parseExpression(
+                                    column.getDefineExpr().toSqlWithoutTbl());
+                            Expression boundSlotExpression = SlotReplacer.INSTANCE
+                                    .replace(parsedExpression, columnToOutput);
+                            // the boundSlotExpression is an expression whose slots are bound but function
+                            // may not be bound, we have to bind it again.
+                            // for example: to_bitmap.
+                            Expression boundExpression = FunctionBinder.INSTANCE.rewrite(
+                                    boundSlotExpression, new ExpressionRewriteContext(ctx.cascadesContext));
+                            if (boundExpression instanceof Alias) {
+                                boundExpression = ((Alias) boundExpression).child();
                             }
-
-                            Map<Column, NamedExpression> columnToChildOutput = Maps.newHashMap();
-                            for (int i = 0; i < boundSink.getCols().size(); ++i) {
-                                columnToChildOutput.put(boundSink.getCols().get(i), child.getOutput().get(i));
-                            }
-
-                            Map<String, NamedExpression> columnToOutput = Maps.newLinkedHashMap();
-                            NereidsParser expressionParser = new NereidsParser();
-
-                            // this is a trick way to avoid legacy planner's slotRef toSql output include label.
-                            // see more in org.apache.doris.analysis.SlotRef.toSqlImpl
-                            if (ConnectContext.get() != null) {
-                                ConnectContext.get().getState().setIsQuery(true);
-                            }
-                            // generate slots not mentioned in sql, mv slots and shaded slots.
-                            try {
-                                for (Column column : boundSink.getTargetTable().getFullSchema()) {
-                                    if (column.isMaterializedViewColumn()) {
-                                        List<SlotRef> refs = column.getRefColumns();
-                                        // now we have to replace the column to slots.
-                                        Preconditions.checkArgument(refs != null,
-                                                "mv column's ref column cannot be null");
-                                        Expression parsedExpression = expressionParser.parseExpression(
-                                                column.getDefineExpr().toSql());
-                                        Expression boundExpression = SlotReplacer.INSTANCE
-                                                .replace(parsedExpression, columnToOutput);
-
-                                        NamedExpression slot = boundExpression instanceof NamedExpression
-                                                ? ((NamedExpression) boundExpression)
-                                                : new Alias(boundExpression);
-
-                                        columnToOutput.put(column.getName(), slot);
-                                    } else if (columnToChildOutput.containsKey(column)) {
-                                        columnToOutput.put(column.getName(), columnToChildOutput.get(column));
+                            NamedExpression slot = new Alias(boundExpression, column.getDefineExpr().toSqlWithoutTbl());
+                            columnToOutput.put(column.getName(), slot);
+                        } else if (columnToChildOutput.containsKey(column)) {
+                            columnToOutput.put(column.getName(), columnToChildOutput.get(column));
+                        } else {
+                            if (table.hasSequenceCol()
+                                    && column.getName().equals(Column.SEQUENCE_COL)
+                                    && table.getSequenceMapCol() != null) {
+                                Optional<Column> seqCol = table.getFullSchema().stream()
+                                        .filter(col -> col.getName().equals(table.getSequenceMapCol()))
+                                        .findFirst();
+                                if (!seqCol.isPresent()) {
+                                    throw new AnalysisException("sequence column is not contained in"
+                                            + " target table " + table.getName());
+                                }
+                                columnToOutput.put(column.getName(), columnToOutput.get(seqCol.get().getName()));
+                            } else if (sink.isPartialUpdate()) {
+                                // If the current load is a partial update, the values of unmentioned
+                                // columns will be filled in SegmentWriter. And the output of sink node
+                                // should not contain these unmentioned columns, so we just skip them.
+                                continue;
+                            } else if (column.getDefaultValue() == null) {
+                                // Otherwise, the unmentioned columns should be filled with default values
+                                // or null values
+                                columnToOutput.put(column.getName(), new Alias(
+                                        new NullLiteral(DataType.fromCatalogType(column.getType())),
+                                        column.getName()
+                                ));
+                            } else {
+                                try {
+                                    // it comes from the original planner, if default value expression is
+                                    // null, we use the literal string of the default value, or it may be
+                                    // default value function, like CURRENT_TIMESTAMP.
+                                    if (column.getDefaultValueExpr() == null) {
+                                        columnToOutput.put(column.getName(),
+                                                new Alias(Literal.of(column.getDefaultValue())
+                                                        .checkedCastTo(DataType.fromCatalogType(column.getType())),
+                                                        column.getName()));
                                     } else {
-                                        if (table.hasSequenceCol()
-                                                && column.getName().equals(Column.SEQUENCE_COL)
-                                                && table.getSequenceMapCol() != null) {
-                                            Column seqCol = table.getFullSchema().stream()
-                                                    .filter(col -> col.getName().equals(table.getSequenceMapCol()))
-                                                    .findFirst().get();
-                                            columnToOutput.put(column.getName(), columnToOutput.get(seqCol.getName()));
-                                        } else if (column.getDefaultValue() == null) {
-                                            columnToOutput.put(column.getName(), new Alias(
-                                                    new NullLiteral(DataType.fromCatalogType(column.getType())),
-                                                    column.getName()
-                                            ));
-                                        } else {
-                                            columnToOutput.put(column.getName(),
-                                                    new Alias(Literal.of(column.getDefaultValue())
-                                                            .checkedCastTo(DataType.fromCatalogType(column.getType())),
-                                                            column.getName()));
+                                        Expression defualtValueExpression = FunctionBinder.INSTANCE.rewrite(
+                                                new NereidsParser().parseExpression(
+                                                        column.getDefaultValueExpr().toSqlWithoutTbl()),
+                                                new ExpressionRewriteContext(ctx.cascadesContext));
+                                        if (defualtValueExpression instanceof Alias) {
+                                            defualtValueExpression = ((Alias) defualtValueExpression).child();
                                         }
+                                        columnToOutput.put(column.getName(),
+                                                new Alias(defualtValueExpression, column.getName()));
                                     }
-                                }
-                            } finally {
-                                if (ConnectContext.get() != null) {
-                                    // this is a trick way to avoid legacy planner's slotRef toSql output include label
-                                    // set back to original value.
-                                    ConnectContext.get().getState().setIsQuery(false);
+                                } catch (Exception e) {
+                                    throw new AnalysisException(e.getMessage(), e.getCause());
                                 }
                             }
-                            List<NamedExpression> fullOutputExprs = ImmutableList.copyOf(columnToOutput.values());
+                        }
+                    }
+                    List<NamedExpression> fullOutputExprs = ImmutableList.copyOf(columnToOutput.values());
 
-                            LogicalProject<?> fullOutputProject = new LogicalProject<>(fullOutputExprs,
-                                    boundSink.child());
+                    LogicalProject<?> fullOutputProject = new LogicalProject<>(fullOutputExprs, boundSink.child());
 
-                            // add cast project
-                            List<NamedExpression> castExprs = Lists.newArrayList();
-                            for (int i = 0; i < table.getFullSchema().size(); ++i) {
-                                Expression castExpr = TypeCoercionUtils.castIfNotSameType(fullOutputExprs.get(i),
-                                        DataType.fromCatalogType(table.getFullSchema().get(i).getType()));
-                                if (castExpr instanceof NamedExpression) {
-                                    castExprs.add(((NamedExpression) castExpr));
-                                } else {
-                                    castExprs.add(new Alias(castExpr));
-                                }
+                    // add cast project
+                    List<NamedExpression> castExprs = Lists.newArrayList();
+                    for (int i = 0; i < table.getFullSchema().size(); ++i) {
+                        Column col = table.getFullSchema().get(i);
+                        NamedExpression expr = columnToOutput.get(col.getName());
+                        if (expr == null) {
+                            // If `expr` is null, it means that the current load is a partial update
+                            // and `col` should not be contained in the output of the sink node so
+                            // we skip it.
+                            continue;
+                        }
+                        maybeFallbackCastUnsupportedType(expr, ctx.connectContext);
+                        DataType inputType = expr.getDataType();
+                        DataType targetType = DataType.fromCatalogType(table.getFullSchema().get(i).getType());
+                        Expression castExpr = expr;
+                        if (isSourceAndTargetStringLikeType(inputType, targetType)) {
+                            int sourceLength = ((CharacterType) inputType).getLen();
+                            int targetLength = ((CharacterType) targetType).getLen();
+                            if (sourceLength >= targetLength && targetLength >= 0) {
+                                castExpr = new Substring(castExpr, Literal.of(1), Literal.of(targetLength));
+                            } else if (targetType.isStringType()) {
+                                castExpr = new Cast(castExpr, StringType.INSTANCE);
                             }
-                            if (!castExprs.equals(fullOutputExprs)) {
-                                fullOutputProject = new LogicalProject<Plan>(castExprs, fullOutputProject);
-                            }
+                        } else {
+                            castExpr = TypeCoercionUtils.castIfNotSameType(castExpr, targetType);
+                        }
+                        if (castExpr instanceof NamedExpression) {
+                            castExprs.add(((NamedExpression) castExpr));
+                        } else {
+                            castExprs.add(new Alias(castExpr));
+                        }
+                    }
+                    if (!castExprs.equals(fullOutputExprs)) {
+                        fullOutputProject = new LogicalProject<Plan>(castExprs, fullOutputProject);
+                    }
 
-                            return boundSink.withChildAndUpdateOutput(fullOutputProject);
+                    return boundSink.withChildAndUpdateOutput(fullOutputProject);
 
-                        })),
+                })),
                 RuleType.BINDING_INSERT_FILE.build(
                         logicalFileSink().when(s -> s.getOutputExprs().isEmpty())
                                 .then(fileSink -> fileSink.withOutputExprs(
@@ -193,6 +242,11 @@ public class BindSink implements AnalysisRuleFactory {
         Pair<DatabaseIf, TableIf> pair = RelationUtil.getDbAndTable(tableQualifier,
                 cascadesContext.getConnectContext().getEnv());
         if (!(pair.second instanceof OlapTable)) {
+            try {
+                cascadesContext.getConnectContext().getSessionVariable().enableFallbackToOriginalPlannerOnce();
+            } catch (Exception e) {
+                throw new AnalysisException("fall back failed");
+            }
             throw new AnalysisException("the target table of insert into is not an OLAP table");
         }
         return Pair.of(((Database) pair.first), (OlapTable) pair.second);
@@ -211,11 +265,12 @@ public class BindSink implements AnalysisRuleFactory {
                 }).collect(Collectors.toList());
     }
 
-    private List<Column> bindTargetColumns(OlapTable table, List<String> colsName) {
+    private List<Column> bindTargetColumns(OlapTable table, List<String> colsName, boolean isNeedSequenceCol) {
+        // if the table set sequence column in stream load phase, the sequence map column is null, we query it.
         return colsName.isEmpty()
-                ? table.getFullSchema().stream().filter(column -> column.isVisible()
-                        && !column.isMaterializedViewColumn())
-                .collect(Collectors.toList())
+                ? table.getBaseSchema(true).stream()
+                .filter(c -> validColumn(c, isNeedSequenceCol))
+                .collect(ImmutableList.toImmutableList())
                 : colsName.stream().map(cn -> {
                     Column column = table.getColumn(cn);
                     if (column == null) {
@@ -223,7 +278,27 @@ public class BindSink implements AnalysisRuleFactory {
                                 cn, table.getName()));
                     }
                     return column;
-                }).collect(Collectors.toList());
+                }).collect(ImmutableList.toImmutableList());
+    }
+
+    private void maybeFallbackCastUnsupportedType(Expression expression, ConnectContext ctx) {
+        if (expression.getDataType().isMapType()) {
+            try {
+                ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
+            } catch (Exception e) {
+                throw new AnalysisException("failed to try to fall back to original planner");
+            }
+            throw new AnalysisException("failed to cast type when binding sink, type is: " + expression.getDataType());
+        }
+    }
+
+    private boolean isSourceAndTargetStringLikeType(DataType input, DataType target) {
+        return input.isStringLikeType() && target.isStringLikeType();
+    }
+
+    private boolean validColumn(Column column, boolean isNeedSequenceCol) {
+        return (column.isVisible() || (isNeedSequenceCol && column.isSequenceColumn()))
+                && !column.isMaterializedViewColumn();
     }
 
     private static class SlotReplacer extends DefaultExpressionRewriter<Map<String, NamedExpression>> {
@@ -235,6 +310,9 @@ public class BindSink implements AnalysisRuleFactory {
 
         @Override
         public Expression visitUnboundSlot(UnboundSlot unboundSlot, Map<String, NamedExpression> replaceMap) {
+            if (!replaceMap.containsKey(unboundSlot.getName())) {
+                throw new AnalysisException("cannot find column from target table " + unboundSlot.getNameParts());
+            }
             return replaceMap.get(unboundSlot.getName());
         }
     }

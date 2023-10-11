@@ -622,7 +622,7 @@ suite("test_json_load", "p0") {
         brokerName =getBrokerName()
         hdfsUser = getHdfsUser()
         hdfsPasswd = getHdfsPasswd()
-        def hdfs_file_path = uploadToHdfs "stream_load/simple_object_json.json"
+        def hdfs_file_path = uploadToHdfs "load_p0/stream_load/simple_object_json.json"
         def format = "json" 
 
         // case18: import json use pre-filter exprs

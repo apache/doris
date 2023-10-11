@@ -23,6 +23,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <shared_mutex>
 #include <unordered_map>
 #include <vector>
 
@@ -86,9 +87,11 @@ private:
     void cancel_thread();
 
     // lock for buffer map
-    std::mutex _lock;
+    std::shared_mutex _buffer_map_lock;
     // buffer block map
     BufferMap _buffer_map;
+    // lock for descriptor map
+    std::shared_mutex _row_descriptor_map_lock;
     // for arrow flight
     RowDescriptorMap _row_descriptor_map;
 

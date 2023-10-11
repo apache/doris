@@ -30,6 +30,8 @@ suite("ds_rf17") {
     sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_pipeline_engine=true'
+    sql 'set enable_runtime_filter_prune=false'
+    sql 'set expand_runtime_filter_by_inner_join=false'
     String stmt = '''
     explain physical plan
     select  i_item_id
@@ -94,6 +96,6 @@ limit 100;
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.17"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
-    
+
      assertEquals("RF9[d_date_sk->[cs_sold_date_sk],RF7[sr_customer_sk->[cs_bill_customer_sk],RF8[sr_item_sk->[cs_item_sk],RF6[s_store_sk->[ss_store_sk],RF5[i_item_sk->[ss_item_sk],RF4[d_date_sk->[sr_returned_date_sk],RF1[ss_customer_sk->[sr_customer_sk],RF2[ss_item_sk->[sr_item_sk],RF3[ss_ticket_number->[sr_ticket_number],RF0[d_date_sk->[ss_sold_date_sk]", getRuntimeFilters(plan))
 }

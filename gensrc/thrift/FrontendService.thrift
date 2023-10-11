@@ -390,6 +390,12 @@ enum FrontendServiceVersion {
   V1
 }
 
+struct TDetailedReportParams {
+  1: optional Types.TUniqueId fragment_instance_id
+  2: optional RuntimeProfile.TRuntimeProfileTree profile
+  3: optional RuntimeProfile.TRuntimeProfileTree loadChannelProfile
+}
+
 // The results of an INSERT query, sent to the coordinator as part of
 // TReportExecStatusParams
 struct TReportExecStatusParams {
@@ -403,6 +409,7 @@ struct TReportExecStatusParams {
   3: optional i32 backend_num
 
   // required in V1
+  // Move to TDetailedReportParams for pipelineX
   4: optional Types.TUniqueId fragment_instance_id
 
   // Status of fragment execution; any error status means it's done.
@@ -415,6 +422,7 @@ struct TReportExecStatusParams {
 
   // cumulative profile
   // required in V1
+  // Move to TDetailedReportParams for pipelineX
   7: optional RuntimeProfile.TRuntimeProfileTree profile
 
   // New errors that have not been reported to the coordinator
@@ -444,9 +452,12 @@ struct TReportExecStatusParams {
 
   20: optional PaloInternalService.TQueryType query_type
 
+  // Move to TDetailedReportParams for pipelineX
   21: optional RuntimeProfile.TRuntimeProfileTree loadChannelProfile
 
   22: optional i32 finished_scan_ranges
+
+  23: optional list<TDetailedReportParams> detailed_report
 }
 
 struct TFeResult {
@@ -628,7 +639,7 @@ struct TStreamLoadPutRequest {
     // only valid when file type is CSV
     52: optional i8 escape
     53: optional bool memtable_on_sink_node;
-    54: optional bool ignore_mode = false
+    54: optional bool group_commit
 }
 
 struct TStreamLoadPutResult {
@@ -638,6 +649,8 @@ struct TStreamLoadPutResult {
     3: optional PaloInternalService.TPipelineFragmentParams pipeline_params
     // used for group commit
     4: optional i64 base_schema_version
+    5: optional i64 db_id
+    6: optional i64 table_id
 }
 
 struct TStreamLoadMultiTablePutResult {
@@ -645,6 +658,25 @@ struct TStreamLoadMultiTablePutResult {
     // valid when status is OK
     2: optional list<PaloInternalService.TExecPlanFragmentParams> params
     3: optional list<PaloInternalService.TPipelineFragmentParams> pipeline_params
+}
+
+struct TStreamLoadWithLoadStatusResult {
+    1: optional Status.TStatus status
+    2: optional i64 txn_id
+    3: optional i64 total_rows
+    4: optional i64 loaded_rows
+    5: optional i64 filtered_rows
+    6: optional i64 unselected_rows
+}
+
+struct TCheckWalRequest {
+    1: optional i64 wal_id
+    2: optional i64 db_id
+}
+
+struct TCheckWalResult {
+    1: optional Status.TStatus status
+    2: optional bool need_recovery
 }
 
 struct TKafkaRLTaskProgress {
@@ -724,6 +756,7 @@ struct TLoadTxn2PCRequest {
     8: optional i64 auth_code
     9: optional string token
     10: optional i64 thrift_rpc_timeout_ms
+    11: optional string label
 }
 
 struct TLoadTxn2PCResult {
@@ -807,6 +840,7 @@ struct TFrontendPingFrontendResult {
     7: optional i64 lastStartupTime
     8: optional list<TDiskInfo> diskInfos
     9: optional i64 processUUID
+    10: optional i32 arrowFlightSqlPort
 }
 
 struct TPropertyVal {
@@ -1010,6 +1044,7 @@ enum TBinlogType {
   BARRIER = 10,
   MODIFY_PARTITIONS = 11,
   REPLACE_PARTITIONS = 12,
+  TRUNCATE_TABLE = 13,
 }
 
 struct TBinlog {
@@ -1067,6 +1102,7 @@ struct TGetSnapshotResult {
 
 struct TTableRef {
     1: optional string table
+    3: optional string alias_name
 }
 
 struct TRestoreSnapshotRequest {

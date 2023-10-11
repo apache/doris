@@ -35,7 +35,7 @@ INSERT
 The change statement is to complete the data insertion operation.
 
 ```sql
-INSERT [IGNORE] INTO table_name
+INSERT INTO table_name
     [ PARTITION (p1, ...) ]
     [ WITH LABEL label]
     [ (column [, ...]) ]
@@ -44,7 +44,7 @@ INSERT [IGNORE] INTO table_name
 ````
 
  Parameters
-> IGNORE: insert ignore mode, only effective when the target table is a unique table with merge-on-write enabled. When insert ignore mode is enabled, for the inserted rows, if the key of the row does not exist in the table, the row will be inserted. If the key already exists in the table, the row will be discarded. When sequence column exists in the target table, the `insert ignore` statements are forbidden.
+
 > tablet_name: The destination table for importing data. Can be of the form `db_name.table_name`
 >
 > partitions: Specify the partitions to be imported, which must be partitions that exist in `table_name`. Multiple partition names are separated by commas
@@ -63,6 +63,9 @@ INSERT [IGNORE] INTO table_name
 > 1. STREAMING: At present, it has no practical effect and is only reserved for compatibility with previous versions. (In the previous version, adding this hint would return a label, but now it defaults to returning a label)
 > 2. SHUFFLE: When the target table is a partition table, enabling this hint will do repartiiton.
 > 3. NOSHUFFLE: Even if the target table is a partition table, repartiiton will not be performed, but some other operations will be performed to ensure that the data is correctly dropped into each partition.
+
+For a Unique table with merge-on-write enabled, you can also perform partial columns updates using the insert statement. To perform partial column updates with the insert statement, you need to set the session variable enable_unique_key_partial_update to true (the default value for this variable is false, meaning partial columns updates with the insert statement are not allowed by default). When performing partial columns updates, the columns being inserted must contain at least all the Key columns and specify the columns you want to update. If the Key column values for the inserted row already exist in the original table, the data in the row with the same key column values will be updated. If the Key column values for the inserted row do not exist in the original table, a new row will be inserted into the table. In this case, columns not specified in the insert statement must either have default values or be nullable. These missing columns will first attempt to be populated with default values, and if a column has no default value, it will be filled with null. If a column cannot be null, the insert operation will fail.
+
 
 Notice:
 

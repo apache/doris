@@ -60,18 +60,18 @@ Status UnionSourceOperator::pull_data(RuntimeState* state, vectorized::Block* bl
     // here we precess const expr firstly
     if (_need_read_for_const_expr) {
         if (_node->has_more_const(state)) {
-            _node->get_next_const(state, block);
+            static_cast<void>(_node->get_next_const(state, block));
         }
         _need_read_for_const_expr = _node->has_more_const(state);
     } else {
         std::unique_ptr<vectorized::Block> output_block;
         int child_idx = 0;
-        _data_queue->get_block_from_queue(&output_block, &child_idx);
+        static_cast<void>(_data_queue->get_block_from_queue(&output_block, &child_idx));
         if (!output_block) {
             return Status::OK();
         }
         block->swap(*output_block);
-        output_block->clear_column_data(_node->row_desc().num_materialized_slots());
+        output_block->clear_column_data(_node->intermediate_row_desc().num_materialized_slots());
         _data_queue->push_free_block(std::move(output_block), child_idx);
     }
 
@@ -100,34 +100,102 @@ Status UnionSourceOperator::get_block(RuntimeState* state, vectorized::Block* bl
 
 Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
+    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<Parent>();
-    std::shared_ptr<DataQueue> data_queue = std::make_shared<DataQueue>(p._child_size);
-    _shared_state->_data_queue.swap(data_queue);
+    // Const exprs materialized by this node. These exprs don't refer to any children.
+    // Only materialized by the first fragment instance to avoid duplication.
+    if (state->per_fragment_instance_idx() == 0) {
+        auto clone_expr_list = [&](vectorized::VExprContextSPtrs& cur_expr_list,
+                                   vectorized::VExprContextSPtrs& other_expr_list) {
+            cur_expr_list.resize(other_expr_list.size());
+            for (int i = 0; i < cur_expr_list.size(); i++) {
+                RETURN_IF_ERROR(other_expr_list[i]->clone(state, cur_expr_list[i]));
+            }
+            return Status::OK();
+        };
+        _const_expr_lists.resize(p._const_expr_lists.size());
+        for (int i = 0; i < _const_expr_lists.size(); i++) {
+            auto& _const_expr_list = _const_expr_lists[i];
+            auto& other_expr_list = p._const_expr_lists[i];
+            RETURN_IF_ERROR(clone_expr_list(_const_expr_list, other_expr_list));
+        }
+    }
     return Status::OK();
+}
+
+std::shared_ptr<DataQueue> UnionSourceLocalState::create_data_queue() {
+    auto& p = _parent->cast<Parent>();
+    std::shared_ptr<DataQueue> data_queue = std::make_shared<DataQueue>(p._child_size, _dependency);
+    return data_queue;
 }
 
 Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                        SourceState& source_state) {
-    auto& local_state = state->get_local_state(id())->cast<UnionSourceLocalState>();
-    bool eos = false;
-    std::unique_ptr<vectorized::Block> output_block = vectorized::Block::create_unique();
-    int child_idx = 0;
-    local_state._shared_state->_data_queue->get_block_from_queue(&output_block, &child_idx);
-    if (!output_block) {
-        return Status::OK();
+    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    if (local_state._need_read_for_const_expr) {
+        if (has_more_const(state)) {
+            static_cast<void>(get_next_const(state, block));
+        }
+        local_state._need_read_for_const_expr = has_more_const(state);
+    } else {
+        std::unique_ptr<vectorized::Block> output_block = vectorized::Block::create_unique();
+        int child_idx = 0;
+        static_cast<void>(local_state._shared_state->data_queue->get_block_from_queue(&output_block,
+                                                                                      &child_idx));
+        if (!output_block) {
+            return Status::OK();
+        }
+        block->swap(*output_block);
+        output_block->clear_column_data(_row_descriptor.num_materialized_slots());
+        local_state._shared_state->data_queue->push_free_block(std::move(output_block), child_idx);
     }
-    block->swap(*output_block);
-    output_block->clear_column_data(row_desc().num_materialized_slots());
-    local_state._shared_state->_data_queue->push_free_block(std::move(output_block), child_idx);
-
-    local_state.reached_limit(block, &eos);
+    local_state.reached_limit(block, source_state);
     //have exectue const expr, queue have no data any more, and child could be colsed
-    if ((!_has_data(state) && local_state._shared_state->_data_queue->is_all_finish())) {
+    if (_child_size == 0) {
+        source_state = SourceState::FINISHED;
+    } else if ((!_has_data(state) && local_state._shared_state->data_queue->is_all_finish())) {
         source_state = SourceState::FINISHED;
     } else if (_has_data(state)) {
         source_state = SourceState::MORE_DATA;
     } else {
         source_state = SourceState::DEPEND_ON_SOURCE;
+    }
+    return Status::OK();
+}
+
+Status UnionSourceOperatorX::get_next_const(RuntimeState* state, vectorized::Block* block) {
+    DCHECK_EQ(state->per_fragment_instance_idx(), 0);
+    auto& local_state = state->get_local_state(id())->cast<UnionSourceLocalState>();
+    DCHECK_LT(local_state._const_expr_list_idx, _const_expr_lists.size());
+    auto& _const_expr_list_idx = local_state._const_expr_list_idx;
+    vectorized::MutableBlock mblock =
+            vectorized::VectorizedUtils::build_mutable_mem_reuse_block(block, _row_descriptor);
+    for (; _const_expr_list_idx < _const_expr_lists.size() && mblock.rows() <= state->batch_size();
+         ++_const_expr_list_idx) {
+        vectorized::Block tmp_block;
+        tmp_block.insert({vectorized::ColumnUInt8::create(1),
+                          std::make_shared<vectorized::DataTypeUInt8>(), ""});
+        int const_expr_lists_size = _const_expr_lists[_const_expr_list_idx].size();
+        std::vector<int> result_list(const_expr_lists_size);
+        for (size_t i = 0; i < const_expr_lists_size; ++i) {
+            RETURN_IF_ERROR(_const_expr_lists[_const_expr_list_idx][i]->execute(&tmp_block,
+                                                                                &result_list[i]));
+        }
+        tmp_block.erase_not_in(result_list);
+        if (tmp_block.rows() > 0) {
+            RETURN_IF_ERROR(mblock.merge(tmp_block));
+            tmp_block.clear();
+        }
+    }
+
+    // some insert query like "insert into string_test select 1, repeat('a', 1024 * 1024);"
+    // the const expr will be in output expr cause the union node return a empty block. so here we
+    // need add one row to make sure the union node exec const expr return at least one row
+    if (block->rows() == 0) {
+        block->insert({vectorized::ColumnUInt8::create(1),
+                       std::make_shared<vectorized::DataTypeUInt8>(), ""});
     }
     return Status::OK();
 }

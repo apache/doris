@@ -73,6 +73,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
@@ -343,12 +344,24 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
             return checkedExpr.get();
         }
         Expression child = cast.child();
+        DataType dataType = cast.getDataType();
         // todo: process other null case
         if (child.isNullLiteral()) {
-            return new NullLiteral(cast.getDataType());
+            return new NullLiteral(dataType);
+        } else if (child instanceof StringLikeLiteral && dataType instanceof DateLikeType) {
+            try {
+                return ((DateLikeType) dataType).fromString(((StringLikeLiteral) child).getStringValue());
+            } catch (AnalysisException t) {
+                if (cast.isExplicitType()) {
+                    return new NullLiteral(dataType);
+                } else {
+                    // If cast is from type coercion, we don't use NULL literal and will throw exception.
+                    throw t;
+                }
+            }
         }
         try {
-            Expression castResult = child.checkedCastTo(cast.getDataType());
+            Expression castResult = child.checkedCastTo(dataType);
             if (!Objects.equals(castResult, cast) && !Objects.equals(castResult, child)) {
                 castResult = rewrite(castResult, context);
             }

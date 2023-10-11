@@ -24,7 +24,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
@@ -94,7 +93,7 @@ public class ColumnStatistic {
     public final Histogram histogram;
 
     @SerializedName("partitionIdToColStats")
-    public final Map<Long, ColumnStatistic> partitionIdToColStats = new HashMap<>();
+    public final Map<String, ColumnStatistic> partitionIdToColStats = new HashMap<>();
 
     public final String updatedTime;
 
@@ -121,7 +120,7 @@ public class ColumnStatistic {
     }
 
     public static ColumnStatistic fromResultRow(List<ResultRow> resultRows) {
-        Map<Long, ColumnStatistic> partitionIdToColStats = new HashMap<>();
+        Map<String, ColumnStatistic> partitionIdToColStats = new HashMap<>();
         ColumnStatistic columnStatistic = null;
         try {
             for (ResultRow resultRow : resultRows) {
@@ -129,14 +128,16 @@ public class ColumnStatistic {
                 if (partId == null) {
                     columnStatistic = fromResultRow(resultRow);
                 } else {
-                    partitionIdToColStats.put(Long.parseLong(partId), fromResultRow(resultRow));
+                    partitionIdToColStats.put(partId, fromResultRow(resultRow));
                 }
             }
         } catch (Throwable t) {
             LOG.debug("Failed to deserialize column stats", t);
             return ColumnStatistic.UNKNOWN;
         }
-        Preconditions.checkState(columnStatistic != null, "Column stats is null");
+        if (columnStatistic == null) {
+            return ColumnStatistic.UNKNOWN;
+        }
         columnStatistic.partitionIdToColStats.putAll(partitionIdToColStats);
         return columnStatistic;
     }
@@ -176,10 +177,10 @@ public class ColumnStatistic {
                     columnStatisticBuilder.setMinExpr(StatisticsUtil.readableValue(col.getType(), min));
                 } catch (AnalysisException e) {
                     LOG.warn("Failed to deserialize column {} min value {}.", col, min, e);
-                    columnStatisticBuilder.setMinValue(Double.MIN_VALUE);
+                    columnStatisticBuilder.setMinValue(Double.NEGATIVE_INFINITY);
                 }
             } else {
-                columnStatisticBuilder.setMinValue(Double.MIN_VALUE);
+                columnStatisticBuilder.setMinValue(Double.NEGATIVE_INFINITY);
             }
             if (max != null && !max.equalsIgnoreCase("NULL")) {
                 try {
@@ -187,10 +188,10 @@ public class ColumnStatistic {
                     columnStatisticBuilder.setMaxExpr(StatisticsUtil.readableValue(col.getType(), max));
                 } catch (AnalysisException e) {
                     LOG.warn("Failed to deserialize column {} max value {}.", col, max, e);
-                    columnStatisticBuilder.setMaxValue(Double.MAX_VALUE);
+                    columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
                 }
             } else {
-                columnStatisticBuilder.setMaxValue(Double.MAX_VALUE);
+                columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
             }
             columnStatisticBuilder.setUpdatedTime(row.get(13));
             return columnStatisticBuilder.build();
@@ -202,13 +203,6 @@ public class ColumnStatistic {
 
     public static boolean isAlmostUnique(double ndv, double rowCount) {
         return rowCount * 0.9 < ndv && ndv < rowCount * 1.1;
-    }
-
-    public ColumnStatistic copy() {
-        return new ColumnStatisticBuilder().setCount(count).setNdv(ndv).setAvgSizeByte(avgSizeByte)
-                .setNumNulls(numNulls).setDataSize(dataSize).setMinValue(minValue)
-                .setMaxValue(maxValue).setMinExpr(minExpr).setMaxExpr(maxExpr)
-                .setIsUnknown(isUnKnown).build();
     }
 
     public ColumnStatistic updateByLimit(long limit, double rowCount) {
@@ -398,7 +392,7 @@ public class ColumnStatistic {
         return isUnKnown;
     }
 
-    public void putPartStats(long partId, ColumnStatistic columnStatistic) {
+    public void putPartStats(String partId, ColumnStatistic columnStatistic) {
         this.partitionIdToColStats.put(partId, columnStatistic);
     }
 }

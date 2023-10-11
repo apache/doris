@@ -203,7 +203,7 @@ public class ArrayType extends Type {
 
     @Override
     public String toString() {
-        return toSql(0).toUpperCase();
+        return String.format("ARRAY<%s>", itemType.toString()).toUpperCase();
     }
 
     @Override

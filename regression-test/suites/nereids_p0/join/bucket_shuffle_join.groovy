@@ -72,7 +72,7 @@ suite("bucket-shuffle-join") {
     explain {
         sql("select * from shuffle_join_t1 t1 left join shuffle_join_t2 t2 on t1.a = t2.c;")
         contains "BUCKET_SHUFFLE"
-        contains "BUCKET_SHFFULE_HASH_PARTITIONED: expr_cast(c as VARCHAR(*))"
+        contains "BUCKET_SHFFULE_HASH_PARTITIONED: c"
     }
 
 }

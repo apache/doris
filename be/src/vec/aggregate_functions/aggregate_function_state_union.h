@@ -42,6 +42,11 @@ public:
         return std::make_shared<AggregateStateUnion>(function, argument_types, return_type);
     }
 
+    void set_version(const int version_) override {
+        IAggregateFunctionHelper::set_version(version_);
+        _function->set_version(version_);
+    }
+
     void create(AggregateDataPtr __restrict place) const override { _function->create(place); }
 
     String get_name() const override { return _function->get_name() + AGG_UNION_SUFFIX; }

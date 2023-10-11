@@ -46,6 +46,15 @@ public:
 
 class HashJoinBuildSinkOperatorX;
 
+class SharedHashTableDependency : public WriteDependency {
+public:
+    ENABLE_FACTORY_CREATOR(SharedHashTableDependency);
+    SharedHashTableDependency(int id) : WriteDependency(id, "SharedHashTableDependency") {}
+    ~SharedHashTableDependency() override = default;
+
+    void* shared_state() override { return nullptr; }
+};
+
 class HashJoinBuildSinkLocalState final
         : public JoinBuildSinkLocalState<HashJoinDependency, HashJoinBuildSinkLocalState> {
 public:
@@ -82,6 +91,7 @@ protected:
     bool _build_side_ignore_null = false;
     size_t _build_rf_cardinality = 0;
     std::unordered_map<const vectorized::Block*, std::vector<int>> _inserted_rows;
+    std::shared_ptr<SharedHashTableDependency> _shared_hash_table_dependency;
 
     RuntimeProfile::Counter* _build_table_timer;
     RuntimeProfile::Counter* _build_expr_call_timer;
@@ -97,7 +107,6 @@ protected:
 
     RuntimeProfile::Counter* _build_collisions_counter;
 
-    RuntimeProfile::Counter* _open_timer;
     RuntimeProfile::Counter* _allocate_resource_timer;
 
     RuntimeProfile::Counter* _memory_usage_counter;
@@ -124,13 +133,9 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
 
-    bool can_write(RuntimeState* state) override {
-        if (state->get_sink_local_state(id())
-                    ->cast<HashJoinBuildSinkLocalState>()
-                    ._should_build_hash_table) {
-            return true;
-        }
-        return _shared_hash_table_context && _shared_hash_table_context->signaled;
+    WriteDependency* wait_for_dependency(RuntimeState* state) override {
+        CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
+        return local_state._shared_hash_table_dependency->write_blocked_by();
     }
 
     bool should_dry_run(RuntimeState* state) override {

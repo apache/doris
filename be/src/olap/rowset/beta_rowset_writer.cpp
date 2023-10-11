@@ -77,11 +77,11 @@ BetaRowsetWriter::~BetaRowsetWriter() {
      * when the job is cancelled. Although it is meaningless to continue segcompaction when the job
      * is cancelled, the objects involved in the job should be preserved during segcompaction to
      * avoid crashs for memory issues. */
-    wait_flying_segcompaction();
+    static_cast<void>(wait_flying_segcompaction());
 
     // TODO(lingbin): Should wrapper exception logic, no need to know file ops directly.
-    if (!_already_built) {        // abnormal exit, remove all files generated
-        _segment_creator.close(); // ensure all files are closed
+    if (!_already_built) {                           // abnormal exit, remove all files generated
+        static_cast<void>(_segment_creator.close()); // ensure all files are closed
         auto fs = _rowset_meta->fs();
         if (fs->type() != io::FileSystemType::LOCAL) { // Remote fs will delete them asynchronously
             return;
@@ -123,7 +123,7 @@ Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) 
             std::make_shared<vectorized::schema_util::LocalSchemaChangeRecorder>();
     _context.segment_collector = std::make_shared<SegmentCollectorT<BetaRowsetWriter>>(this);
     _context.file_writer_creator = std::make_shared<FileWriterCreatorT<BetaRowsetWriter>>(this);
-    _segment_creator.init(_context);
+    static_cast<void>(_segment_creator.init(_context));
     return Status::OK();
 }
 
@@ -149,7 +149,7 @@ Status BetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
     OlapStopWatch watch;
     RETURN_IF_ERROR(_context.tablet->calc_delete_bitmap(
             rowset, segments, specified_rowsets, _context.mow_context->delete_bitmap,
-            _context.mow_context->max_version, nullptr, nullptr));
+            _context.mow_context->max_version, nullptr));
     size_t total_rows = std::accumulate(
             segments.begin(), segments.end(), 0,
             [](size_t sum, const segment_v2::SegmentSharedPtr& s) { return sum += s->num_rows(); });
@@ -335,8 +335,8 @@ Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, u
                         ret, errno);
             }
             // Erase the origin index file cache
-            InvertedIndexSearcherCache::instance()->erase(src_idx_path);
-            InvertedIndexSearcherCache::instance()->erase(dst_idx_path);
+            static_cast<void>(InvertedIndexSearcherCache::instance()->erase(src_idx_path));
+            static_cast<void>(InvertedIndexSearcherCache::instance()->erase(dst_idx_path));
         }
     }
     return Status::OK();
@@ -413,7 +413,7 @@ Status BetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     _total_index_size += rowset->rowset_meta()->index_disk_size();
     _num_segment += rowset->num_segments();
     // append key_bounds to current rowset
-    rowset->get_segments_key_bounds(&_segments_encoded_key_bounds);
+    static_cast<void>(rowset->get_segments_key_bounds(&_segments_encoded_key_bounds));
     // TODO update zonemap
     if (rowset->rowset_meta()->has_delete_predicate()) {
         _rowset_meta->set_delete_predicate(rowset->rowset_meta()->delete_predicate());
@@ -515,7 +515,7 @@ RowsetSharedPtr BetaRowsetWriter::build() {
         }
 
         if (_segcompaction_worker.get_file_writer()) {
-            _segcompaction_worker.get_file_writer()->close();
+            static_cast<void>(_segcompaction_worker.get_file_writer()->close());
         }
     }
     status = _check_segment_number_limit();
@@ -636,7 +636,15 @@ Status BetaRowsetWriter::_create_file_writer(std::string path, io::FileWriterPtr
     if (!fs) {
         return Status::Error<INIT_FAILED>("get fs failed");
     }
-    Status st = fs->create_file(path, &file_writer);
+    io::FileWriterOptions opts {
+            .write_file_cache = _context.write_file_cache,
+            .is_cold_data = _context.is_hot_data,
+            .file_cache_expiration =
+                    _context.file_cache_ttl_sec > 0 && _context.newest_write_timestamp > 0
+                            ? _context.newest_write_timestamp + _context.file_cache_ttl_sec
+                            : 0,
+    };
+    Status st = fs->create_file(path, &file_writer, &opts);
     if (!st.ok()) {
         LOG(WARNING) << "failed to create writable file. path=" << path << ", err: " << st;
         return st;
@@ -671,7 +679,7 @@ Status BetaRowsetWriter::_create_segment_writer_for_segcompaction(
                                                 _context.data_dir, _context.max_rows_per_segment,
                                                 writer_options, _context.mow_context));
     if (_segcompaction_worker.get_file_writer() != nullptr) {
-        _segcompaction_worker.get_file_writer()->close();
+        static_cast<void>(_segcompaction_worker.get_file_writer()->close());
     }
     _segcompaction_worker.get_file_writer().reset(file_writer.release());
 

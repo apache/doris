@@ -58,7 +58,7 @@ enum CacheType {
 
 struct CacheContext {
     CacheContext(const IOContext* io_ctx) {
-        if (io_ctx->read_segment_index) {
+        if (io_ctx->is_index_data) {
             cache_type = CacheType::INDEX;
         } else if (io_ctx->is_disposable) {
             cache_type = CacheType::DISPOSABLE;

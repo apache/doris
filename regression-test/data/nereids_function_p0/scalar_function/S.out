@@ -1015,7 +1015,7 @@ true
 true
 
 -- !sql_sm3_Varchar --
-\N
+129a784acb089ea1ab28ff7a0e740d362e75bd5a7486b1a224e3e1c701bdf2fd
 96e7a2aa23bf21565359ac989444ccc219d1320adde0b155744f8dcf77e050b0
 96e7a2aa23bf21565359ac989444ccc219d1320adde0b155744f8dcf77e050b0
 96e7a2aa23bf21565359ac989444ccc219d1320adde0b155744f8dcf77e050b0
@@ -1044,7 +1044,7 @@ c07750bf52dc98f4593882646c11b50c24c70890ea8288a8f1ac7c4a187d6635
 c07750bf52dc98f4593882646c11b50c24c70890ea8288a8f1ac7c4a187d6635
 
 -- !sql_sm3_String --
-\N
+129a784acb089ea1ab28ff7a0e740d362e75bd5a7486b1a224e3e1c701bdf2fd
 bd9a11352a4d84a4725035750ddea145189a72b6eb89c0e07fa9d3b21d70004a
 bd9a11352a4d84a4725035750ddea145189a72b6eb89c0e07fa9d3b21d70004a
 bd9a11352a4d84a4725035750ddea145189a72b6eb89c0e07fa9d3b21d70004a
@@ -1073,7 +1073,7 @@ bd9a11352a4d84a4725035750ddea145189a72b6eb89c0e07fa9d3b21d70004a
 1450c7f24515f5566159269a97a95f96d9746fe768a31e069581d69f3f6e48e0
 
 -- !sql_sm3sum_Varchar --
-\N
+129a784acb089ea1ab28ff7a0e740d362e75bd5a7486b1a224e3e1c701bdf2fd
 96e7a2aa23bf21565359ac989444ccc219d1320adde0b155744f8dcf77e050b0
 96e7a2aa23bf21565359ac989444ccc219d1320adde0b155744f8dcf77e050b0
 96e7a2aa23bf21565359ac989444ccc219d1320adde0b155744f8dcf77e050b0
@@ -1102,7 +1102,7 @@ c07750bf52dc98f4593882646c11b50c24c70890ea8288a8f1ac7c4a187d6635
 c07750bf52dc98f4593882646c11b50c24c70890ea8288a8f1ac7c4a187d6635
 
 -- !sql_sm3sum_String --
-\N
+129a784acb089ea1ab28ff7a0e740d362e75bd5a7486b1a224e3e1c701bdf2fd
 bd9a11352a4d84a4725035750ddea145189a72b6eb89c0e07fa9d3b21d70004a
 bd9a11352a4d84a4725035750ddea145189a72b6eb89c0e07fa9d3b21d70004a
 bd9a11352a4d84a4725035750ddea145189a72b6eb89c0e07fa9d3b21d70004a
@@ -2264,7 +2264,7 @@ POLYGON ((4 1, 10 4, 9 4, 1 1, 4 1))
 POLYGON ((4 4, 45 4, 45 45, 4 45, 4 4))
 
 -- !sql_starts_with_Varchar_Varchar --
-\N
+true
 true
 true
 true
@@ -2293,7 +2293,7 @@ true
 true
 
 -- !sql_starts_with_String_String --
-\N
+true
 true
 true
 true
@@ -2438,7 +2438,7 @@ string3
 string3
 
 -- !sql_strright_Varchar_Integer --
-\N
+
 1
 ar11
 rchar11
@@ -2467,7 +2467,7 @@ varchar13
 varchar13
 
 -- !sql_strright_String_Integer --
-\N
+
 1
 ing1
 string1
@@ -2757,7 +2757,7 @@ g3
 
 
 -- !sql_substring_index_Varchar_Varchar_Integer --
-\N
+null
 varchar11
 varchar11
 varchar11
@@ -2786,7 +2786,7 @@ varchar13
 varchar13
 
 -- !sql_substring_index_String_String_Integer --
-\N
+null
 string1
 string1
 string1

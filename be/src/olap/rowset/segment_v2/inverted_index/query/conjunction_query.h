@@ -38,7 +38,7 @@ public:
         _conjunction_ratio = conjunction_ratio;
     }
 
-    void add(const std::wstring& field_name, const std::vector<std::wstring>& wterms);
+    void add(const std::wstring& field_name, const std::vector<std::string>& terms);
     void search(roaring::Roaring& roaring);
 
 private:

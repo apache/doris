@@ -146,6 +146,7 @@ import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.service.arrowflight.FlightStatementExecutor;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.util.InternalQueryBuffer;
 import org.apache.doris.system.Backend;
@@ -403,6 +404,13 @@ public class StmtExecutor {
             return logicalPlan instanceof InsertIntoTableCommand;
         }
         return parsedStmt instanceof InsertStmt;
+    }
+
+    public boolean isAnalyzeStmt() {
+        if (parsedStmt == null) {
+            return false;
+        }
+        return parsedStmt instanceof AnalyzeStmt;
     }
 
     /**
@@ -664,12 +672,15 @@ public class StmtExecutor {
         profile.getSummaryProfile().setQueryBeginTime();
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
         context.setQueryId(queryId);
+
         // set isQuery first otherwise this state will be lost if some error occurs
         if (parsedStmt instanceof QueryStmt) {
             context.getState().setIsQuery(true);
         }
 
         try {
+            // parsedStmt maybe null here, we parse it. Or the predicate will not work.
+            parseByLegacy();
             if (context.isTxnModel() && !(parsedStmt instanceof InsertStmt)
                     && !(parsedStmt instanceof TransactionStmt)) {
                 throw new TException("This is in a transaction, only insert, commit, rollback is acceptable.");
@@ -874,7 +885,10 @@ public class StmtExecutor {
         if (!context.getSessionVariable().enableProfile()) {
             return;
         }
-        profile.update(context.startTime, getSummaryInfo(isFinished), isFinished);
+
+        profile.update(context.startTime, getSummaryInfo(isFinished), isFinished,
+                context.getSessionVariable().profileLevel, this.planner,
+                context.getSessionVariable().getEnablePipelineXEngine());
     }
 
     // Analyze one statement to structure in memory.
@@ -1290,6 +1304,14 @@ public class StmtExecutor {
     private void handleCacheStmt(CacheAnalyzer cacheAnalyzer, MysqlChannel channel)
             throws Exception {
         InternalService.PFetchCacheResult cacheResult = cacheAnalyzer.getCacheData();
+        if (cacheResult == null) {
+            if (ConnectContext.get() != null
+                    && !ConnectContext.get().getSessionVariable().testQueryCacheHit.equals("none")) {
+                throw new UserException("The variable test_query_cache_hit is set to "
+                        + ConnectContext.get().getSessionVariable().testQueryCacheHit
+                        + ", but the query cache is not hit.");
+            }
+        }
         CacheMode mode = cacheAnalyzer.getCacheMode();
         Queriable queryStmt = (Queriable) parsedStmt;
         boolean isSendFields = false;
@@ -1337,7 +1359,7 @@ public class StmtExecutor {
 
         if (queryStmt.isExplain()) {
             String explainString = planner.getExplainString(queryStmt.getExplainOptions());
-            handleExplainStmt(explainString);
+            handleExplainStmt(explainString, false);
             return;
         }
 
@@ -1386,19 +1408,25 @@ public class StmtExecutor {
         //
         // 2. If this is a query, send the result expr fields first, and send result data back to client.
         RowBatch batch;
-        coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
-        if (Config.enable_workload_group && context.sessionVariable.getEnablePipelineEngine()) {
-            coord.setTWorkloadGroups(context.getEnv().getWorkloadGroupMgr().getWorkloadGroup(context));
+        CoordInterface coordBase = null;
+        if (queryStmt instanceof SelectStmt && ((SelectStmt) parsedStmt).isPointQueryShortCircuit()) {
+            coordBase = new PointQueryExec(planner, analyzer);
         } else {
-            context.setWorkloadGroupName("");
+            coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
+            if (Config.enable_workload_group && context.sessionVariable.getEnablePipelineEngine()) {
+                coord.setTWorkloadGroups(context.getEnv().getWorkloadGroupMgr().getWorkloadGroup(context));
+            } else {
+                context.setWorkloadGroupName("");
+            }
+            QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
+                    new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
+            profile.addExecutionProfile(coord.getExecutionProfile());
+            coordBase = coord;
         }
-        QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
-                new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
-        profile.addExecutionProfile(coord.getExecutionProfile());
         Span queryScheduleSpan =
                 context.getTracer().spanBuilder("query schedule").setParent(Context.current()).startSpan();
         try (Scope scope = queryScheduleSpan.makeCurrent()) {
-            coord.exec();
+            coordBase.exec();
         } catch (Exception e) {
             queryScheduleSpan.recordException(e);
             throw e;
@@ -1407,12 +1435,12 @@ public class StmtExecutor {
         }
         profile.getSummaryProfile().setQueryScheduleFinishTime();
         updateProfile(false);
-        if (coord.getInstanceTotalNum() > 1 && LOG.isDebugEnabled()) {
+        if (coordBase.getInstanceTotalNum() > 1 && LOG.isDebugEnabled()) {
             try {
                 LOG.debug("Start to execute fragment. user: {}, db: {}, sql: {}, fragment instance num: {}",
                         context.getQualifiedUser(), context.getDatabase(),
                         parsedStmt.getOrigStmt().originStmt.replace("\n", " "),
-                        coord.getInstanceTotalNum());
+                        coordBase.getInstanceTotalNum());
             } catch (Exception e) {
                 LOG.warn("Fail to print fragment concurrency for Query.", e);
             }
@@ -1423,11 +1451,11 @@ public class StmtExecutor {
             while (true) {
                 // register the fetch result time.
                 profile.getSummaryProfile().setTempStartTime();
-                batch = coord.getNext();
+                batch = coordBase.getNext();
                 profile.getSummaryProfile().freshFetchResultConsumeTime();
 
                 // for outfile query, there will be only one empty batch send back with eos flag
-                // call `copyRowBatch()` first, because batch.getBatch() may be null, it result set is empty
+                // call `copyRowBatch()` first, because batch.getBatch() may be null, if result set is empty
                 if (cacheAnalyzer != null && !isOutfileQuery) {
                     cacheAnalyzer.copyRowBatch(batch);
                 }
@@ -1491,17 +1519,17 @@ public class StmtExecutor {
             // in some case may block all fragment handle threads
             // details see issue https://github.com/apache/doris/issues/16203
             LOG.warn("cancel fragment query_id:{} cause {}", DebugUtil.printId(context.queryId()), e.getMessage());
-            coord.cancel(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
+            coordBase.cancel(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
             fetchResultSpan.recordException(e);
             throw e;
         } finally {
             fetchResultSpan.end();
-            if (coord.getInstanceTotalNum() > 1 && LOG.isDebugEnabled()) {
+            if (coordBase.getInstanceTotalNum() > 1 && LOG.isDebugEnabled()) {
                 try {
                     LOG.debug("Finish to execute fragment. user: {}, db: {}, sql: {}, fragment instance num: {}",
                             context.getQualifiedUser(), context.getDatabase(),
                             parsedStmt.getOrigStmt().originStmt.replace("\n", " "),
-                            coord.getInstanceTotalNum());
+                            coordBase.getInstanceTotalNum());
                 } catch (Exception e) {
                     LOG.warn("Fail to print fragment concurrency for Query.", e);
                 }
@@ -1737,7 +1765,7 @@ public class StmtExecutor {
             ExplainOptions explainOptions = insertStmt.getQueryStmt().getExplainOptions();
             insertStmt.setIsExplain(explainOptions);
             String explainString = planner.getExplainString(explainOptions);
-            handleExplainStmt(explainString);
+            handleExplainStmt(explainString, false);
             return;
         }
 
@@ -2198,11 +2226,11 @@ public class StmtExecutor {
     private void handleLockTablesStmt() {
     }
 
-    public void handleExplainStmt(String result) throws IOException {
-        ShowResultSetMetaData metaData =
-                ShowResultSetMetaData.builder()
-                        .addColumn(new Column("Explain String", ScalarType.createVarchar(20)))
-                        .build();
+    public void handleExplainStmt(String result, boolean isNereids) throws IOException {
+        ShowResultSetMetaData metaData = ShowResultSetMetaData.builder()
+                .addColumn(new Column("Explain String" + (isNereids ? "(Nereids Planner)" : "(Old Planner)"),
+                        ScalarType.createVarchar(20)))
+                .build();
         sendMetaData(metaData);
 
         // Send result set.
@@ -2301,7 +2329,6 @@ public class StmtExecutor {
 
     private void handleExportStmt() throws Exception {
         ExportStmt exportStmt = (ExportStmt) parsedStmt;
-        // context.getEnv().getExportMgr().addExportJob(exportStmt);
         context.getEnv().getExportMgr().addExportJobAndRegisterTask(exportStmt.getExportJob());
     }
 
@@ -2555,6 +2582,9 @@ public class StmtExecutor {
 
     public List<ResultRow> executeInternalQuery() {
         LOG.debug("INTERNAL QUERY: " + originStmt.toString());
+        UUID uuid = UUID.randomUUID();
+        TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+        context.setQueryId(queryId);
         try {
             List<ResultRow> resultRows = new ArrayList<>();
             try {
@@ -2570,7 +2600,8 @@ public class StmtExecutor {
                         planner = new NereidsPlanner(statementContext);
                         planner.plan(parsedStmt, context.getSessionVariable().toThrift());
                     } catch (Exception e) {
-                        LOG.warn("fall back to legacy planner, because: {}", e.getMessage(), e);
+                        LOG.warn("Arrow Flight SQL fall back to legacy planner, because: {}",
+                                e.getMessage(), e);
                         parsedStmt = null;
                         planner = null;
                         context.getState().setNereids(false);
@@ -2585,7 +2616,6 @@ public class StmtExecutor {
                 LOG.warn("Failed to run internal SQL: {}", originStmt, e);
                 throw new RuntimeException("Failed to execute internal SQL. " + Util.getRootCauseMessage(e), e);
             }
-            planner.getFragments();
             RowBatch batch;
             coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
             profile.addExecutionProfile(coord.getExecutionProfile());
@@ -2619,7 +2649,7 @@ public class StmtExecutor {
                 }
             } catch (Exception e) {
                 fetchResultSpan.recordException(e);
-                throw new RuntimeException("Failed to execute internal SQL. " + Util.getRootCauseMessage(e), e);
+                throw new RuntimeException("Failed to fetch internal SQL result. " + Util.getRootCauseMessage(e), e);
             } finally {
                 fetchResultSpan.end();
             }
@@ -2628,6 +2658,64 @@ public class StmtExecutor {
                     true);
             QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
         }
+    }
+
+    public void executeArrowFlightQuery(FlightStatementExecutor flightStatementExecutor) {
+        LOG.debug("ARROW FLIGHT QUERY: " + originStmt.toString());
+        try {
+            try {
+                if (ConnectContext.get() != null
+                        && ConnectContext.get().getSessionVariable().isEnableNereidsPlanner()) {
+                    try {
+                        parseByNereids();
+                        Preconditions.checkState(parsedStmt instanceof LogicalPlanAdapter,
+                                "Nereids only process LogicalPlanAdapter,"
+                                        + " but parsedStmt is " + parsedStmt.getClass().getName());
+                        context.getState().setNereids(true);
+                        context.getState().setIsQuery(true);
+                        planner = new NereidsPlanner(statementContext);
+                        planner.plan(parsedStmt, context.getSessionVariable().toThrift());
+                    } catch (Exception e) {
+                        LOG.warn("fall back to legacy planner, because: {}", e.getMessage(), e);
+                        parsedStmt = null;
+                        context.getState().setNereids(false);
+                        analyzer = new Analyzer(context.getEnv(), context);
+                        analyze(context.getSessionVariable().toThrift());
+                    }
+                } else {
+                    analyzer = new Analyzer(context.getEnv(), context);
+                    analyze(context.getSessionVariable().toThrift());
+                }
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to execute Arrow Flight SQL. " + Util.getRootCauseMessage(e), e);
+            }
+            coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
+            profile.addExecutionProfile(coord.getExecutionProfile());
+            try {
+                QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
+                        new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
+            } catch (UserException e) {
+                throw new RuntimeException("Failed to execute Arrow Flight SQL. " + Util.getRootCauseMessage(e), e);
+            }
+
+            Span queryScheduleSpan = context.getTracer()
+                    .spanBuilder("Arrow Flight SQL schedule").setParent(Context.current()).startSpan();
+            try (Scope scope = queryScheduleSpan.makeCurrent()) {
+                coord.exec();
+            } catch (Exception e) {
+                queryScheduleSpan.recordException(e);
+                LOG.warn("Failed to coord exec Arrow Flight SQL, because: {}", e.getMessage(), e);
+                throw new RuntimeException(e.getMessage() + Util.getRootCauseMessage(e), e);
+            } finally {
+                queryScheduleSpan.end();
+            }
+        } finally {
+            QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId()); // TODO for query profile
+        }
+        flightStatementExecutor.setFinstId(coord.getFinstId());
+        flightStatementExecutor.setResultFlightServerAddr(coord.getResultFlightServerAddr());
+        flightStatementExecutor.setResultInternalServiceAddr(coord.getResultInternalServiceAddr());
+        flightStatementExecutor.setResultOutputExprs(coord.getResultOutputExprs());
     }
 
     private List<ResultRow> convertResultBatchToResultRows(TResultBatch batch) {
@@ -2672,5 +2760,13 @@ public class StmtExecutor {
     public OriginStatement getOriginStmt() {
         return originStmt;
     }
+
+    public String getOriginStmtInString() {
+        if (originStmt != null && originStmt.originStmt != null) {
+            return originStmt.originStmt;
+        }
+        return "";
+    }
 }
+
 

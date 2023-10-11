@@ -21,6 +21,7 @@
 
 #include "common/status.h"
 #include "operator.h"
+#include "pipeline/pipeline_x/operator.h"
 #include "vec/exec/vpartition_sort_node.h"
 
 namespace doris {
@@ -48,9 +49,55 @@ public:
     Status open(RuntimeState*) override { return Status::OK(); }
 };
 
-OperatorPtr PartitionSortSourceOperatorBuilder::build_operator() {
-    return std::make_shared<PartitionSortSourceOperator>(this, _node);
-}
+class PartitionSortSourceOperatorX;
+class PartitionSortSourceLocalState final : public PipelineXLocalState<PartitionSortDependency> {
+    ENABLE_FACTORY_CREATOR(PartitionSortSourceLocalState);
+
+public:
+    using Base = PipelineXLocalState<PartitionSortDependency>;
+    PartitionSortSourceLocalState(RuntimeState* state, OperatorXBase* parent)
+            : PipelineXLocalState<PartitionSortDependency>(state, parent),
+              _get_next_timer(nullptr) {}
+
+    Status init(RuntimeState* state, LocalStateInfo& info) override {
+        RETURN_IF_ERROR(PipelineXLocalState<PartitionSortDependency>::init(state, info));
+        SCOPED_TIMER(profile()->total_time_counter());
+        SCOPED_TIMER(_open_timer);
+        _get_next_timer = ADD_TIMER(profile(), "GetResultTime");
+        _get_sorted_timer = ADD_TIMER(profile(), "GetSortedTime");
+        _shared_state->previous_row = std::make_unique<vectorized::SortCursorCmp>();
+        return Status::OK();
+    }
+
+    Status close(RuntimeState* state) override;
+
+    int64_t _num_rows_returned = 0;
+
+private:
+    friend class PartitionSortSourceOperatorX;
+    RuntimeProfile::Counter* _get_sorted_timer = nullptr;
+    RuntimeProfile::Counter* _get_next_timer = nullptr;
+};
+
+class PartitionSortSourceOperatorX final : public OperatorX<PartitionSortSourceLocalState> {
+public:
+    using Base = OperatorX<PartitionSortSourceLocalState>;
+    PartitionSortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+                                 const DescriptorTbl& descs)
+            : OperatorX<PartitionSortSourceLocalState>(pool, tnode, descs) {}
+
+    Status get_block(RuntimeState* state, vectorized::Block* block,
+                     SourceState& source_state) override;
+
+    Dependency* wait_for_dependency(RuntimeState* state) override;
+
+    bool is_source() const override { return true; }
+
+private:
+    friend class PartitionSortSourceLocalState;
+    Status get_sorted_block(RuntimeState* state, vectorized::Block* output_block,
+                            PartitionSortSourceLocalState& local_state);
+};
 
 } // namespace pipeline
 } // namespace doris

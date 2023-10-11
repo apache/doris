@@ -231,7 +231,7 @@ Status create_vbin_predicate(const TypeDescriptor& type, TExprOpcode::type opcod
         fn_name.__set_function_name("ge");
         break;
     default:
-        Status::InvalidArgument(
+        return Status::InvalidArgument(
                 strings::Substitute("Invalid opcode for max_min_runtimefilter: '$0'", opcode));
     }
     fn.__set_name(fn_name);
@@ -359,7 +359,7 @@ public:
         _is_bloomfilter = true;
         BloomFilterFuncBase* bf = _context.bloom_filter_func.get();
         // BloomFilter may be not init
-        bf->init_with_fixed_length();
+        static_cast<void>(bf->init_with_fixed_length());
         insert_to_bloom_filter(bf);
         // release in filter
         _context.hybrid_set.reset(create_set(_column_return_type));
@@ -576,11 +576,13 @@ public:
             break;
         }
         case RuntimeFilterType::MINMAX_FILTER: {
-            _context.minmax_func->merge(wrapper->_context.minmax_func.get(), _pool);
+            static_cast<void>(
+                    _context.minmax_func->merge(wrapper->_context.minmax_func.get(), _pool));
             break;
         }
         case RuntimeFilterType::BLOOM_FILTER: {
-            _context.bloom_filter_func->merge(wrapper->_context.bloom_filter_func.get());
+            static_cast<void>(
+                    _context.bloom_filter_func->merge(wrapper->_context.bloom_filter_func.get()));
             break;
         }
         case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
@@ -604,7 +606,8 @@ public:
                     VLOG_DEBUG << " change runtime filter to bloom filter(id=" << _filter_id
                                << ") because: already exist a bloom filter";
                     change_to_bloom_filter();
-                    _context.bloom_filter_func->merge(wrapper->_context.bloom_filter_func.get());
+                    static_cast<void>(_context.bloom_filter_func->merge(
+                            wrapper->_context.bloom_filter_func.get()));
                 }
             } else {
                 if (wrapper->_filter_type ==
@@ -616,7 +619,8 @@ public:
                     wrapper->insert_to_bloom_filter(_context.bloom_filter_func.get());
                     // bloom filter merge bloom filter
                 } else {
-                    _context.bloom_filter_func->merge(wrapper->_context.bloom_filter_func.get());
+                    static_cast<void>(_context.bloom_filter_func->merge(
+                            wrapper->_context.bloom_filter_func.get()));
                 }
             }
             break;
@@ -1450,7 +1454,7 @@ void IRuntimeFilter::to_protobuf(PInFilter* filter) {
     }
 
     HybridSetBase::IteratorBase* it;
-    _wrapper->get_in_filter_iterator(&it);
+    static_cast<void>(_wrapper->get_in_filter_iterator(&it));
     DCHECK(it != nullptr);
 
     switch (column_type) {
@@ -1573,7 +1577,7 @@ void IRuntimeFilter::to_protobuf(PInFilter* filter) {
 void IRuntimeFilter::to_protobuf(PMinMaxFilter* filter) {
     void* min_data = nullptr;
     void* max_data = nullptr;
-    _wrapper->get_minmax_filter_desc(&min_data, &max_data);
+    static_cast<void>(_wrapper->get_minmax_filter_desc(&min_data, &max_data));
     DCHECK(min_data != nullptr);
     DCHECK(max_data != nullptr);
     filter->set_column_type(to_proto(_wrapper->column_type()));

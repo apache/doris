@@ -32,7 +32,7 @@ public class StatsId {
     public final String colId;
 
     // nullable
-    public final Long partId;
+    public final String partId;
 
     public StatsId(ResultRow row) {
         this.id = row.get(0);
@@ -41,7 +41,7 @@ public class StatsId {
         this.tblId = Long.parseLong(row.get(3));
         this.idxId = Long.parseLong(row.get(4));
         this.colId = row.get(5);
-        this.partId = row.get(6) == null ? null : Long.parseLong(row.get(6));
+        this.partId = row.get(6);
     }
 
     public String toSQL() {
@@ -51,8 +51,8 @@ public class StatsId {
         sj.add(String.valueOf(dbId));
         sj.add(String.valueOf(tblId));
         sj.add(String.valueOf(idxId));
-        sj.add(StatisticsUtil.quote(String.valueOf(colId)));
-        sj.add(String.valueOf(partId));
+        sj.add(StatisticsUtil.quote(colId));
+        sj.add(StatisticsUtil.quote(partId));
         return sj.toString();
     }
 }

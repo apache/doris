@@ -254,7 +254,6 @@ message TabletSchemaPB {
     repeated string partial_update_input_columns = 21;
     optional bool enable_single_replica_compaction = 22 [default=false];
     optional bool skip_write_index_on_load = 23 [default=false];
-    optional bool is_unique_key_ignore_mode = 24 [default=false];
 }
 
 enum TabletStatePB {

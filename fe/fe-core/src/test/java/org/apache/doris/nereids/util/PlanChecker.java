@@ -457,6 +457,13 @@ public class PlanChecker {
         return this;
     }
 
+    public PlanChecker notMatchesFromRoot(PatternDescriptor<? extends Plan> patternDesc) {
+        Memo memo = cascadesContext.getMemo();
+        assertMatches(memo, () -> !(new GroupExpressionMatching(patternDesc.pattern,
+                memo.getRoot().getLogicalExpression()).iterator().hasNext()));
+        return this;
+    }
+
     public PlanChecker matches(PatternDescriptor<? extends Plan> patternDesc) {
         Memo memo = cascadesContext.getMemo();
         checkSlotFromChildren(memo);

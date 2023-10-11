@@ -194,9 +194,6 @@ struct HashTableCell {
     /// Do the hash table need to store the zero key separately (that is, can a zero key be inserted into the hash table).
     static constexpr bool need_zero_value_storage = true;
 
-    /// Whether the cell is deleted.
-    bool is_deleted() const { return false; }
-
     /// Set the mapped value, if any (for HashMap), to the corresponding `value`.
     void set_mapped(const value_type& /*value*/) {}
 
@@ -861,30 +858,11 @@ public:
         return res;
     }
 
-    template <typename KeyHolder>
-    void ALWAYS_INLINE prefetch_by_key(KeyHolder& key_holder) {
-        const auto& key = key_holder_get_key(key_holder);
-        auto hash_value = hash(key);
-        auto place_value = grower.place(hash_value);
-        __builtin_prefetch(&buf[place_value]);
-    }
-
     template <bool READ>
     void ALWAYS_INLINE prefetch_by_hash(size_t hash_value) {
         // Two optional arguments:
         // 'rw': 1 means the memory access is write
         // 'locality': 0-3. 0 means no temporal locality. 3 means high temporal locality.
-        auto place_value = grower.place(hash_value);
-        __builtin_prefetch(&buf[place_value], READ ? 0 : 1, 1);
-    }
-
-    template <bool READ, typename KeyHolder>
-    void ALWAYS_INLINE prefetch_by_key(KeyHolder& key_holder) {
-        // Two optional arguments:
-        // 'rw': 1 means the memory access is write
-        // 'locality': 0-3. 0 means no temporal locality. 3 means high temporal locality.
-        const auto& key = key_holder_get_key(key_holder);
-        auto hash_value = hash(key);
         auto place_value = grower.place(hash_value);
         __builtin_prefetch(&buf[place_value], READ ? 0 : 1, 1);
     }
@@ -1121,9 +1099,11 @@ private:
           *  or move to the left of the collision resolution chain, because the elements to the left of it have been moved to the new "right" location.
           */
         size_t i = 0;
-        for (; i < old_size; ++i)
-            if (!buf[i].is_zero(*this) && !buf[i].is_deleted())
+        for (; i < old_size; ++i) {
+            if (!buf[i].is_zero(*this)) {
                 reinsert(buf[i], buf[i].get_hash(*this));
+            }
+        }
 
         /** There is also a special case:
           *    if the element was to be at the end of the old buffer,                  [        x]
@@ -1133,7 +1113,8 @@ private:
           *    after transferring all the elements from the old halves you need to     [         o   x    ]
           *    process tail from the collision resolution chain immediately after it   [        o    x    ]
           */
-        for (; !buf[i].is_zero(*this) && !buf[i].is_deleted(); ++i)
+        for (; !buf[i].is_zero(*this); ++i) {
             reinsert(buf[i], buf[i].get_hash(*this));
+        }
     }
 };

@@ -827,6 +827,7 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
     for (const auto& c : *this) {
         PColumnMeta* pcm = pblock->add_column_metas();
         c.to_pb_column_meta(pcm);
+        DCHECK(pcm->type() != PGenericType::UNKNOWN) << " forget to set pb type";
         // get serialized size
         content_uncompressed_size +=
                 c.type->get_uncompressed_serialized_bytes(*(c.column), pblock->be_exec_version());
@@ -1049,11 +1050,15 @@ std::string MutableBlock::dump_data(size_t row_limit) const {
     return out.str();
 }
 
-std::unique_ptr<Block> Block::create_same_struct_block(size_t size) const {
+std::unique_ptr<Block> Block::create_same_struct_block(size_t size, bool is_reserve) const {
     auto temp_block = Block::create_unique();
     for (const auto& d : data) {
         auto column = d.type->create_column();
-        column->resize(size);
+        if (is_reserve) {
+            column->reserve(size);
+        } else {
+            column->resize(size);
+        }
         temp_block->insert({std::move(column), d.type, d.name});
     }
     return temp_block;

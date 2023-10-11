@@ -55,7 +55,7 @@ testDirectories = ""
 excludeGroups = ""
 // this suites will not be executed
 
-excludeSuites = "test_sql_block_rule,test_ddl,test_analyze,test_leading,test_profile,test_broker_load,test_spark_load,test_refresh_mtmv,test_bitmap_filter,test_export_parquet,nereids_delete_mow_partial_update,insert_group_commit_with_prepare_stmt"
+excludeSuites = "test_sql_block_rule,test_ddl,test_leading,test_profile,test_broker_load,test_spark_load,test_refresh_mtmv,test_bitmap_filter,nereids_delete_mow_partial_update"
 
 // this directories will not be executed
 excludeDirectories = "workload_manager_p1"
@@ -84,6 +84,13 @@ pg_14_port=7121
 // See `docker/thirdparties/start-thirdparties-docker.sh`
 enableHiveTest=false
 hms_port=7141
+hiveServerPort=10000
+
+// kafka test config
+// to enable kafka test, you need firstly to start kafka container
+// See `docker/thirdparties/start-thirdparties-docker.sh`
+enableKafkaTest=true
+kafka_port=19193
 
 enableEsTest=false
 es_6_port=19200

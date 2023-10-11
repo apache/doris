@@ -32,6 +32,7 @@
 #include "exec/olap_common.h"
 #include "exec/text_converter.h"
 #include "io/io_common.h"
+#include "pipeline/exec/file_scan_operator.h"
 #include "runtime/descriptors.h"
 #include "util/runtime_profile.h"
 #include "vec/common/schema_util.h"
@@ -64,6 +65,10 @@ public:
     static constexpr const char* NAME = "VFileScanner";
 
     VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
+                 const TFileScanRange& scan_range, RuntimeProfile* profile,
+                 ShardedKVCache* kv_cache);
+
+    VFileScanner(RuntimeState* state, pipeline::FileScanLocalState* parent, int64_t limit,
                  const TFileScanRange& scan_range, RuntimeProfile* profile,
                  ShardedKVCache* kv_cache);
 
@@ -207,6 +212,22 @@ private:
     void _reset_counter() {
         _counter.num_rows_unselected = 0;
         _counter.num_rows_filtered = 0;
+    }
+
+    TPushAggOp::type _get_push_down_agg_type() {
+        if (get_parent() != nullptr) {
+            return _parent->get_push_down_agg_type();
+        } else {
+            return _local_state->get_push_down_agg_type();
+        }
+    }
+
+    int64_t _get_push_down_count() {
+        if (get_parent() != nullptr) {
+            return _parent->get_push_down_count();
+        } else {
+            return _local_state->get_push_down_count();
+        }
     }
 };
 } // namespace doris::vectorized

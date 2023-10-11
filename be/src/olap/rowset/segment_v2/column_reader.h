@@ -82,16 +82,16 @@ struct ColumnReaderOptions {
 };
 
 struct ColumnIteratorOptions {
-    io::FileReader* file_reader = nullptr;
-    // reader statistics
-    OlapReaderStatistics* stats = nullptr;
     bool use_page_cache = false;
+    bool is_predicate_column = false;
     // for page cache allocation
     // page types are divided into DATA_PAGE & INDEX_PAGE
     // INDEX_PAGE including index_page, dict_page and short_key_page
     PageTypePB type;
+    io::FileReader* file_reader = nullptr; // Ref
+    // reader statistics
+    OlapReaderStatistics* stats = nullptr; // Ref
     io::IOContext io_ctx;
-    bool is_predicate_column = false;
 
     void sanity_check() const {
         CHECK_NOTNULL(file_reader);
@@ -167,10 +167,10 @@ public:
     uint64_t num_rows() const { return _num_rows; }
 
     void set_dict_encoding_type(DictEncodingType type) {
-        _set_dict_encoding_type_once.call([&] {
+        static_cast<void>(_set_dict_encoding_type_once.call([&] {
             _dict_encoding_type = type;
             return Status::OK();
-        });
+        }));
     }
 
     DictEncodingType get_dict_encoding_type() { return _dict_encoding_type; }

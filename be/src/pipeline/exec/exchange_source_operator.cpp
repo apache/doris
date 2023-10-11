@@ -45,12 +45,36 @@ ExchangeLocalState::ExchangeLocalState(RuntimeState* state, OperatorXBase* paren
 
 Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
+    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<ExchangeSourceOperatorX>();
     stream_recvr = state->exec_env()->vstream_mgr()->create_recvr(
             state, p.input_row_desc(), state->fragment_instance_id(), p.id(), p.num_senders(),
             profile(), p.is_merging(), p.sub_plan_query_statistics_recvr());
+    source_dependency = AndDependency::create_shared(_parent->id());
+    const auto& queues = stream_recvr->sender_queues();
+    deps.resize(queues.size());
+    metrics.resize(queues.size());
+    for (size_t i = 0; i < queues.size(); i++) {
+        deps[i] = ExchangeDataDependency::create_shared(_parent->id(), queues[i]);
+        queues[i]->set_dependency(deps[i]);
+        source_dependency->add_child(deps[i]);
+    }
+    for (size_t i = 0; i < queues.size(); i++) {
+        static const std::string timer_name =
+                "WaitForDependency[" + source_dependency->name() + "]Time";
+        _wait_for_dependency_timer = ADD_TIMER(_runtime_profile, timer_name);
+        metrics[i] = ADD_CHILD_TIMER(_runtime_profile, "WaitForData", timer_name);
+    }
     RETURN_IF_ERROR(_parent->cast<ExchangeSourceOperatorX>()._vsort_exec_exprs.clone(
             state, vsort_exec_exprs));
+    return Status::OK();
+}
+
+Status ExchangeLocalState::open(RuntimeState* state) {
+    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(_open_timer);
+    RETURN_IF_ERROR(PipelineXLocalState<>::open(state));
     return Status::OK();
 }
 
@@ -99,7 +123,7 @@ Status ExchangeSourceOperatorX::open(RuntimeState* state) {
 
 Status ExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                           SourceState& source_state) {
-    auto& local_state = state->get_local_state(id())->cast<ExchangeLocalState>();
+    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     if (_is_merging && !local_state.is_ready) {
         RETURN_IF_ERROR(local_state.stream_recvr->create_merger(
@@ -134,6 +158,7 @@ Status ExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
             local_state.set_num_rows_returned(_limit);
         }
         COUNTER_SET(local_state.rows_returned_counter(), local_state.num_rows_returned());
+        COUNTER_UPDATE(local_state.blocks_returned_counter(), 1);
     }
     if (eos) {
         source_state = SourceState::FINISHED;
@@ -141,17 +166,20 @@ Status ExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
     return status;
 }
 
-bool ExchangeSourceOperatorX::can_read(RuntimeState* state) {
-    return state->get_local_state(id())->cast<ExchangeLocalState>().stream_recvr->ready_to_read();
-}
-
-bool ExchangeSourceOperatorX::is_pending_finish(RuntimeState* /*state*/) const {
-    return false;
+Dependency* ExchangeSourceOperatorX::wait_for_dependency(RuntimeState* state) {
+    CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
+    return local_state.source_dependency->read_blocked_by();
 }
 
 Status ExchangeLocalState::close(RuntimeState* state) {
+    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(_close_timer);
     if (_closed) {
         return Status::OK();
+    }
+    const auto& queues = stream_recvr->sender_queues();
+    for (size_t i = 0; i < deps.size(); i++) {
+        COUNTER_SET(metrics[i], deps[i]->read_watcher_elapse_time());
     }
     if (stream_recvr != nullptr) {
         stream_recvr->close();

@@ -247,7 +247,7 @@ Status VRepeatNode::get_next(RuntimeState* state, Block* block, bool* eos) {
                           _children[0], std::placeholders::_1, std::placeholders::_2,
                           std::placeholders::_3)));
 
-        push(state, &_child_block, _child_eos);
+        static_cast<void>(push(state, &_child_block, _child_eos));
     }
 
     return pull(state, block, eos);

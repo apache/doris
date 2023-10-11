@@ -32,6 +32,7 @@ class ExecNode;
 class RuntimeState;
 
 namespace pipeline {
+
 StreamingAggSourceOperator::StreamingAggSourceOperator(OperatorBuilderBase* templ, ExecNode* node,
                                                        std::shared_ptr<DataQueue> queue)
         : SourceOperator(templ, node), _data_queue(std::move(queue)) {}
@@ -74,33 +75,35 @@ OperatorPtr StreamingAggSourceOperatorBuilder::build_operator() {
 
 StreamingAggSourceOperatorX::StreamingAggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
                                                          const DescriptorTbl& descs)
-        : AggSourceOperatorX(pool, tnode, descs) {}
+        : Base(pool, tnode, descs) {}
 
 Status StreamingAggSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                               SourceState& source_state) {
-    auto& local_state = state->get_local_state(id())->cast<AggLocalState>();
+    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    SCOPED_TIMER(local_state.profile()->total_time_counter());
     if (!local_state._shared_state->data_queue->data_exhausted()) {
         std::unique_ptr<vectorized::Block> agg_block;
+        DCHECK(local_state._dependency->read_blocked_by() == nullptr);
         RETURN_IF_ERROR(local_state._shared_state->data_queue->get_block_from_queue(&agg_block));
 
         if (local_state._shared_state->data_queue->data_exhausted()) {
-            RETURN_IF_ERROR(AggSourceOperatorX::get_block(state, block, source_state));
+            RETURN_IF_ERROR(Base::get_block(state, block, source_state));
         } else {
             block->swap(*agg_block);
             agg_block->clear_column_data(row_desc().num_materialized_slots());
             local_state._shared_state->data_queue->push_free_block(std::move(agg_block));
         }
     } else {
-        RETURN_IF_ERROR(AggSourceOperatorX::get_block(state, block, source_state));
+        RETURN_IF_ERROR(Base::get_block(state, block, source_state));
     }
 
     return Status::OK();
 }
 
-bool StreamingAggSourceOperatorX::can_read(RuntimeState* state) {
-    return state->get_local_state(id())
-            ->cast<AggLocalState>()
-            ._shared_state->data_queue->has_data_or_finished();
+Status StreamingAggSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
+    RETURN_IF_ERROR(Base::init(tnode, state));
+    _op_name = "STREAMING_AGGREGATION_OPERATOR";
+    return Status::OK();
 }
 
 } // namespace pipeline

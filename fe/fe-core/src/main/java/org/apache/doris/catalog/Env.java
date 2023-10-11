@@ -855,12 +855,10 @@ public class Env {
         while (true) {
             try {
                 if (!lock.tryLock(Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS)) {
-                    if (LOG.isDebugEnabled()) {
-                        // to see which thread held this lock for long time.
-                        Thread owner = lock.getOwner();
-                        if (owner != null) {
-                            LOG.debug("catalog lock is held by: {}", Util.dumpThread(owner, 10));
-                        }
+                    // to see which thread held this lock for long time.
+                    Thread owner = lock.getOwner();
+                    if (owner != null) {
+                        LOG.info("catalog lock is held by: {}", Util.dumpThread(owner, 10));
                     }
 
                     if (mustLock) {
@@ -1514,8 +1512,6 @@ public class Env {
         loadJobScheduler.start();
         loadEtlChecker.start();
         loadLoadingChecker.start();
-        // export task
-        exportMgr.start();
         // Tablet checker and scheduler
         tabletChecker.start();
         tabletScheduler.start();
@@ -2651,14 +2647,6 @@ public class Env {
         long cost = System.currentTimeMillis() - startTime;
         if (cost >= 1000) {
             LOG.warn("replay journal cost too much time: {} replayedJournalId: {}", cost, replayedJournalId);
-        }
-
-        if (replayedJournalId.get() != newToJournalId) {
-            String msg = "replayedJournalId:" + replayedJournalId.get() + " not equal with newToJournalId:"
-                    + newToJournalId + " , will exit";
-            LOG.error(msg);
-            Util.stdoutWithTime(msg);
-            System.exit(-1);
         }
 
         return hasLog;

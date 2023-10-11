@@ -30,7 +30,7 @@ import com.google.gson.reflect.TypeToken;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.quartz.CronExpression;
+import org.apache.logging.log4j.core.util.CronExpression;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -73,6 +73,8 @@ public class AnalysisInfo implements Writable {
     }
 
     public enum ScheduleType {
+        // Job created by AutoCollector is also `ONCE` type, this is because it runs once only and should be removed
+        // when its information is expired
         ONCE,
         PERIOD,
         AUTOMATIC
@@ -127,7 +129,7 @@ public class AnalysisInfo implements Writable {
     public final int samplePercent;
 
     @SerializedName("sampleRows")
-    public final int sampleRows;
+    public final long sampleRows;
 
     @SerializedName("maxBucketNum")
     public final int maxBucketNum;
@@ -155,13 +157,19 @@ public class AnalysisInfo implements Writable {
     // True means this task is a table level task for external table.
     // This kind of task is mainly to collect the number of rows of a table.
     @SerializedName("externalTableLevelTask")
-    public boolean externalTableLevelTask;
+    public final boolean externalTableLevelTask;
 
     @SerializedName("partitionOnly")
-    public boolean partitionOnly;
+    public final boolean partitionOnly;
 
     @SerializedName("samplingPartition")
-    public boolean samplingPartition;
+    public final boolean samplingPartition;
+
+    @SerializedName("isAllPartition")
+    public final boolean isAllPartition;
+
+    @SerializedName("partitionCount")
+    public final long partitionCount;
 
     // For serialize
     @SerializedName("cronExpr")
@@ -178,10 +186,10 @@ public class AnalysisInfo implements Writable {
     public AnalysisInfo(long jobId, long taskId, List<Long> taskIds, String catalogName, String dbName, String tblName,
             Map<String, Set<String>> colToPartitions, Set<String> partitionNames, String colName, Long indexId,
             JobType jobType, AnalysisMode analysisMode, AnalysisMethod analysisMethod, AnalysisType analysisType,
-            int samplePercent, int sampleRows, int maxBucketNum, long periodTimeInMs, String message,
+            int samplePercent, long sampleRows, int maxBucketNum, long periodTimeInMs, String message,
             long lastExecTimeInMs, long timeCostInMs, AnalysisState state, ScheduleType scheduleType,
             boolean isExternalTableLevelTask, boolean partitionOnly, boolean samplingPartition,
-            CronExpression cronExpression, boolean forceFull) {
+            boolean isAllPartition, long partitionCount, CronExpression cronExpression, boolean forceFull) {
         this.jobId = jobId;
         this.taskId = taskId;
         this.taskIds = taskIds;
@@ -208,6 +216,8 @@ public class AnalysisInfo implements Writable {
         this.externalTableLevelTask = isExternalTableLevelTask;
         this.partitionOnly = partitionOnly;
         this.samplingPartition = samplingPartition;
+        this.isAllPartition = isAllPartition;
+        this.partitionCount = partitionCount;
         this.cronExpression = cronExpression;
         if (cronExpression != null) {
             this.cronExprStr = cronExpression.getCronExpression();

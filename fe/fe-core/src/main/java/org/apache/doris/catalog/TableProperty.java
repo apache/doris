@@ -469,7 +469,8 @@ public class TableProperty implements Writable {
             // Must copy the properties because "analyzeReplicaAllocation" will remove the property
             // from the properties.
             Map<String, String> copiedProperties = Maps.newHashMap(properties);
-            this.replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(copiedProperties, "default");
+            this.replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocationWithoutCheck(
+                    copiedProperties, "default");
         } catch (AnalysisException e) {
             // should not happen
             LOG.error("should not happen when build replica allocation", e);

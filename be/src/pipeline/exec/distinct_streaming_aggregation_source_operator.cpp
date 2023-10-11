@@ -88,5 +88,53 @@ OperatorPtr DistinctStreamingAggSourceOperatorBuilder::build_operator() {
     return std::make_shared<DistinctStreamingAggSourceOperator>(this, _node, _data_queue);
 }
 
+DistinctStreamingAggSourceOperatorX::DistinctStreamingAggSourceOperatorX(ObjectPool* pool,
+                                                                         const TPlanNode& tnode,
+                                                                         const DescriptorTbl& descs)
+        : Base(pool, tnode, descs) {
+    if (tnode.agg_node.__isset.use_streaming_preaggregation) {
+        _is_streaming_preagg = tnode.agg_node.use_streaming_preaggregation;
+        if (_is_streaming_preagg) {
+            DCHECK(!tnode.agg_node.grouping_exprs.empty()) << "Streaming preaggs do grouping";
+            DCHECK(_limit == -1) << "Preaggs have no limits";
+        }
+    } else {
+        _is_streaming_preagg = false;
+    }
+}
+
+Status DistinctStreamingAggSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
+                                                      SourceState& source_state) {
+    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    std::unique_ptr<vectorized::Block> agg_block;
+    RETURN_IF_ERROR(local_state._shared_state->data_queue->get_block_from_queue(&agg_block));
+    if (agg_block != nullptr) {
+        block->swap(*agg_block);
+        agg_block->clear_column_data(block->columns());
+        local_state._shared_state->data_queue->push_free_block(std::move(agg_block));
+    }
+
+    local_state._dependency->_make_nullable_output_key(block);
+    if (_is_streaming_preagg == false) {
+        // dispose the having clause, should not be execute in prestreaming agg
+        RETURN_IF_ERROR(
+                vectorized::VExprContext::filter_block(_conjuncts, block, block->columns()));
+    }
+
+    if (UNLIKELY(local_state._shared_state->data_queue->data_exhausted())) {
+        source_state = SourceState::FINISHED;
+    } else {
+        source_state = SourceState::DEPEND_ON_SOURCE;
+    }
+    return Status::OK();
+}
+
+Status DistinctStreamingAggSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
+    RETURN_IF_ERROR(Base::init(tnode, state));
+    _op_name = "DISTINCT_STREAMING_AGGREGATION_OPERATOR";
+    return Status::OK();
+}
+
 } // namespace pipeline
 } // namespace doris

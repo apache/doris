@@ -31,6 +31,7 @@ import java.util.BitSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * Edge in HyperGraph
@@ -214,10 +215,6 @@ public class Edge {
         return join.getExpressions().get(0);
     }
 
-    public List<? extends Expression> getExpressions() {
-        return join.getExpressions();
-    }
-
     public List<Expression> getHashJoinConjuncts() {
         return join.getHashJoinConjuncts();
     }
@@ -236,6 +233,28 @@ public class Edge {
     public String toString() {
         return String.format("<%s - %s>", LongBitmap.toString(leftExtendedNodes), LongBitmap.toString(
                 rightExtendedNodes));
+    }
+
+    /**
+     * extract join type and conjuncts from edges
+     */
+    public static @Nullable JoinType extractJoinTypeAndConjuncts(List<Edge> edges,
+            List<Expression> hashConjuncts, List<Expression> otherConjuncts) {
+        JoinType joinType = null;
+        for (Edge edge : edges) {
+            if (edge.getJoinType() != joinType && joinType != null) {
+                return null;
+            }
+            Preconditions.checkArgument(joinType == null || joinType == edge.getJoinType());
+            joinType = edge.getJoinType();
+            hashConjuncts.addAll(edge.getHashJoinConjuncts());
+            otherConjuncts.addAll(edge.getOtherJoinConjuncts());
+        }
+        return joinType;
+    }
+
+    public static Edge createTempEdge(LogicalJoin join) {
+        return new Edge(join, -1, null, null, 0L);
     }
 }
 

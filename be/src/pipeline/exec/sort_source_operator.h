@@ -64,7 +64,7 @@ private:
 class SortSourceOperatorX final : public OperatorX<SortLocalState> {
 public:
     SortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    bool can_read(RuntimeState* state) override;
+    Dependency* wait_for_dependency(RuntimeState* state) override;
 
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override;

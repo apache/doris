@@ -126,7 +126,9 @@ Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
     }
 
     if (eos) {
-        recvr->remove_sender(request->sender_id(), request->be_number());
+        Status exec_status =
+                request->has_exec_status() ? Status::create(request->exec_status()) : Status::OK();
+        recvr->remove_sender(request->sender_id(), request->be_number(), exec_status);
     }
     return Status::OK();
 }
@@ -156,7 +158,7 @@ Status VDataStreamMgr::deregister_recvr(const TUniqueId& fragment_instance_id, P
     // Notify concurrent add_data() requests that the stream has been terminated.
     // cancel_stream maybe take a long time, so we handle it out of lock.
     if (targert_recvr) {
-        targert_recvr->cancel_stream();
+        targert_recvr->cancel_stream(Status::OK());
         return Status::OK();
     } else {
         std::stringstream err;
@@ -167,7 +169,7 @@ Status VDataStreamMgr::deregister_recvr(const TUniqueId& fragment_instance_id, P
     }
 }
 
-void VDataStreamMgr::cancel(const TUniqueId& fragment_instance_id) {
+void VDataStreamMgr::cancel(const TUniqueId& fragment_instance_id, Status exec_status) {
     VLOG_QUERY << "cancelling all streams for fragment=" << fragment_instance_id;
     std::vector<std::shared_ptr<VDataStreamRecvr>> recvrs;
     {
@@ -191,7 +193,7 @@ void VDataStreamMgr::cancel(const TUniqueId& fragment_instance_id) {
 
     // cancel_stream maybe take a long time, so we handle it out of lock.
     for (auto& it : recvrs) {
-        it->cancel_stream();
+        it->cancel_stream(exec_status);
     }
 }
 

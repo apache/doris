@@ -27,6 +27,7 @@
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/status.h"
 #include "io/fs/file_reader.h"
 #include "olap/block_column_predicate.h"
 #include "olap/column_predicate.h"
@@ -260,22 +261,20 @@ Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const Pag
                                PageHandle* handle, Slice* page_body, PageFooterPB* footer,
                                BlockCompressionCodec* codec) const {
     iter_opts.sanity_check();
-    PageReadOptions opts;
-    opts.file_reader = iter_opts.file_reader;
-    opts.page_pointer = pp;
-    opts.codec = codec;
-    opts.stats = iter_opts.stats;
-    opts.verify_checksum = _opts.verify_checksum;
-    opts.use_page_cache = iter_opts.use_page_cache;
-    opts.kept_in_memory = _opts.kept_in_memory;
-    opts.type = iter_opts.type;
-    opts.encoding_info = _encoding_info;
-    opts.io_ctx = iter_opts.io_ctx;
+    PageReadOptions opts {
+            .verify_checksum = _opts.verify_checksum,
+            .use_page_cache = iter_opts.use_page_cache,
+            .kept_in_memory = _opts.kept_in_memory,
+            .type = iter_opts.type,
+            .file_reader = iter_opts.file_reader,
+            .page_pointer = pp,
+            .codec = codec,
+            .stats = iter_opts.stats,
+            .encoding_info = _encoding_info,
+            .io_ctx = iter_opts.io_ctx,
+    };
     // index page should not pre decode
-    if (iter_opts.type == INDEX_PAGE) {
-        opts.pre_decode = false;
-    }
-
+    if (iter_opts.type == INDEX_PAGE) opts.pre_decode = false;
     return PageIO::read_and_decompress_page(opts, handle, page_body, footer);
 }
 
@@ -343,8 +342,8 @@ void ColumnReader::_parse_zone_map(const ZoneMapPB& zone_map, WrapperField* min_
                                    WrapperField* max_value_container) const {
     // min value and max value are valid if has_not_null is true
     if (zone_map.has_not_null()) {
-        min_value_container->from_string(zone_map.min());
-        max_value_container->from_string(zone_map.max());
+        static_cast<void>(min_value_container->from_string(zone_map.min()));
+        static_cast<void>(max_value_container->from_string(zone_map.max()));
     }
     // for compatible original Cond eval logic
     if (zone_map.has_null()) {
@@ -362,8 +361,8 @@ void ColumnReader::_parse_zone_map_skip_null(const ZoneMapPB& zone_map,
                                              WrapperField* max_value_container) const {
     // min value and max value are valid if has_not_null is true
     if (zone_map.has_not_null()) {
-        min_value_container->from_string(zone_map.min());
-        max_value_container->from_string(zone_map.max());
+        static_cast<void>(min_value_container->from_string(zone_map.min()));
+        static_cast<void>(max_value_container->from_string(zone_map.max()));
     }
 
     if (!zone_map.has_not_null()) {
@@ -976,7 +975,7 @@ Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
         // it has bad impact on primary key query. For example, select * from table where pk = 1, and
         // the table has 2000 columns.
         if (dict_encoding_type == ColumnReader::UNKNOWN_DICT_ENCODING && opts.is_predicate_column) {
-            seek_to_ordinal(_reader->num_rows() - 1);
+            static_cast<void>(seek_to_ordinal(_reader->num_rows() - 1));
             _is_all_dict_encoding = _page.is_dict_encoding;
             _reader->set_dict_encoding_type(_is_all_dict_encoding
                                                     ? ColumnReader::ALL_DICT_ENCODING
@@ -1039,7 +1038,7 @@ void FileColumnIterator::_seek_to_pos_in_page(ParsedPage* page, ordinal_t offset
         pos_in_data = offset_in_data + skips - skip_nulls;
     }
 
-    page->data_decoder->seek_to_position_in_page(pos_in_data);
+    static_cast<void>(page->data_decoder->seek_to_position_in_page(pos_in_data));
     page->offset_in_page = offset_in_page;
 }
 
@@ -1159,7 +1158,8 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
                 }
 
                 if (!is_null) {
-                    _page.data_decoder->seek_to_position_in_page(origin_index + this_run);
+                    static_cast<void>(
+                            _page.data_decoder->seek_to_position_in_page(origin_index + this_run));
                 }
 
                 already_read += this_read_count;

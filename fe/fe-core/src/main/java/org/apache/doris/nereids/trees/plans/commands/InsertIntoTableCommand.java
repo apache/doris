@@ -81,8 +81,8 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
 
     private final LogicalPlan logicalQuery;
     private final Optional<String> labelName;
+    private final boolean isOverwrite;
     private NereidsPlanner planner;
-    private boolean isOverwrite;
     private boolean isTxnBegin = false;
 
     /**
@@ -129,10 +129,10 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         }
         String label = this.labelName.orElse(String.format("label_%x_%x", ctx.queryId().hi, ctx.queryId().lo));
 
-        Optional<TreeNode> plan = ((Set<TreeNode>) planner.getPhysicalPlan()
-                .collect(node -> node instanceof PhysicalOlapTableSink)).stream().findAny();
+        Optional<TreeNode<?>> plan = (planner.getPhysicalPlan()
+                .<Set<TreeNode<?>>>collect(node -> node instanceof PhysicalOlapTableSink)).stream().findAny();
         Preconditions.checkArgument(plan.isPresent(), "insert into command must contain OlapTableSinkNode");
-        PhysicalOlapTableSink<?> physicalOlapTableSink = ((PhysicalOlapTableSink) plan.get());
+        PhysicalOlapTableSink<?> physicalOlapTableSink = ((PhysicalOlapTableSink<?>) plan.get());
 
         if (isOverwrite) {
             dealOverwrite(ctx, executor, physicalOlapTableSink);
@@ -146,11 +146,15 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                 physicalOlapTableSink.getDatabase(),
                 physicalOlapTableSink.getTargetTable(), label, planner);
         isTxnBegin = true;
-
+        boolean isStrictMode = (ctx.getSessionVariable().getEnableInsertStrict()
+                && physicalOlapTableSink.isPartialUpdate()
+                && physicalOlapTableSink.isFromNativeInsertStmt());
         sink.init(ctx.queryId(), txn.getTxnId(),
                 physicalOlapTableSink.getDatabase().getId(),
                 ctx.getExecTimeout(),
-                ctx.getSessionVariable().getSendBatchParallelism(), false, false, false);
+                ctx.getSessionVariable().getSendBatchParallelism(),
+                false,
+                isStrictMode);
 
         sink.complete(new Analyzer(Env.getCurrentEnv(), ctx));
         TransactionState state = Env.getCurrentGlobalTransactionMgr().getTransactionState(
@@ -185,14 +189,15 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
      * @param ctx ctx
      * @param executor executor
      * @param physicalOlapTableSink physicalOlapTableSink
+     *
      * @throws Exception Exception
      */
-    public void dealOverwrite(ConnectContext ctx, StmtExecutor executor, PhysicalOlapTableSink<?> physicalOlapTableSink)
-            throws Exception {
+    public void dealOverwrite(ConnectContext ctx, StmtExecutor executor,
+            PhysicalOlapTableSink<?> physicalOlapTableSink) throws Exception {
         OlapTable targetTable = physicalOlapTableSink.getTargetTable();
         TableName tableName = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, targetTable.getQualifiedDbName(),
                 targetTable.getName());
-        List partitionNames = ((UnboundOlapTableSink) logicalQuery).getPartitions();
+        List<String> partitionNames = ((UnboundOlapTableSink<?>) logicalQuery).getPartitions();
         if (CollectionUtils.isEmpty(partitionNames)) {
             partitionNames = Lists.newArrayList(targetTable.getPartitionNames());
         }
@@ -239,17 +244,18 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
      * @param executor executor
      * @param tempPartitionNames tempPartitionNames
      * @param tableName tableName
-     * @throws Exception Exception
      */
     private boolean insertInto(ConnectContext ctx, StmtExecutor executor, List<String> tempPartitionNames,
             TableName tableName) {
         try {
-            UnboundOlapTableSink sink = (UnboundOlapTableSink) logicalQuery;
+            UnboundOlapTableSink<?> sink = (UnboundOlapTableSink<?>) logicalQuery;
             UnboundOlapTableSink<?> copySink = new UnboundOlapTableSink<>(
                     sink.getNameParts(),
                     sink.getColNames(),
                     sink.getHints(),
                     tempPartitionNames,
+                    sink.isPartialUpdate(),
+                    sink.isFromNativeInsertStmt(),
                     (LogicalPlan) (sink.child(0)));
             new InsertIntoTableCommand(copySink, labelName, false).run(ctx, executor);
             if (ctx.getState().getStateType() == MysqlStateType.ERR) {
@@ -333,6 +339,6 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitInsertIntoCommand(this, context);
+        return visitor.visitInsertIntoTableCommand(this, context);
     }
 }

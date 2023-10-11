@@ -80,4 +80,10 @@ insert into doris_test.test_clob values (10010, 'liantong');
 
 insert into doris_test."AA/D" values (1, 'alice', 20, 99.5);
 insert into doris_test.aaad values (1, 'alice');
+
+insert into doris_test."student2" values (1, 'alice', 20, 99.5);
+insert into doris_test."student2" values (2, 'bob', 21, 90.5);
+insert into doris_test."student2" values (3, 'jerry', 23, 88.0);
+insert into doris_test."student2" values (4, 'andy', 21, 93);
+
 commit;

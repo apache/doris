@@ -33,10 +33,35 @@ template Status HashJoinDependency::extract_join_column<false>(
         std::vector<vectorized::IColumn const*, std::allocator<vectorized::IColumn const*>>&,
         std::vector<int, std::allocator<int>> const&);
 
-std::string Dependency::debug_string(int indentation_level) const {
+std::string Dependency::debug_string(int indentation_level) {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer, "{}{}: id={}, done={}",
-                   std::string(indentation_level * 2, ' '), _name, _id, _done.load());
+                   std::string(indentation_level * 2, ' '), _name, _id,
+                   read_blocked_by() == nullptr);
+    return fmt::to_string(debug_string_buffer);
+}
+
+std::string AndDependency::debug_string(int indentation_level) {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "{}{}: id={}, done={}, children=[",
+                   std::string(indentation_level * 2, ' '), _name, _id,
+                   read_blocked_by() == nullptr);
+    for (auto& child : _children) {
+        fmt::format_to(debug_string_buffer, "{}, \n", child->debug_string(indentation_level = 1));
+    }
+    fmt::format_to(debug_string_buffer, "{}]", std::string(indentation_level * 2, ' '));
+    return fmt::to_string(debug_string_buffer);
+}
+
+std::string OrDependency::debug_string(int indentation_level) {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "{}{}: id={}, done={}, children=[",
+                   std::string(indentation_level * 2, ' '), _name, _id,
+                   read_blocked_by() == nullptr);
+    for (auto& child : _children) {
+        fmt::format_to(debug_string_buffer, "{}, \n", child->debug_string(indentation_level = 1));
+    }
+    fmt::format_to(debug_string_buffer, "{}]", std::string(indentation_level * 2, ' '));
     return fmt::to_string(debug_string_buffer);
 }
 
@@ -54,7 +79,7 @@ Status AggDependency::reset_hash_table() {
 
                 hash_table.for_each_mapped([&](auto& mapped) {
                     if (mapped) {
-                        destroy_agg_status(mapped);
+                        static_cast<void>(destroy_agg_status(mapped));
                         mapped = nullptr;
                     }
                 });
@@ -218,7 +243,7 @@ vectorized::BlockRowPos AnalyticDependency::compare_row_to_find_end(int idx,
     return start;
 }
 
-bool AnalyticDependency::whether_need_next_partition(vectorized::BlockRowPos found_partition_end) {
+bool AnalyticDependency::whether_need_next_partition(vectorized::BlockRowPos& found_partition_end) {
     if (_analytic_state.input_eos ||
         (_analytic_state.current_row_position <
          _analytic_state.partition_by_end.pos)) { //now still have partition data

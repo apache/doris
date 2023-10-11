@@ -313,7 +313,6 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 
     The system view table names in information_schema are case-insensitive and behave as 2 when the value of `lower_case_table_names` is 0.
 
-Translated with www.DeepL.com/Translator (free version)
 
 * `max_allowed_packet`
 
@@ -365,7 +364,7 @@ Translated with www.DeepL.com/Translator (free version)
     
 * `query_timeout`
 
-    Used to set the query timeout. This variable applies to all query statements in the current connection. Particularly, timeout of INSERT statements is recommended to be managed by the insert_timeout below. The default is 5 minutes, in seconds.
+    Used to set the query timeout. This variable applies to all query statements in the current connection. Particularly, timeout of INSERT statements is recommended to be managed by the insert_timeout below. The default is 15 minutes, in seconds.
 
 * `insert_timeout`
 
@@ -691,6 +690,12 @@ Translated with www.DeepL.com/Translator (free version)
 
   Build MemTable on DataSink node, and send segments to other backends through brpc streaming.
   It reduces duplicate work among replicas, and saves time in data serialization & deserialization.
+
+* `enable_unique_key_partial_update`
+
+  <version since="2.0.2">
+  Whether to enable partial columns update semantics for native insert into statement, default is false.
+  </version>
 
 ***
 

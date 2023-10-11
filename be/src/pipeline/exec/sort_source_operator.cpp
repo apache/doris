@@ -30,6 +30,8 @@ SortLocalState::SortLocalState(RuntimeState* state, OperatorXBase* parent)
 
 Status SortLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<SortDependency>::init(state, info));
+    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(_open_timer);
     _get_next_timer = ADD_TIMER(profile(), "GetResultTime");
     return Status::OK();
 }
@@ -40,26 +42,27 @@ SortSourceOperatorX::SortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnod
 
 Status SortSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                       SourceState& source_state) {
-    auto& local_state = state->get_local_state(id())->cast<SortLocalState>();
+    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    SCOPED_TIMER(local_state.profile()->total_time_counter());
     SCOPED_TIMER(local_state._get_next_timer);
-    bool eos;
+    bool eos = false;
     RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
             local_state._shared_state->sorter->get_next(state, block, &eos));
-    local_state.reached_limit(block, &eos);
     if (eos) {
-        _runtime_profile->add_info_string(
-                "Spilled", local_state._shared_state->sorter->is_spilled() ? "true" : "false");
         source_state = SourceState::FINISHED;
     }
+    local_state.reached_limit(block, source_state);
     return Status::OK();
 }
 
-bool SortSourceOperatorX::can_read(RuntimeState* state) {
-    auto& local_state = state->get_local_state(id())->cast<SortLocalState>();
-    return local_state._dependency->done();
+Dependency* SortSourceOperatorX::wait_for_dependency(RuntimeState* state) {
+    CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
+    return local_state._dependency->read_blocked_by();
 }
 
 Status SortLocalState::close(RuntimeState* state) {
+    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(_close_timer);
     if (_closed) {
         return Status::OK();
     }

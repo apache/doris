@@ -277,45 +277,49 @@ bool VerticalMergeIteratorContext::compare(const VerticalMergeIteratorContext& r
     return result;
 }
 
-void VerticalMergeIteratorContext::copy_rows(Block* block, size_t count) {
+Status VerticalMergeIteratorContext::copy_rows(Block* block, size_t count) {
     Block& src = *_block;
     Block& dst = *block;
     DCHECK(count > 0);
 
     auto start = _index_in_block;
     _index_in_block += count - 1;
+    RETURN_IF_CATCH_EXCEPTION({
+        for (size_t i = 0; i < _ori_return_cols; ++i) {
+            auto& s_col = src.get_by_position(i);
+            auto& d_col = dst.get_by_position(i);
 
-    for (size_t i = 0; i < _ori_return_cols; ++i) {
-        auto& s_col = src.get_by_position(i);
-        auto& d_col = dst.get_by_position(i);
+            ColumnPtr& s_cp = s_col.column;
+            ColumnPtr& d_cp = d_col.column;
 
-        ColumnPtr& s_cp = s_col.column;
-        ColumnPtr& d_cp = d_col.column;
-
-        d_cp->assume_mutable()->insert_range_from(*s_cp, start, count);
-    }
+            d_cp->assume_mutable()->insert_range_from(*s_cp, start, count);
+        }
+    });
+    return Status::OK();
 }
 // `advanced = false` when current block finished
-void VerticalMergeIteratorContext::copy_rows(Block* block, bool advanced) {
+Status VerticalMergeIteratorContext::copy_rows(Block* block, bool advanced) {
     Block& src = *_block;
     Block& dst = *block;
     if (_cur_batch_num == 0) {
-        return;
+        return Status::OK();
     }
 
     // copy a row to dst block column by column
     size_t start = _index_in_block - _cur_batch_num + 1 - advanced;
+    RETURN_IF_CATCH_EXCEPTION({
+        for (size_t i = 0; i < _ori_return_cols; ++i) {
+            auto& s_col = src.get_by_position(i);
+            auto& d_col = dst.get_by_position(i);
 
-    for (size_t i = 0; i < _ori_return_cols; ++i) {
-        auto& s_col = src.get_by_position(i);
-        auto& d_col = dst.get_by_position(i);
+            ColumnPtr& s_cp = s_col.column;
+            ColumnPtr& d_cp = d_col.column;
 
-        ColumnPtr& s_cp = s_col.column;
-        ColumnPtr& d_cp = d_col.column;
-
-        d_cp->assume_mutable()->insert_range_from(*s_cp, start, _cur_batch_num);
-    }
+            d_cp->assume_mutable()->insert_range_from(*s_cp, start, _cur_batch_num);
+        }
+    });
     _cur_batch_num = 0;
+    return Status::OK();
 }
 
 Status VerticalMergeIteratorContext::init(const StorageReadOptions& opts) {
@@ -354,7 +358,7 @@ Status VerticalMergeIteratorContext::_load_next_block() {
         }
         for (auto it = _block_list.begin(); it != _block_list.end(); it++) {
             if (it->use_count() == 1) {
-                block_reset(*it);
+                static_cast<void>(block_reset(*it));
                 _block = *it;
                 _block_list.erase(it);
                 break;
@@ -362,7 +366,7 @@ Status VerticalMergeIteratorContext::_load_next_block() {
         }
         if (_block == nullptr) {
             _block = std::make_shared<Block>();
-            block_reset(_block);
+            static_cast<void>(block_reset(_block));
         }
         Status st = _iter->next_batch(_block.get());
         if (!st.ok()) {
@@ -426,14 +430,14 @@ Status VerticalHeapMergeIterator::next_batch(Block* block) {
             // skip cur row, copy pre ctx
             ++_merged_rows;
             if (pre_ctx) {
-                pre_ctx->copy_rows(block);
+                RETURN_IF_ERROR(pre_ctx->copy_rows(block));
                 pre_ctx = nullptr;
             }
         } else {
             ctx->add_cur_batch();
             if (pre_ctx != ctx) {
                 if (pre_ctx) {
-                    pre_ctx->copy_rows(block);
+                    RETURN_IF_ERROR(pre_ctx->copy_rows(block));
                 }
                 pre_ctx = ctx;
             }
@@ -444,7 +448,7 @@ Status VerticalHeapMergeIterator::next_batch(Block* block) {
             if (ctx->is_cur_block_finished() || row_idx >= _block_row_max) {
                 // current block finished, ctx not advance
                 // so copy start_idx = (_index_in_block - _cur_batch_num + 1)
-                ctx->copy_rows(block, false);
+                RETURN_IF_ERROR(ctx->copy_rows(block, false));
                 pre_ctx = nullptr;
             }
         }
@@ -547,7 +551,7 @@ Status VerticalFifoMergeIterator::next_batch(Block* block) {
         if (_cur_iter_ctx->is_cur_block_finished() || row_idx >= _block_row_max) {
             // current block finished, ctx not advance
             // so copy start_idx = (_index_in_block - _cur_batch_num + 1)
-            _cur_iter_ctx->copy_rows(block, false);
+            RETURN_IF_ERROR(_cur_iter_ctx->copy_rows(block, false));
         }
 
         RETURN_IF_ERROR(_cur_iter_ctx->advance());
@@ -727,7 +731,7 @@ Status VerticalMaskMergeIterator::next_batch(Block* block) {
         auto same_source_cnt = _row_sources_buf->same_source_count(order, limit);
         _row_sources_buf->advance(same_source_cnt);
         // copy rows to block
-        ctx->copy_rows(block, same_source_cnt);
+        RETURN_IF_ERROR(ctx->copy_rows(block, same_source_cnt));
         RETURN_IF_ERROR(ctx->advance());
         rows += same_source_cnt;
         st = _row_sources_buf->has_remaining();

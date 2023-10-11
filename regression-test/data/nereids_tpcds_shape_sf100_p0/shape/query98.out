@@ -12,17 +12,17 @@ PhysicalResultSink
 ------------------PhysicalDistribute
 --------------------hashAgg[LOCAL]
 ----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN](store_sales.ss_item_sk = item.i_item_sk)
+------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk))otherCondition=()
 --------------------------PhysicalDistribute
-----------------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
+----------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk))otherCondition=()
 ------------------------------PhysicalProject
 --------------------------------PhysicalOlapScan[store_sales]
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
-----------------------------------filter((date_dim.d_date <= 2002-06-19)(date_dim.d_date >= 2002-05-20))
+----------------------------------filter((date_dim.d_date <= '2002-06-19') and (date_dim.d_date >= '2002-05-20'))
 ------------------------------------PhysicalOlapScan[date_dim]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
-------------------------------filter(i_category IN ('Sports', 'Music', 'Shoes'))
+------------------------------filter(i_category IN ('Music', 'Shoes', 'Sports'))
 --------------------------------PhysicalOlapScan[item]
 

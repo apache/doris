@@ -81,7 +81,7 @@ JdbcConnector::JdbcConnector(const JdbcConnectorParam& param)
 
 JdbcConnector::~JdbcConnector() {
     if (!_closed) {
-        close();
+        static_cast<void>(close());
     }
 }
 
@@ -90,14 +90,14 @@ JdbcConnector::~JdbcConnector() {
 
 #define DELETE_BASIC_JAVA_CLAZZ_REF(CPP_TYPE) env->DeleteGlobalRef(_executor_##CPP_TYPE##_clazz);
 
-Status JdbcConnector::close() {
+Status JdbcConnector::close(Status) {
     SCOPED_RAW_TIMER(&_jdbc_statistic._connector_close_timer);
     _closed = true;
     if (!_is_open) {
         return Status::OK();
     }
     if (_is_in_transaction) {
-        abort_trans();
+        static_cast<void>(abort_trans());
     }
     JNIEnv* env;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
@@ -184,7 +184,7 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
     RETURN_ERROR_IF_EXC(env);
     RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, _executor_obj, &_executor_obj));
     _is_open = true;
-    begin_trans();
+    static_cast<void>(begin_trans());
 
     return Status::OK();
 }
@@ -492,13 +492,13 @@ Status JdbcConnector::get_next(bool* eos, std::vector<MutableColumnPtr>& columns
         env->DeleteLocalRef(column_data);
         //here need to cast string to array type
         if (slot_desc->type().is_array_type()) {
-            _cast_string_to_array(slot_desc, block, column_index, num_rows);
+            static_cast<void>(_cast_string_to_array(slot_desc, block, column_index, num_rows));
         } else if (slot_desc->type().is_hll_type()) {
-            _cast_string_to_hll(slot_desc, block, column_index, num_rows);
+            static_cast<void>(_cast_string_to_hll(slot_desc, block, column_index, num_rows));
         } else if (slot_desc->type().is_json_type()) {
-            _cast_string_to_json(slot_desc, block, column_index, num_rows);
+            static_cast<void>(_cast_string_to_json(slot_desc, block, column_index, num_rows));
         } else if (slot_desc->type().is_bitmap_type()) {
-            _cast_string_to_bitmap(slot_desc, block, column_index, num_rows);
+            static_cast<void>(_cast_string_to_bitmap(slot_desc, block, column_index, num_rows));
         }
         materialized_column_index++;
     }
@@ -867,7 +867,7 @@ Status JdbcConnector::_cast_string_to_hll(const SlotDescriptor* slot_desc, Block
     Block cast_block(argument_template);
     int result_idx = cast_block.columns();
     cast_block.insert({nullptr, make_nullable(_target_data_type), "cast_result"});
-    func_cast->execute(nullptr, cast_block, {0, 1}, result_idx, rows);
+    static_cast<void>(func_cast->execute(nullptr, cast_block, {0, 1}, result_idx, rows));
 
     auto res_col = cast_block.get_by_position(result_idx).column;
     if (_target_data_type->is_nullable()) {
@@ -902,7 +902,7 @@ Status JdbcConnector::_cast_string_to_bitmap(const SlotDescriptor* slot_desc, Bl
     Block cast_block(argument_template);
     int result_idx = cast_block.columns();
     cast_block.insert({nullptr, make_nullable(_target_data_type), "cast_result"});
-    func_cast->execute(nullptr, cast_block, {0, 1}, result_idx, rows);
+    static_cast<void>(func_cast->execute(nullptr, cast_block, {0, 1}, result_idx, rows));
 
     auto res_col = cast_block.get_by_position(result_idx).column;
     if (_target_data_type->is_nullable()) {
@@ -938,7 +938,7 @@ Status JdbcConnector::_cast_string_to_array(const SlotDescriptor* slot_desc, Blo
     Block cast_block(argument_template);
     int result_idx = cast_block.columns();
     cast_block.insert({nullptr, make_nullable(_target_data_type), "cast_result"});
-    func_cast->execute(nullptr, cast_block, {0, 1}, result_idx, rows);
+    static_cast<void>(func_cast->execute(nullptr, cast_block, {0, 1}, result_idx, rows));
 
     auto res_col = cast_block.get_by_position(result_idx).column;
     if (_target_data_type->is_nullable()) {
@@ -973,7 +973,7 @@ Status JdbcConnector::_cast_string_to_json(const SlotDescriptor* slot_desc, Bloc
     Block cast_block(argument_template);
     int result_idx = cast_block.columns();
     cast_block.insert({nullptr, make_nullable(_target_data_type), "cast_result"});
-    func_cast->execute(nullptr, cast_block, {0, 1}, result_idx, rows);
+    static_cast<void>(func_cast->execute(nullptr, cast_block, {0, 1}, result_idx, rows));
 
     auto res_col = cast_block.get_by_position(result_idx).column;
     if (_target_data_type->is_nullable()) {

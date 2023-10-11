@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.literal;
 
+import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
@@ -131,6 +132,11 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
     }
 
     @Override
+    protected String getExpressionName() {
+        return "literal";
+    }
+
+    @Override
     public boolean nullable() throws UnboundException {
         return this instanceof NullLiteral;
     }
@@ -234,6 +240,8 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
             return new DateV2Literal(desc);
         } else if (targetType.isDateTimeV2Type()) {
             return new DateTimeV2Literal((DateTimeV2Type) targetType, desc);
+        } else if (targetType.isJsonType()) {
+            return new JsonLiteral(desc);
         }
         throw new AnalysisException("cannot cast " + desc + " from type " + this.dataType + " to type " + targetType);
     }
@@ -245,14 +253,16 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
             return new MaxLiteral(dataType);
         }
         String stringValue = literalExpr.getStringValue();
-        if (dataType.isTinyIntType()) {
-            return new TinyIntLiteral(Byte.valueOf(stringValue).byteValue());
+        if (dataType.isBooleanType()) {
+            return ((BoolLiteral) literalExpr).getValue() ? BooleanLiteral.TRUE : BooleanLiteral.FALSE;
+        } else if (dataType.isTinyIntType()) {
+            return new TinyIntLiteral(Byte.parseByte(stringValue));
         } else if (dataType.isSmallIntType()) {
-            return new SmallIntLiteral(Short.valueOf(stringValue).shortValue());
+            return new SmallIntLiteral(Short.parseShort(stringValue));
         } else if (dataType.isIntegerType()) {
-            return new IntegerLiteral(Integer.valueOf(stringValue).intValue());
+            return new IntegerLiteral(Integer.parseInt(stringValue));
         } else if (dataType.isBigIntType()) {
-            return new BigIntLiteral(Long.valueOf(stringValue).longValue());
+            return new BigIntLiteral(Long.parseLong(stringValue));
         } else if (dataType.isLargeIntType()) {
             return new LargeIntLiteral(new BigInteger(stringValue));
         } else if (dataType.isStringType()) {
@@ -262,9 +272,9 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
         } else if (dataType.isVarcharType()) {
             return new VarcharLiteral(stringValue, ((VarcharType) dataType).getLen());
         } else if (dataType.isFloatType()) {
-            return new FloatLiteral(Float.valueOf(stringValue));
+            return new FloatLiteral(Float.parseFloat(stringValue));
         } else if (dataType.isDoubleType()) {
-            return new DoubleLiteral(Double.valueOf(stringValue));
+            return new DoubleLiteral(Double.parseDouble(stringValue));
         } else if (dataType.isDecimalV2Type()) {
             return new DecimalLiteral((DecimalV2Type) dataType, new BigDecimal(stringValue));
         } else if (dataType.isDecimalV3Type()) {
@@ -277,6 +287,8 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
             return new DateTimeLiteral(stringValue);
         } else if (dataType.isDateTimeV2Type()) {
             return new DateTimeV2Literal(stringValue);
+        } else if (dataType.isJsonType()) {
+            return new JsonLiteral(stringValue);
         } else {
             throw new AnalysisException("Unsupported convert the " + literalExpr.getType()
                     + " of legacy literal to nereids literal");

@@ -47,7 +47,7 @@ class TIcebergDeleteFileDesc;
 class TupleDescriptor;
 
 namespace io {
-class IOContext;
+struct IOContext;
 } // namespace io
 struct TypeDescriptor;
 

@@ -126,6 +126,7 @@ struct TResultFileSinkOptions {
     15: optional string orc_schema
 
     16: optional bool delete_existing_files;
+    17: optional string file_suffix;
 }
 
 struct TMemoryScratchSink {
@@ -252,6 +253,8 @@ struct TOlapTableSink {
     16: optional bool load_to_single_tablet
     17: optional bool write_single_replica
     18: optional Descriptors.TOlapTableLocationParam slave_location
+    19: optional i64 txn_timeout_s // timeout of load txn in second
+    20: optional bool write_file_cache
 }
 
 struct TDataSink {

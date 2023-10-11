@@ -346,10 +346,10 @@ BOOTSTRAP_TABLE_CSS_FILE="bootstrap-table.min.css"
 BOOTSTRAP_TABLE_CSS_MD5SUM="23389d4456da412e36bae30c469a766a"
 
 # aws sdk
-AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/refs/tags/1.9.272.tar.gz"
-AWS_SDK_NAME="aws-sdk-cpp-1.9.272.tar.gz"
-AWS_SDK_SOURCE="aws-sdk-cpp-1.9.272"
-AWS_SDK_MD5SUM="3a9190e3d14b81bfdd9c41a89a419202"
+AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/refs/tags/1.11.119.tar.gz"
+AWS_SDK_NAME="aws-sdk-cpp-1.11.119.tar.gz"
+AWS_SDK_SOURCE="aws-sdk-cpp-1.11.119"
+AWS_SDK_MD5SUM="3cd8bd51d39dc207a243a2074d11f439"
 
 # tsan_header
 TSAN_HEADER_DOWNLOAD="https://gcc.gnu.org/git/?p=gcc.git;a=blob_plain;f=libsanitizer/include/sanitizer/tsan_interface_atomic.h;hb=refs/heads/releases/gcc-7"
@@ -478,6 +478,12 @@ HADOOP_LIBS_NAME="hadoop-3.3.4.5-for-doris.tar.gz"
 HADOOP_LIBS_SOURCE="doris-thirdparty-hadoop-3.3.4.5-for-doris"
 HADOOP_LIBS_MD5SUM="15b7be1747b27c37923b0cb9db6cff8c"
 
+# libdragonbox for faster double/float to string
+DRAGONBOX_DOWNLOAD="https://github.com/jk-jeon/dragonbox/archive/refs/tags/1.1.3.tar.gz"
+DRAGONBOX_NAME=dragonbox-1.1.3.tar.gz
+DRAGONBOX_SOURCE=dragonbox-1.1.3
+DRAGONBOX_MD5SUM="889dc00db9612c6949a4ccf8115e0e6a"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
     'LIBEVENT'
@@ -548,6 +554,7 @@ export TP_ARCHIVES=(
     'CONCURRENTQUEUE'
     'FAST_FLOAT'
     'HADOOP_LIBS'
+    'DRAGONBOX'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

@@ -64,6 +64,15 @@ VMetaScanner::VMetaScanner(RuntimeState* state, VMetaScanNode* parent, int64_t t
           _user_identity(user_identity),
           _scan_range(scan_range.scan_range) {}
 
+VMetaScanner::VMetaScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state,
+                           int64_t tuple_id, const TScanRangeParams& scan_range, int64_t limit,
+                           RuntimeProfile* profile, TUserIdentity user_identity)
+        : VScanner(state, local_state, limit, profile),
+          _meta_eos(false),
+          _tuple_id(tuple_id),
+          _user_identity(user_identity),
+          _scan_range(scan_range.scan_range) {}
+
 Status VMetaScanner::open(RuntimeState* state) {
     VLOG_CRITICAL << "VMetaScanner::open";
     RETURN_IF_ERROR(VScanner::open(state));
@@ -103,7 +112,7 @@ Status VMetaScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
             }
         }
         // fill block
-        _fill_block_with_remote_data(columns);
+        static_cast<void>(_fill_block_with_remote_data(columns));
         if (_meta_eos == true) {
             if (block->rows() == 0) {
                 *eof = true;

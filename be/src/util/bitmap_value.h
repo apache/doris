@@ -88,7 +88,7 @@ struct BitmapTypeCode {
                     fmt::format("BitmapTypeCode invalid, should between: {} and {} actrual is {}",
                                 BitmapTypeCode::EMPTY, BitmapTypeCode::BITMAP64, bitmap_type);
             LOG(ERROR) << err_msg;
-            return Status::IOError(err_msg);
+            return Status::Corruption(err_msg);
         }
         return Status::OK();
     }
@@ -1259,10 +1259,10 @@ public:
     }
 
     static std::string empty_bitmap() {
-        static BitmapValue btmap;
+        static BitmapValue bitmap;
         std::string buf;
-        buf.resize(btmap.getSizeInBytes());
-        btmap.write_to((char*)buf.c_str());
+        buf.resize(bitmap.getSizeInBytes());
+        bitmap.write_to(buf.data());
         return buf;
     }
 

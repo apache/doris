@@ -131,21 +131,20 @@ run_sql "show variables;"
 echo '============================================'
 run_sql "show table status;"
 echo '============================================'
-start=$(date +%s)
-run_sql "analyze database ${DB} with sync;"
-end=$(date +%s)
-totalTime=$((end - start))
-echo "analyze database ${DB} with sync total time: ${totalTime} s"
-echo '============================================'
-echo "Time Unit: ms"
 
 RESULT_DIR="${CURDIR}/result"
-rm "${RESULT_DIR}"
+if [[ -d "${RESULT_DIR}" ]]; then
+    rm -r "${RESULT_DIR}"
+fi
 mkdir -p "${RESULT_DIR}"
 touch result.csv
 cold_run_sum=0
 best_hot_run_sum=0
-for i in {1..22}; do
+# run part of queries, set their index to query_array
+# query_array=(59 17 29 25 47 40 54)
+query_array=$(seq 1 22)
+# shellcheck disable=SC2068
+for i in ${query_array[@]}; do
     cold=0
     hot1=0
     hot2=0

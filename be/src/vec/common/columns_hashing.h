@@ -48,11 +48,13 @@ struct HashMethodOneNumber : public columns_hashing_impl::HashMethodBase<
     using Base = columns_hashing_impl::HashMethodBase<Self, Value, Mapped, use_cache>;
 
     const char* vec;
+    size_t size;
 
     /// If the keys of a fixed length then key_sizes contains their lengths, empty otherwise.
     HashMethodOneNumber(const ColumnRawPtrs& key_columns, const Sizes& /*key_sizes*/,
                         const HashMethodContextPtr&) {
         vec = key_columns[0]->get_raw_data().data;
+        size = key_columns[0]->size();
     }
 
     HashMethodOneNumber(const IColumn* column) { vec = column->get_raw_data().data; }
@@ -69,16 +71,11 @@ struct HashMethodOneNumber : public columns_hashing_impl::HashMethodBase<
     using Base::find_key; /// (Data & data, size_t row, Arena & pool) -> FindResult
     using Base::find_key_with_hash;
 
-    /// Get hash value of row.
-    using Base::get_hash; /// (const Data & data, size_t row, Arena & pool) -> size_t
-
     /// Is used for default implementation in HashMethodBase.
     FieldType get_key_holder(size_t row, Arena&) const { return ((FieldType*)(vec))[row]; }
     FieldType pack_key_holder(FieldType key, Arena&) const { return key; }
 
-    std::span<FieldType> get_keys(size_t rows_number) const {
-        return std::span<FieldType>((FieldType*)vec, rows_number);
-    }
+    std::span<FieldType> get_keys() const { return std::span<FieldType>((FieldType*)vec, size); }
 };
 
 /// For the case when there is one string key.
@@ -91,6 +88,7 @@ struct HashMethodString : public columns_hashing_impl::HashMethodBase<
 
     const IColumn::Offset* offsets;
     const UInt8* chars;
+    std::vector<StringRef> keys;
 
     HashMethodString(const ColumnRawPtrs& key_columns, const Sizes& /*key_sizes*/,
                      const HashMethodContextPtr&) {
@@ -98,17 +96,22 @@ struct HashMethodString : public columns_hashing_impl::HashMethodBase<
         const ColumnString& column_string = assert_cast<const ColumnString&>(column);
         offsets = column_string.get_offsets().data();
         chars = column_string.get_chars().data();
+
+        keys.resize(column_string.size());
+        for (size_t row = 0; row < column_string.size(); row++) {
+            keys[row] = StringRef(chars + offsets[row - 1], offsets[row] - offsets[row - 1]);
+        }
     }
 
     auto get_key_holder(ssize_t row, [[maybe_unused]] Arena& pool) const {
-        StringRef key(chars + offsets[row - 1], offsets[row] - offsets[row - 1]);
-
         if constexpr (place_string_to_arena) {
-            return ArenaKeyHolder {key, pool};
+            return ArenaKeyHolder {keys[row], pool};
         } else {
-            return key;
+            return keys[row];
         }
     }
+
+    const std::vector<StringRef>& get_keys() const { return keys; }
 
 protected:
     friend class columns_hashing_impl::HashMethodBase<Self, Value, Mapped, use_cache>;
@@ -151,8 +154,8 @@ struct HashMethodSerialized
         return KeyHolderType {key, pool};
     }
 
-    std::span<StringRef> get_keys(size_t rows_number) const {
-        return std::span<StringRef>(keys, rows_number);
+    std::span<StringRef> get_keys() const {
+        return std::span<StringRef>(keys, key_columns[0]->size());
     }
 
 protected:
@@ -202,22 +205,20 @@ struct HashMethodKeysFixed
 
     const Sizes& key_sizes;
     size_t keys_size;
+    std::vector<Key> keys;
 
     HashMethodKeysFixed(const ColumnRawPtrs& key_columns, const Sizes& key_sizes_,
                         const HashMethodContextPtr&)
-            : Base(key_columns), key_sizes(key_sizes_), keys_size(key_columns.size()) {}
-
-    ALWAYS_INLINE Key get_key_holder(size_t row, Arena&) const {
-        return pack_fixed<Key>(row, keys_size, Base::get_actual_columns(), key_sizes,
-                               Base::get_nullmap_columns());
+            : Base(key_columns), key_sizes(key_sizes_), keys_size(key_columns.size()) {
+        keys = pack_fixeds<Key>(key_columns[0]->size(), Base::get_actual_columns(), key_sizes,
+                                Base::get_nullmap_columns());
     }
+
+    ALWAYS_INLINE Key get_key_holder(size_t row, Arena&) const { return keys[row]; }
 
     Key pack_key_holder(Key key, Arena& pool) const { return key; }
 
-    std::vector<Key> get_keys(size_t rows_number) const {
-        return pack_fixeds<Key>(rows_number, Base::get_actual_columns(), key_sizes,
-                                Base::get_nullmap_columns());
-    }
+    const std::vector<Key>& get_keys() const { return keys; }
 };
 
 template <typename SingleColumnMethod, typename Mapped, bool use_cache>
@@ -271,14 +272,38 @@ struct HashMethodSingleLowNullableColumn : public SingleColumnMethod {
                 new (&mapped) Mapped();
             }
             return EmplaceResult(mapped, mapped, inserted);
-        } else
+        } else {
             return EmplaceResult(inserted);
+        }
     }
 
-    template <typename Data>
-    ALWAYS_INLINE EmplaceResult emplace_key(Data& data, size_t hash_value, size_t row,
-                                            Arena& pool) {
-        return emplace_with_key(data, Base::get_key_holder(row, pool), hash_value, row, pool);
+    template <typename Data, typename KeyHolder>
+    ALWAYS_INLINE EmplaceResult emplace_with_key(Data& data, KeyHolder&& key, size_t row) {
+        if (key_column->is_null_at(row)) {
+            bool has_null_key = data.has_null_key_data();
+            data.has_null_key_data() = true;
+
+            if constexpr (has_mapped) {
+                return EmplaceResult(data.get_null_key_data(), data.get_null_key_data(),
+                                     !has_null_key);
+            } else {
+                return EmplaceResult(!has_null_key);
+            }
+        }
+
+        bool inserted = false;
+        typename Data::LookupResult it;
+        data.emplace(key, it, inserted);
+
+        if constexpr (has_mapped) {
+            auto& mapped = *lookup_result_get_mapped(it);
+            if (inserted) {
+                new (&mapped) Mapped();
+            }
+            return EmplaceResult(mapped, mapped, inserted);
+        } else {
+            return EmplaceResult(inserted);
+        }
     }
 
     template <typename Data, typename KeyHolder>

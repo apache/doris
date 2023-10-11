@@ -49,19 +49,25 @@ public:
 };
 
 class AggSourceOperatorX;
+
 class AggLocalState final : public PipelineXLocalState<AggDependency> {
 public:
+    using Base = PipelineXLocalState<AggDependency>;
     ENABLE_FACTORY_CREATOR(AggLocalState);
     AggLocalState(RuntimeState* state, OperatorXBase* parent);
+    ~AggLocalState() override = default;
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status close(RuntimeState* state) override;
 
     void make_nullable_output_key(vectorized::Block* block);
 
-private:
+protected:
     friend class AggSourceOperatorX;
     friend class StreamingAggSourceOperatorX;
+    friend class StreamingAggSinkOperatorX;
+    friend class DistinctStreamingAggSourceOperatorX;
+    friend class DistinctStreamingAggSinkOperatorX;
 
     void _close_without_key();
     void _close_with_serialized_key();
@@ -109,12 +115,13 @@ private:
 
 class AggSourceOperatorX : public OperatorX<AggLocalState> {
 public:
+    using Base = OperatorX<AggLocalState>;
     AggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    virtual ~AggSourceOperatorX() = default;
-    virtual bool can_read(RuntimeState* state) override;
+    ~AggSourceOperatorX() = default;
+    Dependency* wait_for_dependency(RuntimeState* state) override;
 
-    virtual Status get_block(RuntimeState* state, vectorized::Block* block,
-                             SourceState& source_state) override;
+    Status get_block(RuntimeState* state, vectorized::Block* block,
+                     SourceState& source_state) override;
 
     bool is_source() const override { return true; }
 

@@ -28,6 +28,7 @@ import org.apache.doris.nereids.metrics.consumer.LogConsumer;
 import org.apache.doris.nereids.metrics.event.StatsStateEvent;
 import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
 
@@ -115,6 +116,17 @@ public class DeriveStatsJob extends Job {
                     .putAll(statsCalculator.getTotalColumnStatisticMap());
                 context.getCascadesContext().getConnectContext().getTotalHistogramMap()
                     .putAll(statsCalculator.getTotalHistogramMap());
+            }
+
+            if (groupExpression.getPlan() instanceof Project) {
+                // In the context of reorder join, when a new plan is generated, it may include a project operation.
+                // In this case, the newly generated join root and the original join root will no longer be in the
+                // same group. To avoid inconsistencies in the statistics between these two groups, we keep the
+                // child group's row count unchanged when the parent group expression is a project operation.
+                double parentRowCount = groupExpression.getOwnerGroup().getStatistics().getRowCount();
+                groupExpression.children().forEach(g -> g.setStatistics(
+                        g.getStatistics().withRowCountAndEnforceValid(parentRowCount))
+                );
             }
         }
     }

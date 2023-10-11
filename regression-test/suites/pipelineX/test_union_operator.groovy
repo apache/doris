@@ -76,12 +76,25 @@ suite("test_union_operator") {
             UNION 
             SELECT k3 FROM UNIONNODE
         ) AS merged_result;
-
-
     """
+
+    qt_pipeline """
+        SELECT count(*)
+        FROM (
+            SELECT k1 FROM UNIONNODE
+            UNION 
+            SELECT k2 FROM UNIONNODE
+            UNION 
+            SELECT k3 FROM UNIONNODE
+            UNION
+            SELECT 114
+            UNION
+            SELECT 514
+        ) AS merged_result;
+    """
+
     
     sql"""set experimental_enable_pipeline_x_engine=true,parallel_pipeline_task_num = 8;;    """
-
     qt_pipelineX """
         SELECT count(*)
         FROM (
@@ -101,5 +114,19 @@ suite("test_union_operator") {
         ) AS merged_result;
     """
 
+    qt_pipelineX """
+        SELECT count(*)
+        FROM (
+            SELECT k1 FROM UNIONNODE
+            UNION 
+            SELECT k2 FROM UNIONNODE
+            UNION 
+            SELECT k3 FROM UNIONNODE
+            UNION
+            SELECT 114
+            UNION
+            SELECT 514
+        ) AS merged_result;
+    """
 
 }

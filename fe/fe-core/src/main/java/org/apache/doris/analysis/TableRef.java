@@ -470,9 +470,16 @@ public class TableRef implements ParseNode, Writable {
     }
 
     protected void analyzeSample() throws AnalysisException {
-        if ((sampleTabletIds != null || tableSample != null) && desc.getTable().getType() != TableIf.TableType.OLAP) {
+        if ((sampleTabletIds != null || tableSample != null)
+                && desc.getTable().getType() != TableIf.TableType.OLAP
+                && desc.getTable().getType() != TableIf.TableType.HMS_EXTERNAL_TABLE) {
             throw new AnalysisException("Sample table " + desc.getTable().getName()
-                + " type " + desc.getTable().getType() + " is not OLAP");
+                + " type " + desc.getTable().getType() + " is not supported");
+        }
+        if (tableSample != null && TableIf.TableType.HMS_EXTERNAL_TABLE.equals(desc.getTable().getType())) {
+            if (!tableSample.isPercent()) {
+                throw new AnalysisException("HMS table doesn't support sample rows, use percent instead.");
+            }
         }
     }
 

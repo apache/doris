@@ -128,7 +128,10 @@ public class Lambda extends Expression {
     @Override
     public String toSql() {
         StringBuilder builder = new StringBuilder();
-        String argStr = argumentNames.stream().collect(Collectors.joining(", ", "(", ")"));
+        String argStr = argumentNames.get(0);
+        if (argumentNames.size() > 1) {
+            argStr = argumentNames.stream().collect(Collectors.joining(", ", "(", ")"));
+        }
         builder.append(String.format("%s -> %s", argStr, getLambdaFunction().toString()));
         for (int i = 1; i < getArguments().size(); i++) {
             builder.append(", ").append(getArgument(i).toSql());
@@ -139,7 +142,10 @@ public class Lambda extends Expression {
     @Override
     public String toString() {
         StringBuilder builder = new StringBuilder();
-        String argStr = argumentNames.stream().collect(Collectors.joining(", ", "(", ")"));
+        String argStr = argumentNames.get(0);
+        if (argumentNames.size() > 1) {
+            argStr = argumentNames.stream().collect(Collectors.joining(", ", "(", ")"));
+        }
         builder.append(String.format("%s -> %s", argStr, getLambdaFunction().toString()));
         for (int i = 1; i < getArguments().size(); i++) {
             builder.append(", ").append(getArgument(i).toString());

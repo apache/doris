@@ -114,6 +114,7 @@ be_rpc_port = 9070
 webserver_port = 8040
 heartbeat_service_port = 9050
 brpc_port = 8060
+arrow_flight_sql_port = -1
 
 # Note that there should at most one ip match this list.
 # If no ip match this rule, will choose one randomly.

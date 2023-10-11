@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
@@ -44,6 +45,7 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
@@ -68,6 +70,10 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     public RequestPropertyDeriver(JobContext context) {
         this.requestPropertyFromParent = context.getRequiredProperties();
+    }
+
+    public RequestPropertyDeriver(PhysicalProperties requestPropertyFromParent) {
+        this.requestPropertyFromParent = requestPropertyFromParent;
     }
 
     /**
@@ -159,8 +165,14 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         if (JoinUtils.couldShuffle(hashJoin)) {
             addShuffleJoinRequestProperty(hashJoin);
         }
+
         // for broadcast join
-        if (JoinUtils.couldBroadcast(hashJoin)) {
+        double memLimit = ConnectContext.get().getSessionVariable().getMaxExecMemByte();
+        double rowsLimit = ConnectContext.get().getSessionVariable().getBroadcastRowCountLimit();
+        double brMemlimit = ConnectContext.get().getSessionVariable().getBroadcastHashtableMemLimitPercentage();
+        double datasize = hashJoin.getGroupExpression().get().child(1).getStatistics().computeSize();
+        double rowCount = hashJoin.getGroupExpression().get().child(1).getStatistics().getRowCount();
+        if (JoinUtils.couldBroadcast(hashJoin) && rowCount <= rowsLimit && datasize <= memLimit * brMemlimit) {
             addBroadcastJoinRequestProperty();
         }
         return null;
@@ -246,6 +258,21 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
             addRequestPropertyToChildren(PhysicalProperties.GATHER);
         } else {
             addRequestPropertyToChildren(PhysicalProperties.ANY);
+        }
+        return null;
+    }
+
+    @Override
+    public Void visitPhysicalPartitionTopN(PhysicalPartitionTopN<? extends Plan> partitionTopN, PlanContext context) {
+        if (partitionTopN.getPhase().isTwoPhaseLocal()) {
+            addRequestPropertyToChildren(PhysicalProperties.ANY);
+        } else {
+            Preconditions.checkState(partitionTopN.getPhase().isTwoPhaseGlobal()
+                            || partitionTopN.getPhase().isOnePhaseGlobal(),
+                    "partition topn phase is not two phase global or one phase global");
+            PhysicalProperties properties = PhysicalProperties.createHash(partitionTopN.getPartitionKeys(),
+                    ShuffleType.REQUIRE);
+            addRequestPropertyToChildren(properties);
         }
         return null;
     }

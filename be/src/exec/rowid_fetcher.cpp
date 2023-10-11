@@ -44,8 +44,9 @@
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
 #include "runtime/descriptors.h"
-#include "runtime/exec_env.h"       // ExecEnv
-#include "runtime/runtime_state.h"  // RuntimeState
+#include "runtime/exec_env.h"      // ExecEnv
+#include "runtime/runtime_state.h" // RuntimeState
+#include "runtime/types.h"
 #include "util/brpc_client_cache.h" // BrpcClientCache
 #include "util/defer_op.h"
 #include "vec/columns/column.h"
@@ -233,17 +234,17 @@ Status RowIDFetcher::fetch(const vectorized::ColumnPtr& column_row_ids,
     // shrink for char type
     std::vector<size_t> char_type_idx;
     for (size_t i = 0; i < _fetch_option.desc->slots().size(); i++) {
-        auto column_desc = _fetch_option.desc->slots()[i];
-        auto type_desc = column_desc->type();
+        const auto& column_desc = _fetch_option.desc->slots()[i];
+        const TypeDescriptor* type_desc = &column_desc->type();
         do {
-            if (type_desc.type == TYPE_CHAR) {
+            if (type_desc->type == TYPE_CHAR) {
                 char_type_idx.emplace_back(i);
                 break;
-            } else if (type_desc.type != TYPE_ARRAY) {
+            } else if (type_desc->type != TYPE_ARRAY) {
                 break;
             }
             // for Array<Char> or Array<Array<Char>>
-            type_desc = type_desc.children[0];
+            type_desc = &type_desc->children[0];
         } while (true);
     }
     res_block->shrink_char_type_column_suffix_zero(char_type_idx);

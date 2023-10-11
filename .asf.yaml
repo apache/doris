@@ -48,8 +48,6 @@ github:
         # if strict is true, means "Require branches to be up to date before merging".
         strict: false
         contexts:
-          - License Check
-          - Clang Formatter
           - CheckStyle
           - P0 Regression (Doris Regression)
           - P1 Regression (Doris Regression)
@@ -88,6 +86,7 @@ github:
     - nanfeng1999
     - gitccl
     - shuke987
+    - wm1581066
 
 notifications:
     pullrequests_status:  commits@doris.apache.org

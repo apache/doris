@@ -134,7 +134,7 @@ Status TabletsChannel::incremental_open(const PTabletWriterOpenRequest& params) 
         }
     }
     if (index_slots == nullptr) {
-        Status::InternalError("unknown index id, key={}", _key.to_string());
+        return Status::InternalError("unknown index id, key={}", _key.to_string());
     }
     // update tablets
     std::vector<int64_t> tablet_ids;
@@ -257,7 +257,7 @@ Status TabletsChannel::close(
 
         // 2. wait all writer finished flush.
         for (auto writer : need_wait_writers) {
-            writer->wait_flush();
+            static_cast<void>(writer->wait_flush());
         }
 
         // 3. build rowset
@@ -399,7 +399,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
         }
     }
     if (index_slots == nullptr) {
-        Status::InternalError("unknown index id, key={}", _key.to_string());
+        return Status::InternalError("unknown index id, key={}", _key.to_string());
     }
 
 #ifdef DEBUG
@@ -420,17 +420,19 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
             continue;
         }
         tablet_cnt++;
-        WriteRequest wrequest;
-        wrequest.index_id = request.index_id();
-        wrequest.tablet_id = tablet.tablet_id();
-        wrequest.schema_hash = schema_hash;
-        wrequest.txn_id = _txn_id;
-        wrequest.partition_id = tablet.partition_id();
-        wrequest.load_id = request.id();
-        wrequest.tuple_desc = _tuple_desc;
-        wrequest.slots = index_slots;
-        wrequest.is_high_priority = _is_high_priority;
-        wrequest.table_schema_param = _schema;
+        WriteRequest wrequest {
+                .tablet_id = tablet.tablet_id(),
+                .schema_hash = schema_hash,
+                .txn_id = _txn_id,
+                .index_id = request.index_id(),
+                .partition_id = tablet.partition_id(),
+                .load_id = request.id(),
+                .tuple_desc = _tuple_desc,
+                .slots = index_slots,
+                .table_schema_param = _schema,
+                .is_high_priority = _is_high_priority,
+                .write_file_cache = request.write_file_cache(),
+        };
 
         DeltaWriter* writer = nullptr;
         auto st = DeltaWriter::open(&wrequest, &writer, _profile, _load_id);
@@ -458,7 +460,7 @@ Status TabletsChannel::cancel() {
         return _close_status;
     }
     for (auto& it : _tablet_writers) {
-        it.second->cancel();
+        static_cast<void>(it.second->cancel());
     }
     _state = kFinished;
     if (_write_single_replica) {
@@ -537,7 +539,7 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
             PTabletError* error = tablet_errors->Add();
             error->set_tablet_id(tablet_id);
             error->set_msg(err_msg);
-            tablet_writer_it->second->cancel_with_status(st);
+            static_cast<void>(tablet_writer_it->second->cancel_with_status(st));
             _add_broken_tablet(tablet_id);
             // continue write to other tablet.
             // the error will return back to sender.

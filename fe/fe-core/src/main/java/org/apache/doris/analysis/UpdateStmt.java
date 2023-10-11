@@ -125,8 +125,8 @@ public class UpdateStmt extends DdlStmt {
                 cols,
                 new InsertSource(selectStmt),
                 null,
-                isPartialUpdate,
-                false);
+                isPartialUpdate, NativeInsertStmt.InsertType.UPDATE);
+        ((NativeInsertStmt) insertStmt).setIsFromDeleteOrUpdateStmt(true);
     }
 
     private void analyzeTargetTable(Analyzer analyzer) throws UserException {

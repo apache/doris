@@ -759,7 +759,6 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
     _compression_type = schema.compression_type();
     _schema_version = schema.schema_version();
     _is_partial_update = schema.is_partial_update();
-    _is_unique_key_ignore_mode = schema.is_unique_key_ignore_mode();
     for (auto& col_name : schema.partial_update_input_columns()) {
         _partial_update_input_columns.emplace(col_name);
     }
@@ -860,12 +859,12 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     }
 }
 
-void TabletSchema::merge_dropped_columns(TabletSchemaSPtr src_schema) {
+void TabletSchema::merge_dropped_columns(const TabletSchema& src_schema) {
     // If they are the same tablet schema object, then just return
-    if (this == src_schema.get()) {
+    if (this == &src_schema) {
         return;
     }
-    for (const auto& src_col : src_schema->columns()) {
+    for (const auto& src_col : src_schema.columns()) {
         if (_field_id_to_index.find(src_col.unique_id()) == _field_id_to_index.end()) {
             CHECK(!src_col.is_key()) << src_col.name() << " is key column, should not be dropped.";
             ColumnPB src_col_pb;
@@ -918,7 +917,6 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_compression_type(_compression_type);
     tablet_schema_pb->set_version_col_idx(_version_col_idx);
     tablet_schema_pb->set_is_partial_update(_is_partial_update);
-    tablet_schema_pb->set_is_unique_key_ignore_mode(_is_unique_key_ignore_mode);
     for (auto& col : _partial_update_input_columns) {
         *tablet_schema_pb->add_partial_update_input_columns() = col;
     }

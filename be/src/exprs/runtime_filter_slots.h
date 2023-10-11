@@ -47,7 +47,7 @@ public:
 
         auto ignore_local_filter = [state](int filter_id) {
             std::vector<IRuntimeFilter*> filters;
-            state->runtime_filter_mgr()->get_consume_filters(filter_id, filters);
+            static_cast<void>(state->runtime_filter_mgr()->get_consume_filters(filter_id, filters));
             if (filters.empty()) {
                 throw Exception(ErrorCode::INTERNAL_ERROR, "filters empty, filter_id={}",
                                 filter_id);
@@ -211,7 +211,7 @@ public:
     void finish_publish() {
         for (auto& pair : _runtime_filters) {
             for (auto filter : pair.second) {
-                filter->join_rpc();
+                static_cast<void>(filter->join_rpc());
             }
         }
     }
@@ -243,7 +243,7 @@ public:
                 if (ret == context->runtime_filters.end()) {
                     return Status::Aborted("invalid runtime filter id: {}", filter_id);
                 }
-                filter->copy_from_shared_context(ret->second);
+                static_cast<void>(filter->copy_from_shared_context(ret->second));
             }
         }
         return Status::OK();

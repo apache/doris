@@ -3,37 +3,36 @@
 PhysicalResultSink
 --PhysicalTopN
 ----PhysicalTopN
-------PhysicalProject
---------hashAgg[DISTINCT_GLOBAL]
-----------PhysicalDistribute
-------------hashAgg[DISTINCT_LOCAL]
---------------hashAgg[GLOBAL]
-----------------hashAgg[LOCAL]
-------------------PhysicalProject
---------------------hashJoin[RIGHT_SEMI_JOIN](ws1.ws_order_number = ws2.ws_order_number)( not (ws_warehouse_sk = ws_warehouse_sk))
+------hashAgg[DISTINCT_GLOBAL]
+--------PhysicalDistribute
+----------hashAgg[DISTINCT_LOCAL]
+------------hashAgg[GLOBAL]
+--------------hashAgg[LOCAL]
+----------------PhysicalProject
+------------------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((ws1.ws_order_number = ws2.ws_order_number))otherCondition=(( not (ws_warehouse_sk = ws_warehouse_sk)))
+--------------------PhysicalDistribute
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[web_sales]
+--------------------hashJoin[RIGHT_ANTI_JOIN] hashCondition=((ws1.ws_order_number = wr1.wr_order_number))otherCondition=()
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
---------------------------PhysicalOlapScan[web_sales]
-----------------------hashJoin[RIGHT_ANTI_JOIN](ws1.ws_order_number = wr1.wr_order_number)
-------------------------PhysicalDistribute
---------------------------PhysicalProject
-----------------------------PhysicalOlapScan[web_returns]
-------------------------PhysicalDistribute
---------------------------hashJoin[INNER_JOIN](ws1.ws_web_site_sk = web_site.web_site_sk)
-----------------------------hashJoin[INNER_JOIN](ws1.ws_ship_date_sk = date_dim.d_date_sk)
-------------------------------hashJoin[INNER_JOIN](ws1.ws_ship_addr_sk = customer_address.ca_address_sk)
---------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[web_sales]
---------------------------------PhysicalDistribute
-----------------------------------PhysicalProject
-------------------------------------filter((cast(ca_state as VARCHAR(*)) = 'OK'))
---------------------------------------PhysicalOlapScan[customer_address]
+--------------------------PhysicalOlapScan[web_returns]
+----------------------PhysicalDistribute
+------------------------hashJoin[INNER_JOIN] hashCondition=((ws1.ws_web_site_sk = web_site.web_site_sk))otherCondition=()
+--------------------------hashJoin[INNER_JOIN] hashCondition=((ws1.ws_ship_date_sk = date_dim.d_date_sk))otherCondition=()
+----------------------------hashJoin[INNER_JOIN] hashCondition=((ws1.ws_ship_addr_sk = customer_address.ca_address_sk))otherCondition=()
+------------------------------PhysicalProject
+--------------------------------PhysicalOlapScan[web_sales]
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
-----------------------------------filter((date_dim.d_date <= 2000-04-01)(date_dim.d_date >= 2000-02-01))
-------------------------------------PhysicalOlapScan[date_dim]
+----------------------------------filter((customer_address.ca_state = 'OK'))
+------------------------------------PhysicalOlapScan[customer_address]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
---------------------------------filter((cast(web_company_name as VARCHAR(*)) = 'pri'))
-----------------------------------PhysicalOlapScan[web_site]
+--------------------------------filter((date_dim.d_date <= '2000-04-01') and (date_dim.d_date >= '2000-02-01'))
+----------------------------------PhysicalOlapScan[date_dim]
+--------------------------PhysicalDistribute
+----------------------------PhysicalProject
+------------------------------filter((web_site.web_company_name = 'pri'))
+--------------------------------PhysicalOlapScan[web_site]
 
