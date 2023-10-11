@@ -23,7 +23,7 @@ PhysicalResultSink
 --------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk))otherCondition=()
 ----------------------------------------PhysicalOlapScan[store_sales]
 ----------------------------------------PhysicalDistribute
-------------------------------------------filter((date_dim.d_date <= 1998-09-27) and (date_dim.d_date >= 1998-08-28))
+------------------------------------------filter((date_dim.d_date <= '1998-09-27') and (date_dim.d_date >= '1998-08-28'))
 --------------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------------PhysicalDistribute
 ----------------------------------------filter((item.i_current_price > 50.00))
@@ -46,7 +46,7 @@ PhysicalResultSink
 --------------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk))otherCondition=()
 ----------------------------------------PhysicalOlapScan[catalog_sales]
 ----------------------------------------PhysicalDistribute
-------------------------------------------filter((date_dim.d_date <= 1998-09-27) and (date_dim.d_date >= 1998-08-28))
+------------------------------------------filter((date_dim.d_date <= '1998-09-27') and (date_dim.d_date >= '1998-08-28'))
 --------------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------------PhysicalDistribute
 ----------------------------------------filter((item.i_current_price > 50.00))
@@ -71,7 +71,7 @@ PhysicalResultSink
 ------------------------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk))otherCondition=()
 --------------------------------------------PhysicalOlapScan[web_sales]
 --------------------------------------------PhysicalDistribute
-----------------------------------------------filter((date_dim.d_date <= 1998-09-27) and (date_dim.d_date >= 1998-08-28))
+----------------------------------------------filter((date_dim.d_date <= '1998-09-27') and (date_dim.d_date >= '1998-08-28'))
 ------------------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------------------PhysicalDistribute
 --------------------------------------------filter((promotion.p_channel_tv = 'N'))
