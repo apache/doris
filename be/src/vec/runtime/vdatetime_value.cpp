@@ -3147,6 +3147,31 @@ bool DateV2Value<T>::unix_timestamp(int64_t* timestamp, const cctz::time_zone& c
 }
 
 template <typename T>
+bool DateV2Value<T>::unix_timestamp(double_t* timestamp, const std::string& timezone) const {
+    cctz::time_zone ctz;
+    if (!TimezoneUtils::find_cctz_time_zone(timezone, ctz)) {
+        return false;
+    }
+    return unix_timestamp(timestamp, ctz);
+}
+
+template <typename T>
+bool DateV2Value<T>::unix_timestamp(double_t* timestamp, const cctz::time_zone& ctz) const {
+    if constexpr (is_datetime) {
+        const auto tp =
+                cctz::convert(cctz::civil_second(date_v2_value_.year_, date_v2_value_.month_,
+                                                 date_v2_value_.day_, date_v2_value_.hour_,
+                                                 date_v2_value_.minute_, date_v2_value_.second_),
+                              ctz);
+        double_t res_microsec = date_v2_value_.microsecond_ / 1e6;
+        *timestamp = tp.time_since_epoch().count() + res_microsec;
+    } else {
+        LOG(FATAL) << "Function unix_timestamp with double_t timestamp only support datetimev2 value type.";
+    }
+    return true;
+}
+
+template <typename T>
 bool DateV2Value<T>::from_unixtime(int64_t timestamp, const std::string& timezone) {
     cctz::time_zone ctz;
     if (!TimezoneUtils::find_cctz_time_zone(timezone, ctz)) {

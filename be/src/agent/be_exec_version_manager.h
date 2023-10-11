@@ -60,6 +60,7 @@ private:
  *    e. add repeat_max_num in repeat function
  * 3: start from doris 2.1
  *    a. aggregation function do not serialize bitmap to string
+      b. unix_timestamp function support double_t timestamp for datetimev2
 */
 inline const int BeExecVersionManager::max_be_exec_version = 3;
 inline const int BeExecVersionManager::min_be_exec_version = 0;

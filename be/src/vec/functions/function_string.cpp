@@ -1001,10 +1001,6 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_alias(FunctionStringUTF8Length::name, "character_length");
     factory.register_alias(FunctionStringDigestOneArg<SM3Sum>::name, "sm3");
     factory.register_alias(FunctionStringDigestSHA1::name, "sha");
-
-    /// @TEMPORARY: for be_exec_version=2
-    factory.register_alternative_function<FunctionStringEltOld>();
-    factory.register_alternative_function<FunctionStringRepeat<true>>();
 }
 
 } // namespace doris::vectorized
