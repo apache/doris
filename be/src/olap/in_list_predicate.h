@@ -658,7 +658,8 @@ template <PrimitiveType Type, PredicateType PT, size_t N = 0>
 ColumnPredicate* _create_in_list_predicate(uint32_t column_id,
                                            const std::shared_ptr<HybridSetBase>& hybrid_set,
                                            size_t char_length = 0) {
-    using T = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
+    using T = std::conditional_t<Type == PrimitiveType::TYPE_DECIMALV2, DecimalV2Value,
+                                 typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType>;
     if constexpr (N >= 1 && N <= FIXED_CONTAINER_MAX_SIZE) {
         using Set = std::conditional_t<
                 std::is_same_v<T, StringRef>, StringSet<FixedContainer<std::string, N>>,
