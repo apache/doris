@@ -53,6 +53,8 @@ Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, vectorized::
             local_state._shared_state->blocks_buffer.front().swap(*output_block);
             local_state._shared_state->blocks_buffer.pop();
             //if buffer have no data, block reading and wait for signal again
+            RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_conjuncts, output_block,
+                                                                   output_block->columns()));
             if (local_state._shared_state->blocks_buffer.empty()) {
                 local_state._dependency->block_reading();
             }
@@ -61,7 +63,13 @@ Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, vectorized::
     }
 
     // is_ready_for_read: this is set by sink node using: local_state._dependency->set_ready_for_read()
+    // notice: must output block from _blocks_buffer firstly, and then get_sorted_block.
+    // as when the child is eos, then set _can_read = true, and _partition_sorts have push_back sorter.
+    // if we move the _blocks_buffer output at last(behind 286 line),
+    // it's maybe eos but not output all data: when _blocks_buffer.empty() and _can_read = false (this: _sort_idx && _partition_sorts.size() are 0)
     RETURN_IF_ERROR(get_sorted_block(state, output_block, local_state));
+    RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_conjuncts, output_block,
+                                                           output_block->columns()));
     {
         std::lock_guard<std::mutex> lock(local_state._shared_state->buffer_mutex);
         if (local_state._shared_state->blocks_buffer.empty() &&

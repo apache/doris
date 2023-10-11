@@ -92,11 +92,17 @@
 #include "vec/exprs/vexpr.h"
 #include "vec/sink/vtablet_block_convertor.h"
 #include "vec/sink/vtablet_finder.h"
+#include "bvar/bvar.h"
 
 namespace doris {
 class TExpr;
 
 namespace vectorized {
+
+bvar::Adder<int64_t> g_sink_write_bytes;
+bvar::PerSecond<bvar::Adder<int64_t>> g_sink_write_bytes_per_second("sink_throughput_byte", &g_sink_write_bytes, 60);
+bvar::Adder<int64_t> g_sink_write_rows;
+bvar::PerSecond<bvar::Adder<int64_t>> g_sink_write_rows_per_second("sink_throughput_row", &g_sink_write_rows, 60);
 
 Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPartition>& tablets) {
     SCOPED_CONSUME_MEM_TRACKER(_index_channel_tracker.get());
@@ -1683,10 +1689,10 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
     } else {
         // if there's projection of partition calc, we need to calc it first.
         auto [part_ctx, part_func] = _get_partition_function();
-        int result_idx;
+        int result_idx = -1;
         if (_vpartition->is_projection_partition()) {
             // calc the start value of missing partition ranges.
-            static_cast<void>(part_func->execute(part_ctx.get(), block.get(), &result_idx));
+            RETURN_IF_ERROR(part_func->execute(part_ctx.get(), block.get(), &result_idx));
             VLOG_DEBUG << "Partition-calculated block:" << block->dump_data();
             // change the column to compare to transformed.
             _vpartition->set_transformed_slots({(uint16_t)result_idx});
@@ -1822,6 +1828,9 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
     for (const auto& index_channel : _channels) {
         RETURN_IF_ERROR(index_channel->check_intolerable_failure());
     }
+
+    g_sink_write_bytes << bytes;
+    g_sink_write_rows << rows;
     return Status::OK();
 }
 

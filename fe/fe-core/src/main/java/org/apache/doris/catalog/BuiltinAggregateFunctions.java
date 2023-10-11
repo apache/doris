@@ -41,6 +41,9 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MaxBy;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MinBy;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctSum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
 import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapIntersectCount;
@@ -100,6 +103,9 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(MaxBy.class, "max_by"),
             agg(Min.class, "min"),
             agg(MinBy.class, "min_by"),
+            agg(MultiDistinctCount.class, "multi_distinct_count"),
+            agg(MultiDistinctGroupConcat.class, "multi_distinct_group_concat"),
+            agg(MultiDistinctSum.class, "multi_distinct_sum"),
             agg(Ndv.class, "approx_count_distinct", "ndv"),
             agg(OrthogonalBitmapIntersect.class, "orthogonal_bitmap_intersect"),
             agg(OrthogonalBitmapIntersectCount.class, "orthogonal_bitmap_intersect_count"),
