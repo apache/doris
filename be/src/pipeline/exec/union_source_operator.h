@@ -136,7 +136,7 @@ public:
         }
         return Status::OK();
     }
-    [[nodiscard]] int get_child_count() const { return _child_size; }
+    int get_child_count() const { return _child_size; }
 
 private:
     bool _has_data(RuntimeState* state) {

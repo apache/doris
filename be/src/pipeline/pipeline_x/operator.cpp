@@ -49,9 +49,6 @@
 #include "pipeline/exec/result_sink_operator.h"
 #include "pipeline/exec/schema_scan_operator.h"
 #include "pipeline/exec/select_operator.h"
-#include "pipeline/exec/set_probe_sink_operator.h"
-#include "pipeline/exec/set_sink_operator.h"
-#include "pipeline/exec/set_source_operator.h"
 #include "pipeline/exec/sort_sink_operator.h"
 #include "pipeline/exec/sort_source_operator.h"
 #include "pipeline/exec/streaming_aggregation_sink_operator.h"
@@ -467,44 +464,6 @@ Status PipelineXSinkLocalState<DependencyType>::close(RuntimeState* state, Statu
     return Status::OK();
 }
 
-template <>
-Status OperatorX<SetSourceLocalState<true>>::setup_local_states(
-        RuntimeState* state, std::vector<LocalStateInfo>& infos) {
-    std::shared_ptr<typename SetDependency::SharedState> ss = nullptr;
-    for (int i = 0; i < infos.size(); i++) {
-        auto& info = infos[i];
-        if (i == 0) {
-            auto local_state = SetSourceLocalState<true>::create_shared(state, this);
-            state->emplace_local_state(id(), local_state);
-            ss.reset(new typename SetDependency::SharedState());
-            ((SetDependency*)info.dependency)->set_shared_state(ss);
-            RETURN_IF_ERROR(local_state->init(state, info));
-        } else {
-            ((SetDependency*)info.dependency)->set_shared_state(ss);
-        }
-    }
-    return Status::OK();
-}
-
-template <>
-Status OperatorX<SetSourceLocalState<false>>::setup_local_states(
-        RuntimeState* state, std::vector<LocalStateInfo>& infos) {
-    std::shared_ptr<typename SetDependency::SharedState> ss = nullptr;
-    for (int i = 0; i < infos.size(); i++) {
-        auto& info = infos[i];
-        if (i == 0) {
-            auto local_state = SetSourceLocalState<false>::create_shared(state, this);
-            state->emplace_local_state(id(), local_state);
-            ss.reset(new typename SetDependency::SharedState());
-            ((SetDependency*)info.dependency)->set_shared_state(ss);
-            RETURN_IF_ERROR(local_state->init(state, info));
-        } else {
-            ((SetDependency*)info.dependency)->set_shared_state(ss);
-        }
-    }
-    return Status::OK();
-}
-
 template <typename LocalStateType>
 Status StreamingOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized::Block* block,
                                                      SourceState& source_state) {
@@ -620,10 +579,6 @@ DECLARE_OPERATOR_X(NestedLoopJoinBuildSinkLocalState)
 DECLARE_OPERATOR_X(UnionSinkLocalState)
 DECLARE_OPERATOR_X(MultiCastDataStreamSinkLocalState)
 DECLARE_OPERATOR_X(PartitionSortSinkLocalState)
-DECLARE_OPERATOR_X(SetProbeSinkLocalState<true>)
-DECLARE_OPERATOR_X(SetProbeSinkLocalState<false>)
-DECLARE_OPERATOR_X(SetSinkLocalState<true>)
-DECLARE_OPERATOR_X(SetSinkLocalState<false>)
 
 #undef DECLARE_OPERATOR_X
 
@@ -645,8 +600,6 @@ DECLARE_OPERATOR_X(EmptySetLocalState)
 DECLARE_OPERATOR_X(UnionSourceLocalState)
 DECLARE_OPERATOR_X(MultiCastDataStreamSourceLocalState)
 DECLARE_OPERATOR_X(PartitionSortSourceLocalState)
-DECLARE_OPERATOR_X(SetSourceLocalState<true>)
-DECLARE_OPERATOR_X(SetSourceLocalState<false>)
 DECLARE_OPERATOR_X(DataGenLocalState)
 DECLARE_OPERATOR_X(SchemaScanLocalState)
 DECLARE_OPERATOR_X(MetaScanLocalState)
@@ -669,8 +622,6 @@ template class PipelineXSinkLocalState<AggDependency>;
 template class PipelineXSinkLocalState<FakeDependency>;
 template class PipelineXSinkLocalState<UnionDependency>;
 template class PipelineXSinkLocalState<PartitionSortDependency>;
-template class PipelineXSinkLocalState<MultiCastDependency>;
-template class PipelineXSinkLocalState<SetDependency>;
 
 template class PipelineXLocalState<HashJoinDependency>;
 template class PipelineXLocalState<SortDependency>;
@@ -680,8 +631,8 @@ template class PipelineXLocalState<AggDependency>;
 template class PipelineXLocalState<FakeDependency>;
 template class PipelineXLocalState<UnionDependency>;
 template class PipelineXLocalState<MultiCastDependency>;
+template class PipelineXSinkLocalState<MultiCastDependency>;
 template class PipelineXLocalState<PartitionSortDependency>;
-template class PipelineXLocalState<SetDependency>;
 
 template class AsyncWriterSink<doris::vectorized::VFileResultWriter, ResultFileSinkOperatorX>;
 template class AsyncWriterSink<doris::vectorized::VJdbcTableWriter, JdbcTableSinkOperatorX>;

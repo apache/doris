@@ -75,7 +75,7 @@ public:
 
 private:
     friend class PartitionSortSourceOperatorX;
-    RuntimeProfile::Counter* _get_sorted_timer = nullptr;
+    RuntimeProfile::Counter* _get_sorted_timer;
     RuntimeProfile::Counter* _get_next_timer = nullptr;
 };
 

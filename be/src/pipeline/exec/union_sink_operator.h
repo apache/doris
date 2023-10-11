@@ -100,8 +100,7 @@ public:
                        const DescriptorTbl& descs);
     ~UnionSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {
-        return Status::InternalError("{} should not init with TDataSink",
-                                     DataSinkOperatorX<UnionSinkLocalState>::_name);
+        return Status::InternalError("{} should not init with TDataSink");
     }
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
