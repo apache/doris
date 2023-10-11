@@ -71,11 +71,51 @@ template class SetProbeSinkOperator<true>;
 template class SetProbeSinkOperator<false>;
 
 template <bool is_intersect>
+Status SetProbeSinkOperatorX<is_intersect>::init(const TPlanNode& tnode, RuntimeState* state) {
+    const std::vector<std::vector<TExpr>>* result_texpr_lists;
+
+    // Create result_expr_ctx_lists_ from thrift exprs.
+    if (tnode.node_type == TPlanNodeType::type::INTERSECT_NODE) {
+        result_texpr_lists = &(tnode.intersect_node.result_expr_lists);
+    } else if (tnode.node_type == TPlanNodeType::type::EXCEPT_NODE) {
+        result_texpr_lists = &(tnode.except_node.result_expr_lists);
+    } else {
+        return Status::NotSupported("Not Implemented, Check The Operation Node.");
+    }
+
+    const auto& texpr = (*result_texpr_lists)[_cur_child_id];
+    RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(texpr, _child_exprs));
+
+    return Status::OK();
+}
+
+template <bool is_intersect>
+Status SetProbeSinkOperatorX<is_intersect>::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<SetProbeSinkLocalState<is_intersect>>::prepare(state));
+    return vectorized::VExpr::prepare(_child_exprs, state, _child_x->row_desc());
+}
+
+template <bool is_intersect>
+Status SetProbeSinkOperatorX<is_intersect>::open(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<SetProbeSinkLocalState<is_intersect>>::open(state));
+    return vectorized::VExpr::open(_child_exprs, state);
+}
+
+template <bool is_intersect>
+WriteDependency* SetProbeSinkOperatorX<is_intersect>::wait_for_dependency(RuntimeState* state) {
+    CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
+    return ((SetSharedState*)local_state._dependency->shared_state())
+                           ->probe_finished_children_index[_cur_child_id - 1]
+                   ? nullptr
+                   : local_state._dependency;
+}
+
+template <bool is_intersect>
 Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Block* in_block,
                                                  SourceState source_state) {
     RETURN_IF_CANCELLED(state);
     CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
-    SCOPED_TIMER(local_state._probe_timer);
+    SCOPED_TIMER(local_state.profile()->total_time_counter());
 
     if (_cur_child_id > 1) {
         CHECK(local_state._shared_state->probe_finished_children_index[_cur_child_id - 1])
@@ -111,8 +151,6 @@ Status SetProbeSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSink
     RETURN_IF_ERROR(PipelineXSinkLocalState<SetDependency>::init(state, info));
     SCOPED_TIMER(profile()->total_time_counter());
     SCOPED_TIMER(_open_timer);
-    _probe_timer = ADD_TIMER(_profile, "ProbeTime");
-
     Parent& parent = _parent->cast<Parent>();
 
     _child_exprs.resize(parent._child_exprs.size());

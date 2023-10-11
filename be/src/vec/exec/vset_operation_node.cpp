@@ -512,6 +512,9 @@ Status VSetOperationNode<is_intersect>::extract_probe_column(Block& block, Colum
             }
 
         } else {
+            if (i == 0) {
+                LOG(WARNING) << "=========1 " << _build_not_ignore_null[i];
+            }
             if (_build_not_ignore_null[i]) {
                 auto column_ptr = make_nullable(block.get_by_position(result_col_id).column, false);
                 _probe_column_inserted_id.emplace_back(block.columns());
