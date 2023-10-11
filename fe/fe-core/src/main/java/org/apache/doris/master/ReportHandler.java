@@ -675,8 +675,9 @@ public class ReportHandler extends Daemon {
                             }
                             if (replica.getVersion() >= partition.getCommittedVersion()
                                     && replica.getLastFailedVersion() > partition.getCommittedVersion()) {
-                                LOG.info("sync replica {} of tablet {} in backend {} in db {}. replica last failed version"
-                                        + " change to -1 because last failed version > replica's committed version {}",
+                                LOG.info("sync replica {} of tablet {} in backend {} in db {}. replica last failed"
+                                        + " version change to -1 because last failed version > replica's committed"
+                                        + " version {}",
                                         replica, tabletId, backendId, dbId, partition.getCommittedVersion());
                                 replica.updateLastFailedVersion(-1L);
                                 needSync = true;

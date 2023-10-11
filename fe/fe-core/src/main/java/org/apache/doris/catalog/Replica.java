@@ -119,7 +119,7 @@ public class Replica implements Writable {
     // but backend may missing some versions due to disk failure or bugs.
     // FE should found these and mark the replica as missing versions.
     // If backend's report version < fe version, record the backend's report version as `regressiveVersion`,
-    // and if time exceed 5min, fe should mark this replica miss versions.
+    // and if time exceed 5min, fe should mark this replica as missing versions.
     private long regressiveVersion = -1;
     private long regressiveVersionTimestamp = 0;
 
