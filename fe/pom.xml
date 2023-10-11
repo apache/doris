@@ -305,7 +305,7 @@ under the License.
         <spring.version>2.7.13</spring.version>
         <orc.version>1.8.4</orc.version>
         <ojdbc8.version>12.2.0.1</ojdbc8.version>
-        <zookeeper.version>3.4.14</zookeeper.version>
+        <zookeeper.version>3.7.2</zookeeper.version>
         <velocity-engine-core.version>2.3</velocity-engine-core.version>
         <opentelemetry.version>1.26.0</opentelemetry.version>
         <ranger-plugins-common.version>2.4.0</ranger-plugins-common.version>
