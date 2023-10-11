@@ -60,6 +60,7 @@ CREATE DATABASE [IF NOT EXISTS] db_name
   - `iceberg.catalog.type`: The default is `HIVE_CATALOG`; currently only `HIVE_CATALOG` is supported, and more Iceberg catalog types will be supported in the future.
 
 - If you want to specify the default replica distribution for tables in db, you need to specify `replication_allocation` (the `replication_allocation` attribute of table will have higher priority than db)
+
   ```sql
   PROPERTIES (
     "replication_allocation" = "tag.location.default:3"

@@ -297,7 +297,7 @@ public class ResourceTagQueryTest {
         String createTableStr2 = "create table test_prop.tbl2\n"
                 + "(k1 date, k2 int)\n"
                 + "distributed by hash(k2) buckets 2;";
-        // table will inherit db prop
+        // table will inherit db prop, only have 2 default be, so `AnalysisException`
         ExceptionChecker.expectThrows(AnalysisException.class, () -> createTable(createTableStr2));
         //alter db change `replication_allocation`
         String alterDbStmtStr
@@ -349,7 +349,35 @@ public class ResourceTagQueryTest {
         String createTableStr4 = "create table test_prop.tbl4\n"
                 + "(k1 date, k2 int)\n"
                 + "distributed by hash(k2) buckets 2;";
+        // only have 2 default tag be, default need 3, so error
         ExceptionChecker.expectThrows(DdlException.class, () -> createTable(createTableStr4));
+
+        // now db not set `PROPERTIES`
+        // The priority of partition is higher than table
+        String createStr5 = "create table test_prop.tbl5\n"
+                + "(k1 date, k2 int)\n"
+                + "partition by range(k1)\n"
+                + "(\n"
+                + " partition p1 values less than(\"2021-06-01\") ('replication_allocation' = 'tag.location.zone1:1'),\n"
+                + " partition p2 values less than(\"2021-08-01\")\n"
+                + ")\n"
+                + "distributed by hash(k2) buckets 2 "
+                + "PROPERTIES('replication_allocation' = 'tag.location.default:1');";
+        ExceptionChecker.expectThrowsNoException(() -> createTable(createStr5));
+        OlapTable tbl5 = (OlapTable) propDb.getTableNullable("tbl5");
+        Map<Tag, Short> p1ExpectedAllocMap = Maps.newHashMap();
+        p1ExpectedAllocMap.put(tag1, (short) 1);
+        Map<Tag, Short> p2ExpectedAllocMap = Maps.newHashMap();
+        p2ExpectedAllocMap.put(Tag.DEFAULT_BACKEND_TAG, (short) 1);
+        for (Partition partition : tbl5.getPartitions()) {
+            ReplicaAllocation replicaAllocation = tbl5.getPartitionInfo().getReplicaAllocation(partition.getId());
+            Map<Tag, Short> allocMap = replicaAllocation.getAllocMap();
+            if (partition.getName().equals("p1")) {
+                Assert.assertEquals(p1ExpectedAllocMap, allocMap);
+            } else {
+                Assert.assertEquals(p2ExpectedAllocMap, allocMap);
+            }
+        }
     }
 
     private void checkTableReplicaAllocation(OlapTable tbl) throws InterruptedException {
