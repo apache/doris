@@ -18,9 +18,12 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
@@ -45,12 +48,20 @@ public class ArrayApply extends ScalarFunction
 
     public ArrayApply(Expression arg0, Expression arg1, Expression arg2) {
         super("array_apply", arg0, arg1, arg2);
+        if (!(arg1 instanceof StringLikeLiteral)) {
+            throw new AnalysisException(
+                    "array_apply(arr, op, val): op support const value only.");
+        }
+        if (!(arg2 instanceof Literal)) {
+            throw new AnalysisException(
+                    "array_apply(arr, op, val): val support const value only.");
+        }
     }
 
     @Override
     public ArrayApply withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3,
-                "array_apply accept 3 args, but got %d (%s)",
+                "array_apply accept 3 args, but got %s (%s)",
                 children.size(),
                 children);
         return new ArrayApply(children.get(0), children.get(1), children.get(2));

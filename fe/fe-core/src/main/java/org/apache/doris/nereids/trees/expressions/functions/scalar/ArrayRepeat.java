@@ -29,6 +29,7 @@ import org.apache.doris.nereids.types.coercion.AnyDataType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 
 import java.util.List;
 
@@ -39,8 +40,8 @@ public class ArrayRepeat extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNotNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(ArrayType.of(new AnyDataType(0))).args(new AnyDataType(0), BigIntType.INSTANCE)
-    );
+            FunctionSignature.ret(ArrayType.of(new FollowToAnyDataType(0)))
+                    .args(new AnyDataType(0), BigIntType.INSTANCE));
 
     public ArrayRepeat(Expression arg0, Expression arg1) {
         super("array_repeat", arg0, arg1);
@@ -49,7 +50,7 @@ public class ArrayRepeat extends ScalarFunction
     @Override
     public ArrayRepeat withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2,
-                "array_repeat accept 2 args, but got %d (%s)",
+                "array_repeat accept 2 args, but got %s (%s)",
                 children.size(),
                 children);
         return new ArrayRepeat(children.get(0), children.get(1));
