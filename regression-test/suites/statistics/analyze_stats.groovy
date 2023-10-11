@@ -20,6 +20,20 @@ suite("test_analyze") {
     String tbl = "analyzetestlimited_duplicate_all"
 
     sql """
+        DROP DATABASE IF EXISTS `${db}`
+    """
+
+    sql """
+        CREATE DATABASE `${db}`
+    """
+
+    // regression framework will auto create an default DB with name regression_test_$(case dir name) and use it to run case,
+    // if we do not use the default DB, here we should use the custom DB explicitly
+    sql """
+        USE `${db}`
+    """
+
+    sql """
         DROP TABLE IF EXISTS `${tbl}`
     """
 
@@ -907,7 +921,7 @@ PARTITION `p599` VALUES IN (599)
     expected_col_stats(inc_res, 6, 1)
 
     sql """
-        DROP TABLE regression_test_statistics.increment_analyze_test;
+        DROP TABLE increment_analyze_test;
     """
 
     sql """
