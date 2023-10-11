@@ -39,6 +39,12 @@ VDataStreamMgr::VDataStreamMgr() {
 
 VDataStreamMgr::~VDataStreamMgr() {
     // TODO: metric
+    auto receiver_iterator = _receiver_map.begin();
+    while (receiver_iterator != _receiver_map.end()) {
+        // Has to call close here, because receiver will check if the receiver is closed.
+        // It will core during graceful stop.
+        receiver_iterator->second->close();
+    }
 }
 
 inline uint32_t VDataStreamMgr::get_hash_value(const TUniqueId& fragment_instance_id,
