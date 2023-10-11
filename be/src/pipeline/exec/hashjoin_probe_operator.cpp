@@ -19,6 +19,7 @@
 
 #include <string>
 
+#include "common/logging.h"
 #include "pipeline/exec/operator.h"
 
 namespace doris {
@@ -184,9 +185,15 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
     local_state.init_for_probe(state);
     SCOPED_TIMER(local_state._probe_timer);
     if (local_state._shared_state->short_circuit_for_probe) {
-        /// If `_short_circuit_for_probe` is true, this indicates no rows
-        /// match the join condition, and this is 'mark join', so we need to create a column as mark
-        /// with all rows set to 0.
+        // If we use a short-circuit strategy, should return empty block directly.
+        source_state = SourceState::FINISHED;
+        return Status::OK();
+    }
+    if (local_state._shared_state->_has_null_in_build_side &&
+        _short_circuit_for_null_in_build_side) {
+        /// `_has_null_in_build_side` means have null value in build side.
+        /// `_short_circuit_for_null_in_build_side` means short circuit if has null in build side(e.g. null aware left anti join).
+        /// We need to create a column as mark with all rows set to NULL.
         if (_is_mark_join) {
             auto block_rows = local_state._probe_block.rows();
             if (block_rows == 0) {
@@ -203,9 +210,11 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
                     temp_block.insert(local_state._probe_block.get_by_position(i));
                 }
             }
-            auto mark_column = vectorized::ColumnUInt8::create(block_rows, 0);
-            temp_block.insert(
-                    {std::move(mark_column), std::make_shared<vectorized::DataTypeUInt8>(), ""});
+            auto mark_column = vectorized::ColumnNullable::create(
+                    vectorized::ColumnUInt8::create(block_rows, 0),
+                    vectorized::ColumnUInt8::create(block_rows, 1));
+            temp_block.insert({std::move(mark_column),
+                               make_nullable(std::make_shared<vectorized::DataTypeUInt8>()), ""});
 
             {
                 SCOPED_TIMER(local_state._join_filter_timer);
@@ -220,9 +229,6 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
             local_state.reached_limit(output_block, source_state);
             return Status::OK();
         }
-        // If we use a short-circuit strategy, should return empty block directly.
-        source_state = SourceState::FINISHED;
-        return Status::OK();
     }
     local_state._join_block.clear_column_data();
 
