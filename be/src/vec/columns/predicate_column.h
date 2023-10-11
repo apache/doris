@@ -191,6 +191,14 @@ public:
         data.push_back_without_reserve(sv);
     }
 
+    void insert_data(const char* data_ptr, size_t length) override {
+        if constexpr (std::is_same_v<T, StringRef>) {
+            insert_string_value(data_ptr, length);
+        } else {
+            LOG(FATAL) << "not implemented";
+        }
+    }
+
     void insert_many_date(const char* data_ptr, size_t num) {
         size_t intput_type_size = sizeof(uint24_t);
         size_t res_type_size = sizeof(uint32_t);
