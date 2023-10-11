@@ -1443,6 +1443,15 @@ void Tablet::get_compaction_status(std::string* json_result) {
     format_str = ToStringFromUnixMillis(_last_full_compaction_success_millis.load());
     full_success_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
     root.AddMember("last full success time", full_success_value, root.GetAllocator());
+    rapidjson::Value base_schedule_value;
+    format_str = ToStringFromUnixMillis(_last_base_compaction_schedule_millis.load());
+    base_schedule_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
+    root.AddMember("last base schedule time", base_schedule_value, root.GetAllocator());
+    rapidjson::Value base_compaction_status_value;
+    base_compaction_status_value.SetString(_last_base_compaction_status.c_str(),
+                                           _last_base_compaction_status.length(),
+                                           root.GetAllocator());
+    root.AddMember("last base status", base_compaction_status_value, root.GetAllocator());
 
     // print all rowsets' version as an array
     rapidjson::Document versions_arr;
@@ -1760,6 +1769,7 @@ Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compactio
         StorageEngine::instance()->create_base_compaction(tablet, _base_compaction);
         DorisMetrics::instance()->base_compaction_request_total->increment(1);
         Status res = _base_compaction->prepare_compact();
+        set_last_base_compaction_status(res.to_string());
         if (!res.ok()) {
             set_last_base_compaction_failure_time(UnixMillis());
             *permits = 0;

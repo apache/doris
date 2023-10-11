@@ -625,6 +625,9 @@ void StorageEngine::_compaction_tasks_producer_callback() {
             /// If it is not cleaned up, the reference count of the tablet will always be greater than 1,
             /// thus cannot be collected by the garbage collector. (TabletManager::start_trash_sweep)
             for (const auto& tablet : tablets_compaction) {
+                if (compaction_type == CompactionType::BASE_COMPACTION) {
+                    tablet->set_last_base_compaction_schedule_time(UnixMillis());
+                }
                 Status st = _submit_compaction_task(tablet, compaction_type, false);
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to submit compaction task for tablet: "
