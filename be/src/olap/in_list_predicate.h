@@ -313,6 +313,22 @@ public:
         _evaluate_bit<false>(column, sel, size, flags);
     }
 
+    template <PrimitiveType primitive_type, typename ResultType>
+    ResultType _get_zone_map_value2(void* data_ptr) const {
+        ResultType res;
+        // DecimalV2's storage value is different from predicate or compute value type
+        // need convert it to DecimalV2Value
+        if constexpr (primitive_type == PrimitiveType::TYPE_DECIMALV2) {
+            decimal12_t decimal_12_t_value;
+            memcpy((char*)(&decimal_12_t_value), data_ptr, sizeof(decimal12_t));
+            res->from_olap_decimal(decimal_12_t_value.integer, decimal_12_t_value.fraction);
+        } else {
+            // TODO add datev1 convert here
+            memcpy(&res, data_ptr, sizeof(ResultType));
+        }
+        return res;
+    }
+
     bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
         if (statistic.first->is_null()) {
             return true;
@@ -327,8 +343,8 @@ public:
                        sizeof(uint24_t));
                 return tmp_min_uint32_value <= _max_value && tmp_max_uint32_value >= _min_value;
             } else {
-                return _get_zone_map_value<Type, T>(statistic.first->cell_ptr()) <= _max_value &&
-                       _get_zone_map_value<Type, T>(statistic.second->cell_ptr()) >= _min_value;
+                return _get_zone_map_value2<Type, T>(statistic.first->cell_ptr()) <= _max_value &&
+                       _get_zone_map_value2<Type, T>(statistic.second->cell_ptr()) >= _min_value;
             }
         } else {
             return true;
@@ -360,8 +376,8 @@ public:
                        sizeof(uint24_t));
                 return tmp_min_uint32_value > _max_value || tmp_max_uint32_value < _min_value;
             } else {
-                return _get_zone_map_value<Type, T>(statistic.first->cell_ptr()) > _max_value ||
-                       _get_zone_map_value<Type, T>(statistic.second->cell_ptr()) < _min_value;
+                return _get_zone_map_value2<Type, T>(statistic.first->cell_ptr()) > _max_value ||
+                       _get_zone_map_value2<Type, T>(statistic.second->cell_ptr()) < _min_value;
             }
         } else {
             return false;
