@@ -46,7 +46,7 @@ private:
     PredicateColumnType(const PredicateColumnType& src) : data(src.data.begin(), src.data.end()) {}
     friend class COWHelper<IColumn, PredicateColumnType<Type>>;
     using T = std::conditional_t<Type == PrimitiveType::TYPE_DECIMALV2, DecimalV2Value,
-                                 PredicatePrimitiveTypeTraits<Type>::PredicateFieldType>;
+                                 typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType>;
     using ColumnType = typename PrimitiveTypeTraits<Type>::ColumnType;
 
     uint64_t get_date_at(uint16_t idx) {

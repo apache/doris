@@ -71,7 +71,7 @@ template <PrimitiveType Type, PredicateType PT, typename HybridSetType>
 class InListPredicateBase : public ColumnPredicate {
 public:
     using T = std::conditional_t<Type == PrimitiveType::TYPE_DECIMALV2, DecimalV2Value,
-                                 PredicatePrimitiveTypeTraits<Type>::PredicateFieldType>;
+                                 typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType>;
     template <typename ConditionType, typename ConvertFunc>
     InListPredicateBase(uint32_t column_id, const ConditionType& conditions,
                         const ConvertFunc& convert, bool is_opposite = false,
