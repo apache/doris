@@ -235,6 +235,9 @@ struct ProcessHashTableBuild {
                 }
                 if constexpr (ignore_null) {
                     if ((*null_map)[k]) {
+                        if (has_null_key) {
+                            *has_null_key = true;
+                        }
                         continue;
                     }
                 }
@@ -525,6 +528,7 @@ struct HashJoinProbeContext {
 
     // for cases when a probe row matches more than batch size build rows.
     bool* _is_any_probe_match_row_output;
+    bool _has_null_value_in_build_side {};
 };
 
 class HashJoinNode final : public VJoinNodeBase {
@@ -576,8 +580,8 @@ private:
 
     void _init_short_circuit_for_probe() override {
         _short_circuit_for_probe =
-                (_short_circuit_for_null_in_probe_side &&
-                 _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) ||
+                (_has_null_in_build_side && _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN &&
+                 !_is_mark_join) ||
                 (_build_blocks->empty() && _join_op == TJoinOp::INNER_JOIN && !_is_mark_join) ||
                 (_build_blocks->empty() && _join_op == TJoinOp::LEFT_SEMI_JOIN && !_is_mark_join) ||
                 (_build_blocks->empty() && _join_op == TJoinOp::RIGHT_OUTER_JOIN) ||
@@ -586,7 +590,7 @@ private:
 
         //when build table rows is 0 and not have other_join_conjunct and not _is_mark_join and join type is one of LEFT_OUTER_JOIN/FULL_OUTER_JOIN/LEFT_ANTI_JOIN
         //we could get the result is probe table + null-column(if need output)
-        _short_circuit_for_probe_and_additional_data =
+        _empty_right_table_need_probe_dispose =
                 (_build_blocks->empty() && !_have_other_join_conjunct && !_is_mark_join) &&
                 (_join_op == TJoinOp::LEFT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN ||
                  _join_op == TJoinOp::LEFT_ANTI_JOIN);

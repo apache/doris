@@ -525,8 +525,6 @@ public:
 
     void resize(size_t n) override;
 
-    void get_extremes(Field& min, Field& max) const override;
-
     bool can_be_inside_nullable() const override { return true; }
 
     bool is_column_string() const override { return true; }
@@ -586,8 +584,6 @@ public:
         }
         return shrinked_column;
     }
-
-    TypeIndex get_data_type() const override { return TypeIndex::String; }
 
     void get_indices_of_non_default_rows(Offsets64& indices, size_t from,
                                          size_t limit) const override {

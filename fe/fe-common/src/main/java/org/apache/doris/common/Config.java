@@ -665,18 +665,6 @@ public class Config extends ConfigBase {
             "单个 broker scanner 的最大并发数。", "Maximal concurrency of broker scanners."})
     public static int max_broker_concurrency = 10;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "导出作业的最大并发数。", "Limitation of the concurrency of running export jobs."})
-    public static int export_running_job_num_limit = 5;
-
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "导出作业的默认超时时间。", "Default timeout of export jobs."})
-    public static int export_task_default_timeout_second = 2 * 3600; // 2h
-
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "每个导出作业的需要处理的 tablet 数量。", "Number of tablets need to be handled per export job."})
-    public static int export_tablet_num_per_task = 5;
-
     // TODO(cmy): Disable by default because current checksum logic has some bugs.
     @ConfField(mutable = true, masterOnly = true, description = {
             "一致性检查的开始时间。与 `consistency_check_end_time` 配合使用，决定一致性检查的起止时间。"
@@ -1588,6 +1576,14 @@ public class Config extends ConfigBase {
     @ConfField
     public static int async_task_consumer_thread_num = 5;
 
+    /**
+     * When job is finished, it will be saved in job manager for a while.
+     * This configuration is used to control the max saved time.
+     * Default is 3 days.
+     */
+    @ConfField
+    public static int finish_job_max_saved_second = 60 * 60 * 24 * 3;
+
     // enable_workload_group should be immutable and temporarily set to mutable during the development test phase
     @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_workload_group = false;
@@ -2221,5 +2217,19 @@ public class Config extends ConfigBase {
             "The alive time of the user token in Arrow Flight Server, expire after write, unit minutes,"
             + "the default value is 4320, which is 3 days"})
     public static int arrow_flight_token_alive_time = 4320;
+
+    @ConfField(mutable = true, description = {
+            "Doris 为了兼用 mysql 周边工具生态，会内置一个名为 mysql 的数据库，如果该数据库与用户自建数据库冲突，"
+            + "请修改这个字段，为 doris 内置的 mysql database 更换一个名字",
+            "To ensure compatibility with the MySQL ecosystem, Doris includes a built-in database called mysql. "
+            + "If this database conflicts with a user's own database, please modify this field to replace "
+            + "the name of the Doris built-in MySQL database with a different name."})
+    public static String mysqldb_replace_name = "mysql";
+    @ConfField(description = {
+        "设置允许跨域访问的特定域名,默认允许任何域名跨域访问",
+        "Set the specific domain name that allows cross-domain access. "
+            + "By default, any domain name is allowed cross-domain access"
+    })
+    public static String access_control_allowed_origin_domain = "*";
 
 }

@@ -200,8 +200,6 @@ public:
         LOG(FATAL) << "not support";
     }
 
-    TypeIndex get_data_type() const override { LOG(FATAL) << "get_data_type not supported"; }
-
     ColumnPtr index(const IColumn& indexes, size_t limit) const override {
         LOG(FATAL) << "index not supported";
     }
@@ -242,10 +240,6 @@ public:
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
         this->template append_data_by_selector_impl<Self>(res, selector);
-    }
-
-    void get_extremes(Field& min, Field& max) const override {
-        LOG(FATAL) << "get_extremes not supported";
     }
 
     size_t byte_size() const override { return _data.size(); }

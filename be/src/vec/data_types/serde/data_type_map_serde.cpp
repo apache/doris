@@ -29,14 +29,15 @@ namespace doris {
 namespace vectorized {
 class Arena;
 
-void DataTypeMapSerDe::serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
-                                                BufferWritable& bw, FormatOptions& options) const {
-    SERIALIZE_COLUMN_TO_JSON()
+Status DataTypeMapSerDe::serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
+                                                  BufferWritable& bw, FormatOptions& options,
+                                                  int nesting_level) const {
+    SERIALIZE_COLUMN_TO_JSON();
 }
 
-void DataTypeMapSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
-                                                  BufferWritable& bw,
-                                                  FormatOptions& options) const {
+Status DataTypeMapSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+                                                    BufferWritable& bw, FormatOptions& options,
+                                                    int nesting_level) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -55,11 +56,14 @@ void DataTypeMapSerDe::serialize_one_cell_to_json(const IColumn& column, int row
             bw.write(&options.collection_delim, 1);
             bw.write(" ", 1);
         }
-        key_serde->serialize_one_cell_to_json(nested_keys_column, i, bw, options);
+        RETURN_IF_ERROR(key_serde->serialize_one_cell_to_json(nested_keys_column, i, bw, options,
+                                                              nesting_level + 1));
         bw.write(&options.map_key_delim, 1);
-        value_serde->serialize_one_cell_to_json(nested_values_column, i, bw, options);
+        RETURN_IF_ERROR(value_serde->serialize_one_cell_to_json(nested_values_column, i, bw,
+                                                                options, nesting_level + 1));
     }
     bw.write("}", 1);
+    return Status::OK();
 }
 
 Status DataTypeMapSerDe::deserialize_one_cell_from_hive_text(IColumn& column, Slice& slice,

@@ -652,6 +652,7 @@ RowsetSharedPtr Tablet::_rowset_with_largest_size() {
 Status Tablet::add_inc_rowset(const RowsetSharedPtr& rowset) {
     DCHECK(rowset != nullptr);
     std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
+    SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
     if (_contains_rowset(rowset->rowset_id())) {
         return Status::OK();
     }
@@ -1837,6 +1838,7 @@ std::vector<Version> Tablet::get_all_versions() {
     std::vector<Version> local_versions;
     {
         std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
+        SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
         for (const auto& it : _rs_version_map) {
             local_versions.emplace_back(it.first);
         }
@@ -2083,6 +2085,7 @@ Status Tablet::_cooldown_data() {
     if (old_rowset->num_segments() < 1) {
         // Empty rowset, just reset rowset's resource_id
         std::lock_guard meta_wlock(_meta_lock);
+        SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
         old_rowset->rowset_meta()->set_fs(dest_fs);
         LOG(INFO) << "cooldown empty rowset " << old_rowset->version() << " "
                   << old_rowset->rowset_id().to_string() << " to " << dest_fs->root_path().native()
@@ -2122,6 +2125,7 @@ Status Tablet::_cooldown_data() {
 
     {
         std::unique_lock meta_wlock(_meta_lock);
+        SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
         if (tablet_state() == TABLET_RUNNING) {
             delete_rowsets({std::move(old_rowset)}, false);
             add_rowsets({std::move(new_rowset)});
@@ -2641,6 +2645,7 @@ TabletSchemaSPtr Tablet::tablet_schema() const {
 
 void Tablet::update_max_version_schema(const TabletSchemaSPtr& tablet_schema) {
     std::lock_guard wrlock(_meta_lock);
+    SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
     // Double Check for concurrent update
     if (!_max_version_schema ||
         tablet_schema->schema_version() > _max_version_schema->schema_version()) {

@@ -73,6 +73,9 @@
 #include "pipeline/exec/scan_operator.h"
 #include "pipeline/exec/schema_scan_operator.h"
 #include "pipeline/exec/select_operator.h"
+#include "pipeline/exec/set_probe_sink_operator.h"
+#include "pipeline/exec/set_sink_operator.h"
+#include "pipeline/exec/set_source_operator.h"
 #include "pipeline/exec/sort_sink_operator.h"
 #include "pipeline/exec/sort_source_operator.h"
 #include "pipeline/exec/streaming_aggregation_sink_operator.h"
@@ -218,6 +221,7 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
 
     // 4. Initialize global states in pipelines.
     for (PipelinePtr& pipeline : _pipelines) {
+        //TODO: can we do this in set_sink?
         static_cast<void>(pipeline->sink_x()->set_child(pipeline->operator_xs().back()));
         RETURN_IF_ERROR(pipeline->prepare(_runtime_state.get()));
     }
@@ -297,14 +301,12 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
         DCHECK(thrift_sink.__isset.multi_cast_stream_sink);
         DCHECK_GT(thrift_sink.multi_cast_stream_sink.sinks.size(), 0);
         // TODO: figure out good buffer size based on size of output row
-        /// TODO: Here is a magic number, and we will refactor this part later.
-        static int sink_count = 120000;
-        auto sink_id = sink_count++;
+        auto sink_id = next_operator_id();
         auto sender_size = thrift_sink.multi_cast_stream_sink.sinks.size();
         // one sink has multiple sources.
         std::vector<int> sources;
         for (int i = 0; i < sender_size; ++i) {
-            auto source_id = sink_count++;
+            auto source_id = next_operator_id();
             sources.push_back(source_id);
         }
 
@@ -424,10 +426,11 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
             auto task = pipeline_id_to_task[_pipelines[pip_idx]->id()];
             DCHECK(task != nullptr);
 
+            // if this task has upstream dependency, then record them.
             if (_dag.find(_pipelines[pip_idx]->id()) != _dag.end()) {
                 auto& deps = _dag[_pipelines[pip_idx]->id()];
                 for (auto& dep : deps) {
-                    task->set_upstream_dependency(
+                    task->add_upstream_dependency(
                             pipeline_id_to_task[dep]->get_downstream_dependency());
                 }
             }
@@ -444,6 +447,7 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
     }
     _build_side_pipelines.clear();
     _union_child_pipelines.clear();
+    _set_child_pipelines.clear();
     _dag.clear();
 
     return Status::OK();
@@ -493,11 +497,13 @@ Status PipelineXFragmentContext::_create_tree_helper(ObjectPool* pool,
 
     // assert(parent != nullptr || (node_idx == 0 && root_expr != nullptr));
     if (parent != nullptr) {
+        // add to parent's child(s)
         RETURN_IF_ERROR(parent->set_child(op));
     } else {
         *root = op;
     }
 
+    // rely on that tnodes is preorder of the plan
     for (int i = 0; i < num_children; i++) {
         ++*node_idx;
         RETURN_IF_ERROR(_create_tree_helper(pool, tnodes, request, descs, op, node_idx, nullptr,
@@ -529,6 +535,10 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
     if (_union_child_pipelines.find(parent_idx) != _union_child_pipelines.end()) {
         cur_pipe = _union_child_pipelines[parent_idx][child_idx];
     }
+    if (_set_child_pipelines.find(parent_idx) != _set_child_pipelines.end()) {
+        cur_pipe = _set_child_pipelines[parent_idx][child_idx];
+    }
+
     std::stringstream error_msg;
     switch (tnode.node_type) {
     case TPlanNodeType::OLAP_SCAN_NODE: {
@@ -657,9 +667,10 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
             PipelinePtr build_side_pipe = add_pipeline();
             _dag[downstream_pipeline_id].push_back(build_side_pipe->id());
             DataSinkOperatorXPtr sink;
-            sink.reset(new UnionSinkOperatorX(i, father_id + 1000 * (i + 1), pool, tnode, descs));
+            sink.reset(new UnionSinkOperatorX(i, next_operator_id(), pool, tnode, descs));
             RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
             RETURN_IF_ERROR(build_side_pipe->sink_x()->init(tnode, _runtime_state.get()));
+            // preset children pipelines. if any pipeline found this as its father, will use the prepared pipeline to build.
             if (_union_child_pipelines.find(father_id) == _union_child_pipelines.end()) {
                 _union_child_pipelines.insert({father_id, {build_side_pipe}});
             } else {
@@ -720,6 +731,16 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
         break;
     }
+    case TPlanNodeType::INTERSECT_NODE: {
+        RETURN_IF_ERROR(_build_operators_for_set_operation_node<true>(
+                pool, tnode, descs, op, cur_pipe, parent_idx, child_idx));
+        break;
+    }
+    case TPlanNodeType::EXCEPT_NODE: {
+        RETURN_IF_ERROR(_build_operators_for_set_operation_node<false>(
+                pool, tnode, descs, op, cur_pipe, parent_idx, child_idx));
+        break;
+    }
     case TPlanNodeType::REPEAT_NODE: {
         op.reset(new RepeatOperatorX(pool, tnode, descs));
         RETURN_IF_ERROR(cur_pipe->add_operator(op));
@@ -763,6 +784,45 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
     default:
         return Status::InternalError("Unsupported exec type in pipelineX: {}",
                                      print_plan_node_type(tnode.node_type));
+    }
+
+    return Status::OK();
+}
+template <bool is_intersect>
+Status PipelineXFragmentContext::_build_operators_for_set_operation_node(
+        ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs, OperatorXPtr& op,
+        PipelinePtr& cur_pipe, int parent_idx, int child_idx) {
+    op.reset(new SetSourceOperatorX<is_intersect>(pool, tnode, descs));
+    RETURN_IF_ERROR(cur_pipe->add_operator(op));
+
+    const auto downstream_pipeline_id = cur_pipe->id();
+    if (_dag.find(downstream_pipeline_id) == _dag.end()) {
+        _dag.insert({downstream_pipeline_id, {}});
+    }
+
+    int parent_id = tnode.node_id;
+
+    for (int child_id = 0; child_id < tnode.num_children; child_id++) {
+        PipelinePtr probe_side_pipe = add_pipeline();
+        _dag[downstream_pipeline_id].push_back(probe_side_pipe->id());
+
+        DataSinkOperatorXPtr sink;
+        if (child_id == 0) {
+            sink.reset(new SetSinkOperatorX<is_intersect>(child_id, next_operator_id(), pool, tnode,
+                                                          descs));
+        } else {
+            sink.reset(new SetProbeSinkOperatorX<is_intersect>(child_id, next_operator_id(), pool,
+                                                               tnode, descs));
+        }
+        RETURN_IF_ERROR(probe_side_pipe->set_sink(sink));
+        RETURN_IF_ERROR(probe_side_pipe->sink_x()->init(tnode, _runtime_state.get()));
+        // prepare children pipelines. if any pipeline found this as its father, will use the prepared pipeline to build.
+        if (child_id == 0) {
+            DCHECK(_set_child_pipelines.find(parent_id) == _set_child_pipelines.end());
+            _set_child_pipelines.insert({parent_id, {probe_side_pipe}});
+        } else {
+            _set_child_pipelines[parent_id].push_back(probe_side_pipe);
+        }
     }
 
     return Status::OK();

@@ -42,10 +42,11 @@ namespace vectorized {
 class Arena;
 
 class DataTypeDateV2SerDe : public DataTypeNumberSerDe<UInt32> {
-    void serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
-                                    FormatOptions& options) const override;
-    void serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
-                                  BufferWritable& bw, FormatOptions& options) const override;
+    Status serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
+                                      FormatOptions& options, int nesting_level = 1) const override;
+    Status serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
+                                    BufferWritable& bw, FormatOptions& options,
+                                    int nesting_level = 1) const override;
 
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                           const FormatOptions& options,

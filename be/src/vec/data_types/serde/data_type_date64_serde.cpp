@@ -27,15 +27,16 @@
 namespace doris {
 namespace vectorized {
 
-void DataTypeDate64SerDe::serialize_column_to_json(const IColumn& column, int start_idx,
-                                                   int end_idx, BufferWritable& bw,
-                                                   FormatOptions& options) const {
+Status DataTypeDate64SerDe::serialize_column_to_json(const IColumn& column, int start_idx,
+                                                     int end_idx, BufferWritable& bw,
+                                                     FormatOptions& options,
+                                                     int nesting_level) const {
     SERIALIZE_COLUMN_TO_JSON();
 }
 
-void DataTypeDate64SerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
-                                                     BufferWritable& bw,
-                                                     FormatOptions& options) const {
+Status DataTypeDate64SerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+                                                       BufferWritable& bw, FormatOptions& options,
+                                                       int nesting_level) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -59,6 +60,7 @@ void DataTypeDate64SerDe::serialize_one_cell_to_json(const IColumn& column, int 
         char* pos = value.to_string(buf);
         bw.write(buf, pos - buf - 1);
     }
+    return Status::OK();
 }
 
 Status DataTypeDate64SerDe::deserialize_column_from_json_vector(IColumn& column,
@@ -92,15 +94,13 @@ Status DataTypeDate64SerDe::deserialize_one_cell_from_json(IColumn& column, Slic
     return Status::OK();
 }
 
-void DataTypeDateTimeSerDe::serialize_column_to_json(const IColumn& column, int start_idx,
-                                                     int end_idx, BufferWritable& bw,
-                                                     FormatOptions& options) const {
-    SERIALIZE_COLUMN_TO_JSON()
-}
+Status DataTypeDateTimeSerDe::serialize_column_to_json(
+        const IColumn& column, int start_idx, int end_idx, BufferWritable& bw,
+        FormatOptions& options, int nesting_level) const {SERIALIZE_COLUMN_TO_JSON()}
 
-void DataTypeDateTimeSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
-                                                       BufferWritable& bw,
-                                                       FormatOptions& options) const {
+Status DataTypeDateTimeSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+                                                         BufferWritable& bw, FormatOptions& options,
+                                                         int nesting_level) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -129,6 +129,7 @@ void DataTypeDateTimeSerDe::serialize_one_cell_to_json(const IColumn& column, in
         char* pos = value.to_string(buf);
         bw.write(buf, pos - buf - 1);
     }
+    return Status::OK();
 }
 
 Status DataTypeDateTimeSerDe::deserialize_column_from_json_vector(IColumn& column,
