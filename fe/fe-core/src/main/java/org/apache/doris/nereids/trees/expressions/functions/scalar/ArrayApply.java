@@ -51,8 +51,15 @@ public class ArrayApply extends ScalarFunction
         if (!(arg1 instanceof StringLikeLiteral)) {
             throw new AnalysisException(
                     "array_apply(arr, op, val): op support const value only.");
+        } else {
+            String op = ((StringLikeLiteral) arg1).getStringValue();
+            if (! "=".equals(op) && !">".equals(op) && !"<".equals(op)
+                    && !">=".equals(op) && !"<=".equals(op) && !"!=".equals(op)) {
+                throw new AnalysisException(
+                        "array_apply(arr, op, val): op support =, >=, <=, >, <, !=, but we get " + op);
+            }
         }
-        if (!(arg2 instanceof Literal)) {
+        if (!(arg2.isConstant())) {
             throw new AnalysisException(
                     "array_apply(arr, op, val): val support const value only.");
         }
