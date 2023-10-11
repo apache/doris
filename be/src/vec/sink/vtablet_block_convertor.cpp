@@ -411,6 +411,11 @@ Status OlapTableBlockConvertor::_validate_data(RuntimeState* state, vectorized::
                                                int64_t& filtered_rows, bool* stop_processing) {
     for (int i = 0; i < _output_tuple_desc->slots().size(); ++i) {
         SlotDescriptor* desc = _output_tuple_desc->slots()[i];
+        DCHECK(block->columns() > i)
+                << "DEBUG LOG: block->columns(): " << block->columns() << " i: " << i
+                << " block structure: \n"
+                << block->dump_structure()
+                << " \n_output_tuple_desc: " << _output_tuple_desc->debug_string();
         block->get_by_position(i).column =
                 block->get_by_position(i).column->convert_to_full_column_if_const();
         const auto& column = block->get_by_position(i).column;
