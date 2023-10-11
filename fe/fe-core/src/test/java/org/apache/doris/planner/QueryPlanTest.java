@@ -1928,7 +1928,7 @@ public class QueryPlanTest extends TestWithFeService {
         String sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from issue7929.t1 left join (select max(j1) over() as x from issue7929.t2) a"
                 + " on t1.k1 = a.x where 1 = 0;";
         String explainStr = getSQLPlanOrErrorMsg(sql, true);
-        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainStr, 4, "EMPTYSET"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainStr, 5, "EMPTYSET"));
         Assert.assertTrue(explainStr.contains("tuple ids: 5"));
     }
 
