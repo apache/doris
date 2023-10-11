@@ -155,48 +155,6 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
     return Status::OK();
 }
 
-static void get_column_def(const vectorized::DataTypePtr& data_type, const std::string& name,
-                           TColumnDef* column) {
-    if (!name.empty()) {
-        column->columnDesc.__set_columnName(name);
-    }
-    if (data_type->is_nullable()) {
-        const auto& real_type = static_cast<const DataTypeNullable&>(*data_type);
-        column->columnDesc.__set_isAllowNull(true);
-        get_column_def(real_type.get_nested_type(), "", column);
-        return;
-    }
-    column->columnDesc.__set_columnType(data_type->get_type_as_tprimitive_type());
-    if (data_type->get_type_id() == TypeIndex::Array) {
-        TColumnDef child;
-        column->columnDesc.__set_children({});
-        get_column_def(assert_cast<const DataTypeArray*>(data_type.get())->get_nested_type(), "",
-                       &child);
-        column->columnDesc.columnLength =
-                TabletColumn::get_field_length_by_type(column->columnDesc.columnType, 0);
-        column->columnDesc.children.push_back(child.columnDesc);
-        return;
-    }
-    if (data_type->get_type_id() == TypeIndex::Tuple) {
-        // TODO
-        // auto tuple_type = assert_cast<const DataTypeTuple*>(data_type.get());
-        // DCHECK_EQ(tuple_type->get_elements().size(), tuple_type->get_element_names().size());
-        // for (size_t i = 0; i < tuple_type->get_elements().size(); ++i) {
-        //     TColumnDef child;
-        //     get_column_def(tuple_type->get_element(i), tuple_type->get_element_names()[i], &child);
-        //     column->columnDesc.children.push_back(child.columnDesc);
-        // }
-        // return;
-    }
-    if (data_type->get_type_id() == TypeIndex::String) {
-        return;
-    }
-    if (WhichDataType(*data_type).is_simple()) {
-        column->columnDesc.__set_columnLength(data_type->get_size_of_value_in_memory());
-        return;
-    }
-}
-
 // send an empty add columns rpc, the rpc response will fill with base schema info
 // maybe we could seperate this rpc from add columns rpc
 Status send_fetch_full_base_schema_view_rpc(FullBaseSchemaView* schema_view) {
@@ -232,66 +190,6 @@ Status send_fetch_full_base_schema_view_rpc(FullBaseSchemaView* schema_view) {
 
 static const std::regex COLUMN_NAME_REGEX(
         "^[_a-zA-Z@0-9\\s<>/][.a-zA-Z0-9_+-/><?@#$%^&*\"\\s,:]{0,255}$");
-
-// Do batch add columns schema change
-// only the base table supported
-Status send_add_columns_rpc(ColumnsWithTypeAndName column_type_names,
-                            FullBaseSchemaView* schema_view) {
-    if (column_type_names.empty()) {
-        return Status::OK();
-    }
-    TAddColumnsRequest req;
-    TAddColumnsResult res;
-    TTabletInfo tablet_info;
-    req.__set_table_name(schema_view->table_name);
-    req.__set_db_name(schema_view->db_name);
-    req.__set_table_id(schema_view->table_id);
-    // TODO(lhy) more configurable
-    req.__set_allow_type_conflict(true);
-    req.__set_addColumns({});
-    // Deduplicate Column like `Level` and `level`
-    // TODO we will implement new version of dynamic column soon to handle this issue,
-    // also ignore column missmatch with regex
-    std::set<std::string> dedup;
-    for (const auto& column_type_name : column_type_names) {
-        if (dedup.contains(to_lower(column_type_name.name))) {
-            continue;
-        }
-        if (!std::regex_match(column_type_name.name, COLUMN_NAME_REGEX)) {
-            continue;
-        }
-        dedup.insert(to_lower(column_type_name.name));
-        TColumnDef col;
-        get_column_def(column_type_name.type, column_type_name.name, &col);
-        req.addColumns.push_back(col);
-    }
-    auto master_addr = ExecEnv::GetInstance()->master_info()->network_address;
-    Status rpc_st = ThriftRpcHelper::rpc<FrontendServiceClient>(
-            master_addr.hostname, master_addr.port,
-            [&req, &res](FrontendServiceConnection& client) { client->addColumns(res, req); },
-            config::txn_commit_rpc_timeout_ms);
-    if (!rpc_st.ok()) {
-        return Status::InternalError("Failed to do schema change, rpc error");
-    }
-    // TODO(lhy) handle more status code
-    if (res.status.status_code != TStatusCode::OK) {
-        LOG(WARNING) << "failed to do schema change, code:" << res.status.status_code
-                     << ", msg:" << res.status.error_msgs[0];
-        return Status::InvalidArgument(
-                fmt::format("Failed to do schema change, {}", res.status.error_msgs[0]));
-    }
-    size_t sz = res.allColumns.size();
-    if (sz < dedup.size()) {
-        return Status::InternalError(
-                fmt::format("Unexpected result columns {}, expected at least {}",
-                            res.allColumns.size(), column_type_names.size()));
-    }
-    for (const auto& column : res.allColumns) {
-        schema_view->column_name_to_column[column.column_name] = column;
-    }
-    schema_view->schema_version = res.schema_version;
-    return Status::OK();
-}
 
 Status unfold_object(size_t dynamic_col_position, Block& block, bool cast_to_original_type,
                      RuntimeState* state) {
