@@ -27,6 +27,7 @@ import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TDisk;
+import org.apache.doris.thrift.TDiskType;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.UtFrameUtils;
 
@@ -95,7 +96,7 @@ public class AutoBucketUtilsTest {
             disk.setDiskAvailableCapacity(disk.disk_total_capacity - disk.data_used_capacity);
             disk.setPathHash(random.nextLong());
             disk.setStorageMedium(TStorageMedium.HDD);
-            disk.setDirType("STORAGE");
+            disk.setDirType(TDiskType.STORAGE);
             backendDisks.put(disk.getRootPath(), disk);
         }
         be.updateDisks(backendDisks);

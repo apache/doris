@@ -103,7 +103,7 @@ public:
 
     // get all info of root_path
     Status get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_infos, bool need_update);
-    void get_special_dir_info(SpecialDirInfo* dir_infos, TaskWorkerPool::DiskType type);
+    void get_special_dir_info(SpecialDirInfo* dir_infos, TDiskType::type type);
 
     int64_t get_file_or_directory_size(const std::string& file_path);
 

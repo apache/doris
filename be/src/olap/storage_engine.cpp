@@ -363,14 +363,14 @@ Status StorageEngine::get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_i
 }
 
 void StorageEngine::get_special_dir_info(SpecialDirInfo* special_dir_infos,
-                                         TaskWorkerPool::DiskType type) {
+                                         TDiskType::type type) {
     switch (type) {
-    case TaskWorkerPool::DiskType::LOG:
+    case TDiskType::LOG:
         _log_dir->health_check();
         static_cast<void>(_log_dir->update_capacity());
         _log_dir->get_dir_info(special_dir_infos);
         break;
-    case TaskWorkerPool::DiskType::DEPLOY:
+    case TDiskType::DEPLOY:
         _deploy_dir->health_check();
         static_cast<void>(_deploy_dir->update_capacity());
         _deploy_dir->get_dir_info(special_dir_infos);

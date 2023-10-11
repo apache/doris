@@ -20,7 +20,7 @@
 #include <fmt/format.h>
 #include <gen_cpp/AgentService_types.h>
 #include <gen_cpp/HeartbeatService_types.h>
-#include <gen_cpp/MasterService_types.h>
+// #include <gen_cpp/MasterService_types.h>
 #include <gen_cpp/Status_types.h>
 #include <gen_cpp/Types_types.h>
 #include <unistd.h>
@@ -678,12 +678,12 @@ void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
             disk.__set_disk_available_capacity(root_path_info.available);
             disk.__set_trash_used_capacity(root_path_info.trash_used_capacity);
             disk.__set_used(root_path_info.is_used);
-            disk.__set_dir_type("STORAGE");
+            disk.__set_dir_type(TDiskType::STORAGE);
             request.disks[root_path_info.path] = disk;
         }
 
-        _set_disk_infos(request, DiskType::LOG);
-        _set_disk_infos(request, DiskType::DEPLOY);
+        _set_disk_infos(request, TDiskType::LOG);
+        _set_disk_infos(request, TDiskType::DEPLOY);
 
         request.__set_num_cores(CpuInfo::num_cores());
         request.__set_pipeline_executor_size(config::pipeline_executor_size > 0
@@ -1102,7 +1102,7 @@ void TaskWorkerPool::_handle_report(const TReportRequest& request, ReportType ty
     }
 }
 
-void TaskWorkerPool::_set_disk_infos(TReportRequest& request, DiskType type) {
+void TaskWorkerPool::_set_disk_infos(TReportRequest& request, TDiskType::type type) {
     SpecialDirInfo dir_info;
     StorageEngine::instance()->get_special_dir_info(&dir_info, type);
 
@@ -1112,7 +1112,7 @@ void TaskWorkerPool::_set_disk_infos(TReportRequest& request, DiskType type) {
     special_disk.__set_disk_total_capacity(dir_info.capacity);
     special_disk.__set_disk_available_capacity(dir_info.available);
     special_disk.__set_used(dir_info.is_used);
-    special_disk.__set_dir_type(TYPE_STRING(type));
+    special_disk.__set_dir_type(type);
     request.disks[dir_info.path] = special_disk;
 }
 
