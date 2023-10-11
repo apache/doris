@@ -239,6 +239,10 @@ private:
         // extract array offsets and nested data
         auto left_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        if (!is_array(remove_nullable(block.get_by_position(arguments[0]).type))) {
+            return Status::InvalidArgument(get_name() + " first argument must be array, but got " +
+                                           block.get_by_position(arguments[0]).type->get_name());
+        }
         const ColumnArray* array_column = nullptr;
         const UInt8* array_null_map = nullptr;
         if (left_column->is_nullable()) {
