@@ -17,16 +17,24 @@ PhysicalTopN
 ----------------------------hashJoin[INNER_JOIN](web_sales.ws_sold_time_sk = time_dim.t_time_sk)
 ------------------------------hashJoin[INNER_JOIN](web_sales.ws_sold_date_sk = date_dim.d_date_sk)
 --------------------------------hashJoin[INNER_JOIN](web_sales.ws_ship_mode_sk = ship_mode.sm_ship_mode_sk)
+<<<<<<< HEAD
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[web_sales]
 ----------------------------------PhysicalDistribute
 ------------------------------------PhysicalProject
 --------------------------------------filter(sm_carrier IN ('GREAT EASTERN', 'LATVIAN'))
 ----------------------------------------PhysicalOlapScan[ship_mode]
+=======
+----------------------------------PhysicalOlapScan[web_sales]
+----------------------------------PhysicalDistribute
+------------------------------------filter(sm_carrier IN ('GREAT EASTERN', 'LATVIAN'))
+--------------------------------------PhysicalOlapScan[ship_mode]
+>>>>>>> 46f5988245 ([fix](Nereids) set operation children output order not same (#24060))
 --------------------------------PhysicalDistribute
 ----------------------------------filter((date_dim.d_year = 1998))
 ------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------PhysicalDistribute
+<<<<<<< HEAD
 --------------------------------PhysicalProject
 ----------------------------------filter((cast(t_time as BIGINT) <= 77621)(time_dim.t_time >= 48821))
 ------------------------------------PhysicalOlapScan[time_dim]
@@ -49,14 +57,39 @@ PhysicalTopN
 ------------------------------------PhysicalProject
 --------------------------------------filter(sm_carrier IN ('GREAT EASTERN', 'LATVIAN'))
 ----------------------------------------PhysicalOlapScan[ship_mode]
+=======
+--------------------------------filter((cast(t_time as BIGINT) <= 77621)(time_dim.t_time >= 48821))
+----------------------------------PhysicalOlapScan[time_dim]
+----------------------------PhysicalDistribute
+------------------------------PhysicalOlapScan[warehouse]
+----------------PhysicalProject
+------------------hashAgg[GLOBAL]
+--------------------PhysicalDistribute
+----------------------hashAgg[LOCAL]
+------------------------PhysicalProject
+--------------------------hashJoin[INNER_JOIN](catalog_sales.cs_warehouse_sk = warehouse.w_warehouse_sk)
+----------------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_time_sk = time_dim.t_time_sk)
+------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)
+--------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_ship_mode_sk = ship_mode.sm_ship_mode_sk)
+----------------------------------PhysicalOlapScan[catalog_sales]
+----------------------------------PhysicalDistribute
+------------------------------------filter(sm_carrier IN ('GREAT EASTERN', 'LATVIAN'))
+--------------------------------------PhysicalOlapScan[ship_mode]
+>>>>>>> 46f5988245 ([fix](Nereids) set operation children output order not same (#24060))
 --------------------------------PhysicalDistribute
 ----------------------------------filter((date_dim.d_year = 1998))
 ------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------PhysicalDistribute
+<<<<<<< HEAD
 --------------------------------PhysicalProject
 ----------------------------------filter((time_dim.t_time >= 48821)(cast(t_time as BIGINT) <= 77621))
 ------------------------------------PhysicalOlapScan[time_dim]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
+=======
+--------------------------------filter((time_dim.t_time >= 48821)(cast(t_time as BIGINT) <= 77621))
+----------------------------------PhysicalOlapScan[time_dim]
+----------------------------PhysicalDistribute
+>>>>>>> 46f5988245 ([fix](Nereids) set operation children output order not same (#24060))
 ------------------------------PhysicalOlapScan[warehouse]
 

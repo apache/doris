@@ -1674,9 +1674,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             throw new RuntimeException("not support set operation type " + setOperation);
         }
 
-        setOperation.children().stream()
-                .map(Plan::getOutput)
-                .map(l -> l.stream()
+        setOperation.getRegularChildrenOutputs().stream()
+                .map(o -> o.stream()
                         .map(e -> ExpressionTranslator.translate(e, context))
                         .collect(ImmutableList.toImmutableList()))
                 .forEach(setOperationNode::addResultExprLists);

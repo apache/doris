@@ -128,7 +128,7 @@ group by web_site_id)
 
     '''
     String plan = sql "${stmt}"
-    println plan
+    log.info(plan)
     def getRuntimeFilters = { plantree ->
         {
             def lst = []
@@ -146,5 +146,5 @@ group by web_site_id)
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
     
-     assertEquals("RF4[ss_item_sk->[sr_item_sk],RF5[ss_ticket_number->[sr_ticket_number],RF3[s_store_sk->[ss_store_sk],RF2[p_promo_sk->[ss_promo_sk],RF1[i_item_sk->[ss_item_sk],RF0[d_date_sk->[ss_sold_date_sk],RF10[cs_item_sk->[cr_item_sk],RF11[cs_order_number->[cr_order_number],RF9[cp_catalog_page_sk->[cs_catalog_page_sk],RF8[p_promo_sk->[cs_promo_sk],RF7[i_item_sk->[cs_item_sk],RF6[d_date_sk->[cs_sold_date_sk],RF16[ws_item_sk->[wr_item_sk],RF17[ws_order_number->[wr_order_number],RF15[web_site_sk->[ws_web_site_sk],RF14[p_promo_sk->[ws_promo_sk],RF13[i_item_sk->[ws_item_sk],RF12[d_date_sk->[ws_sold_date_sk]", getRuntimeFilters(plan))
+     assertEquals("RF4[ss_item_sk->[sr_item_sk],RF5[ss_ticket_number->[sr_ticket_number],RF3[s_store_sk->[ss_store_sk],RF2[p_promo_sk->[ss_promo_sk],RF1[i_item_sk->[ss_item_sk],RF0[d_date_sk->[ss_sold_date_sk],RF10[cs_item_sk->[cr_item_sk],RF11[cs_order_number->[cr_order_number],RF9[cp_catalog_page_sk->[cs_catalog_page_sk],RF8[p_promo_sk->[cs_promo_sk],RF7[i_item_sk->[cs_item_sk],RF6[d_date_sk->[cs_sold_date_sk],RF16[ws_item_sk->[wr_item_sk],RF17[ws_order_number->[wr_order_number],RF15[web_site_sk->[ws_web_site_sk],RF14[i_item_sk->[ws_item_sk],RF13[p_promo_sk->[ws_promo_sk],RF12[d_date_sk->[ws_sold_date_sk]", getRuntimeFilters(plan))
 }

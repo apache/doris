@@ -444,6 +444,7 @@ public class StmtExecutor {
                     }
                     LOG.debug("fall back to legacy planner on statement:\n{}", originStmt.originStmt);
                     parsedStmt = null;
+                    planner = null;
                     context.getState().setNereids(false);
                     executeByLegacy(queryId);
                 }
