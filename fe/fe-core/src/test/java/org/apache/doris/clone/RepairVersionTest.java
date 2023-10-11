@@ -25,8 +25,8 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.master.ReportHandler;
 import org.apache.doris.thrift.TTablet;
 import org.apache.doris.thrift.TTabletInfo;
@@ -47,13 +47,12 @@ public class RepairVersionTest extends TestWithFeService {
 
     @Override
     protected void beforeCreatingConnectContext() throws Exception {
-        needCleanDir = false;
         Config.enable_debug_points = true;
         Config.disable_balance = true;
         Config.disable_tablet_scheduler = true;
         Config.allow_replica_on_same_host = true;
-        FeConstants.tablet_checker_interval_ms = 100;
-        FeConstants.tablet_schedule_interval_ms = 100;
+        Config.tablet_checker_interval_ms = 100;
+        Config.tablet_schedule_interval_ms = 100;
     }
 
     @Override
@@ -140,7 +139,7 @@ public class RepairVersionTest extends TestWithFeService {
         ReportHandler.tabletReport(replica.getBackendId(), tablets, 100L);
         Assertions.assertEquals(-1L, replica.getLastFailedVersion());
 
-        DebugPointUtil.addDebugPoint("Replica.regressive_version_immediately", -1, -1);
+        DebugPointUtil.addDebugPoint("Replica.regressive_version_immediately", new DebugPoint());
         ReportHandler.tabletReport(replica.getBackendId(), tablets, 100L);
         Assertions.assertEquals(replica.getVersion() + 1, replica.getLastFailedVersion());
 
