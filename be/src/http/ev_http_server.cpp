@@ -98,6 +98,40 @@ EvHttpServer::~EvHttpServer() {
     }
 }
 
+void EvHttpServer::_init_ssl() {
+    SSL_library_init();
+    SSL_load_error_strings();
+    OpenSSL_add_all_algorithms();
+    m_ctx = SSL_CTX_new(SSLv32_server_method());
+    SSL_CTX_set_options(m_ctx,
+                        SSL_OP_SINGLE_DH_USE |
+                        SSL_OP_SINGLE_ECDH_USE |
+                        SSL_OP_NO_SSLv2);
+    m_ecdh = EC_KEY_new_by_curve_name (NID_X9_62_prime256v1);
+    if (!m_ecdh) {
+        LOG(WARNING) << "EC_KEY_new_by_curve_name fail";
+        return;
+    }
+
+    if(1 != SSL_CTX_set_tmp_ecdh(m_ctx, m_ecdh)) {
+        LOG(WARNING) << "SSL_CTX_set_tmp_ecdh fail";
+        return;
+    }
+    int ret = _server_set_certs();
+    CHECK(ret >= 0) << "SetCerts failed code=" << ret;
+}
+
+static struct bufferevent* bevcb(struct event_base *base, void *arg) {
+    struct bufferevent* r;
+    SSL_CTX *ctx = (SSL_CTX *)arg;
+    r = bufferevent_openssl_socket_new(base,
+                                       -1,
+                                       SSL_new(ctx),
+                                       BUFFEREVENT_SSL_ACCEPTING,
+                                       BEV_OPT_CLOSE_ON_FREE);
+    return r;
+}
+
 void EvHttpServer::start() {
     _started = true;
     // bind to
@@ -109,6 +143,10 @@ void EvHttpServer::start() {
                               .build(&_workers));
 
     evthread_use_pthreads();
+    if (config::enable_https) {
+        LOG(INFO) << "BE WebServer using https";
+        _init_ssl();
+    }
     _event_bases.resize(_num_workers);
     for (int i = 0; i < _num_workers; ++i) {
         CHECK(_workers->submit_func([this, i]() {
@@ -125,7 +163,9 @@ void EvHttpServer::start() {
                           std::shared_ptr<evhttp> http(evhttp_new(base.get()),
                                                        [](evhttp* http) { evhttp_free(http); });
                           CHECK(http != nullptr) << "Couldn't create an evhttp.";
-
+                          if (config::enable_https) {
+                              evhttp_set_bevcb(http.get(), bevcb, m_ctx);
+                          }
                           auto res = evhttp_accept_socket(http.get(), _server_fd);
                           CHECK(res >= 0) << "evhttp accept socket failed, res=" << res;
 
@@ -138,6 +178,22 @@ void EvHttpServer::start() {
     }
 }
 
+int EvHttpServer::_server_set_certs() {
+    if (1 != SSL_CTX_use_certificate_chain_file(m_ctx, config::ssl_certificate_path.c_str())) {
+        LOG(WARNING) << "SSL_CTX_use_certificate_chain_file fail";
+        return -1;
+    }
+    if (1 != SSL_CTX_use_PrivateKey_file(m_ctx, config::ssl_private_key_path.c_str(), SSL_FILETYPE_PEM)) {
+        LOG(WARNING) << "SSL_CTX_use_PrivateKey_file fail";
+        return -2;
+    }
+    if (1 != SSL_CTX_check_private_key(m_ctx)) {
+        LOG(WARNING) << "SSL_CTX_check_private_key fail";
+        return -3;
+    }
+    return 0;
+}
+
 void EvHttpServer::stop() {
     {
         std::lock_guard<std::mutex> lock(_event_bases_lock);
@@ -145,6 +201,12 @@ void EvHttpServer::stop() {
             event_base_loopbreak(_event_bases[i].get());
         }
         _event_bases.clear();
+    }
+    if (m_ctx != NULL) {
+        SSL_CTX_free(m_ctx);
+    }
+    if (m_ecdh != NULL) {
+        EC_KEY_free(m_ecdh);
     }
     _workers->shutdown();
     close(_server_fd);

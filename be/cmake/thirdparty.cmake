@@ -76,6 +76,7 @@ endif()
 
 add_thirdparty(libevent LIBNAME "lib/libevent.a")
 add_thirdparty(libevent_pthreads LIBNAME "lib/libevent_pthreads.a")
+add_thirdparty(libevent_openssl LIBNAME "lib/libevent_openssl.a")
 add_thirdparty(libbz2 LIBNAME "lib/libbz2.a")
 add_thirdparty(libz LIBNAME "lib/libz.a")
 add_thirdparty(crypto)

@@ -65,6 +65,7 @@ Status BRpcService::start(int port, int num_threads) {
     }
 
     if (config::enable_https) {
+        LOG(INFO) << "BE brpc open ssl";
         auto sslOptions = options.mutable_ssl_options();
         sslOptions->default_cert.certificate = config::ssl_certificate_path;
         sslOptions->default_cert.private_key = config::ssl_private_key_path;
