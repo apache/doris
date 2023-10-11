@@ -156,8 +156,8 @@ public:
             return true;
         }
 
-        T tmp_min_value = _get_zone_map_value<T>(statistic.first->cell_ptr());
-        T tmp_max_value = _get_zone_map_value<T>(statistic.second->cell_ptr());
+        T tmp_min_value = _get_zone_map_value<Type, T>(statistic.first->cell_ptr());
+        T tmp_max_value = _get_zone_map_value<Type, T>(statistic.second->cell_ptr());
 
         if constexpr (PT == PredicateType::EQ) {
             return _operator(tmp_min_value <= _value && tmp_max_value >= _value, true);
@@ -176,8 +176,8 @@ public:
             return false;
         }
 
-        T tmp_min_value = _get_zone_map_value<T>(statistic.first->cell_ptr());
-        T tmp_max_value = _get_zone_map_value<T>(statistic.second->cell_ptr());
+        T tmp_min_value = _get_zone_map_value<Type, T>(statistic.first->cell_ptr());
+        T tmp_max_value = _get_zone_map_value<Type, T>(statistic.second->cell_ptr());
 
         if constexpr (PT == PredicateType::EQ) {
             return tmp_min_value == _value && tmp_max_value == _value;
