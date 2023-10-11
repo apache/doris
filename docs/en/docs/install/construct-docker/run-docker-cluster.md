@@ -109,7 +109,7 @@ docker run -itd \
 --name=fe \
 --env FE_SERVERS="fe1:${intranet IP of the current machine}:9010" \
 --env FE_ID=1 \
--p 8030:8030\
+-p 8030:8030 \
 -p 9030:9030 \
 -v /data/fe/doris-meta:/opt/apache-doris/fe/doris-meta \
 -v /data/fe/log:/opt/apache-doris/fe/log \
@@ -117,7 +117,7 @@ docker run -itd \
 apache/doris:2.0.0_alpha-fe-x86_64
 
 docker run -itd \
---name=be\
+--name=be \
 --env FE_SERVERS="fe1:${intranet IP of the current machine}:9010" \
 --env BE_ADDR="${Intranet IP of the current machine}:9050" \
 -p 8040:8040 \
@@ -158,7 +158,7 @@ services:
       - /data/be/storage/:/opt/apache-doris/be/storage/
       - /data/be/script/:/docker-entrypoint-initdb.d/
      depends_on:
-       -fe
+       - fe
      network_mode: host
 ```
 
