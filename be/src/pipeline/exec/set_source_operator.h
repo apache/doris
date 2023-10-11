@@ -64,13 +64,14 @@ public:
     using Parent = SetSourceOperatorX<is_intersect>;
     SetSourceLocalState(RuntimeState* state, OperatorXBase* parent) : Base(state, parent) {};
 
-    Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status open(RuntimeState* state) override;
 
 private:
     friend class SetSourceOperatorX<is_intersect>;
     friend class OperatorX<SetSourceLocalState<is_intersect>>;
-    RuntimeProfile::Counter* _pull_timer; // time to pull data
     std::vector<vectorized::MutableColumnPtr> _mutable_cols;
+    //record build column type
+    vectorized::DataTypes _left_table_data_types;
 };
 
 template <bool is_intersect>
