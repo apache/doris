@@ -543,7 +543,15 @@ public class SelectStmt extends QueryStmt {
                         throw new AnalysisException("Subquery is not supported in the select list.");
                     }
                     resultExprs.add(rewriteQueryExprByMvColumnExpr(item.getExpr(), analyzer));
-                    String columnLabel = item.toColumnLabel(i);
+                    String columnLabel = null;
+                    Class<? extends StatementBase> statementClazz = analyzer.getStatementClazz();
+                    if (statementClazz != null && (CreateViewStmt.class.isAssignableFrom(statementClazz) ||
+                            CreateMaterializedViewStmt.class.isAssignableFrom(statementClazz))) {
+                        columnLabel = item.toColumnLabel(i);
+                    }
+                    if (columnLabel == null) {
+                        columnLabel = item.toColumnLabel();
+                    }
                     SlotRef aliasRef = new SlotRef(null, columnLabel);
                     Expr existingAliasExpr = aliasSMap.get(aliasRef);
                     if (existingAliasExpr != null && !existingAliasExpr.equals(item.getExpr())) {

@@ -719,6 +719,7 @@ public class StmtExecutor {
                 }
             } else {
                 analyzer = new Analyzer(context.getEnv(), context);
+                analyzer.setStatementClazz(parsedStmt.getClass());
                 parsedStmt.analyze(analyzer);
             }
 
@@ -933,6 +934,7 @@ public class StmtExecutor {
         }
 
         analyzer = new Analyzer(context.getEnv(), context);
+        analyzer.setStatementClazz(parsedStmt.getClass());
 
         if (parsedStmt instanceof PrepareStmt || context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
             if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
