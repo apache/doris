@@ -33,7 +33,7 @@
 
 namespace doris {
 PrimaryKeyIndexBuilder::~PrimaryKeyIndexBuilder() {
-        _bloom_filter_index_mem_tracker->release(_bloom_filter_index_mem_tracker->consumption());
+    _bloom_filter_index_mem_tracker->release(_bloom_filter_index_mem_tracker->consumption());
 }
 Status PrimaryKeyIndexBuilder::init() {
     // TODO(liaoxin) using the column type directly if there's only one column in unique key columns
