@@ -314,7 +314,7 @@ public:
     }
 
     template <PrimitiveType primitive_type, typename ResultType>
-    ResultType _get_zone_map_value2(void* data_ptr) const {
+    ResultType get_zone_map_value2(void* data_ptr) const {
         ResultType res;
         // DecimalV2's storage value is different from predicate or compute value type
         // need convert it to DecimalV2Value
@@ -343,8 +343,8 @@ public:
                        sizeof(uint24_t));
                 return tmp_min_uint32_value <= _max_value && tmp_max_uint32_value >= _min_value;
             } else {
-                return _get_zone_map_value<Type, T>(statistic.first->cell_ptr()) <= _max_value &&
-                       _get_zone_map_value<Type, T>(statistic.second->cell_ptr()) >= _min_value;
+                return get_zone_map_value<Type, T>(statistic.first->cell_ptr()) <= _max_value &&
+                       get_zone_map_value<Type, T>(statistic.second->cell_ptr()) >= _min_value;
             }
         } else {
             return true;
@@ -376,8 +376,8 @@ public:
                        sizeof(uint24_t));
                 return tmp_min_uint32_value > _max_value || tmp_max_uint32_value < _min_value;
             } else {
-                return _get_zone_map_value<Type, T>(statistic.first->cell_ptr()) > _max_value ||
-                       _get_zone_map_value<Type, T>(statistic.second->cell_ptr()) < _min_value;
+                return get_zone_map_value<Type, T>(statistic.first->cell_ptr()) > _max_value ||
+                       get_zone_map_value<Type, T>(statistic.second->cell_ptr()) < _min_value;
             }
         } else {
             return false;
