@@ -56,11 +56,11 @@ template <bool has_filter>
 Status ByteArrayPlainDecoder::_decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                                              ColumnSelectVector& select_vector,
                                              bool is_dict_filter) {
-    TypeIndex logical_type = remove_nullable(data_type)->get_type_id();
-    switch (logical_type) {
-    case TypeIndex::String:
-        [[fallthrough]];
-    case TypeIndex::FixedString: {
+//    TypeIndex logical_type = remove_nullable(data_type)->get_type_id();
+//    switch (logical_type) {
+//    case TypeIndex::String:
+//        [[fallthrough]];
+//    case TypeIndex::FixedString: {
         ColumnSelectVector::DataReadType read_type;
         while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
             switch (read_type) {
@@ -109,21 +109,20 @@ Status ByteArrayPlainDecoder::_decode_values(MutableColumnPtr& doris_column, Dat
             }
         }
         return Status::OK();
-    }
-    case TypeIndex::Decimal32:
-        return _decode_binary_decimal<Int32, has_filter>(doris_column, data_type, select_vector);
-    case TypeIndex::Decimal64:
-        return _decode_binary_decimal<Int64, has_filter>(doris_column, data_type, select_vector);
-    case TypeIndex::Decimal128:
-        return _decode_binary_decimal<Int128, has_filter>(doris_column, data_type, select_vector);
-    case TypeIndex::Decimal128I:
-        return _decode_binary_decimal<Int128, has_filter>(doris_column, data_type, select_vector);
-    // TODO: decimal256
-    default:
-        break;
-    }
-    return Status::InvalidArgument(
-            "Can't decode parquet physical type BYTE_ARRAY to doris logical type {}",
-            getTypeName(logical_type));
+//    }
+//    case TypeIndex::Decimal32:
+//        return _decode_binary_decimal<Int32, has_filter>(doris_column, data_type, select_vector);
+//    case TypeIndex::Decimal64:
+//        return _decode_binary_decimal<Int64, has_filter>(doris_column, data_type, select_vector);
+//    case TypeIndex::Decimal128:
+//        return _decode_binary_decimal<Int128, has_filter>(doris_column, data_type, select_vector);
+//    case TypeIndex::Decimal128I:
+//        return _decode_binary_decimal<Int128, has_filter>(doris_column, data_type, select_vector);
+//    default:
+//        break;
+//    }
+//    return Status::InvalidArgument(
+//            "Can't decode parquet physical type BYTE_ARRAY to doris logical type {}",
+//            getTypeName(logical_type));
 }
 } // namespace doris::vectorized

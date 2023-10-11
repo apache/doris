@@ -37,10 +37,21 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/exec/format/parquet/parquet_common.h"
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/status.h"
+#include "gutil/endian.h"
+#include "util/coding.h"
+#include "util/slice.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/exec/format/format_common.h"
+#include "vec/exec/format/parquet/decoder.h"
+#include "vec/exec/format/parquet/parquet_common.h"
+
 
 namespace doris::vectorized {
 
-namespace convert {
+namespace ParquetConvert {
 
 class DocTime {
 public:

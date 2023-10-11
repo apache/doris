@@ -39,6 +39,7 @@
 #include "vec/data_types/data_type_struct.h"
 #include "vec/exec/format/parquet/level_decoder.h"
 #include "vparquet_column_chunk_reader.h"
+#include "vec/exec/format/convert.h"
 
 namespace cctz {
 class time_zone;
@@ -479,6 +480,16 @@ Status ScalarColumnReader::_try_load_dict_page(bool* loaded, bool* has_dict) {
 Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
                                             ColumnSelectVector& select_vector, size_t batch_size,
                                             size_t* read_rows, bool* eof, bool is_dict_filter) {
+    bool need_convert = false;
+    auto & physical_type = _chunk_meta.meta_data.type;
+    DataTypePtr src_type;
+    ParquetConvert::convert_data_type_from_parquet(physical_type, src_type,type,&need_convert);
+
+    ColumnPtr src_column = doris_column;
+    if (need_convert ){
+        src_column = src_type->create_column();
+    }
+
     if (_chunk_reader->remaining_num_values() == 0) {
         if (!_chunk_reader->has_next_page()) {
             *eof = true;
@@ -489,7 +500,7 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
     }
     if (_nested_column) {
         RETURN_IF_ERROR(_chunk_reader->load_page_data_idempotent());
-        return _read_nested_column(doris_column, type, select_vector, batch_size, read_rows, eof,
+        return _read_nested_column(src_column, type, select_vector, batch_size, read_rows, eof,
                                    is_dict_filter);
     }
 
@@ -544,7 +555,7 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
             if (skip_whole_batch) {
                 RETURN_IF_ERROR(_skip_values(read_values));
             } else {
-                RETURN_IF_ERROR(_read_values(read_values, doris_column, type, select_vector,
+                RETURN_IF_ERROR(_read_values(read_values, src_column, type, select_vector,
                                              is_dict_filter));
             }
             has_read += read_values;
@@ -559,6 +570,14 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
     if (_chunk_reader->remaining_num_values() == 0 && !_chunk_reader->has_next_page()) {
         *eof = true;
     }
+    if ( need_convert ){
+        std::unique_ptr<ParquetConvert::ColumnConvert> converter;
+        ParquetConvert::DocTime doc;
+        doc.init_time( _field_schema , _ctz);
+        ParquetConvert::get_converter(src_type,type,&converter, doc);
+        converter->convert(src_column,const_cast<IColumn*>(doris_column.get()));
+    }
+
     return Status::OK();
 }
 

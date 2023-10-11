@@ -72,100 +72,138 @@ public:
         if (doris_column->is_column_dictionary() || is_dict_filter) {
             return _decode_dict_values<has_filter>(doris_column, select_vector, is_dict_filter);
         }
+        /*
+         *             decoder.reset(new FixLengthDictDecoder<Int32>(type));
+            break;
+        case tparquet::Type::INT64:
+            decoder.reset(new FixLengthDictDecoder<Int64>(type));
+            break;
+        case tparquet::Type::INT96:
+            decoder.reset(new FixLengthDictDecoder<ParquetInt96>(type));
+            break;
+        case tparquet::Type::FLOAT:
+            decoder.reset(new FixLengthDictDecoder<Float32>(type));
+            break;
+        case tparquet::Type::DOUBLE:
+            decoder.reset(new FixLengthDictDecoder<Float64>(type));
+            break;
+        case tparquet::Type::FIXED_LEN_BYTE_ARRAY:
+            decoder.reset(new FixLengthDictDecoder<char*>(type));
+         *
+         */
 
-        TypeIndex logical_type = remove_nullable(data_type)->get_type_id();
-        switch (logical_type) {
-#define DISPATCH(NUMERIC_TYPE, CPP_NUMERIC_TYPE, PHYSICAL_TYPE)                                   \
-    case NUMERIC_TYPE:                                                                            \
-        if constexpr (!std::is_same_v<T, ParquetInt96>) {                                         \
-            return _decode_numeric<CPP_NUMERIC_TYPE, T, has_filter>(doris_column, select_vector); \
-        }
-            FOR_LOGICAL_NUMERIC_TYPES(DISPATCH)
-#undef DISPATCH
-        case TypeIndex::Int128:
+        if constexpr (std::is_same_v<T,Int32>){
+            return _decode_numeric<Int32, T, has_filter>(doris_column, select_vector);
+        }else if constexpr (std::is_same_v<T,Int64>){
+            return _decode_numeric<Int64, T, has_filter>(doris_column, select_vector);
+        }else if constexpr (std::is_same_v<T,Float32>){
+            return _decode_numeric<Float32, T, has_filter>(doris_column, select_vector);
+        }else if constexpr (std::is_same_v<T,Float32>){
+            return _decode_numeric<Float64, T, has_filter>(doris_column, select_vector);
+        }else if constexpr (std::is_same_v<T,Int128>){
             return _decode_numeric<Int128, T, has_filter>(doris_column, select_vector);
-            break;
-        case TypeIndex::Date:
-            if constexpr (std::is_same_v<T, Int32>) {
-                return _decode_date<VecDateTimeValue, Int64, has_filter>(doris_column,
-                                                                         select_vector);
-            }
-            break;
-        case TypeIndex::DateV2:
-            if constexpr (std::is_same_v<T, Int32>) {
-                return _decode_date<DateV2Value<DateV2ValueType>, UInt32, has_filter>(
-                        doris_column, select_vector);
-            }
-            break;
-        case TypeIndex::DateTime:
-            if constexpr (std::is_same_v<T, ParquetInt96>) {
-                return _decode_datetime96<VecDateTimeValue, Int64, has_filter>(doris_column,
-                                                                               select_vector);
-            } else if constexpr (std::is_same_v<T, Int64>) {
-                return _decode_datetime64<VecDateTimeValue, Int64, has_filter>(doris_column,
-                                                                               select_vector);
-            }
-            break;
-        case TypeIndex::DateTimeV2:
-            // Spark can set the timestamp precision by the following configuration:
-            // spark.sql.parquet.outputTimestampType = INT96(NANOS), TIMESTAMP_MICROS, TIMESTAMP_MILLIS
-            if constexpr (std::is_same_v<T, ParquetInt96>) {
-                return _decode_datetime96<DateV2Value<DateTimeV2ValueType>, UInt64, has_filter>(
-                        doris_column, select_vector);
-            } else if constexpr (std::is_same_v<T, Int64>) {
-                return _decode_datetime64<DateV2Value<DateTimeV2ValueType>, UInt64, has_filter>(
-                        doris_column, select_vector);
-            }
-            break;
-        case TypeIndex::Decimal32:
-            if constexpr (std::is_same_v<T, Int32>) {
-                return _decode_primitive_decimal<Int32, Int32, has_filter>(doris_column, data_type,
-                                                                           select_vector);
-            } else if constexpr (std::is_same_v<T, Int64>) {
-                return _decode_primitive_decimal<Int32, Int64, has_filter>(doris_column, data_type,
-                                                                           select_vector);
-            }
-            break;
-        case TypeIndex::Decimal64:
-            if constexpr (std::is_same_v<T, Int32>) {
-                return _decode_primitive_decimal<Int64, Int32, has_filter>(doris_column, data_type,
-                                                                           select_vector);
-            } else if constexpr (std::is_same_v<T, Int64>) {
-                return _decode_primitive_decimal<Int64, Int64, has_filter>(doris_column, data_type,
-                                                                           select_vector);
-            }
-            break;
-        case TypeIndex::Decimal128:
-            if constexpr (std::is_same_v<T, Int32>) {
-                return _decode_primitive_decimal<Int128, Int32, has_filter>(doris_column, data_type,
-                                                                            select_vector);
-            } else if constexpr (std::is_same_v<T, Int64>) {
-                return _decode_primitive_decimal<Int128, Int64, has_filter>(doris_column, data_type,
-                                                                            select_vector);
-            }
-            break;
-        case TypeIndex::Decimal128I:
-            if constexpr (std::is_same_v<T, Int32>) {
-                return _decode_primitive_decimal<Int128, Int32, has_filter>(doris_column, data_type,
-                                                                            select_vector);
-            } else if constexpr (std::is_same_v<T, Int64>) {
-                return _decode_primitive_decimal<Int128, Int64, has_filter>(doris_column, data_type,
-                                                                            select_vector);
-            }
-            break;
-            // TODO: decimal256
-        case TypeIndex::String:
-            [[fallthrough]];
-        case TypeIndex::FixedString:
-            break;
-        default:
-            break;
         }
-        return Status::InvalidArgument(
-                "Can't decode parquet physical type {} to doris logical type {}",
-                tparquet::to_string(_physical_type), getTypeName(logical_type));
+//        else if constexpr (std::is_same_v<T,char * >) {
+//            return _decode_numeric<Int128, T, has_filter>(doris_column, select_vector);
+//
+//        }
 
         return Status::OK();
+
+//        TypeIndex logical_type = remove_nullable(data_type)->get_type_id();
+//        switch (logical_type) {
+//
+//
+//#define DISPATCH(NUMERIC_TYPE, CPP_NUMERIC_TYPE, PHYSICAL_TYPE)                                   \
+//    case NUMERIC_TYPE:                                                                            \
+//        if constexpr (!std::is_same_v<T, ParquetInt96>) {                                         \
+//            return _decode_numeric<CPP_NUMERIC_TYPE, T, has_filter>(doris_column, select_vector); \
+//        }
+//            FOR_LOGICAL_NUMERIC_TYPES(DISPATCH)
+//#undef DISPATCH
+//        case TypeIndex::Int128:
+//            return _decode_numeric<Int128, T, has_filter>(doris_column, select_vector);
+//            break;
+//        case TypeIndex::Date:
+//            if constexpr (std::is_same_v<T, Int32>) {
+//                return _decode_date<VecDateTimeValue, Int64, has_filter>(doris_column,
+//                                                                         select_vector);
+//            }
+//            break;
+//        case TypeIndex::DateV2:
+//            if constexpr (std::is_same_v<T, Int32>) {
+//                return _decode_date<DateV2Value<DateV2ValueType>, UInt32, has_filter>(
+//                        doris_column, select_vector);
+//            }
+//            break;
+//        case TypeIndex::DateTime:
+//            if constexpr (std::is_same_v<T, ParquetInt96>) {
+//                return _decode_datetime96<VecDateTimeValue, Int64, has_filter>(doris_column,
+//                                                                               select_vector);
+//            } else if constexpr (std::is_same_v<T, Int64>) {
+//                return _decode_datetime64<VecDateTimeValue, Int64, has_filter>(doris_column,
+//                                                                               select_vector);
+//            }
+//            break;
+//        case TypeIndex::DateTimeV2:
+//            // Spark can set the timestamp precision by the following configuration:
+//            // spark.sql.parquet.outputTimestampType = INT96(NANOS), TIMESTAMP_MICROS, TIMESTAMP_MILLIS
+//            if constexpr (std::is_same_v<T, ParquetInt96>) {
+//                return _decode_datetime96<DateV2Value<DateTimeV2ValueType>, UInt64, has_filter>(
+//                        doris_column, select_vector);
+//            } else if constexpr (std::is_same_v<T, Int64>) {
+//                return _decode_datetime64<DateV2Value<DateTimeV2ValueType>, UInt64, has_filter>(
+//                        doris_column, select_vector);
+//            }
+//            break;
+//        case TypeIndex::Decimal32:
+//            if constexpr (std::is_same_v<T, Int32>) {
+//                return _decode_primitive_decimal<Int32, Int32, has_filter>(doris_column, data_type,
+//                                                                           select_vector);
+//            } else if constexpr (std::is_same_v<T, Int64>) {
+//                return _decode_primitive_decimal<Int32, Int64, has_filter>(doris_column, data_type,
+//                                                                           select_vector);
+//            }
+//            break;
+//        case TypeIndex::Decimal64:
+//            if constexpr (std::is_same_v<T, Int32>) {
+//                return _decode_primitive_decimal<Int64, Int32, has_filter>(doris_column, data_type,
+//                                                                           select_vector);
+//            } else if constexpr (std::is_same_v<T, Int64>) {
+//                return _decode_primitive_decimal<Int64, Int64, has_filter>(doris_column, data_type,
+//                                                                           select_vector);
+//            }
+//            break;
+//        case TypeIndex::Decimal128:
+//            if constexpr (std::is_same_v<T, Int32>) {
+//                return _decode_primitive_decimal<Int128, Int32, has_filter>(doris_column, data_type,
+//                                                                            select_vector);
+//            } else if constexpr (std::is_same_v<T, Int64>) {
+//                return _decode_primitive_decimal<Int128, Int64, has_filter>(doris_column, data_type,
+//                                                                            select_vector);
+//            }
+//            break;
+//        case TypeIndex::Decimal128I:
+//            if constexpr (std::is_same_v<T, Int32>) {
+//                return _decode_primitive_decimal<Int128, Int32, has_filter>(doris_column, data_type,
+//                                                                            select_vector);
+//            } else if constexpr (std::is_same_v<T, Int64>) {
+//                return _decode_primitive_decimal<Int128, Int64, has_filter>(doris_column, data_type,
+//                                                                            select_vector);
+//            }
+//            break;
+//        case TypeIndex::String:
+//            [[fallthrough]];
+//        case TypeIndex::FixedString:
+//            break;
+//        default:
+//            break;
+//        }
+//        return Status::InvalidArgument(
+//                "Can't decode parquet physical type {} to doris logical type {}",
+//                tparquet::to_string(_physical_type), getTypeName(logical_type));
+//
+//        return Status::OK();
     }
 
     Status set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t length, size_t num_values) override {
