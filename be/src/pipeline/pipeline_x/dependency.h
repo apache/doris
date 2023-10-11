@@ -678,8 +678,6 @@ struct SetSharedState {
     std::vector<bool> probe_finished_children_index; // use in probe side
 
     /// init in probe side
-    //record build column type
-    vectorized::DataTypes left_table_data_types;
     std::vector<vectorized::VExprContextSPtrs> probe_child_exprs_lists;
 
     std::atomic<bool> ready_for_read = false;

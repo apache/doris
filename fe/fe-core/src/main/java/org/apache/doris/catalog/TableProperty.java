@@ -58,6 +58,7 @@ public class TableProperty implements Writable {
     private DynamicPartitionProperty dynamicPartitionProperty = new DynamicPartitionProperty(Maps.newHashMap());
     private ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
     private boolean isInMemory = false;
+    private short minLoadReplicaNum = -1;
 
     private String storagePolicy = "";
     private Boolean isBeingSynced = null;
@@ -121,6 +122,7 @@ public class TableProperty implements Writable {
                 break;
             case OperationType.OP_MODIFY_IN_MEMORY:
                 buildInMemory();
+                buildMinLoadReplicaNum();
                 buildStoragePolicy();
                 buildIsBeingSynced();
                 buildCompactionPolicy();
@@ -273,6 +275,16 @@ public class TableProperty implements Writable {
 
     public long timeSeriesCompactionTimeThresholdSeconds() {
         return timeSeriesCompactionTimeThresholdSeconds;
+    }
+
+    public TableProperty buildMinLoadReplicaNum() {
+        minLoadReplicaNum = Short.parseShort(
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_MIN_LOAD_REPLICA_NUM, "-1"));
+        return this;
+    }
+
+    public short getMinLoadReplicaNum() {
+        return minLoadReplicaNum;
     }
 
     public TableProperty buildStoragePolicy() {
@@ -487,6 +499,7 @@ public class TableProperty implements Writable {
         TableProperty tableProperty = GsonUtils.GSON.fromJson(Text.readString(in), TableProperty.class)
                 .executeBuildDynamicProperty()
                 .buildInMemory()
+                .buildMinLoadReplicaNum()
                 .buildStorageFormat()
                 .buildDataSortInfo()
                 .buildCompressionType()
