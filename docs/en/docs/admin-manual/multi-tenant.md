@@ -163,8 +163,8 @@ At present, Doris's resource restrictions on single queries are mainly divided i
     set exec_mem_limit=1G;
     # Set the global variable exec_mem_limit. Then all subsequent queries of all new sessions (new connections) use this memory limit.
     set global exec_mem_limit=1G;
-    # Set the variable exec_mem_limit in SQL. Then the variable only affects this SQL.
-    select /*+ SET_VAR(exec_mem_limit=1G) */ id, name from tbl where xxx;
+    # Set the variable exec_mem_limit in SQL(Unit bytes). Then the variable only affects this SQL.
+    select /*+ SET_VAR(exec_mem_limit=1073741824) */ id, name from tbl where xxx;
     ```
     
     Because Doris' query engine is based on the full-memory MPP query framework. Therefore, when the memory usage of a query exceeds the limit, the query will be terminated. Therefore, when a query cannot run under a reasonable memory limit, we need to solve it through some SQL optimization methods or cluster expansion.

@@ -88,7 +88,8 @@ public class PushdownFilterThroughProjectTest {
         LogicalProperties t1Properties = new LogicalProperties(() -> t1Output);
         PhysicalOlapScan scan = new PhysicalOlapScan(RelationId.createGenerator().getNextId(), t1,
                 qualifier, 0L, Collections.emptyList(), Collections.emptyList(), null,
-                PreAggStatus.on(), ImmutableList.of(), Optional.empty(), t1Properties);
+                PreAggStatus.on(), ImmutableList.of(), Optional.empty(), t1Properties,
+                Optional.empty());
         Alias x = new Alias(a, "x");
         List<NamedExpression> projList3 = Lists.newArrayList(x, b, c);
         PhysicalProject proj3 = new PhysicalProject(projList3, placeHolder, scan);

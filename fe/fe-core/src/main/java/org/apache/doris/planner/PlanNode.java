@@ -41,6 +41,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.ProfileStatistics;
 import org.apache.doris.statistics.PlanStats;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsDeriveResult;
@@ -570,6 +571,62 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
                 expBuilder.append(childDetailPrefix + "\n");
             }
             expBuilder.append(children.get(0).getExplainString(prefix, prefix, detailLevel));
+        }
+        return expBuilder.toString();
+    }
+
+    protected final String getExplainStringToProfile(String rootPrefix, String prefix, TExplainLevel detailLevel,
+            ProfileStatistics statistics) {
+        StringBuilder expBuilder = new StringBuilder();
+        String detailPrefix = prefix;
+        boolean traverseChildren = children != null
+                && children.size() > 0
+                && !(this instanceof ExchangeNode);
+        // if (children != null && children.size() > 0) {
+        if (traverseChildren) {
+            detailPrefix += "|  ";
+        } else {
+            detailPrefix += "   ";
+        }
+
+        // Print the current node
+        // The plan node header line will be prefixed by rootPrefix and the remaining
+        // details
+        // will be prefixed by detailPrefix.
+        expBuilder.append(rootPrefix + id.asInt() + ":" + planNodeName + "\n");
+        expBuilder.append(getNodeExplainString(detailPrefix, detailLevel));
+        statistics.getInfoById(id.asInt(), detailPrefix, expBuilder);
+        if (limit != -1) {
+            expBuilder.append(detailPrefix + "limit: " + limit + "\n");
+        }
+        if (!CollectionUtils.isEmpty(projectList)) {
+            expBuilder.append(detailPrefix).append("projections: ").append(getExplainString(projectList)).append("\n");
+            expBuilder.append(detailPrefix).append("project output tuple id: ")
+                    .append(outputTupleDesc.getId().asInt()).append("\n");
+        }
+        // Output Tuple Ids only when explain plan level is set to verbose
+        if (detailLevel.equals(TExplainLevel.VERBOSE)) {
+            expBuilder.append(detailPrefix + "tuple ids: ");
+            for (TupleId tupleId : tupleIds) {
+                String nullIndicator = nullableTupleIds.contains(tupleId) ? "N" : "";
+                expBuilder.append(tupleId.asInt() + nullIndicator + " ");
+            }
+            expBuilder.append("\n");
+        }
+
+        // Print the children
+        // if (children != null && children.size() > 0) {
+        if (traverseChildren) {
+            expBuilder.append(detailPrefix + "\n");
+            String childHeadlinePrefix = prefix + "|----";
+            String childDetailPrefix = prefix + "|    ";
+            for (int i = 1; i < children.size(); ++i) {
+                expBuilder.append(
+                        children.get(i).getExplainStringToProfile(childHeadlinePrefix, childDetailPrefix,
+                                detailLevel, statistics));
+                expBuilder.append(childDetailPrefix + "\n");
+            }
+            expBuilder.append(children.get(0).getExplainStringToProfile(prefix, prefix, detailLevel, statistics));
         }
         return expBuilder.toString();
     }

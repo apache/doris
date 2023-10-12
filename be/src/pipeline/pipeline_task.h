@@ -117,16 +117,18 @@ public:
                  PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile);
     virtual ~PipelineTask() = default;
 
+    PipelineTask() = default;
+
     virtual Status prepare(RuntimeState* state);
 
     virtual Status execute(bool* eos);
 
     // Try to close this pipeline task. If there are still some resources need to be released after `try_close`,
     // this task will enter the `PENDING_FINISH` state.
-    virtual Status try_close();
+    virtual Status try_close(Status exec_status);
     // if the pipeline create a bunch of pipeline task
     // must be call after all pipeline task is finish to release resource
-    virtual Status close();
+    virtual Status close(Status exec_status);
 
     void put_in_runnable_queue() {
         _schedule_time++;
@@ -193,6 +195,7 @@ public:
     void set_task_queue(TaskQueue* task_queue);
 
     static constexpr auto THREAD_TIME_SLICE = 100'000'000ULL;
+    static constexpr auto THREAD_TIME_SLICE_US = 100000L; // 100ms
 
     // 1 used for update priority queue
     // note(wb) an ugly implementation, need refactor later
@@ -246,6 +249,17 @@ public:
 
     TUniqueId instance_id() const { return _state->fragment_instance_id(); }
 
+    void set_empty_task(bool is_empty_task) { _is_empty_task = is_empty_task; }
+
+    bool is_empty_task() const { return _is_empty_task; }
+
+    void yield();
+
+    void set_task_group_entity(
+            taskgroup::TaskGroupEntity<std::queue<pipeline::PipelineTask*>>* empty_group_entity) {
+        _empty_group_entity = empty_group_entity;
+    }
+
 protected:
     void _finish_p_dependency() {
         for (const auto& p : _pipeline->_parents) {
@@ -284,6 +298,12 @@ protected:
     int _core_id = 0;
 
     bool _try_close_flag = false;
+
+    bool _is_empty_task = false;
+    taskgroup::TaskGroupEntity<std::queue<pipeline::PipelineTask*>>* _empty_group_entity;
+    int _core_num = CpuInfo::num_cores();
+    int _total_query_thread_num =
+            config::doris_scanner_thread_pool_thread_num + config::pipeline_executor_size;
 
     RuntimeProfile* _parent_profile;
     std::unique_ptr<RuntimeProfile> _task_profile;

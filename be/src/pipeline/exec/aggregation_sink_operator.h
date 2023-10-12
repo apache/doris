@@ -52,11 +52,11 @@ template <typename DependencyType, typename Derived>
 class AggSinkLocalState : public PipelineXSinkLocalState<DependencyType> {
 public:
     using Base = PipelineXSinkLocalState<DependencyType>;
-    virtual ~AggSinkLocalState() = default;
+    ~AggSinkLocalState() override = default;
 
-    virtual Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
-    virtual Status close(RuntimeState* state) override;
+    Status close(RuntimeState* state, Status exec_status) override;
 
     Status try_spill_disk(bool eos = false);
 
@@ -205,7 +205,7 @@ protected:
                 Base::_shared_state->spill_context.runtime_profile));
         Defer defer {[&]() {
             // redundant call is ok
-            writer->close();
+            static_cast<void>(writer->close());
         }};
         Base::_shared_state->spill_context.stream_ids.emplace_back(writer->get_id());
 
@@ -234,7 +234,7 @@ protected:
             if (blocks_rows[i] == 0) {
                 /// Here write one empty block to ensure there are enough blocks in the file,
                 /// blocks' count should be equal with partition_count.
-                writer->write(block_to_write);
+                static_cast<void>(writer->write(block_to_write));
                 continue;
             }
 
@@ -332,7 +332,7 @@ template <typename LocalStateType = BlockingAggSinkLocalState>
 class AggSinkOperatorX : public DataSinkOperatorX<LocalStateType> {
 public:
     AggSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    virtual ~AggSinkOperatorX() = default;
+    ~AggSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",
                                      DataSinkOperatorX<LocalStateType>::_name);
@@ -343,8 +343,8 @@ public:
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
-    virtual Status sink(RuntimeState* state, vectorized::Block* in_block,
-                        SourceState source_state) override;
+    Status sink(RuntimeState* state, vectorized::Block* in_block,
+                SourceState source_state) override;
 
     using DataSinkOperatorX<LocalStateType>::id;
 

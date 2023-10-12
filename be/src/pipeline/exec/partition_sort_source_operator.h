@@ -61,6 +61,8 @@ public:
 
     Status init(RuntimeState* state, LocalStateInfo& info) override {
         RETURN_IF_ERROR(PipelineXLocalState<PartitionSortDependency>::init(state, info));
+        SCOPED_TIMER(profile()->total_time_counter());
+        SCOPED_TIMER(_open_timer);
         _get_next_timer = ADD_TIMER(profile(), "GetResultTime");
         _get_sorted_timer = ADD_TIMER(profile(), "GetSortedTime");
         _shared_state->previous_row = std::make_unique<vectorized::SortCursorCmp>();
@@ -73,7 +75,7 @@ public:
 
 private:
     friend class PartitionSortSourceOperatorX;
-    RuntimeProfile::Counter* _get_sorted_timer;
+    RuntimeProfile::Counter* _get_sorted_timer = nullptr;
     RuntimeProfile::Counter* _get_next_timer = nullptr;
 };
 

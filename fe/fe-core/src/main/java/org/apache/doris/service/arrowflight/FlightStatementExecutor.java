@@ -21,21 +21,15 @@
 package org.apache.doris.service.arrowflight;
 
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types;
-import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.thrift.TResultSinkType;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -55,8 +49,8 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-public final class FlightStatementExecutor {
-    private AutoCloseConnectContext acConnectContext;
+public final class FlightStatementExecutor implements AutoCloseable {
+    private ConnectContext connectContext;
     private final String query;
     private TUniqueId queryId;
     private TUniqueId finstId;
@@ -64,9 +58,10 @@ public final class FlightStatementExecutor {
     private TNetworkAddress resultInternalServiceAddr;
     private ArrayList<Expr> resultOutputExprs;
 
-    public FlightStatementExecutor(final String query) {
+    public FlightStatementExecutor(final String query, ConnectContext connectContext) {
         this.query = query;
-        acConnectContext = buildConnectContext();
+        this.connectContext = connectContext;
+        connectContext.setThreadLocalInfo();
     }
 
     public void setQueryId(TUniqueId queryId) {
@@ -126,29 +121,14 @@ public final class FlightStatementExecutor {
         return Objects.hash(this);
     }
 
-    public static AutoCloseConnectContext buildConnectContext() {
-        ConnectContext connectContext = new ConnectContext();
-        SessionVariable sessionVariable = connectContext.getSessionVariable();
-        sessionVariable.internalSession = true;
-        sessionVariable.setEnablePipelineEngine(false); // TODO
-        sessionVariable.setEnablePipelineXEngine(false); // TODO
-        connectContext.setEnv(Env.getCurrentEnv());
-        connectContext.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser()); // TODO
-        connectContext.setCurrentUserIdentity(UserIdentity.ROOT); // TODO
-        connectContext.setStartTime();
-        connectContext.setCluster(SystemInfoService.DEFAULT_CLUSTER);
-        connectContext.setResultSinkType(TResultSinkType.ARROW_FLIGHT_PROTOCAL);
-        return new AutoCloseConnectContext(connectContext);
-    }
-
     public void executeQuery() {
         try {
             UUID uuid = UUID.randomUUID();
             TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
             setQueryId(queryId);
-            acConnectContext.connectContext.setQueryId(queryId);
-            StmtExecutor stmtExecutor = new StmtExecutor(acConnectContext.connectContext, getQuery());
-            acConnectContext.connectContext.setExecutor(stmtExecutor);
+            connectContext.setQueryId(queryId);
+            StmtExecutor stmtExecutor = new StmtExecutor(connectContext, getQuery());
+            connectContext.setExecutor(stmtExecutor);
             stmtExecutor.executeArrowFlightQuery(this);
         } catch (Exception e) {
             throw new RuntimeException("Failed to coord exec", e);
@@ -220,5 +200,10 @@ public final class FlightStatementExecutor {
                     "arrow flight schema fetch timeout, finstId: %s，backend: %s",
                     DebugUtil.printId(tid), address), e);
         }
+    }
+
+    @Override
+    public void close() throws Exception {
+        ConnectContext.remove();
     }
 }

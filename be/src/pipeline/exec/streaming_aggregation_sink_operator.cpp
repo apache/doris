@@ -243,9 +243,7 @@ Status StreamingAggSinkLocalState::_pre_agg_with_serialized_key(
     }
 
     int rows = in_block->rows();
-    if (_places.size() < rows) {
-        _places.resize(rows);
-    }
+    _places.resize(rows);
 
     // Stop expanding hash tables if we're not reducing the input sufficiently. As our
     // hash tables expand out of each level of cache hierarchy, every hash table lookup
@@ -374,7 +372,7 @@ Status StreamingAggSinkOperatorX::sink(RuntimeState* state, vectorized::Block* i
     return Status::OK();
 }
 
-Status StreamingAggSinkLocalState::close(RuntimeState* state) {
+Status StreamingAggSinkLocalState::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return Status::OK();
     }
@@ -387,7 +385,7 @@ Status StreamingAggSinkLocalState::close(RuntimeState* state) {
         COUNTER_SET(_queue_byte_size_counter, _shared_state->data_queue->max_bytes_in_queue());
     }
     _preagg_block.clear();
-    return Base::close(state);
+    return Base::close(state, exec_status);
 }
 
 } // namespace doris::pipeline

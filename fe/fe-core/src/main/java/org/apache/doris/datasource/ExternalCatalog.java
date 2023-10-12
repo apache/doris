@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.DeltaLakeExternalDataBase;
 import org.apache.doris.catalog.external.EsExternalDatabase;
 import org.apache.doris.catalog.external.ExternalDatabase;
@@ -279,8 +280,7 @@ public abstract class ExternalCatalog
         }
         dbNameToId = tmpDbNameToId;
         idToDb = tmpIdToDb;
-        long currentTime = System.currentTimeMillis();
-        lastUpdateTime = currentTime;
+        lastUpdateTime = System.currentTimeMillis();
         initCatalogLog.setLastUpdateTime(lastUpdateTime);
         Env.getCurrentEnv().getEditLog().logInitCatalog(initCatalogLog);
     }
@@ -413,7 +413,6 @@ public abstract class ExternalCatalog
 
     @Override
     public void modifyCatalogProps(Map<String, String> props) {
-        modifyComment(props);
         catalogProperty.modifyCatalogProps(props);
         notifyPropertiesUpdated(props);
     }
@@ -424,11 +423,6 @@ public abstract class ExternalCatalog
 
     public void rollBackCatalogProps(Map<String, String> props) {
         catalogProperty.rollBackCatalogProps(props);
-    }
-
-    private void modifyComment(Map<String, String> props) {
-        setComment(props.getOrDefault("comment", comment));
-        props.remove("comment");
     }
 
     public long getLastUpdateTime() {
@@ -600,7 +594,7 @@ public abstract class ExternalCatalog
     }
 
     @Override
-    public Collection<DatabaseIf> getAllDbs() {
+    public Collection<DatabaseIf<? extends TableIf>> getAllDbs() {
         makeSureInitialized();
         return new HashSet<>(idToDb.values());
     }

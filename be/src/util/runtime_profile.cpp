@@ -52,7 +52,7 @@ RuntimeProfile::RuntimeProfile(const std::string& name, bool is_averaged_profile
           _metadata(-1),
           _timestamp(-1),
           _is_averaged_profile(is_averaged_profile),
-          _counter_total_time(TUnit::TIME_NS, 0),
+          _counter_total_time(TUnit::TIME_NS, 0, 1),
           _local_time_percent(0) {
     _counter_map["TotalTime"] = &_counter_total_time;
 }
@@ -278,6 +278,12 @@ RuntimeProfile* RuntimeProfile::create_child(const std::string& name, bool inden
     std::lock_guard<std::mutex> l(_children_lock);
     DCHECK(_child_map.find(name) == _child_map.end());
     RuntimeProfile* child = _pool->add(new RuntimeProfile(name));
+    if (this->is_set_metadata()) {
+        child->set_metadata(this->metadata());
+    }
+    if (this->is_set_sink()) {
+        child->set_is_sink(this->is_sink());
+    }
     if (_children.empty()) {
         add_child_unlock(child, indent, nullptr);
     } else {
@@ -405,7 +411,8 @@ std::shared_ptr<RuntimeProfile::HighWaterMarkCounter> RuntimeProfile::AddSharedH
 }
 
 RuntimeProfile::Counter* RuntimeProfile::add_counter(const std::string& name, TUnit::type type,
-                                                     const std::string& parent_counter_name) {
+                                                     const std::string& parent_counter_name,
+                                                     int64_t level) {
     std::lock_guard<std::mutex> l(_counter_map_lock);
 
     // TODO(yingchun): Can we ensure that 'name' is not exist in '_counter_map'? Use CHECK instead?
@@ -416,7 +423,7 @@ RuntimeProfile::Counter* RuntimeProfile::add_counter(const std::string& name, TU
 
     DCHECK(parent_counter_name == ROOT_COUNTER ||
            _counter_map.find(parent_counter_name) != _counter_map.end());
-    Counter* counter = _pool->add(new Counter(type, 0));
+    Counter* counter = _pool->add(new Counter(type, 0, level));
     _counter_map[name] = counter;
     std::set<std::string>* child_counters =
             find_or_insert(&_child_counter_map, parent_counter_name, std::set<std::string>());
@@ -631,7 +638,9 @@ void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes) {
     node.metadata = _metadata;
     node.timestamp = _timestamp;
     node.indent = true;
-
+    if (this->is_set_sink()) {
+        node.__set_is_sink(this->is_sink());
+    }
     CounterMap counter_map;
     {
         std::lock_guard<std::mutex> l(_counter_map_lock);
@@ -645,6 +654,7 @@ void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes) {
         counter.name = iter->first;
         counter.value = iter->second->value();
         counter.type = iter->second->type();
+        counter.__set_level(iter->second->level());
         node.counters.push_back(counter);
     }
 

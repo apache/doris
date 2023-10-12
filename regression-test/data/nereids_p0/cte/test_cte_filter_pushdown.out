@@ -10,7 +10,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalResultSink
 ----PhysicalDistribute
 ------PhysicalProject
---------hashJoin[INNER_JOIN](m1.k1 = m2.k1)
+--------hashJoin[INNER_JOIN] hashCondition=((m1.k1 = m2.k1))otherCondition=()
 ----------PhysicalDistribute
 ------------filter((temp.k1 = 1))
 --------------PhysicalCteConsumer ( cteId=CTEId#0 )
@@ -32,7 +32,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalResultSink
 ----PhysicalDistribute
 ------PhysicalProject
---------hashJoin[INNER_JOIN](m1.k1 = m2.k1)
+--------hashJoin[INNER_JOIN] hashCondition=((m1.k1 = m2.k1))otherCondition=()
 ----------PhysicalDistribute
 ------------filter((temp.k1 = 1))
 --------------PhysicalCteConsumer ( cteId=CTEId#0 )

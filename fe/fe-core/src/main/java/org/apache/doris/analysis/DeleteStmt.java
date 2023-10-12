@@ -131,7 +131,7 @@ public class DeleteStmt extends DdlStmt {
             try {
                 analyzePredicate(wherePredicate, analyzer);
                 checkDeleteConditions();
-            } catch (Exception e) {
+            } catch (AnalysisException e) {
                 if (!(((OlapTable) targetTable).getKeysType() == KeysType.UNIQUE_KEYS)) {
                     throw new AnalysisException(e.getMessage(), e.getCause());
                 }
@@ -201,7 +201,8 @@ public class DeleteStmt extends DdlStmt {
                 cols,
                 new InsertSource(selectStmt),
                 null,
-                isPartialUpdate);
+                isPartialUpdate,
+                NativeInsertStmt.InsertType.DELETE);
         ((NativeInsertStmt) insertStmt).setIsFromDeleteOrUpdateStmt(true);
     }
 
@@ -332,6 +333,14 @@ public class DeleteStmt extends DdlStmt {
             }
 
             Column column = nameToColumn.get(columnName);
+            // TODO(Now we can not push down non-scala type like array/map/struct to storage layer because of
+            //  predict_column in be not support non-scala type, so we just should ban this type in delete predict, when
+            //  we delete predict_column in be we should delete this ban)
+            if (!column.getType().isScalarType()) {
+                throw new AnalysisException(String.format("Can not apply delete condition to column type: %s ",
+                        column.getType()));
+
+            }
             // Due to rounding errors, most floating-point numbers end up being slightly imprecise,
             // it also means that numbers expected to be equal often differ slightly, so we do not allow compare with
             // floating-point numbers, floating-point number not allowed in where clause

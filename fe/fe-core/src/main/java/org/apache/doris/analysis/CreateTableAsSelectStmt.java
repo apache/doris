@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
@@ -82,8 +83,9 @@ public class CreateTableAsSelectStmt extends DdlStmt {
         Preconditions.checkArgument(outputs.size() == queryStmt.getResultExprs().size());
         for (int i = 0; i < outputs.size(); ++i) {
             if (queryStmt.getResultExprs().get(i).getSrcSlotRef() != null) {
-                queryStmt.getResultExprs().get(i).getSrcSlotRef().getColumn()
-                        .setIsAllowNull(outputs.get(i).isNullable());
+                Column columnCopy =  new Column(queryStmt.getResultExprs().get(i).getSrcSlotRef().getColumn());
+                columnCopy.setIsAllowNull(outputs.get(i).isNullable());
+                queryStmt.getResultExprs().get(i).getSrcSlotRef().getDesc().setColumn(columnCopy);
             }
             if (Config.enable_date_conversion) {
                 if (queryStmt.getResultExprs().get(i).getType() == Type.DATE) {

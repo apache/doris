@@ -90,7 +90,7 @@ public class ResourceTagQueryTest {
     public static void beforeClass() throws Exception {
         System.out.println(runningDir);
         FeConstants.runningUnitTest = true;
-        FeConstants.tablet_checker_interval_ms = 1000;
+        Config.tablet_checker_interval_ms = 1000;
         Config.tablet_repair_delay_factor_second = 1;
         // 5 backends:
         // 127.0.0.1

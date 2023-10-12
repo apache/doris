@@ -47,6 +47,31 @@ pluginPath = "${DORIS_HOME}/regression-test/plugins"
 realDataPath = "${DORIS_HOME}/regression-test/realdata"
 sslCertificatePath = "${DORIS_HOME}/regression-test/ssl_default_certificate"
 
+// suite configs
+suites = {
+
+    //// equals to:
+    ////    suites.test_suite_1.key1 = "val1"
+    ////    suites.test_suite_1.key2 = "val2"
+    ////
+    //test_suite_1 {
+    //    key1 = "val1"
+    //    key2 = "val2"
+    //}
+
+    //test_suite_2 {
+    //    key3 = "val1"
+    //    key4 = "val2"
+    //}
+}
+
+// docker image
+image = ""
+dockerEndDeleteFiles = false
+dorisComposePath = "${DORIS_HOME}/docker/runtime/doris-compose/doris-compose.py"
+// do run docker test because pipeline not support build image now
+excludeDockerTest = true
+
 // will test <group>/<suite>.groovy
 // empty group will test all group
 testGroups = ""

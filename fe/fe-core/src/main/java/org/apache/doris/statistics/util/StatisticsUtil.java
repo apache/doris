@@ -174,6 +174,7 @@ public class StatisticsUtil {
         sessionVariable.setMaxExecMemByte(Config.statistics_sql_mem_limit_in_bytes);
         sessionVariable.cpuResourceLimit = Config.cpu_resource_limit_per_analyze_task;
         sessionVariable.setEnableInsertStrict(true);
+        sessionVariable.enablePageCache = false;
         sessionVariable.parallelExecInstanceNum = Config.statistics_sql_parallel_exec_instance_num;
         sessionVariable.parallelPipelineTaskNum = Config.statistics_sql_parallel_exec_instance_num;
         sessionVariable.setEnableNereidsPlanner(false);
@@ -649,8 +650,8 @@ public class StatisticsUtil {
         TableScan tableScan = table.newScan().includeColumnStats();
         ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder();
         columnStatisticBuilder.setCount(0);
-        columnStatisticBuilder.setMaxValue(Double.MAX_VALUE);
-        columnStatisticBuilder.setMinValue(Double.MIN_VALUE);
+        columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
+        columnStatisticBuilder.setMinValue(Double.NEGATIVE_INFINITY);
         columnStatisticBuilder.setDataSize(0);
         columnStatisticBuilder.setAvgSizeByte(0);
         columnStatisticBuilder.setNumNulls(0);
@@ -729,15 +730,14 @@ public class StatisticsUtil {
         return table instanceof ExternalTable;
     }
 
-    public static boolean checkAnalyzeTime(LocalTime now) {
+    public static boolean inAnalyzeTime(LocalTime now) {
         try {
             Pair<LocalTime, LocalTime> range = findRangeFromGlobalSessionVar();
-            DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss");
-            LocalTime start = range == null
-                    ? LocalTime.parse(Config.full_auto_analyze_start_time, timeFormatter) : range.first;
-            LocalTime end = range == null
-                    ? LocalTime.parse(Config.full_auto_analyze_end_time, timeFormatter) : range.second;
-
+            if (range == null) {
+                return false;
+            }
+            LocalTime start = range.first;
+            LocalTime end = range.second;
             if (start.isAfter(end) && (now.isAfter(start) || now.isBefore(end))) {
                 return true;
             } else {
@@ -754,13 +754,14 @@ public class StatisticsUtil {
             String startTime =
                     findRangeFromGlobalSessionVar(SessionVariable.FULL_AUTO_ANALYZE_START_TIME)
                             .fullAutoAnalyzeStartTime;
+            // For compatibility
             if (StringUtils.isEmpty(startTime)) {
-                return null;
+                startTime = StatisticConstants.FULL_AUTO_ANALYZE_START_TIME;
             }
             String endTime = findRangeFromGlobalSessionVar(SessionVariable.FULL_AUTO_ANALYZE_END_TIME)
                     .fullAutoAnalyzeEndTime;
             if (StringUtils.isEmpty(startTime)) {
-                return null;
+                endTime = StatisticConstants.FULL_AUTO_ANALYZE_END_TIME;
             }
             DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss");
             return Pair.of(LocalTime.parse(startTime, timeFormatter), LocalTime.parse(endTime, timeFormatter));
@@ -774,5 +775,14 @@ public class StatisticsUtil {
         VariableExpr variableExpr = new VariableExpr(varName, SetType.GLOBAL);
         VariableMgr.getValue(sessionVariable, variableExpr);
         return sessionVariable;
+    }
+
+    public static boolean enableAutoAnalyze() {
+        try {
+            return findRangeFromGlobalSessionVar(SessionVariable.ENABLE_FULL_AUTO_ANALYZE).enableFullAutoAnalyze;
+        } catch (Exception e) {
+            LOG.warn("Fail to get value of enable auto analyze, return false by default", e);
+        }
+        return false;
     }
 }

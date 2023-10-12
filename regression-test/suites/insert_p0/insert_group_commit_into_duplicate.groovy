@@ -20,7 +20,7 @@ suite("insert_group_commit_into_duplicate") {
 
     def getRowCount = { expectedRowCount ->
         def retry = 0
-        while (retry < 10) {
+        while (retry < 30) {
             sleep(2000)
             def rowCount = sql "select count(*) from ${table}"
             logger.info("rowCount: " + rowCount + ", retry: " + retry)

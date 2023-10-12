@@ -105,6 +105,7 @@ suite("test_nested_types_insert_into_with_agg_table", "p0") {
     }
 
     qt_sql_nested_table_agg_c """select count() from tbl_array_nested_types_agg;"""
+    qt_sql_nested_table_agg """select * from tbl_array_nested_types_agg;"""
 
     // test action for scala to array with array-scala type
     test {
@@ -188,6 +189,7 @@ suite("test_nested_types_insert_into_with_agg_table", "p0") {
     }
 
     qt_sql_nested_table_agg2_c """select count() from tbl_array_nested_types_agg2;"""
+    qt_sql_nested_table_agg2 """select * from tbl_array_nested_types_agg2;"""
 
 
     // test action for scala to map with map-scala-scala type
@@ -272,6 +274,7 @@ suite("test_nested_types_insert_into_with_agg_table", "p0") {
     }
 
     qt_sql_nested_table_map_agg_c """select count() from tbl_map_types_agg;"""
+    qt_sql_nested_table_map_agg """select * from tbl_map_types_agg;"""
 
     // test action for scala to array with map-scala-scala type
     test {
@@ -355,6 +358,7 @@ suite("test_nested_types_insert_into_with_agg_table", "p0") {
     }
 
     qt_sql_nested_table_array_map_agg_c """select count() from tbl_array_map_types_agg;"""
+    qt_sql_nested_table_array_map_agg """select * from tbl_array_map_types_agg;"""
 
     // test action for map with scala array-scala
     // test action for scala to array with array-scala type
@@ -439,5 +443,6 @@ suite("test_nested_types_insert_into_with_agg_table", "p0") {
     }
 
     qt_sql_nested_table_map_array_agg_c """select count() from tbl_map_array_types_agg;"""
+    qt_sql_nested_table_map_array_agg """select * from tbl_map_array_types_agg;"""
 
 }

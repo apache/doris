@@ -82,7 +82,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         static const double min = 0.0;
         static const double max = 1.0;
         auto res_column = ColumnFloat64::create(input_rows_count);

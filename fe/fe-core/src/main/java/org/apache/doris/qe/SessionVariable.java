@@ -112,7 +112,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_BUCKET_SHUFFLE_JOIN = "enable_bucket_shuffle_join";
     public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM = "parallel_fragment_exec_instance_num";
     public static final String PARALLEL_PIPELINE_TASK_NUM = "parallel_pipeline_task_num";
-    public static final String ENABLE_SIMPLY_PROFILE = "enable_simply_profile";
+    public static final String PROFILE_LEVEL = "profile_level";
     public static final String MAX_INSTANCE_NUM = "max_instance_num";
     public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
     public static final String ENABLE_SPILLING = "enable_spilling";
@@ -414,6 +414,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String TEST_QUERY_CACHE_HIT = "test_query_cache_hit";
 
+    public static final String ENABLE_FULL_AUTO_ANALYZE = "enable_full_auto_analyze";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -621,8 +623,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = PARALLEL_PIPELINE_TASK_NUM, fuzzy = true, needForward = true)
     public int parallelPipelineTaskNum = 0;
 
-    @VariableMgr.VarAttr(name = ENABLE_SIMPLY_PROFILE, fuzzy = true)
-    public boolean enableSimplyProfile = true;
+    @VariableMgr.VarAttr(name = PROFILE_LEVEL, fuzzy = true)
+    public int profileLevel = 3;
 
     @VariableMgr.VarAttr(name = MAX_INSTANCE_NUM)
     public int maxInstanceNum = 64;
@@ -687,7 +689,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean extractWideRangeExpr = true;
 
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_DML, needForward = true)
-    public boolean enableNereidsDML = false;
+    public boolean enableNereidsDML = true;
 
     @VariableMgr.VarAttr(name = ENABLE_STRICT_CONSISTENCY_DML, needForward = true)
     public boolean enableStrictConsistencyDml = false;
@@ -904,7 +906,7 @@ public class SessionVariable implements Serializable, Writable {
     private double broadcastHashtableMemLimitPercentage = 0.2;
 
     @VariableMgr.VarAttr(name = ENABLE_RUNTIME_FILTER_PRUNE, needForward = true)
-    public boolean enableRuntimeFilterPrune = false;
+    public boolean enableRuntimeFilterPrune = true;
 
     /**
      * The client can pass some special information by setting this session variable in the format: "k1:v1;k2:v2".
@@ -1199,13 +1201,13 @@ public class SessionVariable implements Serializable, Writable {
             description = {"该参数定义自动ANALYZE例程的开始时间",
                     "This parameter defines the start time for the automatic ANALYZE routine."},
             flag = VariableMgr.GLOBAL)
-    public String fullAutoAnalyzeStartTime = "";
+    public String fullAutoAnalyzeStartTime = "00:00:00";
 
     @VariableMgr.VarAttr(name = FULL_AUTO_ANALYZE_END_TIME, needForward = true, checker = "checkAnalyzeTimeFormat",
             description = {"该参数定义自动ANALYZE例程的结束时间",
                     "This parameter defines the end time for the automatic ANALYZE routine."},
             flag = VariableMgr.GLOBAL)
-    public String fullAutoAnalyzeEndTime = "";
+    public String fullAutoAnalyzeEndTime = "02:00:00";
 
     @VariableMgr.VarAttr(name = ENABLE_UNIQUE_KEY_PARTIAL_UPDATE, needForward = true)
     public boolean enableUniqueKeyPartialUpdate = false;
@@ -1216,6 +1218,11 @@ public class SessionVariable implements Serializable, Writable {
                     + "If the specified type of cache is not hit, an error will be reported."},
             options = {"none", "sql_cache", "partition_cache"})
     public String testQueryCacheHit = "none";
+
+    @VariableMgr.VarAttr(name = ENABLE_FULL_AUTO_ANALYZE,
+            description = {"该参数控制是否开启自动收集", "Set false to disable auto analyze"},
+            flag = VariableMgr.GLOBAL)
+    public boolean enableFullAutoAnalyze = true;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -1647,7 +1654,7 @@ public class SessionVariable implements Serializable, Writable {
             int size = Env.getCurrentSystemInfo().getMinPipelineExecutorSize();
             int autoInstance = (size + 1) / 2;
             return Math.min(autoInstance, maxInstanceNum);
-        } else if (enablePipelineEngine) {
+        } else if (getEnablePipelineEngine()) {
             return parallelPipelineTaskNum;
         } else {
             return parallelExecInstanceNum;
@@ -2669,7 +2676,7 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
-    public boolean getEnableSimplyProfile() {
-        return this.enableSimplyProfile;
+    public int getProfileLevel() {
+        return this.profileLevel;
     }
 }

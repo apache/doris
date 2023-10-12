@@ -23,7 +23,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.TableStats;
+import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.collect.Lists;
@@ -138,7 +138,7 @@ public interface TableIf {
 
     Optional<ColumnStatistic> getColumnStatistic(String colName);
 
-    boolean needReAnalyzeTable(TableStats tblStats);
+    boolean needReAnalyzeTable(TableStatsMeta tblStats);
 
     Map<String, Set<String>> findReAnalyzeNeededPartitions();
 
@@ -246,7 +246,7 @@ public interface TableIf {
         return -1L;
     }
 
-    default long getDataSize() {
+    default long getDataSize(boolean singleReplica) {
         // TODO: Each tableIf should impl it by itself.
         return 0;
     }

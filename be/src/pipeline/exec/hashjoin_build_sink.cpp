@@ -77,6 +77,10 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
             profile()->add_info_string("ShareHashTableEnabled", "false");
         }
     }
+    if (!_should_build_hash_table) {
+        _shared_hash_table_dependency->block_writing();
+        p._shared_hashtable_controller->append_dependency(p.id(), _shared_hash_table_dependency);
+    }
 
     _memory_usage_counter = ADD_LABEL_COUNTER(profile(), "MemoryUsage");
 
@@ -135,8 +139,8 @@ Status HashJoinBuildSinkLocalState::open(RuntimeState* state) {
 void HashJoinBuildSinkLocalState::init_short_circuit_for_probe() {
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
     _shared_state->short_circuit_for_probe =
-            (_short_circuit_for_null_in_probe_side &&
-             p._join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) ||
+            (_shared_state->_has_null_in_build_side &&
+             p._join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN && !p._is_mark_join) ||
             (_shared_state->build_blocks->empty() && p._join_op == TJoinOp::INNER_JOIN &&
              !p._is_mark_join) ||
             (_shared_state->build_blocks->empty() && p._join_op == TJoinOp::LEFT_SEMI_JOIN &&
@@ -200,7 +204,7 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
                                         has_null_value || short_circuit_for_null_in_build_side
                                                 ? &null_map_val->get_data()
                                                 : nullptr,
-                                        &_short_circuit_for_null_in_probe_side);
+                                        &_shared_state->_has_null_in_build_side);
                     }},
             *_shared_state->hash_table_variants,
             vectorized::make_bool_variant(_build_side_ignore_null),
@@ -410,15 +414,6 @@ Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
         _build_expr_ctxs.push_back(ctx);
 
         const auto vexpr = _build_expr_ctxs.back()->root();
-        const auto& data_type = vexpr->data_type();
-
-        if (!data_type->have_maximum_size_of_value()) {
-            break;
-        }
-
-        auto is_null = data_type->is_nullable();
-        _build_key_sz.push_back(data_type->get_maximum_size_of_value_in_memory() -
-                                (is_null ? 1 : 0));
 
         bool null_aware = eq_join_conjunct.__isset.opcode &&
                           eq_join_conjunct.opcode == TExprOpcode::EQ_FOR_NULL;
@@ -429,6 +424,17 @@ Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
         _store_null_in_hash_table.emplace_back(
                 null_aware ||
                 (_build_expr_ctxs.back()->root()->is_nullable() && build_stores_null));
+    }
+
+    for (const auto& expr : _build_expr_ctxs) {
+        const auto& data_type = expr->root()->data_type();
+        if (!data_type->have_maximum_size_of_value()) {
+            break;
+        }
+
+        auto is_null = data_type->is_nullable();
+        _build_key_sz.push_back(data_type->get_maximum_size_of_value_in_memory() -
+                                (is_null ? 1 : 0));
     }
 
     return Status::OK();
@@ -443,13 +449,12 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
-    SCOPED_TIMER(local_state._build_timer);
 
     // make one block for each 4 gigabytes
     constexpr static auto BUILD_BLOCK_MAX_SIZE = 4 * 1024UL * 1024UL * 1024UL;
 
-    if (local_state._short_circuit_for_null_in_probe_side) {
-        // TODO: if _short_circuit_for_null_in_probe_side is true we should finish current pipeline task.
+    if (local_state._shared_state->_has_null_in_build_side) {
+        // TODO: if _has_null_in_build_side is true we should finish current pipeline task.
         DCHECK(state->enable_pipeline_exec());
         return Status::OK();
     }
@@ -534,7 +539,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
             _shared_hash_table_context->hash_table_variants =
                     local_state._shared_state->hash_table_variants;
             _shared_hash_table_context->short_circuit_for_null_in_probe_side =
-                    local_state._short_circuit_for_null_in_probe_side;
+                    local_state._shared_state->_has_null_in_build_side;
             if (local_state._runtime_filter_slots) {
                 local_state._runtime_filter_slots->copy_to_shared_context(
                         _shared_hash_table_context);
@@ -552,7 +557,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         local_state.profile()->add_info_string(
                 "SharedHashTableFrom",
                 print_id(_shared_hashtable_controller->get_builder_fragment_instance_id(id())));
-        local_state._short_circuit_for_null_in_probe_side =
+        local_state._shared_state->_has_null_in_build_side =
                 _shared_hash_table_context->short_circuit_for_null_in_probe_side;
         local_state._shared_state->hash_table_variants =
                 std::static_pointer_cast<vectorized::HashTableVariants>(
@@ -589,6 +594,12 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
 
     local_state.init_short_circuit_for_probe();
     if (source_state == SourceState::FINISHED) {
+        // Since the comparison of null values is meaningless, null aware left anti join should not output null
+        // when the build side is not empty.
+        if (!local_state._shared_state->build_blocks->empty() &&
+            _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
+            local_state._shared_state->probe_ignore_null = true;
+        }
         local_state._dependency->set_ready_for_read();
     }
 

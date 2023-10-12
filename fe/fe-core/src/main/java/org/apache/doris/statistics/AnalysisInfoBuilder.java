@@ -23,7 +23,7 @@ import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
 
-import org.quartz.CronExpression;
+import org.apache.logging.log4j.core.util.CronExpression;
 
 import java.util.List;
 import java.util.Map;
@@ -46,7 +46,7 @@ public class AnalysisInfoBuilder {
     private AnalysisType analysisType;
     private int maxBucketNum;
     private int samplePercent;
-    private int sampleRows;
+    private long sampleRows;
     private long periodTimeInMs;
     private long lastExecTimeInMs;
     private long timeCostInMs;
@@ -179,7 +179,7 @@ public class AnalysisInfoBuilder {
         return this;
     }
 
-    public AnalysisInfoBuilder setSampleRows(int sampleRows) {
+    public AnalysisInfoBuilder setSampleRows(long sampleRows) {
         this.sampleRows = sampleRows;
         return this;
     }

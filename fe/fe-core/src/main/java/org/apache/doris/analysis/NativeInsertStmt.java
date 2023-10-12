@@ -164,9 +164,22 @@ public class NativeInsertStmt extends InsertStmt {
     private ByteString rangeBytes = null;
     private long tableId = -1;
     // true if be generates an insert from group commit tvf stmt and executes to load data
-    public boolean isInnerGroupCommit = false;
+    public boolean isGroupCommitTvf = false;
 
     private boolean isFromDeleteOrUpdateStmt = false;
+
+    private InsertType insertType = InsertType.NATIVE_INSERT;
+
+    enum InsertType {
+        NATIVE_INSERT("insert_"),
+        UPDATE("update_"),
+        DELETE("delete_");
+        private String labePrefix;
+
+        InsertType(String labePrefix) {
+            this.labePrefix = labePrefix;
+        }
+    }
 
     public NativeInsertStmt(InsertTarget target, String label, List<String> cols, InsertSource source,
             List<String> hints) {
@@ -201,10 +214,11 @@ public class NativeInsertStmt extends InsertStmt {
     }
 
     public NativeInsertStmt(InsertTarget target, String label, List<String> cols, InsertSource source,
-             List<String> hints, boolean isPartialUpdate) {
+                            List<String> hints, boolean isPartialUpdate, InsertType insertType) {
         this(target, label, cols, source, hints);
         this.isPartialUpdate = isPartialUpdate;
         this.partialUpdateCols.addAll(cols);
+        this.insertType = insertType;
     }
 
     public boolean isValuesOrConstantSelect() {
@@ -366,7 +380,7 @@ public class NativeInsertStmt extends InsertStmt {
         long timeoutSecond = ConnectContext.get().getExecTimeout();
         if (label == null || Strings.isNullOrEmpty(label.getLabelName())) {
             label = new LabelName(db.getFullName(),
-                    "insert_" + DebugUtil.printId(analyzer.getContext().queryId()).replace("-", "_"));
+                    insertType.labePrefix + DebugUtil.printId(analyzer.getContext().queryId()).replace("-", "_"));
         }
         if (!isExplain() && !isTransactionBegin) {
             if (targetTable instanceof OlapTable) {
@@ -895,7 +909,7 @@ public class NativeInsertStmt extends InsertStmt {
         }
         if (targetTable instanceof OlapTable) {
             checkInnerGroupCommit();
-            OlapTableSink sink = isInnerGroupCommit ? new GroupCommitOlapTableSink((OlapTable) targetTable, olapTuple,
+            OlapTableSink sink = isGroupCommitTvf ? new GroupCommitOlapTableSink((OlapTable) targetTable, olapTuple,
                     targetPartitionIds, analyzer.getContext().getSessionVariable().isEnableSingleReplicaInsert())
                     : new OlapTableSink((OlapTable) targetTable, olapTuple, targetPartitionIds,
                             analyzer.getContext().getSessionVariable().isEnableSingleReplicaInsert());
@@ -933,10 +947,11 @@ public class NativeInsertStmt extends InsertStmt {
     private void checkInnerGroupCommit() {
         List<TableRef> tableRefs = new ArrayList<>();
         queryStmt.collectTableRefs(tableRefs);
-        if (tableRefs.size() == 1 && tableRefs.get(0) instanceof TableValuedFunctionRef
-                && ((TableValuedFunctionRef) tableRefs.get(
-                0)).getTableFunction() instanceof GroupCommitTableValuedFunction) {
-            isInnerGroupCommit = true;
+        if (tableRefs.size() == 1 && tableRefs.get(0) instanceof TableValuedFunctionRef) {
+            TableValuedFunctionRef tvfRef = (TableValuedFunctionRef) tableRefs.get(0);
+            if (tvfRef.getTableFunction() instanceof GroupCommitTableValuedFunction) {
+                isGroupCommitTvf = true;
+            }
         }
     }
 

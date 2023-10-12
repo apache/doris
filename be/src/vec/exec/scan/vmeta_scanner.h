@@ -55,6 +55,10 @@ public:
                  const TScanRangeParams& scan_range, int64_t limit, RuntimeProfile* profile,
                  TUserIdentity user_identity);
 
+    VMetaScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, int64_t tuple_id,
+                 const TScanRangeParams& scan_range, int64_t limit, RuntimeProfile* profile,
+                 TUserIdentity user_identity);
+
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
     Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts);

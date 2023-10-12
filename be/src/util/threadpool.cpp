@@ -477,7 +477,7 @@ void ThreadPool::dispatch_thread() {
     _num_threads_pending_start--;
 
     if (_cgroup_cpu_ctl != nullptr) {
-        _cgroup_cpu_ctl->add_thread_to_cgroup();
+        static_cast<void>(_cgroup_cpu_ctl->add_thread_to_cgroup());
     }
 
     // Owned by this worker thread and added/removed from _idle_threads as needed.

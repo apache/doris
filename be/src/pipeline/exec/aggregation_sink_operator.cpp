@@ -170,7 +170,8 @@ Status AggSinkLocalState<DependencyType, Derived>::open(RuntimeState* state) {
     // this could cause unable to get JVM
     if (Base::_shared_state->probe_expr_ctxs.empty()) {
         // _create_agg_status may acquire a lot of memory, may allocate failed when memory is very few
-        RETURN_IF_CATCH_EXCEPTION(Base::_dependency->create_agg_status(_agg_data->without_key));
+        RETURN_IF_CATCH_EXCEPTION(
+                static_cast<void>(Base::_dependency->create_agg_status(_agg_data->without_key)));
     }
     return Status::OK();
 }
@@ -524,12 +525,12 @@ void AggSinkLocalState<DependencyType, Derived>::_emplace_into_hash_table(
                         key_holder_persist_key(key_holder);
                         auto mapped = Base::_shared_state->aggregate_data_container->append_data(
                                 key_holder.key);
-                        Base::_dependency->create_agg_status(mapped);
+                        static_cast<void>(Base::_dependency->create_agg_status(mapped));
                         ctor(key, mapped);
                     } else {
                         auto mapped =
                                 Base::_shared_state->aggregate_data_container->append_data(key);
-                        Base::_dependency->create_agg_status(mapped);
+                        static_cast<void>(Base::_dependency->create_agg_status(mapped));
                         ctor(key, mapped);
                     }
                 };
@@ -540,11 +541,11 @@ void AggSinkLocalState<DependencyType, Derived>::_emplace_into_hash_table(
                                     ._total_size_of_aggregate_states,
                             Base::_parent->template cast<typename Derived::Parent>()
                                     ._align_aggregate_states);
-                    Base::_dependency->create_agg_status(mapped);
+                    static_cast<void>(Base::_dependency->create_agg_status(mapped));
                 };
 
                 if constexpr (HashTableTraits<HashTableType>::is_phmap) {
-                    auto keys = state.get_keys(num_rows);
+                    const auto& keys = state.get_keys();
                     if (_hash_values.size() < num_rows) {
                         _hash_values.resize(num_rows);
                     }
@@ -602,19 +603,12 @@ void AggSinkLocalState<DependencyType, Derived>::_find_in_hash_table(
                 AggState state(key_columns, Base::_shared_state->probe_key_sz, nullptr);
 
                 _pre_serialize_key_if_need(state, agg_method, key_columns, num_rows);
-
+                const auto& keys = state.get_keys();
                 if constexpr (HashTableTraits<HashTableType>::is_phmap) {
-                    if (_hash_values.size() < num_rows) _hash_values.resize(num_rows);
-                    if constexpr (vectorized::ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
-                                          AggState>::value) {
-                        for (size_t i = 0; i < num_rows; ++i) {
-                            _hash_values[i] = agg_method.data.hash(agg_method.keys[i]);
-                        }
-                    } else {
-                        for (size_t i = 0; i < num_rows; ++i) {
-                            _hash_values[i] =
-                                    agg_method.data.hash(state.get_key_holder(i, *_agg_arena_pool));
-                        }
+                    _hash_values.resize(num_rows);
+
+                    for (size_t i = 0; i < num_rows; ++i) {
+                        _hash_values[i] = agg_method.data.hash(keys[i]);
                     }
                 }
 
@@ -627,8 +621,8 @@ void AggSinkLocalState<DependencyType, Derived>::_find_in_hash_table(
                                         _hash_values[i + HASH_MAP_PREFETCH_DIST]);
                             }
 
-                            return state.find_key_with_hash(agg_method.data, _hash_values[i], i,
-                                                            *_agg_arena_pool);
+                            return state.find_key_with_hash(agg_method.data, _hash_values[i],
+                                                            keys[i]);
                         } else {
                             return state.find_key(agg_method.data, i, *_agg_arena_pool);
                         }
@@ -919,7 +913,7 @@ Status AggSinkOperatorX<LocalStateType>::sink(doris::RuntimeState* state,
     }
     if (source_state == SourceState::FINISHED) {
         if (local_state._shared_state->spill_context.has_data) {
-            local_state.try_spill_disk(true);
+            static_cast<void>(local_state.try_spill_disk(true));
             RETURN_IF_ERROR(local_state._shared_state->spill_context.prepare_for_reading());
         }
         local_state._dependency->set_ready_for_read();
@@ -928,7 +922,7 @@ Status AggSinkOperatorX<LocalStateType>::sink(doris::RuntimeState* state,
 }
 
 template <typename DependencyType, typename Derived>
-Status AggSinkLocalState<DependencyType, Derived>::close(RuntimeState* state) {
+Status AggSinkLocalState<DependencyType, Derived>::close(RuntimeState* state, Status exec_status) {
     SCOPED_TIMER(Base::profile()->total_time_counter());
     SCOPED_TIMER(Base::_close_timer);
     if (Base::_closed) {
@@ -943,7 +937,7 @@ Status AggSinkLocalState<DependencyType, Derived>::close(RuntimeState* state) {
 
     std::vector<size_t> tmp_hash_values;
     _hash_values.swap(tmp_hash_values);
-    return Base::close(state);
+    return Base::close(state, exec_status);
 }
 
 class StreamingAggSinkLocalState;

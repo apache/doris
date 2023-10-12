@@ -167,7 +167,7 @@ Status ResultSinkOperatorX::_second_phase_fetch_data(RuntimeState* state,
     return Status::OK();
 }
 
-Status ResultSinkLocalState::close(RuntimeState* state) {
+Status ResultSinkLocalState::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return Status::OK();
     }
@@ -181,7 +181,7 @@ Status ResultSinkLocalState::close(RuntimeState* state) {
     COUNTER_UPDATE(profile()->total_time_counter(),
                    _cancel_dependency->write_watcher_elapse_time());
     SCOPED_TIMER(profile()->total_time_counter());
-    Status final_status = Status::OK();
+    Status final_status = exec_status;
     if (_writer) {
         // close the writer
         Status st = _writer->close();
@@ -197,12 +197,12 @@ Status ResultSinkLocalState::close(RuntimeState* state) {
             _sender->update_num_written_rows(_writer->get_written_rows());
         }
         _sender->update_max_peak_memory_bytes();
-        _sender->close(final_status);
+        static_cast<void>(_sender->close(final_status));
     }
-    state->exec_env()->result_mgr()->cancel_at_time(
+    static_cast<void>(state->exec_env()->result_mgr()->cancel_at_time(
             time(nullptr) + config::result_buffer_cancelled_interval_time,
-            state->fragment_instance_id());
-    RETURN_IF_ERROR(PipelineXSinkLocalState<>::close(state));
+            state->fragment_instance_id()));
+    RETURN_IF_ERROR(PipelineXSinkLocalState<>::close(state, exec_status));
     return final_status;
 }
 

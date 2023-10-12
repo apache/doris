@@ -29,6 +29,7 @@
 #include <tuple>
 
 #include "common/logging.h"
+#include "common/signal_handler.h"
 #include "common/status.h"
 #include "gutil/hash/hash.h"
 #include "gutil/integral_types.h"
@@ -170,7 +171,7 @@ public:
 
                     if (i == rows - 1 || finalized_block.rows() == ALTER_TABLE_BATCH_SIZE) {
                         *merged_rows -= finalized_block.rows();
-                        rowset_writer->add_block(&finalized_block);
+                        static_cast<void>(rowset_writer->add_block(&finalized_block));
                         finalized_block.clear_column_data();
                     }
                 }
@@ -202,7 +203,7 @@ public:
                         column->insert_from(*row_ref.get_column(idx), row_ref.position);
                     }
                 }
-                rowset_writer->add_block(&finalized_block);
+                static_cast<void>(rowset_writer->add_block(&finalized_block));
                 finalized_block.clear_column_data();
             }
         }
@@ -481,7 +482,7 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
                 vectorized::Block::create_unique(new_tablet->tablet_schema()->create_block());
         auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
 
-        rowset_reader->next_block(ref_block.get());
+        static_cast<void>(rowset_reader->next_block(ref_block.get()));
         if (ref_block->rows() == 0) {
             break;
         }
@@ -551,7 +552,7 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
 
     do {
         auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
-        rowset_reader->next_block(ref_block.get());
+        static_cast<void>(rowset_reader->next_block(ref_block.get()));
         if (ref_block->rows() == 0) {
             break;
         }
@@ -681,6 +682,8 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
                                               request.base_tablet_id);
     }
 
+    signal::tablet_id = base_tablet->get_table_id();
+
     // new tablet has to exist
     TabletSharedPtr new_tablet =
             StorageEngine::instance()->tablet_manager()->get_tablet(request.new_tablet_id);
@@ -795,7 +798,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
                 }
             }
             std::vector<RowsetSharedPtr> empty_vec;
-            new_tablet->modify_rowsets(empty_vec, rowsets_to_delete);
+            static_cast<void>(new_tablet->modify_rowsets(empty_vec, rowsets_to_delete));
             // inherit cumulative_layer_point from base_tablet
             // check if new_tablet.ce_point > base_tablet.ce_point?
             new_tablet->set_cumulative_layer_point(-1);
@@ -812,22 +815,23 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             }
 
             // acquire data sources correspond to history versions
-            base_tablet->capture_rs_readers(versions_to_be_changed, &rs_splits);
+            static_cast<void>(base_tablet->capture_rs_readers(versions_to_be_changed, &rs_splits));
             if (rs_splits.empty()) {
                 res = Status::Error<ALTER_DELTA_DOES_NOT_EXISTS>(
                         "fail to acquire all data sources. version_num={}, data_source_num={}",
                         versions_to_be_changed.size(), rs_splits.size());
                 break;
             }
-            auto& all_del_preds = base_tablet->delete_predicates();
-            for (auto& delete_pred : all_del_preds) {
-                if (delete_pred->version().first > end_version) {
+            std::vector<RowsetMetaSharedPtr> del_preds;
+            for (auto&& split : rs_splits) {
+                auto& rs_meta = split.rs_reader->rowset()->rowset_meta();
+                if (!rs_meta->has_delete_predicate() || rs_meta->start_version() > end_version) {
                     continue;
                 }
-                base_tablet_schema->merge_dropped_columns(
-                        base_tablet->tablet_schema(delete_pred->version()));
+                base_tablet_schema->merge_dropped_columns(*rs_meta->tablet_schema());
+                del_preds.push_back(rs_meta);
             }
-            res = delete_handler.init(base_tablet_schema, all_del_preds, end_version);
+            res = delete_handler.init(base_tablet_schema, del_preds, end_version);
             if (!res) {
                 LOG(WARNING) << "init delete handler failed. base_tablet="
                              << base_tablet->full_name() << ", end_version=" << end_version;
@@ -860,7 +864,8 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
         }
         SchemaChangeParams sc_params;
 
-        DescriptorTbl::create(&sc_params.pool, request.desc_tbl, &sc_params.desc_tbl);
+        static_cast<void>(
+                DescriptorTbl::create(&sc_params.pool, request.desc_tbl, &sc_params.desc_tbl));
         sc_params.base_tablet = base_tablet;
         sc_params.new_tablet = new_tablet;
         sc_params.ref_rowset_readers.reserve(rs_splits.size());
@@ -1343,8 +1348,8 @@ Status SchemaChangeHandler::_init_column_mapping(ColumnMapping* column_mapping,
     if (column_schema.is_nullable() && value.length() == 0) {
         column_mapping->default_value->set_null();
     } else {
-        column_mapping->default_value->from_string(value, column_schema.precision(),
-                                                   column_schema.frac());
+        static_cast<void>(column_mapping->default_value->from_string(
+                value, column_schema.precision(), column_schema.frac()));
     }
 
     return Status::OK();

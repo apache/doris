@@ -185,7 +185,7 @@ public class GlobalTransactionMgr implements Writable {
     public Long getTransactionId(long dbId, String label) {
         try {
             DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
-            return dbTransactionMgr.getTransactionId(label);
+            return dbTransactionMgr.getTransactionIdByLabel(label);
         } catch (AnalysisException e) {
             LOG.warn("Get transaction id by label " + label + " failed", e);
             return null;

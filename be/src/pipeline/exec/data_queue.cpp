@@ -118,7 +118,9 @@ Status DataQueue::get_block_from_queue(std::unique_ptr<vectorized::Block>* outpu
             _cur_bytes_in_queue[_flag_queue_idx] -= (*output_block)->allocated_bytes();
             _cur_blocks_nums_in_queue[_flag_queue_idx] -= 1;
             if (_dependency) {
-                _dependency->block_reading();
+                if (!_is_finished[_flag_queue_idx]) {
+                    _dependency->block_reading();
+                }
                 _dependency->set_ready_for_write();
             }
         } else {
@@ -150,6 +152,7 @@ void DataQueue::push_block(std::unique_ptr<vectorized::Block> block, int child_i
 }
 
 void DataQueue::set_finish(int child_idx) {
+    std::lock_guard<std::mutex> l(*_queue_blocks_lock[child_idx]);
     _is_finished[child_idx] = true;
     if (_dependency) {
         _dependency->set_ready_for_read();
@@ -157,6 +160,7 @@ void DataQueue::set_finish(int child_idx) {
 }
 
 void DataQueue::set_canceled(int child_idx) {
+    std::lock_guard<std::mutex> l(*_queue_blocks_lock[child_idx]);
     DCHECK(!_is_finished[child_idx]);
     _is_canceled[child_idx] = true;
     _is_finished[child_idx] = true;

@@ -56,7 +56,7 @@ import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.HistogramTask;
 import org.apache.doris.statistics.MVAnalysisTask;
 import org.apache.doris.statistics.OlapAnalysisTask;
-import org.apache.doris.statistics.TableStats;
+import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -1125,8 +1125,10 @@ public class OlapTable extends Table {
         return new MVAnalysisTask(info);
     }
 
-    @Override
-    public boolean needReAnalyzeTable(TableStats tblStats) {
+    public boolean needReAnalyzeTable(TableStatsMeta tblStats) {
+        if (tblStats == null) {
+            return true;
+        }
         long rowCount = getRowCount();
         // TODO: Do we need to analyze an empty table?
         if (rowCount == 0) {
@@ -1138,8 +1140,7 @@ public class OlapTable extends Table {
                 .collect(Collectors.toSet()))) {
             return true;
         }
-        // long updateRows = tblStats.updatedRows.get();
-        long updateRows = Math.abs(tblStats.rowCount - rowCount);
+        long updateRows = tblStats.updatedRows.get();
         int tblHealth = StatisticsUtil.getTableHealth(rowCount, updateRows);
         return tblHealth < Config.table_stats_health_threshold;
     }
@@ -1147,7 +1148,7 @@ public class OlapTable extends Table {
     @Override
     public Map<String, Set<String>> findReAnalyzeNeededPartitions() {
         TableIf table = this;
-        TableStats tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(table.getId());
+        TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(table.getId());
         Set<String> allPartitions = table.getPartitionNames().stream().map(table::getPartition)
                 .filter(Partition::hasData).map(Partition::getName).collect(Collectors.toSet());
         if (tableStats == null) {
@@ -1568,12 +1569,16 @@ public class OlapTable extends Table {
         return oldPartition;
     }
 
-    public long getDataSize() {
+    public long getDataSize(boolean singleReplica) {
         long dataSize = 0;
         for (Partition partition : getAllPartitions()) {
-            dataSize += partition.getDataSize(false);
+            dataSize += partition.getDataSize(singleReplica);
         }
         return dataSize;
+    }
+
+    public long getDataSize() {
+        return getDataSize(false);
     }
 
     public long getRemoteDataSize() {
@@ -1847,6 +1852,36 @@ public class OlapTable extends Table {
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE,
                 Boolean.valueOf(enableLightSchemaChange).toString());
         tableProperty.buildEnableLightSchemaChange();
+    }
+
+    public short getMinLoadReplicaNum() {
+        if (tableProperty != null) {
+            return tableProperty.getMinLoadReplicaNum();
+        }
+
+        return -1;
+    }
+
+    public void setMinLoadReplicaNum(short minLoadReplicaNum) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_MIN_LOAD_REPLICA_NUM,
+                Short.valueOf(minLoadReplicaNum).toString());
+        tableProperty.buildMinLoadReplicaNum();
+    }
+
+    public int getLoadRequiredReplicaNum(long partitionId) {
+        int totalReplicaNum = partitionInfo.getReplicaAllocation(partitionId).getTotalReplicaNum();
+        int minLoadReplicaNum = getMinLoadReplicaNum();
+        if (minLoadReplicaNum > 0) {
+            return Math.min(minLoadReplicaNum, totalReplicaNum);
+        }
+
+        int quorum = totalReplicaNum / 2 + 1;
+        if (Config.min_load_replica_num > 0) {
+            return Math.min(quorum, Config.min_load_replica_num);
+        }
+
+        return quorum;
     }
 
     public void setStoragePolicy(String storagePolicy) throws UserException {
@@ -2327,7 +2362,7 @@ public class OlapTable extends Table {
                 Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), connectContext);
                 meta.parseStmt(analyzer);
             } catch (IOException e) {
-                e.printStackTrace();
+                LOG.info(e);
             }
         }
     }

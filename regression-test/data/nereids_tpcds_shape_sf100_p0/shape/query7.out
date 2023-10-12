@@ -8,17 +8,17 @@ PhysicalResultSink
 ----------PhysicalDistribute
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN](store_sales.ss_item_sk = item.i_item_sk)
+----------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk))otherCondition=()
 ------------------PhysicalDistribute
---------------------hashJoin[INNER_JOIN](store_sales.ss_promo_sk = promotion.p_promo_sk)
+--------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_promo_sk = promotion.p_promo_sk))otherCondition=()
 ----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
---------------------------hashJoin[INNER_JOIN](store_sales.ss_cdemo_sk = customer_demographics.cd_demo_sk)
+------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk))otherCondition=()
+--------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_cdemo_sk = customer_demographics.cd_demo_sk))otherCondition=()
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[store_sales]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
---------------------------------filter((cast(cd_marital_status as VARCHAR(*)) = 'W')(cast(cd_education_status as VARCHAR(*)) = 'College')(cast(cd_gender as VARCHAR(*)) = 'F'))
+--------------------------------filter((customer_demographics.cd_education_status = 'College') and (customer_demographics.cd_gender = 'F') and (customer_demographics.cd_marital_status = 'W'))
 ----------------------------------PhysicalOlapScan[customer_demographics]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
@@ -26,7 +26,7 @@ PhysicalResultSink
 --------------------------------PhysicalOlapScan[date_dim]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
---------------------------filter(((cast(p_channel_email as VARCHAR(*)) = 'N') OR (cast(p_channel_event as VARCHAR(*)) = 'N')))
+--------------------------filter(((promotion.p_channel_email = 'N') OR (promotion.p_channel_event = 'N')))
 ----------------------------PhysicalOlapScan[promotion]
 ------------------PhysicalDistribute
 --------------------PhysicalProject

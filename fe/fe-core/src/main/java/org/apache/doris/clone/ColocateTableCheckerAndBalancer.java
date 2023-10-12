@@ -34,7 +34,7 @@ import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletScheduler.AddResult;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.resource.Tag;
@@ -72,7 +72,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
         if (INSTANCE == null) {
             synchronized (ColocateTableCheckerAndBalancer.class) {
                 if (INSTANCE == null) {
-                    INSTANCE = new ColocateTableCheckerAndBalancer(FeConstants.tablet_checker_interval_ms);
+                    INSTANCE = new ColocateTableCheckerAndBalancer(Config.tablet_checker_interval_ms);
                 }
             }
         }
@@ -183,7 +183,12 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                 List<List<Long>> balancedBackendsPerBucketSeq = Lists.newArrayList();
                 if (relocateAndBalance(groupId, tag, unavailableBeIdsInGroup, availableBeIds, colocateIndex,
                         infoService, statistic, balancedBackendsPerBucketSeq)) {
-                    colocateIndex.addBackendsPerBucketSeqByTag(groupId, tag, balancedBackendsPerBucketSeq);
+                    if (!colocateIndex.addBackendsPerBucketSeqByTag(groupId, tag, balancedBackendsPerBucketSeq,
+                                replicaAlloc)) {
+                        LOG.warn("relocate group {} succ, but replica allocation has change, old replica alloc {}",
+                                groupId, replicaAlloc);
+                        continue;
+                    }
                     Map<Tag, List<List<Long>>> balancedBackendsPerBucketSeqMap = Maps.newHashMap();
                     balancedBackendsPerBucketSeqMap.put(tag, balancedBackendsPerBucketSeq);
                     ColocatePersistInfo info = ColocatePersistInfo
@@ -219,6 +224,8 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                 continue;
             }
 
+            ColocateGroupSchema groupSchema = colocateIndex.getGroupSchema(groupId);
+            ReplicaAllocation replicaAlloc = groupSchema.getReplicaAlloc();
             String unstableReason = null;
             OUT:
             for (Long tableId : tableIds) {
@@ -237,8 +244,6 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                 olapTable.readLock();
                 try {
                     for (Partition partition : olapTable.getPartitions()) {
-                        ReplicaAllocation replicaAlloc
-                                = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId());
                         short replicationNum = replicaAlloc.getTotalReplicaNum();
                         long visibleVersion = partition.getVisibleVersion();
                         // Here we only get VISIBLE indexes. All other indexes are not queryable.
@@ -269,8 +274,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                     TabletSchedCtx tabletCtx = new TabletSchedCtx(
                                             TabletSchedCtx.Type.REPAIR,
                                             db.getId(), tableId, partition.getId(), index.getId(), tablet.getId(),
-                                            olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()),
-                                            System.currentTimeMillis());
+                                            replicaAlloc, System.currentTimeMillis());
                                     // the tablet status will be set again when being scheduled
                                     tabletCtx.setTabletStatus(st);
                                     tabletCtx.setPriority(Priority.NORMAL);
@@ -299,7 +303,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
 
             // mark group as stable or unstable
             if (Strings.isNullOrEmpty(unstableReason)) {
-                colocateIndex.markGroupStable(groupId, true);
+                colocateIndex.markGroupStable(groupId, true, replicaAlloc);
             } else {
                 colocateIndex.markGroupUnstable(groupId, unstableReason, true);
             }
@@ -519,6 +523,122 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
             hostsPerBucketSeq.add(hosts);
         }
         return hostsPerBucketSeq;
+    }
+
+    public static void modifyGroupReplicaAllocation(ReplicaAllocation replicaAlloc,
+            Map<Tag, List<List<Long>>> backendBucketsSeq, int bucketNum) throws Exception {
+        Map<Tag, Short> allocMap = replicaAlloc.getAllocMap();
+        List<Tag> deleteTags = Lists.newArrayList();
+        for (Tag tag : backendBucketsSeq.keySet()) {
+            if (!allocMap.containsKey(tag)) {
+                deleteTags.add(tag);
+            }
+            Preconditions.checkState(bucketNum == backendBucketsSeq.get(tag).size(),
+                    bucketNum + " vs " + backendBucketsSeq.get(tag).size());
+        }
+        deleteTags.forEach(tag -> backendBucketsSeq.remove(tag));
+
+        for (Tag tag : replicaAlloc.getAllocMap().keySet()) {
+            if (!backendBucketsSeq.containsKey(tag)) {
+                List<List<Long>> tagBackendBucketsSeq = Lists.newArrayList();
+                for (int i = 0; i < bucketNum; i++) {
+                    tagBackendBucketsSeq.add(Lists.newArrayList());
+                }
+                backendBucketsSeq.put(tag, tagBackendBucketsSeq);
+            }
+        }
+
+        Map<Long, Integer> backendToBucketNum = Maps.newHashMap();
+        backendBucketsSeq.values().forEach(tagBackendIds ->
+                tagBackendIds.forEach(backendIds ->
+                        backendIds.forEach(backendId -> backendToBucketNum.put(
+                                backendId, backendToBucketNum.getOrDefault(backendId, 0) + 1))));
+
+        for (Tag tag : backendBucketsSeq.keySet()) {
+            List<List<Long>> tagBackendBucketsSeq = backendBucketsSeq.get(tag);
+            int oldReplicaNum = tagBackendBucketsSeq.get(0).size();
+            for (List<Long> backendIdsOneBucket : tagBackendBucketsSeq) {
+                Preconditions.checkState(backendIdsOneBucket.size() == oldReplicaNum,
+                        backendIdsOneBucket.size() + " vs " + oldReplicaNum);
+            }
+
+            int newReplicaNum = allocMap.get(tag);
+            if (newReplicaNum == oldReplicaNum) {
+                continue;
+            }
+
+            List<Backend> backends = Env.getCurrentSystemInfo().getBackendsByTag(tag);
+            Set<Long> availableBeIds = backends.stream().filter(be -> be.isScheduleAvailable())
+                    .map(be -> be.getId()).collect(Collectors.toSet());
+
+            for (Long backendId : availableBeIds) {
+                if (!backendToBucketNum.containsKey(backendId)) {
+                    backendToBucketNum.put(backendId, 0);
+                }
+            }
+
+            for (int i = 0; i < tagBackendBucketsSeq.size(); i++) {
+                modifyGroupBucketReplicas(tag, newReplicaNum, tagBackendBucketsSeq.get(i),
+                        availableBeIds, backendToBucketNum);
+            }
+        }
+    }
+
+    private static void modifyGroupBucketReplicas(Tag tag, int newReplicaNum, List<Long> backendIds,
+            Set<Long> availableBeIds, Map<Long, Integer> backendToBucketNum) throws Exception {
+        final boolean smallIdFirst = Math.random() < 0.5;
+        if (backendIds.size() > newReplicaNum) {
+            backendIds.sort((id1, id2) -> {
+                boolean alive1 = availableBeIds.contains(id1);
+                boolean alive2 = availableBeIds.contains(id2);
+                if (alive1 != alive2) {
+                    return alive1 ? -1 : 1;
+                }
+                int bucketNum1 = backendToBucketNum.getOrDefault(id1, 0);
+                int bucketNum2 = backendToBucketNum.getOrDefault(id2, 0);
+                if (bucketNum1 != bucketNum2) {
+                    return Integer.compare(bucketNum1, bucketNum2);
+                }
+
+                return smallIdFirst ? Long.compare(id1, id2) : Long.compare(id2, id1);
+            });
+
+            for (int i = backendIds.size() - 1; i >= newReplicaNum; i--) {
+                long backendId = backendIds.get(i);
+                backendIds.remove(i);
+                backendToBucketNum.put(backendId, backendToBucketNum.getOrDefault(backendId, 0) - 1);
+            }
+        }
+
+        if (backendIds.size() < newReplicaNum) {
+            Set<Long> candBackendSet = Sets.newHashSet();
+            candBackendSet.addAll(availableBeIds);
+            candBackendSet.removeAll(backendIds);
+            if (backendIds.size() + candBackendSet.size() < newReplicaNum) {
+                throw new UserException("Can not add backend for tag: " + tag);
+            }
+
+            List<Long> candBackendList = Lists.newArrayList(candBackendSet);
+            candBackendList.sort((id1, id2) -> {
+                int bucketNum1 = backendToBucketNum.getOrDefault(id1, 0);
+                int bucketNum2 = backendToBucketNum.getOrDefault(id2, 0);
+                if (bucketNum1 != bucketNum2) {
+                    return Integer.compare(bucketNum1, bucketNum2);
+                }
+
+                return smallIdFirst ? Long.compare(id1, id2) : Long.compare(id2, id1);
+            });
+
+            int addNum = newReplicaNum - backendIds.size();
+            for (int i = 0; i < addNum; i++) {
+                long backendId = candBackendList.get(i);
+                backendIds.add(backendId);
+                backendToBucketNum.put(backendId, backendToBucketNum.getOrDefault(backendId, 0) + 1);
+            }
+        }
+
+        Preconditions.checkState(newReplicaNum == backendIds.size(),
+                newReplicaNum + " vs " + backendIds.size());
     }
 
     private List<Map.Entry<Long, Long>> getSortedBackendReplicaNumPairs(List<Long> allAvailBackendIds,

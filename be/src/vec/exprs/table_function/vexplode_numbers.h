@@ -62,7 +62,7 @@ public:
                         ->insert_range_from(*_elements_column, _cur_offset, max_step);
             }
 
-            forward(max_step);
+            static_cast<void>(forward(max_step));
             return max_step;
         }
 

@@ -32,6 +32,7 @@
 #include <utility>
 
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/exec/format/wal/wal_reader.h"
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -115,6 +116,35 @@ VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t
     _is_load = (_input_tuple_desc != nullptr);
 }
 
+VFileScanner::VFileScanner(RuntimeState* state, pipeline::FileScanLocalState* local_state,
+                           int64_t limit, const TFileScanRange& scan_range, RuntimeProfile* profile,
+                           ShardedKVCache* kv_cache)
+        : VScanner(state, local_state, limit, profile),
+          _ranges(scan_range.ranges),
+          _next_range(0),
+          _cur_reader(nullptr),
+          _cur_reader_eof(false),
+          _kv_cache(kv_cache),
+          _strict_mode(false) {
+    if (scan_range.params.__isset.strict_mode) {
+        _strict_mode = scan_range.params.strict_mode;
+    }
+
+    if (state->get_query_ctx() != nullptr &&
+        state->get_query_ctx()->file_scan_range_params_map.count(local_state->parent_id()) > 0) {
+        _params = &(state->get_query_ctx()->file_scan_range_params_map[local_state->parent_id()]);
+    } else {
+        CHECK(scan_range.__isset.params);
+        _params = &(scan_range.params);
+    }
+
+    // For load scanner, there are input and output tuple.
+    // For query scanner, there is only output tuple
+    _input_tuple_desc = state->desc_tbl().get_tuple_descriptor(_params->src_tuple_id);
+    _real_tuple_desc = _input_tuple_desc == nullptr ? _output_tuple_desc : _input_tuple_desc;
+    _is_load = (_input_tuple_desc != nullptr);
+}
+
 Status VFileScanner::prepare(
         const VExprContextSPtrs& conjuncts,
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
@@ -122,20 +152,37 @@ Status VFileScanner::prepare(
     RETURN_IF_ERROR(VScanner::prepare(_state, conjuncts));
     _colname_to_value_range = colname_to_value_range;
     _col_name_to_slot_id = colname_to_slot_id;
-
-    _get_block_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerGetBlockTime");
-    _open_reader_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerOpenReaderTime");
-    _cast_to_input_block_timer =
-            ADD_TIMER(_parent->_scanner_profile, "FileScannerCastInputBlockTime");
-    _fill_path_columns_timer =
-            ADD_TIMER(_parent->_scanner_profile, "FileScannerFillPathColumnTime");
-    _fill_missing_columns_timer =
-            ADD_TIMER(_parent->_scanner_profile, "FileScannerFillMissingColumnTime");
-    _pre_filter_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerPreFilterTimer");
-    _convert_to_output_block_timer =
-            ADD_TIMER(_parent->_scanner_profile, "FileScannerConvertOuputBlockTime");
-    _empty_file_counter = ADD_COUNTER(_parent->_scanner_profile, "EmptyFileNum", TUnit::UNIT);
-    _file_counter = ADD_COUNTER(_parent->_scanner_profile, "FileNumber", TUnit::UNIT);
+    if (get_parent() != nullptr) {
+        _get_block_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerGetBlockTime");
+        _open_reader_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerOpenReaderTime");
+        _cast_to_input_block_timer =
+                ADD_TIMER(_parent->_scanner_profile, "FileScannerCastInputBlockTime");
+        _fill_path_columns_timer =
+                ADD_TIMER(_parent->_scanner_profile, "FileScannerFillPathColumnTime");
+        _fill_missing_columns_timer =
+                ADD_TIMER(_parent->_scanner_profile, "FileScannerFillMissingColumnTime");
+        _pre_filter_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerPreFilterTimer");
+        _convert_to_output_block_timer =
+                ADD_TIMER(_parent->_scanner_profile, "FileScannerConvertOuputBlockTime");
+        _empty_file_counter = ADD_COUNTER(_parent->_scanner_profile, "EmptyFileNum", TUnit::UNIT);
+        _file_counter = ADD_COUNTER(_parent->_scanner_profile, "FileNumber", TUnit::UNIT);
+    } else {
+        _get_block_timer = ADD_TIMER(_local_state->scanner_profile(), "FileScannerGetBlockTime");
+        _open_reader_timer =
+                ADD_TIMER(_local_state->scanner_profile(), "FileScannerOpenReaderTime");
+        _cast_to_input_block_timer =
+                ADD_TIMER(_local_state->scanner_profile(), "FileScannerCastInputBlockTime");
+        _fill_path_columns_timer =
+                ADD_TIMER(_local_state->scanner_profile(), "FileScannerFillPathColumnTime");
+        _fill_missing_columns_timer =
+                ADD_TIMER(_local_state->scanner_profile(), "FileScannerFillMissingColumnTime");
+        _pre_filter_timer = ADD_TIMER(_local_state->scanner_profile(), "FileScannerPreFilterTimer");
+        _convert_to_output_block_timer =
+                ADD_TIMER(_local_state->scanner_profile(), "FileScannerConvertOuputBlockTime");
+        _empty_file_counter =
+                ADD_COUNTER(_local_state->scanner_profile(), "EmptyFileNum", TUnit::UNIT);
+        _file_counter = ADD_COUNTER(_local_state->scanner_profile(), "FileNumber", TUnit::UNIT);
+    }
 
     _file_cache_statistics.reset(new io::FileCacheStatistics());
     _io_ctx.reset(new io::IOContext());
@@ -258,12 +305,16 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
             RETURN_IF_ERROR(
                     _cur_reader->get_next_block(_src_block_ptr, &read_rows, &_cur_reader_eof));
         }
+        if (_params->format_type == TFileFormatType::FORMAT_WAL) {
+            block->swap(*_src_block_ptr);
+            break;
+        }
         // use read_rows instead of _src_block_ptr->rows(), because the first column of _src_block_ptr
         // may not be filled after calling `get_next_block()`, so _src_block_ptr->rows() may return wrong result.
         if (read_rows > 0) {
             // If the push_down_agg_type is COUNT, no need to do the rest,
             // because we only save a number in block.
-            if (_parent->get_push_down_agg_type() != TPushAggOp::type::COUNT) {
+            if (_get_push_down_agg_type() != TPushAggOp::type::COUNT) {
                 // Convert the src block columns type to string in-place.
                 RETURN_IF_ERROR(_cast_to_input_block(block));
                 // FileReader can fill partition and missing columns itself
@@ -700,9 +751,9 @@ Status VFileScanner::_get_next_reader() {
             if (range.__isset.table_format_params &&
                 range.table_format_params.table_format_type == "iceberg") {
                 std::unique_ptr<IcebergTableReader> iceberg_reader =
-                        IcebergTableReader::create_unique(
-                                std::move(parquet_reader), _profile, _state, *_params, range,
-                                _kv_cache, _io_ctx.get(), _parent->get_push_down_count());
+                        IcebergTableReader::create_unique(std::move(parquet_reader), _profile,
+                                                          _state, *_params, range, _kv_cache,
+                                                          _io_ctx.get(), _get_push_down_count());
                 init_status = iceberg_reader->init_reader(
                         _file_col_names, _col_id_name_map, _colname_to_value_range,
                         _push_down_conjuncts, _real_tuple_desc, _default_val_row_desc.get(),
@@ -784,6 +835,11 @@ Status VFileScanner::_get_next_reader() {
                                   ->init_fetch_table_reader(_colname_to_value_range);
             break;
         }
+        case TFileFormatType::FORMAT_WAL: {
+            _cur_reader.reset(new WalReader(_state));
+            init_status = ((WalReader*)(_cur_reader.get()))->init_reader();
+            break;
+        }
         default:
             return Status::InternalError("Not supported file format: {}", _params->format_type);
         }
@@ -804,8 +860,8 @@ Status VFileScanner::_get_next_reader() {
 
         _name_to_col_type.clear();
         _missing_cols.clear();
-        _cur_reader->get_columns(&_name_to_col_type, &_missing_cols);
-        _cur_reader->set_push_down_agg_type(_parent->get_push_down_agg_type());
+        static_cast<void>(_cur_reader->get_columns(&_name_to_col_type, &_missing_cols));
+        _cur_reader->set_push_down_agg_type(_get_push_down_agg_type());
         RETURN_IF_ERROR(_generate_fill_columns());
         if (VLOG_NOTICE_IS_ON && !_missing_cols.empty() && _is_load) {
             fmt::memory_buffer col_buf;
@@ -1002,7 +1058,7 @@ Status VFileScanner::_init_expr_ctxes() {
     }
     // TODO: It should can move to scan node to process.
     if (!_conjuncts.empty()) {
-        _process_conjuncts_for_dict_filter();
+        static_cast<void>(_process_conjuncts_for_dict_filter());
     }
     return Status::OK();
 }

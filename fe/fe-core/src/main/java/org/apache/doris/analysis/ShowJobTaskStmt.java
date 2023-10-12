@@ -58,7 +58,6 @@ public class ShowJobTaskStmt extends ShowStmt {
     @Getter
     private JobCategory jobCategory; // optional
 
-    private String jobCategoryName; // optional
     @Getter
     private String dbFullName; // optional
     @Getter
@@ -66,7 +65,12 @@ public class ShowJobTaskStmt extends ShowStmt {
 
     public ShowJobTaskStmt(String category, LabelName labelName) {
         this.labelName = labelName;
-        this.jobCategoryName = category;
+        String jobCategoryName = category;
+        if (StringUtils.isBlank(jobCategoryName)) {
+            this.jobCategory = JobCategory.SQL;
+        } else {
+            this.jobCategory = JobCategory.valueOf(jobCategoryName.toUpperCase());
+        }
     }
 
     @Override
@@ -74,11 +78,6 @@ public class ShowJobTaskStmt extends ShowStmt {
         super.analyze(analyzer);
         CreateJobStmt.checkAuth();
         checkLabelName(analyzer);
-        if (StringUtils.isBlank(jobCategoryName)) {
-            this.jobCategory = JobCategory.SQL;
-        } else {
-            this.jobCategory = JobCategory.valueOf(jobCategoryName.toUpperCase());
-        }
     }
 
     private void checkLabelName(Analyzer analyzer) throws AnalysisException {
@@ -113,6 +112,9 @@ public class ShowJobTaskStmt extends ShowStmt {
 
     @Override
     public RedirectStatus getRedirectStatus() {
-        return RedirectStatus.FORWARD_NO_SYNC;
+        if (jobCategory.isPersistent()) {
+            return RedirectStatus.FORWARD_NO_SYNC;
+        }
+        return RedirectStatus.NO_FORWARD;
     }
 }

@@ -211,6 +211,7 @@ import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
+import org.apache.doris.transaction.TransactionStatus;
 import org.apache.doris.transaction.TxnCommitAttachment;
 
 import com.google.common.base.Preconditions;
@@ -1173,8 +1174,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (Strings.isNullOrEmpty(cluster)) {
             cluster = SystemInfoService.DEFAULT_CLUSTER;
         }
-
-        if (Strings.isNullOrEmpty(request.getToken())) {
+        if (request.isSetAuthCode()) {
+            // TODO(cmy): find a way to check
+        } else if (Strings.isNullOrEmpty(request.getToken())) {
             checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTbl(),
                     request.getUserIp(), PrivPredicate.LOAD);
         }
@@ -1476,13 +1478,21 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         DatabaseTransactionMgr dbTransactionMgr = Env.getCurrentGlobalTransactionMgr()
                 .getDatabaseTransactionMgr(database.getId());
+        String txnOperation = request.getOperation().trim();
+        if (!request.isSetTxnId()) {
+            List<TransactionStatus> statusList = new ArrayList<>();
+            statusList.add(TransactionStatus.PRECOMMITTED);
+            if (txnOperation.equalsIgnoreCase("abort")) {
+                statusList.add(TransactionStatus.PREPARE);
+            }
+            request.setTxnId(dbTransactionMgr.getTransactionIdByLabel(request.getLabel(), statusList));
+        }
         TransactionState transactionState = dbTransactionMgr.getTransactionState(request.getTxnId());
         LOG.debug("txn {} has multi table {}", request.getTxnId(), transactionState.getTableIdList());
         if (transactionState == null) {
             throw new UserException("transaction [" + request.getTxnId() + "] not found");
         }
         List<Long> tableIdList = transactionState.getTableIdList();
-        String txnOperation = request.getOperation().trim();
         List<Table> tableList = new ArrayList<>();
         // if table was dropped, stream load must can abort.
         if (txnOperation.equalsIgnoreCase("abort")) {
@@ -1892,7 +1902,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 if (Config.enable_pipeline_load) {
                     result.setPipelineParams(pipelineStreamLoadPutImpl(request));
                 } else {
-                    result.setParams(streamLoadPutImpl(request));
+                    result.setParams(streamLoadPutImpl(request, result));
                 }
             }
         } catch (UserException e) {
@@ -2031,7 +2041,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             cluster = SystemInfoService.DEFAULT_CLUSTER;
         }
         ConnectContext ctx = new ConnectContext();
-        if (Strings.isNullOrEmpty(request.getToken())) {
+        if (request.isSetAuthCode()) {
+            // TODO(cmy): find a way to check
+        } else if (Strings.isNullOrEmpty(request.getToken())) {
             checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTbl(),
                     request.getUserIp(), PrivPredicate.LOAD);
         }
@@ -2048,6 +2060,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             NativeInsertStmt parsedStmt = (NativeInsertStmt) SqlParserUtils.getFirstStmt(parser);
             parsedStmt.setOrigStmt(new OriginStatement(originStmt, 0));
             parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
+            if (request.isGroupCommit() && parsedStmt.getLabel() != null) {
+                throw new AnalysisException("label and group_commit can't be set at the same time");
+            }
             StmtExecutor executor = new StmtExecutor(ctx, parsedStmt);
             ctx.setExecutor(executor);
             TQueryOptions tQueryOptions = ctx.getSessionVariable().toThrift();
@@ -2056,7 +2071,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             Coordinator coord = new Coordinator(ctx, analyzer, executor.planner());
             coord.setLoadMemLimit(request.getExecMemLimit());
             coord.setQueryType(TQueryType.LOAD);
-            QeProcessorImpl.INSTANCE.registerQuery(request.getLoadId(), coord);
 
             TExecPlanFragmentParams plan = coord.getStreamLoadPlan();
             final long txn_id = parsedStmt.getTransactionId();
@@ -2065,10 +2079,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.getParams().setTableName(parsedStmt.getTbl());
             // The txn_id here is obtained from the NativeInsertStmt
             result.getParams().setTxnConf(new TTxnParams().setTxnId(txn_id));
-            if (parsedStmt.isInnerGroupCommit) {
-                result.setBaseSchemaVersion(((OlapTable) parsedStmt.getTargetTable()).getBaseSchemaVersion());
+            result.getParams().setImportLabel(parsedStmt.getLabel());
+            if (parsedStmt.isGroupCommitTvf) {
                 result.getParams().params.setGroupCommit(true);
             }
+            result.setDbId(parsedStmt.getTargetTable().getDatabase().getId());
+            result.setTableId(parsedStmt.getTargetTable().getId());
+            result.setBaseSchemaVersion(((OlapTable) parsedStmt.getTargetTable()).getBaseSchemaVersion());
         } catch (UserException e) {
             LOG.warn("exec sql error", e);
             throw new UserException("exec sql error" + e);
@@ -2078,7 +2095,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
     }
 
-    private TExecPlanFragmentParams streamLoadPutImpl(TStreamLoadPutRequest request) throws UserException {
+    private TExecPlanFragmentParams streamLoadPutImpl(TStreamLoadPutRequest request, TStreamLoadPutResult result)
+            throws UserException {
         String cluster = request.getCluster();
         if (Strings.isNullOrEmpty(cluster)) {
             cluster = SystemInfoService.DEFAULT_CLUSTER;
@@ -2096,6 +2114,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() : 5000;
         Table table = db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
+        result.setDbId(db.getId());
+        result.setTableId(table.getId());
+        result.setBaseSchemaVersion(((OlapTable) table).getBaseSchemaVersion());
         return generatePlanFragmentParams(request, db, fullDbName, (OlapTable) table, timeoutMs);
     }
 
@@ -2121,13 +2142,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             StreamLoadPlanner planner = new StreamLoadPlanner(db, table, streamLoadTask);
             TExecPlanFragmentParams plan = planner.plan(streamLoadTask.getId(), multiTableFragmentInstanceIdIndex);
-            // add table indexes to transaction state
-            TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
-                    .getTransactionState(db.getId(), request.getTxnId());
-            if (txnState == null) {
-                throw new UserException("txn does not exist: " + request.getTxnId());
+            if (!request.isGroupCommit()) {
+                // add table indexes to transaction state
+                TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
+                        .getTransactionState(db.getId(), request.getTxnId());
+                if (txnState == null) {
+                    throw new UserException("txn does not exist: " + request.getTxnId());
+                }
+                txnState.addTableIndexes(table);
             }
-            txnState.addTableIndexes(table);
             plan.setTableName(table.getName());
             plan.query_options.setFeProcessUuid(ExecuteEnv.getInstance().getProcessUUID());
             return plan;

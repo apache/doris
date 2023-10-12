@@ -29,7 +29,9 @@ under the License.
 #### Syntax
 
 `BOOLEAN json_contains(JSON json_str, JSON candidate)`
+
 `BOOLEAN json_contains(JSON json_str, JSON candidate, VARCHAR json_path)`
+
 `BOOLEAN json_contains(VARCHAR json_str, VARCHAR candidate, VARCHAR json_path)`
 
 

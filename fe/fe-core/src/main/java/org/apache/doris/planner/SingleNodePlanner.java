@@ -34,13 +34,9 @@ import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.GroupByClause;
 import org.apache.doris.analysis.GroupingInfo;
-import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.InlineViewRef;
-import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.LateralViewRef;
-import org.apache.doris.analysis.LiteralExpr;
-import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.SetOperationStmt;
@@ -1513,89 +1509,6 @@ public class SingleNodePlanner {
         return tupleDesc;
     }
 
-    // no need to remove?
-    public static PartitionColumnFilter createPartitionFilter(SlotDescriptor desc, List<Expr> conjuncts) {
-        PartitionColumnFilter partitionColumnFilter = null;
-        for (Expr expr : conjuncts) {
-            if (!expr.isBound(desc.getId())) {
-                continue;
-            }
-            if (expr instanceof BinaryPredicate) {
-                BinaryPredicate binPredicate = (BinaryPredicate) expr;
-                Expr slotBinding = binPredicate.getSlotBinding(desc.getId());
-                if (slotBinding == null || !slotBinding.isConstant()) {
-                    continue;
-                }
-                if (binPredicate.getOp() == BinaryPredicate.Operator.NE
-                        || !(slotBinding instanceof LiteralExpr)) {
-                    continue;
-                }
-                if (null == partitionColumnFilter) {
-                    partitionColumnFilter = new PartitionColumnFilter();
-                }
-                LiteralExpr literal = (LiteralExpr) slotBinding;
-                BinaryPredicate.Operator op = binPredicate.getOp();
-                if (!binPredicate.slotIsLeft()) {
-                    op = op.commutative();
-                }
-                switch (op) {
-                    case EQ:
-                        partitionColumnFilter.setLowerBound(literal, true);
-                        partitionColumnFilter.setUpperBound(literal, true);
-                        break;
-                    case LE:
-                        partitionColumnFilter.setUpperBound(literal, true);
-                        if (null == partitionColumnFilter.lowerBound) {
-                            partitionColumnFilter.lowerBoundInclusive = true;
-                        }
-                        break;
-                    case LT:
-                        partitionColumnFilter.setUpperBound(literal, false);
-                        if (null == partitionColumnFilter.lowerBound) {
-                            partitionColumnFilter.lowerBoundInclusive = true;
-                        }
-                        break;
-                    case GE:
-                        partitionColumnFilter.setLowerBound(literal, true);
-                        break;
-                    case GT:
-                        partitionColumnFilter.setLowerBound(literal, false);
-                        break;
-                    default:
-                        break;
-                }
-            } else if (expr instanceof InPredicate) {
-                InPredicate inPredicate = (InPredicate) expr;
-                if (!inPredicate.isLiteralChildren() || inPredicate.isNotIn()) {
-                    continue;
-                }
-                if (!(inPredicate.getChild(0).unwrapExpr(false) instanceof SlotRef)) {
-                    // If child(0) of the in predicate is not a SlotRef,
-                    // then other children of in predicate should not be used as a condition for partition prune.
-                    continue;
-                }
-                if (null == partitionColumnFilter) {
-                    partitionColumnFilter = new PartitionColumnFilter();
-                }
-                partitionColumnFilter.setInPredicate(inPredicate);
-            } else if (expr instanceof IsNullPredicate) {
-                IsNullPredicate isNullPredicate = (IsNullPredicate) expr;
-                if (!isNullPredicate.isSlotRefChildren() || isNullPredicate.isNotNull()) {
-                    continue;
-                }
-
-                // If we meet a IsNull predicate on partition column, then other predicates are useless
-                // eg: (xxxx) and (col is null), only the IsNull predicate has an effect on partition pruning.
-                partitionColumnFilter = new PartitionColumnFilter();
-                NullLiteral nullLiteral = new NullLiteral();
-                partitionColumnFilter.setLowerBound(nullLiteral, true);
-                partitionColumnFilter.setUpperBound(nullLiteral, true);
-                break;
-            }
-        }
-        LOG.debug("partitionColumnFilter: {}", partitionColumnFilter);
-        return partitionColumnFilter;
-    }
 
     /**
      * Returns plan tree for an inline view ref:

@@ -535,8 +535,7 @@ public class DatabaseTransactionMgr {
                     transactionState.prolongPublishTimeout();
                 }
 
-                int quorumReplicaNum = table.getPartitionInfo()
-                        .getReplicaAllocation(partition.getId()).getTotalReplicaNum() / 2 + 1;
+                int loadRequiredReplicaNum = table.getLoadRequiredReplicaNum(partition.getId());
                 for (MaterializedIndex index : allIndices) {
                     for (Tablet tablet : index.getTablets()) {
                         tabletSuccReplicas.clear();
@@ -574,13 +573,13 @@ public class DatabaseTransactionMgr {
                         }
 
                         int successReplicaNum = tabletSuccReplicas.size();
-                        if (successReplicaNum < quorumReplicaNum) {
+                        if (successReplicaNum < loadRequiredReplicaNum) {
                             String writeDetail = getTabletWriteDetail(tabletSuccReplicas, tabletWriteFailedReplicas,
                                     tabletVersionFailedReplicas);
 
-                            String errMsg = String.format("Failed to commit txn %s, cause tablet %s succ replica "
-                                    + "num %s < quorum replica num %s. table %s, partition %s, this tablet detail: %s",
-                                    transactionId, tablet.getId(), successReplicaNum, quorumReplicaNum, tableId,
+                            String errMsg = String.format("Failed to commit txn %s, cause tablet %s succ replica num %s"
+                                    + " < load required replica num %s. table %s, partition %s, this tablet detail: %s",
+                                    transactionId, tablet.getId(), successReplicaNum, loadRequiredReplicaNum, tableId,
                                     partition.getId(), writeDetail);
                             LOG.info(errMsg);
 
@@ -699,7 +698,11 @@ public class DatabaseTransactionMgr {
         } finally {
             writeUnlock();
             // after state transform
-            transactionState.afterStateTransform(TransactionStatus.COMMITTED, txnOperated);
+            try {
+                transactionState.afterStateTransform(TransactionStatus.COMMITTED, txnOperated);
+            } catch (Throwable e) {
+                LOG.warn("afterStateTransform txn {} failed. exception: ", transactionState, e);
+            }
         }
 
         // update nextVersion because of the failure of persistent transaction resulting in error version
@@ -828,7 +831,7 @@ public class DatabaseTransactionMgr {
         }
     }
 
-    public Long getTransactionId(String label) {
+    public Long getTransactionIdByLabel(String label) {
         readLock();
         try {
             Set<Long> existingTxnIds = unprotectedGetTxnIdsByLabel(label);
@@ -837,6 +840,34 @@ public class DatabaseTransactionMgr {
             }
             // find the latest txn (which id is largest)
             return existingTxnIds.stream().max(Comparator.comparingLong(Long::valueOf)).get();
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public Long getTransactionIdByLabel(String label, List<TransactionStatus> statusList) throws UserException {
+        readLock();
+        try {
+            TransactionState findTxn = null;
+            for (TransactionStatus status : statusList) {
+                Set<Long> existingTxns = unprotectedGetTxnIdsByLabel(label);
+                if (existingTxns == null || existingTxns.isEmpty()) {
+                    throw new TransactionNotFoundException("transaction not found, label=" + label);
+                }
+                for (Long txnId : existingTxns) {
+                    TransactionState txn = unprotectedGetTransactionState(txnId);
+                    if (txn.getTransactionStatus() == status) {
+                        findTxn = txn;
+                        break;
+                    }
+                }
+            }
+
+            if (findTxn == null) {
+                throw new TransactionNotFoundException("running transaction not found, label=" + label);
+            }
+
+            return findTxn.getTransactionId();
         } finally {
             readUnlock();
         }
@@ -925,7 +956,7 @@ public class DatabaseTransactionMgr {
                             transactionState);
                     continue;
                 }
-                PartitionInfo partitionInfo = table.getPartitionInfo();
+
                 Iterator<PartitionCommitInfo> partitionCommitInfoIterator
                         = tableCommitInfo.getIdToPartitionCommitInfo().values().iterator();
                 while (partitionCommitInfoIterator.hasNext()) {
@@ -951,8 +982,8 @@ public class DatabaseTransactionMgr {
                         transactionState.setErrorMsg(errMsg);
                         return;
                     }
-                    int quorumReplicaNum = partitionInfo.getReplicaAllocation(partitionId).getTotalReplicaNum() / 2 + 1;
 
+                    int loadRequiredReplicaNum = table.getLoadRequiredReplicaNum(partitionId);
                     List<MaterializedIndex> allIndices;
                     if (transactionState.getLoadedTblIndexes().isEmpty()) {
                         allIndices = partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL);
@@ -985,15 +1016,15 @@ public class DatabaseTransactionMgr {
                             }
 
                             int healthReplicaNum = tabletSuccReplicas.size();
-                            if (healthReplicaNum >= quorumReplicaNum) {
+                            if (healthReplicaNum >= loadRequiredReplicaNum) {
                                 if (!tabletWriteFailedReplicas.isEmpty() || !tabletVersionFailedReplicas.isEmpty()) {
                                     String writeDetail = getTabletWriteDetail(tabletSuccReplicas,
                                             tabletWriteFailedReplicas, tabletVersionFailedReplicas);
                                     LOG.info("publish version quorum succ for transaction {} on tablet {} with version"
-                                            + " {}, and has failed replicas, quorum num {}. table {}, partition {},"
-                                            + " tablet detail: {}",
+                                            + " {}, and has failed replicas, load require replica num {}. table {}, "
+                                            + "partition {}, tablet detail: {}",
                                             transactionState, tablet.getId(), partitionCommitInfo.getVersion(),
-                                            quorumReplicaNum, tableId, partitionId, writeDetail);
+                                            loadRequiredReplicaNum, tableId, partitionId, writeDetail);
                                 }
                                 continue;
                             }
@@ -1018,23 +1049,23 @@ public class DatabaseTransactionMgr {
                                 // ahead, otherwise data may be lost and thre
                                 // publish task hangs forever.
                                 LOG.info("publish version timeout succ for transaction {} on tablet {} with version"
-                                        + " {}, and has failed replicas, quorum num {}. table {}, partition {},"
-                                        + " tablet detail: {}",
+                                        + " {}, and has failed replicas, load require replica num {}. table {}, "
+                                        + "partition {}, tablet detail: {}",
                                         transactionState, tablet.getId(), partitionCommitInfo.getVersion(),
-                                        quorumReplicaNum, tableId, partitionId, writeDetail);
+                                        loadRequiredReplicaNum, tableId, partitionId, writeDetail);
                             } else {
                                 publishResult = PublishResult.FAILED;
                                 String errMsg = String.format("publish on tablet %d failed."
-                                                + " succeed replica num %d less than quorum %d."
+                                                + " succeed replica num %d < load required replica num %d."
                                                 + " table: %d, partition: %d, publish version: %d",
-                                        tablet.getId(), healthReplicaNum, quorumReplicaNum, tableId,
+                                        tablet.getId(), healthReplicaNum, loadRequiredReplicaNum, tableId,
                                         partitionId, partition.getVisibleVersion() + 1);
                                 transactionState.setErrorMsg(errMsg);
                                 LOG.info("publish version failed for transaction {} on tablet {} with version"
-                                        + " {}, and has failed replicas, quorum num {}. table {}, partition {},"
-                                        + " tablet detail: {}",
+                                        + " {}, and has failed replicas, load required replica num {}. table {}, "
+                                        + "partition {}, tablet detail: {}",
                                         transactionState, tablet.getId(), partitionCommitInfo.getVersion(),
-                                        quorumReplicaNum, tableId, partitionId, writeDetail);
+                                        loadRequiredReplicaNum, tableId, partitionId, writeDetail);
                             }
                         }
                     }
@@ -1064,8 +1095,8 @@ public class DatabaseTransactionMgr {
                 writeUnlock();
                 try {
                     transactionState.afterStateTransform(TransactionStatus.VISIBLE, txnOperated);
-                } catch (UserException e) {
-                    LOG.warn("afterStateTransform txn {} failed. msg: {}", transactionId, e.getMessage());
+                } catch (Throwable e) {
+                    LOG.warn("afterStateTransform txn {} failed. exception: ", transactionState, e);
                 }
             }
             updateCatalogAfterVisible(transactionState, db);
@@ -1298,31 +1329,9 @@ public class DatabaseTransactionMgr {
 
     public void abortTransaction(String label, String reason) throws UserException {
         Preconditions.checkNotNull(label);
-        long transactionId = -1;
-        readLock();
-        try {
-            Set<Long> existingTxns = unprotectedGetTxnIdsByLabel(label);
-            if (existingTxns == null || existingTxns.isEmpty()) {
-                throw new TransactionNotFoundException("transaction not found, label=" + label);
-            }
-            // find PREPARE txn. For one load label, there should be only one PREPARE txn.
-            TransactionState prepareTxn = null;
-            for (Long txnId : existingTxns) {
-                TransactionState txn = unprotectedGetTransactionState(txnId);
-                if (txn.getTransactionStatus() == TransactionStatus.PREPARE) {
-                    prepareTxn = txn;
-                    break;
-                }
-            }
-
-            if (prepareTxn == null) {
-                throw new TransactionNotFoundException("running transaction not found, label=" + label);
-            }
-
-            transactionId = prepareTxn.getTransactionId();
-        } finally {
-            readUnlock();
-        }
+        List<TransactionStatus> status = new ArrayList<>();
+        status.add(TransactionStatus.PREPARE);
+        long transactionId = getTransactionIdByLabel(label, status);
         abortTransaction(transactionId, reason, null);
     }
 
@@ -1789,8 +1798,17 @@ public class DatabaseTransactionMgr {
             }
         }
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
-        LOG.debug("table id to loaded rows:{}", transactionState.getTableIdToNumDeltaRows());
-        transactionState.getTableIdToNumDeltaRows().forEach(analysisManager::updateUpdatedRows);
+        Map<Long, Long> tableIdToTotalNumDeltaRows = transactionState.getTableIdToTotalNumDeltaRows();
+        LOG.debug("table id to loaded rows:{}", tableIdToTotalNumDeltaRows);
+        Map<Long, Long> tableIdToNumDeltaRows = Maps.newHashMap();
+        tableIdToTotalNumDeltaRows
+                        .forEach((tableId, numRows) -> {
+                            OlapTable table = (OlapTable) db.getTableNullable(tableId);
+                            if (table != null) {
+                                tableIdToNumDeltaRows.put(tableId, numRows / table.getReplicaCount());
+                            }
+                        });
+        tableIdToNumDeltaRows.forEach(analysisManager::updateUpdatedRows);
         return true;
     }
 

@@ -31,18 +31,18 @@ OURFILE
 
 ### description
 
-This statement is used to export query results to a file using the `SELECT INTO OUTFILE` command. Currently, it supports exporting to remote storage, such as HDFS, S3, BOS, COS (Tencent Cloud), through the Broker process, through the S3 protocol, or directly through the HDFS protocol.
+This statement is used to export query results to a file using the `SELECT INTO OUTFILE` command. Currently, it supports exporting to remote storage, such as HDFS, S3, BOS, COS (Tencent Cloud), through the Broker process, S3 protocol, or HDFS protocol.
     
-grammar:
+**grammar:**
 
-````
+```sql
 query_stmt
 INTO OUTFILE "file_path"
 [format_as]
 [properties]
-````
+```
 
-illustrate:
+**illustrate:**
 
 1. file_path
 
@@ -68,7 +68,7 @@ illustrate:
 
 3. properties
 
-    Specify related properties. Currently exporting via the Broker process, or via the S3 protocol is supported.
+    Specify related properties. Currently exporting via the Broker process, S3 protocol, or HDFS protocol is supported.
 
     ```
     grammar:
@@ -80,7 +80,7 @@ illustrate:
         line_delimiter: line delimiter,is only for CSV format. mulit-bytes supported starting in version 1.2, such as: "\\x01", "abc".
         max_file_size: the size limit of a single file, if the result exceeds this value, it will be cut into multiple files, the value range of max_file_size is [5MB, 2GB] and the default is 1GB. (When specified that the file format is ORC, the size of the actual division file will be a multiples of 64MB, such as: specify max_file_size = 5MB, and actually use 64MB as the division; specify max_file_size = 65MB, and will actually use 128MB as cut division points.)
         delete_existing_files: default `false`. If it is specified as true, you will first delete all files specified in the directory specified by the file_path, and then export the data to the directory.For example: "file_path" = "/user/tmp", then delete all files and directory under "/user/"; "file_path" = "/user/tmp/", then delete all files and directory under "/user/tmp/" 
-        file_suffix: Specify the suffix of the export file
+        file_suffix: Specify the suffix of the export file. If this parameter is not specified, the default suffix for the file format will be used.
     
     Broker related properties need to be prefixed with `broker.`:
         broker.name: broker name
@@ -108,10 +108,26 @@ illustrate:
     s3.secret_key
     s3.region
     use_path_stype: (optional) default false . The S3 SDK uses the virtual-hosted style by default. However, some object storage systems may not be enabled or support virtual-hosted style access. At this time, we can add the use_path_style parameter to force the use of path style access method.
-
     ```
 
     > Note that to use the `delete_existing_files` parameter, you also need to add the configuration `enable_delete_existing_files = true` to the fe.conf file and restart the FE. Only then will the `delete_existing_files` parameter take effect. Setting `delete_existing_files = true` is a dangerous operation and it is recommended to only use it in a testing environment.
+
+4. Data Types for Export
+
+    All file formats support the export of basic data types, while only csv/orc/csv_with_names/csv_with_names_and_types currently support the export of complex data types (ARRAY/MAP/STRUCT). Nested complex data types are not supported.
+
+5. Concurrent Export
+
+    Setting the session variable `set enable_parallel_outfile = true;` enables concurrent export using outfile. For detailed usage, see [Export Query Result](../../../data-operate/export/outfile.md).
+
+6. Export to Local
+
+    To export to a local file, you need configure `enable_outfile_to_local=true` in fe.conf.
+
+    ```sql
+    select * from tbl1 limit 10 
+    INTO OUTFILE "file:///home/work/path/result_";
+    ```
 
 ### example
 
@@ -147,12 +163,9 @@ illustrate:
        "broker.name" = "my_broker",
        "broker.hadoop.security.authentication" = "kerberos",
        "broker.kerberos_principal" = "doris@YOUR.COM",
-       "broker.kerberos_keytab" = "/home/doris/my.keytab",
-       "schema"="required,int32,c1;required,byte_array,c2;required,byte_array,c2"
+       "broker.kerberos_keytab" = "/home/doris/my.keytab"
    );
    ````
-
-   Exporting query results to parquet files requires explicit `schema`.
 
 3. Export the query result of the CTE statement to the file `hdfs://path/to/result.txt`. The default export format is CSV. Use `my_broker` and set hdfs high availability information. Use the default row and column separators.
 
@@ -192,8 +205,7 @@ illustrate:
        "broker.name" = "my_broker",
        "broker.bos_endpoint" = "http://bj.bcebos.com",
        "broker.bos_accesskey" = "xxxxxxxxxxxxxxxxxxxxxxxxxxx",
-       "broker.bos_secret_accesskey" = "yyyyyyyyyyyyyyyyyyyyyyyyy",
-       "schema"="required,int32,k1;required,byte_array,k2"
+       "broker.bos_secret_accesskey" = "yyyyyyyyyyyyyyyyyyyyyyyyy"
    );
    ````
 
@@ -339,3 +351,7 @@ OUTFILE
 4. Results Integrity Guarantee
 
    This command is a synchronous command, so it is possible that the task connection is disconnected during the execution process, so that it is impossible to live the exported data whether it ends normally, or whether it is complete. At this point, you can use the `success_file_name` parameter to request that a successful file identifier be generated in the directory after the task is successful. Users can use this file to determine whether the export ends normally.
+
+5. Other Points to Note
+
+    See [Export Query Result](../../../data-operate/export/outfile.md)

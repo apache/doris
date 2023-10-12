@@ -15,7 +15,7 @@
 -- specific language governing permissions and limitations
 -- under the License.
 --Q1.3
-SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=false) */ SUM(LO_EXTENDEDPRICE * LO_DISCOUNT) AS revenue
+SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=true) */ SUM(LO_EXTENDEDPRICE * LO_DISCOUNT) AS revenue
 FROM lineorder_flat
 WHERE
     weekofyear(LO_ORDERDATE) = 6

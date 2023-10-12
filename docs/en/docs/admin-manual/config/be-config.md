@@ -950,11 +950,6 @@ BaseCompaction:546859:
 * Description: The maximum external scan cache batch count, which means that the cache max_memory_cache_batch_count * batch_size row, the default is 20, and the default value of batch_size is 1024, which means that 20 * 1024 rows will be cached
 * Default value: 20
 
-#### `memory_limitation_per_thread_for_schema_change`
-
-* Description: The maximum memory allowed for a single schema change task
-* Default value: 2 (GB)
-
 #### `memory_max_alignment`
 
 * Description: Maximum alignment memory
@@ -1003,7 +998,7 @@ BaseCompaction:546859:
 #### `memory_limitation_per_thread_for_schema_change_bytes`
 
 * Description: Maximum memory allowed for a single schema change task
-* Default value: 2147483648
+* Default value: 2147483648 (2GB)
 
 #### `mem_tracker_consume_min_size_bytes`
 
@@ -1500,3 +1495,8 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 
 * Description: In cloud native deployment scenario, BE will be add to cluster and remove from cluster very frequently. User's query will fail if there is a fragment is running on the shuting down BE. Users could use stop_be.sh --grace, then BE will wait all running queries to stop to avoiding running query failure, but if the waiting time exceed the limit, then be will exit directly. During this period, FE will not send any queries to BE and waiting for all running queries to stop.
 * Default value: 120
+
+#### `enable_java_support`
+
+* Description: BE Whether to enable the use of java-jni. When enabled, mutual calls between c++ and java are allowed. Currently supports hudi, java-udf, jdbc, max-compute, paimon, preload, avro
+* Default value: true
