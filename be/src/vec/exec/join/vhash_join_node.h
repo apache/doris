@@ -122,25 +122,14 @@ struct ProcessHashTableBuild {
         using Mapped = typename HashTableContext::Mapped;
 
         Defer defer {[&]() {
-<<<<<<< HEAD
             int64_t bucket_size = hash_table_ctx.hash_table->get_buffer_size_in_cells();
             int64_t filled_bucket_size = hash_table_ctx.hash_table->size();
             int64_t bucket_bytes = hash_table_ctx.hash_table->get_buffer_size_in_bytes();
-            COUNTER_SET(_join_context->_hash_table_memory_usage, bucket_bytes);
-            COUNTER_SET(_join_context->_build_buckets_counter, bucket_size);
-            COUNTER_SET(_join_context->_build_collisions_counter,
-                        hash_table_ctx.hash_table->get_collisions());
-            COUNTER_SET(_join_context->_build_buckets_fill_counter, filled_bucket_size);
-=======
-            int64_t bucket_size = hash_table_ctx.hash_table.get_buffer_size_in_cells();
-            int64_t filled_bucket_size = hash_table_ctx.hash_table.size();
-            int64_t bucket_bytes = hash_table_ctx.hash_table.get_buffer_size_in_bytes();
             COUNTER_SET(_parent->_hash_table_memory_usage, bucket_bytes);
             COUNTER_SET(_parent->_build_buckets_counter, bucket_size);
             COUNTER_SET(_parent->_build_collisions_counter,
-                        hash_table_ctx.hash_table.get_collisions());
+                        hash_table_ctx.hash_table->get_collisions());
             COUNTER_SET(_parent->_build_buckets_fill_counter, filled_bucket_size);
->>>>>>> ae18042208 ([pipelineX](refactor) Use class template to simplify join)
 
             auto hash_table_buckets = hash_table_ctx.hash_table->get_buffer_sizes_in_cells();
             std::string hash_table_buckets_info;
@@ -157,17 +146,10 @@ struct ProcessHashTableBuild {
             _parent->add_hash_buckets_filled_info(hash_table_buckets_info);
         }};
 
-<<<<<<< HEAD
-        KeyGetter key_getter(_build_raw_ptrs, _join_context->_build_key_sz);
-
-        SCOPED_TIMER(_join_context->_build_table_insert_timer);
-        hash_table_ctx.hash_table->reset_resize_timer();
-=======
-        KeyGetter key_getter(_build_raw_ptrs, _parent->build_key_sz(), nullptr);
+        KeyGetter key_getter(_build_raw_ptrs, _parent->build_key_sz());
 
         SCOPED_TIMER(_parent->_build_table_insert_timer);
-        hash_table_ctx.hash_table.reset_resize_timer();
->>>>>>> ae18042208 ([pipelineX](refactor) Use class template to simplify join)
+        hash_table_ctx.hash_table->reset_resize_timer();
 
         // only not build_unique, we need expanse hash table before insert data
         // 1. There are fewer duplicate keys, reducing the number of resize hash tables
@@ -175,13 +157,8 @@ struct ProcessHashTableBuild {
         // 2. There are many duplicate keys, and the hash table filled bucket is far less than
         // the hash table build bucket, which may waste a lot of memory.
         // TODO, use the NDV expansion of the key column in the optimizer statistics
-<<<<<<< HEAD
-        if (!_join_context->_build_unique) {
-            RETURN_IF_CATCH_EXCEPTION(hash_table_ctx.hash_table->expanse_for_add_elem(
-=======
         if (!_parent->build_unique()) {
-            RETURN_IF_CATCH_EXCEPTION(hash_table_ctx.hash_table.expanse_for_add_elem(
->>>>>>> ae18042208 ([pipelineX](refactor) Use class template to simplify join)
+            RETURN_IF_CATCH_EXCEPTION(hash_table_ctx.hash_table->expanse_for_add_elem(
                     std::min<int>(_rows, config::hash_table_pre_expanse_max_rows)));
         }
 
@@ -191,23 +168,10 @@ struct ProcessHashTableBuild {
             inserted_rows.reserve(_batch_size);
         }
 
-<<<<<<< HEAD
-        hash_table_ctx.init_serialized_keys(_build_raw_ptrs, _join_context->_build_key_sz, _rows,
+        hash_table_ctx.init_serialized_keys(_build_raw_ptrs, _parent->build_key_sz(), _rows,
                                             null_map ? null_map->data() : nullptr);
 
-        auto& arena = *(_join_context->_arena);
-=======
-        if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<KeyGetter>::value) {
-            auto old_keys_memory = hash_table_ctx.keys_memory_usage;
-            hash_table_ctx.serialize_keys(_build_raw_ptrs, _rows);
-            key_getter.set_serialized_keys(hash_table_ctx.keys.data());
-            _parent->_build_arena_memory_usage->add(hash_table_ctx.keys_memory_usage -
-                                                    old_keys_memory);
-        }
-
-        _build_side_hash_values.resize(_rows);
         auto& arena = *_parent->arena();
->>>>>>> ae18042208 ([pipelineX](refactor) Use class template to simplify join)
         auto old_build_arena_memory = arena.size();
 
         size_t k = 0;
@@ -218,8 +182,7 @@ struct ProcessHashTableBuild {
             ctor(key, Mapped {k, _offset});
         };
 
-<<<<<<< HEAD
-        bool build_unique = _join_context->_build_unique;
+        bool build_unique = _parent->build_unique();
 #define EMPLACE_IMPL(stmt)                                                    \
     for (; k < _rows; ++k) {                                                  \
         if (k % CHECK_FRECUENCY == 0) {                                       \
@@ -240,89 +203,45 @@ struct ProcessHashTableBuild {
         [[maybe_unused]] auto& mapped =                                       \
                 hash_table_ctx.lazy_emplace(key_getter, k, creator, nullptr); \
         stmt;                                                                 \
-=======
-        bool build_unique = _parent->build_unique();
-#define EMPLACE_IMPL(stmt)                                                                    \
-    for (size_t k = 0; k < _rows; ++k) {                                                      \
-        if (k % CHECK_FRECUENCY == 0) {                                                       \
-            RETURN_IF_CANCELLED(_state);                                                      \
-        }                                                                                     \
-        if constexpr (ignore_null) {                                                          \
-            if ((*null_map)[k]) {                                                             \
-                continue;                                                                     \
-            }                                                                                 \
-        }                                                                                     \
-        auto emplace_result = key_getter.emplace_with_key(hash_table_ctx.hash_table, keys[k], \
-                                                          _build_side_hash_values[k]);        \
-        if (LIKELY(k + HASH_MAP_PREFETCH_DIST < _rows)) {                                     \
-            key_getter.template prefetch_by_hash<false>(                                      \
-                    hash_table_ctx.hash_table,                                                \
-                    _build_side_hash_values[k + HASH_MAP_PREFETCH_DIST]);                     \
-        }                                                                                     \
-        stmt;                                                                                 \
->>>>>>> ae18042208 ([pipelineX](refactor) Use class template to simplify join)
     }
 
-    if (has_runtime_filter && build_unique) {
-        EMPLACE_IMPL(
-                if (inserted) { inserted_rows.push_back(k); } else { _skip_rows++; });
-    } else if (has_runtime_filter && !build_unique) {
-        EMPLACE_IMPL(
-<<<<<<< HEAD
-                if (inserted) { inserted_rows.push_back(k); } else {
-                    mapped.insert({k, _offset}, *(_join_context->_arena));
-=======
-                if (emplace_result.is_inserted()) {
-                    new (&emplace_result.get_mapped()) Mapped({k, _offset});
-                    inserted_rows.push_back(k);
-                } else {
-                    emplace_result.get_mapped().insert({k, _offset}, *_parent->arena());
->>>>>>> ae18042208 ([pipelineX](refactor) Use class template to simplify join)
-                    inserted_rows.push_back(k);
-                });
-    } else if (!has_runtime_filter && build_unique) {
-        EMPLACE_IMPL(if (!inserted) { _skip_rows++; });
-    } else {
-<<<<<<< HEAD
-        EMPLACE_IMPL(if (!inserted) { mapped.insert({k, _offset}, *(_join_context->_arena)); });
-=======
-        EMPLACE_IMPL(
-                if (emplace_result.is_inserted()) {
-                    new (&emplace_result.get_mapped()) Mapped({k, _offset});
-                } else {
-                    emplace_result.get_mapped().insert({k, _offset}, *_parent->arena());
-                });
->>>>>>> ae18042208 ([pipelineX](refactor) Use class template to simplify join)
+        if (has_runtime_filter && build_unique) {
+            EMPLACE_IMPL(
+                    if (inserted) { inserted_rows.push_back(k); } else { _skip_rows++; });
+        } else if (has_runtime_filter && !build_unique) {
+            EMPLACE_IMPL(
+                    if (inserted) { inserted_rows.push_back(k); } else {
+                        mapped.insert({k, _offset}, *_parent->arena());
+                        inserted_rows.push_back(k);
+                    });
+        } else if (!has_runtime_filter && build_unique) {
+            EMPLACE_IMPL(if (!inserted) { _skip_rows++; });
+        } else {
+            EMPLACE_IMPL(if (!inserted) { mapped.insert({k, _offset}, *_parent->arena()); });
+        }
+        _parent->_build_rf_cardinality += inserted_rows.size();
+
+        _parent->_build_arena_memory_usage->add(arena.size() - old_build_arena_memory);
+
+        COUNTER_UPDATE(_parent->_build_table_expanse_timer,
+                       hash_table_ctx.hash_table->get_resize_timer_value());
+        COUNTER_UPDATE(_parent->_build_table_convert_timer,
+                       hash_table_ctx.hash_table->get_convert_timer_value());
+
+        return Status::OK();
     }
-    _parent->_build_rf_cardinality += inserted_rows.size();
 
-    _parent->_build_arena_memory_usage->add(arena.size() - old_build_arena_memory);
+private:
+    const int _rows;
+    int _skip_rows;
+    Block& _acquired_block;
+    ColumnRawPtrs& _build_raw_ptrs;
+    Parent* _parent;
+    int _batch_size;
+    uint8_t _offset;
+    RuntimeState* _state;
 
-<<<<<<< HEAD
-    COUNTER_UPDATE(_join_context->_build_table_expanse_timer,
-                   hash_table_ctx.hash_table->get_resize_timer_value());
-    COUNTER_UPDATE(_join_context->_build_table_convert_timer,
-                   hash_table_ctx.hash_table->get_convert_timer_value());
-=======
-    COUNTER_UPDATE(_parent->_build_table_expanse_timer,
-                   hash_table_ctx.hash_table.get_resize_timer_value());
-    COUNTER_UPDATE(_parent->_build_table_convert_timer,
-                   hash_table_ctx.hash_table.get_convert_timer_value());
->>>>>>> ae18042208 ([pipelineX](refactor) Use class template to simplify join)
-
-    return Status::OK();
-}
-
-private : const int _rows;
-int _skip_rows;
-Block& _acquired_block;
-ColumnRawPtrs& _build_raw_ptrs;
-Parent* _parent;
-int _batch_size;
-uint8_t _offset;
-RuntimeState* _state;
-
-ProfileCounter* _build_side_compute_hash_timer;
+    ProfileCounter* _build_side_compute_hash_timer;
 };
 
 // TODO: use FixedHashTable instead of HashTable
