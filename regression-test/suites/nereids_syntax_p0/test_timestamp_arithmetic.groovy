@@ -27,7 +27,7 @@ suite("nereids_timestamp_arithmetic") {
 
     test {
         sql = "select date '20200808' + interval array() day;"
-        exception = "the second argument must be a scalar type. but it is array()"
+        exception = "the second argument must be a scalar type. but it is ARRAY()"
     }
 
     sql """
