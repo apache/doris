@@ -29,6 +29,7 @@ public class PrivPredicate {
             Privilege.LOAD_PRIV,
             Privilege.ALTER_PRIV,
             Privilege.CREATE_PRIV,
+            Privilege.SHOW_VIEW_PRIV,
             Privilege.DROP_PRIV),
             Operator.OR);
     // show create table 'view'
