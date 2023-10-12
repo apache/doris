@@ -550,6 +550,8 @@ struct JoinSharedState {
     // 2. build side rows is empty, Join op is: inner join/right outer join/left semi/right semi/right anti
     bool _has_null_in_build_side = false;
     bool short_circuit_for_probe = false;
+    // for some join, when build side rows is empty, we could return directly by add some additional null data in probe table.
+    bool empty_right_table_need_probe_dispose = false;
     vectorized::JoinOpVariants join_op_variants;
 };
 

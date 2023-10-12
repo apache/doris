@@ -148,6 +148,14 @@ void HashJoinBuildSinkLocalState::init_short_circuit_for_probe() {
             (_shared_state->build_blocks->empty() && p._join_op == TJoinOp::RIGHT_OUTER_JOIN) ||
             (_shared_state->build_blocks->empty() && p._join_op == TJoinOp::RIGHT_SEMI_JOIN) ||
             (_shared_state->build_blocks->empty() && p._join_op == TJoinOp::RIGHT_ANTI_JOIN);
+
+    //when build table rows is 0 and not have other_join_conjunct and not _is_mark_join and join type is one of LEFT_OUTER_JOIN/FULL_OUTER_JOIN/LEFT_ANTI_JOIN
+    //we could get the result is probe table + null-column(if need output)
+    _shared_state->empty_right_table_need_probe_dispose =
+            (_shared_state->build_blocks->empty() && !p._have_other_join_conjunct &&
+             !p._is_mark_join) &&
+            (p._join_op == TJoinOp::LEFT_OUTER_JOIN || p._join_op == TJoinOp::FULL_OUTER_JOIN ||
+             p._join_op == TJoinOp::LEFT_ANTI_JOIN);
 }
 
 Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
