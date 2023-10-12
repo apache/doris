@@ -10,17 +10,18 @@ PhysicalResultSink
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN] hashCondition=((inventory.inv_warehouse_sk = warehouse.w_warehouse_sk))otherCondition=()
---------------------hashJoin[INNER_JOIN] hashCondition=((inventory.inv_date_sk = date_dim.d_date_sk))otherCondition=()
-----------------------hashJoin[INNER_JOIN] hashCondition=((item.i_item_sk = inventory.inv_item_sk))otherCondition=()
-------------------------PhysicalOlapScan[inventory]
+--------------------PhysicalProject
+----------------------hashJoin[INNER_JOIN] hashCondition=((inventory.inv_date_sk = date_dim.d_date_sk))otherCondition=()
+------------------------hashJoin[INNER_JOIN] hashCondition=((item.i_item_sk = inventory.inv_item_sk))otherCondition=()
+--------------------------PhysicalOlapScan[inventory]
+--------------------------PhysicalDistribute
+----------------------------PhysicalProject
+------------------------------filter((item.i_current_price <= 1.49) and (item.i_current_price >= 0.99))
+--------------------------------PhysicalOlapScan[item]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
-----------------------------filter((item.i_current_price <= 1.49) and (item.i_current_price >= 0.99))
-------------------------------PhysicalOlapScan[item]
-----------------------PhysicalDistribute
-------------------------PhysicalProject
---------------------------filter((date_dim.d_date <= '2002-03-29') and (date_dim.d_date >= '2002-01-28'))
-----------------------------PhysicalOlapScan[date_dim]
+----------------------------filter((date_dim.d_date <= '2002-03-29') and (date_dim.d_date >= '2002-01-28'))
+------------------------------PhysicalOlapScan[date_dim]
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[warehouse]
