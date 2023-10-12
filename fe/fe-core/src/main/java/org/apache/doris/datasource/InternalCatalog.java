@@ -2469,9 +2469,11 @@ public class InternalCatalog implements CatalogIf<Database> {
             } else if (partitionInfo.getType() == PartitionType.RANGE
                     || partitionInfo.getType() == PartitionType.LIST) {
                 try {
-                    if (storagePolicy.equals("") && properties != null && !properties.isEmpty()) {
+                    Map<String, String> propertiesCheck = properties;
+                    propertiesCheck.entrySet().removeIf(entry -> entry.getKey().contains("dynamic_partition"));
+                    if (storagePolicy.equals("") && propertiesCheck != null && !propertiesCheck.isEmpty()) {
                         // here, all properties should be checked
-                        throw new DdlException("Unknown properties: " + properties);
+                        throw new DdlException("Unknown properties: " + propertiesCheck);
                     }
                     // just for remove entries in stmt.getProperties(),
                     // and then check if there still has unknown properties
