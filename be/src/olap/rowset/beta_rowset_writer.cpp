@@ -516,8 +516,11 @@ RowsetSharedPtr BetaRowsetWriter::build() {
         }
 
         if (_segcompaction_worker.get_file_writer()) {
-            WARN_IF_ERROR(_segcompaction_worker.get_file_writer()->close(),
-                          "close segment compaction worker failed");
+            status = _segcompaction_worker.get_file_writer()->close();
+            if (!status.ok()) {
+                LOG(WARNING) << "close segment compaction worker failed" << status;
+                return nullptr;
+            }
         }
     }
     status = _check_segment_number_limit();
