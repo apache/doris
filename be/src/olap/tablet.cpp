@@ -1907,6 +1907,7 @@ void Tablet::execute_compaction(CompactionType compaction_type) {
         });
 
         Status res = _base_compaction->execute_compact();
+        set_last_base_compaction_status(res.to_string());
         if (!res.ok()) {
             set_last_base_compaction_failure_time(UnixMillis());
             DorisMetrics::instance()->base_compaction_request_failed->increment(1);
