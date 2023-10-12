@@ -171,7 +171,7 @@ private:
             return ColumnNullable::create(std::move(dst), std::move(dst_null_column));
         } else {
             if (outer_null_map == nullptr) {
-                return std::move(dst);
+                return dst;
             }
             return ColumnNullable::create(std::move(dst), std::move(dst_null_column));
         }
@@ -235,7 +235,7 @@ private:
             return ColumnNullable::create(std::move(dst), std::move(dst_null_column));
         } else {
             if (outer_null_map == nullptr) {
-                return std::move(dst);
+                return dst;
             }
             return ColumnNullable::create(std::move(dst), std::move(dst_null_column));
         }
