@@ -535,8 +535,7 @@ public class DatabaseTransactionMgr {
                     transactionState.prolongPublishTimeout();
                 }
 
-                int quorumReplicaNum = table.getPartitionInfo()
-                        .getReplicaAllocation(partition.getId()).getTotalReplicaNum() / 2 + 1;
+                int loadRequiredReplicaNum = table.getLoadRequiredReplicaNum(partition.getId());
                 for (MaterializedIndex index : allIndices) {
                     for (Tablet tablet : index.getTablets()) {
                         tabletSuccReplicas.clear();
@@ -574,13 +573,13 @@ public class DatabaseTransactionMgr {
                         }
 
                         int successReplicaNum = tabletSuccReplicas.size();
-                        if (successReplicaNum < quorumReplicaNum) {
+                        if (successReplicaNum < loadRequiredReplicaNum) {
                             String writeDetail = getTabletWriteDetail(tabletSuccReplicas, tabletWriteFailedReplicas,
                                     tabletVersionFailedReplicas);
 
-                            String errMsg = String.format("Failed to commit txn %s, cause tablet %s succ replica "
-                                    + "num %s < quorum replica num %s. table %s, partition %s, this tablet detail: %s",
-                                    transactionId, tablet.getId(), successReplicaNum, quorumReplicaNum, tableId,
+                            String errMsg = String.format("Failed to commit txn %s, cause tablet %s succ replica num %s"
+                                    + " < load required replica num %s. table %s, partition %s, this tablet detail: %s",
+                                    transactionId, tablet.getId(), successReplicaNum, loadRequiredReplicaNum, tableId,
                                     partition.getId(), writeDetail);
                             LOG.info(errMsg);
 
@@ -957,7 +956,7 @@ public class DatabaseTransactionMgr {
                             transactionState);
                     continue;
                 }
-                PartitionInfo partitionInfo = table.getPartitionInfo();
+
                 Iterator<PartitionCommitInfo> partitionCommitInfoIterator
                         = tableCommitInfo.getIdToPartitionCommitInfo().values().iterator();
                 while (partitionCommitInfoIterator.hasNext()) {
@@ -983,8 +982,8 @@ public class DatabaseTransactionMgr {
                         transactionState.setErrorMsg(errMsg);
                         return;
                     }
-                    int quorumReplicaNum = partitionInfo.getReplicaAllocation(partitionId).getTotalReplicaNum() / 2 + 1;
 
+                    int loadRequiredReplicaNum = table.getLoadRequiredReplicaNum(partitionId);
                     List<MaterializedIndex> allIndices;
                     if (transactionState.getLoadedTblIndexes().isEmpty()) {
                         allIndices = partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL);
@@ -1017,15 +1016,15 @@ public class DatabaseTransactionMgr {
                             }
 
                             int healthReplicaNum = tabletSuccReplicas.size();
-                            if (healthReplicaNum >= quorumReplicaNum) {
+                            if (healthReplicaNum >= loadRequiredReplicaNum) {
                                 if (!tabletWriteFailedReplicas.isEmpty() || !tabletVersionFailedReplicas.isEmpty()) {
                                     String writeDetail = getTabletWriteDetail(tabletSuccReplicas,
                                             tabletWriteFailedReplicas, tabletVersionFailedReplicas);
                                     LOG.info("publish version quorum succ for transaction {} on tablet {} with version"
-                                            + " {}, and has failed replicas, quorum num {}. table {}, partition {},"
-                                            + " tablet detail: {}",
+                                            + " {}, and has failed replicas, load require replica num {}. table {}, "
+                                            + "partition {}, tablet detail: {}",
                                             transactionState, tablet.getId(), partitionCommitInfo.getVersion(),
-                                            quorumReplicaNum, tableId, partitionId, writeDetail);
+                                            loadRequiredReplicaNum, tableId, partitionId, writeDetail);
                                 }
                                 continue;
                             }
@@ -1050,23 +1049,23 @@ public class DatabaseTransactionMgr {
                                 // ahead, otherwise data may be lost and thre
                                 // publish task hangs forever.
                                 LOG.info("publish version timeout succ for transaction {} on tablet {} with version"
-                                        + " {}, and has failed replicas, quorum num {}. table {}, partition {},"
-                                        + " tablet detail: {}",
+                                        + " {}, and has failed replicas, load require replica num {}. table {}, "
+                                        + "partition {}, tablet detail: {}",
                                         transactionState, tablet.getId(), partitionCommitInfo.getVersion(),
-                                        quorumReplicaNum, tableId, partitionId, writeDetail);
+                                        loadRequiredReplicaNum, tableId, partitionId, writeDetail);
                             } else {
                                 publishResult = PublishResult.FAILED;
                                 String errMsg = String.format("publish on tablet %d failed."
-                                                + " succeed replica num %d less than quorum %d."
+                                                + " succeed replica num %d < load required replica num %d."
                                                 + " table: %d, partition: %d, publish version: %d",
-                                        tablet.getId(), healthReplicaNum, quorumReplicaNum, tableId,
+                                        tablet.getId(), healthReplicaNum, loadRequiredReplicaNum, tableId,
                                         partitionId, partition.getVisibleVersion() + 1);
                                 transactionState.setErrorMsg(errMsg);
                                 LOG.info("publish version failed for transaction {} on tablet {} with version"
-                                        + " {}, and has failed replicas, quorum num {}. table {}, partition {},"
-                                        + " tablet detail: {}",
+                                        + " {}, and has failed replicas, load required replica num {}. table {}, "
+                                        + "partition {}, tablet detail: {}",
                                         transactionState, tablet.getId(), partitionCommitInfo.getVersion(),
-                                        quorumReplicaNum, tableId, partitionId, writeDetail);
+                                        loadRequiredReplicaNum, tableId, partitionId, writeDetail);
                             }
                         }
                     }

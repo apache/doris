@@ -133,7 +133,7 @@ DEFINE_mBool(disable_memory_gc, "false");
 
 DEFINE_mInt64(large_memory_check_bytes, "2147483648");
 
-// The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
+// The maximum time a thread waits for full GC. Currently only query will wait for full gc.
 DEFINE_mInt32(thread_wait_gc_max_milliseconds, "1000");
 
 DEFINE_mInt64(pre_serialize_keys_limit_bytes, "16777216");
@@ -1070,10 +1070,6 @@ DEFINE_mInt64(lookup_connection_cache_bytes_limit, "4294967296");
 
 // level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
 DEFINE_mInt64(LZ4_HC_compression_level, "9");
-
-DEFINE_Bool(enable_hdfs_hedged_read, "false");
-DEFINE_Int32(hdfs_hedged_read_thread_num, "128");
-DEFINE_Int32(hdfs_hedged_read_threshold_time, "500");
 
 DEFINE_mBool(enable_merge_on_write_correctness_check, "true");
 
