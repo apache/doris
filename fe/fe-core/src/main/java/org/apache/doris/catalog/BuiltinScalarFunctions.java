@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.AesEncrypt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AesEncryptV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AppendTrailingCharIfAbsent;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayApply;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayAvg;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCompact;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayContains;
@@ -53,6 +54,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayPosition
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayProduct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRange;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRemove;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRepeat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayReverseSort;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySlice;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySort;
@@ -183,6 +185,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Initcap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.InnerProduct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Instr;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4NumToString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtract;
@@ -414,6 +417,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(AesEncryptV2.class, "aes_encrypt_v2"),
             scalar(AppendTrailingCharIfAbsent.class, "append_trailing_char_if_absent"),
             scalar(Array.class, "array"),
+            scalar(ArrayApply.class, "array_apply"),
             scalar(ArrayAvg.class, "array_avg"),
             scalar(ArrayCompact.class, "array_compact"),
             scalar(ArrayContains.class, "array_contains"),
@@ -440,6 +444,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ArrayProduct.class, "array_product"),
             scalar(ArrayRange.class, "array_range"),
             scalar(ArrayRemove.class, "array_remove"),
+            scalar(ArrayRepeat.class, "array_repeat"),
             scalar(ArrayReverseSort.class, "array_reverse_sort"),
             scalar(ArraySlice.class, "array_slice"),
             scalar(ArraySort.class, "array_sort"),
@@ -567,6 +572,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Initcap.class, "initcap"),
             scalar(InnerProduct.class, "inner_product"),
             scalar(Instr.class, "instr"),
+            scalar(Ipv4NumToString.class, "ipv4numtostring", "inet_ntoa"),
             scalar(JsonArray.class, "json_array"),
             scalar(JsonObject.class, "json_object"),
             scalar(JsonQuote.class, "json_quote"),

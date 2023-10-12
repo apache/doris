@@ -87,7 +87,7 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(BitmapUnionCount.class, "bitmap_union_count"),
             agg(BitmapUnionInt.class, "bitmap_union_int"),
             agg(CollectList.class, "collect_list"),
-            agg(CollectSet.class, "collect_set"),
+            agg(CollectSet.class, "collect_set", "group_uniq_array"),
             agg(Count.class, "count"),
             agg(CountByEnum.class, "count_by_enum"),
             agg(GroupBitAnd.class, "group_bit_and"),
