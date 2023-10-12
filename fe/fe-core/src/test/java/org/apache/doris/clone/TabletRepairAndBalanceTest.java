@@ -49,6 +49,7 @@ import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TDisk;
+import org.apache.doris.thrift.TDiskType;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.UtFrameUtils;
 
@@ -105,7 +106,7 @@ public class TabletRepairAndBalanceTest {
         FeConstants.runningUnitTest = true;
         System.out.println(runningDir);
         FeConstants.runningUnitTest = true;
-        FeConstants.tablet_checker_interval_ms = 1000;
+        Config.tablet_checker_interval_ms = 1000;
         Config.tablet_repair_delay_factor_second = 1;
         Config.colocate_group_relocate_delay_second = 1;
         // 5 backends:
@@ -134,6 +135,7 @@ public class TabletRepairAndBalanceTest {
             tDisk1.setDiskAvailableCapacity(tDisk1.disk_total_capacity - tDisk1.data_used_capacity);
             tDisk1.setPathHash(random.nextLong());
             tDisk1.setStorageMedium(TStorageMedium.HDD);
+            tDisk1.setDirType(TDiskType.STORAGE);
             backendDisks.put(tDisk1.getRootPath(), tDisk1);
 
             TDisk tDisk2 = new TDisk();
@@ -144,6 +146,7 @@ public class TabletRepairAndBalanceTest {
             tDisk2.setDiskAvailableCapacity(tDisk2.disk_total_capacity - tDisk2.data_used_capacity);
             tDisk2.setPathHash(random.nextLong());
             tDisk2.setStorageMedium(TStorageMedium.SSD);
+            tDisk2.setDirType(TDiskType.STORAGE);
             backendDisks.put(tDisk2.getRootPath(), tDisk2);
 
             be.updateDisks(backendDisks);

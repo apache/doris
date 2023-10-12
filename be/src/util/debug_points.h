@@ -18,19 +18,21 @@
 #pragma once
 
 #include <atomic>
+#include <boost/lexical_cast.hpp>
 #include <functional>
 #include <map>
 #include <memory>
-#include <string>
+#include <type_traits>
 
 #include "common/compiler_util.h"
 #include "common/config.h"
 
-#define DBUG_EXECUTE_IF(debug_point, code)                     \
-    if (UNLIKELY(config::enable_debug_points)) {               \
-        if (DebugPoints::instance()->is_enable(debug_point)) { \
-            code;                                              \
-        }                                                      \
+#define DBUG_EXECUTE_IF(debug_point_name, code)                               \
+    if (UNLIKELY(config::enable_debug_points)) {                              \
+        auto dp = DebugPoints::instance()->get_debug_point(debug_point_name); \
+        if (dp) {                                                             \
+            code;                                                             \
+        }                                                                     \
     }
 
 namespace doris {
@@ -39,12 +41,41 @@ struct DebugPoint {
     std::atomic<int64_t> execute_num {0};
     int64_t execute_limit = -1;
     int64_t expire_ms = -1;
+
+    std::map<std::string, std::string> params;
+
+    template <typename T = int>
+    T param(const std::string& key, T default_value = T()) {
+        auto it = params.find(key);
+        if (it == params.end()) {
+            return default_value;
+        }
+        if constexpr (std::is_same_v<T, bool>) {
+            if (it->second == "true") {
+                return true;
+            }
+            if (it->second == "false") {
+                return false;
+            }
+            return boost::lexical_cast<T>(it->second);
+        } else if constexpr (std::is_arithmetic_v<T>) {
+            return boost::lexical_cast<T>(it->second);
+        } else {
+            static_assert(std::is_same_v<T, std::string>);
+            return it->second;
+        }
+    }
+
+    std::string param(const std::string& key, const char* default_value) {
+        return param<std::string>(key, std::string(default_value));
+    }
 };
 
 class DebugPoints {
 public:
     bool is_enable(const std::string& name);
-    void add(const std::string& name, int64_t execute_limit, int64_t timeout_second);
+    std::shared_ptr<DebugPoint> get_debug_point(const std::string& name);
+    void add(const std::string& name, std::shared_ptr<DebugPoint> debug_point);
     void remove(const std::string& name);
     void clear();
 

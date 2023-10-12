@@ -213,7 +213,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
 
                             if (result.exprRewriteMap.isEmpty()) {
                                 return new LogicalProject<>(
-                                    generateProjectsAlias(agg.getOutput(), slotContext),
+                                    generateProjectsAlias(agg.getOutputs(), slotContext),
                                         new ReplaceExpressions(slotContext).replace(
                                         agg.withChildren(
                                             project.withProjectsAndChild(

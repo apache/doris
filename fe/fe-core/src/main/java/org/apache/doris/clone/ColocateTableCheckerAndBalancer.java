@@ -34,7 +34,6 @@ import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletScheduler.AddResult;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.persist.ColocatePersistInfo;
@@ -73,7 +72,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
         if (INSTANCE == null) {
             synchronized (ColocateTableCheckerAndBalancer.class) {
                 if (INSTANCE == null) {
-                    INSTANCE = new ColocateTableCheckerAndBalancer(FeConstants.tablet_checker_interval_ms);
+                    INSTANCE = new ColocateTableCheckerAndBalancer(Config.tablet_checker_interval_ms);
                 }
             }
         }
