@@ -55,6 +55,7 @@
 #endif
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "bvar/bvar.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
 #include "common/object_pool.h"
@@ -92,7 +93,6 @@
 #include "vec/exprs/vexpr.h"
 #include "vec/sink/vtablet_block_convertor.h"
 #include "vec/sink/vtablet_finder.h"
-#include "bvar/bvar.h"
 
 namespace doris {
 class TExpr;
@@ -100,9 +100,11 @@ class TExpr;
 namespace vectorized {
 
 bvar::Adder<int64_t> g_sink_write_bytes;
-bvar::PerSecond<bvar::Adder<int64_t>> g_sink_write_bytes_per_second("sink_throughput_byte", &g_sink_write_bytes, 60);
+bvar::PerSecond<bvar::Adder<int64_t>> g_sink_write_bytes_per_second("sink_throughput_byte",
+                                                                    &g_sink_write_bytes, 60);
 bvar::Adder<int64_t> g_sink_write_rows;
-bvar::PerSecond<bvar::Adder<int64_t>> g_sink_write_rows_per_second("sink_throughput_row", &g_sink_write_rows, 60);
+bvar::PerSecond<bvar::Adder<int64_t>> g_sink_write_rows_per_second("sink_throughput_row",
+                                                                   &g_sink_write_rows, 60);
 
 Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPartition>& tablets) {
     SCOPED_CONSUME_MEM_TRACKER(_index_channel_tracker.get());
