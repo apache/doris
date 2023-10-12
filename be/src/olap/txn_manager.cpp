@@ -44,6 +44,7 @@
 #include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/task/engine_publish_version_task.h"
+#include "util/debug_points.h"
 #include "util/time.h"
 
 namespace doris {
@@ -224,6 +225,12 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
                 "transaction_id: {}, tablet: {}",
                 key.first, key.second, tablet_info.to_string());
     }
+
+    DBUG_EXECUTE_IF(
+            "TxnManager.commit_txn_random_failed",
+            if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
+                return Status::InternalError("debug commit txn random failed");
+            });
 
     std::lock_guard<std::shared_mutex> txn_lock(_get_txn_lock(transaction_id));
     // this while loop just run only once, just for if break

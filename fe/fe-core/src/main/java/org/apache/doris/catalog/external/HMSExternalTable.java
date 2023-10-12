@@ -111,6 +111,9 @@ public class HMSExternalTable extends ExternalTable {
     // No as precise as row count in TableStats, but better than none.
     private long estimatedRowCount = -1;
 
+    // record the partition update time when enable hms event listener
+    protected volatile long partitionUpdateTime;
+
     public enum DLAType {
         UNKNOWN, HIVE, HUDI, ICEBERG, DELTALAKE
     }
@@ -267,11 +270,6 @@ public class HMSExternalTable extends ExternalTable {
 
     @Override
     public long getCreateTime() {
-        return 0;
-    }
-
-    @Override
-    public long getUpdateTime() {
         return 0;
     }
 
@@ -628,6 +626,17 @@ public class HMSExternalTable extends ExternalTable {
         } else {
             builder.setMaxValue(Double.MAX_VALUE);
         }
+    }
+
+    public void setPartitionUpdateTime(long updateTime) {
+        this.partitionUpdateTime = updateTime;
+    }
+
+    @Override
+    // get the max value of `schemaUpdateTime` and `partitionUpdateTime`
+    // partitionUpdateTime will be refreshed after processing partition events with hms event listener enabled
+    public long getUpdateTime() {
+        return Math.max(this.schemaUpdateTime, this.partitionUpdateTime);
     }
 
     @Override

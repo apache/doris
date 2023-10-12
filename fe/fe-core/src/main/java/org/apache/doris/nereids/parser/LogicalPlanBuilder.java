@@ -500,11 +500,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Map<String, String> visitPropertyClause(PropertyClauseContext ctx) {
-        return ctx == null ? null : visitPropertyItemList(ctx.fileProperties);
+        return ctx == null ? ImmutableMap.of() : visitPropertyItemList(ctx.fileProperties);
     }
 
     @Override
     public Map<String, String> visitPropertyItemList(PropertyItemListContext ctx) {
+        if (ctx == null || ctx.properties == null) {
+            return ImmutableMap.of();
+        }
         Builder<String, String> propertiesMap = ImmutableMap.builder();
         for (PropertyItemContext argument : ctx.properties) {
             String key = parsePropertyKey(argument.key);

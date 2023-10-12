@@ -165,8 +165,14 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         if (JoinUtils.couldShuffle(hashJoin)) {
             addShuffleJoinRequestProperty(hashJoin);
         }
+
         // for broadcast join
-        if (JoinUtils.couldBroadcast(hashJoin)) {
+        double memLimit = ConnectContext.get().getSessionVariable().getMaxExecMemByte();
+        double rowsLimit = ConnectContext.get().getSessionVariable().getBroadcastRowCountLimit();
+        double brMemlimit = ConnectContext.get().getSessionVariable().getBroadcastHashtableMemLimitPercentage();
+        double datasize = hashJoin.getGroupExpression().get().child(1).getStatistics().computeSize();
+        double rowCount = hashJoin.getGroupExpression().get().child(1).getStatistics().getRowCount();
+        if (JoinUtils.couldBroadcast(hashJoin) && rowCount <= rowsLimit && datasize <= memLimit * brMemlimit) {
             addBroadcastJoinRequestProperty();
         }
         return null;

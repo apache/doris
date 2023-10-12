@@ -264,9 +264,6 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
         return Status::OK();
     }
 
-    if (scan_block == nullptr) {
-        return Status::Error<777>("not pointer in scan pipline");
-    }
     // get scanner's block memory
     block->swap(*scan_block);
     _scanner_ctx->return_free_block(std::move(scan_block));
@@ -664,6 +661,12 @@ bool VScanNode::_is_predicate_acting_on_slot(
 
     auto entry = _slot_id_to_value_range.find(slot_ref->slot_id());
     if (_slot_id_to_value_range.end() == entry) {
+        return false;
+    }
+    // if the slot is a complex type(array/map/struct), we do not push down the predicate, because
+    // we delete pack these type into predict column, and origin pack action is wrong. we should
+    // make sense to push down this complex type after we delete predict column.
+    if (is_complex_type(remove_nullable(slot_ref->data_type()))) {
         return false;
     }
     *slot_desc = entry->second.first;

@@ -19,6 +19,8 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.common.Config;
 
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -34,39 +36,82 @@ public class DebugPointUtil {
 
     private static final Map<String, DebugPoint> debugPoints = new ConcurrentHashMap<>();
 
-    private static class DebugPoint {
+    public static class DebugPoint {
         public AtomicInteger executeNum = new AtomicInteger(0);
         public int executeLimit = -1;
         public long expireTime = -1;
+
+        // params
+        public Map<String, String> params = Maps.newHashMap();
+
+        public <E> E param(String key, E defaultValue) {
+            Preconditions.checkState(defaultValue != null);
+
+            String value = params.get(key);
+            if (value == null) {
+                return defaultValue;
+            }
+            if (defaultValue instanceof Boolean) {
+                return (E) Boolean.valueOf(value);
+            }
+            if (defaultValue instanceof Byte) {
+                return (E) Byte.valueOf(value);
+            }
+            if (defaultValue instanceof Character) {
+                Preconditions.checkState(value.length() == 1);
+                return (E) Character.valueOf(value.charAt(0));
+            }
+            if (defaultValue instanceof Short) {
+                return (E) Short.valueOf(value);
+            }
+            if (defaultValue instanceof Integer) {
+                return (E) Integer.valueOf(value);
+            }
+            if (defaultValue instanceof Long) {
+                return (E) Long.valueOf(value);
+            }
+            if (defaultValue instanceof Float) {
+                return (E) Float.valueOf(value);
+            }
+            if (defaultValue instanceof Double) {
+                return (E) Double.valueOf(value);
+            }
+            if (defaultValue instanceof String) {
+                return (E) value;
+            }
+
+            Preconditions.checkState(false, "Can not convert with default value=" + defaultValue);
+
+            return defaultValue;
+        }
     }
 
     public static boolean isEnable(String debugPointName) {
+        return getDebugPoint(debugPointName) != null;
+    }
+
+    public static DebugPoint getDebugPoint(String debugPointName) {
         if (!Config.enable_debug_points) {
-            return false;
+            return null;
         }
 
         DebugPoint debugPoint = debugPoints.get(debugPointName);
         if (debugPoint == null) {
-            return false;
+            return null;
         }
 
         if ((debugPoint.expireTime > 0 && System.currentTimeMillis() >= debugPoint.expireTime)
                 || (debugPoint.executeLimit > 0 && debugPoint.executeNum.incrementAndGet() > debugPoint.executeLimit)) {
             debugPoints.remove(debugPointName);
-            return false;
+            return null;
         }
 
-        return true;
+        return debugPoint;
     }
 
-    public static void addDebugPoint(String name, int executeLimit, long timeoutSecond) {
-        DebugPoint debugPoint = new DebugPoint();
-        debugPoint.executeLimit = executeLimit;
-        if (timeoutSecond > 0) {
-            debugPoint.expireTime = System.currentTimeMillis() + timeoutSecond * 1000;
-        }
+    public static void addDebugPoint(String name, DebugPoint debugPoint) {
         debugPoints.put(name, debugPoint);
-        LOG.info("add debug point: name={}, execute={}, timeout seconds={}", name, executeLimit, timeoutSecond);
+        LOG.info("add debug point: name={}, params={}", name, debugPoint.params);
     }
 
     public static void removeDebugPoint(String name) {

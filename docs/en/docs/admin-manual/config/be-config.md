@@ -950,11 +950,6 @@ BaseCompaction:546859:
 * Description: The maximum external scan cache batch count, which means that the cache max_memory_cache_batch_count * batch_size row, the default is 20, and the default value of batch_size is 1024, which means that 20 * 1024 rows will be cached
 * Default value: 20
 
-#### `memory_limitation_per_thread_for_schema_change`
-
-* Description: The maximum memory allowed for a single schema change task
-* Default value: 2 (GB)
-
 #### `memory_max_alignment`
 
 * Description: Maximum alignment memory
@@ -1003,7 +998,7 @@ BaseCompaction:546859:
 #### `memory_limitation_per_thread_for_schema_change_bytes`
 
 * Description: Maximum memory allowed for a single schema change task
-* Default value: 2147483648
+* Default value: 2147483648 (2GB)
 
 #### `mem_tracker_consume_min_size_bytes`
 

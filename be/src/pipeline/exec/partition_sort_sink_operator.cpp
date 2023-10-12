@@ -55,7 +55,8 @@ PartitionSortSinkOperatorX::PartitionSortSinkOperatorX(ObjectPool* pool, const T
         : DataSinkOperatorX(tnode.node_id),
           _pool(pool),
           _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
-          _limit(tnode.limit) {}
+          _limit(tnode.limit),
+          _topn_phase(tnode.partition_sort_node.ptopn_phase) {}
 
 Status PartitionSortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX::init(tnode, state));
@@ -106,7 +107,9 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
             local_state._value_places[0]->append_whole_block(input_block, _child_x->row_desc());
         } else {
             //just simply use partition num to check
-            if (local_state._num_partition > config::partition_topn_partition_threshold &&
+            //if is TWO_PHASE_GLOBAL, must be sort all data thought partition num threshold have been exceeded.
+            if (_topn_phase != TPartTopNPhase::TWO_PHASE_GLOBAL &&
+                local_state._num_partition > config::partition_topn_partition_threshold &&
                 local_state.child_input_rows < 10000 * local_state._num_partition) {
                 {
                     std::lock_guard<std::mutex> lock(local_state._shared_state->buffer_mutex);
