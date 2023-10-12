@@ -2488,10 +2488,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                         }
                     }
 
-//                    if (storagePolicy.equals("") && properties != null && !properties.isEmpty()) {
-//                        // here, all properties should be checked
-//                        throw new DdlException("Unknown properties: " + properties);
-//                    }
                 } catch (AnalysisException e) {
                     throw new DdlException(e.getMessage());
                 }
