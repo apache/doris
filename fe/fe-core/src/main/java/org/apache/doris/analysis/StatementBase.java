@@ -78,6 +78,7 @@ public abstract class StatementBase implements ParseNode {
      * were missing from the catalog.
      * It is up to the analysis() implementation to ensure the maximum number of missing
      * tables/views get collected in the Analyzer before failing analyze().
+     * Should call the method firstly when override the method.
      */
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         if (isAnalyzed()) {
