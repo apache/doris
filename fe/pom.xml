@@ -339,9 +339,10 @@ under the License.
                     <url>https://repository.apache.org/content/repositories/snapshots/</url>
                 </repository>
                 <!-- for java-cup -->
+                <!-- https://docs.cloudera.com/documentation/enterprise/release-notes/topics/cdh_vd_cdh5_maven_repo.html -->
                 <repository>
-                    <id>cloudera-public</id>
-                    <url>https://repository.cloudera.com/artifactory/public/</url>
+                    <id>cloudera</id>
+                    <url>https://repository.cloudera.com/artifactory/cloudera-repos/</url>
                 </repository>
             </repositories>
             <pluginRepositories>
@@ -350,9 +351,10 @@ under the License.
                     <url>https://repo.maven.apache.org/maven2</url>
                 </pluginRepository>
                 <!-- for cup-maven-plugin -->
+                <!-- https://docs.cloudera.com/documentation/enterprise/release-notes/topics/cdh_vd_cdh5_maven_repo.html -->
                 <pluginRepository>
-                    <id>cloudera-public</id>
-                    <url>https://repository.cloudera.com/artifactory/public/</url>
+                    <id>cloudera</id>
+                    <url>https://repository.cloudera.com/artifactory/cloudera-repos/</url>
                 </pluginRepository>
             </pluginRepositories>
         </profile>
