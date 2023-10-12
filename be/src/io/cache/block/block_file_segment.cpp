@@ -206,7 +206,7 @@ bool FileBlock::change_cache_type(CacheType new_type) {
         std::filesystem::rename(get_path_in_local_cache(),
                                 _cache->get_path_in_local_cache(key(), offset(), new_type), ec);
         if (ec) {
-            LOG(ERROR) << ec.message();
+            LOG(ERROR) << "change cache type failed due to rename error " << ec.message();
             return false;
         }
     }

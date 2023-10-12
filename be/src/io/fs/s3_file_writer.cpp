@@ -91,12 +91,12 @@ S3FileWriter::S3FileWriter(std::string key, std::shared_ptr<S3FileSystem> fs,
           _client(fs->get_client()),
           _expiration_time(opts ? opts->file_cache_expiration : 0),
           _is_cold_data(opts ? opts->is_cold_data : true),
-          _disable_file_cache(!opts ? false : !opts->write_file_cache) {
+          _write_file_cache(!opts ? false : !opts->write_file_cache) {
     s3_file_writer_total << 1;
     s3_file_being_written << 1;
 
     Aws::Http::SetCompliantRfc3986Encoding(true);
-    if (config::enable_file_cache && !_disable_file_cache) {
+    if (config::enable_file_cache && _write_file_cache) {
         _cache_key = IFileCache::hash(_path.filename().native());
         _cache = FileCacheFactory::instance()->get_by_path(_cache_key);
     }
@@ -209,11 +209,10 @@ Status S3FileWriter::close() {
         _pending_buf->submit();
         _pending_buf = nullptr;
     }
-    DBUG_EXECUTE_IF("s3_file_writer::close",
-                    {
-                        static_cast<void>(_complete());
-                        return Status::InternalError("failed to close s3 file writer");
-                    });
+    DBUG_EXECUTE_IF("s3_file_writer::close", {
+        static_cast<void>(_complete());
+        return Status::InternalError("failed to close s3 file writer");
+    });
     RETURN_IF_ERROR(_complete());
 
     return Status::OK();
@@ -256,7 +255,7 @@ Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
                             return ret;
                         })
                         .set_is_cancelled([this]() { return _failed.load(); });
-                if (!_disable_file_cache) {
+                if (!_write_file_cache) {
                     // We would load the data into file cache asynchronously which indicates
                     // that this instance of S3FileWriter might have been destructed when we
                     // try to do writing into file cache, so we make the lambda capture the variable
