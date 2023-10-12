@@ -28,3 +28,7 @@
 1	-1.0
 2	0.5
 3	1.0
+
+-- !sql_quantile_state_percent2 --
+nan
+
