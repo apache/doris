@@ -41,19 +41,19 @@ suite("test_auth_show", "account") {
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
 
     // With select priv for table, should be able to see db
-    sql """GRANT SELECT_PRIV ON '${dbName}.${tableName}' TO ${user}"""
+    sql """GRANT SELECT_PRIV ON ${dbName}.${tableName} TO ${user}"""
     def result1 = connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
         sql "show databases like '${dbName}'"
     }
     assertEquals(result1.size(), 1)
-    sql """REVOKE SELECT_PRIV ON '${dbName}.${tableName}' FROM ${user}"""
+    sql """REVOKE SELECT_PRIV ON ${dbName}.${tableName} FROM ${user}"""
 
     // With show_view priv for table, should be able to see db
-    sql """GRANT SHOW_VIEW_PRIV ON '${dbName}.${tableName}' TO ${user}"""
+    sql """GRANT SHOW_VIEW_PRIV ON ${dbName}.${tableName} TO ${user}"""
     def result2 = connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
         sql "show databases like '${dbName}'"
     }
     assertEquals(result2.size(), 1)
-    sql """REVOKE SHOW_VIEW_PRIV ON '${dbName}.${tableName}' FROM ${user}"""
+    sql """REVOKE SHOW_VIEW_PRIV ON ${dbName}.${tableName} FROM ${user}"""
 }
 
