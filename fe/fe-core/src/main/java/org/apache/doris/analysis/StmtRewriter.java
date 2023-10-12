@@ -1316,6 +1316,9 @@ public class StmtRewriter {
                 continue;
             }
             TableIf table = tableRef.getTable();
+            if (table.getName().equals("numbers")) {
+                continue;
+            }
             String dbName = tableRef.getName().getDb();
             if (dbName == null) {
                 dbName = analyzer.getDefaultDb();
