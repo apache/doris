@@ -1092,6 +1092,7 @@ DEFINE_Int32(group_commit_sync_wal_batch, "10");
 
 // the count of thread to group commit insert
 DEFINE_Int32(group_commit_insert_threads, "10");
+DEFINE_mInt32(group_commit_interval_seconds, "10");
 
 DEFINE_mInt32(scan_thread_nice_value, "0");
 DEFINE_mInt32(tablet_schema_cache_recycle_interval, "86400");
