@@ -182,7 +182,7 @@ public:
 
     Status merge(MinMaxFuncBase* minmax_func, ObjectPool* pool) override {
         if constexpr (std::is_same_v<T, StringRef>) {
-            MinNumFunc<T>* other_minmax = static_cast<MinNumFunc<T>*>(minmax_func);
+            MinNumFunc<T>* other_minmax = assert_cast<MinNumFunc<T>*>(minmax_func);
             if (other_minmax->_min < this->_min) {
                 auto& other_min = other_minmax->_min;
                 auto str = pool->add(new std::string(other_min.data, other_min.size));
@@ -190,7 +190,7 @@ public:
                 this->_min.size = str->length();
             }
         } else {
-            MinNumFunc<T>* other_minmax = static_cast<MinNumFunc<T>*>(minmax_func);
+            MinNumFunc<T>* other_minmax = assert_cast<MinNumFunc<T>*>(minmax_func);
             if (other_minmax->_min < this->_min) {
                 this->_min = other_minmax->_min;
             }
@@ -200,7 +200,10 @@ public:
     }
 
     //min filter the max is useless, so return nullptr directly
-    void* get_max() override { return nullptr; }
+    void* get_max() override {
+        DCHECK(false);
+        return nullptr;
+    }
 
     Status assign(void* min_data, void* max_data) override {
         this->_min = *(T*)min_data;
@@ -255,7 +258,7 @@ public:
 
     Status merge(MinMaxFuncBase* minmax_func, ObjectPool* pool) override {
         if constexpr (std::is_same_v<T, StringRef>) {
-            MinMaxNumFunc<T>* other_minmax = static_cast<MinMaxNumFunc<T>*>(minmax_func);
+            MinMaxNumFunc<T>* other_minmax = assert_cast<MinMaxNumFunc<T>*>(minmax_func);
 
             if (other_minmax->_max > this->_max) {
                 auto& other_max = other_minmax->_max;
@@ -264,7 +267,7 @@ public:
                 this->_max.size = str->length();
             }
         } else {
-            MinMaxNumFunc<T>* other_minmax = static_cast<MinMaxNumFunc<T>*>(minmax_func);
+            MinMaxNumFunc<T>* other_minmax = assert_cast<MinMaxNumFunc<T>*>(minmax_func);
             if (other_minmax->_max > this->_max) {
                 this->_max = other_minmax->_max;
             }
@@ -274,7 +277,10 @@ public:
     }
 
     //max filter the min is useless, so return nullptr directly
-    void* get_min() override { return nullptr; }
+    void* get_min() override {
+        DCHECK(false);
+        return nullptr;
+    }
 
     Status assign(void* min_data, void* max_data) override {
         this->_max = *(T*)max_data;

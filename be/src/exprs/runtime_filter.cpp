@@ -1782,11 +1782,11 @@ Status RuntimePredicateWrapper::get_push_exprs(std::list<vectorized::VExprContex
         // create min filter
         vectorized::VExprSPtr min_pred;
         TExprNode min_pred_node;
-        RETURN_IF_ERROR(create_vbin_predicate(probe_ctx->root()->type(), TExprOpcode::GE,
-                                              min_pred, &min_pred_node));
+        RETURN_IF_ERROR(create_vbin_predicate(probe_ctx->root()->type(), TExprOpcode::GE, min_pred,
+                                              &min_pred_node));
         vectorized::VExprSPtr min_literal;
-        RETURN_IF_ERROR(create_literal(probe_ctx->root()->type(),
-                                       _context.minmax_func->get_min(), min_literal));
+        RETURN_IF_ERROR(create_literal(probe_ctx->root()->type(), _context.minmax_func->get_min(),
+                                       min_literal));
         min_pred->add_child(probe_ctx->root());
         min_pred->add_child(min_literal);
         container.push_back(
