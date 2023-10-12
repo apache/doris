@@ -389,7 +389,7 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
             break;
         }
 
-        BlockUPtr block = ctx->get_free_block(); //create block <- _output_tuple_desc / 想要的结果
+        BlockUPtr block = ctx->get_free_block();
 
         status = scanner->get_block(state, block.get(), &eos); //init reader ,read data
         VLOG_ROW << "VScanNode input rows: " << block->rows() << ", eos: " << eos;

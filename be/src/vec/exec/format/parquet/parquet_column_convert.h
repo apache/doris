@@ -180,60 +180,10 @@ struct ConvertParams {
         }
     }
 };
-inline const cctz::time_zone ConvertParams::utc0 = cctz::utc_time_zone();
-inline Status convert_data_type_from_parquet(tparquet::Type::type parquet_type,
-                                             vectorized::DataTypePtr& ans_data_type,
-                                             DataTypePtr& src_type, bool* need_convert) {
-    std::cout << getTypeName(src_type->get_type_id()) << "\n";
-    if (is_complex_type(src_type)) {
-        *need_convert = false;
-        return Status::OK();
-    }
-    switch (parquet_type) {
-    case tparquet::Type::type::BOOLEAN:
-        ans_data_type = std::make_shared<DataTypeUInt8>();
-        break;
-    case tparquet::Type::type::INT32:
-        ans_data_type = std::make_shared<DataTypeInt32>();
-        break;
-    case tparquet::Type::type::INT64:
-        ans_data_type = std::make_shared<DataTypeInt64>();
-        break;
-    case tparquet::Type::type::FLOAT:
-        ans_data_type = std::make_shared<DataTypeFloat32>();
-        break;
-    case tparquet::Type::type::DOUBLE:
-        ans_data_type = std::make_shared<DataTypeFloat64>();
-        break;
-    case tparquet::Type::type::BYTE_ARRAY:
-    case tparquet::Type::type::FIXED_LEN_BYTE_ARRAY:
-        ans_data_type = std::make_shared<DataTypeString>();
-        break;
-    case tparquet::Type::type::INT96:
-        ans_data_type = std::make_shared<DataTypeInt128>();
-        break;
-    default:
-        return Status::IOError("Can't read parquet type : {}", parquet_type);
-    }
-    if (ans_data_type->get_type_id() == src_type->get_type_id()) {
-        *need_convert = false;
-        return Status::OK();
-    }
-    if (src_type->is_nullable()) {
-        auto& nested_src_type =
-                reinterpret_cast<const DataTypeNullable*>(src_type.get())->get_nested_type();
-        auto sub = ans_data_type;
-        ans_data_type = std::make_shared<DataTypeNullable>(ans_data_type);
 
-        if (nested_src_type->get_type_id() == sub->get_type_id()) {
-            *need_convert = false;
-            return Status::OK();
-        }
-    }
-
-    *need_convert = true;
-    return Status::OK();
-}
+Status convert_data_type_from_parquet(tparquet::Type::type parquet_type,
+                                      vectorized::DataTypePtr& ans_data_type, DataTypePtr& src_type,
+                                      bool* need_convert);
 
 struct ColumnConvert {
     virtual Status convert(const IColumn* src_col, IColumn* dst_col) { return Status::OK(); }
@@ -252,12 +202,13 @@ struct NumberColumnConvert : public ColumnConvert {
 inline void convert_null(const IColumn** src_col, IColumn** dst_col) {
     size_t rows = (*src_col)->size();
     if ((*src_col)->is_nullable()) {
-        auto src_nullable_column = reinterpret_cast<const ColumnNullable*>(*src_col);
-        auto dst_nullable_column = reinterpret_cast<ColumnNullable*>(*dst_col);
-        auto& dst_null_col = dst_nullable_column->get_null_map_column();
-
+        auto src_nullable_column = static_cast<const ColumnNullable*>(*src_col);
+        auto dst_nullable_column = static_cast<ColumnNullable*>(*dst_col);
+        auto& src_null_data = src_nullable_column->get_null_map_column().get_data();
+        dst_nullable_column->get_null_map_column().resize(rows);
+        auto& dst_null_data = dst_nullable_column->get_null_map_column().get_data();
         for (auto j = 0; j < rows; j++) {
-            dst_null_col.insert(src_nullable_column->get_null_map_column()[j]);
+            dst_null_data[j] = src_null_data[j];
         }
 
         *src_col = &src_nullable_column->get_nested_column();
@@ -328,6 +279,7 @@ struct int128totimestamp : public ColumnConvert {
             int64_t micros = to_timestamp_micros(hi, lo);
             value.from_unixtime(micros / 1000000, *_convert_params->ctz);
             value.set_microsecond(micros % 1000000);
+            std::cout << "value = " << value << "\n";
         }
         return Status::OK();
     }
@@ -367,15 +319,17 @@ public:
             convert_null(&src_col, &dst_col);
         }
         dst_col->resize(rows);
-        auto& src_data = reinterpret_cast<const ColumnVector<uint32>*>(src_col)->get_data();
+        auto& src_data = static_cast<const ColumnVector<int32>*>(src_col)->get_data();
         auto& data = static_cast<ColumnDateV2*>(dst_col)->get_data();
         date_day_offset_dict& date_dict = date_day_offset_dict::get();
 
         for (int i = 0; i < rows; i++) {
             auto& value = reinterpret_cast<DateV2Value<DateV2ValueType>&>(data[i]);
-            int64_t date_value = src_data[i] + _convert_params->offset_days;
+            int64_t date_value = (int64_t)src_data[i] + _convert_params->offset_days;
             value = date_dict[date_value];
+            std::cout << "src_data[i] = " << src_data[i] << "datav2  value =" << value << "\n";
         }
+        std::cout << rows << "\n";
 
         return Status::OK();
     }
@@ -455,7 +409,7 @@ inline Status get_converter_impl(std::shared_ptr<const IDataType> src_data_type,
                                  ConvertParams* convert_params) {
     auto src_type = src_data_type->get_type_id();
     auto dst_type = dst_data_type->get_type_id();
-
+    std::cout << getTypeName(src_type) << " -> " << getTypeName(dst_type) << "\n";
     switch (dst_type) {
 #define DISPATCH(NUMERIC_TYPE, CPP_NUMERIC_TYPE, PHYSICAL_TYPE)                                    \
     case NUMERIC_TYPE:                                                                             \
@@ -514,15 +468,13 @@ inline Status get_converter_impl(std::shared_ptr<const IDataType> src_data_type,
             *converter = std::make_unique<int128totimestamp<is_nullable>>();
         } else if (src_type == TypeIndex::Int64) {
             *converter = std::make_unique<int64totimestamp<is_nullable>>();
+        } else {
+            std::cout << "src_type = " << getTypeName(src_type) << "\n";
         }
         break;
     case TypeIndex::Decimal64:
         convert_params->init_decimal_converter<Decimal64>(dst_data_type);
         DecimalScaleParams& scale_params = convert_params->decimal_scale;
-        if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
-        } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {
-        } else {
-        }
 
         if (src_type == TypeIndex::Int128) {
             if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
@@ -585,19 +537,10 @@ inline Status get_converter_impl(std::shared_ptr<const IDataType> src_data_type,
     return Status::OK();
 }
 
-inline Status get_converter(std::shared_ptr<const IDataType> src_type,
-                            std::shared_ptr<const IDataType> dst_type,
-                            std::unique_ptr<ColumnConvert>* converter,
-                            ConvertParams* convert_param) {
-    if (src_type->is_nullable()) {
-        auto src = static_cast<const DataTypeNullable*>(src_type.get())->get_nested_type();
-        auto dst = static_cast<const DataTypeNullable*>(dst_type.get())->get_nested_type();
+Status get_converter(std::shared_ptr<const IDataType> src_type,
+                     std::shared_ptr<const IDataType> dst_type,
+                     std::unique_ptr<ColumnConvert>* converter, ConvertParams* convert_param);
 
-        return get_converter_impl<true>(src, dst, converter, convert_param);
-    } else {
-        return get_converter_impl<false>(src_type, dst_type, converter, convert_param);
-    }
-}
 }; // namespace ParquetConvert
 
 }; // namespace doris::vectorized
