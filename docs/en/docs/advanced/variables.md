@@ -694,7 +694,7 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 * `enable_unique_key_partial_update`
 
   <version since="2.0.2">
-  Whether to enable partial columns update semantics for native insert into statement, default is false. Please note that the session variable `enable_insert_strict`, which controls whether the insert statement operates in strict mode, has a default value of true. This means that by default, the insert statement operates in strict mode. In strict mode, if you attempt to insert data where the key columns in the inserted data do not exist in the original table, the entire import process will fail. Therefore, when using the insert statement for partial columns update and you want to allow the insertion of data where the key column does not exist in the original table, you need to set both `enable_unique_key_partial_update` and `enable_insert_strict` to true.
+  Whether to enable partial columns update semantics for native insert into statement, default is false. Please note that the default value of the session variable `enable_insert_strict`, which controls whether the insert statement operates in strict mode, is true. In other words, the insert statement is in strict mode by default, and in this mode, updating non-existing keys in partial column updates is not allowed. Therefore, when using the insert statement for partial columns update and wishing to insert non-existing keys, it is necessary to set both `enable_unique_key_partial_update` and `enable_insert_strict` to true.
   </version>
 
 ***

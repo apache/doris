@@ -124,7 +124,7 @@ partial_columns:true
 set enable_unique_key_partial_update=true
 ```
 
-需要注意的是，控制insert语句是否开启严格模式的会话变量`enable_insert_strict`的默认值为true，即insert语句默认开启严格模式，而在严格模式下进行部分列更新时如果插入的数据中存在key列在原表中不存在的行数据，则整个导入会失败。所以，在使用insert语句进行部分列更新的时候如果要允许插入key列在原表中不存在的行数据，需要在`enable_unique_key_partial_update`设置为true的基础上同时将`enable_insert_strict`也设置为true。
+需要注意的是，控制insert语句是否开启严格模式的会话变量`enable_insert_strict`的默认值为true，即insert语句默认开启严格模式，而在严格模式下进行部分列更新不允许更新不存在的key。所以，在使用insert语句进行部分列更新的时候如果希望能插入不存在的key，需要在`enable_unique_key_partial_update`设置为true的基础上同时将`enable_insert_strict`也设置为true。
 
 #### 示例
 
