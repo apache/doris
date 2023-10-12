@@ -210,7 +210,7 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
     }
     auto& [paths, values] = *result;
     assert(paths.size() == values.size());
-    phmap::flat_hash_set<StringRef, StringRefHash> paths_set;
+    phmap::flat_hash_set<std::string> paths_set;
     size_t num_rows = column_object.size();
     for (size_t i = 0; i < paths.size(); ++i) {
         FieldInfo field_info;

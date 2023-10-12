@@ -192,7 +192,7 @@ Status NewJsonReader::init_reader(
         }
     }
     for (int i = 0; i < _file_slot_descs.size(); ++i) {
-        _slot_desc_index[_file_slot_descs[i]->col_name()] = i;
+        _slot_desc_index[StringRef {_file_slot_descs[i]->col_name()}] = i;
     }
     return Status::OK();
 }
@@ -1003,7 +1003,7 @@ Status NewJsonReader::_simdjson_init_reader() {
     }
     _ondemand_json_parser = std::make_unique<simdjson::ondemand::parser>();
     for (int i = 0; i < _file_slot_descs.size(); ++i) {
-        _slot_desc_index[_file_slot_descs[i]->col_name()] = i;
+        _slot_desc_index[StringRef {_file_slot_descs[i]->col_name()}] = i;
     }
     _simdjson_ondemand_padding_buffer.resize(_padded_size);
     _simdjson_ondemand_unscape_padding_buffer.resize(_padded_size);
