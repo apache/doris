@@ -543,13 +543,6 @@ Status AggLocalState::close(RuntimeState* state) {
                 _agg_data->method_variant);
     }
 
-    _shared_state->agg_data = nullptr;
-    _shared_state->aggregate_data_container = nullptr;
-    _shared_state->agg_arena_pool = nullptr;
-    _shared_state->agg_profile_arena = nullptr;
-
-    std::vector<vectorized::AggregateDataPtr> tmp_values;
-    _shared_state->values.swap(tmp_values);
     return Base::close(state);
 }
 
