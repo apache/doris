@@ -469,11 +469,17 @@ struct TFrontendsMetadataParams {
   1: optional string cluster_name
 }
 
+struct TQueriesMetadataParams {
+  1: optional string cluster_name
+  2: optional bool   relay_to_other_fe
+}
+
 struct TMetaScanRange {
   1: optional Types.TMetadataType metadata_type
   2: optional TIcebergMetadataParams iceberg_params
   3: optional TBackendsMetadataParams backends_params
   4: optional TFrontendsMetadataParams frontends_params
+  5: optional TQueriesMetadataParams queries_params;
 }
 
 // Specification of an individual data range which is held in its entirety
