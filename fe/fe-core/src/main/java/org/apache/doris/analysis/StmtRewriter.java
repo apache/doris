@@ -31,6 +31,7 @@ import org.apache.doris.common.TableAliasGenerator;
 import org.apache.doris.common.UserException;
 import org.apache.doris.policy.RowPolicy;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.tablefunction.NumbersTableValuedFunction;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
@@ -1316,7 +1317,7 @@ public class StmtRewriter {
                 continue;
             }
             TableIf table = tableRef.getTable();
-            if (table.getName().equals("numbers")) {
+            if (table instanceof NumbersTableValuedFunction) {
                 continue;
             }
             String dbName = tableRef.getName().getDb();

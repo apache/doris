@@ -44,5 +44,19 @@ suite("test_role", "account") {
     sql """DROP USER ${user}"""
     sql """DROP ROLE ${role}"""
     sql """DROP DATABASE ${dbName}"""
+
+    def normal_user = 'normal_user'
+    sql """DROP USER ${normal_user}"""
+    sql """CREATE USER ${normal_user}"""
+    def result3 = connect(user=normal_user, password="", url=context.config.jdbcUrl) {
+        sql "select * from numbers(\"numbers\"=\"1\")"
+    }
+    assertEquals(result3, "0")
+
+    def result4 = connect(user=normal_user, password="", url=context.config.jdbcUrl) {
+        sql "select /*+ SET_VAR(enable_nereids_planner=false) */ * from numbers(\"numbers\"=\"1\")"
+    }
+    assertEquals(result4, "0")
+    sql """DROP USER ${normal_user}"""
 }
 
