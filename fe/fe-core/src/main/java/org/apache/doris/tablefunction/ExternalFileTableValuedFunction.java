@@ -344,26 +344,27 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         TNetworkAddress address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
         try {
             PFetchTableSchemaRequest request = getFetchTableStructureRequest();
-            if (request == null) {
-                columns.add(new Column("__dummy_col", ScalarType.createStringType(), true));
-                return columns;
-            }
-            Future<InternalService.PFetchTableSchemaResult> future = BackendServiceProxy.getInstance()
-                    .fetchTableStructureAsync(address, request);
+            InternalService.PFetchTableSchemaResult result = null;
 
-            InternalService.PFetchTableSchemaResult result = future.get();
-            TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
-            String errMsg;
-            if (code != TStatusCode.OK) {
-                if (!result.getStatus().getErrorMsgsList().isEmpty()) {
-                    errMsg = result.getStatus().getErrorMsgsList().get(0);
-                } else {
-                    errMsg = "fetchTableStructureAsync failed. backend address: "
-                            + address.getHostname() + ":" + address.getPort();
+            // `request == null` means we don't need to get schemas from BE,
+            // and we fill a dummy col for this table.
+            if (request != null) {
+                Future<InternalService.PFetchTableSchemaResult> future = BackendServiceProxy.getInstance()
+                        .fetchTableStructureAsync(address, request);
+
+                result = future.get();
+                TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
+                String errMsg;
+                if (code != TStatusCode.OK) {
+                    if (!result.getStatus().getErrorMsgsList().isEmpty()) {
+                        errMsg = result.getStatus().getErrorMsgsList().get(0);
+                    } else {
+                        errMsg = "fetchTableStructureAsync failed. backend address: "
+                                + address.getHostname() + ":" + address.getPort();
+                    }
+                    throw new AnalysisException(errMsg);
                 }
-                throw new AnalysisException(errMsg);
             }
-
             fillColumns(result);
         } catch (RpcException e) {
             throw new AnalysisException("fetchTableStructureResult rpc exception", e);
@@ -436,7 +437,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     }
 
     private void fillColumns(InternalService.PFetchTableSchemaResult result) {
-        if (result.getColumnNums() == 0) {
+        // `result == null` means we don't need to get schemas from BE,
+        // and we fill a dummy col for this table.
+        if (result == null) {
             columns.add(new Column("__dummy_col", ScalarType.createStringType(), true));
             return;
         }
@@ -479,12 +482,17 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         // get first file, used to parse table schema
         TBrokerFileStatus firstFile = null;
         for (TBrokerFileStatus fileStatus : fileStatuses) {
-            if (fileStatus.isIsDir()) {
+            if (fileStatus.isIsDir() || fileStatus.size == 0) {
                 continue;
             }
             firstFile = fileStatus;
             break;
         }
+
+        // `firstFile == null` means:
+        // 1. No matching file path exists
+        // 2. All matched files have a size of 0
+        // For these two situations, we don't need to get schema from BE
         if (firstFile == null) {
             return null;
         }
