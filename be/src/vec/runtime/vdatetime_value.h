@@ -31,6 +31,7 @@
 #include <string_view>
 #include <tuple>
 #include <type_traits>
+#include <utility>
 
 #include "util/hash_util.hpp"
 #include "util/time_lut.h"
@@ -960,8 +961,8 @@ public:
     bool unix_timestamp(int64_t* timestamp, const std::string& timezone) const;
     bool unix_timestamp(int64_t* timestamp, const cctz::time_zone& ctz) const;
 
-    bool unix_timestamp(double_t* timestamp, const std::string& timezone) const;
-    bool unix_timestamp(double_t* timestamp, const cctz::time_zone& ctz) const;
+    bool unix_timestamp(std::pair<int64_t, int64_t>* timestamp, const std::string& timezone) const;
+    bool unix_timestamp(std::pair<int64_t, int64_t>* timestamp, const cctz::time_zone& ctz) const;
 
     //construct datetime_value from timestamp and timezone
     //timestamp is an internal timestamp value representing seconds since '1970-01-01 00:00:00' UTC

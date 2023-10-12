@@ -24,12 +24,13 @@ import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
-import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.util.DateUtils;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -501,9 +502,8 @@ public class DateTimeExtractAndTransform {
     public static Expression unixTimestamp(DateTimeV2Literal date) {
         int resMircosec = (int) (date.getMicroSecond()
                 / Math.pow(10, DateTimeV2Type.MAX_SCALE - date.getDataType().getScale()));
-        double ans = getTimestamp(date.toJavaDateType())
-                + ((double) resMircosec / (double) Math.pow(10, date.getDataType().getScale()));
-        return new DoubleLiteral(ans);
+        String ans = getTimestamp(date.toJavaDateType()) + "." + resMircosec;
+        return new DecimalLiteral(new BigDecimal(ans));
     }
 
     /**

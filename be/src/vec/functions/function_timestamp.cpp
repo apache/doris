@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <cstdint>
 #include <cstring>
 #include <memory>
 #include <tuple>
@@ -28,6 +29,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
@@ -547,13 +549,6 @@ struct UnixTimeStampImpl {
         return (Int32)timestamp;
     }
 
-    static Float64 trim_timestamp(Float64 timestamp) {
-        if (timestamp < 0 || timestamp > DBL_MAX) {
-            timestamp = 0;
-        }
-        return timestamp;
-    }
-
     static DataTypes get_variadic_argument_types() { return {}; }
 
     static DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) {
@@ -662,7 +657,8 @@ struct UnixTimeStampDateImpl {
                 block.replace_by_position(result, std::move(col_result));
             }
         } else {
-            auto col_result = ColumnVector<Float64>::create();
+            auto col_result = ColumnDecimal<Decimal128>::create(input_rows_count,
+                                                                            block.get_by_position(arguments[0]).type->get_scale());
             auto null_map = ColumnVector<UInt8>::create();
             auto& col_result_data = col_result->get_data();
             col_result->resize(input_rows_count);
@@ -681,12 +677,16 @@ struct UnixTimeStampDateImpl {
                     StringRef source = col_source->get_data_at(i);
                     const DateV2Value<DateTimeV2ValueType>& ts_value =
                             reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(*source.data);
-                    double_t timestamp {};
+                    std::pair<int64_t, int64_t> timestamp {};
                     if (!ts_value.unix_timestamp(&timestamp, context->state()->timezone_obj())) {
                         null_map_data[i] = true;
                     } else {
                         null_map_data[i] = false;
-                        col_result_data[i] = UnixTimeStampImpl::trim_timestamp(timestamp);
+                        auto& [sec, mircosec] = timestamp;
+                        sec = UnixTimeStampImpl::trim_timestamp(sec);
+                        mircosec = UnixTimeStampImpl::trim_timestamp(mircosec);
+                        DecimalV2Value ans(sec, mircosec);
+                        col_result_data[i] = ans.value();
                     }
                 }
                 block.replace_by_position(
@@ -697,11 +697,15 @@ struct UnixTimeStampDateImpl {
                     StringRef source = col_source->get_data_at(i);
                     const DateV2Value<DateTimeV2ValueType>& ts_value =
                             reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(*source.data);
-                    double_t timestamp {};
+                    std::pair<int64_t, int64_t> timestamp {};
                     const auto valid =
                             ts_value.unix_timestamp(&timestamp, context->state()->timezone_obj());
                     DCHECK(valid);
-                    col_result_data[i] = UnixTimeStampImpl::trim_timestamp(timestamp);
+                    auto& [sec, mircosec] = timestamp;
+                    sec = UnixTimeStampImpl::trim_timestamp(sec);
+                    mircosec = UnixTimeStampImpl::trim_timestamp(mircosec);
+                    DecimalV2Value ans(sec, mircosec);
+                    col_result_data[i] = ans.value();
                 }
                 block.replace_by_position(result, std::move(col_result));
             }

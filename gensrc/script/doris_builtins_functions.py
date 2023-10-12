@@ -865,7 +865,7 @@ visible_functions = {
         [['unix_timestamp'], 'INT', [], 'ALWAYS_NOT_NULLABLE'],
         [['unix_timestamp'], 'INT', ['DATETIME'], 'ALWAYS_NULLABLE'],
         [['unix_timestamp'], 'INT', ['DATE'], 'ALWAYS_NULLABLE'],
-        [['unix_timestamp'], 'DOUBLE', ['DATETIMEV2'], ''],
+        [['unix_timestamp'], 'DECIMAL64', ['DATETIMEV2'], ''],
         [['unix_timestamp'], 'INT', ['DATEV2'], ''],
         [['unix_timestamp'], 'INT', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['unix_timestamp'], 'INT', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
