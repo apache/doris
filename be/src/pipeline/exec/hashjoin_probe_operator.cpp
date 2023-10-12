@@ -365,7 +365,9 @@ Status HashJoinProbeLocalState::filter_data_and_build_output(RuntimeState* state
         add_tuple_is_null_column(temp_block);
     }
     auto output_rows = temp_block->rows();
-    DCHECK(output_rows <= state->batch_size());
+    if (check_rows_count) {
+        DCHECK(output_rows <= state->batch_size());
+    }
     {
         SCOPED_TIMER(_join_filter_timer);
         RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_conjuncts, temp_block,
