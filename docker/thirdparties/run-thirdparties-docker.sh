@@ -277,7 +277,7 @@ if [[ "${RUN_KAFKA}" -eq 1 ]]; then
             done < "${ROOT}/docker-compose/kafka/scripts/${json_topic}.json"
         done
         # copy kafka log to backup path
-        docker exec "${container_id}" bash -c "cp -r /opt/kafka/logs ${backup_dir}"
+        docker cp "${container_id}":/opt/kafka/logs ${backup_dir}/kafka_logs
     }
 
     if [[ "${STOP}" -ne 1 ]]; then
