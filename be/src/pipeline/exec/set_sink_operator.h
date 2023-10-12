@@ -83,6 +83,7 @@ private:
     vectorized::MutableBlock _mutable_block;
     // every child has its result expr list
     vectorized::VExprContextSPtrs _child_exprs;
+    vectorized::Arena _arena;
 };
 
 template <bool is_intersect>

@@ -178,52 +178,31 @@ void PartitionSortSinkOperatorX::_emplace_into_hash_table(
             [&](auto&& agg_method) -> void {
                 SCOPED_TIMER(local_state._build_timer);
                 using HashMethodType = std::decay_t<decltype(agg_method)>;
-                using HashTableType = std::decay_t<decltype(agg_method.data)>;
                 using AggState = typename HashMethodType::State;
 
-                AggState state(key_columns, local_state._partition_key_sz, nullptr);
+                AggState state(key_columns, local_state._partition_key_sz);
                 size_t num_rows = input_block->rows();
-                _pre_serialize_key_if_need(state, agg_method, key_columns, num_rows);
+                agg_method.init_serialized_keys(key_columns, local_state._partition_key_sz,
+                                                num_rows);
 
-                //PHHashMap
-                const auto& keys = state.get_keys();
-                if constexpr (HashTableTraits<HashTableType>::is_phmap) {
-                    local_state._hash_values.resize(num_rows);
+                auto creator = [&](const auto& ctor, auto& key, auto& origin) {
+                    HashMethodType::try_presis_key(key, origin, *local_state._agg_arena_pool);
+                    auto aggregate_data = _pool->add(new vectorized::PartitionBlocks());
+                    local_state._value_places.push_back(aggregate_data);
+                    ctor(key, aggregate_data);
+                    local_state._num_partition++;
+                };
+                auto creator_for_null_key = [&](auto& mapped) {
+                    mapped = _pool->add(new vectorized::PartitionBlocks());
+                    local_state._value_places.push_back(mapped);
+                    local_state._num_partition++;
+                };
 
-                    for (size_t i = 0; i < num_rows; ++i) {
-                        local_state._hash_values[i] = agg_method.data.hash(keys[i]);
-                    }
-                }
-
+                SCOPED_TIMER(local_state._emplace_key_timer);
                 for (size_t row = 0; row < num_rows; ++row) {
-                    SCOPED_TIMER(local_state._emplace_key_timer);
-                    vectorized::PartitionDataPtr aggregate_data = nullptr;
-                    auto emplace_result = [&]() {
-                        if constexpr (HashTableTraits<HashTableType>::is_phmap) {
-                            if (LIKELY(row + HASH_MAP_PREFETCH_DIST < num_rows)) {
-                                agg_method.data.prefetch_by_hash(
-                                        local_state._hash_values[row + HASH_MAP_PREFETCH_DIST]);
-                            }
-                            return state.emplace_with_key(agg_method.data, keys[row],
-                                                          local_state._hash_values[row], row);
-                        } else {
-                            return state.emplace_with_key(agg_method.data, keys[row], row);
-                        }
-                    }();
-
-                    /// If a new key is inserted, initialize the states of the aggregate functions, and possibly something related to the key.
-                    if (emplace_result.is_inserted()) {
-                        /// exception-safety - if you can not allocate memory or create states, then destructors will not be called.
-                        emplace_result.set_mapped(nullptr);
-                        aggregate_data = _pool->add(new vectorized::PartitionBlocks());
-                        emplace_result.set_mapped(aggregate_data);
-                        local_state._value_places.push_back(aggregate_data);
-                        local_state._num_partition++;
-                    } else {
-                        aggregate_data = emplace_result.get_mapped();
-                    }
-                    assert(aggregate_data != nullptr);
-                    aggregate_data->add_row_idx(row);
+                    auto& mapped =
+                            agg_method.lazy_emplace(state, row, creator, creator_for_null_key);
+                    mapped->add_row_idx(row);
                 }
                 for (auto place : local_state._value_places) {
                     SCOPED_TIMER(local_state._selector_block_timer);

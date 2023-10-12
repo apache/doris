@@ -125,27 +125,6 @@ public:
     using Base::Base;
 
     template <typename Func>
-    void ALWAYS_INLINE merge_to_via_emplace(Self& that, Func&& func) {
-        for (auto it = this->begin(), end = this->end(); it != end; ++it) {
-            typename Self::LookupResult res_it;
-            bool inserted;
-            that.emplace(it->get_key(), res_it, inserted, it.get_hash());
-            func(res_it->get_mapped(), it->get_mapped(), inserted);
-        }
-    }
-
-    template <typename Func>
-    void ALWAYS_INLINE merge_to_via_find(Self& that, Func&& func) {
-        for (auto it = this->begin(), end = this->end(); it != end; ++it) {
-            auto res_it = that.find(it->get_key(), it.get_hash());
-            if (!res_it)
-                func(it->get_mapped(), it->get_mapped(), false);
-            else
-                func(res_it->get_mapped(), it->get_mapped(), true);
-        }
-    }
-
-    template <typename Func>
     void for_each_value(Func&& func) {
         for (auto& v : *this) func(v.get_key(), v.get_mapped());
     }
@@ -166,8 +145,10 @@ public:
 
     // fixed hash map never overflow
     bool add_elem_size_overflow(size_t add_size) const { return false; }
-
-    char* get_null_key_data() { return nullptr; }
+    template <typename MappedType>
+    char* get_null_key_data() {
+        return nullptr;
+    }
     bool has_null_key_data() const { return false; }
 };
 
