@@ -42,21 +42,24 @@ suite("test_role", "account") {
     assertEquals(result2.size(), 0)
 
     sql """DROP USER ${user}"""
-    sql """DROP ROLE ${role}"""
     sql """DROP DATABASE ${dbName}"""
 
     def normal_user = 'normal_user'
-    sql """DROP USER ${normal_user}"""
-    sql """CREATE USER ${normal_user}"""
-    def result3 = connect(user=normal_user, password="", url=context.config.jdbcUrl) {
-        sql "select * from numbers(\"numbers\"=\"1\")"
-    }
-    assertEquals(result3, "0")
+    try_sql """DROP USER ${normal_user}"""
+    // normal_usr need access to defaultDb to login 
+    sql """CREATE USER '${normal_user}' IDENTIFIED BY '${pwd}' DEFAULT ROLE '${role}'"""
 
-    def result4 = connect(user=normal_user, password="", url=context.config.jdbcUrl) {
-        sql "select /*+ SET_VAR(enable_nereids_planner=false) */ * from numbers(\"numbers\"=\"1\")"
+    def result3 = connect(user=normal_user, password="${pwd}", url=context.config.jdbcUrl) {
+        sql "select * from numbers(\"number\"=\"10\")"
     }
-    assertEquals(result4, "0")
+    assertEquals(result3.size(), 10)
+
+    def result4 = connect(user=normal_user, password="${pwd}", url=context.config.jdbcUrl) {
+        sql "select /*+ SET_VAR(enable_nereids_planner=false) */ * from numbers(\"number\"=\"10\")"
+    }
+    assertEquals(result4.size(), 10)
+
+    sql """DROP ROLE ${role}"""
     sql """DROP USER ${normal_user}"""
 }
 
