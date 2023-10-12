@@ -156,12 +156,12 @@ void ProcessHashTableProbe<JoinOpType, Parent>::probe_side_output_column(
     }
 }
 
-template <int JoinOpType>
+template <int JoinOpType, typename Parent>
 template <typename HashTableType>
-HashTableType::State ProcessHashTableProbe<JoinOpType>::_init_probe_side(
+typename HashTableType::State ProcessHashTableProbe<JoinOpType, Parent>::_init_probe_side(
         HashTableType& hash_table_ctx, size_t probe_rows, bool with_other_join_conjuncts,
         const uint8_t* null_map) {
-    _right_col_idx = _parent->_is_right_semi_anti && !with_other_join_conjuncts
+    _right_col_idx = _is_right_semi_anti && !with_other_join_conjuncts
                              ? 0
                              : _parent->left_table_data_types().size();
     _right_col_len = _parent->right_table_data_types().size();
@@ -181,13 +181,13 @@ HashTableType::State ProcessHashTableProbe<JoinOpType>::_init_probe_side(
     _build_block_rows.reserve(_batch_size * PROBE_SIDE_EXPLODE_RATE);
     _build_block_offsets.reserve(_batch_size * PROBE_SIDE_EXPLODE_RATE);
 
-    if (!*_parent->_ready_probe) {
-        *_parent->_ready_probe = true;
+    if (!_parent->_ready_probe) {
+        _parent->_ready_probe = true;
         hash_table_ctx.reset();
-        hash_table_ctx.init_serialized_keys(*_parent->_probe_columns, _parent->_probe_key_sz,
-                                            probe_rows, null_map);
+        hash_table_ctx.init_serialized_keys(_parent->_probe_columns, _probe_key_sz, probe_rows,
+                                            null_map);
     }
-    return typename HashTableType::State(*_parent->_probe_columns, _parent->_probe_key_sz);
+    return typename HashTableType::State(_parent->_probe_columns, _probe_key_sz);
 }
 
 template <int JoinOpType, typename Parent>
@@ -321,7 +321,7 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_process(HashTableType& hash
                 if constexpr (is_mark_join) {
                     ++current_offset;
                     bool null_result = (need_null_map_for_probe && (*null_map)[probe_index]) ||
-                                       (!need_go_ahead && _parent->_has_null_value_in_build_side);
+                                       (!need_go_ahead && _has_null_in_build_side);
                     if (null_result) {
                         mark_column->insert_null();
                     } else {

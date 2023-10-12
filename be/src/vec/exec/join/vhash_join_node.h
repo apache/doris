@@ -376,7 +376,6 @@ protected:
     void _probe_side_open_thread(RuntimeState* state, std::promise<Status>* status) override;
 
 private:
-    friend struct RuntimeFilterContext;
     template <int JoinOpType, typename Parent>
     friend struct ProcessHashTableProbe;
 

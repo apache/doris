@@ -78,8 +78,9 @@ struct ProcessHashTableProbe {
     void _emplace_element(int8_t block_offset, int32_t block_row, int& current_offset);
 
     template <typename HashTableType>
-    HashTableType::State _init_probe_side(HashTableType& hash_table_ctx, size_t probe_rows,
-                                          bool with_other_join_conjuncts, const uint8_t* null_map);
+    typename HashTableType::State _init_probe_side(HashTableType& hash_table_ctx, size_t probe_rows,
+                                                   bool with_other_join_conjuncts,
+                                                   const uint8_t* null_map);
 
     template <typename Mapped, bool with_other_join_conjuncts>
     ForwardIterator<Mapped>& _probe_row_match(int& current_offset, int& probe_index,
