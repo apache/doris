@@ -40,9 +40,12 @@ suite("test_auth_show", "account") {
     create_table.call(tableName);
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
 
+    def tokens = context.config.jdbcUrl.split('/')
+    def url=tokens[0] + "//" + tokens[2] + "/" + dbName + "?"
+
     // With select priv for table, should be able to see db
     sql """GRANT SELECT_PRIV ON ${dbName}.${tableName} TO ${user}"""
-    def result1 = connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    def result1 = connect(user=user, password="${pwd}", url=url) {
         sql """show databases like '${dbName}'"""
     }
     assertEquals(result1.size(), 1)
@@ -50,7 +53,7 @@ suite("test_auth_show", "account") {
 
     // With show_view priv for table, should be able to see db
     sql """GRANT SHOW_VIEW_PRIV ON ${dbName}.${tableName} TO ${user}"""
-    def result2 = connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    def result2 = connect(user=user, password="${pwd}", url=url) {
         sql """show databases like '${dbName}'"""
     }
     assertEquals(result2.size(), 1)
