@@ -639,6 +639,10 @@ public class DynamicPartitionUtil {
         } else {
             replicaAlloc = olapTable.getDefaultReplicaAllocation();
         }
+        if (olapTable.getMinLoadReplicaNum() > replicaAlloc.getTotalReplicaNum()) {
+            throw new DdlException("Failed to check min load replica num [" + olapTable.getMinLoadReplicaNum()
+                    + "]  <= dynamic partition replica num [" + replicaAlloc.getTotalReplicaNum() + "]");
+        }
         checkReplicaAllocation(replicaAlloc, hotPartitionNum, db);
 
         if (properties.containsKey(DynamicPartitionProperty.RESERVED_HISTORY_PERIODS)) {

@@ -15,7 +15,7 @@ PhysicalResultSink
 --------------------PhysicalDistribute
 ----------------------hashAgg[LOCAL]
 ------------------------PhysicalProject
---------------------------filter((lineitem.l_shipdate < 1996-04-01) and (lineitem.l_shipdate >= 1996-01-01))
+--------------------------filter((lineitem.l_shipdate < '1996-04-01') and (lineitem.l_shipdate >= '1996-01-01'))
 ----------------------------PhysicalOlapScan[lineitem]
 ----------------PhysicalDistribute
 ------------------hashAgg[GLOBAL]
@@ -26,6 +26,6 @@ PhysicalResultSink
 ----------------------------PhysicalDistribute
 ------------------------------hashAgg[LOCAL]
 --------------------------------PhysicalProject
-----------------------------------filter((lineitem.l_shipdate < 1996-04-01) and (lineitem.l_shipdate >= 1996-01-01))
+----------------------------------filter((lineitem.l_shipdate < '1996-04-01') and (lineitem.l_shipdate >= '1996-01-01'))
 ------------------------------------PhysicalOlapScan[lineitem]
 

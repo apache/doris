@@ -142,6 +142,10 @@ public interface TableIf {
 
     Map<String, Set<String>> findReAnalyzeNeededPartitions();
 
+    // Get all the chunk sizes of this table. Now, only HMS external table implemented this interface.
+    // For HMS external table, the return result is a list of all the files' size.
+    List<Long> getChunkSizes();
+
     void write(DataOutput out) throws IOException;
 
     /**

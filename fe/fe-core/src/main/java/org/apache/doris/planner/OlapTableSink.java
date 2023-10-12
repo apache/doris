@@ -38,6 +38,7 @@ import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.RangePartitionItem;
+import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -46,6 +47,8 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TColumn;
@@ -80,6 +83,7 @@ import org.apache.logging.log4j.Logger;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -429,17 +433,23 @@ public class OlapTableSink extends DataSink {
         Multimap<Long, Long> allBePathsMap = HashMultimap.create();
         for (Long partitionId : partitionIds) {
             Partition partition = table.getPartition(partitionId);
-            int quorum = table.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum() / 2 + 1;
+            int loadRequiredReplicaNum = table.getLoadRequiredReplicaNum(partition.getId());
             for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                 // we should ensure the replica backend is alive
                 // otherwise, there will be a 'unknown node id, id=xxx' error for stream load
                 for (Tablet tablet : index.getTablets()) {
                     Multimap<Long, Long> bePathsMap = tablet.getNormalReplicaBackendPathMap();
-                    if (bePathsMap.keySet().size() < quorum) {
+                    if (bePathsMap.keySet().size() < loadRequiredReplicaNum) {
                         throw new UserException(InternalErrorCode.REPLICA_FEW_ERR,
                                 "tablet " + tablet.getId() + " alive replica num " + bePathsMap.keySet().size()
-                                        + " < quorum replica num " + quorum
+                                        + " < load required replica num " + loadRequiredReplicaNum
                                         + ", alive backends: [" + StringUtils.join(bePathsMap.keySet(), ",") + "]");
+                    }
+
+                    debugWriteRandomChooseSink(tablet, partition.getVisibleVersion(), bePathsMap);
+                    if (bePathsMap.keySet().isEmpty()) {
+                        throw new UserException(InternalErrorCode.REPLICA_FEW_ERR,
+                                "tablet " + tablet.getId() + " no available replica");
                     }
 
                     if (singleReplicaLoad) {
@@ -472,6 +482,39 @@ public class OlapTableSink extends DataSink {
             throw new DdlException(st.getErrorMsg());
         }
         return Arrays.asList(locationParam, slaveLocationParam);
+    }
+
+    private void debugWriteRandomChooseSink(Tablet tablet, long version, Multimap<Long, Long> bePathsMap) {
+        DebugPoint debugPoint = DebugPointUtil.getDebugPoint("OlapTableSink.write_random_choose_sink");
+        if (debugPoint == null) {
+            return;
+        }
+
+        boolean needCatchup = debugPoint.param("needCatchUp", false);
+        int sinkNum = debugPoint.param("sinkNum", 0);
+        if (sinkNum == 0) {
+            sinkNum = new SecureRandom().nextInt() % bePathsMap.size() + 1;
+        }
+        List<Long> candidatePaths = tablet.getReplicas().stream()
+                .filter(replica -> !needCatchup || replica.getVersion() >= version)
+                .map(Replica::getPathHash)
+                .collect(Collectors.toList());
+        if (sinkNum > 0 && sinkNum < candidatePaths.size()) {
+            Collections.shuffle(candidatePaths);
+            while (candidatePaths.size() > sinkNum) {
+                candidatePaths.remove(candidatePaths.size() - 1);
+            }
+        }
+
+        Multimap<Long, Long> result = HashMultimap.create();
+        bePathsMap.forEach((tabletId, pathHash) -> {
+            if (candidatePaths.contains(pathHash)) {
+                result.put(tabletId, pathHash);
+            }
+        });
+
+        bePathsMap.clear();
+        bePathsMap.putAll(result);
     }
 
     private TPaloNodesInfo createPaloNodesInfo() {
