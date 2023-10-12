@@ -44,6 +44,7 @@ suite("test_role", "account") {
     sql """DROP USER ${user}"""
     sql """DROP DATABASE ${dbName}"""
 
+    // Make sure non root user could select from numbers table function.
     def normal_user = 'normal_user'
     try_sql """DROP USER ${normal_user}"""
     // normal_usr need access to defaultDb to login 
