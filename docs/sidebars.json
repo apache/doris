@@ -118,6 +118,7 @@
                     "items": [
                         "data-operate/update-delete/batch-delete-manual",
                         "data-operate/update-delete/update",
+                        "data-operate/update-delete/partial-update",
                         "data-operate/update-delete/delete-manual",
                         "data-operate/update-delete/sequence-column-manual"
                     ]
