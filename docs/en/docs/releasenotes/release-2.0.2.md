@@ -30,101 +30,101 @@ Thanks to our community users and developers, 489 improvements and bug fixes hav
 
 ## Behavior Changes
 
-- [[Fix](Planner) remove json -> operator convert to json_extract #24679](https://github.com/apache/doris/pull/24679) remove json '->' operator since it is conflicted with lambda function syntax. It's a syntax sugar for function json_extract and can be replaced with the former.
-- [[Improve](metadata)Start the script to set metadata_failure_recovery #24308](https://github.com/apache/doris/pull/24308) move metadata_failure_recovery from fe.conf to start_fe.sh argument to prevent being used unexpectedly.
-- [[enhancement](fix)change ordinary type null value is \N,complex type null value is null #24207](https://github.com/apache/doris/pull/24207)
-- [[Enhance](ip)optimize priority_ network matching logic for be #23795](https://github.com/apache/doris/pull/23795)
-- [[fix](load) fix cancel load failed because Job could not be cancelled… #17730](https://github.com/apache/doris/pull/17730) allow cancel a retrying load job.
+- https://github.com/apache/doris/pull/24679
+- https://github.com/apache/doris/pull/24308
+- https://github.com/apache/doris/pull/24207
+- https://github.com/apache/doris/pull/23795
+- https://github.com/apache/doris/pull/17730
 
 ## Improvements
 
 ### Easier to use
 
-- [[improvemnt](script) support custom lib dir to save custom libs #23887](https://github.com/apache/doris/pull/23887) add a custom_lib dir to allow users place custom lib files and custom_lib will not be replaced.
-- [[Enhance](ip)optimize priority_ network matching logic #23784](https://github.com/apache/doris/pull/23784) optimize priority_network logic to avoid error when this config is wrong or not configured.
-- [[Enhance](auth)row policy support role #23022](https://github.com/apache/doris/pull/23022) support role based auth for row policy.
+- https://github.com/apache/doris/pull/23887
+- https://github.com/apache/doris/pull/23784
+- https://github.com/apache/doris/pull/23022
 
 ### New optimizer Nereids statistics collection improvement
 
-- [[Improvement](statistics)Disable file cache while running analysis tasks. #23663](https://github.com/apache/doris/pull/23663)
-- [[Improvement](statistics)Show column stats even when error occurred. #23703](https://github.com/apache/doris/pull/23703)
-- [[Improvement](statistics)Support basic jdbc external table stats collection. #23965](https://github.com/apache/doris/pull/23965)
-- [[opt](Nereids)skip unknown col stats check on __internal_scheam and information_schema #24625](https://github.com/apache/doris/pull/24625)
+- https://github.com/apache/doris/pull/23663
+- https://github.com/apache/doris/pull/23703
+- https://github.com/apache/doris/pull/23965
+- https://github.com/apache/doris/pull/24625
 
 ### Better support for jdbc, hdfs, hive, mysql, max compute multi-catalog
 
-- [[Feature](multi-catalog) Support hadoop viewfs. #24168](https://github.com/apache/doris/pull/24168)
-- [[improvement](catalog) avoid calling checksum when replaying creating jdbc catalog and fix ranger issue #22369](https://github.com/apache/doris/pull/22369)
-- [[improvement](jdbc catalog) optimize the JDBC Catalog connection error message #23868](https://github.com/apache/doris/pull/23868) improve property check and error message for jdbc catalog
-- [[fix](multi-catalog)fix mc decimal type parse, fix wrong obj location #24242](https://github.com/apache/doris/pull/24242) fix some issues for max compute catalog
-- [[Feature](multi-catalog) Support sql cache for hms catalog #23391](https://github.com/apache/doris/pull/23391) sql cache for hive catalog
-- [[Enhancement](multi-catalog) merge hms partition events. #22869](https://github.com/apache/doris/pull/22869) improve performance for hive metadata sync
-- [[feature](information_schema)add metadata_name_ids for quickly get catlogs,db,table and add profiling table in order to Compatible with mysql #22702](https://github.com/apache/doris/pull/22702)
+- https://github.com/apache/doris/pull/24168
+- https://github.com/apache/doris/pull/22369
+- https://github.com/apache/doris/pull/23868
+- https://github.com/apache/doris/pull/24242
+- https://github.com/apache/doris/pull/23391
+- https://github.com/apache/doris/pull/22869
+- https://github.com/apache/doris/pull/22702
 
 ### performance for inverted index query
 
-- [[Enhancement](inverted index) add bkd index query cache to improve perf #23952](https://github.com/apache/doris/pull/23952)
-- [[Improve](count on index) improve performance for count on index other than match #24678](https://github.com/apache/doris/pull/24678)
-- [[Improve](inverted index) improve match performance without index #24751](https://github.com/apache/doris/pull/24751)
-- [[Optimize](invert index) Optimize multiple terms conjunction query #23871](https://github.com/apache/doris/pull/23871) improve performance of MATCH_ALL
-- [[optimize](match) optimize unnecessary conversions #24389](https://github.com/apache/doris/pull/24389) improve performance of MATCH
+- https://github.com/apache/doris/pull/23952
+- https://github.com/apache/doris/pull/24678
+- https://github.com/apache/doris/pull/24751
+- https://github.com/apache/doris/pull/23871
+- https://github.com/apache/doris/pull/24389
 
 ### improve array functions
 
-- [[FIX](array) fix old optimizer with some array literal functions #23630](https://github.com/apache/doris/pull/23630)
-- [[Improve](array-func)improve array union support multi params #24327](https://github.com/apache/doris/pull/24327)
-- [[Improve](explode) improve explode func with array nested complex type #24455](https://github.com/apache/doris/pull/24455)
+- https://github.com/apache/doris/pull/23630
+- https://github.com/apache/doris/pull/24327
+- https://github.com/apache/doris/pull/24455
 
 ## Important Bug fixes
 
-- [[fix](view) The parameter positions of timestamp diff function to sql are reversed #23601](https://github.com/apache/doris/pull/23601)
-- [[FIX](array) fix old optimizer with some array literal functions #23630](https://github.com/apache/doris/pull/23630)
-- [[Fix](cache) fix query cache returns wrong result after deleting partitions. #23555](https://github.com/apache/doris/pull/23555)
-- [[fix](cooldown) Fix potential data loss when clone task's dst tablet is cooldown replica #17644](https://github.com/apache/doris/pull/17644)
-- [[FIX](array/map)fix array map batch append data with right next_array_item_rowid #23779](https://github.com/apache/doris/pull/23779)
-- [[fix](Nereids) fix or to in rule #23940](https://github.com/apache/doris/pull/23940)
-- [[fix](planner)fix 'char' function's toSql implementation is wrong #23860](https://github.com/apache/doris/pull/23860)
-- [[fix](Nereids) record wrong best plan properties #23973](https://github.com/apache/doris/pull/23973)
-- [[fix](Nereids) make TVF's distribution spec always be RANDOM #24020](https://github.com/apache/doris/pull/24020)
-- [[fix](nereids) external scan use STORAGE_ANY instead of ANY as distibution #24039](https://github.com/apache/doris/pull/24039)
-- [[fix](nereids) bug: ( branch 2.0 )runtimefilter target is not SlotReference #23958](https://github.com/apache/doris/pull/23958)
-- [[fix](Nereids) mv in select materialized_view should disable show table #24104](https://github.com/apache/doris/pull/24104)
-- [[debug](FileCache) fail over to remote file reader if local cache failed #24097](https://github.com/apache/doris/pull/24097)
-- [[Fix](auth) fix revoke role operation cause fe down #23852](https://github.com/apache/doris/pull/23852)
-- [[Fix](Status) Handle status code correctly and add a new error code `ENTRY_NOT_FOUND` #24139](https://github.com/apache/doris/pull/24139)
-- [[Fix](status)Fix leaky abstraction and shield the status code `END_OF_FILE` from upper layers #24165](https://github.com/apache/doris/pull/24165)
-- [[fix](csv_reader)fix bug that Read garbled files caused be crash. #24164](https://github.com/apache/doris/pull/24164)
-- [[fix](Table-Valued Function) fix be core when user sepcified empty `column_separator` using hdfs tvf #24369](https://github.com/apache/doris/pull/24369)
-- [[fix](java-udf)Fix need to restart BE after replacing the jar package in java-udf #24372](https://github.com/apache/doris/pull/24372)
-- [[fix](agg) need to call 'set_version' in nested functions #24381](https://github.com/apache/doris/pull/24381)
-- [[fix](agg) windown_funnel compatibility issue with multi backends #24385](https://github.com/apache/doris/pull/24385)
-- [[fix](nereids)correlated anti join shouldn't be translated to null aware anti join #24290](https://github.com/apache/doris/pull/24290)
-- [[enhancement](fix)change ordinary type null value is \N,complex type null value is null #24207](https://github.com/apache/doris/pull/24207)
-- [[fix](stats) Fix analyze failed when there are thousands of partitions. #24521](https://github.com/apache/doris/pull/24521)
-- [[fix](Java UDF) Do not use enum as the data type for JavaUdfDataType. #24460](https://github.com/apache/doris/pull/24460)
-- [[fix](nereids) fix multi window projection issue temporarily #24568](https://github.com/apache/doris/pull/24568)
-- [[compatibility](optimizer) Make metadata compatible with 2.0.3 #24610](https://github.com/apache/doris/pull/24610)
-- [[fix](Nereids) select outfile column order is wrong #24595](https://github.com/apache/doris/pull/24595)
-- [[fix](nested_join) incorrect result of semi/anti mark join #24616](https://github.com/apache/doris/pull/24616)
-- [[fix](broker) fix broker read issue #24635](https://github.com/apache/doris/pull/24635)
-- [[opt](Nereids)skip unknown col stats check on __internal_scheam and information_schema #24625](https://github.com/apache/doris/pull/24625)
-- [[fix](csv_reader)Fixed bug when parsing multi-character delimiters. #24572](https://github.com/apache/doris/pull/24572)
-- [[fix](timezone) fix timezone parse when there is no tzfile #24578](https://github.com/apache/doris/pull/24578)
-- [[chore](thirdparty)We need to issue an error when starting FE without setting the Java home environment #23943](https://github.com/apache/doris/pull/23943)
-- [[Fix](merge-on-write) enable_unique_key_partial_update should be forwarded to master #24697](https://github.com/apache/doris/pull/24697)
-- [[fix](fe-meta) fix paimon file catalog meta issue and replication num analysis issue #24681](https://github.com/apache/doris/pull/24681)
-- [[Fix](binlog) Add more log for ingest_binlog && Fix ingest_binlog not rewrite rowset_meta tablet_uid #24617](https://github.com/apache/doris/pull/24617)
-- [[enhancement](config) do not abort when a disk is broken #24692](https://github.com/apache/doris/pull/24692)
-- [[fix](Nereids) colocate join could not work well on full outer join #24700](https://github.com/apache/doris/pull/24700)
-- [[optimize](match) optimize unnecessary conversions #24389](https://github.com/apache/doris/pull/24389)
-- [[enhancement](csv_reader)Optimize the reading efficiency of nullable (string) columns. #24698](https://github.com/apache/doris/pull/24698)
-- [[Fix](core) Fix segment cache core when output rowset is nullptr #24778](https://github.com/apache/doris/pull/24778)
-- [[fix](merge-on-write) fix duplicate key in schema change #24782](https://github.com/apache/doris/pull/24782)
-- [[compatibility](metadata) Make metadata compatible for future version after 2.0.2 #24800](https://github.com/apache/doris/pull/24800)
-- [[FIX](serde) fix map/array deserialize string with quote pair #24808](https://github.com/apache/doris/pull/24808)
-- [[fix](compile) failed on arm platform, with clang compiler and pch on, close #24633 #24636](https://github.com/apache/doris/pull/24636)
-- [[fix](schema) Table column order is changed if add a column and do truncate #24981](https://github.com/apache/doris/pull/24981)
-- [[Fix](inverted index) make parser mode coarse grained by default #24949](https://github.com/apache/doris/pull/24949)
+- https://github.com/apache/doris/pull/23601
+- https://github.com/apache/doris/pull/23630
+- https://github.com/apache/doris/pull/23555
+- https://github.com/apache/doris/pull/17644
+- https://github.com/apache/doris/pull/23779
+- https://github.com/apache/doris/pull/23940
+- https://github.com/apache/doris/pull/23860
+- https://github.com/apache/doris/pull/23973
+- https://github.com/apache/doris/pull/24020
+- https://github.com/apache/doris/pull/24039
+- https://github.com/apache/doris/pull/23958
+- https://github.com/apache/doris/pull/24104
+- https://github.com/apache/doris/pull/24097
+- https://github.com/apache/doris/pull/23852
+- https://github.com/apache/doris/pull/24139
+- https://github.com/apache/doris/pull/24165
+- https://github.com/apache/doris/pull/24164
+- https://github.com/apache/doris/pull/24369
+- https://github.com/apache/doris/pull/24372
+- https://github.com/apache/doris/pull/24381
+- https://github.com/apache/doris/pull/24385
+- https://github.com/apache/doris/pull/24290
+- https://github.com/apache/doris/pull/24207
+- https://github.com/apache/doris/pull/24521
+- https://github.com/apache/doris/pull/24460
+- https://github.com/apache/doris/pull/24568
+- https://github.com/apache/doris/pull/24610
+- https://github.com/apache/doris/pull/24595
+- https://github.com/apache/doris/pull/24616
+- https://github.com/apache/doris/pull/24635
+- https://github.com/apache/doris/pull/24625
+- https://github.com/apache/doris/pull/24572
+- https://github.com/apache/doris/pull/24578
+- https://github.com/apache/doris/pull/23943
+- https://github.com/apache/doris/pull/24697
+- https://github.com/apache/doris/pull/24681
+- https://github.com/apache/doris/pull/24617
+- https://github.com/apache/doris/pull/24692
+- https://github.com/apache/doris/pull/24700
+- https://github.com/apache/doris/pull/24389
+- https://github.com/apache/doris/pull/24698
+- https://github.com/apache/doris/pull/24778
+- https://github.com/apache/doris/pull/24782
+- https://github.com/apache/doris/pull/24800
+- https://github.com/apache/doris/pull/24808
+- https://github.com/apache/doris/pull/24636
+- https://github.com/apache/doris/pull/24981
+- https://github.com/apache/doris/pull/24949
 
 See the complete list of improvements and bug fixes on [github](https://github.com/apache/doris/issues?q=label%3Adev%2F2.0.2-merged+is%3Aclosed) .
 
