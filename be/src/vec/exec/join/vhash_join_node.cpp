@@ -159,7 +159,8 @@ HashJoinProbeContext::HashJoinProbeContext(pipeline::HashJoinProbeLocalState* lo
           _probe_key_sz(local_state->_shared_state->probe_key_sz),
           _left_output_slot_flags(&local_state->join_probe()->_left_output_slot_flags),
           _right_output_slot_flags(&local_state->join_probe()->_right_output_slot_flags),
-          _is_any_probe_match_row_output(&local_state->_is_any_probe_match_row_output) {}
+          _is_any_probe_match_row_output(&local_state->_is_any_probe_match_row_output),
+          _has_null_value_in_build_side(local_state->_shared_state->_has_null_in_build_side) {}
 
 HashJoinBuildContext::HashJoinBuildContext(HashJoinNode* join_node)
         : _hash_table_memory_usage(join_node->_hash_table_memory_usage),

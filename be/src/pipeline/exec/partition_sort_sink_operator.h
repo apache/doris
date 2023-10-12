@@ -110,6 +110,8 @@ private:
     int _partition_exprs_num = 0;
     vectorized::VExprContextSPtrs _partition_expr_ctxs;
 
+    TPartTopNPhase::type _topn_phase;
+
     // Expressions and parameters used for build _sort_description
     vectorized::VSortExecExprs _vsort_exec_exprs;
     std::vector<bool> _is_asc_order;

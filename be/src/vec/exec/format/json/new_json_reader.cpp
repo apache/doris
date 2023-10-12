@@ -164,10 +164,13 @@ Status NewJsonReader::init_reader(
     // generate _col_default_value_map
     RETURN_IF_ERROR(_get_column_default_value(_file_slot_descs, col_default_value_ctx));
 
+#ifdef __AVX2__
     if (config::enable_simdjson_reader) {
         RETURN_IF_ERROR(_simdjson_init_reader());
         return Status::OK();
     }
+#endif
+
     RETURN_IF_ERROR(_get_range_params());
 
     RETURN_IF_ERROR(_open_file_reader(false));

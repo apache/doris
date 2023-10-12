@@ -108,6 +108,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Conv;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTo;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTz;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cos;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CosineDistance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CountEqual;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedStruct;
@@ -180,6 +181,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Initcap;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.InnerProduct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Instr;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
@@ -213,6 +215,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNul
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNullableErrorToValue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbType;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbValid;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.L1Distance;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.L2Distance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.LastDay;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Least;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Left;
@@ -491,6 +495,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ConvertTo.class, "convert_to"),
             scalar(ConvertTz.class, "convert_tz"),
             scalar(Cos.class, "cos"),
+            scalar(CosineDistance.class, "cosine_distance"),
             scalar(CountEqual.class, "countequal"),
             scalar(CreateMap.class, "map"),
             scalar(CreateStruct.class, "struct"),
@@ -560,6 +565,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(HoursSub.class, "hours_sub"),
             scalar(If.class, "if"),
             scalar(Initcap.class, "initcap"),
+            scalar(InnerProduct.class, "inner_product"),
             scalar(Instr.class, "instr"),
             scalar(JsonArray.class, "json_array"),
             scalar(JsonObject.class, "json_object"),
@@ -614,6 +620,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(JsonbType.class, "jsonb_type"),
             scalar(JsonLength.class, "json_length"),
             scalar(JsonContains.class, "json_contains"),
+            scalar(L1Distance.class, "l1_distance"),
+            scalar(L2Distance.class, "l2_distance"),
             scalar(LastDay.class, "last_day"),
             scalar(Least.class, "least"),
             scalar(Left.class, "left"),
