@@ -59,7 +59,6 @@ public:
             } else {
                 *block = std::move(_blocks_queues[id].front());
                 _blocks_queues[id].pop_front();
-
             }
         }
 
