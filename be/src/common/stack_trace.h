@@ -73,7 +73,7 @@ public:
     [[nodiscard]] constexpr size_t getSize() const { return size; }
     [[nodiscard]] constexpr size_t getOffset() const { return offset; }
     [[nodiscard]] const FramePointers& getFramePointers() const { return frame_pointers; }
-    [[nodiscard]] std::string toString() const;
+    [[nodiscard]] std::string toString(int start_pointers_index = 0) const;
 
     static std::string toString(void** frame_pointers, size_t offset, size_t size);
     static void dropCache();
