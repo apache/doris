@@ -2469,7 +2469,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             } else if (partitionInfo.getType() == PartitionType.RANGE
                     || partitionInfo.getType() == PartitionType.LIST) {
                 try {
-                    Map<String, String> propertiesCheck = properties;
+                    Map<String, String> propertiesCheck = new HashMap<>(properties);
                     propertiesCheck.entrySet().removeIf(entry -> entry.getKey().contains("dynamic_partition"));
                     if (storagePolicy.equals("") && propertiesCheck != null && !propertiesCheck.isEmpty()) {
                         // here, all properties should be checked
@@ -2488,10 +2488,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                         }
                     }
 
-                    if (storagePolicy.equals("") && properties != null && !properties.isEmpty()) {
-                        // here, all properties should be checked
-                        throw new DdlException("Unknown properties: " + properties);
-                    }
+//                    if (storagePolicy.equals("") && properties != null && !properties.isEmpty()) {
+//                        // here, all properties should be checked
+//                        throw new DdlException("Unknown properties: " + properties);
+//                    }
                 } catch (AnalysisException e) {
                     throw new DdlException(e.getMessage());
                 }
