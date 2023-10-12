@@ -275,10 +275,4 @@ suite("map_agg") {
             select userid, map_agg(subject,score) as map from test_map_agg_score group by userid
         ) a order by userid;
     """
-
-    sql "DROP TABLE IF EXISTS `test_map_agg`"
-    sql "DROP TABLE IF EXISTS `test_map_agg_nullable`"
-    sql "DROP TABLE IF EXISTS `test_map_agg_numeric_key`"
-    sql "DROP TABLE IF EXISTS `test_map_agg_decimal`"
-    sql "DROP TABLE IF EXISTS `test_map_agg_score`"
  }

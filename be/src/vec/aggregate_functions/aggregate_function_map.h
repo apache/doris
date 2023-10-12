@@ -58,13 +58,13 @@ struct AggregateFunctionMapAggData {
         _value_column->clear();
     }
 
-    void add(const StringRef& key, const Field& value) {
+    void add(StringRef key, const Field& value) {
         DCHECK(key.data != nullptr);
         if (UNLIKELY(_map.find(key) != _map.end())) {
             return;
         }
 
-        _arena.insert(key.data, key.size);
+        key.data = _arena.insert(key.data, key.size);
 
         _map.emplace(key, _key_column->size());
         _key_column->insert_data(key.data, key.size);
@@ -95,7 +95,7 @@ struct AggregateFunctionMapAggData {
                 return;
             }
 
-            _arena.insert(key.data, key.size);
+            key.data = _arena.insert(key.data, key.size);
 
             _map.emplace(key, _key_column->size());
             _key_column->insert_data(key.data, key.size);
@@ -116,7 +116,7 @@ struct AggregateFunctionMapAggData {
             if (_map.find(key) != _map.cend()) {
                 continue;
             }
-            _arena.insert(key.data, key.size);
+            key.data = _arena.insert(key.data, key.size);
 
             _map.emplace(key, _key_column->size());
             static_cast<KeyColumnType&>(*_key_column).insert_data(key.data, key.size);
