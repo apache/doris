@@ -184,9 +184,8 @@ public:
     static bool process_minor_gc();
     static bool process_full_gc();
 
-    static int64_t tg_not_enable_overcommit_group_gc();
-    static int64_t tg_enable_overcommit_group_gc(int64_t request_free_memory,
-                                                 RuntimeProfile* profile);
+    static int64_t tg_hard_memory_limit_gc();
+    static int64_t tg_soft_memory_limit_gc(int64_t request_free_memory, RuntimeProfile* profile);
 
     // It is only used after the memory limit is exceeded. When multiple threads are waiting for the available memory of the process,
     // avoid multiple threads starting at the same time and causing OOM.
