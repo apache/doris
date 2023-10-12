@@ -1038,16 +1038,6 @@ public class NativeInsertStmt extends InsertStmt {
     }
 
     private void analyzeGroupCommit() {
-        if (targetTable.getName().equals("insert_group_commit_into_duplicate")) {
-            LOG.info("analyzeGroupCommit, sql={}, targetTable: {}, enableInsertGroupCommit={}, isOlapTable={}, "
-                            + "isTxnModel={}, isSelectQuery={}, tableRefsNum={}, targetPartitionNamesIsNull={}",
-                    getOrigStmt().originStmt, targetTable.getName(),
-                    ConnectContext.get().getSessionVariable().enableInsertGroupCommit,
-                    targetTable instanceof OlapTable, ConnectContext.get().isTxnModel(),
-                    getQueryStmt() instanceof SelectStmt,
-                    getQueryStmt() instanceof SelectStmt ? ((SelectStmt) getQueryStmt()).getTableRefs().size() : "-1",
-                    targetPartitionNames == null);
-        }
         if (ConnectContext.get().getSessionVariable().enableInsertGroupCommit && targetTable instanceof OlapTable
                 && !ConnectContext.get().isTxnModel()
                 && getQueryStmt() instanceof SelectStmt
