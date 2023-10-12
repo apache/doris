@@ -32,6 +32,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
+import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.mvrewrite.CountFieldToSum;
 
 import com.google.common.base.Preconditions;
@@ -158,14 +159,41 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         return selectStmt.getWhereClause();
     }
 
+    private void checkExprValidInMv(Expr expr) throws AnalysisException {
+        if (!isReplay && expr.haveFunction("curdate")) {
+            throw new AnalysisException("The materialized view contain curdate is disallowed");
+        }
+    }
+
+    private void checkExprValidInMv() throws AnalysisException {
+        if (selectStmt.getWhereClause() != null) {
+            checkExprValidInMv(selectStmt.getWhereClause());
+        }
+        SelectList selectList = selectStmt.getSelectList();
+        for (SelectListItem selectListItem : selectList.getItems()) {
+            checkExprValidInMv(selectListItem.getExpr());
+        }
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
+
+        checkExprValidInMv();
+
         FeNameFormat.checkTableName(mvName);
         rewriteToBitmapWithCheck();
         // TODO(ml): The mv name in from clause should pass the analyze without error.
         selectStmt.forbiddenMVRewrite();
         selectStmt.analyze(analyzer);
+
+        ExprRewriter rewriter = analyzer.getExprRewriter();
+        rewriter.reset();
+        selectStmt.rewriteExprs(rewriter);
+        selectStmt.reset();
+        analyzer = new Analyzer(analyzer.getEnv(), analyzer.getContext());
+        selectStmt.analyze(analyzer);
+
         if (selectStmt.getAggInfo() != null) {
             mvKeysType = KeysType.AGG_KEYS;
         }
@@ -227,10 +255,6 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                                 + selectListItemExpr.toSql());
             }
 
-            if (!isReplay && selectListItemExpr.haveFunction("curdate")) {
-                throw new AnalysisException(
-                        "The materialized view contain curdate is disallowed");
-            }
 
             if (selectListItemExpr instanceof FunctionCallExpr
                     && ((FunctionCallExpr) selectListItemExpr).isAggregateFunction()) {
