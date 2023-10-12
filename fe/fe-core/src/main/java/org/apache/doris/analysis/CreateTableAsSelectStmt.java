@@ -71,8 +71,8 @@ public class CreateTableAsSelectStmt extends DdlStmt {
         // first: we analyze queryStmt before create table.
         // To avoid duplicate registrations of table/colRefs,
         // create a new root analyzer and clone the query statement for this initial pass.
-        super.analyze(analyzer);
         Analyzer dummyRootAnalyzer = new Analyzer(analyzer.getEnv(), analyzer.getContext());
+        super.analyze(dummyRootAnalyzer);
         QueryStmt tmpStmt = queryStmt.clone();
         tmpStmt.analyze(dummyRootAnalyzer);
         this.queryStmt = tmpStmt;
