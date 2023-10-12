@@ -90,6 +90,7 @@ suite("insert_group_commit_into_duplicate") {
 
         connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
             sql """ set enable_insert_group_commit = true; """
+            // TODO
             sql """ set enable_nereids_dml = false; """
 
             // 1. insert into
