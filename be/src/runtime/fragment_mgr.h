@@ -139,6 +139,11 @@ public:
 
     void coordinator_callback(const ReportStatusRequest& req);
 
+    int32_t running_query_num() {
+        std::unique_lock<std::mutex> ctx_lock(_lock);
+        return _query_ctx_map.size();
+    }
+
 private:
     void _exec_actual(std::shared_ptr<FragmentExecState> exec_state, const FinishCallback& cb);
 
