@@ -545,9 +545,7 @@ public class SelectStmt extends QueryStmt {
                     resultExprs.add(rewriteQueryExprByMvColumnExpr(item.getExpr(), analyzer));
                     String columnLabel = null;
                     Class<? extends StatementBase> statementClazz = analyzer.getStatementClazz();
-                    if (statementClazz != null && (CreateViewStmt.class.isAssignableFrom(statementClazz) ||
-                            CreateMaterializedViewStmt.class.isAssignableFrom(statementClazz) ||
-                            CreateTableAsSelectStmt.class.isAssignableFrom(statementClazz))) {
+                    if (statementClazz != null && !QueryStmt.class.isAssignableFrom(statementClazz)) {
                         columnLabel = item.toColumnLabel(i);
                     }
                     if (columnLabel == null) {
