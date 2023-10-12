@@ -330,19 +330,6 @@ Status AnalyticLocalState::output_current_block(vectorized::Block* block) {
     return Status::OK();
 }
 
-void AnalyticLocalState::release_mem() {
-    _agg_arena_pool = nullptr;
-
-    std::vector<vectorized::Block> tmp_input_blocks;
-    _shared_state->input_blocks.swap(tmp_input_blocks);
-
-    std::vector<std::vector<vectorized::MutableColumnPtr>> tmp_agg_input_columns;
-    _shared_state->agg_input_columns.swap(tmp_agg_input_columns);
-
-    std::vector<vectorized::MutableColumnPtr> tmp_result_window_columns;
-    _result_window_columns.swap(tmp_result_window_columns);
-}
-
 AnalyticSourceOperatorX::AnalyticSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
                                                  const DescriptorTbl& descs)
         : OperatorX<AnalyticLocalState>(pool, tnode, descs),
@@ -443,7 +430,10 @@ Status AnalyticLocalState::close(RuntimeState* state) {
     }
 
     static_cast<void>(_destroy_agg_status());
-    release_mem();
+    _agg_arena_pool = nullptr;
+
+    std::vector<vectorized::MutableColumnPtr> tmp_result_window_columns;
+    _result_window_columns.swap(tmp_result_window_columns);
     return PipelineXLocalState<AnalyticDependency>::close(state);
 }
 
