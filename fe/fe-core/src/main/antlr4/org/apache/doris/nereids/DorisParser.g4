@@ -59,7 +59,7 @@ statement
 
 identifierOrText
     : errorCapturingIdentifier
-    | STRING
+    | STRING_LITERAL
     ;
 
 userIdentify
@@ -435,10 +435,10 @@ specifiedPartition
 constant
     : NULL                                                                                     #nullLiteral
     | interval                                                                                 #intervalLiteral
-    | type=(DATE | DATEV2 | TIMESTAMP) STRING                                                  #typeConstructor
+    | type=(DATE | DATEV2 | TIMESTAMP) STRING_LITERAL                                          #typeConstructor
     | number                                                                                   #numericLiteral
     | booleanValue                                                                             #booleanLiteral
-    | STRING                                                                                   #stringLiteral
+    | STRING_LITERAL                                                                           #stringLiteral
     ;
 
 comparisonOperator
