@@ -30,6 +30,9 @@ import java.util.List
 import java.util.concurrent.CopyOnWriteArrayList
 
 suite("insert_group_commit_with_prepare_stmt") {
+
+    sql """set enable_nereids_planner=false"""
+
     def user = context.config.jdbcUser
     def password = context.config.jdbcPassword
     def realDb = "regression_test_insert_p0"

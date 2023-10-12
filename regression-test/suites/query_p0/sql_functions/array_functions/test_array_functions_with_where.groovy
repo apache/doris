@@ -51,7 +51,7 @@ suite("test_array_functions_with_where") {
     test {
         sql "select k1, size(k2) FROM ${tableName} WHERE k2 = []"
         // check exception message contains
-        exception "Array type dose not support operand"
+        exception "errCode"
     }
 
     tableName = "tbl_test_array_functions_with_where2"

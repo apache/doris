@@ -17,12 +17,16 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.CreateTableAsSelectStmt;
+import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.DeleteStmt;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.UpdateStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
@@ -226,6 +230,20 @@ public abstract class ConnectProcessor {
                 handleQueryException(throwable, convertedStmt, null, null);
                 return;
             }
+        }
+
+        if (mysqlCommand == MysqlCommand.COM_QUERY
+                && ctx.getSessionVariable().isEnableNereidsPlanner()
+                && !ctx.getSessionVariable().enableFallbackToOriginalPlanner
+                && stmts.stream().allMatch(s -> s instanceof QueryStmt
+                        || s instanceof InsertStmt
+                        || s instanceof UpdateStmt
+                        || s instanceof DeleteStmt
+                        || s instanceof CreateTableAsSelectStmt
+                        || s instanceof CreateTableStmt)) {
+            handleQueryException(new AnalysisException("Nereids parse DQL failed. " + originStmt,
+                    nereidsParseException), originStmt, null, null);
+            return;
         }
 
         List<String> origSingleStmtList = null;

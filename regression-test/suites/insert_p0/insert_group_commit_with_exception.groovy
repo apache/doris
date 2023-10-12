@@ -21,6 +21,9 @@ import java.sql.Statement
 import java.sql.PreparedStatement
 
 suite("insert_group_commit_with_exception") {
+
+    sql """set enable_nereids_planner=false"""
+
     def table = "insert_group_commit_with_exception"
 
     def getRowCount = { expectedRowCount ->

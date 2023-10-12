@@ -18,6 +18,9 @@
 import com.mysql.cj.jdbc.StatementImpl
 
 suite("insert_group_commit_with_large_data") {
+    
+    sql """set enable_nereids_planner=false"""
+
     def db = "regression_test_insert_p0"
     def table = "insert_group_commit_with_large_data"
 

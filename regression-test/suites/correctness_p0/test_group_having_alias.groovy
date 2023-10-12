@@ -72,6 +72,7 @@
     """
 
     sql """set group_by_and_having_use_alias_first=true"""
+    sql """set enable_nereids_planner=false"""
 
     qt_sql """
         SELECT
@@ -105,6 +106,7 @@
     """
 
     sql """set group_by_and_having_use_alias_first=false"""
+    sql """set enable_nereids_planner=true"""
 
     sql """
          CREATE TABLE `test_having_alias_tb` (
