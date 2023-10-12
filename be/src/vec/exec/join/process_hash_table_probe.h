@@ -37,9 +37,9 @@ using MutableColumns = std::vector<MutableColumnPtr>;
 using NullMap = ColumnUInt8::Container;
 using ConstNullMapPtr = const NullMap*;
 
-template <int JoinOpType>
+template <int JoinOpType, typename Parent>
 struct ProcessHashTableProbe {
-    ProcessHashTableProbe(HashJoinProbeContext* join_context, int batch_size);
+    ProcessHashTableProbe(Parent* parent, int batch_size);
     ~ProcessHashTableProbe() = default;
 
     // output build side result column
@@ -91,9 +91,9 @@ struct ProcessHashTableProbe {
     Status process_data_in_hashtable(HashTableType& hash_table_ctx, MutableBlock& mutable_block,
                                      Block* output_block, bool* eos);
 
-    vectorized::HashJoinProbeContext* _join_context;
+    Parent* _parent;
     const int _batch_size;
-    const std::vector<Block>& _build_blocks;
+    std::shared_ptr<std::vector<Block>> _build_blocks;
     std::unique_ptr<Arena> _arena;
     std::vector<StringRef> _probe_keys;
 
@@ -117,6 +117,13 @@ struct ProcessHashTableProbe {
     int _right_col_idx;
     int _right_col_len;
     int _row_count_from_last_probe;
+
+    bool _have_other_join_conjunct;
+    bool _is_right_semi_anti;
+    Sizes _probe_key_sz;
+    std::vector<bool>* _left_output_slot_flags;
+    std::vector<bool>* _right_output_slot_flags;
+    bool* _has_null_in_build_side;
 
     RuntimeProfile::Counter* _rows_returned_counter;
     RuntimeProfile::Counter* _search_hashtable_timer;

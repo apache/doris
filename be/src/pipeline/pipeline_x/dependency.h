@@ -565,14 +565,10 @@ struct HashJoinSharedState : public JoinSharedState {
     // maybe share hash table with other fragment instances
     std::shared_ptr<vectorized::HashTableVariants> hash_table_variants =
             std::make_shared<vectorized::HashTableVariants>();
-    // for full/right outer join
-    vectorized::HashTableIteratorVariants outer_join_pull_visited_iter;
-    vectorized::HashTableIteratorVariants probe_row_match_iter;
     vectorized::Sizes probe_key_sz;
     const std::vector<TupleDescriptor*> build_side_child_desc;
     size_t build_exprs_size = 0;
-    std::shared_ptr<std::vector<vectorized::Block>> build_blocks =
-            std::make_shared<std::vector<vectorized::Block>>();
+    std::shared_ptr<std::vector<vectorized::Block>> build_blocks = nullptr;
     bool probe_ignore_null = false;
 };
 
