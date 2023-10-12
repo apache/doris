@@ -283,6 +283,7 @@ E(ENTRY_NOT_FOUND, -6011);
 constexpr bool capture_stacktrace(int code) {
     return code != ErrorCode::OK
         && code != ErrorCode::END_OF_FILE
+        && code != ErrorCode::DATA_QUALITY_ERROR
         && code != ErrorCode::MEM_LIMIT_EXCEEDED
         && code != ErrorCode::TRY_LOCK_FAILED
         && code != ErrorCode::TOO_MANY_SEGMENTS
