@@ -44,7 +44,8 @@ under the License.
 
 对于普通类型中的 null 值使用 \n 来表示，对于复杂类型或嵌套类型的 null 值，跟 JSON 类型保持一致、采取 null 来表示。
 
-- https://github.com/apache/doris/pull/23795 https://github.com/apache/doris/pull/23784 
+- https://github.com/apache/doris/pull/23795
+- https://github.com/apache/doris/pull/23784 
 
 优化 BE 节点 priority_network 配置项的绑定策略，如果用户配置了错误的 priority_network 则直接启动失败，以避免用户错误地认为配置是正确的。如果用户没有配置 priority_network，则仅从 IPv4 列表中选择第一个 IP，而不是从所有 IP 中选择，以避免用户的服务器不支持 IPv4。
 
@@ -62,7 +63,6 @@ under the License.
 
 在新版本中，为 FE 和 BE 添加了新的自定义目录 custom_lib，用户可以在其中放置自定义 lib 文件。
 
-- https://github.com/apache/doris/pull/23784 optimize priority_network logic to avoid error when this config is wrong or not configured.
 - https://github.com/apache/doris/pull/23022 
 
 支持基于用户角色的权限访问控制，实现了行级细粒度的权限控制策略。
