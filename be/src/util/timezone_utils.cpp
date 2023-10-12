@@ -266,7 +266,7 @@ void TimezoneUtils::load_timezones_to_cache() {
 
 bool TimezoneUtils::find_cctz_time_zone(const std::string& timezone, cctz::time_zone& ctz) {
     zone_cache_rw_lock.lock_shared();
-    if (auto it = zone_cache->find(timezone); it != nullptr) {
+    if (auto it = zone_cache->find(timezone); it != zone_cache->end()) {
         ctz = it->second;
         zone_cache_rw_lock.unlock_shared();
         return true;

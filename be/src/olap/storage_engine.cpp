@@ -478,7 +478,7 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
 
         int tablet_num;
 
-        bool operator<(const DirInfo& other) {
+        bool operator<(const DirInfo& other) const {
             if (available_level != other.available_level) {
                 return available_level < other.available_level;
             }
