@@ -26,9 +26,9 @@ under the License.
 
 亲爱的社区小伙伴们，Apache Doris 2.0.2  版本已于 2023 年 10 月 6 日正式发布，该版本对多个功能进行了更新优化，旨在更好地满足用户的需求。有 92 位贡献者为 Apache Doris 2.0.2 版本提交了功能优化项以及问题修复，进一步提升了系统的稳定性和性能，欢迎大家下载体验。
 
-**GitHub下载：**https://github.com/apache/doris/releases/tag/2.0.2-rc05
+**GitHub下载**：https://github.com/apache/doris/releases/tag/2.0.2-rc05
 
-**官网下载页：**https://doris.apache.org/download/
+**官网下载页**：https://doris.apache.org/download/
 
 ## Behavior Changes
 
