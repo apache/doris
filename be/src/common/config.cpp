@@ -1103,6 +1103,8 @@ DEFINE_Bool(exit_on_exception, "false");
 DEFINE_String(doris_cgroup_cpu_path, "");
 DEFINE_Bool(enable_cpu_hard_limit, "false");
 
+DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
