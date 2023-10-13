@@ -66,6 +66,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.stream.Collectors;
 
 public class HiveScanNode extends FileQueryScanNode {
@@ -263,9 +264,18 @@ public class HiveScanNode extends FileQueryScanNode {
                 totalSize += file.getLength();
             }
         }
-        long sampleSize = totalSize * tableSample.getSampleValue() / 100;
+        long sampleSize = 0;
+        if (tableSample.isPercent()) {
+            sampleSize = totalSize * tableSample.getSampleValue() / 100;
+        } else {
+            long estimatedRowSize = 0;
+            for (Column column : hmsTable.getFullSchema()) {
+                estimatedRowSize += column.getDataType().getSlotSize();
+            }
+            sampleSize = estimatedRowSize * tableSample.getSampleValue();
+        }
         long selectedSize = 0;
-        Collections.shuffle(fileList);
+        Collections.shuffle(fileList, new Random(tableSample.getSeek()));
         int index = 0;
         for (HiveMetaStoreCache.HiveFileStatus file : fileList) {
             selectedSize += file.getLength();

@@ -22,7 +22,6 @@
 #include "exprs/bloom_filter_func.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/operator.h"
-#include "vec/common/aggregation_common.h"
 #include "vec/exec/join/vhash_join_node.h"
 #include "vec/utils/template_helpers.hpp"
 
@@ -139,7 +138,8 @@ Status HashJoinBuildSinkLocalState::open(RuntimeState* state) {
 void HashJoinBuildSinkLocalState::init_short_circuit_for_probe() {
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
     _shared_state->short_circuit_for_probe =
-            (_has_null_in_build_side && p._join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) ||
+            (_shared_state->_has_null_in_build_side &&
+             p._join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN && !p._is_mark_join) ||
             (_shared_state->build_blocks->empty() && p._join_op == TJoinOp::INNER_JOIN &&
              !p._is_mark_join) ||
             (_shared_state->build_blocks->empty() && p._join_op == TJoinOp::LEFT_SEMI_JOIN &&
@@ -147,6 +147,14 @@ void HashJoinBuildSinkLocalState::init_short_circuit_for_probe() {
             (_shared_state->build_blocks->empty() && p._join_op == TJoinOp::RIGHT_OUTER_JOIN) ||
             (_shared_state->build_blocks->empty() && p._join_op == TJoinOp::RIGHT_SEMI_JOIN) ||
             (_shared_state->build_blocks->empty() && p._join_op == TJoinOp::RIGHT_ANTI_JOIN);
+
+    //when build table rows is 0 and not have other_join_conjunct and not _is_mark_join and join type is one of LEFT_OUTER_JOIN/FULL_OUTER_JOIN/LEFT_ANTI_JOIN
+    //we could get the result is probe table + null-column(if need output)
+    _shared_state->empty_right_table_need_probe_dispose =
+            (_shared_state->build_blocks->empty() && !p._have_other_join_conjunct &&
+             !p._is_mark_join) &&
+            (p._join_op == TJoinOp::LEFT_OUTER_JOIN || p._join_op == TJoinOp::FULL_OUTER_JOIN ||
+             p._join_op == TJoinOp::LEFT_ANTI_JOIN);
 }
 
 Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
@@ -203,7 +211,7 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
                                         has_null_value || short_circuit_for_null_in_build_side
                                                 ? &null_map_val->get_data()
                                                 : nullptr,
-                                        &_has_null_in_build_side);
+                                        &_shared_state->_has_null_in_build_side);
                     }},
             *_shared_state->hash_table_variants,
             vectorized::make_bool_variant(_build_side_ignore_null),
@@ -372,7 +380,7 @@ void HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state) {
                                          __builtin_unreachable();
                                      },
                                      [&](auto&& arg) {
-                                         arg.hash_table.set_partitioned_threshold(
+                                         arg.hash_table->set_partitioned_threshold(
                                                  state->partitioned_hash_join_rows_threshold());
                                      }},
                *_shared_state->hash_table_variants);
@@ -452,7 +460,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     // make one block for each 4 gigabytes
     constexpr static auto BUILD_BLOCK_MAX_SIZE = 4 * 1024UL * 1024UL * 1024UL;
 
-    if (local_state._has_null_in_build_side) {
+    if (local_state._shared_state->_has_null_in_build_side) {
         // TODO: if _has_null_in_build_side is true we should finish current pipeline task.
         DCHECK(state->enable_pipeline_exec());
         return Status::OK();
@@ -538,7 +546,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
             _shared_hash_table_context->hash_table_variants =
                     local_state._shared_state->hash_table_variants;
             _shared_hash_table_context->short_circuit_for_null_in_probe_side =
-                    local_state._has_null_in_build_side;
+                    local_state._shared_state->_has_null_in_build_side;
             if (local_state._runtime_filter_slots) {
                 local_state._runtime_filter_slots->copy_to_shared_context(
                         _shared_hash_table_context);
@@ -556,11 +564,20 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         local_state.profile()->add_info_string(
                 "SharedHashTableFrom",
                 print_id(_shared_hashtable_controller->get_builder_fragment_instance_id(id())));
-        local_state._has_null_in_build_side =
+        local_state._shared_state->_has_null_in_build_side =
                 _shared_hash_table_context->short_circuit_for_null_in_probe_side;
-        local_state._shared_state->hash_table_variants =
-                std::static_pointer_cast<vectorized::HashTableVariants>(
-                        _shared_hash_table_context->hash_table_variants);
+        std::visit(
+                [](auto&& dst, auto&& src) {
+                    if constexpr (!std::is_same_v<std::monostate, std::decay_t<decltype(dst)>> &&
+                                  std::is_same_v<std::decay_t<decltype(src)>,
+                                                 std::decay_t<decltype(dst)>>) {
+                        dst.hash_table = src.hash_table;
+                    }
+                },
+                *local_state._shared_state->hash_table_variants,
+                *std::static_pointer_cast<vectorized::HashTableVariants>(
+                        _shared_hash_table_context->hash_table_variants));
+
         local_state._shared_state->build_blocks = _shared_hash_table_context->blocks;
 
         if (!_shared_hash_table_context->runtime_filters.empty()) {
@@ -579,7 +596,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                                                 _build_expr_ctxs, _runtime_filter_descs);
 
                                 RETURN_IF_ERROR(local_state._runtime_filter_slots->init(
-                                        state, arg.hash_table.size(), 0));
+                                        state, arg.hash_table->size(), 0));
                                 RETURN_IF_ERROR(
                                         local_state._runtime_filter_slots->copy_from_shared_context(
                                                 _shared_hash_table_context));

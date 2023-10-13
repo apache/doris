@@ -404,6 +404,8 @@ public class BinaryPredicate extends Predicate implements Writable {
             } else if (getChild(1).getType().isDate()
                     && (getChild(0).getType().isStringType() && getChild(0) instanceof StringLiteral)) {
                 return ((StringLiteral) getChild(0)).canConvertToDateType(Type.DATE) ? Type.DATE : Type.DATETIME;
+            } else if (getChild(1).getType().isDate() && getChild(0).getType().isDate()) {
+                return Type.DATE;
             } else {
                 return Type.DATETIME;
             }

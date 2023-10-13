@@ -338,8 +338,7 @@ public:
     }
 
     virtual void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
-                                             const uint8_t* null_map,
-                                             size_t max_row_byte_size) const {
+                                             const uint8_t* null_map) const {
         LOG(FATAL) << "serialize_vec_with_null_map not supported";
     }
 

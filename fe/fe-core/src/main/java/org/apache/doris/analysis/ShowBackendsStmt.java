@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -28,9 +29,20 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
+import com.google.common.collect.ImmutableList;
+
 public class ShowBackendsStmt extends ShowStmt {
+    private String type;
 
     public ShowBackendsStmt() {
+    }
+
+    public ShowBackendsStmt(String type) {
+        this.type = type;
+    }
+
+    public String getType() {
+        return type;
     }
 
     @Override
@@ -42,12 +54,22 @@ public class ShowBackendsStmt extends ShowStmt {
                                                                           PrivPredicate.OPERATOR)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN/OPERATOR");
         }
+
+        if (type != null && !type.equals("disks")) {
+            throw new AnalysisException("Show backends with extra info only support show backends disks");
+        }
     }
 
     @Override
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
-        for (String title : BackendsProcDir.TITLE_NAMES) {
+
+        ImmutableList<String> titles = BackendsProcDir.TITLE_NAMES;
+        if (type != null && type.equals("disks")) {
+            titles = BackendsProcDir.DISK_TITLE_NAMES;
+        }
+
+        for (String title : titles) {
             builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
         }
         return builder.build();

@@ -269,8 +269,7 @@ public:
                        size_t max_row_byte_size) const override;
 
     void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
-                                     const uint8_t* null_map,
-                                     size_t max_row_byte_size) const override;
+                                     const uint8_t* null_map) const override;
 
     void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                   const uint8_t* __restrict null_data) const override {
