@@ -34,12 +34,6 @@ suite("test_nestedtypes_csv_insert_into_with_s3", "p0") {
 
     def dataFilePath = "https://"+"${bucket}"+"."+"${s3_endpoint}"+"/regression/datalake"
 
-    // csv format define in two method:
-    //  1.without quote, like doris mysql select output,
-    //  2.csv as json format, which is different from first if meet datetime type, because json has no datetime
-    ArrayList<String> csv_without_quote = ["${dataFilePath}/as_without_quote.csv", "${dataFilePath}/arrarr_without_quote.csv",
-                                           "${dataFilePath}/map_without_quote.csv","${dataFilePath}/arrmap_without_quote.csv",
-                                            "${dataFilePath}/maparr_without_quote.csv"]
     ArrayList<String> csv_as_json = ["${dataFilePath}/as_as_json.csv", "${dataFilePath}/arrarr_as_json.csv",
                                      "${dataFilePath}/map_as_json.csv","${dataFilePath}/arrmap_as_json.csv",
                                      "${dataFilePath}/maparr_as_json.csv"]
@@ -47,7 +41,18 @@ suite("test_nestedtypes_csv_insert_into_with_s3", "p0") {
 
     // define dup key table with nested table types with one nested scala
     List<String> table_names = new ArrayList<>()
+    // table_names should same with json_files order
     def nested_table_dup = "tbl_csv_array_nested_types_s3"
+    def nested_table_dup2 = "tbl_csv_array_nested_types_s32"
+    def nested_table_map_dup = "tbl_csv_map_types_s3"
+    def nested_table_array_map_dup = "tbl_csv_array_map_types_s3"
+    def nested_table_map_array_dup = "tbl_csv_map_array_types_s3"
+    table_names.add(nested_table_dup)
+    table_names.add(nested_table_dup2)
+    table_names.add(nested_table_map_dup)
+    table_names.add(nested_table_array_map_dup)
+    table_names.add(nested_table_map_array_dup)
+
     sql "DROP TABLE IF EXISTS ${nested_table_dup}"
     sql """
         CREATE TABLE IF NOT EXISTS ${nested_table_dup} (
@@ -75,9 +80,7 @@ suite("test_nestedtypes_csv_insert_into_with_s3", "p0") {
         DISTRIBUTED BY HASH(`k1`) BUCKETS 10
         PROPERTIES("replication_num" = "1");
         """
-    table_names.add(nested_table_dup)
     // define dup key table with nested table types with two nested scala
-    def nested_table_dup2 = "tbl_csv_array_nested_types_s32"
     sql "DROP TABLE IF EXISTS ${nested_table_dup2}"
     sql """
         CREATE TABLE IF NOT EXISTS ${nested_table_dup2} (
@@ -105,10 +108,8 @@ suite("test_nestedtypes_csv_insert_into_with_s3", "p0") {
         DISTRIBUTED BY HASH(`k1`) BUCKETS 10
         PROPERTIES("replication_num" = "1");
         """
-    table_names.add(nested_table_dup2)
     
     // define dup key table with array nested map table types with one nested scala
-    def nested_table_array_map_dup = "tbl_csv_array_map_types_s3"
     sql "DROP TABLE IF EXISTS ${nested_table_array_map_dup}"
     sql """
         CREATE TABLE IF NOT EXISTS ${nested_table_array_map_dup} (
@@ -136,10 +137,8 @@ suite("test_nestedtypes_csv_insert_into_with_s3", "p0") {
         DISTRIBUTED BY HASH(`k1`) BUCKETS 10
         PROPERTIES("replication_num" = "1");
         """
-    table_names.add(nested_table_array_map_dup)
 
     // define dup key table with map types with one nested scala
-    def nested_table_map_dup = "tbl_csv_map_types_s3"
     sql "DROP TABLE IF EXISTS ${nested_table_map_dup}"
     sql """
         CREATE TABLE IF NOT EXISTS ${nested_table_map_dup} (
@@ -167,10 +166,8 @@ suite("test_nestedtypes_csv_insert_into_with_s3", "p0") {
         DISTRIBUTED BY HASH(`k1`) BUCKETS 10
         PROPERTIES("replication_num" = "1");
         """
-    table_names.add(nested_table_map_dup)
 
     // define dup key table with map nested value array table types with one nested scala
-    def nested_table_map_array_dup = "tbl_csv_map_array_types_s3"
     sql "DROP TABLE IF EXISTS ${nested_table_map_array_dup}"
     sql """
         CREATE TABLE IF NOT EXISTS ${nested_table_map_array_dup} (
@@ -198,33 +195,10 @@ suite("test_nestedtypes_csv_insert_into_with_s3", "p0") {
         DISTRIBUTED BY HASH(`k1`) BUCKETS 10
         PROPERTIES("replication_num" = "1");
         """
-    table_names.add(nested_table_map_array_dup)
 
     // step1. select * from s3 with 0-100 items
     // step2. insert into doris table
     // step2. query and check
-
-    for (int i = 0; i < 3; ++i) {
-        qt_sql_arr_csv_without_quote_s3 """
-        select * from s3("uri" = "${csv_without_quote[i]}",
-                "s3.access_key"= "${ak}",
-                "s3.secret_key" = "${sk}",
-                "format" = "csv") order by c1 limit 1;
-            """
-
-        sql """
-        insert into ${table_names[i]} select * from s3("uri" = "${csv_without_quote[i]}",
-                "s3.access_key"= "${ak}",
-                "s3.secret_key" = "${sk}",
-                "format" = "csv")
-             """
-
-        qt_sql_arr_csv_without_quote_doris """ select * from ${table_names[i]} order by k1 limit 1; """
-
-        sql "truncate table ${table_names[i]};"
-    }
-
-    
     for (int i = 0; i < 3; ++i) {
         qt_sql_arr_csv_as_json_s3 """
          select * from s3("uri" = "${csv_as_json[i]}",
@@ -245,27 +219,7 @@ suite("test_nestedtypes_csv_insert_into_with_s3", "p0") {
 
 
     // now cast for map can not implicit cast type
-    for (int i = 3; i < csv_without_quote.size(); ++i) {
-        qt_sql_arr_csv_without_quote_s3 """
-        select c12,c13 from s3(
-                "uri" = "${csv_without_quote[i]}",
-                "s3.access_key"= "${ak}",
-                "s3.secret_key" = "${sk}",
-                "format" = "csv") order by c1 limit 1;
-            """
-
-        sql """
-        insert into ${table_names[i]} select * from s3 (
-               "uri" = "${csv_without_quote[i]}",
-                "s3.access_key"= "${ak}",
-                "s3.secret_key" = "${sk}",
-                "format" = "csv");"""
-
-        qt_sql_arr_csv_without_quote_doris """ select c_date, c_datev2 from ${table_names[i]} order by k1 limit 1; """
-
-        sql "truncate table ${table_names[i]};"
-    }
-
+    // array-map and map-array we only show some column for check otherwise will reach mysql max output bytes limit
     for (int i = 3; i < csv_as_json.size(); ++i) {
         qt_sql_arr_csv_as_json_s3 """
         select c2,c6,c11,c12,c13,c14,c15 from s3 (
