@@ -58,8 +58,6 @@ public class BackendsProcDir implements ProcDirInterface {
             .add("TotalCapacity").add("UsedCapacity").add("AvailableCapacity").add("UsedPct")
             .build();
 
-    public static final int HOSTNAME_INDEX = 3;
-
     private SystemInfoService systemInfoService;
 
     public BackendsProcDir(SystemInfoService systemInfoService) {
