@@ -323,6 +323,8 @@ public:
             _context.hybrid_set.reset(create_set(_column_return_type));
             break;
         }
+        case RuntimeFilterType::MIN_FILTER:
+        case RuntimeFilterType::MAX_FILTER:
         case RuntimeFilterType::MINMAX_FILTER: {
             _context.minmax_func.reset(create_minmax_filter(_column_return_type));
             break;
@@ -405,6 +407,8 @@ public:
             _context.hybrid_set->insert(data);
             break;
         }
+        case RuntimeFilterType::MIN_FILTER:
+        case RuntimeFilterType::MAX_FILTER:
         case RuntimeFilterType::MINMAX_FILTER: {
             _context.minmax_func->insert(data);
             break;
@@ -448,6 +452,8 @@ public:
             _context.hybrid_set->insert_fixed_len(data, offsets, number);
             break;
         }
+        case RuntimeFilterType::MIN_FILTER:
+        case RuntimeFilterType::MAX_FILTER:
         case RuntimeFilterType::MINMAX_FILTER: {
             _context.minmax_func->insert_fixed_len(data, offsets, number);
             break;
@@ -575,6 +581,8 @@ public:
             }
             break;
         }
+        case RuntimeFilterType::MIN_FILTER:
+        case RuntimeFilterType::MAX_FILTER:
         case RuntimeFilterType::MINMAX_FILTER: {
             static_cast<void>(
                     _context.minmax_func->merge(wrapper->_context.minmax_func.get(), _pool));
@@ -1768,6 +1776,43 @@ Status RuntimePredicateWrapper::get_push_exprs(std::list<vectorized::VExprContex
             auto wrapper = vectorized::VRuntimeFilterWrapper::create_shared(node, in_pred);
             container.push_back(wrapper);
         }
+        break;
+    }
+    case RuntimeFilterType::MIN_FILTER: {
+        // create min filter
+        vectorized::VExprSPtr min_pred;
+        TExprNode min_pred_node;
+        RETURN_IF_ERROR(create_vbin_predicate(probe_ctx->root()->type(), TExprOpcode::GE, min_pred,
+                                              &min_pred_node));
+        vectorized::VExprSPtr min_literal;
+        RETURN_IF_ERROR(create_literal(probe_ctx->root()->type(), _context.minmax_func->get_min(),
+                                       min_literal));
+        min_pred->add_child(probe_ctx->root());
+        min_pred->add_child(min_literal);
+        container.push_back(
+                vectorized::VRuntimeFilterWrapper::create_shared(min_pred_node, min_pred));
+        vectorized::VExprContextSPtr new_probe_ctx;
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(probe_expr, new_probe_ctx));
+        probe_ctxs.push_back(new_probe_ctx);
+        break;
+    }
+    case RuntimeFilterType::MAX_FILTER: {
+        vectorized::VExprSPtr max_pred;
+        // create max filter
+        TExprNode max_pred_node;
+        RETURN_IF_ERROR(create_vbin_predicate(probe_ctx->root()->type(), TExprOpcode::LE, max_pred,
+                                              &max_pred_node));
+        vectorized::VExprSPtr max_literal;
+        RETURN_IF_ERROR(create_literal(probe_ctx->root()->type(), _context.minmax_func->get_max(),
+                                       max_literal));
+        max_pred->add_child(probe_ctx->root());
+        max_pred->add_child(max_literal);
+        container.push_back(
+                vectorized::VRuntimeFilterWrapper::create_shared(max_pred_node, max_pred));
+
+        vectorized::VExprContextSPtr new_probe_ctx;
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(probe_expr, new_probe_ctx));
+        probe_ctxs.push_back(new_probe_ctx);
         break;
     }
     case RuntimeFilterType::MINMAX_FILTER: {

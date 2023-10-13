@@ -555,7 +555,7 @@ public class StreamLoadPlanner {
                 if (null == slotDesc) {
                     continue;
                 }
-                ColumnRange columnRange = ScanNode.createColumnRange(slotDesc, conjuncts);
+                ColumnRange columnRange = ScanNode.createColumnRange(slotDesc, conjuncts, partitionInfo);
                 if (columnRange != null) {
                     columnNameToRange.put(column.getName(), columnRange);
                 }

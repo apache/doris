@@ -269,8 +269,7 @@ public:
                        size_t max_row_byte_size) const override;
 
     void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
-                                     const uint8_t* null_map,
-                                     size_t max_row_byte_size) const override;
+                                     const uint8_t* null_map) const override;
 
     void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                   const uint8_t* __restrict null_data) const override {
@@ -408,12 +407,6 @@ public:
     ColumnPtr filter(const IColumn::Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const IColumn::Filter& filter) override;
 
-    // note(wb) this method is only used in storage layer now
-    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
-        insert_res_column(sel, sel_size, reinterpret_cast<vectorized::ColumnVector<T>*>(col_ptr));
-        return Status::OK();
-    }
-
     ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
 
     //    ColumnPtr index(const IColumn & indexes, size_t limit) const override;
@@ -424,8 +417,6 @@ public:
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
 
     void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override;
-
-    void get_extremes(Field& min, Field& max) const override;
 
     MutableColumns scatter(IColumn::ColumnIndex num_columns,
                            const IColumn::Selector& selector) const override {
@@ -476,7 +467,6 @@ public:
     void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
                           int direction, std::vector<uint8>& cmp_res,
                           uint8* __restrict filter) const override;
-    TypeIndex get_data_type() const override { return TypeId<T>::value; }
     void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
                                          size_t limit) const override {
         return this->template get_indices_of_non_default_rows_impl<Self>(indices, from, limit);

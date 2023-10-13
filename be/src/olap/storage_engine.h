@@ -45,6 +45,7 @@
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_id_generator.h"
 #include "olap/rowset/segment_v2/segment.h"
+#include "olap/special_dir.h"
 #include "olap/tablet.h"
 #include "olap/task/index_builder.h"
 #include "runtime/exec_env.h"
@@ -54,6 +55,7 @@
 namespace doris {
 
 class DataDir;
+class SpecialDir;
 class EngineTask;
 class MemTableFlushExecutor;
 class SegcompactionWorker;
@@ -101,6 +103,7 @@ public:
 
     // get all info of root_path
     Status get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_infos, bool need_update);
+    void get_special_dir_info(SpecialDirInfo* dir_infos, TDiskType::type type);
 
     int64_t get_file_or_directory_size(const std::string& file_path);
 
@@ -471,6 +474,8 @@ private:
     std::condition_variable _compaction_producer_sleep_cv;
 
     std::shared_ptr<StreamLoadRecorder> _stream_load_recorder;
+    std::unique_ptr<SpecialDir> _log_dir;
+    std::unique_ptr<SpecialDir> _deploy_dir;
 
     // we use unordered_map to store all cumulative compaction policy sharded ptr
     std::unordered_map<std::string_view, std::shared_ptr<CumulativeCompactionPolicy>>

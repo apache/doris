@@ -55,7 +55,8 @@ ScannerContext::ScannerContext(doris::RuntimeState* state_, doris::vectorized::V
           _process_status(Status::OK()),
           _batch_size(state_->batch_size()),
           limit(limit_),
-          _max_bytes_in_queue(max_bytes_in_blocks_queue_ * num_parallel_instances),
+          _max_bytes_in_queue(std::max(max_bytes_in_blocks_queue_, (int64_t)1024) *
+                              num_parallel_instances),
           _scanner_scheduler(state_->exec_env()->scanner_scheduler()),
           _scanners(scanners_),
           _num_parallel_instances(num_parallel_instances) {
@@ -128,6 +129,10 @@ Status ScannerContext::init() {
     // 4. This ctx will be submitted to the scanner scheduler right after init.
     // So set _num_scheduling_ctx to 1 here.
     _num_scheduling_ctx = 1;
+    if (_finish_dependency) {
+        std::lock_guard l(_transfer_lock);
+        _finish_dependency->block_finishing();
+    }
 
     _num_unfinished_scanners = _scanners.size();
 
@@ -207,6 +212,9 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
         auto state = _scanner_scheduler->submit(this);
         if (state.ok()) {
             _num_scheduling_ctx++;
+            if (_finish_dependency) {
+                _finish_dependency->block_finishing();
+            }
         } else {
             set_status_on_error(state, false);
         }
@@ -280,6 +288,21 @@ void ScannerContext::set_should_stop() {
     std::lock_guard l(_transfer_lock);
     _should_stop = true;
     _blocks_queue_added_cv.notify_one();
+}
+
+void ScannerContext::update_num_running(int32_t scanner_inc, int32_t sched_inc) {
+    std::lock_guard l(_transfer_lock);
+    _num_running_scanners += scanner_inc;
+    _num_scheduling_ctx += sched_inc;
+    if (_finish_dependency) {
+        if (_num_running_scanners == 0 && _num_scheduling_ctx == 0) {
+            _finish_dependency->set_ready_to_finish();
+        } else {
+            _finish_dependency->block_finishing();
+        }
+    }
+    _blocks_queue_added_cv.notify_one();
+    _ctx_finish_cv.notify_one();
 }
 
 bool ScannerContext::set_status_on_error(const Status& status, bool need_lock) {
@@ -404,6 +427,9 @@ void ScannerContext::reschedule_scanner_ctx() {
     //todo(wb) rethinking is it better to mark current scan_context failed when submit failed many times?
     if (state.ok()) {
         _num_scheduling_ctx++;
+        if (_finish_dependency) {
+            _finish_dependency->block_finishing();
+        }
     } else {
         set_status_on_error(state, false);
     }
@@ -420,11 +446,17 @@ void ScannerContext::push_back_scanner_and_reschedule(VScannerSPtr scanner) {
     // We have to decrease _num_running_scanners before schedule, otherwise
     // schedule does not woring due to _num_running_scanners.
     _num_running_scanners--;
+    if (_finish_dependency && _num_running_scanners == 0 && _num_scheduling_ctx == 0) {
+        _finish_dependency->set_ready_to_finish();
+    }
 
     if (should_be_scheduled()) {
         auto state = _scanner_scheduler->submit(this);
         if (state.ok()) {
             _num_scheduling_ctx++;
+            if (_finish_dependency) {
+                _finish_dependency->block_finishing();
+            }
         } else {
             set_status_on_error(state, false);
         }

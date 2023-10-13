@@ -306,7 +306,7 @@ public class DateLiteral extends Literal {
 
     @Override
     public String toSql() {
-        return toString();
+        return String.format("'%s'", toString());
     }
 
     @Override
@@ -343,6 +343,11 @@ public class DateLiteral extends Literal {
     public Expression plusMonths(long months) {
         return fromJavaDateType(
                 DateUtils.getTime(StandardDateFormat.DATE_FORMATTER, getStringValue()).plusMonths(months));
+    }
+
+    public Expression plusWeeks(long weeks) {
+        return fromJavaDateType(
+                DateUtils.getTime(StandardDateFormat.DATE_FORMATTER, getStringValue()).plusWeeks(weeks));
     }
 
     public Expression plusYears(long years) {

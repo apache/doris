@@ -605,16 +605,20 @@ public abstract class AbstractSelectMaterializedIndexRule {
         }
     }
 
-    protected List<NamedExpression> generateProjectsAlias(
-            List<? extends NamedExpression> oldProjects, SlotContext slotContext) {
+    protected List<NamedExpression> generateProjectsAlias(List<? extends NamedExpression> oldProjects,
+            SlotContext slotContext) {
         return oldProjects.stream().map(e -> {
+            Expression real = e;
+            if (real instanceof Alias) {
+                real = real.child(0);
+            }
             if (slotContext.baseSlotToMvSlot.containsKey(e.toSlot())) {
                 return new Alias(e.getExprId(), slotContext.baseSlotToMvSlot.get(e.toSlot()), e.getName());
             }
-            if (slotContext.mvNameToMvSlot.containsKey(e.toSql())) {
-                return new Alias(e.getExprId(), slotContext.mvNameToMvSlot.get(e.toSql()), e.getName());
+            if (slotContext.mvNameToMvSlot.containsKey(real.toSql())) {
+                return new Alias(e.getExprId(), slotContext.mvNameToMvSlot.get(real.toSql()), e.getName());
             }
-            return e;
+            return e.toSlot();
         }).collect(ImmutableList.toImmutableList());
     }
 }

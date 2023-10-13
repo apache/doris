@@ -111,6 +111,8 @@ public:
         }
     }
 
+    int next_operator_id() { return _operator_id++; }
+
 private:
     void _close_action() override;
     Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request) override;
@@ -126,8 +128,13 @@ private:
 
     Status _create_operator(ObjectPool* pool, const TPlanNode& tnode,
                             const doris::TPipelineFragmentParams& request,
-                            const DescriptorTbl& descs, OperatorXPtr& node, PipelinePtr& cur_pipe,
+                            const DescriptorTbl& descs, OperatorXPtr& op, PipelinePtr& cur_pipe,
                             int parent_idx, int child_idx);
+    template <bool is_intersect>
+    Status _build_operators_for_set_operation_node(ObjectPool* pool, const TPlanNode& tnode,
+                                                   const DescriptorTbl& descs, OperatorXPtr& op,
+                                                   PipelinePtr& cur_pipe, int parent_idx,
+                                                   int child_idx);
 
     Status _create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink,
                              const std::vector<TExpr>& output_exprs,
@@ -150,7 +157,7 @@ private:
 
     std::atomic_bool _canceled = false;
 
-    // `_dag` manage dependencies between pipelines by pipeline ID
+    // `_dag` manage dependencies between pipelines by pipeline ID. the indices will be blocked by members
     std::map<PipelineId, std::vector<PipelineId>> _dag;
 
     // We use preorder traversal to create an operator tree. When we meet a join node, we should
@@ -161,7 +168,13 @@ private:
 
     std::map<UniqueId, RuntimeState*> _instance_id_to_runtime_state;
     std::mutex _state_map_lock;
+
+    // TODO: Unify `_union_child_pipelines`, `_set_child_pipelines`, `_build_side_pipelines`.
     std::map<int, std::vector<PipelinePtr>> _union_child_pipelines;
+    std::map<int, std::vector<PipelinePtr>> _set_child_pipelines;
+    // The number of operators is generally greater than the number of plan nodes,
+    // so we need additional ID and cannot rely solely on plan node ID.
+    int _operator_id = {1000000};
 };
 
 } // namespace pipeline

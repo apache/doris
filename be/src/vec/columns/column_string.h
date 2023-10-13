@@ -389,8 +389,7 @@ public:
                        size_t max_row_byte_size) const override;
 
     void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
-                                     const uint8_t* null_map,
-                                     size_t max_row_byte_size) const override;
+                                     const uint8_t* null_map) const override;
 
     void deserialize_vec_with_null_map(std::vector<StringRef>& keys, const size_t num_rows,
                                        const uint8_t* null_map) override;
@@ -525,8 +524,6 @@ public:
 
     void resize(size_t n) override;
 
-    void get_extremes(Field& min, Field& max) const override;
-
     bool can_be_inside_nullable() const override { return true; }
 
     bool is_column_string() const override { return true; }
@@ -586,8 +583,6 @@ public:
         }
         return shrinked_column;
     }
-
-    TypeIndex get_data_type() const override { return TypeIndex::String; }
 
     void get_indices_of_non_default_rows(Offsets64& indices, size_t from,
                                          size_t limit) const override {

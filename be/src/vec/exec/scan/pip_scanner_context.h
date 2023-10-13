@@ -51,9 +51,11 @@ public:
               _need_colocate_distribute(!_col_distribute_ids.empty()) {}
 
     void set_dependency(std::shared_ptr<DataReadyDependency> dependency,
-                        std::shared_ptr<ScannerDoneDependency> scanner_done_dependency) override {
+                        std::shared_ptr<ScannerDoneDependency> scanner_done_dependency,
+                        std::shared_ptr<FinishDependency> finish_dependency) override {
         _data_dependency = dependency;
         _scanner_done_dependency = scanner_done_dependency;
+        _finish_dependency = finish_dependency;
     }
 
     Status get_block_from_queue(RuntimeState* state, vectorized::BlockUPtr* block, bool* eos,

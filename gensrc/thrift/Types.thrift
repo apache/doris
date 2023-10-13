@@ -51,6 +51,12 @@ enum TStorageMedium {
     REMOTE_CACHE,
 }
 
+enum TDiskType {
+    STORAGE,
+    LOG,
+    DEPLOY
+}
+
 enum TVarType {
     SESSION,
     GLOBAL
@@ -692,6 +698,7 @@ enum TMetadataType {
   FRONTENDS,
   CATALOGS,
   FRONTENDS_DISKS,
+  QUERIES,
 }
 
 enum TIcebergQueryType {
