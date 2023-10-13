@@ -177,7 +177,6 @@ public:
     void resize(size_t n) override;
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
-    void protect() override;
 
     void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                   const uint8_t* __restrict null_data) const override;
