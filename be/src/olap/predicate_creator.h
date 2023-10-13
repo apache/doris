@@ -135,9 +135,7 @@ private:
 template <PrimitiveType Type, PredicateType PT, typename ConditionType>
 struct CustomPredicateCreator : public PredicateCreator<ConditionType> {
 public:
-    using CppType =
-            std::conditional_t<Type == PrimitiveType::TYPE_DECIMALV2, DecimalV2Value,
-                               typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType>;
+    using CppType = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
     CustomPredicateCreator(const std::function<CppType(const std::string& condition)>& convert)
             : _convert(convert) {}
 

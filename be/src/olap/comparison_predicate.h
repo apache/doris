@@ -32,8 +32,7 @@ namespace doris {
 template <PrimitiveType Type, PredicateType PT>
 class ComparisonPredicateBase : public ColumnPredicate {
 public:
-    using T = std::conditional_t<Type == PrimitiveType::TYPE_DECIMALV2, DecimalV2Value,
-                                 typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType>;
+    using T = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
     ComparisonPredicateBase(uint32_t column_id, const T& value, bool opposite = false)
             : ColumnPredicate(column_id, opposite),
               _cached_code(_InvalidateCodeValue),
