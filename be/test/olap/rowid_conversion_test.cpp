@@ -65,6 +65,18 @@ using namespace ErrorCode;
 static const uint32_t MAX_PATH_LEN = 1024;
 static StorageEngine* k_engine = nullptr;
 
+static constexpr int64_t tablet_id = 10005;
+
+static RowsetId next_rowset_id() {
+    // FIXME(plat1ko): If `inc_id` set to 1000, and run `VerticalCompactionTest` before `TestRowIdConversion`,
+    // will `TestRowIdConversion` will fail. There may be some strange global states here.
+    static int64_t inc_id = 0;
+    RowsetId rowset_id;
+    inc_id++;
+    rowset_id.init(inc_id);
+    return rowset_id;
+}
+
 class TestRowIdConversion : public testing::TestWithParam<std::tuple<KeysType, bool, bool, bool>> {
 protected:
     void SetUp() override {
@@ -141,13 +153,9 @@ protected:
                                                      const SegmentsOverlapPB& overlap,
                                                      uint32_t max_rows_per_segment,
                                                      Version version) {
-        // FIXME(plat1ko): If `inc_id` set to 1000, and run `VerticalCompactionTest` before `TestRowIdConversion`,
-        //  will `TestRowIdConversion` will fail. There may be some strange global states here.
-        static int64_t inc_id = 0;
         RowsetWriterContext rowset_writer_context;
-        RowsetId rowset_id;
-        rowset_id.init(inc_id);
-        rowset_writer_context.rowset_id = rowset_id;
+        rowset_writer_context.tablet_id = tablet_id;
+        rowset_writer_context.rowset_id = next_rowset_id();
         rowset_writer_context.rowset_type = BETA_ROWSET;
         rowset_writer_context.rowset_state = VISIBLE;
         rowset_writer_context.tablet_schema = tablet_schema;
@@ -155,7 +163,6 @@ protected:
         rowset_writer_context.version = version;
         rowset_writer_context.segments_overlap = overlap;
         rowset_writer_context.max_rows_per_segment = max_rows_per_segment;
-        inc_id++;
         return rowset_writer_context;
     }
 
@@ -217,32 +224,17 @@ protected:
         return rowset;
     }
 
-    void init_rs_meta(RowsetMetaSharedPtr& rs_meta, int64_t start, int64_t end) {
-        std::string json_rowset_meta = R"({
-            "rowset_id": 540081,
-            "tablet_id": 15673,
-            "tablet_schema_hash": 567997577,
-            "rowset_type": "BETA_ROWSET",
-            "rowset_state": "VISIBLE",
-            "empty": false
-        })";
-        RowsetMetaPB rowset_meta_pb;
-        json2pb::JsonToProtoMessage(json_rowset_meta, &rowset_meta_pb);
-        rowset_meta_pb.set_start_version(start);
-        rowset_meta_pb.set_end_version(end);
-        rs_meta->init_from_pb(rowset_meta_pb);
-    }
-
     RowsetSharedPtr create_delete_predicate(const TabletSchemaSPtr& schema,
                                             DeletePredicatePB del_pred, int64_t version) {
-        RowsetMetaSharedPtr rsm(new RowsetMeta());
-        init_rs_meta(rsm, version, version);
-        RowsetId id;
-        id.init(version);
-        rsm->set_rowset_id(id);
-        rsm->set_delete_predicate(std::move(del_pred));
-        rsm->set_tablet_schema(schema);
-        return std::make_shared<BetaRowset>(schema, "", rsm);
+        auto rs_meta = std::make_shared<RowsetMeta>();
+        rs_meta->set_tablet_id(tablet_id);
+        rs_meta->set_rowset_id(next_rowset_id());
+        rs_meta->set_rowset_type(BETA_ROWSET);
+        rs_meta->set_rowset_state(VISIBLE);
+        rs_meta->set_delete_predicate(std::move(del_pred));
+        rs_meta->set_tablet_schema(schema);
+        rs_meta->set_version({version, version});
+        return std::make_shared<BetaRowset>(schema, "", std::move(rs_meta));
     }
 
     TabletSharedPtr create_tablet(const TabletSchema& tablet_schema,
@@ -269,10 +261,10 @@ protected:
         }
         t_tablet_schema.__set_storage_type(TStorageType::COLUMN);
         t_tablet_schema.__set_columns(cols);
-        TabletMetaSharedPtr tablet_meta(
-                new TabletMeta(1, 1, 1, 1, 1, 1, t_tablet_schema, 1, col_ordinal_to_unique_id,
-                               UniqueId(1, 2), TTabletType::TABLET_TYPE_DISK,
-                               TCompressionType::LZ4F, 0, enable_unique_key_merge_on_write));
+        TabletMetaSharedPtr tablet_meta(new TabletMeta(
+                1, 1, tablet_id, 1, 1, 1, t_tablet_schema, 1, col_ordinal_to_unique_id,
+                UniqueId(1, 2), TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F, 0,
+                enable_unique_key_merge_on_write));
 
         TabletSharedPtr tablet(new Tablet(tablet_meta, nullptr));
         tablet->init();
