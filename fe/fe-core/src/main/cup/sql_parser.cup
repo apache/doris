@@ -4134,13 +4134,17 @@ show_param ::=
         RESULT = new ShowCreateMaterializedViewStmt(mvName, tableName);
     :}
     /* show analyze job */
-    | KW_ANALYZE opt_table_name:tbl opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
+    | KW_ANALYZE opt_table_name:tbl opt_wild_where
     {:
-        RESULT = new ShowAnalyzeStmt(tbl, parser.where, orderByClause, limitClause);
+        RESULT = new ShowAnalyzeStmt(tbl, parser.where, false);
     :}
-    | KW_ANALYZE INTEGER_LITERAL:jobId opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
+    | KW_ANALYZE INTEGER_LITERAL:jobId opt_wild_where
     {:
-        RESULT = new ShowAnalyzeStmt(jobId, parser.where, orderByClause, limitClause);
+        RESULT = new ShowAnalyzeStmt(jobId, parser.where);
+    :}
+    | KW_AUTO KW_ANALYZE opt_table_name:tbl opt_wild_where
+    {:
+        RESULT = new ShowAnalyzeStmt(tbl, parser.where, true);
     :}
     | KW_ANALYZE KW_TASK KW_STATUS INTEGER_LITERAL:jobId
     {:

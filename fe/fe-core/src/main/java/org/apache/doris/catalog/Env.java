@@ -211,7 +211,7 @@ import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.AnalysisManager;
-import org.apache.doris.statistics.StatisticsAutoAnalyzer;
+import org.apache.doris.statistics.StatisticsAutoCollector;
 import org.apache.doris.statistics.StatisticsCache;
 import org.apache.doris.statistics.StatisticsCleaner;
 import org.apache.doris.statistics.query.QueryStats;
@@ -457,7 +457,7 @@ public class Env {
      */
     private final LoadManagerAdapter loadManagerAdapter;
 
-    private StatisticsAutoAnalyzer statisticsAutoAnalyzer;
+    private StatisticsAutoCollector statisticsAutoCollector;
 
     private HiveTransactionMgr hiveTransactionMgr;
 
@@ -663,7 +663,7 @@ public class Env {
         this.extMetaCacheMgr = new ExternalMetaCacheMgr();
         this.analysisManager = new AnalysisManager();
         this.statisticsCleaner = new StatisticsCleaner();
-        this.statisticsAutoAnalyzer = new StatisticsAutoAnalyzer();
+        this.statisticsAutoCollector = new StatisticsAutoCollector();
         this.globalFunctionMgr = new GlobalFunctionMgr();
         this.workloadGroupMgr = new WorkloadGroupMgr();
         this.queryStats = new QueryStats();
@@ -907,8 +907,8 @@ public class Env {
         if (statisticsCleaner != null) {
             statisticsCleaner.start();
         }
-        if (statisticsAutoAnalyzer != null) {
-            statisticsAutoAnalyzer.start();
+        if (statisticsAutoCollector != null) {
+            statisticsAutoCollector.start();
         }
     }
 
@@ -5421,8 +5421,8 @@ public class Env {
         return loadManagerAdapter;
     }
 
-    public StatisticsAutoAnalyzer getStatisticsAutoAnalyzer() {
-        return statisticsAutoAnalyzer;
+    public StatisticsAutoCollector getStatisticsAutoCollector() {
+        return statisticsAutoCollector;
     }
 
     public QueryStats getQueryStats() {

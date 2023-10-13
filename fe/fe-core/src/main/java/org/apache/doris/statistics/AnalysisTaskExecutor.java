@@ -17,6 +17,7 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.ThreadPoolManager.BlockedPolicy;
@@ -35,26 +36,30 @@ public class AnalysisTaskExecutor extends Thread {
 
     private static final Logger LOG = LogManager.getLogger(AnalysisTaskExecutor.class);
 
-    private final ThreadPoolExecutor executors = ThreadPoolManager.newDaemonThreadPool(
-            Config.statistics_simultaneously_running_task_num,
-            Config.statistics_simultaneously_running_task_num, 0,
-            TimeUnit.DAYS, new LinkedBlockingQueue<>(),
-            new BlockedPolicy("Analysis Job Executor", Integer.MAX_VALUE),
-            "Analysis Job Executor", true);
-
-    private final AnalysisTaskScheduler taskScheduler;
+    private final ThreadPoolExecutor executors;
 
     private final BlockingQueue<AnalysisTaskWrapper> taskQueue =
             new PriorityBlockingQueue<AnalysisTaskWrapper>(20,
                     Comparator.comparingLong(AnalysisTaskWrapper::getStartTime));
 
-    public AnalysisTaskExecutor(AnalysisTaskScheduler jobExecutor) {
-        this.taskScheduler = jobExecutor;
+    public AnalysisTaskExecutor(int simultaneouslyRunningTaskNum) {
+        if (!Env.isCheckpointThread()) {
+            executors = ThreadPoolManager.newDaemonThreadPool(
+                    simultaneouslyRunningTaskNum,
+                    simultaneouslyRunningTaskNum, 0,
+                    TimeUnit.DAYS, new LinkedBlockingQueue<>(),
+                    new BlockedPolicy("Analysis Job Executor", Integer.MAX_VALUE),
+                    "Analysis Job Executor", true);
+        } else {
+            executors = null;
+        }
     }
 
     @Override
     public void run() {
-        fetchAndExecute();
+        if (Env.isCheckpointThread()) {
+            return;
+        }
         cancelExpiredTask();
     }
 
@@ -82,27 +87,21 @@ public class AnalysisTaskExecutor extends Thread {
         }
     }
 
-    public void fetchAndExecute() {
-        Thread t = new Thread(() -> {
-            for (;;) {
-                try {
-                    doFetchAndExecute();
-                } catch (Throwable throwable) {
-                    LOG.warn(throwable);
-                }
-            }
-        }, "Analysis Task Submitter");
-        t.setDaemon(true);
-        t.start();
-    }
-
-    private void doFetchAndExecute() {
-        BaseAnalysisTask task = taskScheduler.getPendingTasks();
+    public void submitTask(BaseAnalysisTask task) {
         AnalysisTaskWrapper taskWrapper = new AnalysisTaskWrapper(this, task);
         executors.submit(taskWrapper);
     }
 
     public void putJob(AnalysisTaskWrapper wrapper) throws Exception {
         taskQueue.put(wrapper);
+    }
+
+    public boolean idle() {
+        return executors.getQueue().isEmpty();
+    }
+
+    public void clear() {
+        executors.getQueue().clear();
+        taskQueue.clear();
     }
 }

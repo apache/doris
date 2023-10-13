@@ -35,8 +35,10 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.thrift.TTableDescriptor;
 
+import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import org.apache.commons.lang3.NotImplementedException;
@@ -46,10 +48,14 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.Collectors;
 
 /**
  * External table represent tables that are not self-managed by Doris.
@@ -372,5 +378,20 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     public void gsonPostProcess() throws IOException {
         rwLock = new ReentrantReadWriteLock(true);
         objectCreated = false;
+    }
+
+    @Override
+    public boolean needReAnalyzeTable(TableStatsMeta tblStats) {
+        // TODO: Find a way to decide if this external table need to be reanalyzed.
+        // For now, simply return true for all external tables.
+        return true;
+    }
+
+    @Override
+    public Map<String, Set<String>> findReAnalyzeNeededPartitions() {
+        HashSet<String> partitions = Sets.newHashSet();
+        // TODO: Find a way to collect external table partitions that need to be analyzed.
+        partitions.add("Dummy Partition");
+        return getBaseSchema().stream().collect(Collectors.toMap(Column::getName, k -> partitions));
     }
 }
