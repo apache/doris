@@ -131,6 +131,20 @@ public class SelectStmtTest {
                 + "\"in_memory\" = \"false\",\n"
                 + "\"storage_format\" = \"V2\"\n"
                 + ")";
+        String tbl3 = "CREATE TABLE db1.table3 (\n"
+                + "  `siteid` int(11) NULL DEFAULT \"10\" COMMENT \"\",\n"
+                + "  `citycode` smallint(6) NULL COMMENT \"\",\n"
+                + "  `username` varchar(32) NULL DEFAULT \"\" COMMENT \"\",\n"
+                + "  `pv` bigint(20) NULL DEFAULT \"0\" COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`siteid`, `citycode`, `username`)\n"
+                + "COMMENT \"OLAP\"\n"
+                + "DISTRIBUTED BY RANDOM BUCKETS 10\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\",\n"
+                + "\"in_memory\" = \"false\",\n"
+                + "\"storage_format\" = \"V2\"\n"
+                + ")";
         dorisAssert = new DorisAssert();
         dorisAssert.withDatabase("db1").useDatabase("db1");
         dorisAssert.withTable(createTblStmtStr)
@@ -138,7 +152,8 @@ public class SelectStmtTest {
                    .withTable(createPratitionTableStr)
                    .withTable(createDatePartitionTableStr)
                    .withTable(tbl1)
-                   .withTable(tbl2);
+                   .withTable(tbl2)
+                   .withTable(tbl3);
     }
 
     @Test
@@ -826,8 +841,18 @@ public class SelectStmtTest {
     }
 
     @Test
-    public void testSelectTablet() throws Exception {
+    public void testHashBucketSelectTablet() throws Exception {
         String sql1 = "SELECT * FROM db1.table1 TABLET(10031,10032,10033)";
+        OriginalPlanner planner = (OriginalPlanner) dorisAssert.query(sql1).internalExecuteOneAndGetPlan();
+        Set<Long> sampleTabletIds = ((OlapScanNode) planner.getScanNodes().get(0)).getSampleTabletIds();
+        Assert.assertTrue(sampleTabletIds.contains(10031L));
+        Assert.assertTrue(sampleTabletIds.contains(10032L));
+        Assert.assertTrue(sampleTabletIds.contains(10033L));
+    }
+
+    @Test
+    public void testRandomBucketSelectTablet() throws Exception {
+        String sql1 = "SELECT * FROM db1.table3 TABLET(10031,10032,10033)";
         OriginalPlanner planner = (OriginalPlanner) dorisAssert.query(sql1).internalExecuteOneAndGetPlan();
         Set<Long> sampleTabletIds = ((OlapScanNode) planner.getScanNodes().get(0)).getSampleTabletIds();
         Assert.assertTrue(sampleTabletIds.contains(10031L));
