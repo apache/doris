@@ -2470,7 +2470,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     || partitionInfo.getType() == PartitionType.LIST) {
                 try {
                     Map<String, String> propertiesCheck = new HashMap<>(properties);
-                    propertiesCheck.entrySet().removeIf(entry -> entry.getKey().contains("dynamic_partition"));
+                    propertiesCheck.entrySet().removeIf(entry -> entry.getKey().contains("dynamic_partition") || entry.getKey().contains("storage_cooldown_time"));
                     if (storagePolicy.equals("") && propertiesCheck != null && !propertiesCheck.isEmpty()) {
                         // here, all properties should be checked
                         throw new DdlException("Unknown properties: " + propertiesCheck);
