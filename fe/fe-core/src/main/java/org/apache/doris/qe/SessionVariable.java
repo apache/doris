@@ -210,6 +210,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PIPELINE_X_ENGINE = "enable_pipeline_x_engine";
 
+    public static final String FORCE_SHARED_SCAN = "force_shared_scan";
+
     public static final String ENABLE_AGG_STATE = "enable_agg_state";
 
     public static final String ENABLE_RPC_OPT_FOR_PIPELINE = "enable_rpc_opt_for_pipeline";
@@ -703,6 +705,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_PIPELINE_X_ENGINE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL)
     private boolean enablePipelineXEngine = false;
+
+    @VariableMgr.VarAttr(name = FORCE_SHARED_SCAN, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL)
+    private boolean forceSharedScan = false;
 
     @VariableMgr.VarAttr(name = ENABLE_AGG_STATE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL)
     public boolean enableAggState = false;
@@ -2647,6 +2652,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getEnablePipelineXEngine() {
         return enablePipelineXEngine;
+    }
+
+    public boolean getForceSharedScan() {
+        return forceSharedScan;
     }
 
     public static boolean enablePipelineEngine() {

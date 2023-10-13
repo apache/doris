@@ -254,6 +254,8 @@ public class Coordinator implements CoordInterface {
     private boolean enablePipelineEngine = false;
     private boolean enablePipelineXEngine = false;
 
+    private boolean forceSharedScan = false;
+
     // Runtime filter merge instance address and ID
     public TNetworkAddress runtimeFilterMergeAddr;
     public TUniqueId runtimeFilterMergeInstanceId;
@@ -324,6 +326,7 @@ public class Coordinator implements CoordInterface {
                 && (fragments.size() > 0);
         this.enablePipelineXEngine = context.getSessionVariable().getEnablePipelineXEngine()
                 && (fragments.size() > 0);
+        this.forceSharedScan = context.getSessionVariable().getForceSharedScan();
 
         initQueryOptions(context);
 
@@ -1923,8 +1926,8 @@ public class Coordinator implements CoordInterface {
                         // 3. This fragment has a colocated scan node
                         // 4. This fragment has a FileScanNode
                         // 5. Disable shared scan optimization by session variable
-                        if (!enablePipelineEngine || perNodeScanRanges.size() > parallelExecInstanceNum
-                                || (node.isPresent() && node.get().getShouldColoScan())
+                        if (!enablePipelineEngine || (perNodeScanRanges.size() > parallelExecInstanceNum
+                                && !forceSharedScan) || (node.isPresent() && node.get().getShouldColoScan())
                                 || (node.isPresent() && node.get() instanceof FileScanNode)
                                 || (node.isPresent() && node.get().isKeySearch())
                                 || Config.disable_shared_scan || enablePipelineXEngine) {
