@@ -434,6 +434,10 @@ public class DeleteStmt extends DdlStmt {
         return slotRef;
     }
 
+    public boolean isNoPartitionSpecified() {
+        return getPartitionNames().isEmpty();
+    }
+
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
