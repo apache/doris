@@ -40,6 +40,23 @@ hadoop fs -mkdir -p /user/doris/
 echo "hadoop fs -put /mnt/scripts/tpch1.db /user/doris/"
 hadoop fs -put /mnt/scripts/tpch1.db /user/doris/
 
+
+# if you test in your local，better use # to annotation section about paimon
+if [[ ! -d "/mnt/scripts/paimon1" ]]; then
+    echo "/mnt/scripts/paimon1 does not exist"
+    cd /mnt/scripts/
+    wget -P /mnt/scripts https://doris-build-hk-1308700295.cos.ap-hongkong.myqcloud.com/regression/paimon/paimon1.tar.gz
+    tar -zxf paimon1.tar.gz
+    rm -rf paimon1.tar.gz
+    cd -
+else
+    echo "/mnt/scripts/paimon1 exist, continue !"
+fi
+
+## put paimon1
+echo "hadoop fs -put /mnt/scripts/paimon1 /user/doris/"
+hadoop fs -put /mnt/scripts/paimon1 /user/doris/
+
 ## put other preinstalled data
 echo "hadoop fs -put /mnt/scripts/preinstalled_data /user/doris/"
 hadoop fs -put /mnt/scripts/preinstalled_data /user/doris/
