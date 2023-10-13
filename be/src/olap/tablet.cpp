@@ -2213,7 +2213,13 @@ Status Tablet::write_cooldown_meta() {
     }
 
     std::shared_ptr<io::RemoteFileSystem> fs;
-    RETURN_IF_ERROR(get_remote_file_system(storage_policy_id(), &fs));
+    if (auto s = get_remote_file_system(storage_policy_id(), &fs);
+        s.is<TStatusCode::INTERNAL_ERROR>()) [[unlikely]] {
+        return Status::Aborted<false>(
+                "Failed to get remote fs when cooldown for tablet {} due to {}, the storage policy "
+                "might be dropped",
+                tablet_id(), s.to_string());
+    }
 
     std::vector<RowsetMetaSharedPtr> cooldowned_rs_metas;
     UniqueId cooldown_meta_id;
