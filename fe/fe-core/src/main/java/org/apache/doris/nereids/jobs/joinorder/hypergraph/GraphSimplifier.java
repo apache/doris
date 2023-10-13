@@ -427,7 +427,7 @@ public class GraphSimplifier {
         Cost cost1Before2 = calCost(edge1Before2.second, edge1Before2.first,
                 cacheStats.get(edge1Before2.second.getLeftExtendedNodes()),
                 cacheStats.get(edge1Before2.second.getRightExtendedNodes()));
-        Cost cost2Before1 = calCost(edge1Before2.second, edge2Before1.first,
+        Cost cost2Before1 = calCost(edge2Before1.second, edge2Before1.first,
                 cacheStats.get(edge2Before1.second.getLeftExtendedNodes()),
                 cacheStats.get(edge2Before1.second.getRightExtendedNodes()));
         double benefit = Double.MAX_VALUE;

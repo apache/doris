@@ -137,6 +137,7 @@ public abstract class BaseAnalysisTask {
                     info, AnalysisState.FAILED,
                     String.format("Table with name %s not exists", info.tblName), System.currentTimeMillis());
         }
+        tableSample = getTableSample();
         // External Table level task doesn't contain a column. Don't need to do the column related analyze.
         if (info.externalTableLevelTask) {
             return;
@@ -150,8 +151,6 @@ public abstract class BaseAnalysisTask {
             Preconditions.checkArgument(!StatisticsUtil.isUnsupportedType(col.getType()),
                     String.format("Column with type %s is not supported", col.getType().toString()));
         }
-        tableSample = getTableSample();
-
     }
 
     public void execute() {
@@ -230,19 +229,18 @@ public abstract class BaseAnalysisTask {
         if (info.forceFull) {
             return null;
         }
-        long sampleRows = info.sampleRows;
-        if (info.analysisMethod == AnalysisMethod.FULL) {
-            if (Config.enable_auto_sample
-                    && tbl.getDataSize(true) > Config.huge_table_lower_bound_size_in_bytes) {
-                sampleRows = Config.huge_table_default_sample_rows;
-            } else {
-                return null;
-            }
-        }
+        // If user specified sample percent or sample rows, use it.
         if (info.samplePercent > 0) {
             return new TableSample(true, (long) info.samplePercent);
+        } else if (info.sampleRows > 0) {
+            return new TableSample(false, info.sampleRows);
+        } else if (info.analysisMethod == AnalysisMethod.FULL
+                && Config.enable_auto_sample
+                && tbl.getDataSize(true) > Config.huge_table_lower_bound_size_in_bytes) {
+            // If user doesn't specify sample percent/rows, use auto sample and update sample rows in analysis info.
+            return new TableSample(false, (long) Config.huge_table_default_sample_rows);
         } else {
-            return new TableSample(false, sampleRows);
+            return null;
         }
     }
 

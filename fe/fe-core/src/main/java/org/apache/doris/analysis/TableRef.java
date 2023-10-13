@@ -476,11 +476,6 @@ public class TableRef implements ParseNode, Writable {
             throw new AnalysisException("Sample table " + desc.getTable().getName()
                 + " type " + desc.getTable().getType() + " is not supported");
         }
-        if (tableSample != null && TableIf.TableType.HMS_EXTERNAL_TABLE.equals(desc.getTable().getType())) {
-            if (!tableSample.isPercent()) {
-                throw new AnalysisException("HMS table doesn't support sample rows, use percent instead.");
-            }
-        }
     }
 
     /**
