@@ -565,14 +565,10 @@ struct HashJoinSharedState : public JoinSharedState {
     // maybe share hash table with other fragment instances
     std::shared_ptr<vectorized::HashTableVariants> hash_table_variants =
             std::make_shared<vectorized::HashTableVariants>();
-    // for full/right outer join
-    vectorized::HashTableIteratorVariants outer_join_pull_visited_iter;
-    vectorized::HashTableIteratorVariants probe_row_match_iter;
     vectorized::Sizes probe_key_sz;
     const std::vector<TupleDescriptor*> build_side_child_desc;
     size_t build_exprs_size = 0;
-    std::shared_ptr<std::vector<vectorized::Block>> build_blocks =
-            std::make_shared<std::vector<vectorized::Block>>();
+    std::shared_ptr<std::vector<vectorized::Block>> build_blocks = nullptr;
     bool probe_ignore_null = false;
 };
 
@@ -626,20 +622,31 @@ public:
     std::mutex buffer_mutex;
     std::vector<std::unique_ptr<vectorized::PartitionSorter>> partition_sorts;
     std::unique_ptr<vectorized::SortCursorCmp> previous_row = nullptr;
-    int sort_idx = 0;
 };
 
 class PartitionSortDependency final : public WriteDependency {
 public:
     using SharedState = PartitionSortNodeSharedState;
-    PartitionSortDependency(int id) : WriteDependency(id, "PartitionSortDependency") {}
+    PartitionSortDependency(int id) : WriteDependency(id, "PartitionSortDependency"), _eos(false) {}
     ~PartitionSortDependency() override = default;
     void* shared_state() override { return (void*)&_partition_sort_state; };
     void set_ready_for_write() override {}
     void block_writing() override {}
 
+    [[nodiscard]] Dependency* read_blocked_by() override {
+        if (config::enable_fuzzy_mode && !(_ready_for_read || _eos) &&
+            _read_dependency_watcher.elapsed_time() > SLOW_DEPENDENCY_THRESHOLD) {
+            LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
+                         << id();
+        }
+        return _ready_for_read || _eos ? nullptr : this;
+    }
+
+    void set_eos() { _eos = true; }
+
 private:
     PartitionSortNodeSharedState _partition_sort_state;
+    std::atomic<bool> _eos;
 };
 
 class AsyncWriterDependency final : public WriteDependency {
