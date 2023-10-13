@@ -59,6 +59,8 @@ PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* 
           _root(_operators.back()),
           _sink(sink) {
     _pipeline_task_watcher.start();
+    _query_statistics.reset(new QueryStatistics());
+    _sink->set_query_statistics(_query_statistics);
 }
 
 PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state,
@@ -295,6 +297,9 @@ Status PipelineTask::execute(bool* eos) {
 
         if (_block->rows() != 0 || *eos) {
             SCOPED_TIMER(_sink_timer);
+            if (_data_state == SourceState::FINISHED) {
+                RETURN_IF_ERROR(_collect_query_statistics());
+            }
             auto status = _sink->sink(_state, block, _data_state);
             if (UNLIKELY(!status.ok() || block->rows() == 0)) {
                 if (_fragment_context->is_group_commit()) {
@@ -329,6 +334,23 @@ Status PipelineTask::finalize() {
     }};
     SCOPED_TIMER(_finalize_timer);
     return _sink->finalize(_state);
+}
+
+Status PipelineTask::_collect_query_statistics() {
+    // The execnode tree of a fragment will be split into multiple pipelines, we only need to collect the root pipeline.
+    if (_pipeline->is_root_pipeline()) {
+        // If the current fragment has only one instance, we can collect all of them;
+        // otherwise, we need to collect them based on the sender_id.
+        if (_state->num_per_fragment_instances() == 1) {
+            _query_statistics->clear();
+            RETURN_IF_ERROR(_root->collect_query_statistics(_query_statistics.get()));
+        } else {
+            _query_statistics->clear();
+            RETURN_IF_ERROR(_root->collect_query_statistics(_query_statistics.get(),
+                                                            _state->per_fragment_instance_idx()));
+        }
+    }
+    return Status::OK();
 }
 
 Status PipelineTask::try_close(Status exec_status) {

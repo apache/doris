@@ -365,6 +365,8 @@ protected:
     int64_t _close_pipeline_time = 0;
 
     RuntimeProfile::Counter* _pip_task_total_timer;
+    std::shared_ptr<QueryStatistics> _query_statistics;
+    Status _collect_query_statistics();
 
 private:
     Operators _operators; // left is _source, right is _root

@@ -182,6 +182,14 @@ Status ExecNode::collect_query_statistics(QueryStatistics* statistics) {
     return Status::OK();
 }
 
+Status ExecNode::collect_query_statistics(QueryStatistics* statistics, int sender_id) {
+    DCHECK(statistics != nullptr);
+    for (auto child_node : _children) {
+        RETURN_IF_ERROR(child_node->collect_query_statistics(statistics, sender_id));
+    }
+    return Status::OK();
+}
+
 void ExecNode::release_resource(doris::RuntimeState* state) {
     if (!_is_resource_released) {
         if (_rows_returned_counter != nullptr) {

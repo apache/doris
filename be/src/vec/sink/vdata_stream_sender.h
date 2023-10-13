@@ -138,6 +138,7 @@ public:
     }
     MemTracker* mem_tracker() { return _mem_tracker.get(); }
     QueryStatistics* query_statistics() { return _query_statistics.get(); }
+    QueryStatisticsPtr query_statisticsPtr() { return _query_statistics; }
     bool transfer_large_data_by_brpc() { return _transfer_large_data_by_brpc; }
     RuntimeProfile::Counter* merge_block_timer() { return _merge_block_timer; }
     segment_v2::CompressionTypePB& compression_type() { return _compression_type; }

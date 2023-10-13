@@ -329,12 +329,6 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
         while (!eos) {
             RETURN_IF_CANCELLED(_runtime_state);
             RETURN_IF_ERROR(get_vectorized_internal(block.get(), &eos));
-
-            // Collect this plan and sub plan statistics, and send to parent plan.
-            if (_collect_query_statistics_with_every_batch) {
-                _collect_query_statistics();
-            }
-
             if (!eos || block->rows() > 0) {
                 auto st = _sink->send(runtime_state(), block.get());
                 //TODO: Asynchronisation need refactor this
