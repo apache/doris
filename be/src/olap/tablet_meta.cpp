@@ -448,7 +448,7 @@ Status TabletMeta::_save_meta(DataDir* data_dir) {
                    << ", schema_hash=" << schema_hash();
     }
     auto t3 = MonotonicMicros();
-    auto cost =  t3 - t1;
+    auto cost = t3 - t1;
     if (cost > 1 * 1000 * 1000) {
         LOG(INFO) << "save tablet(" << full_name() << ") meta too slow. serialize cost " << t2 - t1
                   << "(us), serialized binary size: " << meta_binary.length()
