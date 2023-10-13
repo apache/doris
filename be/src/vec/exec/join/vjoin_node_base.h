@@ -105,7 +105,7 @@ protected:
     TJoinOp::type _join_op;
     JoinOpVariants _join_op_variants;
 
-    bool _have_other_join_conjunct;
+    const bool _have_other_join_conjunct;
     const bool _match_all_probe; // output all rows coming from the probe input. Full/Left Join
     const bool _match_all_build; // output all rows coming from the build input. Full/Right Join
     bool _build_unique;          // build a hash table without duplicated rows. Left semi/anti Join

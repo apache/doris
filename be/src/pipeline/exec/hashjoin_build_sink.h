@@ -70,12 +70,25 @@ public:
     void init_short_circuit_for_probe();
     HashJoinBuildSinkOperatorX* join_build() { return (HashJoinBuildSinkOperatorX*)_parent; }
 
+    vectorized::Sizes& build_key_sz();
+    bool build_unique() const;
+    std::vector<TRuntimeFilterDesc>& runtime_filter_descs() const;
+    std::shared_ptr<vectorized::Arena> arena() { return _shared_state->arena; }
+
+    void add_hash_buckets_info(const std::string& info) const {
+        _profile->add_info_string("HashTableBuckets", info);
+    }
+    void add_hash_buckets_filled_info(const std::string& info) const {
+        _profile->add_info_string("HashTableFilledBuckets", info);
+    }
+
 protected:
     void _hash_table_init(RuntimeState* state);
     void _set_build_ignore_flag(vectorized::Block& block, const std::vector<int>& res_col_ids);
     friend class HashJoinBuildSinkOperatorX;
-    friend struct vectorized::HashJoinBuildContext;
-    friend struct vectorized::RuntimeFilterContext;
+    template <class HashTableContext, typename Parent>
+    friend struct vectorized::ProcessHashTableBuild;
+    friend struct vectorized::ProcessRuntimeFilterBuild;
 
     // build expr
     vectorized::VExprContextSPtrs _build_expr_ctxs;
@@ -139,16 +152,13 @@ public:
     }
 
     bool should_dry_run(RuntimeState* state) override {
-        auto tmp = _is_broadcast_join && !state->get_sink_local_state(id())
-                                                  ->cast<HashJoinBuildSinkLocalState>()
-                                                  ._should_build_hash_table;
-        return tmp;
+        return _is_broadcast_join && !state->get_sink_local_state(id())
+                                              ->cast<HashJoinBuildSinkLocalState>()
+                                              ._should_build_hash_table;
     }
 
 private:
     friend class HashJoinBuildSinkLocalState;
-    friend struct vectorized::HashJoinBuildContext;
-    friend struct vectorized::RuntimeFilterContext;
 
     // build expr
     vectorized::VExprContextSPtrs _build_expr_ctxs;
@@ -165,9 +175,6 @@ private:
 
     vectorized::SharedHashTableContextPtr _shared_hash_table_context = nullptr;
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
-
-    std::atomic_bool _probe_open_finish = false;
-    bool _probe_ignore_null = false;
 };
 
 } // namespace pipeline

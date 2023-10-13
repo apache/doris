@@ -152,7 +152,7 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
 
         COUNTER_SET(local_state._hash_table_size_counter, int64_t(local_state._num_partition));
         //so all data from child have sink completed
-        local_state._dependency->set_ready_for_read();
+        local_state._dependency->set_eos();
     }
 
     return Status::OK();

@@ -54,6 +54,7 @@ struct SharedRuntimeFilterContext {
 struct SharedHashTableContext {
     SharedHashTableContext()
             : hash_table_variants(nullptr),
+              blocks(new std::vector<vectorized::Block>()),
               signaled(false),
               short_circuit_for_null_in_probe_side(false) {}
 
