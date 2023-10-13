@@ -84,7 +84,6 @@ struct TDisk {
     7: optional Types.TStorageMedium storage_medium
     8: optional Types.TSize remote_used_capacity
     9: optional Types.TSize trash_used_capacity
-    10: optional Types.TDiskType dir_type
 }
 
 struct TPluginInfo {

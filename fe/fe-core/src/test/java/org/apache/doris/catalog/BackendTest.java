@@ -22,7 +22,6 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TDisk;
-import org.apache.doris.thrift.TDiskType;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.ImmutableMap;
@@ -93,11 +92,8 @@ public class BackendTest {
         Map<String, TDisk> diskInfos = new HashMap<String, TDisk>();
 
         TDisk disk1 = new TDisk("/data1/", 1000, 800, true);
-        disk1.setDirType(TDiskType.STORAGE);
         TDisk disk2 = new TDisk("/data2/", 2000, 700, true);
-        disk2.setDirType(TDiskType.STORAGE);
         TDisk disk3 = new TDisk("/data3/", 3000, 600, false);
-        disk3.setDirType(TDiskType.STORAGE);
 
         diskInfos.put(disk1.getRootPath(), disk1);
         diskInfos.put(disk2.getRootPath(), disk2);

@@ -125,9 +125,7 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _calc_delete_bitmap_executor(nullptr),
           _default_rowset_type(BETA_ROWSET),
           _heartbeat_flags(nullptr),
-          _stream_load_recorder(nullptr),
-          _log_dir(new SpecialDir(config::sys_log_dir)),
-          _deploy_dir(new SpecialDir(std::string(std::getenv("DORIS_HOME")))) {
+          _stream_load_recorder(nullptr) {
     REGISTER_HOOK_METRIC(unused_rowsets_count, [this]() {
         // std::lock_guard<std::mutex> lock(_gc_mutex);
         return _unused_rowsets.size();
@@ -360,24 +358,6 @@ Status StorageEngine::get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_i
               << " ms. tablet counter: " << tablet_count;
 
     return res;
-}
-
-void StorageEngine::get_special_dir_info(SpecialDirInfo* special_dir_infos, TDiskType::type type) {
-    switch (type) {
-    case TDiskType::LOG:
-        _log_dir->health_check();
-        static_cast<void>(_log_dir->update_capacity());
-        _log_dir->get_dir_info(special_dir_infos);
-        break;
-    case TDiskType::DEPLOY:
-        _deploy_dir->health_check();
-        static_cast<void>(_deploy_dir->update_capacity());
-        _deploy_dir->get_dir_info(special_dir_infos);
-        break;
-    default:
-        break;
-    }
-    return;
 }
 
 int64_t StorageEngine::get_file_or_directory_size(const std::string& file_path) {
