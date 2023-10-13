@@ -123,8 +123,8 @@ suite("test_routine_load","p0") {
                   ]
 
     def multiTableJobName = [
-                    "multi_table_one_data_csv",
-                    "multi_table_one_data_json",
+                    "multi_table_csv",
+                    "multi_table_json",
                   ]
 
     def formats = [
