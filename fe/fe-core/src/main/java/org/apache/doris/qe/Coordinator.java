@@ -321,9 +321,9 @@ public class Coordinator implements CoordInterface {
         this.enableShareHashTableForBroadcastJoin = context.getSessionVariable().enableShareHashTableForBroadcastJoin;
         // Only enable pipeline query engine in query, not load
         this.enablePipelineEngine = context.getSessionVariable().getEnablePipelineEngine()
-                && (fragments.size() > 0 && fragments.get(0).getSink() instanceof ResultSink);
+                && (fragments.size() > 0);
         this.enablePipelineXEngine = context.getSessionVariable().getEnablePipelineXEngine()
-                && (fragments.size() > 0 && fragments.get(0).getSink() instanceof ResultSink);
+                && (fragments.size() > 0);
 
         initQueryOptions(context);
 
@@ -703,8 +703,9 @@ public class Coordinator implements CoordInterface {
             // else use exec_plan_fragments directly.
             // we choose #fragments >=2 because in some cases
             // we need ensure that A fragment is already prepared to receive data before B fragment sends data.
-            // For example: select * from numbers("10","w") will generate ExchangeNode and TableValuedFunctionScanNode,
-            // we should ensure TableValuedFunctionScanNode does not send data until ExchangeNode is ready to receive.
+            // For example: select * from numbers("number"="10") will generate ExchangeNode and
+            // TableValuedFunctionScanNode, we should ensure TableValuedFunctionScanNode does
+            // not send data until ExchangeNode is ready to receive.
             boolean twoPhaseExecution = fragments.size() >= 2;
             for (PlanFragment fragment : fragments) {
                 FragmentExecParams params = fragmentExecParamsMap.get(fragment.getFragmentId());
@@ -825,8 +826,9 @@ public class Coordinator implements CoordInterface {
             // else use exec_plan_fragments directly.
             // we choose #fragments >=2 because in some cases
             // we need ensure that A fragment is already prepared to receive data before B fragment sends data.
-            // For example: select * from numbers("10","w") will generate ExchangeNode and TableValuedFunctionScanNode,
-            // we should ensure TableValuedFunctionScanNode does not send data until ExchangeNode is ready to receive.
+            // For example: select * from numbers("number"="10") will generate ExchangeNode and
+            // TableValuedFunctionScanNode, we should ensure TableValuedFunctionScanNode does not
+            // send data until ExchangeNode is ready to receive.
             boolean twoPhaseExecution = fragments.size() >= 2;
             for (PlanFragment fragment : fragments) {
                 FragmentExecParams params = fragmentExecParamsMap.get(fragment.getFragmentId());
@@ -2315,6 +2317,11 @@ public class Coordinator implements CoordInterface {
             FragmentScanRangeAssignment assignment,
             Map<TNetworkAddress, Long> assignedBytesPerHost,
             Map<TNetworkAddress, Long> replicaNumPerHost) throws Exception {
+        // Type of locations is List, it could have elements that have same "location"
+        // and we do have this situation for some scan node.
+        // The duplicate "location" will NOT be filtered by FragmentScanRangeAssignment,
+        // since FragmentScanRangeAssignment use List<TScanRangeParams> as its value type,
+        // duplicate "locations" will be converted to list.
         for (TScanRangeLocations scanRangeLocations : locations) {
             Reference<Long> backendIdRef = new Reference<Long>();
             TScanRangeLocation minLocation = selectBackendsByRoundRobin(scanRangeLocations,

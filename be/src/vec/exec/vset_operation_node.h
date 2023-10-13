@@ -99,7 +99,6 @@ private:
     std::vector<size_t> _build_key_sz;
     std::vector<bool> _build_not_ignore_null;
 
-    std::unique_ptr<Arena> _arena;
     //record element size in hashtable
     int64_t _valid_element_in_hash_tbl;
 
@@ -126,6 +125,7 @@ private:
     RuntimeProfile::Counter* _build_timer; // time to build hash table
     RuntimeProfile::Counter* _probe_timer; // time to probe
     RuntimeProfile::Counter* _pull_timer;  // time to pull data
+    Arena _arena;
 
     template <class HashTableContext, bool is_intersected>
     friend struct HashTableBuild;

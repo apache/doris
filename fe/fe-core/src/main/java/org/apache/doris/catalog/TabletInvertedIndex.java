@@ -506,9 +506,6 @@ public class TabletInvertedIndex {
 
     // always add tablet before adding replicas
     public void addTablet(long tabletId, TabletMeta tabletMeta) {
-        if (Env.isCheckpointThread()) {
-            return;
-        }
         long stamp = writeLock();
         try {
             if (tabletMetaMap.containsKey(tabletId)) {
@@ -527,9 +524,6 @@ public class TabletInvertedIndex {
     }
 
     public void deleteTablet(long tabletId) {
-        if (Env.isCheckpointThread()) {
-            return;
-        }
         long stamp = writeLock();
         try {
             Map<Long, Replica> replicas = replicaMetaTable.rowMap().remove(tabletId);
@@ -555,9 +549,6 @@ public class TabletInvertedIndex {
     }
 
     public void addReplica(long tabletId, Replica replica) {
-        if (Env.isCheckpointThread()) {
-            return;
-        }
         long stamp = writeLock();
         try {
             Preconditions.checkState(tabletMetaMap.containsKey(tabletId));
@@ -572,9 +563,6 @@ public class TabletInvertedIndex {
     }
 
     public void deleteReplica(long tabletId, long backendId) {
-        if (Env.isCheckpointThread()) {
-            return;
-        }
         long stamp = writeLock();
         try {
             Preconditions.checkState(tabletMetaMap.containsKey(tabletId));

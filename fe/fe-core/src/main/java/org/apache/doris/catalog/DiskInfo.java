@@ -55,6 +55,8 @@ public class DiskInfo implements Writable {
     private long diskAvailableCapacityB;
     @SerializedName("state")
     private DiskState state;
+    @SerializedName("dirType")
+    private String dirType;
     // path hash and storage medium are reported from Backend and no need to persist
     private long pathHash = 0;
     private TStorageMedium storageMedium;
@@ -70,6 +72,7 @@ public class DiskInfo implements Writable {
         this.trashUsedCapacityB = 0;
         this.diskAvailableCapacityB = DEFAULT_CAPACITY_B;
         this.state = DiskState.ONLINE;
+        this.dirType = "STORAGE";
         this.pathHash = 0;
         this.storageMedium = TStorageMedium.HDD;
     }
@@ -130,6 +133,10 @@ public class DiskInfo implements Writable {
         return state;
     }
 
+    public String getDirType() {
+        return dirType;
+    }
+
     // return true if changed
     public boolean setState(DiskState state) {
         if (this.state != state) {
@@ -137,6 +144,10 @@ public class DiskInfo implements Writable {
             return true;
         }
         return false;
+    }
+
+    public void setDirType(String dirType) {
+        this.dirType = dirType;
     }
 
     public long getPathHash() {
@@ -185,7 +196,7 @@ public class DiskInfo implements Writable {
         return "DiskInfo [rootPath=" + rootPath + "(" + pathHash + "), totalCapacityB=" + totalCapacityB
                 + ", dataUsedCapacityB=" + dataUsedCapacityB + ", trashUsedCapacityB=" + trashUsedCapacityB
                 + ", diskAvailableCapacityB=" + diskAvailableCapacityB + ", state=" + state
-                + ", medium: " + storageMedium + "]";
+                + ", dirType=" + dirType + ", medium: " + storageMedium + "]";
     }
 
     @Override

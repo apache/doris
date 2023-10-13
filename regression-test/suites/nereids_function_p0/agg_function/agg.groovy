@@ -43,6 +43,11 @@ suite("nereids_agg_fn") {
 		select /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_DISTINCT, TWO_PHASE_AGGREGATE_WITH_DISTINCT')*/ count(distinct id, kint), any_value(kint) from fn_test group by kbool order by kbool'''
 	sql '''
 		select /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_DISTINCT, TWO_PHASE_AGGREGATE_WITH_DISTINCT')*/ count(distinct id), any_value(kint) from fn_test'''
+	// count_by_enum_string result is unstable in one line, so just check not core
+	sql '''
+		select count_by_enum(kstr) from fn_test group by kbool order by kbool'''
+	sql '''
+		select count_by_enum(kstr) from fn_test_not_nullable group by kbool order by kbool'''
 
 	qt_sql_avg_TinyInt_gb '''
 		select avg(ktint) from fn_test group by kbool order by kbool'''
@@ -568,7 +573,6 @@ suite("nereids_agg_fn") {
 		select /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_DISTINCT, TWO_PHASE_AGGREGATE_WITH_DISTINCT')*/ count(distinct id, kint), count(kint) from fn_test group by kbool order by kbool'''
 	qt_sql_count_AnyData_agg_phase_4_notnull '''
 		select /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_DISTINCT, TWO_PHASE_AGGREGATE_WITH_DISTINCT')*/ count(distinct id), count(kint) from fn_test'''
-
 	qt_sql_group_bit_and_TinyInt_gb '''
 		select group_bit_and(ktint) from fn_test group by kbool order by kbool'''
 	qt_sql_group_bit_and_TinyInt '''
@@ -1012,6 +1016,10 @@ suite("nereids_agg_fn") {
 		select histogram(kbool) from fn_test group by kbool order by kbool'''
 	sql '''
 		select histogram(kbool) from fn_test'''
+	sql '''
+		select histogram(kbool, 10) from fn_test'''
+	sql '''
+		select histogram(kbool, 10, 10) from fn_test'''
 	sql '''
 		select count(id), histogram(kbool) from fn_test group by id order by id'''
 	sql '''

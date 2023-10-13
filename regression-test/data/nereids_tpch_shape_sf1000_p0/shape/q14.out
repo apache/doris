@@ -11,6 +11,6 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[part]
 --------------PhysicalDistribute
 ----------------PhysicalProject
-------------------filter((lineitem.l_shipdate < 1995-10-01) and (lineitem.l_shipdate >= 1995-09-01))
+------------------filter((lineitem.l_shipdate < '1995-10-01') and (lineitem.l_shipdate >= '1995-09-01'))
 --------------------PhysicalOlapScan[lineitem]
 

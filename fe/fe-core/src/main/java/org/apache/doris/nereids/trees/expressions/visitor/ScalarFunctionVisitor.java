@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.AesEncrypt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AesEncryptV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AppendTrailingCharIfAbsent;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayApply;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayAvg;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCompact;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayContains;
@@ -53,6 +54,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayPosition
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayProduct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRange;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRemove;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRepeat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayReverseSort;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySlice;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySort;
@@ -108,6 +110,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Conv;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTo;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTz;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cos;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CosineDistance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CountEqual;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedStruct;
@@ -176,7 +179,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Initcap;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.InnerProduct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Instr;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4NumToString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtract;
@@ -209,6 +214,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNul
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNullableErrorToValue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbType;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbValid;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.L1Distance;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.L2Distance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.LastDay;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Least;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Left;
@@ -420,6 +427,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(array, context);
     }
 
+    default R visitArrayApply(ArrayApply arrayApply, C context) {
+        return visitScalarFunction(arrayApply, context);
+    }
+
     default R visitArrayAvg(ArrayAvg arrayAvg, C context) {
         return visitScalarFunction(arrayAvg, context);
     }
@@ -526,6 +537,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitArrayMap(ArrayMap arraySort, C context) {
         return visitScalarFunction(arraySort, context);
+    }
+
+    default R visitArrayRepeat(ArrayRepeat arrayRepeat, C context) {
+        return visitScalarFunction(arrayRepeat, context);
     }
 
     default R visitArraySum(ArraySum arraySum, C context) {
@@ -716,6 +731,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(concatWs, context);
     }
 
+    default R visitConnectionId(ConnectionId connectionId, C context) {
+        return visitScalarFunction(connectionId, context);
+    }
+
     default R visitConv(Conv conv, C context) {
         return visitScalarFunction(conv, context);
     }
@@ -732,8 +751,16 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(cos, context);
     }
 
+    default R visitCosineDistance(CosineDistance cosineDistance, C context) {
+        return visitScalarFunction(cosineDistance, context);
+    }
+
     default R visitCountEqual(CountEqual countequal, C context) {
         return visitScalarFunction(countequal, context);
+    }
+
+    default R visitCurrentCatalog(CurrentCatalog currentCatalog, C context) {
+        return visitScalarFunction(currentCatalog, context);
     }
 
     default R visitCurrentDate(CurrentDate currentDate, C context) {
@@ -744,28 +771,16 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(currentTime, context);
     }
 
-    default R visitDate(Date date, C context) {
-        return visitScalarFunction(date, context);
+    default R visitCurrentUser(CurrentUser currentUser, C context) {
+        return visitScalarFunction(currentUser, context);
     }
 
     default R visitDatabase(Database database, C context) {
         return visitScalarFunction(database, context);
     }
 
-    default R visitCurrentUser(CurrentUser currentUser, C context) {
-        return visitScalarFunction(currentUser, context);
-    }
-
-    default R visitCurrentCatalog(CurrentCatalog currentCatalog, C context) {
-        return visitScalarFunction(currentCatalog, context);
-    }
-
-    default R visitUser(User user, C context) {
-        return visitScalarFunction(user, context);
-    }
-
-    default R visitConnectionId(ConnectionId connectionId, C context) {
-        return visitScalarFunction(connectionId, context);
+    default R visitDate(Date date, C context) {
+        return visitScalarFunction(date, context);
     }
 
     default R visitDateDiff(DateDiff dateDiff, C context) {
@@ -1048,8 +1063,16 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(initcap, context);
     }
 
+    default R visitInnerProduct(InnerProduct innerProduct, C context) {
+        return visitScalarFunction(innerProduct, context);
+    }
+
     default R visitInstr(Instr instr, C context) {
         return visitScalarFunction(instr, context);
+    }
+
+    default R visitIpv4NumToString(Ipv4NumToString ipv4NumToString, C context) {
+        return visitScalarFunction(ipv4NumToString, context);
     }
 
     default R visitJsonArray(JsonArray jsonArray, C context) {
@@ -1178,6 +1201,14 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitJsonbValid(JsonbValid jsonbValid, C context) {
         return visitScalarFunction(jsonbValid, context);
+    }
+
+    default R visitL1Distance(L1Distance l1Distance, C context) {
+        return visitScalarFunction(l1Distance, context);
+    }
+
+    default R visitL2Distance(L2Distance l2Distance, C context) {
+        return visitScalarFunction(l2Distance, context);
     }
 
     default R visitLastDay(LastDay lastDay, C context) {
@@ -1722,6 +1753,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitUpper(Upper upper, C context) {
         return visitScalarFunction(upper, context);
+    }
+
+    default R visitUser(User user, C context) {
+        return visitScalarFunction(user, context);
     }
 
     default R visitUtcTimestamp(UtcTimestamp utcTimestamp, C context) {

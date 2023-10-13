@@ -20,6 +20,7 @@
 #include <memory>
 
 #include "pipeline/exec/operator.h"
+#include "vec/columns/column_filter_helper.h"
 #include "vec/core/block.h"
 #include "vec/exec/join/vnested_loop_join_node.h"
 
@@ -72,12 +73,6 @@ Status NestedLoopJoinProbeLocalState::close(RuntimeState* state) {
     }
     _child_block->clear();
 
-    vectorized::Blocks tmp_build_blocks;
-    _shared_state->build_blocks.swap(tmp_build_blocks);
-
-    vectorized::MutableColumns tmp_build_side_visited_flags;
-    _shared_state->build_side_visited_flags.swap(tmp_build_side_visited_flags);
-
     _tuple_is_null_left_flag_column = nullptr;
     _tuple_is_null_right_flag_column = nullptr;
     return JoinProbeLocalState<NestedLoopJoinDependency, NestedLoopJoinProbeLocalState>::close(
@@ -102,12 +97,9 @@ void NestedLoopJoinProbeLocalState::_update_additional_flags(vectorized::Block* 
         }
     }
     if (p._is_mark_join) {
-        vectorized::IColumn::Filter& mark_data =
-                assert_cast<doris::vectorized::ColumnVector<vectorized::UInt8>&>(
-                        *block->get_by_position(block->columns() - 1).column->assume_mutable())
-                        .get_data();
-        if (mark_data.size() < block->rows()) {
-            mark_data.resize_fill(block->rows(), 1);
+        auto mark_column = block->get_by_position(block->columns() - 1).column->assume_mutable();
+        if (mark_column->size() < block->rows()) {
+            vectorized::ColumnFilterHelper(*mark_column).resize_fill(block->rows(), 1);
         }
     }
 }
@@ -343,15 +335,12 @@ void NestedLoopJoinProbeLocalState::_finalize_current_phase(vectorized::MutableB
                 _resize_fill_tuple_is_null_column(new_size, 0, 1);
             }
         } else {
-            vectorized::IColumn::Filter& mark_data =
-                    assert_cast<doris::vectorized::ColumnVector<vectorized::UInt8>&>(
-                            *dst_columns[dst_columns.size() - 1])
-                            .get_data();
-            mark_data.reserve(mark_data.size() + _left_side_process_count);
+            vectorized::ColumnFilterHelper mark_column(*dst_columns[dst_columns.size() - 1]);
+            mark_column.reserve(mark_column.size() + _left_side_process_count);
             DCHECK_LE(_left_block_start_pos + _left_side_process_count, _child_block->rows());
             for (int j = _left_block_start_pos;
                  j < _left_block_start_pos + _left_side_process_count; ++j) {
-                mark_data.emplace_back(IsSemi == _cur_probe_row_visited_flags[j]);
+                mark_column.insert_value(IsSemi == _cur_probe_row_visited_flags[j]);
             }
             for (size_t i = 0; i < p._num_probe_side_columns; ++i) {
                 const vectorized::ColumnWithTypeAndName src_column =
@@ -396,11 +385,9 @@ void NestedLoopJoinProbeLocalState::_append_left_data_with_null(
     for (size_t i = 0; i < p._num_build_side_columns; ++i) {
         dst_columns[p._num_probe_side_columns + i]->insert_many_defaults(_left_side_process_count);
     }
-    vectorized::IColumn::Filter& mark_data =
-            assert_cast<doris::vectorized::ColumnVector<vectorized::UInt8>&>(
-                    *dst_columns[dst_columns.size() - 1])
-                    .get_data();
-    mark_data.resize_fill(mark_data.size() + _left_side_process_count, 0);
+    auto& mark_column = *dst_columns[dst_columns.size() - 1];
+    vectorized::ColumnFilterHelper(mark_column)
+            .resize_fill(mark_column.size() + _left_side_process_count, 0);
 }
 
 void NestedLoopJoinProbeLocalState::_process_left_child_block(

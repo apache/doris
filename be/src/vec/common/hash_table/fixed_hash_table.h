@@ -254,8 +254,21 @@ public:
             return;
         }
 
-        f(Constructor(&buf[x]), x);
+        f(Constructor(&buf[x]), x, x);
         this->increase_size();
+    }
+
+    template <typename Func>
+    void ALWAYS_INLINE lazy_emplace(const Key& x, LookupResult& it, size_t hash_value, Func&& f) {
+        lazy_emplace(x, it, std::forward<Func>(f));
+    }
+
+    template <bool READ>
+    void ALWAYS_INLINE prefetch(const Key& key, size_t hash_value) {
+        // Two optional arguments:
+        // 'rw': 1 means the memory access is write
+        // 'locality': 0-3. 0 means no temporal locality. 3 means high temporal locality.
+        __builtin_prefetch(&buf[hash_value], READ ? 0 : 1, 1);
     }
 
     std::pair<LookupResult, bool> ALWAYS_INLINE insert(const value_type& x) {

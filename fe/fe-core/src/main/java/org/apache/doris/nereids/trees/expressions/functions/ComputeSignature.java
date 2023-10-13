@@ -108,6 +108,7 @@ public interface ComputeSignature extends FunctionTrait, ImplicitCastInputTypes 
         // If you want to add some special cases, please override this method in the special
         // function class, like 'If' function and 'Substring' function.
         return ComputeSignatureChain.from(this, signature, getArguments())
+                .then(ComputeSignatureHelper::implementAnyDataTypeWithOutIndex)
                 .then(ComputeSignatureHelper::implementAnyDataTypeWithIndex)
                 .then(ComputeSignatureHelper::computePrecision)
                 .then(ComputeSignatureHelper::implementFollowToArgumentReturnType)
@@ -119,6 +120,7 @@ public interface ComputeSignature extends FunctionTrait, ImplicitCastInputTypes 
     /** use processor to process computeSignature */
     static boolean processComplexType(DataType signatureType, DataType realType,
             BiFunction<DataType, DataType, Boolean> processor) {
+
         if (signatureType instanceof ArrayType && realType instanceof ArrayType) {
             return processor.apply(((ArrayType) signatureType).getItemType(),
                     ((ArrayType) realType).getItemType());
