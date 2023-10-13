@@ -196,8 +196,14 @@ public class HiveScanNode extends FileQueryScanNode {
             HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                     .getMetaStoreCache((HMSExternalCatalog) hmsTable.getCatalog());
             boolean useSelfSplitter = hmsTable.getCatalog().useSelfSplitter();
+            String bindBrokerName = hmsTable.getCatalog().bindBrokerName();
+            if (bindBrokerName != null && useSelfSplitter == false) {
+                // useSelfSplitter must be true if bindBrokerName is set.
+                throw new UserException(HMSExternalCatalog.ENABLE_SELF_SPLITTER + " should be true if "
+                        + HMSExternalCatalog.BIND_BROKER_NAME + " is set");
+            }
             List<Split> allFiles = Lists.newArrayList();
-            getFileSplitByPartitions(cache, getPartitions(), allFiles, useSelfSplitter);
+            getFileSplitByPartitions(cache, getPartitions(), allFiles, useSelfSplitter, bindBrokerName);
             LOG.debug("get #{} files for table: {}.{}, cost: {} ms",
                     allFiles.size(), hmsTable.getDbName(), hmsTable.getName(), (System.currentTimeMillis() - start));
             return allFiles;
@@ -210,12 +216,13 @@ public class HiveScanNode extends FileQueryScanNode {
     }
 
     private void getFileSplitByPartitions(HiveMetaStoreCache cache, List<HivePartition> partitions,
-                                          List<Split> allFiles, boolean useSelfSplitter) throws IOException {
+                                          List<Split> allFiles, boolean useSelfSplitter,
+                                          String bindBrokerName) throws IOException {
         List<FileCacheValue> fileCaches;
         if (hiveTransaction != null) {
-            fileCaches = getFileSplitByTransaction(cache, partitions);
+            fileCaches = getFileSplitByTransaction(cache, partitions, bindBrokerName);
         } else {
-            fileCaches = cache.getFilesByPartitionsWithCache(partitions, useSelfSplitter);
+            fileCaches = cache.getFilesByPartitionsWithCache(partitions, useSelfSplitter, bindBrokerName);
         }
         if (ConnectContext.get().getExecutor() != null) {
             ConnectContext.get().getExecutor().getSummaryProfile().setGetPartitionFilesFinishTime();
@@ -287,7 +294,8 @@ public class HiveScanNode extends FileQueryScanNode {
         return fileList.subList(0, index);
     }
 
-    private List<FileCacheValue> getFileSplitByTransaction(HiveMetaStoreCache cache, List<HivePartition> partitions) {
+    private List<FileCacheValue> getFileSplitByTransaction(HiveMetaStoreCache cache, List<HivePartition> partitions,
+                                                           String bindBrokerName) {
         for (HivePartition partition : partitions) {
             if (partition.getPartitionValues() == null || partition.getPartitionValues().isEmpty()) {
                 // this is unpartitioned table.
@@ -297,7 +305,8 @@ public class HiveScanNode extends FileQueryScanNode {
         }
         ValidWriteIdList validWriteIds = hiveTransaction.getValidWriteIds(
                 ((HMSExternalCatalog) hmsTable.getCatalog()).getClient());
-        return cache.getFilesByTransaction(partitions, validWriteIds, hiveTransaction.isFullAcid(), hmsTable.getId());
+        return cache.getFilesByTransaction(partitions, validWriteIds,
+            hiveTransaction.isFullAcid(), hmsTable.getId(), bindBrokerName);
     }
 
     @Override
@@ -319,6 +328,10 @@ public class HiveScanNode extends FileQueryScanNode {
 
     @Override
     protected TFileType getLocationType(String location) throws UserException {
+        String bindBrokerName = hmsTable.getCatalog().bindBrokerName();
+        if (bindBrokerName != null) {
+            return TFileType.FILE_BROKER;
+        }
         return getTFileType(location).orElseThrow(() ->
             new DdlException("Unknown file location " + location + " for hms table " + hmsTable.getName()));
     }
