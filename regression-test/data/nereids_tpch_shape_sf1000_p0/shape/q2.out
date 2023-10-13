@@ -16,8 +16,9 @@ PhysicalResultSink
 --------------------------PhysicalOlapScan[supplier]
 --------------------------PhysicalDistribute
 ----------------------------hashJoin[INNER_JOIN](nation.n_regionkey = region.r_regionkey)
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[nation]
+------------------------------PhysicalDistribute
+--------------------------------PhysicalProject
+----------------------------------PhysicalOlapScan[nation]
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
 ----------------------------------filter((region.r_name = 'EUROPE'))

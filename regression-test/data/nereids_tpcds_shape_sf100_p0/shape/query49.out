@@ -20,7 +20,7 @@ PhysicalResultSink
 ----------------------------------PhysicalDistribute
 ------------------------------------hashAgg[LOCAL]
 --------------------------------------PhysicalProject
-----------------------------------------hashJoin[INNER_JOIN] hashCondition=((ws.ws_item_sk = wr.wr_item_sk) and (ws.ws_order_number = wr.wr_order_number))otherCondition=()
+----------------------------------------hashJoin[INNER_JOIN](ws.ws_item_sk = wr.wr_item_sk)(ws.ws_order_number = wr.wr_order_number)
 ------------------------------------------PhysicalProject
 --------------------------------------------filter((wr.wr_return_amt > 10000.00))
 ----------------------------------------------PhysicalOlapScan[web_returns]
@@ -46,7 +46,7 @@ PhysicalResultSink
 ----------------------------------PhysicalDistribute
 ------------------------------------hashAgg[LOCAL]
 --------------------------------------PhysicalProject
-----------------------------------------hashJoin[INNER_JOIN] hashCondition=((cs.cs_item_sk = cr.cr_item_sk) and (cs.cs_order_number = cr.cr_order_number))otherCondition=()
+----------------------------------------hashJoin[INNER_JOIN](cs.cs_item_sk = cr.cr_item_sk)(cs.cs_order_number = cr.cr_order_number)
 ------------------------------------------PhysicalProject
 --------------------------------------------filter((cr.cr_return_amount > 10000.00))
 ----------------------------------------------PhysicalOlapScan[catalog_returns]
@@ -72,7 +72,7 @@ PhysicalResultSink
 ----------------------------------PhysicalDistribute
 ------------------------------------hashAgg[LOCAL]
 --------------------------------------PhysicalProject
-----------------------------------------hashJoin[INNER_JOIN] hashCondition=((sts.ss_item_sk = sr.sr_item_sk) and (sts.ss_ticket_number = sr.sr_ticket_number))otherCondition=()
+----------------------------------------hashJoin[INNER_JOIN](sts.ss_item_sk = sr.sr_item_sk)(sts.ss_ticket_number = sr.sr_ticket_number)
 ------------------------------------------PhysicalProject
 --------------------------------------------filter((sr.sr_return_amt > 10000.00))
 ----------------------------------------------PhysicalOlapScan[store_returns]

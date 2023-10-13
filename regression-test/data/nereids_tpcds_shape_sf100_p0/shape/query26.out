@@ -11,22 +11,23 @@ PhysicalResultSink
 ----------------hashJoin[INNER_JOIN](catalog_sales.cs_item_sk = item.i_item_sk)
 ------------------PhysicalDistribute
 --------------------hashJoin[INNER_JOIN](catalog_sales.cs_promo_sk = promotion.p_promo_sk)
-----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)
---------------------------hashJoin[INNER_JOIN](catalog_sales.cs_bill_cdemo_sk = customer_demographics.cd_demo_sk)
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[catalog_sales]
-----------------------------PhysicalDistribute
-------------------------------PhysicalProject
---------------------------------filter((cast(cd_education_status as VARCHAR(*)) = 'Unknown')(cast(cd_gender as VARCHAR(*)) = 'M')(cast(cd_marital_status as VARCHAR(*)) = 'S'))
-----------------------------------PhysicalOlapScan[customer_demographics]
---------------------------PhysicalDistribute
-----------------------------PhysicalProject
-------------------------------filter((date_dim.d_year = 2001))
---------------------------------PhysicalOlapScan[date_dim]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
---------------------------filter(((cast(p_channel_email as VARCHAR(*)) = 'N') OR (cast(p_channel_event as VARCHAR(*)) = 'N')))
+--------------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)
+----------------------------hashJoin[INNER_JOIN](catalog_sales.cs_bill_cdemo_sk = customer_demographics.cd_demo_sk)
+------------------------------PhysicalProject
+--------------------------------PhysicalOlapScan[catalog_sales]
+------------------------------PhysicalDistribute
+--------------------------------PhysicalProject
+----------------------------------filter((customer_demographics.cd_gender = 'M')(customer_demographics.cd_marital_status = 'S')(customer_demographics.cd_education_status = 'Unknown'))
+------------------------------------PhysicalOlapScan[customer_demographics]
+----------------------------PhysicalDistribute
+------------------------------PhysicalProject
+--------------------------------filter((date_dim.d_year = 2001))
+----------------------------------PhysicalOlapScan[date_dim]
+----------------------PhysicalDistribute
+------------------------PhysicalProject
+--------------------------filter(((promotion.p_channel_email = 'N') OR (promotion.p_channel_event = 'N')))
 ----------------------------PhysicalOlapScan[promotion]
 ------------------PhysicalDistribute
 --------------------PhysicalProject

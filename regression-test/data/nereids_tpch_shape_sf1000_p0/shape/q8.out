@@ -26,7 +26,7 @@ PhysicalResultSink
 --------------------------------------PhysicalDistribute
 ----------------------------------------hashJoin[INNER_JOIN](lineitem.l_orderkey = orders.o_orderkey)
 ------------------------------------------PhysicalProject
---------------------------------------------filter((orders.o_orderdate <= 1996-12-31)(orders.o_orderdate >= 1995-01-01))
+--------------------------------------------filter((orders.o_orderdate <= '1996-12-31')(orders.o_orderdate >= '1995-01-01'))
 ----------------------------------------------PhysicalOlapScan[orders]
 ------------------------------------------PhysicalProject
 --------------------------------------------hashJoin[INNER_JOIN](part.p_partkey = lineitem.l_partkey)

@@ -7,7 +7,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------PhysicalDistribute
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((store_returns.sr_returned_date_sk = date_dim.d_date_sk))otherCondition=()
+--------------hashJoin[INNER_JOIN](store_returns.sr_returned_date_sk = date_dim.d_date_sk)
 ----------------PhysicalProject
 ------------------PhysicalOlapScan[store_returns]
 ----------------PhysicalDistribute
@@ -31,7 +31,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
---------------------------filter((cast(s_state as VARCHAR(*)) = 'SD'))
+--------------------------filter((store.s_state = 'SD'))
 ----------------------------PhysicalOlapScan[store]
 ------------------hashAgg[GLOBAL]
 --------------------PhysicalDistribute
