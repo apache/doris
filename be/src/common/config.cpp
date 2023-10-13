@@ -1085,6 +1085,8 @@ DEFINE_mInt32(tablet_schema_cache_recycle_interval, "86400");
 
 DEFINE_Bool(exit_on_exception, "false")
 
+DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
