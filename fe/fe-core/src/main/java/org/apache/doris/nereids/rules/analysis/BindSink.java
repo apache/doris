@@ -131,7 +131,7 @@ public class BindSink implements AnalysisRuleFactory {
                                         if (table.hasSequenceCol()
                                                 && column.getName().equals(Column.SEQUENCE_COL)
                                                 && table.getSequenceMapCol() != null) {
-                                            Column seqCol = table.getFullSchema().stream()
+                                            Column seqCol = table.getBaseSchema(true).stream()
                                                     .filter(col -> col.getName().equals(table.getSequenceMapCol()))
                                                     .findFirst().get();
                                             columnToOutput.put(column.getName(), columnToOutput.get(seqCol.getName()));
