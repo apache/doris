@@ -2622,6 +2622,10 @@ public class SelectStmt extends QueryStmt {
         if (tbl.getTable().getType() != Table.TableType.OLAP) {
             return false;
         }
+        // ignore insert into select
+        if (fromInsert) {
+            return false;
+        }
         // ensure no sub query
         if (!analyzer.isRootAnalyzer()) {
             return false;
