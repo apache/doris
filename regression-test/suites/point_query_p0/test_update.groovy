@@ -36,4 +36,5 @@ suite("test_update", "p0") {
     """
     sql """insert into test (workspace_id, user_id, tenant_id) values (1, 'asdfadfa', 1);"""
     sql """update test set tenant_id = 5 where workspace_id = 1 and user_id = 'asdfadfa';"""
+    sql """insert into test select * from test where workspace_id = 1 and user_id = 'asdfadfa';"""
 }
