@@ -75,7 +75,9 @@ enum class RuntimeFilterType {
     MINMAX_FILTER = 1,
     BLOOM_FILTER = 2,
     IN_OR_BLOOM_FILTER = 3,
-    BITMAP_FILTER = 4
+    BITMAP_FILTER = 4,
+    MIN_FILTER = 5, // only min // now only support at local
+    MAX_FILTER = 6  // only max // now only support at local
 };
 
 inline std::string to_string(RuntimeFilterType type) {
@@ -85,6 +87,12 @@ inline std::string to_string(RuntimeFilterType type) {
     }
     case RuntimeFilterType::BLOOM_FILTER: {
         return std::string("bloomfilter");
+    }
+    case RuntimeFilterType::MIN_FILTER: {
+        return std::string("only_min");
+    }
+    case RuntimeFilterType::MAX_FILTER: {
+        return std::string("only_max");
     }
     case RuntimeFilterType::MINMAX_FILTER: {
         return std::string("minmax");
