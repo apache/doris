@@ -20,9 +20,9 @@
 #include <memory>
 
 #include "pipeline/exec/operator.h"
+#include "vec/columns/column_filter_helper.h"
 #include "vec/core/block.h"
 #include "vec/exec/join/vnested_loop_join_node.h"
-#include "vec/columns/column_filter_helper.h"
 
 namespace doris {
 class RuntimeState;
@@ -72,12 +72,6 @@ Status NestedLoopJoinProbeLocalState::close(RuntimeState* state) {
         return Status::OK();
     }
     _child_block->clear();
-
-    vectorized::Blocks tmp_build_blocks;
-    _shared_state->build_blocks.swap(tmp_build_blocks);
-
-    vectorized::MutableColumns tmp_build_side_visited_flags;
-    _shared_state->build_side_visited_flags.swap(tmp_build_side_visited_flags);
 
     _tuple_is_null_left_flag_column = nullptr;
     _tuple_is_null_right_flag_column = nullptr;

@@ -230,11 +230,13 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     Plan hiveViewPlan = parseAndAnalyzeHiveView(hiveCatalog, ddlSql, cascadesContext);
                     return new LogicalSubQueryAlias<>(tableQualifier, hiveViewPlan);
                 }
-                return new LogicalFileScan(unboundRelation.getRelationId(), (HMSExternalTable) table, tableQualifier);
+                return new LogicalFileScan(unboundRelation.getRelationId(), (HMSExternalTable) table, tableQualifier,
+                    unboundRelation.getTableSample());
             case ICEBERG_EXTERNAL_TABLE:
             case PAIMON_EXTERNAL_TABLE:
             case MAX_COMPUTE_EXTERNAL_TABLE:
-                return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table, tableQualifier);
+                return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table, tableQualifier,
+                    unboundRelation.getTableSample());
             case SCHEMA:
                 return new LogicalSchemaScan(unboundRelation.getRelationId(), table, tableQualifier);
             case JDBC_EXTERNAL_TABLE:
