@@ -68,8 +68,6 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
         *result = arrow::float64();
         break;
     case TYPE_LARGEINT:
-        *result = arrow::fixed_size_binary(sizeof(int128_t));
-        break;
     case TYPE_VARCHAR:
     case TYPE_CHAR:
     case TYPE_HLL:
