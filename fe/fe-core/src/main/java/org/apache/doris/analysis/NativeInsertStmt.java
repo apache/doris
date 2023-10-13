@@ -453,6 +453,11 @@ public class NativeInsertStmt extends InsertStmt {
         Set<String> mentionedColumns = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         List<String> realTargetColumnNames;
         if (targetColumnNames == null) {
+            if (!isFromDeleteOrUpdateStmt
+                    && analyzer.getContext().getSessionVariable().isEnableUniqueKeyPartialUpdate()) {
+                throw new AnalysisException("You must explicitly specify the columns to be updated when "
+                        + "updating partial columns using the INSERT statement.");
+            }
             // the mentioned columns are columns which are visible to user, so here we use
             // getBaseSchema(), not getFullSchema()
             for (Column col : targetTable.getBaseSchema(false)) {
