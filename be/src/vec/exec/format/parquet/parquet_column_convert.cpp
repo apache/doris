@@ -77,15 +77,6 @@ Status convert_data_type_from_parquet(tparquet::Type::type parquet_type,
 
 Status get_converter(std::shared_ptr<const IDataType> src_type,
                      std::shared_ptr<const IDataType> dst_type,
-                     std::unique_ptr<ColumnConvert>* converter, ConvertParams* convert_param) {
-    if (src_type->is_nullable()) {
-        auto src = reinterpret_cast<const DataTypeNullable*>(src_type.get())->get_nested_type();
-        auto dst = reinterpret_cast<const DataTypeNullable*>(dst_type.get())->get_nested_type();
-
-        return get_converter_impl<true>(src, dst, converter, convert_param);
-    } else {
-        return get_converter_impl<false>(src_type, dst_type, converter, convert_param);
-    }
-}
+                     std::unique_ptr<ColumnConvert>* converter, ConvertParams* convert_param);
 } // namespace ParquetConvert
 } // namespace doris::vectorized

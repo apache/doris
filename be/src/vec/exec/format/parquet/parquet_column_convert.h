@@ -472,20 +472,20 @@ inline Status get_converter_impl(std::shared_ptr<const IDataType> src_data_type,
             std::cout << "src_type = " << getTypeName(src_type) << "\n";
         }
         break;
-    case TypeIndex::Decimal64:
+    case TypeIndex::Decimal64: {
         convert_params->init_decimal_converter<Decimal64>(dst_data_type);
-        DecimalScaleParams& scale_params = convert_params->decimal_scale;
+        DecimalScaleParams &scale_params = convert_params->decimal_scale;
 
         if (src_type == TypeIndex::Int128) {
             if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
                 *converter = std::make_unique<numbertodecimal<Int128, Int64, is_nullable,
-                                                              DecimalScaleParams::SCALE_UP>>();
+                        DecimalScaleParams::SCALE_UP>>();
             } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {
                 *converter = std::make_unique<numbertodecimal<Int128, Int64, is_nullable,
-                                                              DecimalScaleParams::SCALE_DOWN>>();
+                        DecimalScaleParams::SCALE_DOWN>>();
             } else {
                 *converter = std::make_unique<numbertodecimal<Int128, Int64, is_nullable,
-                                                              DecimalScaleParams::NO_SCALE>>();
+                        DecimalScaleParams::NO_SCALE>>();
             }
         } else if (src_type == TypeIndex::String) {
             if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
@@ -505,7 +505,7 @@ inline Status get_converter_impl(std::shared_ptr<const IDataType> src_data_type,
                         numbertodecimal<Int32, Int64, is_nullable, DecimalScaleParams::SCALE_UP>>();
             } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {
                 *converter = std::make_unique<numbertodecimal<Int32, Int64, is_nullable,
-                                                              DecimalScaleParams::SCALE_DOWN>>();
+                        DecimalScaleParams::SCALE_DOWN>>();
             } else {
                 *converter = std::make_unique<
                         numbertodecimal<Int32, Int64, is_nullable, DecimalScaleParams::NO_SCALE>>();
@@ -517,14 +517,15 @@ inline Status get_converter_impl(std::shared_ptr<const IDataType> src_data_type,
 
             } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {
                 *converter = std::make_unique<
-                        numbertodecimal<Int64, Int64, is_nullable, DecimalScaleParams::SCALE_UP>>();
+                        numbertodecimal<Int64, Int64, is_nullable, DecimalScaleParams::SCALE_DOWN>>();
 
             } else {
                 *converter = std::make_unique<
-                        numbertodecimal<Int64, Int64, is_nullable, DecimalScaleParams::SCALE_UP>>();
+                        numbertodecimal<Int64, Int64, is_nullable, DecimalScaleParams::NO_SCALE>>();
             }
         }
         break;
+    }
     default:
         break;
     }
