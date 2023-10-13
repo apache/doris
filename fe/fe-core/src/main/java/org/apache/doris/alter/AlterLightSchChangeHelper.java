@@ -65,7 +65,7 @@ public class AlterLightSchChangeHelper {
 
     private static final Logger LOG = LogManager.getLogger(AlterLightSchChangeHelper.class);
 
-    private  static final long DEFAULT_RPC_TIMEOUT = 900;
+    private  static final long DEFAULT_RPC_TIMEOUT = 900L;
 
     private final Database db;
 
@@ -78,9 +78,9 @@ public class AlterLightSchChangeHelper {
         this.olapTable = olapTable;
         ConnectContext connectContext = ConnectContext.get();
         if (connectContext == null) {
-            rpcTimoutMs = DEFAULT_RPC_TIMEOUT;
+            rpcTimoutMs = DEFAULT_RPC_TIMEOUT * 1000L;
         } else {
-            rpcTimoutMs = connectContext.getExecTimeout();
+            rpcTimoutMs = connectContext.getExecTimeout() * 1000L;
         }
     }
 
