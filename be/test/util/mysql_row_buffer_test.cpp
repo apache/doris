@@ -118,7 +118,7 @@ TEST(MysqlRowBufferTest, dynamic_mode) {
     EXPECT_EQ(0, strncmp(buf + 43, "test", 4));
 }
 
-TEST(MysqlRowBufferTest, faster_float_convert) {
+TEST(MysqlRowBufferTest /*unused*/, faster_float_convert /*unused*/) {
     MysqlRowBuffer mrb;
     mrb.set_faster_float_convert(true);
 
@@ -153,7 +153,7 @@ TEST(MysqlRowBufferTest, faster_float_convert) {
     EXPECT_EQ(0, strncmp(buf + 22, "1.012E1", 7));
 }
 
-TEST(MysqlRowBufferTest, faster_float_convert_dynamic) {
+TEST(MysqlRowBufferTest /*unused*/, faster_float_convert_dynamic /*unused*/) {
     MysqlRowBuffer mrb;
     mrb.set_faster_float_convert(true);
     mrb.open_dynamic_mode();

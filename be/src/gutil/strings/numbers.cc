@@ -18,7 +18,6 @@
 #include <sys/types.h>
 #include <limits>
 #include <ostream>
-#include "common/config.h"
 
 using std::numeric_limits;
 #include <string>
