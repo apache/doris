@@ -399,4 +399,9 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         partitions.add("Dummy Partition");
         return getBaseSchema().stream().collect(Collectors.toMap(Column::getName, k -> partitions));
     }
+
+    @Override
+    public List<Long> getChunkSizes() {
+        throw new NotImplementedException("getChunkSized not implemented");
+    }
 }

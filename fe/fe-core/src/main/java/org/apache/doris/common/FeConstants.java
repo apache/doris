@@ -64,9 +64,6 @@ public class FeConstants {
     // use \N to indicate NULL
     public static String null_string = "\\N";
 
-    public static long tablet_checker_interval_ms = 20 * 1000L;
-    public static long tablet_schedule_interval_ms = 1000L;
-
     public static String FS_PREFIX_S3 = "s3";
     public static String FS_PREFIX_S3A = "s3a";
     public static String FS_PREFIX_S3N = "s3n";

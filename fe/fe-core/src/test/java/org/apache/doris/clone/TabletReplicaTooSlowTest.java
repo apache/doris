@@ -74,7 +74,7 @@ public class TabletReplicaTooSlowTest {
         FeConstants.runningUnitTest = true;
         System.out.println(runningDir);
         FeConstants.runningUnitTest = true;
-        FeConstants.tablet_checker_interval_ms = 1000;
+        Config.tablet_checker_interval_ms = 1000;
         Config.tablet_repair_delay_factor_second = 1;
         Config.repair_slow_replica = true;
         // 5 backends:

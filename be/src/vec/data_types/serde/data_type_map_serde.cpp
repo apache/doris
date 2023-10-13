@@ -18,6 +18,8 @@
 #include "data_type_map_serde.h"
 
 #include "arrow/array/builder_nested.h"
+#include "common/exception.h"
+#include "common/status.h"
 #include "util/jsonb_document.h"
 #include "util/simd/bits.h"
 #include "vec/columns/column.h"
@@ -348,7 +350,8 @@ void DataTypeMapSerDe::write_column_to_arrow(const IColumn& column, const NullMa
             MutableColumnPtr value_mutable_data = nested_values_column.clone_empty();
             for (size_t i = offsets[r - 1]; i < offsets[r]; ++i) {
                 if (keys_nullmap_data[i] == 1) {
-                    continue;
+                    throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                           "Can not write null value of map key to arrow.");
                 }
                 key_mutable_data->insert_from(nested_keys_column, i);
                 value_mutable_data->insert_from(nested_values_column, i);

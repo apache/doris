@@ -42,6 +42,7 @@
 #include "pipeline/exec/nested_loop_join_build_operator.h"
 #include "pipeline/exec/nested_loop_join_probe_operator.h"
 #include "pipeline/exec/olap_scan_operator.h"
+#include "pipeline/exec/olap_table_sink_operator.h"
 #include "pipeline/exec/partition_sort_sink_operator.h"
 #include "pipeline/exec/partition_sort_source_operator.h"
 #include "pipeline/exec/repeat_operator.h"
@@ -588,11 +589,15 @@ Status AsyncWriterSink<Writer, Parent>::close(RuntimeState* state, Status exec_s
     }
     COUNTER_SET(_wait_for_dependency_timer, _async_writer_dependency->write_watcher_elapse_time());
     // if the init failed, the _writer may be nullptr. so here need check
-    if (_writer && _writer->need_normal_close()) {
-        if (exec_status.ok() && !state->is_cancelled()) {
-            RETURN_IF_ERROR(_writer->commit_trans());
+    if (_writer) {
+        if (_writer->need_normal_close()) {
+            if (exec_status.ok() && !state->is_cancelled()) {
+                RETURN_IF_ERROR(_writer->commit_trans());
+            }
+            RETURN_IF_ERROR(_writer->close(exec_status));
+        } else {
+            RETURN_IF_ERROR(_writer->get_writer_status());
         }
-        RETURN_IF_ERROR(_writer->close(exec_status));
     }
     return PipelineXSinkLocalState<>::close(state, exec_status);
 }
@@ -610,6 +615,7 @@ DECLARE_OPERATOR_X(HashJoinBuildSinkLocalState)
 DECLARE_OPERATOR_X(ResultSinkLocalState)
 DECLARE_OPERATOR_X(JdbcTableSinkLocalState)
 DECLARE_OPERATOR_X(ResultFileSinkLocalState)
+DECLARE_OPERATOR_X(OlapTableSinkLocalState)
 DECLARE_OPERATOR_X(AnalyticSinkLocalState)
 DECLARE_OPERATOR_X(SortSinkLocalState)
 DECLARE_OPERATOR_X(BlockingAggSinkLocalState)
@@ -685,5 +691,6 @@ template class PipelineXLocalState<SetDependency>;
 
 template class AsyncWriterSink<doris::vectorized::VFileResultWriter, ResultFileSinkOperatorX>;
 template class AsyncWriterSink<doris::vectorized::VJdbcTableWriter, JdbcTableSinkOperatorX>;
+template class AsyncWriterSink<doris::vectorized::VTabletWriter, OlapTableSinkOperatorX>;
 
 } // namespace doris::pipeline
