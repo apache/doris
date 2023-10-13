@@ -1120,5 +1120,42 @@ suite("nereids_scalar_fn_Array") {
         }
     }
 
+    sql "DROP TABLE IF EXISTS test_array_with_scale_type_table"
+    sql """
+        CREATE TABLE IF NOT EXISTS `test_array_with_scale_type_table` (
+        `uid` int(11) NULL COMMENT "",
+        `c_datetimev2` datetimev2(3) NULL COMMENT "",
+        `c_decimal` decimal(8,3) NULL COMMENT "",
+        `c_decimalv3` decimalv3(8,3) NULL COMMENT "",
+        `c_array_datetimev2` ARRAY<datetimev2(3)> NULL COMMENT "",
+        `c_array_decimal` ARRAY<decimal(8,3)> NULL COMMENT "",
+        `c_array_decimalv3` ARRAY<decimalv3(8,3)> NULL COMMENT ""
+        ) ENGINE=OLAP
+    DUPLICATE KEY(`uid`)
+    DISTRIBUTED BY HASH(`uid`) BUCKETS 1
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1",
+    "storage_format" = "V2"
+    )
+    """
+
+    sql """INSERT INTO test_array_with_scale_type_table values
+    (1,"2022-12-01 22:23:24.999999",22.6789,33.6789,["2022-12-01 22:23:24.999999","2022-12-01 23:23:24.999999"],[22.6789,33.6789],[22.6789,33.6789]),
+    (2,"2022-12-02 22:23:24.999999",23.6789,34.6789,["2022-12-02 22:23:24.999999","2022-12-02 23:23:24.999999"],[23.6789,34.6789],[22.6789,34.6789])
+    """
+
+    // array_apply
+    qt_array_apply1 """select array_apply(c_array_datetimev2, "=", '2022-12-02 22:23:24.999999') from test_array_with_scale_type_table"""
+    qt_array_apply2 """select array_apply(c_array_datetimev2, ">", '2022-12-01 22:23:24.999999') from test_array_with_scale_type_table"""
+    qt_array_apply3 """select array_apply(c_array_datetimev2, ">", null) from test_array_with_scale_type_table"""
+    qt_array_apply4 """select array_apply(c_array_decimal, "=", 22.679) from test_array_with_scale_type_table"""
+    qt_array_apply5 """select array_apply(c_array_decimal, ">=", 22.1) from test_array_with_scale_type_table"""
+    qt_array_apply6 """select array_apply(c_array_decimal, ">=", null) from test_array_with_scale_type_table"""
+
+    // array_repeat
+    qt_array_repeat1 """select array_repeat("hello", 2)"""
+    qt_array_repeat1 """select array_repeat(123, 2)"""
+    qt_array_repeat1 """select array_repeat(null, 2)"""
+    qt_array_repeat1 """select array_repeat(3, null)"""
 
 }

@@ -60,6 +60,9 @@ public:
     void prepare_for_next();
     void add_tuple_is_null_column(vectorized::Block* block) override;
     void init_for_probe(RuntimeState* state);
+    Status filter_data_and_build_output(RuntimeState* state, vectorized::Block* output_block,
+                                        SourceState& source_state, vectorized::Block* temp_block,
+                                        bool check_rows_count = true);
 
     HashJoinProbeOperatorX* join_probe() { return (HashJoinProbeOperatorX*)_parent; }
 
@@ -135,6 +138,7 @@ private:
     std::vector<SlotId> _hash_output_slot_ids;
     std::vector<bool> _left_output_slot_flags;
     std::vector<bool> _right_output_slot_flags;
+    std::vector<std::string> _right_table_column_names;
 };
 
 } // namespace pipeline

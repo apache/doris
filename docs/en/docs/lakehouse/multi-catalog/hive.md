@@ -401,6 +401,14 @@ If the variable `truncate_char_or_varchar_columns` is enabled, when the maximum 
 
 The variable default is false.
 
+## Access HMS with broker
+
+Add following setting when creating an HMS catalog, file splitting and scanning for Hive external table will be completed by broker named `test_broker`
+
+```sql
+"broker.name" = "test_broker"
+```
+
 ## Integrate with Apache Ranger
 
 Apache Ranger is a security framework for monitoring, enabling services, and comprehensive data security access management on the Hadoop platform.

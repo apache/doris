@@ -507,7 +507,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
             return checkedExpr.get();
         }
         List<Literal> arguments = (List) array.getArguments();
-        return new ArrayLiteral(arguments);
+        // we should pass dataType to constructor because arguments maybe empty
+        return new ArrayLiteral(arguments, array.getDataType());
     }
 
     @Override

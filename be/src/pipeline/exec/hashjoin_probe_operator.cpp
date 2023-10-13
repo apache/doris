@@ -86,8 +86,6 @@ Status HashJoinProbeLocalState::close(RuntimeState* state) {
                                          }},
                    *_process_hashtable_ctx_variants);
     }
-    _shared_state->arena = nullptr;
-    _shared_state->hash_table_variants.reset();
     _process_hashtable_ctx_variants = nullptr;
     _null_map_column = nullptr;
     _tuple_is_null_left_flag_column = nullptr;
@@ -190,46 +188,96 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
         return Status::OK();
     }
     if (local_state._shared_state->_has_null_in_build_side &&
-        _short_circuit_for_null_in_build_side) {
+        _short_circuit_for_null_in_build_side && _is_mark_join) {
         /// `_has_null_in_build_side` means have null value in build side.
         /// `_short_circuit_for_null_in_build_side` means short circuit if has null in build side(e.g. null aware left anti join).
         /// We need to create a column as mark with all rows set to NULL.
-        if (_is_mark_join) {
-            auto block_rows = local_state._probe_block.rows();
-            if (block_rows == 0) {
-                if (local_state._probe_eos) {
-                    source_state = SourceState::FINISHED;
-                }
-                return Status::OK();
+        auto block_rows = local_state._probe_block.rows();
+        if (block_rows == 0) {
+            if (local_state._probe_eos) {
+                source_state = SourceState::FINISHED;
             }
-
-            vectorized::Block temp_block;
-            //get probe side output column
-            for (int i = 0; i < _left_output_slot_flags.size(); ++i) {
-                if (_left_output_slot_flags[i]) {
-                    temp_block.insert(local_state._probe_block.get_by_position(i));
-                }
-            }
-            auto mark_column = vectorized::ColumnNullable::create(
-                    vectorized::ColumnUInt8::create(block_rows, 0),
-                    vectorized::ColumnUInt8::create(block_rows, 1));
-            temp_block.insert({std::move(mark_column),
-                               make_nullable(std::make_shared<vectorized::DataTypeUInt8>()), ""});
-
-            {
-                SCOPED_TIMER(local_state._join_filter_timer);
-                RETURN_IF_ERROR(vectorized::VExprContext::filter_block(
-                        local_state._conjuncts, &temp_block, temp_block.columns()));
-            }
-
-            RETURN_IF_ERROR(local_state._build_output_block(&temp_block, output_block, false));
-            temp_block.clear();
-            local_state._probe_block.clear_column_data(
-                    _child_x->row_desc().num_materialized_slots());
-            local_state.reached_limit(output_block, source_state);
             return Status::OK();
         }
+
+        vectorized::Block temp_block;
+        //get probe side output column
+        for (int i = 0; i < _left_output_slot_flags.size(); ++i) {
+            if (_left_output_slot_flags[i]) {
+                temp_block.insert(local_state._probe_block.get_by_position(i));
+            }
+        }
+        auto mark_column =
+                vectorized::ColumnNullable::create(vectorized::ColumnUInt8::create(block_rows, 0),
+                                                   vectorized::ColumnUInt8::create(block_rows, 1));
+        temp_block.insert({std::move(mark_column),
+                           make_nullable(std::make_shared<vectorized::DataTypeUInt8>()), ""});
+
+        {
+            SCOPED_TIMER(local_state._join_filter_timer);
+            RETURN_IF_ERROR(vectorized::VExprContext::filter_block(
+                    local_state._conjuncts, &temp_block, temp_block.columns()));
+        }
+
+        RETURN_IF_ERROR(local_state._build_output_block(&temp_block, output_block, false));
+        temp_block.clear();
+        local_state._probe_block.clear_column_data(_child_x->row_desc().num_materialized_slots());
+        local_state.reached_limit(output_block, source_state);
+        return Status::OK();
     }
+
+    //TODO: this short circuit maybe could refactor, no need to check at here.
+    if (local_state._shared_state->empty_right_table_need_probe_dispose) {
+        // when build table rows is 0 and not have other_join_conjunct and join type is one of LEFT_OUTER_JOIN/FULL_OUTER_JOIN/LEFT_ANTI_JOIN
+        // we could get the result is probe table + null-column(if need output)
+        // If we use a short-circuit strategy, should return block directly by add additional null data.
+        auto block_rows = local_state._probe_block.rows();
+        if (local_state._probe_eos && block_rows == 0) {
+            if (local_state._probe_eos) {
+                source_state = SourceState::FINISHED;
+            }
+            return Status::OK();
+        }
+
+        vectorized::Block temp_block;
+        //get probe side output column
+        for (int i = 0; i < _left_output_slot_flags.size(); ++i) {
+            temp_block.insert(local_state._probe_block.get_by_position(i));
+        }
+
+        //create build side null column, if need output
+        for (int i = 0;
+             (_join_op != TJoinOp::LEFT_ANTI_JOIN) && i < _right_output_slot_flags.size(); ++i) {
+            auto type = remove_nullable(_right_table_data_types[i]);
+            auto column = type->create_column();
+            column->resize(block_rows);
+            auto null_map_column =
+                    vectorized::ColumnVector<vectorized::UInt8>::create(block_rows, 1);
+            auto nullable_column = vectorized::ColumnNullable::create(std::move(column),
+                                                                      std::move(null_map_column));
+            temp_block.insert({std::move(nullable_column), make_nullable(type),
+                               _right_table_column_names[i]});
+        }
+        if (_is_outer_join) {
+            reinterpret_cast<vectorized::ColumnUInt8*>(
+                    local_state._tuple_is_null_left_flag_column.get())
+                    ->get_data()
+                    .resize_fill(block_rows, 0);
+            reinterpret_cast<vectorized::ColumnUInt8*>(
+                    local_state._tuple_is_null_right_flag_column.get())
+                    ->get_data()
+                    .resize_fill(block_rows, 1);
+        }
+
+        /// No need to check the block size in `_filter_data_and_build_output` because here dose not
+        /// increase the output rows count(just same as `_probe_block`'s rows count).
+        RETURN_IF_ERROR(local_state.filter_data_and_build_output(state, output_block, source_state,
+                                                                 &temp_block, false));
+        temp_block.clear();
+        local_state._probe_block.clear_column_data(_child_x->row_desc().num_materialized_slots());
+        return Status::OK();
+    }
+
     local_state._join_block.clear_column_data();
 
     vectorized::MutableBlock mutable_join_block(&local_state._join_block);
@@ -298,24 +346,37 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
     if (!st) {
         return st;
     }
-    if (_is_outer_join) {
-        local_state.add_tuple_is_null_column(&temp_block);
-    }
-    auto output_rows = temp_block.rows();
-    DCHECK(output_rows <= state->batch_size());
-    {
-        SCOPED_TIMER(local_state._join_filter_timer);
-        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_conjuncts, &temp_block,
-                                                               temp_block.columns()));
-    }
 
+    RETURN_IF_ERROR(local_state.filter_data_and_build_output(state, output_block, source_state,
+                                                             &temp_block));
     // Here make _join_block release the columns' ptr
     local_state._join_block.set_columns(local_state._join_block.clone_empty_columns());
     mutable_join_block.clear();
+    return Status::OK();
+}
 
-    RETURN_IF_ERROR(local_state._build_output_block(&temp_block, output_block, false));
-    local_state._reset_tuple_is_null_column();
-    local_state.reached_limit(output_block, source_state);
+Status HashJoinProbeLocalState::filter_data_and_build_output(RuntimeState* state,
+                                                             vectorized::Block* output_block,
+                                                             SourceState& source_state,
+                                                             vectorized::Block* temp_block,
+                                                             bool check_rows_count) {
+    auto& p = _parent->cast<HashJoinProbeOperatorX>();
+    if (p._is_outer_join) {
+        add_tuple_is_null_column(temp_block);
+    }
+    auto output_rows = temp_block->rows();
+    if (check_rows_count) {
+        DCHECK(output_rows <= state->batch_size());
+    }
+    {
+        SCOPED_TIMER(_join_filter_timer);
+        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_conjuncts, temp_block,
+                                                               temp_block->columns()));
+    }
+
+    RETURN_IF_ERROR(_build_output_block(temp_block, output_block, false));
+    _reset_tuple_is_null_column();
+    reached_limit(output_block, source_state);
     return Status::OK();
 }
 
@@ -323,8 +384,7 @@ bool HashJoinProbeOperatorX::need_more_input_data(RuntimeState* state) const {
     auto& local_state = state->get_local_state(id())->cast<HashJoinProbeLocalState>();
     return (local_state._probe_block.rows() == 0 ||
             local_state._probe_index == local_state._probe_block.rows()) &&
-           !local_state._probe_eos &&
-           (!local_state._shared_state->short_circuit_for_probe || _is_mark_join);
+           !local_state._probe_eos && !local_state._shared_state->short_circuit_for_probe;
 }
 
 Status HashJoinProbeOperatorX::_do_evaluate(vectorized::Block& block,
@@ -465,6 +525,8 @@ Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
     _right_table_data_types =
             vectorized::VectorizedUtils::get_data_types(_build_side_child->row_desc());
     _left_table_data_types = vectorized::VectorizedUtils::get_data_types(_child_x->row_desc());
+    _right_table_column_names =
+            vectorized::VectorizedUtils::get_column_names(_build_side_child->row_desc());
     _build_side_child.reset();
     return Status::OK();
 }

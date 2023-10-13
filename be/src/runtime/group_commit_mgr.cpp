@@ -62,21 +62,22 @@ Status LoadBlockQueue::get_block(vectorized::Block* block, bool* find_block, boo
     *eos = false;
     std::unique_lock l(*_mutex);
     if (!need_commit) {
-        auto left_seconds = 10 - std::chrono::duration_cast<std::chrono::seconds>(
-                                         std::chrono::steady_clock::now() - _start_time)
-                                         .count();
+        auto left_seconds = config::group_commit_interval_seconds -
+                            std::chrono::duration_cast<std::chrono::seconds>(
+                                    std::chrono::steady_clock::now() - _start_time)
+                                    .count();
         if (left_seconds <= 0) {
             need_commit = true;
         }
     }
     while (_status.ok() && _block_queue.empty() &&
            (!need_commit || (need_commit && !_load_ids.empty()))) {
-        // TODO make 10s as a config
-        auto left_seconds = 10;
+        auto left_seconds = config::group_commit_interval_seconds;
         if (!need_commit) {
-            left_seconds = 10 - std::chrono::duration_cast<std::chrono::seconds>(
-                                        std::chrono::steady_clock::now() - _start_time)
-                                        .count();
+            left_seconds = config::group_commit_interval_seconds -
+                           std::chrono::duration_cast<std::chrono::seconds>(
+                                   std::chrono::steady_clock::now() - _start_time)
+                                   .count();
             if (left_seconds <= 0) {
                 need_commit = true;
                 break;
@@ -470,10 +471,10 @@ Status GroupCommitMgr::group_commit_insert(int64_t table_id, const TPlan& plan,
                 response->set_txn_id(load_block_queue->txn_id);
             }
             // TODO what to do if add one block error
-            RETURN_IF_ERROR(load_block_queue->add_block(future_block));
             if (future_block->rows() > 0) {
                 future_blocks.emplace_back(future_block);
             }
+            RETURN_IF_ERROR(load_block_queue->add_block(future_block));
             first = false;
         }
         if (!runtime_state->get_error_log_file_path().empty()) {

@@ -29,15 +29,14 @@ OperatorPtr PartitionSortSourceOperatorBuilder::build_operator() {
     return std::make_shared<PartitionSortSourceOperator>(this, _node);
 }
 
-Status PartitionSortSourceLocalState::close(RuntimeState* state) {
-    if (_closed) {
-        return Status::OK();
-    }
+Status PartitionSortSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
+    RETURN_IF_ERROR(PipelineXLocalState<PartitionSortDependency>::init(state, info));
     SCOPED_TIMER(profile()->total_time_counter());
-    SCOPED_TIMER(_close_timer);
-    _shared_state->previous_row = nullptr;
-    _shared_state->partition_sorts.clear();
-    return PipelineXLocalState<PartitionSortDependency>::close(state);
+    SCOPED_TIMER(_open_timer);
+    _get_next_timer = ADD_TIMER(profile(), "GetResultTime");
+    _get_sorted_timer = ADD_TIMER(profile(), "GetSortedTime");
+    _shared_state->previous_row = std::make_unique<vectorized::SortCursorCmp>();
+    return Status::OK();
 }
 
 Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* output_block,
