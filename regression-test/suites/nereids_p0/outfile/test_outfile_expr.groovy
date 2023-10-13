@@ -105,7 +105,7 @@ suite("test_outfile_expr") {
             SELECT user_id+1, age+sex, repeat(char_col, 10) FROM ${tableName} t ORDER BY user_id INTO OUTFILE "file://${outFile}/";
         """
 
-        url = result[0][3]
+        def url = result[0][3]
         urlHost = url.substring(8, url.indexOf("${outFile}"))
         def filePrifix = url.split("${outFile}")[1]
         csvFiles = "${outFile}${filePrifix}*.csv"
