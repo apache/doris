@@ -18,7 +18,7 @@ PhysicalResultSink
 ------------------------------PhysicalOlapScan[store_sales]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
---------------------------------filter((cast(cd_marital_status as VARCHAR(*)) = 'W')(cast(cd_education_status as VARCHAR(*)) = 'College')(cast(cd_gender as VARCHAR(*)) = 'F'))
+--------------------------------filter((customer_demographics.cd_gender = 'F')(customer_demographics.cd_marital_status = 'W')(customer_demographics.cd_education_status = 'College'))
 ----------------------------------PhysicalOlapScan[customer_demographics]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
@@ -26,7 +26,7 @@ PhysicalResultSink
 --------------------------------PhysicalOlapScan[date_dim]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
---------------------------filter(((cast(p_channel_email as VARCHAR(*)) = 'N') OR (cast(p_channel_event as VARCHAR(*)) = 'N')))
+--------------------------filter(((promotion.p_channel_email = 'N') OR (promotion.p_channel_event = 'N')))
 ----------------------------PhysicalOlapScan[promotion]
 ------------------PhysicalDistribute
 --------------------PhysicalProject

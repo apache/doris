@@ -21,11 +21,7 @@ PhysicalResultSink
 ------------------------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
 --------------------------------------PhysicalOlapScan[store_sales]
 --------------------------------------PhysicalDistribute
-<<<<<<< HEAD
-----------------------------------------filter((date_dim.d_date <= 1998-09-04)(date_dim.d_date >= 1998-08-05))
-=======
-----------------------------------------filter((date_dim.d_date <= '1998-09-04') and (date_dim.d_date >= '1998-08-05'))
->>>>>>> 85d4a0dbf6 (fix tosql of date literal)
+----------------------------------------filter((date_dim.d_date <= '1998-09-04')(date_dim.d_date >= '1998-08-05'))
 ------------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalOlapScan[store]
@@ -38,11 +34,7 @@ PhysicalResultSink
 ------------------------------------hashJoin[INNER_JOIN](store_returns.sr_returned_date_sk = date_dim.d_date_sk)
 --------------------------------------PhysicalOlapScan[store_returns]
 --------------------------------------PhysicalDistribute
-<<<<<<< HEAD
-----------------------------------------filter((date_dim.d_date <= 1998-09-04)(date_dim.d_date >= 1998-08-05))
-=======
-----------------------------------------filter((date_dim.d_date <= '1998-09-04') and (date_dim.d_date >= '1998-08-05'))
->>>>>>> 85d4a0dbf6 (fix tosql of date literal)
+----------------------------------------filter((date_dim.d_date <= '1998-09-04')(date_dim.d_date >= '1998-08-05'))
 ------------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalOlapScan[store]
@@ -56,11 +48,7 @@ PhysicalResultSink
 ----------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)
 ------------------------------------PhysicalOlapScan[catalog_sales]
 ------------------------------------PhysicalDistribute
-<<<<<<< HEAD
---------------------------------------filter((date_dim.d_date >= 1998-08-05)(date_dim.d_date <= 1998-09-04))
-=======
---------------------------------------filter((date_dim.d_date <= '1998-09-04') and (date_dim.d_date >= '1998-08-05'))
->>>>>>> 85d4a0dbf6 (fix tosql of date literal)
+--------------------------------------filter((date_dim.d_date >= '1998-08-05')(date_dim.d_date <= '1998-09-04'))
 ----------------------------------------PhysicalOlapScan[date_dim]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
@@ -71,11 +59,7 @@ PhysicalResultSink
 ------------------------------------hashJoin[INNER_JOIN](catalog_returns.cr_returned_date_sk = date_dim.d_date_sk)
 --------------------------------------PhysicalOlapScan[catalog_returns]
 --------------------------------------PhysicalDistribute
-<<<<<<< HEAD
-----------------------------------------filter((date_dim.d_date >= 1998-08-05)(date_dim.d_date <= 1998-09-04))
-=======
-----------------------------------------filter((date_dim.d_date <= '1998-09-04') and (date_dim.d_date >= '1998-08-05'))
->>>>>>> 85d4a0dbf6 (fix tosql of date literal)
+----------------------------------------filter((date_dim.d_date >= '1998-08-05')(date_dim.d_date <= '1998-09-04'))
 ------------------------------------------PhysicalOlapScan[date_dim]
 --------------------PhysicalProject
 ----------------------hashJoin[LEFT_OUTER_JOIN](ws.wp_web_page_sk = wr.wp_web_page_sk)
@@ -88,11 +72,7 @@ PhysicalResultSink
 ------------------------------------hashJoin[INNER_JOIN](web_sales.ws_sold_date_sk = date_dim.d_date_sk)
 --------------------------------------PhysicalOlapScan[web_sales]
 --------------------------------------PhysicalDistribute
-<<<<<<< HEAD
-----------------------------------------filter((date_dim.d_date >= 1998-08-05)(date_dim.d_date <= 1998-09-04))
-=======
-----------------------------------------filter((date_dim.d_date <= '1998-09-04') and (date_dim.d_date >= '1998-08-05'))
->>>>>>> 85d4a0dbf6 (fix tosql of date literal)
+----------------------------------------filter((date_dim.d_date >= '1998-08-05')(date_dim.d_date <= '1998-09-04'))
 ------------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalOlapScan[web_page]
@@ -105,21 +85,8 @@ PhysicalResultSink
 ------------------------------------hashJoin[INNER_JOIN](web_returns.wr_returned_date_sk = date_dim.d_date_sk)
 --------------------------------------PhysicalOlapScan[web_returns]
 --------------------------------------PhysicalDistribute
-<<<<<<< HEAD
-<<<<<<< HEAD
-----------------------------------------PhysicalProject
-------------------------------------------filter((date_dim.d_date >= 1998-08-05)(date_dim.d_date <= 1998-09-04))
---------------------------------------------PhysicalOlapScan[date_dim]
-------------------------------------PhysicalDistribute
---------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[web_page]
-=======
-----------------------------------------filter((date_dim.d_date >= 1998-08-05)(date_dim.d_date <= 1998-09-04))
-=======
-----------------------------------------filter((date_dim.d_date <= '1998-09-04') and (date_dim.d_date >= '1998-08-05'))
->>>>>>> 85d4a0dbf6 (fix tosql of date literal)
+----------------------------------------filter((date_dim.d_date >= '1998-08-05')(date_dim.d_date <= '1998-09-04'))
 ------------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalOlapScan[web_page]
->>>>>>> 46f5988245 ([fix](Nereids) set operation children output order not same (#24060))
 

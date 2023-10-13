@@ -25,11 +25,7 @@ PhysicalResultSink
 --------------------------------------PhysicalProject
 ----------------------------------------PhysicalOlapScan[store_returns]
 ----------------------------------PhysicalDistribute
-<<<<<<< HEAD
-------------------------------------filter((date_dim.d_date <= 2000-09-02)(date_dim.d_date >= 2000-08-19))
-=======
-------------------------------------filter((date_dim.d_date <= '2000-09-02') and (date_dim.d_date >= '2000-08-19'))
->>>>>>> 85d4a0dbf6 (fix tosql of date literal)
+------------------------------------filter((date_dim.d_date <= '2000-09-02')(date_dim.d_date >= '2000-08-19'))
 --------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalOlapScan[store]
@@ -39,32 +35,20 @@ PhysicalResultSink
 --------------------------hashAgg[LOCAL]
 ----------------------------PhysicalProject
 ------------------------------hashJoin[INNER_JOIN](salesreturns.page_sk = catalog_page.cp_catalog_page_sk)
---------------------------------hashJoin[INNER_JOIN](salesreturns.date_sk = date_dim.d_date_sk)
-----------------------------------PhysicalUnion
+--------------------------------PhysicalDistribute
+----------------------------------hashJoin[INNER_JOIN](salesreturns.date_sk = date_dim.d_date_sk)
+------------------------------------PhysicalUnion
+--------------------------------------PhysicalDistribute
+----------------------------------------PhysicalProject
+------------------------------------------PhysicalOlapScan[catalog_sales]
+--------------------------------------PhysicalDistribute
+----------------------------------------PhysicalProject
+------------------------------------------PhysicalOlapScan[catalog_returns]
 ------------------------------------PhysicalDistribute
---------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[catalog_sales]
-------------------------------------PhysicalDistribute
---------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[catalog_returns]
-----------------------------------PhysicalDistribute
-<<<<<<< HEAD
-<<<<<<< HEAD
-------------------------------------PhysicalProject
---------------------------------------filter((date_dim.d_date >= 2000-08-19)(date_dim.d_date <= 2000-09-02))
+--------------------------------------filter((date_dim.d_date >= '2000-08-19')(date_dim.d_date <= '2000-09-02'))
 ----------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------PhysicalDistribute
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[catalog_page]
-=======
-------------------------------------filter((date_dim.d_date >= 2000-08-19)(date_dim.d_date <= 2000-09-02))
-=======
-------------------------------------filter((date_dim.d_date <= '2000-09-02') and (date_dim.d_date >= '2000-08-19'))
->>>>>>> 85d4a0dbf6 (fix tosql of date literal)
---------------------------------------PhysicalOlapScan[date_dim]
---------------------------------PhysicalDistribute
 ----------------------------------PhysicalOlapScan[catalog_page]
->>>>>>> 46f5988245 ([fix](Nereids) set operation children output order not same (#24060))
 --------------------PhysicalProject
 ----------------------hashAgg[GLOBAL]
 ------------------------PhysicalDistribute
@@ -82,11 +66,7 @@ PhysicalResultSink
 ------------------------------------------PhysicalOlapScan[web_sales]
 ------------------------------------------PhysicalOlapScan[web_returns]
 ----------------------------------PhysicalDistribute
-<<<<<<< HEAD
-------------------------------------filter((date_dim.d_date >= 2000-08-19)(date_dim.d_date <= 2000-09-02))
-=======
-------------------------------------filter((date_dim.d_date <= '2000-09-02') and (date_dim.d_date >= '2000-08-19'))
->>>>>>> 85d4a0dbf6 (fix tosql of date literal)
+------------------------------------filter((date_dim.d_date >= '2000-08-19')(date_dim.d_date <= '2000-09-02'))
 --------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalOlapScan[web_site]

@@ -25,8 +25,6 @@ PhysicalResultSink
 ----------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------PhysicalDistribute
 ----------------------------------hashJoin[LEFT_SEMI_JOIN](store.s_state = tmp1.s_state)
-------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[store]
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
 ----------------------------------------PhysicalOlapScan[store]
@@ -34,7 +32,7 @@ PhysicalResultSink
 --------------------------------------PhysicalProject
 ----------------------------------------filter((ranking <= 5))
 ------------------------------------------PhysicalWindow
---------------------------------------------PhysicalPartitionTopN
+--------------------------------------------PhysicalQuickSort
 ----------------------------------------------PhysicalDistribute
 ------------------------------------------------PhysicalPartitionTopN
 --------------------------------------------------PhysicalProject
@@ -42,13 +40,13 @@ PhysicalResultSink
 ------------------------------------------------------PhysicalDistribute
 --------------------------------------------------------hashAgg[LOCAL]
 ----------------------------------------------------------PhysicalProject
-------------------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((store.s_store_sk = store_sales.ss_store_sk))otherCondition=()
---------------------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_date_sk = store_sales.ss_sold_date_sk))otherCondition=()
+------------------------------------------------------------hashJoin[INNER_JOIN](store.s_store_sk = store_sales.ss_store_sk)
+--------------------------------------------------------------hashJoin[INNER_JOIN](date_dim.d_date_sk = store_sales.ss_sold_date_sk)
 ----------------------------------------------------------------PhysicalProject
 ------------------------------------------------------------------PhysicalOlapScan[store_sales]
 ----------------------------------------------------------------PhysicalDistribute
 ------------------------------------------------------------------PhysicalProject
---------------------------------------------------------------------filter((date_dim.d_month_seq <= 1224) and (date_dim.d_month_seq >= 1213))
+--------------------------------------------------------------------filter((date_dim.d_month_seq >= 1213)(date_dim.d_month_seq <= 1224))
 ----------------------------------------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------------------------------------PhysicalDistribute
 ----------------------------------------------------------------PhysicalProject

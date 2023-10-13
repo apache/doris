@@ -48,8 +48,9 @@ PhysicalResultSink
 --------------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------PhysicalDistribute
 ----------------------------------hashJoin[INNER_JOIN](c.c_current_addr_sk = ca.ca_address_sk)
-------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[customer]
+------------------------------------PhysicalDistribute
+--------------------------------------PhysicalProject
+----------------------------------------PhysicalOlapScan[customer]
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
 ----------------------------------------filter(ca_state IN ('TX', 'VA', 'MI'))

@@ -13,19 +13,17 @@ PhysicalResultSink
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN](date_dim.d_date_sk = web_sales.ws_sold_date_sk)
---------------------------hashJoin[INNER_JOIN](item.i_item_sk = web_sales.ws_item_sk)
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[web_sales]
-----------------------------PhysicalDistribute
-------------------------------PhysicalProject
---------------------------------filter((item.i_manufact_id = 320))
-----------------------------------PhysicalOlapScan[item]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
-<<<<<<< HEAD
-------------------------------filter((date_dim.d_date <= 2002-05-27)(date_dim.d_date >= 2002-02-26))
-=======
-------------------------------filter((date_dim.d_date <= '2002-05-27') and (date_dim.d_date >= '2002-02-26'))
->>>>>>> 85d4a0dbf6 (fix tosql of date literal)
+------------------------------hashJoin[INNER_JOIN](item.i_item_sk = web_sales.ws_item_sk)
+--------------------------------PhysicalProject
+----------------------------------PhysicalOlapScan[web_sales]
+--------------------------------PhysicalDistribute
+----------------------------------PhysicalProject
+------------------------------------filter((item.i_manufact_id = 320))
+--------------------------------------PhysicalOlapScan[item]
+--------------------------PhysicalDistribute
+----------------------------PhysicalProject
+------------------------------filter((date_dim.d_date <= '2002-05-27')(date_dim.d_date >= '2002-02-26'))
 --------------------------------PhysicalOlapScan[date_dim]
 

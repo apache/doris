@@ -19,11 +19,7 @@ PhysicalResultSink
 ------------------------------PhysicalOlapScan[item]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
-<<<<<<< HEAD
---------------------------filter((date_dim.d_date >= 2002-01-28)(date_dim.d_date <= 2002-03-29))
-=======
---------------------------filter((date_dim.d_date <= '2002-03-29') and (date_dim.d_date >= '2002-01-28'))
->>>>>>> 85d4a0dbf6 (fix tosql of date literal)
+--------------------------filter((date_dim.d_date >= '2002-01-28')(date_dim.d_date <= '2002-03-29'))
 ----------------------------PhysicalOlapScan[date_dim]
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
