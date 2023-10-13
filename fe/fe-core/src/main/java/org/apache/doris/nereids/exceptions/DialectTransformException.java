@@ -15,26 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.parser;
-
-import org.apache.doris.nereids.util.ExpressionParseChecker;
-import org.apache.doris.nereids.util.MemoPatternMatchSupported;
-import org.apache.doris.nereids.util.PlanParseChecker;
-import org.apache.doris.nereids.util.TrinoDialectPlanParseChecker;
+package org.apache.doris.nereids.exceptions;
 
 /**
- * Base class to check SQL parsing result.
+ * DialectTransformException when have not supported transforming for the
+ * {@link io.trino.sql.tree.Node}.
  */
-public abstract class ParserTestBase implements MemoPatternMatchSupported {
-    public PlanParseChecker parsePlan(String sql) {
-        return new PlanParseChecker(sql);
-    }
+public class DialectTransformException extends UnsupportedOperationException {
 
-    public ExpressionParseChecker parseExpression(String sql) {
-        return new ExpressionParseChecker(sql);
-    }
-
-    public TrinoDialectPlanParseChecker trinoDialectParsePlan(String sql) {
-        return new TrinoDialectPlanParseChecker(sql);
+    public DialectTransformException(String msg) {
+        super(String.format("Unsupported dialect transformation is %s", msg));
     }
 }

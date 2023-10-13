@@ -15,26 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.parser;
-
-import org.apache.doris.nereids.util.ExpressionParseChecker;
-import org.apache.doris.nereids.util.MemoPatternMatchSupported;
-import org.apache.doris.nereids.util.PlanParseChecker;
-import org.apache.doris.nereids.util.TrinoDialectPlanParseChecker;
+package org.apache.doris.nereids.parser.trino;
 
 /**
- * Base class to check SQL parsing result.
+ * Trino Parser, depends on 395 trino-parser, and 4.9.3 antlr-runtime
  */
-public abstract class ParserTestBase implements MemoPatternMatchSupported {
-    public PlanParseChecker parsePlan(String sql) {
-        return new PlanParseChecker(sql);
-    }
+public class TrinoParser {
+    private static final io.trino.sql.parser.ParsingOptions PARSING_OPTIONS =
+            new io.trino.sql.parser.ParsingOptions(
+                    io.trino.sql.parser.ParsingOptions.DecimalLiteralTreatment.AS_DECIMAL);
 
-    public ExpressionParseChecker parseExpression(String sql) {
-        return new ExpressionParseChecker(sql);
-    }
-
-    public TrinoDialectPlanParseChecker trinoDialectParsePlan(String sql) {
-        return new TrinoDialectPlanParseChecker(sql);
+    public static io.trino.sql.tree.Statement parse(String query) {
+        io.trino.sql.parser.SqlParser sqlParser = new io.trino.sql.parser.SqlParser();
+        return sqlParser.createStatement(query, PARSING_OPTIONS);
     }
 }
