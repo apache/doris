@@ -62,7 +62,7 @@ privilege_list is a list of privileges to be granted, separated by commas. Curre
     CREATE_PRIV: Create permission on the specified database or table
     DROP_PRIV: drop privilege on the specified database or table
     USAGE_PRIV: access to the specified resource
-    SHOW_VIEW_PRIV: View permission to `view` creation statements (starting from version 2.0.3, 'SELECT_PRIV' and 'LOAD_PRIV' permissions cannot be 'SHOW CREATE TABLE view_name') 
+    SHOW_VIEW_PRIV: View permission to `view` creation statements (starting from version 2.0.3, 'SELECT_PRIV' and 'LOAD_PRIV' permissions cannot be 'SHOW CREATE TABLE view_name', has one of `CREATE_PRIV`，`ALTER_PRIV`，`DROP_PRIV`，`SHOW_VIEW_PRIV` can `SHOW CREATE TABLE view_name`) 
     
     ALL and READ_WRITE in legacy permissions will be converted to: SELECT_PRIV,LOAD_PRIV,ALTER_PRIV,CREATE_PRIV,DROP_PRIV;
     READ_ONLY is converted to SELECT_PRIV.
