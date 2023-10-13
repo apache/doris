@@ -86,8 +86,8 @@ public abstract class StatementBase implements ParseNode {
             return;
         }
         this.analyzer = analyzer;
-        if (analyzer.getStatementClazz() == null) {
-            analyzer.setStatementClazz(this.getClass());
+        if (analyzer.getRootStatementClazz() == null) {
+            analyzer.setRootStatementClazz(this.getClass());
         }
         if (Strings.isNullOrEmpty(analyzer.getClusterName())) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_SELECT_CLUSTER);

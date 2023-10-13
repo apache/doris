@@ -321,7 +321,7 @@ public class Analyzer {
 
         // Record the statement clazz that the analyzer would to analyze,
         // this give an opportunity to control analyzing behavior according to the statement type.
-        public Class<? extends StatementBase> statementClazz;
+        public Class<? extends StatementBase> rootStatementClazz;
 
         // Indicates whether the query has plan hints.
         public boolean hasPlanHints = false;
@@ -571,12 +571,12 @@ public class Analyzer {
         return globalState.isExplain;
     }
 
-    public void setStatementClazz(Class<? extends StatementBase> statementClazz) {
-        globalState.statementClazz = statementClazz;
+    public void setRootStatementClazz(Class<? extends StatementBase> statementClazz) {
+        globalState.rootStatementClazz = statementClazz;
     }
 
-    public Class<? extends StatementBase> getStatementClazz() {
-        return globalState.statementClazz;
+    public Class<? extends StatementBase> getRootStatementClazz() {
+        return globalState.rootStatementClazz;
     }
 
     public int incrementCallDepth() {

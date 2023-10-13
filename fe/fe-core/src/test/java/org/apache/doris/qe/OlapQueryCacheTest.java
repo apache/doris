@@ -515,7 +515,7 @@ public class OlapQueryCacheTest {
                 + "eventdate>=\"2020-01-12\" and eventdate<=\"2020-01-14\" GROUP BY eventdate";
         View view = new View(30000L, "view1", null);
         Analyzer createViewAnalyzer = new Analyzer(env, ctx);
-        createViewAnalyzer.setStatementClazz(CreateViewStmt.class);
+        createViewAnalyzer.setRootStatementClazz(CreateViewStmt.class);
         view.setInlineViewDefWithSqlMode(parseSql(originStmt, createViewAnalyzer, true).toSql(), 0L);
         return view;
     }
@@ -524,7 +524,7 @@ public class OlapQueryCacheTest {
         String originStmt = "select eventdate, userid FROM appevent";
         View view = new View(30001L, "view2", null);
         Analyzer createViewAnalyzer = new Analyzer(env, ctx);
-        createViewAnalyzer.setStatementClazz(CreateViewStmt.class);
+        createViewAnalyzer.setRootStatementClazz(CreateViewStmt.class);
         view.setInlineViewDefWithSqlMode(parseSql(originStmt, createViewAnalyzer, true).toSql(), 0L);
         return view;
     }
@@ -534,7 +534,7 @@ public class OlapQueryCacheTest {
                 + "eventdate>=\"2020-01-12\" and eventdate<=\"2020-01-15\" GROUP BY eventdate";
         View view = new View(30002L, "view3", null);
         Analyzer createViewAnalyzer = new Analyzer(env, ctx);
-        createViewAnalyzer.setStatementClazz(CreateViewStmt.class);
+        createViewAnalyzer.setRootStatementClazz(CreateViewStmt.class);
         view.setInlineViewDefWithSqlMode(parseSql(originStmt, createViewAnalyzer, true).toSql(), 0L);
         return view;
     }
@@ -544,7 +544,7 @@ public class OlapQueryCacheTest {
                 + "eventdate>=\"2020-01-12\" and eventdate<=\"2020-01-14\" GROUP BY eventdate";
         View view = new View(30003L, "view4", null);
         Analyzer createViewAnalyzer = new Analyzer(env, ctx);
-        createViewAnalyzer.setStatementClazz(CreateViewStmt.class);
+        createViewAnalyzer.setRootStatementClazz(CreateViewStmt.class);
         view.setInlineViewDefWithSqlMode(
                 parseSql(originStmt, createViewAnalyzer, true).toSql(), 0L);
         return view;
