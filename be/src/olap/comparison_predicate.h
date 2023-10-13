@@ -174,6 +174,29 @@ public:
         }
     }
 
+    bool is_always_true(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
+        if (statistic.first->is_null() || statistic.second->is_null()) {
+            return false;
+        }
+
+        T tmp_min_value {};
+        T tmp_max_value {};
+        memcpy((char*)(&tmp_min_value), statistic.first->cell_ptr(), sizeof(WarpperFieldType));
+        memcpy((char*)(&tmp_max_value), statistic.second->cell_ptr(), sizeof(WarpperFieldType));
+
+        if constexpr (PT == PredicateType::LT) {
+            return _value > tmp_max_value;
+        } else if constexpr (PT == PredicateType::LE) {
+            return _value >= tmp_max_value;
+        } else if constexpr (PT == PredicateType::GT) {
+            return _value < tmp_min_value;
+        } else if constexpr (PT == PredicateType::GE) {
+            return _value <= tmp_min_value;
+        }
+
+        return false;
+    }
+
     bool evaluate_del(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
         if (statistic.first->is_null() || statistic.second->is_null()) {
             return false;
