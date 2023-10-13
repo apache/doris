@@ -21,8 +21,11 @@
 
 #include <type_traits>
 
+#include "common/exception.h"
+#include "common/status.h"
 #include "gutil/strings/numbers.h"
 #include "util/mysql_global.h"
+#include "vec/core/types.h"
 #include "vec/io/io_helper.h"
 
 namespace doris {
@@ -63,7 +66,7 @@ using DORIS_NUMERIC_ARROW_BUILDER =
                 arrow::Int64Builder, UInt128, arrow::FixedSizeBinaryBuilder, Int128,
                 arrow::FixedSizeBinaryBuilder, Float32, arrow::FloatBuilder, Float64,
                 arrow::DoubleBuilder, void,
-                void // 添加这一行来表示TypeMap的末端
+                void // Add this line to represent the end of the TypeMap
                 >;
 
 template <typename T>
@@ -81,15 +84,20 @@ void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const 
                                      end - start,
                                      reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
                 column.get_name(), array_builder->type()->name());
-    } else if constexpr (std::is_same_v<T, Int128> || std::is_same_v<T, UInt128>) {
-        ARROW_BUILDER_TYPE& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
-        size_t fixed_length = sizeof(typename ColumnType::value_type);
-        const uint8_t* data_start =
-                reinterpret_cast<const uint8_t*>(col_data.data()) + start * fixed_length;
-        checkArrowStatus(
-                builder.AppendValues(data_start, end - start,
-                                     reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
-                column.get_name(), array_builder->type()->name());
+    } else if constexpr (std::is_same_v<T, Int128>) {
+        auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
+        for (size_t i = start; i < end; ++i) {
+            auto& data_value = col_data[i];
+            std::string value_str = fmt::format("{}", data_value);
+            if (null_map && (*null_map)[i]) {
+                checkArrowStatus(string_builder.AppendNull(), column.get_name(),
+                                 array_builder->type()->name());
+            } else {
+                checkArrowStatus(string_builder.Append(value_str.data(), value_str.length()),
+                                 column.get_name(), array_builder->type()->name());
+            }
+        }
+    } else if constexpr (std::is_same_v<T, UInt128>) {
     } else {
         ARROW_BUILDER_TYPE& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
         checkArrowStatus(
@@ -137,16 +145,18 @@ Status DataTypeNumberSerDe<T>::deserialize_one_cell_from_json(IColumn& column, S
 }
 
 template <typename T>
-void DataTypeNumberSerDe<T>::serialize_column_to_json(const IColumn& column, int start_idx,
-                                                      int end_idx, BufferWritable& bw,
-                                                      FormatOptions& options) const {
-    SERIALIZE_COLUMN_TO_JSON()
+Status DataTypeNumberSerDe<T>::serialize_column_to_json(const IColumn& column, int start_idx,
+                                                        int end_idx, BufferWritable& bw,
+                                                        FormatOptions& options,
+                                                        int nesting_level) const {
+    SERIALIZE_COLUMN_TO_JSON();
 }
 
 template <typename T>
-void DataTypeNumberSerDe<T>::serialize_one_cell_to_json(const IColumn& column, int row_num,
-                                                        BufferWritable& bw,
-                                                        FormatOptions& options) const {
+Status DataTypeNumberSerDe<T>::serialize_one_cell_to_json(const IColumn& column, int row_num,
+                                                          BufferWritable& bw,
+                                                          FormatOptions& options,
+                                                          int nesting_level) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -162,6 +172,7 @@ void DataTypeNumberSerDe<T>::serialize_one_cell_to_json(const IColumn& column, i
     } else if constexpr (std::is_integral<T>::value || std::numeric_limits<T>::is_iec559) {
         bw.write_number(data);
     }
+    return Status::OK();
 }
 
 template <typename T>
@@ -189,6 +200,30 @@ void DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
         }
         return;
     }
+
+    // only for largeint(int128) type
+    if (arrow_array->type_id() == arrow::Type::STRING) {
+        auto concrete_array = dynamic_cast<const arrow::StringArray*>(arrow_array);
+        std::shared_ptr<arrow::Buffer> buffer = concrete_array->value_data();
+
+        for (size_t offset_i = start; offset_i < end; ++offset_i) {
+            if (!concrete_array->IsNull(offset_i)) {
+                const auto* raw_data = buffer->data() + concrete_array->value_offset(offset_i);
+                const auto raw_data_len = concrete_array->value_length(offset_i);
+
+                Int128 val = 0;
+                ReadBuffer rb(raw_data, raw_data_len);
+                if (!read_int_text_impl(val, rb)) {
+                    throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                           "parse number fail, string: '{}'",
+                                           std::string(rb.position(), rb.count()).c_str());
+                }
+                col_data.emplace_back(val);
+            }
+        }
+        return;
+    }
+
     /// buffers[0] is a null bitmap and buffers[1] are actual values
     std::shared_ptr<arrow::Buffer> buffer = arrow_array->data()->buffers[1];
     const auto* raw_data = reinterpret_cast<const T*>(buffer->data()) + start;

@@ -46,7 +46,7 @@ suite("test_http_stream_compress", "p0") {
         streamLoad {
             set 'version', '1'
             set 'sql', """
-                    insert into ${db}.${tableName1} select c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13 from http_stream("format"="csv", "compress_type"="GZ")
+                    insert into ${db}.${tableName1} select c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13 from http_stream("format"="csv", "compress_type"="GZ", "column_separator" = ",")
                     """
             time 10000
             file '../stream_load/all_types.csv.gz'
@@ -86,7 +86,7 @@ suite("test_http_stream_compress", "p0") {
         streamLoad {
             set 'version', '1'
             set 'sql', """
-                    insert into ${db}.${tableName2} select c1, c2, to_bitmap(c3), hll_hash(c4) from http_stream("format"="csv", "compress_type"="bz2")
+                    insert into ${db}.${tableName2} select c1, c2, to_bitmap(c3), hll_hash(c4) from http_stream("format"="csv", "compress_type"="bz2", "column_separator" = ",")
                     """
             time 10000
             file '../stream_load/bitmap_hll.csv.bz2'

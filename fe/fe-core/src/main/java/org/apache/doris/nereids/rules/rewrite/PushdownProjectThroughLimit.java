@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 /**
+ * <pre>
  * Before:
  *          project
  *             │
@@ -42,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
  *             │
  *             ▼
  *          plan node
+ * </pre>
  */
 public class PushdownProjectThroughLimit extends OneRewriteRuleFactory {
 
@@ -50,9 +52,7 @@ public class PushdownProjectThroughLimit extends OneRewriteRuleFactory {
         return logicalProject(logicalLimit()).thenApply(ctx -> {
             LogicalProject<LogicalLimit<Plan>> logicalProject = ctx.root;
             LogicalLimit<Plan> logicalLimit = logicalProject.child();
-            return new LogicalLimit<>(logicalLimit.getLimit(), logicalLimit.getOffset(),
-                    logicalLimit.getPhase(), logicalProject.withProjectsAndChild(logicalProject.getProjects(),
-                    logicalLimit.child()));
+            return logicalLimit.withChildren(logicalProject.withChildren(logicalLimit.child()));
         }).toRule(RuleType.PUSHDOWN_PROJECT_THROUGH_LIMIT);
     }
 }

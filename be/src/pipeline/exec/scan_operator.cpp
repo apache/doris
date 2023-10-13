@@ -370,8 +370,9 @@ Status ScanLocalState<Derived>::_normalize_predicate(
 
             if (pdt == vectorized::VScanNode::PushDownType::UNACCEPTABLE &&
                 TExprNodeType::COMPOUND_PRED == cur_expr->node_type()) {
-                _normalize_compound_predicate(cur_expr, context, &pdt, _is_runtime_filter_predicate,
-                                              in_predicate_checker, eq_predicate_checker);
+                static_cast<void>(_normalize_compound_predicate(
+                        cur_expr, context, &pdt, _is_runtime_filter_predicate, in_predicate_checker,
+                        eq_predicate_checker));
                 output_expr = conjunct_expr_root; // remaining in conjunct tree
                 return Status::OK();
             }
@@ -1008,8 +1009,8 @@ Status ScanLocalState<Derived>::_normalize_compound_predicate(
                                     value_range.mark_runtime_filter_predicate(
                                             _is_runtime_filter_predicate);
                                 }};
-                                _normalize_binary_in_compound_predicate(child_expr, expr_ctx, slot,
-                                                                        value_range, pdt);
+                                static_cast<void>(_normalize_binary_in_compound_predicate(
+                                        child_expr, expr_ctx, slot, value_range, pdt));
                             },
                             active_range);
 
@@ -1030,17 +1031,17 @@ Status ScanLocalState<Derived>::_normalize_compound_predicate(
                                     value_range.mark_runtime_filter_predicate(
                                             _is_runtime_filter_predicate);
                                 }};
-                                _normalize_match_in_compound_predicate(child_expr, expr_ctx, slot,
-                                                                       value_range, pdt);
+                                static_cast<void>(_normalize_match_in_compound_predicate(
+                                        child_expr, expr_ctx, slot, value_range, pdt));
                             },
                             active_range);
 
                     _compound_value_ranges.emplace_back(active_range);
                 }
             } else if (TExprNodeType::COMPOUND_PRED == child_expr->node_type()) {
-                _normalize_compound_predicate(child_expr, expr_ctx, pdt,
-                                              _is_runtime_filter_predicate, in_predicate_checker,
-                                              eq_predicate_checker);
+                static_cast<void>(_normalize_compound_predicate(
+                        child_expr, expr_ctx, pdt, _is_runtime_filter_predicate,
+                        in_predicate_checker, eq_predicate_checker));
             }
         }
     }
@@ -1188,7 +1189,8 @@ Status ScanLocalState<Derived>::_start_scanners(
     _data_ready_dependency = DataReadyDependency::create_shared(p.id(), _scanner_ctx.get());
     _source_dependency->add_child(_data_ready_dependency);
 
-    _scanner_ctx->set_dependency(_data_ready_dependency, _scanner_done_dependency);
+    _scanner_ctx->set_dependency(_data_ready_dependency, _scanner_done_dependency,
+                                 _finish_dependency);
     return Status::OK();
 }
 
@@ -1290,9 +1292,9 @@ Dependency* ScanOperatorX<LocalStateType>::wait_for_dependency(RuntimeState* sta
 }
 
 template <typename LocalStateType>
-bool ScanOperatorX<LocalStateType>::is_pending_finish(RuntimeState* state) const {
+FinishDependency* ScanOperatorX<LocalStateType>::finish_blocked_by(RuntimeState* state) const {
     auto& local_state = state->get_local_state(id())->template cast<LocalStateType>();
-    return local_state._scanner_ctx && !local_state._scanner_ctx->no_schedule();
+    return local_state._finish_dependency->finish_blocked_by();
 }
 
 template <typename LocalStateType>

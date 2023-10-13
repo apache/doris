@@ -30,6 +30,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h" // LOG
+#include "common/status.h"
 #include "gutil/port.h"
 #include "io/fs/file_writer.h"
 #include "olap/data_dir.h"
@@ -602,8 +603,8 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                 auto default_value = _tablet_schema->column(cids_missing[i]).default_value();
                 vectorized::ReadBuffer rb(const_cast<char*>(default_value.c_str()),
                                           default_value.size());
-                old_value_block.get_by_position(i).type->from_string(
-                        rb, mutable_default_value_columns[i].get());
+                static_cast<void>(old_value_block.get_by_position(i).type->from_string(
+                        rb, mutable_default_value_columns[i].get()));
             }
         }
     }

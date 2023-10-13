@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/status.h"
 #include "http/action/check_rpc_channel_action.h"
 #include "http/action/check_tablet_segment_action.h"
 #include "http/action/checksum_action.h"
@@ -150,10 +151,10 @@ Status HttpService::start() {
                                       tablet_migration_action);
 
     // register pprof actions
-    PprofActions::setup(_env, _ev_http_server.get(), _pool);
+    static_cast<void>(PprofActions::setup(_env, _ev_http_server.get(), _pool));
 
     // register jeprof actions
-    JeprofileActions::setup(_env, _ev_http_server.get(), _pool);
+    static_cast<void>(JeprofileActions::setup(_env, _ev_http_server.get(), _pool));
 
     // register metrics
     {

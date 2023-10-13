@@ -1076,7 +1076,22 @@ suite("test_stream_load", "p0") {
         }
 
         do_streamload_2pc.call(label, "commit")
-        sleep(60)
+        
+        def count = 0
+        while (true) {
+            res = sql "select count(*) from ${tableName15}"
+            if (res[0][0] > 0) {
+                break
+            }
+            if (count >= 60) {
+                log.error("stream load commit can not visible for long time")
+                assertEquals(2, res[0][0])
+                break
+            }
+            sleep(1000)
+            count++
+        }
+
         qt_sql_2pc_commit "select * from ${tableName15} order by k1"
     } finally {
         sql """ DROP TABLE IF EXISTS ${tableName15} FORCE"""

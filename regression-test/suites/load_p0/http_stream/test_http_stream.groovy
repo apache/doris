@@ -540,7 +540,7 @@ suite("test_http_stream", "p0") {
         streamLoad {
             set 'version', '1'
             set 'sql', """
-                    insert into ${db}.${tableName12} (id, name) select c1, c2 from http_stream("format"="csv", "line_delimiter"="||")
+                    insert into ${db}.${tableName12} (id, name) select c1, c2 from http_stream("format"="csv", "line_delimiter"="||", "column_separator" = ",")
                     """
             time 10000
             file 'test_http_stream_line_delimiter.csv'

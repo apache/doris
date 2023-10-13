@@ -140,7 +140,7 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
                             ctx->status = *status;
                             this->rollback_txn(ctx.get());
                         } else {
-                            this->commit_txn(ctx.get());
+                            static_cast<void>(this->commit_txn(ctx.get()));
                         }
                     }
                 });
@@ -213,7 +213,7 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
                             ctx->status = *status;
                             this->rollback_txn(ctx.get());
                         } else {
-                            this->commit_txn(ctx.get());
+                            static_cast<void>(this->commit_txn(ctx.get()));
                         }
                     }
                 });

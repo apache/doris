@@ -29,6 +29,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.TreeNode;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.thrift.TExprNode;
 
 import com.google.common.base.Joiner;
@@ -142,6 +143,11 @@ public class AnalyticExpr extends Expr {
 
     public AnalyticWindow getWindow() {
         return window;
+    }
+
+    @Override
+    protected String getExprName() {
+        return Utils.normalizeName(getFnCall().getExprName(), DEFAULT_EXPR_NAME);
     }
 
     @Override

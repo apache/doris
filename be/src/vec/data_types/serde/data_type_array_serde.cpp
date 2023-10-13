@@ -31,15 +31,16 @@ namespace doris {
 namespace vectorized {
 class Arena;
 
-void DataTypeArraySerDe::serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
-                                                  BufferWritable& bw,
-                                                  FormatOptions& options) const {
-    SERIALIZE_COLUMN_TO_JSON()
+Status DataTypeArraySerDe::serialize_column_to_json(const IColumn& column, int start_idx,
+                                                    int end_idx, BufferWritable& bw,
+                                                    FormatOptions& options,
+                                                    int nesting_level) const {
+    SERIALIZE_COLUMN_TO_JSON();
 }
 
-void DataTypeArraySerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
-                                                    BufferWritable& bw,
-                                                    FormatOptions& options) const {
+Status DataTypeArraySerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+                                                      BufferWritable& bw, FormatOptions& options,
+                                                      int nesting_level) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -57,8 +58,10 @@ void DataTypeArraySerDe::serialize_one_cell_to_json(const IColumn& column, int r
     //  add ' ' to keep same with origin format with array
     options.field_delim = options.collection_delim;
     options.field_delim += " ";
-    nested_serde->serialize_column_to_json(nested_column, offset, next_offset, bw, options);
+    RETURN_IF_ERROR(nested_serde->serialize_column_to_json(nested_column, offset, next_offset, bw,
+                                                           options, nesting_level + 1));
     bw.write("]", 1);
+    return Status::OK();
 }
 
 Status DataTypeArraySerDe::deserialize_column_from_json_vector(IColumn& column,
@@ -338,8 +341,9 @@ Status DataTypeArraySerDe::write_column_to_orc(const IColumn& column, const Null
         size_t next_offset = offsets[row_id];
 
         if (cur_batch->notNull[row_id] == 1) {
-            nested_serde->write_column_to_orc(nested_column, nullptr, cur_batch->elements.get(),
-                                              offset, next_offset, buffer_list);
+            static_cast<void>(nested_serde->write_column_to_orc(nested_column, nullptr,
+                                                                cur_batch->elements.get(), offset,
+                                                                next_offset, buffer_list));
         }
 
         cur_batch->offsets[row_id + 1] = next_offset;

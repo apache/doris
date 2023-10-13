@@ -149,9 +149,11 @@ public:
             const DataTypePtr& nested_data_type =
                     static_cast<const DataTypeNullable*>(data_type.get())->get_nested_type();
             WhichDataType nested_which(nested_data_type);
-            execute_internal<true>(column, data_type, column_result, compression);
+            static_cast<void>(
+                    execute_internal<true>(column, data_type, column_result, compression));
         } else {
-            execute_internal<false>(column, data_type, column_result, compression);
+            static_cast<void>(
+                    execute_internal<false>(column, data_type, column_result, compression));
         }
         if (status.ok()) {
             block.replace_by_position(result, std::move(column_result));

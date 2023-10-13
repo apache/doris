@@ -539,7 +539,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     private Statistics computeAssertNumRows(long desiredNumOfRows) {
         Statistics statistics = groupExpression.childStatistics(0);
-        statistics.withRowCount(Math.min(1, statistics.getRowCount()));
+        statistics.withRowCountAndEnforceValid(Math.min(1, statistics.getRowCount()));
         return statistics;
     }
 
@@ -657,7 +657,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     private Statistics computeTopN(TopN topN) {
         Statistics stats = groupExpression.childStatistics(0);
-        return stats.withRowCount(Math.min(stats.getRowCount(), topN.getLimit()));
+        return stats.withRowCountAndEnforceValid(Math.min(stats.getRowCount(), topN.getLimit()));
     }
 
     private Statistics computePartitionTopN(PartitionTopN partitionTopN) {
@@ -690,12 +690,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         // TODO: for the filter push down window situation, we will prune the row count twice
         //  because we keep the pushed down filter. And it will be calculated twice, one of them in 'PartitionTopN'
         //  and the other is in 'Filter'. It's hard to dismiss.
-        return childStats.updateRowCountOnly(rowCount);
+        return childStats.withRowCountAndEnforceValid(rowCount);
     }
 
     private Statistics computeLimit(Limit limit) {
         Statistics stats = groupExpression.childStatistics(0);
-        return stats.withRowCount(Math.min(stats.getRowCount(), limit.getLimit()));
+        return stats.withRowCountAndEnforceValid(Math.min(stats.getRowCount(), limit.getLimit()));
     }
 
     private double estimateGroupByRowCount(List<Expression> groupByExpressions, Statistics childStats) {
@@ -878,7 +878,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         for (int i = 1; i < setOperation.getArity(); ++i) {
             rowCount = Math.min(rowCount, groupExpression.childStatistics(i).getRowCount());
         }
-        double minProd = Double.MAX_VALUE;
+        double minProd = Double.POSITIVE_INFINITY;
         for (Group group : groupExpression.children()) {
             Statistics statistics = group.getStatistics();
             double prod = 1.0;
@@ -896,7 +896,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             leftChildStats.addColumnStats(outputs.get(i),
                     leftChildStats.findColumnStatistics(leftChildOutputs.get(i)));
         }
-        return leftChildStats.withRowCount(rowCount);
+        return leftChildStats.withRowCountAndEnforceValid(rowCount);
     }
 
     private Statistics computeGenerate(Generate generate) {
@@ -910,8 +910,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         for (Slot output : generate.getGeneratorOutput()) {
             ColumnStatistic columnStatistic = new ColumnStatisticBuilder()
                     .setCount(count)
-                    .setMinValue(Double.MAX_VALUE)
-                    .setMaxValue(Double.MIN_VALUE)
+                    .setMinValue(Double.NEGATIVE_INFINITY)
+                    .setMaxValue(Double.POSITIVE_INFINITY)
                     .setNdv(count)
                     .setNumNulls(0)
                     .setAvgSizeByte(output.getDataType().width())

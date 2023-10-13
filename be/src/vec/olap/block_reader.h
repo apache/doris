@@ -111,7 +111,7 @@ private:
     std::vector<IteratorRowRef> _stored_row_ref;
 
     std::vector<bool> _stored_has_null_tag;
-    std::vector<bool> _stored_has_string_tag;
+    std::vector<bool> _stored_has_variable_length_tag;
 
     phmap::flat_hash_map<const Block*, std::vector<std::pair<int, int>>> _temp_ref_map;
 

@@ -78,7 +78,7 @@ public:
     UnionSourceLocalState(RuntimeState* state, OperatorXBase* parent) : Base(state, parent) {};
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
-    std::shared_ptr<DataQueue> data_queue();
+    std::shared_ptr<DataQueue> create_data_queue();
 
 private:
     friend class UnionSourceOperatorX;
@@ -121,7 +121,7 @@ public:
     }
 
     Status prepare(RuntimeState* state) override {
-        Base::prepare(state);
+        static_cast<void>(Base::prepare(state));
         // Prepare const expr lists.
         for (const vectorized::VExprContextSPtrs& exprs : _const_expr_lists) {
             RETURN_IF_ERROR(vectorized::VExpr::prepare(exprs, state, _row_descriptor));
@@ -129,14 +129,14 @@ public:
         return Status::OK();
     }
     Status open(RuntimeState* state) override {
-        Base::open(state);
+        static_cast<void>(Base::open(state));
         // open const expr lists.
         for (const auto& exprs : _const_expr_lists) {
             RETURN_IF_ERROR(vectorized::VExpr::open(exprs, state));
         }
         return Status::OK();
     }
-    int get_child_count() const { return _child_size; }
+    [[nodiscard]] int get_child_count() const { return _child_size; }
 
 private:
     bool _has_data(RuntimeState* state) {

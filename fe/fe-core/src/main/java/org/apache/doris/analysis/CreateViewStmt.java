@@ -81,7 +81,7 @@ public class CreateViewStmt extends BaseViewStmt {
             viewDefStmt.forbiddenMVRewrite();
             viewDefStmt.analyze(viewAnalyzer);
 
-            createColumnAndViewDefs(analyzer);
+            createColumnAndViewDefs(viewAnalyzer);
         } finally {
             // must reset this flag, otherwise, all following query statement in this connection
             // will not do constant fold for nondeterministic functions.

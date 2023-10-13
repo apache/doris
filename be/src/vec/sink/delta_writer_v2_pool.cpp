@@ -58,7 +58,9 @@ Status DeltaWriterV2Map::close() {
 }
 
 void DeltaWriterV2Map::cancel(Status status) {
-    _map.for_each([&status](auto& entry) { entry.second->cancel_with_status(status); });
+    _map.for_each([&status](auto& entry) {
+        static_cast<void>(entry.second->cancel_with_status(status));
+    });
 }
 
 DeltaWriterV2Pool::DeltaWriterV2Pool() = default;

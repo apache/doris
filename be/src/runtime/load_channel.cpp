@@ -196,7 +196,7 @@ bool LoadChannel::is_finished() {
 Status LoadChannel::cancel() {
     std::lock_guard<std::mutex> l(_lock);
     for (auto& it : _tablets_channels) {
-        it.second->cancel();
+        static_cast<void>(it.second->cancel());
     }
     return Status::OK();
 }

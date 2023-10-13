@@ -79,7 +79,7 @@ LocalFileWriter::LocalFileWriter(Path path, int fd)
 
 LocalFileWriter::~LocalFileWriter() {
     if (_opened) {
-        close();
+        static_cast<void>(close());
     }
     CHECK(!_opened || _closed) << "open: " << _opened << ", closed: " << _closed;
 }

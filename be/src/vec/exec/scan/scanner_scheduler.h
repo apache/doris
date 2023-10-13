@@ -115,6 +115,10 @@ private:
     // true is the scheduler is closed.
     std::atomic_bool _is_closed = {false};
     bool _is_init = false;
+
+    int _core_num = CpuInfo::num_cores();
+    int _total_query_thread_num =
+            config::doris_scanner_thread_pool_thread_num + config::pipeline_executor_size;
 };
 
 } // namespace doris::vectorized

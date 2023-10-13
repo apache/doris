@@ -156,7 +156,8 @@ public:
         for (size_t i = 0; i < argument_size && remaining_rows; ++i) {
             temporary_block.get_by_position(0).column =
                     block.get_by_position(filtered_args[i]).column;
-            func_is_not_null->execute(context, temporary_block, {0}, 1, input_rows_count);
+            static_cast<void>(
+                    func_is_not_null->execute(context, temporary_block, {0}, 1, input_rows_count));
 
             auto res_column =
                     (*temporary_block.get_by_position(1).column->convert_to_full_column_if_const())

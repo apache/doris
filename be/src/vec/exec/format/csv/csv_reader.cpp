@@ -294,7 +294,8 @@ Status CsvReader::init_reader(bool is_load) {
     }
 
     if (_params.file_type == TFileType::FILE_STREAM) {
-        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader, _state));
+        RETURN_IF_ERROR(
+                FileFactory::create_pipe_reader(_range.load_id, &_file_reader, _state, false));
     } else {
         _file_description.mtime = _range.__isset.modification_time ? _range.modification_time : 0;
         io::FileReaderOptions reader_options =
@@ -480,7 +481,6 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
             RETURN_IF_ERROR(_validate_line(Slice(ptr, size), &success));
             ++rows;
         }
-
         for (auto& col : block->mutate_columns()) {
             col->resize(rows);
         }
@@ -669,10 +669,10 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
             // So we use deserialize_nullable_string and stringSerDe to reduce virtual function calls.
             switch (_text_serde_type) {
             case TTextSerdeType::JSON_TEXT_SERDE:
-                deserialize_nullable_string<true>(*col_ptr, slice);
+                static_cast<void>(deserialize_nullable_string<true>(*col_ptr, slice));
                 break;
             case TTextSerdeType::HIVE_TEXT_SERDE:
-                deserialize_nullable_string<false>(*col_ptr, slice);
+                static_cast<void>(deserialize_nullable_string<false>(*col_ptr, slice));
                 break;
             default:
                 break;
@@ -680,10 +680,12 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
         } else {
             switch (_text_serde_type) {
             case TTextSerdeType::JSON_TEXT_SERDE:
-                _serdes[i]->deserialize_one_cell_from_json(*col_ptr, slice, _options);
+                static_cast<void>(
+                        _serdes[i]->deserialize_one_cell_from_json(*col_ptr, slice, _options));
                 break;
             case TTextSerdeType::HIVE_TEXT_SERDE:
-                _serdes[i]->deserialize_one_cell_from_hive_text(*col_ptr, slice, _options);
+                static_cast<void>(
+                        _serdes[i]->deserialize_one_cell_from_hive_text(*col_ptr, slice, _options));
                 break;
             default:
                 break;
@@ -823,7 +825,9 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
     io::FileReaderOptions reader_options =
             FileFactory::get_reader_options(_state, _file_description);
     if (_params.file_type == TFileType::FILE_STREAM) {
-        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_params.load_id, &_file_reader, _state));
+        // Due to http_stream needs to pre read a portion of the data to parse column information, so it is set to true here
+        RETURN_IF_ERROR(
+                FileFactory::create_pipe_reader(_params.load_id, &_file_reader, _state, true));
     } else {
         RETURN_IF_ERROR(FileFactory::create_file_reader(_system_properties, _file_description,
                                                         reader_options, &_file_system,
@@ -957,7 +961,7 @@ void CsvReader::close() {
     }
 
     if (_file_reader) {
-        _file_reader->close();
+        static_cast<void>(_file_reader->close());
     }
 }
 

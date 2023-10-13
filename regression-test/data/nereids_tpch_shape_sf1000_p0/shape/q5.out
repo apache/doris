@@ -30,7 +30,7 @@ PhysicalResultSink
 ----------------------------------------filter((region.r_name = 'ASIA'))
 ------------------------------------------PhysicalOlapScan[region]
 ------------------------PhysicalProject
---------------------------filter((orders.o_orderdate < 1995-01-01) and (orders.o_orderdate >= 1994-01-01))
+--------------------------filter((orders.o_orderdate < '1995-01-01') and (orders.o_orderdate >= '1994-01-01'))
 ----------------------------PhysicalOlapScan[orders]
 ------------------PhysicalDistribute
 --------------------PhysicalProject

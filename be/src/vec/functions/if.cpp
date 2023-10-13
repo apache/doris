@@ -450,7 +450,8 @@ public:
             temporary_block.insert(
                     {nullptr, std::make_shared<DataTypeUInt8>(), "result_column_null_map"});
 
-            execute_impl(context, temporary_block, {0, 1, 2}, 3, temporary_block.rows());
+            static_cast<void>(
+                    execute_impl(context, temporary_block, {0, 1, 2}, 3, temporary_block.rows()));
 
             result_null_mask = temporary_block.get_by_position(3).column;
         }
@@ -464,7 +465,8 @@ public:
                      {get_nested_column(arg_else.column), remove_nullable(arg_else.type), ""},
                      {nullptr, remove_nullable(block.get_by_position(result).type), ""}});
 
-            execute_impl(context, temporary_block, {0, 1, 2}, 3, temporary_block.rows());
+            static_cast<void>(
+                    execute_impl(context, temporary_block, {0, 1, 2}, 3, temporary_block.rows()));
 
             result_nested_column = temporary_block.get_by_position(3).column;
         }
@@ -503,7 +505,8 @@ public:
             block.insert({nullable->get_nested_column_ptr(), remove_nullable(arg_cond.type),
                           arg_cond.name});
 
-            execute_impl(context, block, {column_size, arguments[1], arguments[2]}, result, rows);
+            static_cast<void>(execute_impl(
+                    context, block, {column_size, arguments[1], arguments[2]}, result, rows));
             return true;
         }
         return false;

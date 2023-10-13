@@ -71,5 +71,17 @@ protected:
     Status _decode_string(MutableColumnPtr& doris_column, ColumnSelectVector& select_vector);
 
     tparquet::Type::type _physical_type;
+
+private:
+    template <typename DecimalPrimitiveType, bool has_filter, int fixed_type_length,
+              typename ValueCopyType, DecimalScaleParams::ScaleType ScaleType>
+    Status _decode_binary_decimal_internal(MutableColumnPtr& doris_column, DataTypePtr& data_type,
+                                           ColumnSelectVector& select_vector);
+    template <typename DecimalPrimitiveType, typename DecimalPhysicalType, bool has_filter,
+              int fixed_type_length, typename ValueCopyType,
+              DecimalScaleParams::ScaleType ScaleType>
+    Status _decode_primitive_decimal_internal(MutableColumnPtr& doris_column,
+                                              DataTypePtr& data_type,
+                                              ColumnSelectVector& select_vector);
 };
 } // namespace doris::vectorized

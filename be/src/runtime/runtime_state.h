@@ -151,10 +151,7 @@ public:
                _query_options.enable_common_expr_pushdown;
     }
 
-    Status query_status() {
-        std::lock_guard<std::mutex> l(_process_status_lock);
-        return _process_status;
-    }
+    Status query_status();
 
     // Appends error to the _error_log if there is space
     bool log_error(const std::string& error);
@@ -359,10 +356,7 @@ public:
         return _query_options.__isset.skip_delete_bitmap && _query_options.skip_delete_bitmap;
     }
 
-    bool enable_page_cache() const {
-        return !config::disable_storage_page_cache &&
-               (_query_options.__isset.enable_page_cache && _query_options.enable_page_cache);
-    }
+    bool enable_page_cache() const;
 
     int partitioned_hash_join_rows_threshold() const {
         if (!_query_options.__isset.partitioned_hash_join_rows_threshold) {

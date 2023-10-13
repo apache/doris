@@ -55,6 +55,7 @@
 #endif
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "bvar/bvar.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
 #include "common/object_pool.h"
@@ -97,6 +98,13 @@ namespace doris {
 class TExpr;
 
 namespace vectorized {
+
+bvar::Adder<int64_t> g_sink_write_bytes;
+bvar::PerSecond<bvar::Adder<int64_t>> g_sink_write_bytes_per_second("sink_throughput_byte",
+                                                                    &g_sink_write_bytes, 60);
+bvar::Adder<int64_t> g_sink_write_rows;
+bvar::PerSecond<bvar::Adder<int64_t>> g_sink_write_rows_per_second("sink_throughput_row",
+                                                                   &g_sink_write_rows, 60);
 
 Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPartition>& tablets) {
     SCOPED_CONSUME_MEM_TRACKER(_index_channel_tracker.get());
@@ -1494,7 +1502,7 @@ Status VTabletWriter::close(Status exec_status) {
     SCOPED_TIMER(_close_timer);
     SCOPED_TIMER(_profile->total_time_counter());
 
-    try_close(_state, exec_status);
+    static_cast<void>(try_close(_state, exec_status));
 
     // If _close_status is not ok, all nodes have been canceled in try_close.
     if (_close_status.ok()) {
@@ -1632,7 +1640,7 @@ Status VTabletWriter::close(Status exec_status) {
     }
 
     if (_wal_writer.get() != nullptr) {
-        _wal_writer->finalize();
+        static_cast<void>(_wal_writer->finalize());
     }
     return _close_status;
 }
@@ -1683,10 +1691,10 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
     } else {
         // if there's projection of partition calc, we need to calc it first.
         auto [part_ctx, part_func] = _get_partition_function();
-        int result_idx;
+        int result_idx = -1;
         if (_vpartition->is_projection_partition()) {
             // calc the start value of missing partition ranges.
-            part_func->execute(part_ctx.get(), block.get(), &result_idx);
+            RETURN_IF_ERROR(part_func->execute(part_ctx.get(), block.get(), &result_idx));
             VLOG_DEBUG << "Partition-calculated block:" << block->dump_data();
             // change the column to compare to transformed.
             _vpartition->set_transformed_slots({(uint16_t)result_idx});
@@ -1822,6 +1830,9 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
     for (const auto& index_channel : _channels) {
         RETURN_IF_ERROR(index_channel->check_intolerable_failure());
     }
+
+    g_sink_write_bytes << bytes;
+    g_sink_write_rows << rows;
     return Status::OK();
 }
 
@@ -1860,7 +1871,8 @@ void VTabletWriter::_group_commit_block(vectorized::Block* input_block, int64_t 
                                         vectorized::Block* block,
                                         OlapTableBlockConvertor* block_convertor,
                                         OlapTabletFinder* tablet_finder) {
-    write_wal(block_convertor, tablet_finder, block, state, num_rows, filter_rows);
+    static_cast<void>(
+            write_wal(block_convertor, tablet_finder, block, state, num_rows, filter_rows));
 #ifndef BE_TEST
     auto* future_block = assert_cast<FutureBlock*>(input_block);
     std::unique_lock<doris::Mutex> l(*(future_block->lock));

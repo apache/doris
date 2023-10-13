@@ -309,7 +309,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         } else {
             decommissionTime = -1;
             if (code == SubCode.WAITING_SLOT && type != Type.BALANCE) {
-                return failedSchedCounter > 30 * 1000 / FeConstants.tablet_schedule_interval_ms;
+                return failedSchedCounter > 30 * 1000 / Config.tablet_schedule_interval_ms;
             } else {
                 return failedSchedCounter > 10;
             }
@@ -1221,7 +1221,11 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
         // repair tasks always prior than balance
         if (type == Type.BALANCE) {
-            value += 10 * 24 * 3600L;
+            value += 5 * 3600 * 1000L;  // 5 hour
+        }
+
+        if (tabletStatus == TabletStatus.NEED_FURTHER_REPAIR) {
+            value -= 3600 * 1000L;  // 1 hour
         }
 
         return value;

@@ -289,7 +289,7 @@ Status EngineStorageMigrationTask::_migrate() {
 
     if (!res.ok()) {
         // we should remove the dir directly for avoid disk full of junk data, and it's safe to remove
-        io::global_local_filesystem()->delete_directory(full_path);
+        static_cast<void>(io::global_local_filesystem()->delete_directory(full_path));
     }
     return res;
 }

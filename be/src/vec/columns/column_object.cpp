@@ -84,21 +84,8 @@ size_t getNumberOfDimensions(const IDataType& type) {
 }
 
 DataTypePtr get_data_type_by_column(const IColumn& column) {
-    auto idx = column.get_data_type();
-    if (WhichDataType(idx).is_simple()) {
-        return DataTypeFactory::instance().create_data_type(idx);
-    }
-    if (WhichDataType(idx).is_nothing()) {
-        return std::make_shared<DataTypeNothing>();
-    }
-    if (const auto* column_array = check_and_get_column<ColumnArray>(&column)) {
-        return std::make_shared<DataTypeArray>(get_data_type_by_column(column_array->get_data()));
-    }
-    if (const auto* column_nullable = check_and_get_column<ColumnNullable>(&column)) {
-        return make_nullable(get_data_type_by_column(column_nullable->get_nested_column()));
-    }
-    // TODO add more types
-    assert(false);
+    // Removed in the future PR
+    // assert(false);
     return nullptr;
 }
 
@@ -446,11 +433,12 @@ void ColumnObject::Subcolumn::finalize() {
             part->get_indices_of_non_default_rows(offsets_data, 0, part_size);
             if (offsets->size() == part_size) {
                 ColumnPtr ptr;
-                schema_util::cast_column({part, from_type, ""}, to_type, &ptr);
+                static_cast<void>(schema_util::cast_column({part, from_type, ""}, to_type, &ptr));
                 part = ptr;
             } else {
                 auto values = part->index(*offsets, offsets->size());
-                schema_util::cast_column({values, from_type, ""}, to_type, &values);
+                static_cast<void>(
+                        schema_util::cast_column({values, from_type, ""}, to_type, &values));
                 part = values->create_with_offsets(offsets_data, to_type->get_default(), part_size,
                                                    /*shift=*/0);
             }
@@ -622,7 +610,7 @@ void ColumnObject::try_insert_from(const IColumn& src, size_t n) {
 
 void ColumnObject::try_insert(const Field& field) {
     const auto& object = field.get<const VariantMap&>();
-    phmap::flat_hash_set<StringRef, StringRefHash> inserted;
+    phmap::flat_hash_set<std::string> inserted;
     size_t old_size = size();
     for (const auto& [key_str, value] : object) {
         PathInData key(key_str);

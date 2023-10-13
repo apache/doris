@@ -26,7 +26,7 @@ WalReader::WalReader(RuntimeState* state) : _state(state) {
 }
 WalReader::~WalReader() {
     if (_wal_reader.get() != nullptr) {
-        _wal_reader->finalize();
+        static_cast<void>(_wal_reader->finalize());
     }
 }
 Status WalReader::init_reader() {
@@ -48,7 +48,7 @@ Status WalReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
         return st;
     }
     vectorized::Block tmp_block;
-    tmp_block.deserialize(pblock);
+    static_cast<void>(tmp_block.deserialize(pblock));
     block->swap(tmp_block);
     *read_rows = block->rows();
     VLOG_DEBUG << "read block rows:" << *read_rows;

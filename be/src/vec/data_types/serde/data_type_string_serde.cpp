@@ -33,21 +33,29 @@ namespace doris {
 namespace vectorized {
 class Arena;
 
-void DataTypeStringSerDe::serialize_column_to_json(const IColumn& column, int start_idx,
-                                                   int end_idx, BufferWritable& bw,
-                                                   FormatOptions& options) const {
-    SERIALIZE_COLUMN_TO_JSON()
+Status DataTypeStringSerDe::serialize_column_to_json(const IColumn& column, int start_idx,
+                                                     int end_idx, BufferWritable& bw,
+                                                     FormatOptions& options,
+                                                     int nesting_level) const {
+    SERIALIZE_COLUMN_TO_JSON();
 }
 
-void DataTypeStringSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
-                                                     BufferWritable& bw,
-                                                     FormatOptions& options) const {
+Status DataTypeStringSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+                                                       BufferWritable& bw, FormatOptions& options,
+                                                       int nesting_level) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
+    if (nesting_level > 1) {
+        bw.write('"');
+    }
     const auto& value = assert_cast<const ColumnString&>(*ptr).get_data_at(row_num);
     bw.write(value.data, value.size);
+    if (nesting_level > 1) {
+        bw.write('"');
+    }
+    return Status::OK();
 }
 
 Status DataTypeStringSerDe::deserialize_column_from_json_vector(IColumn& column,

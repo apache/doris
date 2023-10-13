@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.ExportStmt;
 import org.apache.doris.analysis.SetStmt;
 import org.apache.doris.analysis.ShowVariablesStmt;
 import org.apache.doris.common.CaseSensibility;
@@ -28,14 +27,9 @@ import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.VariableAnnotation;
 import org.apache.doris.common.util.ProfileManager;
-import org.apache.doris.common.util.RuntimeProfile;
-import org.apache.doris.load.ExportJob;
-import org.apache.doris.load.ExportJobState;
-import org.apache.doris.task.ExportExportingTask;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.utframe.TestWithFeService;
 
-import mockit.Expectations;
 import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -161,73 +155,5 @@ public class SessionVariablesTest extends TestWithFeService {
         sessionVariable.setForwardedSessionVariables(queryOptions);
         Assertions.assertEquals(123, sessionVariable.getQueryTimeoutS());
         Assertions.assertEquals(123, sessionVariable.getInsertTimeoutS());
-    }
-
-    @Test
-    public void testEnableProfile() {
-        try {
-            SetStmt setStmt = (SetStmt) parseAndAnalyzeStmt("set enable_profile=true", connectContext);
-            SetExecutor setExecutor = new SetExecutor(connectContext, setStmt);
-            setExecutor.execute();
-
-            ExportStmt exportStmt = (ExportStmt)
-                    parseAndAnalyzeStmt("EXPORT TABLE test_d.test_t1 TO \"file:///tmp/test_t1\"", connectContext);
-            ExportJob job = exportStmt.getExportJob();
-            job.setId(1234);
-
-            new Expectations(job) {
-                {
-                    job.getState();
-                    minTimes = 0;
-                    result = ExportJobState.EXPORTING;
-                }
-            };
-
-            ExportExportingTask task = new ExportExportingTask(job);
-            task.run();
-            Assertions.assertTrue(job.isFinalState());
-        } catch (Exception e) {
-            e.printStackTrace();
-            Assertions.fail(e.getMessage());
-        }
-    }
-
-    @Test
-    public void testDisableProfile() {
-        try {
-            connectContext.setThreadLocalInfo();
-            SetStmt setStmt = (SetStmt) parseAndAnalyzeStmt("set enable_profile=false", connectContext);
-            SetExecutor setExecutor = new SetExecutor(connectContext, setStmt);
-            setExecutor.execute();
-
-            ExportStmt exportStmt = (ExportStmt)
-                    parseAndAnalyzeStmt("EXPORT TABLE test_d.test_t1 TO \"file:///tmp/test_t1\"", connectContext);
-            ExportJob job = exportStmt.getExportJob();
-            job.setId(1234);
-
-            new Expectations(job) {
-                {
-                    job.getState();
-                    minTimes = 0;
-                    result = ExportJobState.EXPORTING;
-                }
-            };
-
-            new Expectations(profileManager) {
-                {
-                    profileManager.pushProfile((RuntimeProfile) any);
-                    // if enable_profile=false, method pushProfile will not be called
-                    times = 0;
-                }
-            };
-
-            ExportExportingTask task = new ExportExportingTask(job);
-            task.run();
-            Assertions.assertTrue(job.isFinalState());
-        } catch (Exception e) {
-            e.printStackTrace();
-            Assertions.fail(e.getMessage());
-        }
-
     }
 }

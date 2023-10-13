@@ -112,7 +112,7 @@ Status VMetaScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
             }
         }
         // fill block
-        _fill_block_with_remote_data(columns);
+        static_cast<void>(_fill_block_with_remote_data(columns));
         if (_meta_eos == true) {
             if (block->rows() == 0) {
                 *eof = true;
@@ -230,6 +230,9 @@ Status VMetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
         break;
     case TMetadataType::CATALOGS:
         RETURN_IF_ERROR(_build_catalogs_metadata_request(meta_scan_range, &request));
+        break;
+    case TMetadataType::QUERIES:
+        RETURN_IF_ERROR(_build_queries_metadata_request(meta_scan_range, &request));
         break;
     default:
         _meta_eos = true;
@@ -367,6 +370,25 @@ Status VMetaScanner::_build_catalogs_metadata_request(const TMetaScanRange& meta
     // create TMetadataTableRequestParams
     TMetadataTableRequestParams metadata_table_params;
     metadata_table_params.__set_metadata_type(TMetadataType::CATALOGS);
+
+    request->__set_metada_table_params(metadata_table_params);
+    return Status::OK();
+}
+
+Status VMetaScanner::_build_queries_metadata_request(const TMetaScanRange& meta_scan_range,
+                                                     TFetchSchemaTableDataRequest* request) {
+    VLOG_CRITICAL << "VMetaScanner::_build_queries_metadata_request";
+    if (!meta_scan_range.__isset.queries_params) {
+        return Status::InternalError("Can not find TQueriesMetadataParams from meta_scan_range.");
+    }
+    // create request
+    request->__set_cluster_name("");
+    request->__set_schema_table_name(TSchemaTableName::METADATA_TABLE);
+
+    // create TMetadataTableRequestParams
+    TMetadataTableRequestParams metadata_table_params;
+    metadata_table_params.__set_metadata_type(TMetadataType::QUERIES);
+    metadata_table_params.__set_queries_metadata_params(meta_scan_range.queries_params);
 
     request->__set_metada_table_params(metadata_table_params);
     return Status::OK();

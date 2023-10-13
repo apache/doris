@@ -540,6 +540,19 @@ public class StatisticsUtil {
     }
 
     /**
+     * Get total size parameter from HMS.
+     * @param table Hive HMSExternalTable to get HMS total size parameter.
+     * @return Long value of table total size, return 0 if not found.
+     */
+    public static long getTotalSizeFromHMS(HMSExternalTable table) {
+        Map<String, String> parameters = table.getRemoteTable().getParameters();
+        if (parameters == null) {
+            return 0;
+        }
+        return parameters.containsKey(TOTAL_SIZE) ? Long.parseLong(parameters.get(TOTAL_SIZE)) : 0;
+    }
+
+    /**
      * Estimate iceberg table row count.
      * Get the row count by adding all task file recordCount.
      *
@@ -574,50 +587,13 @@ public class StatisticsUtil {
         if (table.isView()) {
             return 0;
         }
-        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                .getMetaStoreCache((HMSExternalCatalog) table.getCatalog());
-        List<Type> partitionColumnTypes = table.getPartitionColumnTypes();
-        HiveMetaStoreCache.HivePartitionValues partitionValues = null;
-        List<HivePartition> hivePartitions = Lists.newArrayList();
-        int samplePartitionSize = Config.hive_stats_partition_sample_size;
-        int totalPartitionSize = 1;
-        // Get table partitions from cache.
-        if (!partitionColumnTypes.isEmpty()) {
-            // It is ok to get partition values from cache,
-            // no need to worry that this call will invalid or refresh the cache.
-            // because it has enough space to keep partition info of all tables in cache.
-            partitionValues = cache.getPartitionValues(table.getDbName(), table.getName(), partitionColumnTypes);
-        }
-        if (partitionValues != null) {
-            Map<Long, PartitionItem> idToPartitionItem = partitionValues.getIdToPartitionItem();
-            totalPartitionSize = idToPartitionItem.size();
-            Collection<PartitionItem> partitionItems;
-            List<List<String>> partitionValuesList;
-            // If partition number is too large, randomly choose part of them to estimate the whole table.
-            if (samplePartitionSize < totalPartitionSize) {
-                List<PartitionItem> items = new ArrayList<>(idToPartitionItem.values());
-                Collections.shuffle(items);
-                partitionItems = items.subList(0, samplePartitionSize);
-                partitionValuesList = Lists.newArrayListWithCapacity(samplePartitionSize);
-            } else {
-                partitionItems = idToPartitionItem.values();
-                partitionValuesList = Lists.newArrayListWithCapacity(totalPartitionSize);
-            }
-            for (PartitionItem item : partitionItems) {
-                partitionValuesList.add(((ListPartitionItem) item).getItems().get(0).getPartitionValuesAsStringList());
-            }
-            // get partitions without cache, so that it will not invalid the cache when executing
-            // non query request such as `show table status`
-            hivePartitions = cache.getAllPartitionsWithoutCache(table.getDbName(), table.getName(),
-                    partitionValuesList);
-        } else {
-            hivePartitions.add(new HivePartition(table.getDbName(), table.getName(), true,
-                    table.getRemoteTable().getSd().getInputFormat(),
-                    table.getRemoteTable().getSd().getLocation(), null));
-        }
+        HiveMetaStoreCache.HivePartitionValues partitionValues = getPartitionValuesForTable(table);
+        int totalPartitionSize = partitionValues == null ? 1 : partitionValues.getIdToPartitionItem().size();
+
         // Get files for all partitions.
-        List<HiveMetaStoreCache.FileCacheValue> filesByPartitions = cache.getFilesByPartitionsWithoutCache(
-                hivePartitions, true);
+        int samplePartitionSize = Config.hive_stats_partition_sample_size;
+        List<HiveMetaStoreCache.FileCacheValue> filesByPartitions
+                = getFilesForPartitions(table, partitionValues, samplePartitionSize);
         long totalSize = 0;
         // Calculate the total file size.
         for (HiveMetaStoreCache.FileCacheValue files : filesByPartitions) {
@@ -639,6 +615,64 @@ public class StatisticsUtil {
         return totalSize / estimatedRowSize;
     }
 
+    public static HiveMetaStoreCache.HivePartitionValues getPartitionValuesForTable(HMSExternalTable table) {
+        if (table.isView()) {
+            return null;
+        }
+        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getMetaStoreCache((HMSExternalCatalog) table.getCatalog());
+        List<Type> partitionColumnTypes = table.getPartitionColumnTypes();
+        HiveMetaStoreCache.HivePartitionValues partitionValues = null;
+        // Get table partitions from cache.
+        if (!partitionColumnTypes.isEmpty()) {
+            // It is ok to get partition values from cache,
+            // no need to worry that this call will invalid or refresh the cache.
+            // because it has enough space to keep partition info of all tables in cache.
+            partitionValues = cache.getPartitionValues(table.getDbName(), table.getName(), partitionColumnTypes);
+        }
+        return partitionValues;
+    }
+
+    public static List<HiveMetaStoreCache.FileCacheValue> getFilesForPartitions(
+            HMSExternalTable table, HiveMetaStoreCache.HivePartitionValues partitionValues, int sampleSize) {
+        if (table.isView()) {
+            return Lists.newArrayList();
+        }
+        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getMetaStoreCache((HMSExternalCatalog) table.getCatalog());
+        List<HivePartition> hivePartitions = Lists.newArrayList();
+        if (partitionValues != null) {
+            Map<Long, PartitionItem> idToPartitionItem = partitionValues.getIdToPartitionItem();
+            int totalPartitionSize = idToPartitionItem.size();
+            Collection<PartitionItem> partitionItems;
+            List<List<String>> partitionValuesList;
+            // If partition number is too large, randomly choose part of them to estimate the whole table.
+            if (sampleSize > 0 && sampleSize < totalPartitionSize) {
+                List<PartitionItem> items = new ArrayList<>(idToPartitionItem.values());
+                Collections.shuffle(items);
+                partitionItems = items.subList(0, sampleSize);
+                partitionValuesList = Lists.newArrayListWithCapacity(sampleSize);
+            } else {
+                partitionItems = idToPartitionItem.values();
+                partitionValuesList = Lists.newArrayListWithCapacity(totalPartitionSize);
+            }
+            for (PartitionItem item : partitionItems) {
+                partitionValuesList.add(((ListPartitionItem) item).getItems().get(0).getPartitionValuesAsStringList());
+            }
+            // get partitions without cache, so that it will not invalid the cache when executing
+            // non query request such as `show table status`
+            hivePartitions = cache.getAllPartitionsWithoutCache(table.getDbName(), table.getName(),
+                partitionValuesList);
+        } else {
+            hivePartitions.add(new HivePartition(table.getDbName(), table.getName(), true,
+                    table.getRemoteTable().getSd().getInputFormat(),
+                    table.getRemoteTable().getSd().getLocation(), null));
+        }
+        // Get files for all partitions.
+        String bindBrokerName = table.getCatalog().bindBrokerName();
+        return cache.getFilesByPartitionsWithoutCache(hivePartitions, true, bindBrokerName);
+    }
+
     /**
      * Get Iceberg column statistics.
      *
@@ -650,8 +684,8 @@ public class StatisticsUtil {
         TableScan tableScan = table.newScan().includeColumnStats();
         ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder();
         columnStatisticBuilder.setCount(0);
-        columnStatisticBuilder.setMaxValue(Double.MAX_VALUE);
-        columnStatisticBuilder.setMinValue(Double.MIN_VALUE);
+        columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
+        columnStatisticBuilder.setMinValue(Double.NEGATIVE_INFINITY);
         columnStatisticBuilder.setDataSize(0);
         columnStatisticBuilder.setAvgSizeByte(0);
         columnStatisticBuilder.setNumNulls(0);

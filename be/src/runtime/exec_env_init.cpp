@@ -148,7 +148,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     init_doris_metrics(store_paths);
     _store_paths = store_paths;
     _user_function_cache = new UserFunctionCache();
-    _user_function_cache->init(doris::config::user_function_dir);
+    static_cast<void>(_user_function_cache->init(doris::config::user_function_dir));
     _external_scan_context_mgr = new ExternalScanContextMgr(this);
     _vstream_mgr = new doris::vectorized::VDataStreamMgr();
     _result_mgr = new ResultBufferMgr();
@@ -160,33 +160,33 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     TimezoneUtils::load_timezone_names();
     TimezoneUtils::load_timezones_to_cache();
 
-    ThreadPoolBuilder("SendBatchThreadPool")
-            .set_min_threads(config::send_batch_thread_pool_thread_num)
-            .set_max_threads(config::send_batch_thread_pool_thread_num)
-            .set_max_queue_size(config::send_batch_thread_pool_queue_size)
-            .build(&_send_batch_thread_pool);
+    static_cast<void>(ThreadPoolBuilder("SendBatchThreadPool")
+                              .set_min_threads(config::send_batch_thread_pool_thread_num)
+                              .set_max_threads(config::send_batch_thread_pool_thread_num)
+                              .set_max_queue_size(config::send_batch_thread_pool_queue_size)
+                              .build(&_send_batch_thread_pool));
 
     init_download_cache_required_components();
 
-    ThreadPoolBuilder("BufferedReaderPrefetchThreadPool")
-            .set_min_threads(16)
-            .set_max_threads(64)
-            .build(&_buffered_reader_prefetch_thread_pool);
+    static_cast<void>(ThreadPoolBuilder("BufferedReaderPrefetchThreadPool")
+                              .set_min_threads(16)
+                              .set_max_threads(64)
+                              .build(&_buffered_reader_prefetch_thread_pool));
 
     // min num equal to fragment pool's min num
     // max num is useless because it will start as many as requested in the past
     // queue size is useless because the max thread num is very large
-    ThreadPoolBuilder("SendReportThreadPool")
-            .set_min_threads(config::fragment_pool_thread_num_min)
-            .set_max_threads(std::numeric_limits<int>::max())
-            .set_max_queue_size(config::fragment_pool_queue_size)
-            .build(&_send_report_thread_pool);
+    static_cast<void>(ThreadPoolBuilder("SendReportThreadPool")
+                              .set_min_threads(config::fragment_pool_thread_num_min)
+                              .set_max_threads(std::numeric_limits<int>::max())
+                              .set_max_queue_size(config::fragment_pool_queue_size)
+                              .build(&_send_report_thread_pool));
 
-    ThreadPoolBuilder("JoinNodeThreadPool")
-            .set_min_threads(config::fragment_pool_thread_num_min)
-            .set_max_threads(std::numeric_limits<int>::max())
-            .set_max_queue_size(config::fragment_pool_queue_size)
-            .build(&_join_node_thread_pool);
+    static_cast<void>(ThreadPoolBuilder("JoinNodeThreadPool")
+                              .set_min_threads(config::fragment_pool_thread_num_min)
+                              .set_max_threads(std::numeric_limits<int>::max())
+                              .set_max_queue_size(config::fragment_pool_queue_size)
+                              .build(&_join_node_thread_pool));
     init_file_cache_factory();
     RETURN_IF_ERROR(init_pipeline_task_scheduler());
     _task_group_manager = new taskgroup::TaskGroupManager();
@@ -216,21 +216,21 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");
     _broker_client_cache->init_metrics("broker");
-    _result_mgr->init();
+    static_cast<void>(_result_mgr->init());
     Status status = _load_path_mgr->init();
     if (!status.ok()) {
         LOG(ERROR) << "Load path mgr init failed. " << status;
         return status;
     }
     _broker_mgr->init();
-    _small_file_mgr->init();
+    static_cast<void>(_small_file_mgr->init());
     status = _scanner_scheduler->init(this);
     if (!status.ok()) {
         LOG(ERROR) << "Scanner scheduler init failed. " << status;
         return status;
     }
 
-    _init_mem_env();
+    static_cast<void>(_init_mem_env());
 
     RETURN_IF_ERROR(_memtable_memory_limiter->init(MemInfo::mem_limit()));
     RETURN_IF_ERROR(_load_channel_mgr->init(MemInfo::mem_limit()));
@@ -316,10 +316,10 @@ void ExecEnv::init_file_cache_factory() {
         }
 
         std::unique_ptr<doris::ThreadPool> file_cache_init_pool;
-        doris::ThreadPoolBuilder("FileCacheInitThreadPool")
-                .set_min_threads(cache_paths.size())
-                .set_max_threads(cache_paths.size())
-                .build(&file_cache_init_pool);
+        static_cast<void>(doris::ThreadPoolBuilder("FileCacheInitThreadPool")
+                                  .set_min_threads(cache_paths.size())
+                                  .set_max_threads(cache_paths.size())
+                                  .build(&file_cache_init_pool));
 
         std::list<doris::Status> cache_status;
         for (auto& cache_path : cache_paths) {
@@ -488,11 +488,11 @@ void ExecEnv::init_download_cache_buf() {
 }
 
 void ExecEnv::init_download_cache_required_components() {
-    ThreadPoolBuilder("DownloadCacheThreadPool")
-            .set_min_threads(1)
-            .set_max_threads(config::download_cache_thread_pool_thread_num)
-            .set_max_queue_size(config::download_cache_thread_pool_queue_size)
-            .build(&_download_cache_thread_pool);
+    static_cast<void>(ThreadPoolBuilder("DownloadCacheThreadPool")
+                              .set_min_threads(1)
+                              .set_max_threads(config::download_cache_thread_pool_thread_num)
+                              .set_max_queue_size(config::download_cache_thread_pool_queue_size)
+                              .build(&_download_cache_thread_pool));
     set_serial_download_cache_thread_token();
     init_download_cache_buf();
 }

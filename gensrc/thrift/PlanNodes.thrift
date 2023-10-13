@@ -306,6 +306,10 @@ struct TPaimonFileDesc {
     4: optional string table_name
     5: optional string paimon_predicate
     6: optional map<string, string> paimon_options
+    7: optional i64 ctl_id
+    8: optional i64 db_id
+    9: optional i64 tbl_id
+    10: optional i64 last_update_time
 }
 
 
@@ -465,11 +469,17 @@ struct TFrontendsMetadataParams {
   1: optional string cluster_name
 }
 
+struct TQueriesMetadataParams {
+  1: optional string cluster_name
+  2: optional bool   relay_to_other_fe
+}
+
 struct TMetaScanRange {
   1: optional Types.TMetadataType metadata_type
   2: optional TIcebergMetadataParams iceberg_params
   3: optional TBackendsMetadataParams backends_params
   4: optional TFrontendsMetadataParams frontends_params
+  5: optional TQueriesMetadataParams queries_params;
 }
 
 // Specification of an individual data range which is held in its entirety
@@ -852,9 +862,9 @@ enum TopNAlgorithm {
 
 enum TPartTopNPhase {
   UNKNOWN,
-  ONE_PAHSE_GLOBAL,
-  TWO_PAHSE_LOCAL,
-  TWO_PAHSE_GLOBAL
+  ONE_PHASE_GLOBAL,
+  TWO_PHASE_LOCAL,
+  TWO_PHASE_GLOBAL
 }
 
  struct TPartitionSortNode {
@@ -1064,6 +1074,18 @@ enum TRuntimeFilterType {
   BITMAP = 16
 }
 
+// generate min-max runtime filter for non-equal condition or equal condition. 
+enum TMinMaxRuntimeFilterType {
+  // only min is valid, RF generated according to condition: n < col_A
+  MIN = 1
+  // only max is valid, RF generated according to condition: m > col_A
+  MAX = 2
+  // both min/max are valid, 
+  // support hash join condition: col_A = col_B
+  // support other join condition: n < col_A and col_A < m
+  MIN_MAX = 4
+}
+
 // Specification of a runtime filter.
 struct TRuntimeFilterDesc {
   // Filter unique id (within a query)
@@ -1104,7 +1126,12 @@ struct TRuntimeFilterDesc {
   11: optional bool bitmap_filter_not_in
 
   12: optional bool opt_remote_rf;
+  
+  // for min/max rf
+  13: optional TMinMaxRuntimeFilterType min_max_type;
 }
+
+
 
 struct TDataGenScanNode {
 	1: optional Types.TTupleId tuple_id

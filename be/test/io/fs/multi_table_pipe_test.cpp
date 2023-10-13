@@ -54,16 +54,18 @@ TEST_F(MultiTablePipeTest, append_json) {
     std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(exec_env);
     MultiTablePipe pipe(ctx);
 
-    pipe.append_json(data1.c_str(), data1.size());
-    pipe.append_json(data2.c_str(), data2.size());
-    pipe.append_json(data3.c_str(), data3.size()); // should trigger 1st plan, for table 1&2
+    static_cast<void>(pipe.append_json(data1.c_str(), data1.size()));
+    static_cast<void>(pipe.append_json(data2.c_str(), data2.size()));
+    static_cast<void>(pipe.append_json(data3.c_str(),
+                                       data3.size())); // should trigger 1st plan, for table 1&2
     EXPECT_EQ(pipe.get_pipe_by_table("test_table_1")->get_queue_size(), 2);
     EXPECT_EQ(pipe.get_pipe_by_table("test_table_2")->get_queue_size(), 1);
-    pipe.append_json(data4.c_str(), data4.size());
-    pipe.append_json(data5.c_str(), data5.size());
-    pipe.append_json(data6.c_str(), data6.size());
-    pipe.append_json(data7.c_str(), data7.size());
-    pipe.append_json(data8.c_str(), data8.size()); // should trigger 2nd plan, for table 3
+    static_cast<void>(pipe.append_json(data4.c_str(), data4.size()));
+    static_cast<void>(pipe.append_json(data5.c_str(), data5.size()));
+    static_cast<void>(pipe.append_json(data6.c_str(), data6.size()));
+    static_cast<void>(pipe.append_json(data7.c_str(), data7.size()));
+    static_cast<void>(
+            pipe.append_json(data8.c_str(), data8.size())); // should trigger 2nd plan, for table 3
     EXPECT_EQ(pipe.get_pipe_by_table("test_table_1")->get_queue_size(), 3);
     EXPECT_EQ(pipe.get_pipe_by_table("test_table_2")->get_queue_size(), 2);
     EXPECT_EQ(pipe.get_pipe_by_table("test_table_3")->get_queue_size(), 3);

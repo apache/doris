@@ -277,7 +277,7 @@ protected:
                                TCompressionType::LZ4F, 0, enable_unique_key_merge_on_write));
 
         TabletSharedPtr tablet(new Tablet(tablet_meta, nullptr));
-        tablet->init();
+        static_cast<void>(tablet->init());
         return tablet;
     }
 

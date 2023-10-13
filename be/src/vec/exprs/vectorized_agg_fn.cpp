@@ -346,7 +346,8 @@ AggFnEvaluator::AggFnEvaluator(AggFnEvaluator& evaluator, RuntimeState* state)
         const DataTypes& argument_types =
                 _real_argument_types.empty() ? tmp_argument_types : _real_argument_types;
         _function = AggregateJavaUdaf::create(evaluator._fn, argument_types, evaluator._data_type);
-        static_cast<AggregateJavaUdaf*>(_function.get())->check_udaf(evaluator._fn);
+        static_cast<void>(
+                static_cast<AggregateJavaUdaf*>(_function.get())->check_udaf(evaluator._fn));
     }
     DCHECK(_function != nullptr);
 

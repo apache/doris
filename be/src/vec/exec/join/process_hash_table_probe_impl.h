@@ -21,6 +21,7 @@
 #include "process_hash_table_probe.h"
 #include "runtime/thread_context.h" // IWYU pragma: keep
 #include "util/simd/bits.h"
+#include "vec/columns/column_filter_helper.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vhash_join_node.h"
 
@@ -152,65 +153,10 @@ void ProcessHashTableProbe<JoinOpType>::probe_side_output_column(
 }
 
 template <int JoinOpType>
-void ProcessHashTableProbe<JoinOpType>::_pre_serialize_key(
-        const ColumnRawPtrs& key_columns, const size_t key_rows,
-        std::vector<StringRef>& serialized_keys) {
-    if (serialized_keys.size() < key_rows) {
-        serialized_keys.resize(key_rows);
-    }
-    size_t max_one_row_byte_size = 0;
-    for (const auto column : key_columns) {
-        max_one_row_byte_size += column->get_max_row_byte_size();
-    }
-    size_t total_bytes = max_one_row_byte_size * key_rows;
-
-    /// reach mem limit, don't serialize in batch
-    /// If there is a very long row of data in a string column,
-    /// it will result in a very larger estimated total_bytes.
-    if (total_bytes > config::pre_serialize_keys_limit_bytes) {
-        size_t old_probe_keys_memory_usage = 0;
-        if (!_arena) {
-            _arena.reset(new Arena());
-        } else {
-            old_probe_keys_memory_usage = _arena->size();
-        }
-
-        _arena->clear();
-        size_t keys_size = key_columns.size();
-        for (size_t i = 0; i < key_rows; ++i) {
-            serialized_keys[i] =
-                    serialize_keys_to_pool_contiguous(i, keys_size, key_columns, *_arena);
-        }
-        _join_context->_probe_arena_memory_usage->add(_arena->size() - old_probe_keys_memory_usage);
-    } else {
-        if (!_serialize_key_arena) {
-            _serialize_key_arena.reset(new Arena);
-        }
-        if (total_bytes > _serialized_key_buffer_size) {
-            _join_context->_probe_arena_memory_usage->add(-_serialized_key_buffer_size);
-            _serialized_key_buffer_size = total_bytes;
-            _serialize_key_arena->clear();
-            _serialized_key_buffer = reinterpret_cast<uint8_t*>(
-                    _serialize_key_arena->alloc(_serialized_key_buffer_size));
-            _join_context->_probe_arena_memory_usage->add(_serialized_key_buffer_size);
-        }
-
-        for (size_t i = 0; i < key_rows; ++i) {
-            serialized_keys[i].data =
-                    reinterpret_cast<char*>(_serialized_key_buffer + i * max_one_row_byte_size);
-            serialized_keys[i].size = 0;
-        }
-
-        for (const auto column : key_columns) {
-            column->serialize_vec(serialized_keys, key_rows, max_one_row_byte_size);
-        }
-    }
-}
-
-template <int JoinOpType>
-template <typename KeyGetter>
-KeyGetter ProcessHashTableProbe<JoinOpType>::_init_probe_side(size_t probe_rows,
-                                                              bool with_other_join_conjuncts) {
+template <typename HashTableType>
+HashTableType::State ProcessHashTableProbe<JoinOpType>::_init_probe_side(
+        HashTableType& hash_table_ctx, size_t probe_rows, bool with_other_join_conjuncts,
+        const uint8_t* null_map) {
     _right_col_idx = _join_context->_is_right_semi_anti && !with_other_join_conjuncts
                              ? 0
                              : _join_context->_left_table_data_types->size();
@@ -231,36 +177,14 @@ KeyGetter ProcessHashTableProbe<JoinOpType>::_init_probe_side(size_t probe_rows,
     _build_block_rows.reserve(_batch_size * PROBE_SIDE_EXPLODE_RATE);
     _build_block_offsets.reserve(_batch_size * PROBE_SIDE_EXPLODE_RATE);
 
-    KeyGetter key_getter(*_join_context->_probe_columns, _join_context->_probe_key_sz, nullptr);
-
-    if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<KeyGetter>::value) {
-        if (*_join_context->_ready_probe == false) {
-            _pre_serialize_key(*_join_context->_probe_columns, probe_rows, _probe_keys);
-        }
-        key_getter.set_serialized_keys(_probe_keys.data());
+    if (!*_join_context->_ready_probe) {
+        *_join_context->_ready_probe = true;
+        hash_table_ctx.reset();
+        hash_table_ctx.init_serialized_keys(*_join_context->_probe_columns,
+                                            _join_context->_probe_key_sz, probe_rows, null_map);
     }
-
-    return key_getter;
-}
-
-template <int JoinOpType>
-template <bool need_null_map_for_probe, typename HashTableType, typename Keys>
-void ProcessHashTableProbe<JoinOpType>::_probe_hash(const Keys& keys, HashTableType& hash_table_ctx,
-                                                    ConstNullMapPtr null_map) {
-    if (*_join_context->_ready_probe) {
-        return;
-    }
-    SCOPED_TIMER(_search_hashtable_timer);
-    _probe_side_hash_values.resize(keys.size());
-    for (size_t k = 0; k < keys.size(); ++k) {
-        if constexpr (need_null_map_for_probe) {
-            if ((*null_map)[k]) {
-                continue;
-            }
-        }
-        _probe_side_hash_values[k] = hash_table_ctx.hash_table.hash(keys[k]);
-    }
-    *_join_context->_ready_probe = true;
+    return typename HashTableType::State(*_join_context->_probe_columns,
+                                         _join_context->_probe_key_sz);
 }
 
 template <int JoinOpType>
@@ -315,7 +239,9 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
     using KeyGetter = typename HashTableType::State;
     using Mapped = typename HashTableType::Mapped;
 
-    KeyGetter key_getter = _init_probe_side<KeyGetter>(probe_rows, with_other_conjuncts);
+    KeyGetter key_getter =
+            _init_probe_side<HashTableType>(hash_table_ctx, probe_rows, with_other_conjuncts,
+                                            need_null_map_for_probe ? null_map->data() : nullptr);
 
     auto& mcol = mutable_block.mutable_columns();
 
@@ -330,6 +256,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
     int current_offset = 0;
     bool all_match_one = true;
     size_t probe_size = 0;
+
     auto& probe_row_match_iter = _probe_row_match<Mapped, with_other_conjuncts>(
             current_offset, probe_index, probe_size, all_match_one);
 
@@ -349,13 +276,14 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
         }
     }
 
-    const auto& keys = key_getter.get_keys();
-
-    _probe_hash<need_null_map_for_probe, HashTableType>(keys, hash_table_ctx, null_map);
+    std::unique_ptr<ColumnFilterHelper> mark_column;
+    if (is_mark_join) {
+        mark_column = std::make_unique<ColumnFilterHelper>(*mcol[mcol.size() - 1]);
+    }
 
     {
         SCOPED_TIMER(_search_hashtable_timer);
-        using FindResult = decltype(key_getter.find_key(hash_table_ctx.hash_table, 0, *_arena));
+        using FindResult = KeyGetter::FindResult;
         FindResult empty = {nullptr, false};
         while (current_offset < _batch_size && probe_index < probe_rows) {
             if constexpr (ignore_null && need_null_map_for_probe) {
@@ -377,18 +305,9 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                 }
             }
 
-            const auto& find_result =
-                    need_null_map_for_probe && (*null_map)[probe_index]
-                            ? empty
-                            : key_getter.find_key_with_hash(hash_table_ctx.hash_table,
-                                                            _probe_side_hash_values[probe_index],
-                                                            keys[probe_index]);
-            if (LIKELY(probe_index + HASH_MAP_PREFETCH_DIST < probe_rows) &&
-                !(need_null_map_for_probe && (*null_map)[probe_index + HASH_MAP_PREFETCH_DIST])) {
-                key_getter.template prefetch_by_hash<true>(
-                        hash_table_ctx.hash_table,
-                        _probe_side_hash_values[probe_index + HASH_MAP_PREFETCH_DIST]);
-            }
+            const auto& find_result = need_null_map_for_probe && (*null_map)[probe_index]
+                                              ? empty
+                                              : hash_table_ctx.find(key_getter, probe_index);
 
             auto current_probe_index = probe_index;
             if constexpr (!with_other_conjuncts &&
@@ -399,9 +318,14 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                         (JoinOpType != TJoinOp::LEFT_SEMI_JOIN) ^ find_result.is_found();
                 if constexpr (is_mark_join) {
                     ++current_offset;
-                    assert_cast<ColumnVector<UInt8>&>(*mcol[mcol.size() - 1])
-                            .get_data()
-                            .template push_back(need_go_ahead);
+                    bool null_result =
+                            (need_null_map_for_probe && (*null_map)[probe_index]) ||
+                            (!need_go_ahead && _join_context->_has_null_value_in_build_side);
+                    if (null_result) {
+                        mark_column->insert_null();
+                    } else {
+                        mark_column->insert_value(need_go_ahead);
+                    }
                 } else {
                     current_offset += need_go_ahead;
                 }
@@ -650,21 +574,21 @@ Status ProcessHashTableProbe<JoinOpType>::do_other_join_conjuncts(
             }
         }
 
+        /// FIXME: incorrect result of semi mark join with other conjuncts(null value missed).
         if (is_mark_join) {
-            auto& matched_map = assert_cast<ColumnVector<UInt8>&>(
-                                        *(output_block->get_by_position(orig_columns - 1)
-                                                  .column->assume_mutable()))
-                                        .get_data();
+            auto mark_column =
+                    output_block->get_by_position(orig_columns - 1).column->assume_mutable();
+            ColumnFilterHelper helper(*mark_column);
 
             // For mark join, we only filter rows which have duplicate join keys.
             // And then, we set matched_map to the join result to do the mark join's filtering.
             for (size_t i = 1; i < row_count; ++i) {
                 if (!_same_to_prev[i]) {
-                    matched_map.push_back(filter_map[i - 1]);
+                    helper.insert_value(filter_map[i - 1]);
                     filter_map[i - 1] = true;
                 }
             }
-            matched_map.push_back(filter_map[filter_map.size() - 1]);
+            helper.insert_value(filter_map[filter_map.size() - 1]);
             filter_map[filter_map.size() - 1] = true;
         }
 
@@ -806,8 +730,9 @@ Status ProcessHashTableProbe<JoinOpType>::do_other_join_conjuncts(
                       JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
             orig_columns = _right_col_idx;
         }
-        Block::filter_block(output_block, result_column_id,
-                            is_mark_join ? output_block->columns() : orig_columns);
+        static_cast<void>(
+                Block::filter_block(output_block, result_column_id,
+                                    is_mark_join ? output_block->columns() : orig_columns));
     }
 
     return Status::OK();
@@ -859,7 +784,7 @@ Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(HashTableTyp
     SCOPED_TIMER(_probe_process_hashtable_timer);
     if constexpr (std::is_same_v<Mapped, RowRefListWithFlag> ||
                   std::is_same_v<Mapped, RowRefListWithFlags>) {
-        hash_table_ctx.init_once();
+        hash_table_ctx.init_iterator();
         auto& mcol = mutable_block.mutable_columns();
 
         bool right_semi_anti_without_other =
@@ -868,7 +793,7 @@ Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(HashTableTyp
                 right_semi_anti_without_other ? 0 : _join_context->_left_table_data_types->size();
         int right_col_len = _join_context->_right_table_data_types->size();
 
-        auto& iter = hash_table_ctx.iter;
+        auto& iter = hash_table_ctx.iterator;
         auto block_size = 0;
         auto& visited_iter =
                 std::get<ForwardIterator<Mapped>>(*_join_context->_outer_join_pull_visited_iter);
@@ -900,7 +825,7 @@ Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(HashTableTyp
             }
         }
 
-        for (; iter != hash_table_ctx.hash_table.end() && block_size < _batch_size; ++iter) {
+        for (; iter != hash_table_ctx.hash_table->end() && block_size < _batch_size; ++iter) {
             auto& mapped = iter->get_second();
             if constexpr (std::is_same_v<Mapped, RowRefListWithFlag>) {
                 if (mapped.visited) {
@@ -997,7 +922,7 @@ Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(HashTableTyp
             }
             _tuple_is_null_left_flags->resize_fill(block_size, 1);
         }
-        *eos = iter == hash_table_ctx.hash_table.end();
+        *eos = iter == hash_table_ctx.hash_table->end();
         output_block->swap(
                 mutable_block.to_block(right_semi_anti_without_other ? right_col_idx : 0));
         DCHECK(block_size <= _batch_size);

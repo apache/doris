@@ -13,175 +13,183 @@ PhysicalResultSink
 --------------------PhysicalDistribute
 ----------------------hashAgg[LOCAL]
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk))otherCondition=()
-----------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk))otherCondition=()
-------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_time_sk = time_dim.t_time_sk))otherCondition=()
---------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[store_sales]
---------------------------------PhysicalDistribute
-----------------------------------PhysicalProject
-------------------------------------filter((time_dim.t_hour = 8) and (time_dim.t_minute >= 30))
---------------------------------------PhysicalOlapScan[time_dim]
-------------------------------PhysicalDistribute
---------------------------------PhysicalProject
-----------------------------------filter((store.s_store_name = 'ese'))
-------------------------------------PhysicalOlapScan[store]
-----------------------------PhysicalDistribute
-------------------------------PhysicalProject
---------------------------------filter(((((household_demographics.hd_dep_count = -1) AND (household_demographics.hd_vehicle_count <= 1)) OR ((household_demographics.hd_dep_count = 4) AND (household_demographics.hd_vehicle_count <= 6))) OR ((household_demographics.hd_dep_count = 3) AND (household_demographics.hd_vehicle_count <= 5))))
-----------------------------------PhysicalOlapScan[household_demographics]
-------------------PhysicalDistribute
---------------------hashAgg[GLOBAL]
-----------------------PhysicalDistribute
-------------------------hashAgg[LOCAL]
---------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk))otherCondition=()
-------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk))otherCondition=()
+--------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk))otherCondition=()
+----------------------------PhysicalProject
+------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk))otherCondition=()
 --------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_time_sk = time_dim.t_time_sk))otherCondition=()
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[store_sales]
 ----------------------------------PhysicalDistribute
 ------------------------------------PhysicalProject
---------------------------------------filter((time_dim.t_hour = 9) and (time_dim.t_minute < 30))
+--------------------------------------filter((time_dim.t_hour = 8) and (time_dim.t_minute >= 30))
 ----------------------------------------PhysicalOlapScan[time_dim]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
-------------------------------------filter((store.s_store_name = 'ese'))
---------------------------------------PhysicalOlapScan[store]
+------------------------------------filter(((((household_demographics.hd_dep_count = -1) AND (household_demographics.hd_vehicle_count <= 1)) OR ((household_demographics.hd_dep_count = 4) AND (household_demographics.hd_vehicle_count <= 6))) OR ((household_demographics.hd_dep_count = 3) AND (household_demographics.hd_vehicle_count <= 5))))
+--------------------------------------PhysicalOlapScan[household_demographics]
+----------------------------PhysicalDistribute
+------------------------------PhysicalProject
+--------------------------------filter((store.s_store_name = 'ese'))
+----------------------------------PhysicalOlapScan[store]
+------------------PhysicalDistribute
+--------------------hashAgg[GLOBAL]
+----------------------PhysicalDistribute
+------------------------hashAgg[LOCAL]
+--------------------------PhysicalProject
+----------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk))otherCondition=()
+------------------------------PhysicalProject
+--------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk))otherCondition=()
+----------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_time_sk = time_dim.t_time_sk))otherCondition=()
+------------------------------------PhysicalProject
+--------------------------------------PhysicalOlapScan[store_sales]
+------------------------------------PhysicalDistribute
+--------------------------------------PhysicalProject
+----------------------------------------filter((time_dim.t_hour = 9) and (time_dim.t_minute < 30))
+------------------------------------------PhysicalOlapScan[time_dim]
+----------------------------------PhysicalDistribute
+------------------------------------PhysicalProject
+--------------------------------------filter(((((household_demographics.hd_dep_count = -1) AND (household_demographics.hd_vehicle_count <= 1)) OR ((household_demographics.hd_dep_count = 4) AND (household_demographics.hd_vehicle_count <= 6))) OR ((household_demographics.hd_dep_count = 3) AND (household_demographics.hd_vehicle_count <= 5))))
+----------------------------------------PhysicalOlapScan[household_demographics]
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
-----------------------------------filter(((((household_demographics.hd_dep_count = -1) AND (household_demographics.hd_vehicle_count <= 1)) OR ((household_demographics.hd_dep_count = 4) AND (household_demographics.hd_vehicle_count <= 6))) OR ((household_demographics.hd_dep_count = 3) AND (household_demographics.hd_vehicle_count <= 5))))
-------------------------------------PhysicalOlapScan[household_demographics]
+----------------------------------filter((store.s_store_name = 'ese'))
+------------------------------------PhysicalOlapScan[store]
 ----------------PhysicalDistribute
 ------------------hashAgg[GLOBAL]
 --------------------PhysicalDistribute
 ----------------------hashAgg[LOCAL]
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk))otherCondition=()
-----------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk))otherCondition=()
-------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_time_sk = time_dim.t_time_sk))otherCondition=()
---------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[store_sales]
+--------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk))otherCondition=()
+----------------------------PhysicalProject
+------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk))otherCondition=()
+--------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_time_sk = time_dim.t_time_sk))otherCondition=()
+----------------------------------PhysicalProject
+------------------------------------PhysicalOlapScan[store_sales]
+----------------------------------PhysicalDistribute
+------------------------------------PhysicalProject
+--------------------------------------filter((time_dim.t_hour = 9) and (time_dim.t_minute >= 30))
+----------------------------------------PhysicalOlapScan[time_dim]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
-------------------------------------filter((time_dim.t_hour = 9) and (time_dim.t_minute >= 30))
---------------------------------------PhysicalOlapScan[time_dim]
-------------------------------PhysicalDistribute
---------------------------------PhysicalProject
-----------------------------------filter((store.s_store_name = 'ese'))
-------------------------------------PhysicalOlapScan[store]
+------------------------------------filter(((((household_demographics.hd_dep_count = -1) AND (household_demographics.hd_vehicle_count <= 1)) OR ((household_demographics.hd_dep_count = 4) AND (household_demographics.hd_vehicle_count <= 6))) OR ((household_demographics.hd_dep_count = 3) AND (household_demographics.hd_vehicle_count <= 5))))
+--------------------------------------PhysicalOlapScan[household_demographics]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
---------------------------------filter(((((household_demographics.hd_dep_count = -1) AND (household_demographics.hd_vehicle_count <= 1)) OR ((household_demographics.hd_dep_count = 4) AND (household_demographics.hd_vehicle_count <= 6))) OR ((household_demographics.hd_dep_count = 3) AND (household_demographics.hd_vehicle_count <= 5))))
-----------------------------------PhysicalOlapScan[household_demographics]
+--------------------------------filter((store.s_store_name = 'ese'))
+----------------------------------PhysicalOlapScan[store]
 --------------PhysicalDistribute
 ----------------hashAgg[GLOBAL]
 ------------------PhysicalDistribute
 --------------------hashAgg[LOCAL]
 ----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk))otherCondition=()
---------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk))otherCondition=()
-----------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_time_sk = time_dim.t_time_sk))otherCondition=()
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[store_sales]
+------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk))otherCondition=()
+--------------------------PhysicalProject
+----------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk))otherCondition=()
+------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_time_sk = time_dim.t_time_sk))otherCondition=()
+--------------------------------PhysicalProject
+----------------------------------PhysicalOlapScan[store_sales]
+--------------------------------PhysicalDistribute
+----------------------------------PhysicalProject
+------------------------------------filter((time_dim.t_hour = 10) and (time_dim.t_minute < 30))
+--------------------------------------PhysicalOlapScan[time_dim]
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
-----------------------------------filter((time_dim.t_hour = 10) and (time_dim.t_minute < 30))
-------------------------------------PhysicalOlapScan[time_dim]
-----------------------------PhysicalDistribute
-------------------------------PhysicalProject
---------------------------------filter((store.s_store_name = 'ese'))
-----------------------------------PhysicalOlapScan[store]
+----------------------------------filter(((((household_demographics.hd_dep_count = -1) AND (household_demographics.hd_vehicle_count <= 1)) OR ((household_demographics.hd_dep_count = 4) AND (household_demographics.hd_vehicle_count <= 6))) OR ((household_demographics.hd_dep_count = 3) AND (household_demographics.hd_vehicle_count <= 5))))
+------------------------------------PhysicalOlapScan[household_demographics]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
-------------------------------filter(((((household_demographics.hd_dep_count = -1) AND (household_demographics.hd_vehicle_count <= 1)) OR ((household_demographics.hd_dep_count = 4) AND (household_demographics.hd_vehicle_count <= 6))) OR ((household_demographics.hd_dep_count = 3) AND (household_demographics.hd_vehicle_count <= 5))))
---------------------------------PhysicalOlapScan[household_demographics]
+------------------------------filter((store.s_store_name = 'ese'))
+--------------------------------PhysicalOlapScan[store]
 ------------PhysicalDistribute
 --------------hashAgg[GLOBAL]
 ----------------PhysicalDistribute
 ------------------hashAgg[LOCAL]
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk))otherCondition=()
-------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk))otherCondition=()
---------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_time_sk = time_dim.t_time_sk))otherCondition=()
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[store_sales]
+----------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk))otherCondition=()
+------------------------PhysicalProject
+--------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk))otherCondition=()
+----------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_time_sk = time_dim.t_time_sk))otherCondition=()
+------------------------------PhysicalProject
+--------------------------------PhysicalOlapScan[store_sales]
+------------------------------PhysicalDistribute
+--------------------------------PhysicalProject
+----------------------------------filter((time_dim.t_hour = 10) and (time_dim.t_minute >= 30))
+------------------------------------PhysicalOlapScan[time_dim]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
---------------------------------filter((time_dim.t_hour = 10) and (time_dim.t_minute >= 30))
-----------------------------------PhysicalOlapScan[time_dim]
---------------------------PhysicalDistribute
-----------------------------PhysicalProject
-------------------------------filter((store.s_store_name = 'ese'))
---------------------------------PhysicalOlapScan[store]
+--------------------------------filter(((((household_demographics.hd_dep_count = -1) AND (household_demographics.hd_vehicle_count <= 1)) OR ((household_demographics.hd_dep_count = 4) AND (household_demographics.hd_vehicle_count <= 6))) OR ((household_demographics.hd_dep_count = 3) AND (household_demographics.hd_vehicle_count <= 5))))
+----------------------------------PhysicalOlapScan[household_demographics]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
-----------------------------filter(((((household_demographics.hd_dep_count = -1) AND (household_demographics.hd_vehicle_count <= 1)) OR ((household_demographics.hd_dep_count = 4) AND (household_demographics.hd_vehicle_count <= 6))) OR ((household_demographics.hd_dep_count = 3) AND (household_demographics.hd_vehicle_count <= 5))))
-------------------------------PhysicalOlapScan[household_demographics]
+----------------------------filter((store.s_store_name = 'ese'))
+------------------------------PhysicalOlapScan[store]
 ----------PhysicalDistribute
 ------------hashAgg[GLOBAL]
 --------------PhysicalDistribute
 ----------------hashAgg[LOCAL]
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk))otherCondition=()
-----------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk))otherCondition=()
-------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_time_sk = time_dim.t_time_sk))otherCondition=()
---------------------------PhysicalProject
-----------------------------PhysicalOlapScan[store_sales]
+--------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk))otherCondition=()
+----------------------PhysicalProject
+------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk))otherCondition=()
+--------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_time_sk = time_dim.t_time_sk))otherCondition=()
+----------------------------PhysicalProject
+------------------------------PhysicalOlapScan[store_sales]
+----------------------------PhysicalDistribute
+------------------------------PhysicalProject
+--------------------------------filter((time_dim.t_hour = 11) and (time_dim.t_minute < 30))
+----------------------------------PhysicalOlapScan[time_dim]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
-------------------------------filter((time_dim.t_hour = 11) and (time_dim.t_minute < 30))
---------------------------------PhysicalOlapScan[time_dim]
-------------------------PhysicalDistribute
---------------------------PhysicalProject
-----------------------------filter((store.s_store_name = 'ese'))
-------------------------------PhysicalOlapScan[store]
+------------------------------filter(((((household_demographics.hd_dep_count = -1) AND (household_demographics.hd_vehicle_count <= 1)) OR ((household_demographics.hd_dep_count = 4) AND (household_demographics.hd_vehicle_count <= 6))) OR ((household_demographics.hd_dep_count = 3) AND (household_demographics.hd_vehicle_count <= 5))))
+--------------------------------PhysicalOlapScan[household_demographics]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
---------------------------filter(((((household_demographics.hd_dep_count = -1) AND (household_demographics.hd_vehicle_count <= 1)) OR ((household_demographics.hd_dep_count = 4) AND (household_demographics.hd_vehicle_count <= 6))) OR ((household_demographics.hd_dep_count = 3) AND (household_demographics.hd_vehicle_count <= 5))))
-----------------------------PhysicalOlapScan[household_demographics]
+--------------------------filter((store.s_store_name = 'ese'))
+----------------------------PhysicalOlapScan[store]
 --------PhysicalDistribute
 ----------hashAgg[GLOBAL]
 ------------PhysicalDistribute
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk))otherCondition=()
---------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk))otherCondition=()
-----------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_time_sk = time_dim.t_time_sk))otherCondition=()
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[store_sales]
+------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk))otherCondition=()
+--------------------PhysicalProject
+----------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk))otherCondition=()
+------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_time_sk = time_dim.t_time_sk))otherCondition=()
+--------------------------PhysicalProject
+----------------------------PhysicalOlapScan[store_sales]
+--------------------------PhysicalDistribute
+----------------------------PhysicalProject
+------------------------------filter((time_dim.t_hour = 11) and (time_dim.t_minute >= 30))
+--------------------------------PhysicalOlapScan[time_dim]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
-----------------------------filter((time_dim.t_hour = 11) and (time_dim.t_minute >= 30))
-------------------------------PhysicalOlapScan[time_dim]
-----------------------PhysicalDistribute
-------------------------PhysicalProject
---------------------------filter((store.s_store_name = 'ese'))
-----------------------------PhysicalOlapScan[store]
+----------------------------filter(((((household_demographics.hd_dep_count = -1) AND (household_demographics.hd_vehicle_count <= 1)) OR ((household_demographics.hd_dep_count = 4) AND (household_demographics.hd_vehicle_count <= 6))) OR ((household_demographics.hd_dep_count = 3) AND (household_demographics.hd_vehicle_count <= 5))))
+------------------------------PhysicalOlapScan[household_demographics]
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
-------------------------filter(((((household_demographics.hd_dep_count = -1) AND (household_demographics.hd_vehicle_count <= 1)) OR ((household_demographics.hd_dep_count = 4) AND (household_demographics.hd_vehicle_count <= 6))) OR ((household_demographics.hd_dep_count = 3) AND (household_demographics.hd_vehicle_count <= 5))))
---------------------------PhysicalOlapScan[household_demographics]
+------------------------filter((store.s_store_name = 'ese'))
+--------------------------PhysicalOlapScan[store]
 ------PhysicalDistribute
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk))otherCondition=()
-------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk))otherCondition=()
---------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_time_sk = time_dim.t_time_sk))otherCondition=()
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[store_sales]
+----------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk))otherCondition=()
+------------------PhysicalProject
+--------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk))otherCondition=()
+----------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_time_sk = time_dim.t_time_sk))otherCondition=()
+------------------------PhysicalProject
+--------------------------PhysicalOlapScan[store_sales]
+------------------------PhysicalDistribute
+--------------------------PhysicalProject
+----------------------------filter((time_dim.t_hour = 12) and (time_dim.t_minute < 30))
+------------------------------PhysicalOlapScan[time_dim]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
---------------------------filter((time_dim.t_hour = 12) and (time_dim.t_minute < 30))
-----------------------------PhysicalOlapScan[time_dim]
---------------------PhysicalDistribute
-----------------------PhysicalProject
-------------------------filter((store.s_store_name = 'ese'))
---------------------------PhysicalOlapScan[store]
+--------------------------filter(((((household_demographics.hd_dep_count = -1) AND (household_demographics.hd_vehicle_count <= 1)) OR ((household_demographics.hd_dep_count = 4) AND (household_demographics.hd_vehicle_count <= 6))) OR ((household_demographics.hd_dep_count = 3) AND (household_demographics.hd_vehicle_count <= 5))))
+----------------------------PhysicalOlapScan[household_demographics]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
-----------------------filter(((((household_demographics.hd_dep_count = -1) AND (household_demographics.hd_vehicle_count <= 1)) OR ((household_demographics.hd_dep_count = 4) AND (household_demographics.hd_vehicle_count <= 6))) OR ((household_demographics.hd_dep_count = 3) AND (household_demographics.hd_vehicle_count <= 5))))
-------------------------PhysicalOlapScan[household_demographics]
+----------------------filter((store.s_store_name = 'ese'))
+------------------------PhysicalOlapScan[store]
 

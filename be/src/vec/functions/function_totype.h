@@ -243,17 +243,17 @@ private:
         if (auto col_left = check_and_get_column<ColVecLeft>(lcol.get())) {
             if (auto col_right = check_and_get_column<ColVecRight>(rcol.get())) {
                 if (left_const) {
-                    Impl<LeftDataType, RightDataType>::scalar_vector(
+                    static_cast<void>(Impl<LeftDataType, RightDataType>::scalar_vector(
                             col_left->get_data_at(0), col_right->get_chars(),
-                            col_right->get_offsets(), vec_res);
+                            col_right->get_offsets(), vec_res));
                 } else if (right_const) {
-                    Impl<LeftDataType, RightDataType>::vector_scalar(
+                    static_cast<void>(Impl<LeftDataType, RightDataType>::vector_scalar(
                             col_left->get_chars(), col_left->get_offsets(),
-                            col_right->get_data_at(0), vec_res);
+                            col_right->get_data_at(0), vec_res));
                 } else {
-                    Impl<LeftDataType, RightDataType>::vector_vector(
+                    static_cast<void>(Impl<LeftDataType, RightDataType>::vector_vector(
                             col_left->get_chars(), col_left->get_offsets(), col_right->get_chars(),
-                            col_right->get_offsets(), vec_res);
+                            col_right->get_offsets(), vec_res));
                 }
 
                 block.replace_by_position(result, std::move(col_res));
@@ -476,8 +476,9 @@ public:
         auto res = Impl::ColumnType::create();
         if (const ColumnString* col = check_and_get_column<ColumnString>(col_ptr.get())) {
             auto col_res = Impl::ColumnType::create();
-            Impl::vector(col->get_chars(), col->get_offsets(), col_res->get_chars(),
-                         col_res->get_offsets(), null_map->get_data());
+            static_cast<void>(Impl::vector(col->get_chars(), col->get_offsets(),
+                                           col_res->get_chars(), col_res->get_offsets(),
+                                           null_map->get_data()));
             block.replace_by_position(
                     result, ColumnNullable::create(std::move(col_res), std::move(null_map)));
         } else {

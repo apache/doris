@@ -95,7 +95,7 @@ Status AvroJNIReader::init_fetch_table_reader(
         required_param.insert(_params.properties.begin(), _params.properties.end());
         break;
     default:
-        Status::InternalError("unsupported file reader type: {}", std::to_string(type));
+        return Status::InternalError("unsupported file reader type: {}", std::to_string(type));
     }
     required_param.insert(_params.properties.begin(), _params.properties.end());
     _jni_connector = std::make_unique<JniConnector>("org/apache/doris/avro/AvroJNIScanner",

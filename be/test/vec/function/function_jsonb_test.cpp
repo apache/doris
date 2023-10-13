@@ -60,37 +60,43 @@ TEST(FunctionJsonbTEST, JsonbParseTest) {
              STRING(R"([{"k1":"v41","k2":400},1,"a",3.14])")}, // complex array
     };
 
-    check_function<DataTypeJsonb, true>(func_name, input_types, data_set_valid);
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set_valid));
 
     DataSet data_set_invalid = {
             {{STRING("abc")}, Null()}, // invalid string
     };
-    check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true);
+    static_cast<void>(
+            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
 
     data_set_invalid = {
             {{STRING("'abc'")}, Null()}, // invalid string
     };
-    check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true);
+    static_cast<void>(
+            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
 
     data_set_invalid = {
             {{STRING("100x")}, Null()}, // invalid int
     };
-    check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true);
+    static_cast<void>(
+            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
 
     data_set_invalid = {
             {{STRING("6.a8")}, Null()}, // invalid double
     };
-    check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true);
+    static_cast<void>(
+            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
 
     data_set_invalid = {
             {{STRING("{x")}, Null()}, // invalid object
     };
-    check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true);
+    static_cast<void>(
+            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
 
     data_set_invalid = {
             {{STRING("[123, abc]")}, Null()} // invalid array
     };
-    check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true);
+    static_cast<void>(
+            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
 }
 
 TEST(FunctionJsonbTEST, JsonbParseErrorToNullTest) {
@@ -125,7 +131,7 @@ TEST(FunctionJsonbTEST, JsonbParseErrorToNullTest) {
             {{STRING("[123, abc]")}, Null()}                   // invalid array
     };
 
-    check_function<DataTypeJsonb, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set));
 }
 
 TEST(FunctionJsonbTEST, JsonbParseErrorToValueTest) {
@@ -163,7 +169,7 @@ TEST(FunctionJsonbTEST, JsonbParseErrorToValueTest) {
              STRING(R"([123,"abc"])")} // invalid array
     };
 
-    check_function<DataTypeJsonb, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set));
 }
 
 TEST(FunctionJsonbTEST, JsonbParseErrorToInvalidTest) {
@@ -198,7 +204,7 @@ TEST(FunctionJsonbTEST, JsonbParseErrorToInvalidTest) {
             {{STRING("[123, abc]")}, STRING("")}               // invalid array
     };
 
-    check_function<DataTypeJsonb, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set));
 }
 
 TEST(FunctionJsonbTEST, JsonbParseNullableTest) {
@@ -227,37 +233,43 @@ TEST(FunctionJsonbTEST, JsonbParseNullableTest) {
              STRING(R"([{"k1":"v41","k2":400},1,"a",3.14])")}, // complex array
     };
 
-    check_function<DataTypeJsonb, true>(func_name, input_types, data_set_valid);
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set_valid));
 
     DataSet data_set_invalid = {
             {{STRING("abc")}, Null()}, // invalid string
     };
-    check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true);
+    static_cast<void>(
+            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
 
     data_set_invalid = {
             {{STRING("'abc'")}, Null()}, // invalid string
     };
-    check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true);
+    static_cast<void>(
+            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
 
     data_set_invalid = {
             {{STRING("100x")}, Null()}, // invalid int
     };
-    check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true);
+    static_cast<void>(
+            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
 
     data_set_invalid = {
             {{STRING("6.a8")}, Null()}, // invalid double
     };
-    check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true);
+    static_cast<void>(
+            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
 
     data_set_invalid = {
             {{STRING("{x")}, Null()}, // invalid object
     };
-    check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true);
+    static_cast<void>(
+            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
 
     data_set_invalid = {
             {{STRING("[123, abc]")}, Null()} // invalid array
     };
-    check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true);
+    static_cast<void>(
+            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
 }
 
 TEST(FunctionJsonbTEST, JsonbParseNullableErrorToNullTest) {
@@ -292,7 +304,7 @@ TEST(FunctionJsonbTEST, JsonbParseNullableErrorToNullTest) {
             {{STRING("[123, abc]")}, Null()}                   // invalid array
     };
 
-    check_function<DataTypeJsonb, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set));
 }
 
 TEST(FunctionJsonbTEST, JsonbParseNullableErrorToValueTest) {
@@ -330,7 +342,7 @@ TEST(FunctionJsonbTEST, JsonbParseNullableErrorToValueTest) {
              STRING(R"([123,"abc"])")} // invalid array
     };
 
-    check_function<DataTypeJsonb, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set));
 }
 
 TEST(FunctionJsonbTEST, JsonbParseNullableErrorToInvalidTest) {
@@ -365,7 +377,7 @@ TEST(FunctionJsonbTEST, JsonbParseNullableErrorToInvalidTest) {
             {{STRING("[123, abc]")}, STRING("")}               // invalid array
     };
 
-    check_function<DataTypeJsonb, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set));
 }
 
 TEST(FunctionJsonbTEST, JsonbParseNotnullTest) {
@@ -393,37 +405,43 @@ TEST(FunctionJsonbTEST, JsonbParseNotnullTest) {
              STRING(R"([{"k1":"v41","k2":400},1,"a",3.14])")}, // complex array
     };
 
-    check_function<DataTypeJsonb, false>(func_name, input_types, data_set_valid);
+    static_cast<void>(check_function<DataTypeJsonb, false>(func_name, input_types, data_set_valid));
 
     DataSet data_set_invalid = {
             {{STRING("abc")}, Null()}, // invalid string
     };
-    check_function<DataTypeJsonb, false>(func_name, input_types, data_set_invalid, true);
+    static_cast<void>(
+            check_function<DataTypeJsonb, false>(func_name, input_types, data_set_invalid, true));
 
     data_set_invalid = {
             {{STRING("'abc'")}, Null()}, // invalid string
     };
-    check_function<DataTypeJsonb, false>(func_name, input_types, data_set_invalid, true);
+    static_cast<void>(
+            check_function<DataTypeJsonb, false>(func_name, input_types, data_set_invalid, true));
 
     data_set_invalid = {
             {{STRING("100x")}, Null()}, // invalid int
     };
-    check_function<DataTypeJsonb, false>(func_name, input_types, data_set_invalid, true);
+    static_cast<void>(
+            check_function<DataTypeJsonb, false>(func_name, input_types, data_set_invalid, true));
 
     data_set_invalid = {
             {{STRING("6.a8")}, Null()}, // invalid double
     };
-    check_function<DataTypeJsonb, false>(func_name, input_types, data_set_invalid, true);
+    static_cast<void>(
+            check_function<DataTypeJsonb, false>(func_name, input_types, data_set_invalid, true));
 
     data_set_invalid = {
             {{STRING("{x")}, Null()}, // invalid object
     };
-    check_function<DataTypeJsonb, false>(func_name, input_types, data_set_invalid, true);
+    static_cast<void>(
+            check_function<DataTypeJsonb, false>(func_name, input_types, data_set_invalid, true));
 
     data_set_invalid = {
             {{STRING("[123, abc]")}, Null()} // invalid array
     };
-    check_function<DataTypeJsonb, false>(func_name, input_types, data_set_invalid, true);
+    static_cast<void>(
+            check_function<DataTypeJsonb, false>(func_name, input_types, data_set_invalid, true));
 }
 
 TEST(FunctionJsonbTEST, JsonbParseNotnullErrorToValueTest) {
@@ -460,7 +478,7 @@ TEST(FunctionJsonbTEST, JsonbParseNotnullErrorToValueTest) {
              STRING(R"([123,"abc"])")} // invalid array
     };
 
-    check_function<DataTypeJsonb, false>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeJsonb, false>(func_name, input_types, data_set));
 }
 
 TEST(FunctionJsonbTEST, JsonbParseNotnullErrorToInvalidTest) {
@@ -494,7 +512,7 @@ TEST(FunctionJsonbTEST, JsonbParseNotnullErrorToInvalidTest) {
             {{STRING("[123, abc]")}, STRING("")}               // invalid array
     };
 
-    check_function<DataTypeJsonb, false>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeJsonb, false>(func_name, input_types, data_set));
 }
 
 TEST(FunctionJsonbTEST, JsonbExtractTest) {
@@ -526,7 +544,7 @@ TEST(FunctionJsonbTEST, JsonbExtractTest) {
              STRING(R"([{"k1":"v41","k2":400},1,"a",3.14])")}, // complex array
     };
 
-    check_function<DataTypeJsonb, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set));
 
     // json_extract obejct
     data_set = {
@@ -551,7 +569,7 @@ TEST(FunctionJsonbTEST, JsonbExtractTest) {
              Null()}, // complex array
     };
 
-    check_function<DataTypeJsonb, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set));
 
     // json_extract array
     data_set = {
@@ -613,7 +631,7 @@ TEST(FunctionJsonbTEST, JsonbExtractTest) {
              Null()}, // complex array
     };
 
-    check_function<DataTypeJsonb, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set));
 
     // json_extract $[0].k1
     data_set = {
@@ -639,7 +657,7 @@ TEST(FunctionJsonbTEST, JsonbExtractTest) {
              STRING(R"("v41")")}, // complex array
     };
 
-    check_function<DataTypeJsonb, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set));
 }
 
 TEST(FunctionJsonbTEST, JsonbExtractStringTest) {
@@ -671,7 +689,7 @@ TEST(FunctionJsonbTEST, JsonbExtractStringTest) {
              STRING(R"([{"k1":"v41","k2":400},1,"a",3.14])")}, // complex array
     };
 
-    check_function<DataTypeString, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
 
     // json_extract obejct
     data_set = {
@@ -696,7 +714,7 @@ TEST(FunctionJsonbTEST, JsonbExtractStringTest) {
              Null()}, // complex array
     };
 
-    check_function<DataTypeString, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
 
     // json_extract array
     data_set = {
@@ -758,7 +776,7 @@ TEST(FunctionJsonbTEST, JsonbExtractStringTest) {
              Null()}, // complex array
     };
 
-    check_function<DataTypeString, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
 
     // json_extract $[0].k1
     data_set = {
@@ -783,7 +801,7 @@ TEST(FunctionJsonbTEST, JsonbExtractStringTest) {
              STRING("v41")}, // complex array
     };
 
-    check_function<DataTypeString, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
 }
 
 TEST(FunctionJsonbTEST, JsonbExtractIntTest) {
@@ -813,7 +831,7 @@ TEST(FunctionJsonbTEST, JsonbExtractIntTest) {
              Null()}, // complex array
     };
 
-    check_function<DataTypeInt32, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
 
     // json_extract obejct
     data_set = {
@@ -838,7 +856,7 @@ TEST(FunctionJsonbTEST, JsonbExtractIntTest) {
              Null()}, // complex array
     };
 
-    check_function<DataTypeInt32, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
 
     // json_extract array
     data_set = {
@@ -899,7 +917,7 @@ TEST(FunctionJsonbTEST, JsonbExtractIntTest) {
              Null()}, // complex array
     };
 
-    check_function<DataTypeInt32, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
 
     // json_extract $[0].k1
     data_set = {
@@ -926,7 +944,7 @@ TEST(FunctionJsonbTEST, JsonbExtractIntTest) {
              INT(400)}, // complex array
     };
 
-    check_function<DataTypeInt32, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
 }
 
 TEST(FunctionJsonbTEST, JsonbExtractBigIntTest) {
@@ -956,7 +974,7 @@ TEST(FunctionJsonbTEST, JsonbExtractBigIntTest) {
              Null()}, // complex array
     };
 
-    check_function<DataTypeInt64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
 
     // json_extract obejct
     data_set = {
@@ -981,7 +999,7 @@ TEST(FunctionJsonbTEST, JsonbExtractBigIntTest) {
              Null()}, // complex array
     };
 
-    check_function<DataTypeInt64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
 
     // json_extract array
     data_set = {
@@ -1042,7 +1060,7 @@ TEST(FunctionJsonbTEST, JsonbExtractBigIntTest) {
              Null()}, // complex array
     };
 
-    check_function<DataTypeInt64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
 
     // json_extract $[0].k1
     data_set = {
@@ -1069,7 +1087,7 @@ TEST(FunctionJsonbTEST, JsonbExtractBigIntTest) {
              BIGINT(400)}, // complex array
     };
 
-    check_function<DataTypeInt64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
 }
 
 TEST(FunctionJsonbTEST, JsonbExtractDoubleTest) {
@@ -1099,7 +1117,7 @@ TEST(FunctionJsonbTEST, JsonbExtractDoubleTest) {
              Null()}, // complex array
     };
 
-    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 
     // json_extract obejct
     data_set = {
@@ -1123,7 +1141,7 @@ TEST(FunctionJsonbTEST, JsonbExtractDoubleTest) {
              Null()}, // complex array
     };
 
-    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 
     // json_extract array
     data_set = {
@@ -1183,7 +1201,7 @@ TEST(FunctionJsonbTEST, JsonbExtractDoubleTest) {
              Null()}, // complex array
     };
 
-    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 
     // json_extract $[0].k1
     data_set = {
@@ -1209,7 +1227,7 @@ TEST(FunctionJsonbTEST, JsonbExtractDoubleTest) {
              DOUBLE(400)}, // complex array
     };
 
-    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
 
 TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
@@ -1244,7 +1262,8 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
     };
     for (const auto& row : data_set) {
         DataSet const_dataset = {row};
-        check_function<DataTypeUInt8, true>(func_name, input_types, const_dataset);
+        static_cast<void>(
+                check_function<DataTypeUInt8, true>(func_name, input_types, const_dataset));
     }
     input_types = {Nullable {TypeIndex::JSONB}, ConstedNotnull {TypeIndex::Int8}};
     // cast to TINYINT
@@ -1275,7 +1294,8 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
     };
     for (const auto& row : data_set) {
         DataSet const_dataset = {row};
-        check_function<DataTypeInt8, true>(func_name, input_types, const_dataset);
+        static_cast<void>(
+                check_function<DataTypeInt8, true>(func_name, input_types, const_dataset));
     }
 
     input_types = {Nullable {TypeIndex::JSONB}, ConstedNotnull {TypeIndex::Int16}};
@@ -1307,7 +1327,8 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
     };
     for (const auto& row : data_set) {
         DataSet const_dataset = {row};
-        check_function<DataTypeInt16, true>(func_name, input_types, const_dataset);
+        static_cast<void>(
+                check_function<DataTypeInt16, true>(func_name, input_types, const_dataset));
     }
 
     input_types = {Nullable {TypeIndex::JSONB}, ConstedNotnull {TypeIndex::Int32}};
@@ -1340,7 +1361,8 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
     };
     for (const auto& row : data_set) {
         DataSet const_dataset = {row};
-        check_function<DataTypeInt32, true>(func_name, input_types, const_dataset);
+        static_cast<void>(
+                check_function<DataTypeInt32, true>(func_name, input_types, const_dataset));
     }
 
     input_types = {Nullable {TypeIndex::JSONB}, ConstedNotnull {TypeIndex::Int64}};
@@ -1367,7 +1389,8 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
     };
     for (const auto& row : data_set) {
         DataSet const_dataset = {row};
-        check_function<DataTypeInt64, true>(func_name, input_types, const_dataset);
+        static_cast<void>(
+                check_function<DataTypeInt64, true>(func_name, input_types, const_dataset));
     }
 
     input_types = {Nullable {TypeIndex::JSONB}, ConstedNotnull {TypeIndex::Float64}};
@@ -1394,7 +1417,8 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
     };
     for (const auto& row : data_set) {
         DataSet const_dataset = {row};
-        check_function<DataTypeFloat64, true>(func_name, input_types, const_dataset);
+        static_cast<void>(
+                check_function<DataTypeFloat64, true>(func_name, input_types, const_dataset));
     }
 
     input_types = {Nullable {TypeIndex::JSONB}, ConstedNotnull {TypeIndex::String}};
@@ -1423,69 +1447,70 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
     };
     for (const auto& row : data_set) {
         DataSet const_dataset = {row};
-        check_function<DataTypeString, true>(func_name, input_types, const_dataset);
+        static_cast<void>(
+                check_function<DataTypeString, true>(func_name, input_types, const_dataset));
     }
 }
 
 TEST(FunctionJsonbTEST, JsonbCastFromOtherTest) {
     // CAST Nullable(X) to Nullable(JSONB)
-    check_function<DataTypeJsonb, true>(
+    static_cast<void>(check_function<DataTypeJsonb, true>(
             "CAST", {Nullable {TypeIndex::UInt8}, ConstedNotnull {TypeIndex::JSONB}},
-            {{{BOOLEAN(1), Null()}, STRING("true")}});
-    check_function<DataTypeJsonb, true>(
+            {{{BOOLEAN(1), Null()}, STRING("true")}}));
+    static_cast<void>(check_function<DataTypeJsonb, true>(
             "CAST", {Nullable {TypeIndex::UInt8}, ConstedNotnull {TypeIndex::JSONB}},
-            {{{BOOLEAN(0), Null()}, STRING("false")}});
-    check_function<DataTypeJsonb, true>(
+            {{{BOOLEAN(0), Null()}, STRING("false")}}));
+    static_cast<void>(check_function<DataTypeJsonb, true>(
             "CAST", {Nullable {TypeIndex::Int8}, ConstedNotnull {TypeIndex::JSONB}},
-            {{{TINYINT(100), Null()}, STRING("100")}});
-    check_function<DataTypeJsonb, true>(
+            {{{TINYINT(100), Null()}, STRING("100")}}));
+    static_cast<void>(check_function<DataTypeJsonb, true>(
             "CAST", {Nullable {TypeIndex::Int16}, ConstedNotnull {TypeIndex::JSONB}},
-            {{{SMALLINT(10000), Null()}, STRING("10000")}});
-    check_function<DataTypeJsonb, true>(
+            {{{SMALLINT(10000), Null()}, STRING("10000")}}));
+    static_cast<void>(check_function<DataTypeJsonb, true>(
             "CAST", {Nullable {TypeIndex::Int32}, ConstedNotnull {TypeIndex::JSONB}},
-            {{{INT(1000000000), Null()}, STRING("1000000000")}});
-    check_function<DataTypeJsonb, true>(
+            {{{INT(1000000000), Null()}, STRING("1000000000")}}));
+    static_cast<void>(check_function<DataTypeJsonb, true>(
             "CAST", {Nullable {TypeIndex::Int64}, ConstedNotnull {TypeIndex::JSONB}},
-            {{{BIGINT(1152921504606846976), Null()}, STRING("1152921504606846976")}});
-    check_function<DataTypeJsonb, true>(
+            {{{BIGINT(1152921504606846976), Null()}, STRING("1152921504606846976")}}));
+    static_cast<void>(check_function<DataTypeJsonb, true>(
             "CAST", {Nullable {TypeIndex::Float64}, ConstedNotnull {TypeIndex::JSONB}},
-            {{{DOUBLE(6.18), Null()}, STRING("6.18")}});
-    check_function<DataTypeJsonb, true>(
+            {{{DOUBLE(6.18), Null()}, STRING("6.18")}}));
+    static_cast<void>(check_function<DataTypeJsonb, true>(
             "CAST", {Nullable {TypeIndex::String}, ConstedNotnull {TypeIndex::JSONB}},
-            {{{STRING(R"(abcd)"), Null()}, Null()}}); // should fail
-    check_function<DataTypeJsonb, true>(
+            {{{STRING(R"(abcd)"), Null()}, Null()}})); // should fail
+    static_cast<void>(check_function<DataTypeJsonb, true>(
             "CAST", {Nullable {TypeIndex::String}, ConstedNotnull {TypeIndex::JSONB}},
-            {{{STRING(R"("abcd")"), Null()}, STRING(R"("abcd")")}});
+            {{{STRING(R"("abcd")"), Null()}, STRING(R"("abcd")")}}));
 
     // CAST X to JSONB
-    check_function<DataTypeJsonb, false>(
+    static_cast<void>(check_function<DataTypeJsonb, false>(
             "CAST", {Notnull {TypeIndex::UInt8}, ConstedNotnull {TypeIndex::JSONB}},
-            {{{BOOLEAN(1), Null()}, STRING("true")}});
-    check_function<DataTypeJsonb, false>(
+            {{{BOOLEAN(1), Null()}, STRING("true")}}));
+    static_cast<void>(check_function<DataTypeJsonb, false>(
             "CAST", {Notnull {TypeIndex::UInt8}, ConstedNotnull {TypeIndex::JSONB}},
-            {{{BOOLEAN(0), Null()}, STRING("false")}});
-    check_function<DataTypeJsonb, false>(
+            {{{BOOLEAN(0), Null()}, STRING("false")}}));
+    static_cast<void>(check_function<DataTypeJsonb, false>(
             "CAST", {Notnull {TypeIndex::Int8}, ConstedNotnull {TypeIndex::JSONB}},
-            {{{TINYINT(100), Null()}, STRING("100")}});
-    check_function<DataTypeJsonb, false>(
+            {{{TINYINT(100), Null()}, STRING("100")}}));
+    static_cast<void>(check_function<DataTypeJsonb, false>(
             "CAST", {Notnull {TypeIndex::Int16}, ConstedNotnull {TypeIndex::JSONB}},
-            {{{SMALLINT(10000), Null()}, STRING("10000")}});
-    check_function<DataTypeJsonb, false>(
+            {{{SMALLINT(10000), Null()}, STRING("10000")}}));
+    static_cast<void>(check_function<DataTypeJsonb, false>(
             "CAST", {Notnull {TypeIndex::Int32}, ConstedNotnull {TypeIndex::JSONB}},
-            {{{INT(1000000000), Null()}, STRING("1000000000")}});
-    check_function<DataTypeJsonb, false>(
+            {{{INT(1000000000), Null()}, STRING("1000000000")}}));
+    static_cast<void>(check_function<DataTypeJsonb, false>(
             "CAST", {Notnull {TypeIndex::Int64}, ConstedNotnull {TypeIndex::JSONB}},
-            {{{BIGINT(1152921504606846976), Null()}, STRING("1152921504606846976")}});
-    check_function<DataTypeJsonb, false>(
+            {{{BIGINT(1152921504606846976), Null()}, STRING("1152921504606846976")}}));
+    static_cast<void>(check_function<DataTypeJsonb, false>(
             "CAST", {Notnull {TypeIndex::Float64}, ConstedNotnull {TypeIndex::JSONB}},
-            {{{DOUBLE(6.18), Null()}, STRING("6.18")}});
+            {{{DOUBLE(6.18), Null()}, STRING("6.18")}}));
     // String to JSONB should always be Nullable
-    check_function<DataTypeJsonb, true>(
+    static_cast<void>(check_function<DataTypeJsonb, true>(
             "CAST", {Notnull {TypeIndex::String}, ConstedNotnull {TypeIndex::JSONB}},
-            {{{STRING(R"(abcd)"), Null()}, Null()}}); // should fail
-    check_function<DataTypeJsonb, true>(
+            {{{STRING(R"(abcd)"), Null()}, Null()}})); // should fail
+    static_cast<void>(check_function<DataTypeJsonb, true>(
             "CAST", {Notnull {TypeIndex::String}, ConstedNotnull {TypeIndex::JSONB}},
-            {{{STRING(R"("abcd")"), Null()}, STRING(R"("abcd")")}});
+            {{{STRING(R"("abcd")"), Null()}, STRING(R"("abcd")")}}));
 }
 
 TEST(FunctionJsonbTEST, GetJSONSTRINGTest) {
@@ -1517,7 +1542,7 @@ TEST(FunctionJsonbTEST, GetJSONSTRINGTest) {
              STRING(R"([{"k1":"v41","k2":400},1,"a",3.14])")}, // complex array
     };
 
-    check_function<DataTypeString, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
 
     // get json from obejct
     data_set = {
@@ -1542,7 +1567,7 @@ TEST(FunctionJsonbTEST, GetJSONSTRINGTest) {
              Null()}, // complex array
     };
 
-    check_function<DataTypeString, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
 
     // get json from array
     data_set = {
@@ -1604,7 +1629,7 @@ TEST(FunctionJsonbTEST, GetJSONSTRINGTest) {
              Null()}, // complex array
     };
 
-    check_function<DataTypeString, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
 
     // get json with path $[0].k1
     data_set = {
@@ -1629,7 +1654,7 @@ TEST(FunctionJsonbTEST, GetJSONSTRINGTest) {
              STRING("v41")}, // complex array
     };
 
-    check_function<DataTypeString, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
 }
 
 TEST(FunctionJsonbTEST, GetJsonIntTest) {
@@ -1659,7 +1684,7 @@ TEST(FunctionJsonbTEST, GetJsonIntTest) {
              Null()}, // complex array
     };
 
-    check_function<DataTypeInt32, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
 
     // get json from obejct
     data_set = {
@@ -1684,7 +1709,7 @@ TEST(FunctionJsonbTEST, GetJsonIntTest) {
              Null()}, // complex array
     };
 
-    check_function<DataTypeInt32, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
 
     // get json from array
     data_set = {
@@ -1745,7 +1770,7 @@ TEST(FunctionJsonbTEST, GetJsonIntTest) {
              Null()}, // complex array
     };
 
-    check_function<DataTypeInt32, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
 
     // get json with path $[0].k1
     data_set = {
@@ -1772,7 +1797,7 @@ TEST(FunctionJsonbTEST, GetJsonIntTest) {
              INT(400)}, // complex array
     };
 
-    check_function<DataTypeInt32, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
 }
 
 TEST(FunctionJsonbTEST, GetJsonBigIntTest) {
@@ -1802,7 +1827,7 @@ TEST(FunctionJsonbTEST, GetJsonBigIntTest) {
              Null()}, // complex array
     };
 
-    check_function<DataTypeInt64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
 
     // get json from obejct
     data_set = {
@@ -1827,7 +1852,7 @@ TEST(FunctionJsonbTEST, GetJsonBigIntTest) {
              Null()}, // complex array
     };
 
-    check_function<DataTypeInt64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
 
     // get json from array
     data_set = {
@@ -1888,7 +1913,7 @@ TEST(FunctionJsonbTEST, GetJsonBigIntTest) {
              Null()}, // complex array
     };
 
-    check_function<DataTypeInt64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
 
     // get json with path $[0].k1
     data_set = {
@@ -1915,7 +1940,7 @@ TEST(FunctionJsonbTEST, GetJsonBigIntTest) {
              BIGINT(400)}, // complex array
     };
 
-    check_function<DataTypeInt64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
 }
 
 TEST(FunctionJsonbTEST, GetJsonDoubleTest) {
@@ -1945,7 +1970,7 @@ TEST(FunctionJsonbTEST, GetJsonDoubleTest) {
              Null()}, // complex array
     };
 
-    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 
     // get json from obejct
     data_set = {
@@ -1969,7 +1994,7 @@ TEST(FunctionJsonbTEST, GetJsonDoubleTest) {
              Null()}, // complex array
     };
 
-    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 
     // get json from array
     data_set = {
@@ -2029,7 +2054,7 @@ TEST(FunctionJsonbTEST, GetJsonDoubleTest) {
              Null()}, // complex array
     };
 
-    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 
     // get json with path $[0].k1
     data_set = {
@@ -2055,6 +2080,6 @@ TEST(FunctionJsonbTEST, GetJsonDoubleTest) {
              DOUBLE(400)}, // complex array
     };
 
-    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
 } // namespace doris::vectorized

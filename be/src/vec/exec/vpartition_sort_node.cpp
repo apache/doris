@@ -64,6 +64,7 @@ Status VPartitionSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
     _has_global_limit = tnode.partition_sort_node.has_global_limit;
     _top_n_algorithm = tnode.partition_sort_node.top_n_algorithm;
     _partition_inner_limit = tnode.partition_sort_node.partition_inner_limit;
+    _topn_phase = tnode.partition_sort_node.ptopn_phase;
     return Status::OK();
 }
 
@@ -104,55 +105,34 @@ void VPartitionSortNode::_emplace_into_hash_table(const ColumnRawPtrs& key_colum
             [&](auto&& agg_method) -> void {
                 SCOPED_TIMER(_build_timer);
                 using HashMethodType = std::decay_t<decltype(agg_method)>;
-                using HashTableType = std::decay_t<decltype(agg_method.data)>;
                 using AggState = typename HashMethodType::State;
 
-                AggState state(key_columns, _partition_key_sz, nullptr);
+                AggState state(key_columns, _partition_key_sz);
                 size_t num_rows = input_block->rows();
-                _pre_serialize_key_if_need(state, agg_method, key_columns, num_rows);
+                agg_method.init_serialized_keys(key_columns, _partition_key_sz, num_rows);
 
-                //PHHashMap
-                const auto& keys = state.get_keys();
-                if constexpr (HashTableTraits<HashTableType>::is_phmap) {
-                    _hash_values.resize(num_rows);
+                auto creator = [&](const auto& ctor, auto& key, auto& origin) {
+                    HashMethodType::try_presis_key(key, origin, *_agg_arena_pool);
+                    auto aggregate_data = _pool->add(new PartitionBlocks());
+                    _value_places.push_back(aggregate_data);
+                    ctor(key, aggregate_data);
+                    _num_partition++;
+                };
+                auto creator_for_null_key = [&](auto& mapped) {
+                    mapped = _pool->add(new PartitionBlocks());
+                    _value_places.push_back(mapped);
+                    _num_partition++;
+                };
 
-                    for (size_t i = 0; i < num_rows; ++i) {
-                        _hash_values[i] = agg_method.data.hash(keys[i]);
-                    }
-                }
-
+                SCOPED_TIMER(_emplace_key_timer);
                 for (size_t row = 0; row < num_rows; ++row) {
-                    SCOPED_TIMER(_emplace_key_timer);
-                    PartitionDataPtr aggregate_data = nullptr;
-                    auto emplace_result = [&]() {
-                        if constexpr (HashTableTraits<HashTableType>::is_phmap) {
-                            if (LIKELY(row + HASH_MAP_PREFETCH_DIST < num_rows)) {
-                                agg_method.data.prefetch_by_hash(
-                                        _hash_values[row + HASH_MAP_PREFETCH_DIST]);
-                            }
-                            return state.emplace_with_key(agg_method.data, keys[row],
-                                                          _hash_values[row], row);
-                        } else {
-                            return state.emplace_with_key(agg_method.data, keys[row], row);
-                        }
-                    }();
-
-                    /// If a new key is inserted, initialize the states of the aggregate functions, and possibly something related to the key.
-                    if (emplace_result.is_inserted()) {
-                        /// exception-safety - if you can not allocate memory or create states, then destructors will not be called.
-                        emplace_result.set_mapped(nullptr);
-                        aggregate_data = _pool->add(new PartitionBlocks());
-                        emplace_result.set_mapped(aggregate_data);
-                        _value_places.push_back(aggregate_data);
-                        _num_partition++;
-                    } else {
-                        aggregate_data = emplace_result.get_mapped();
-                    }
-                    assert(aggregate_data != nullptr);
-                    aggregate_data->add_row_idx(row);
+                    auto& mapped =
+                            agg_method.lazy_emplace(state, row, creator, creator_for_null_key);
+                    mapped->add_row_idx(row);
                 }
+
+                SCOPED_TIMER(_selector_block_timer);
                 for (auto place : _value_places) {
-                    SCOPED_TIMER(_selector_block_timer);
                     place->append_block_by_selector(input_block, child(0)->row_desc(),
                                                     _has_global_limit, _partition_inner_limit,
                                                     batch_size);
@@ -173,7 +153,9 @@ Status VPartitionSortNode::sink(RuntimeState* state, vectorized::Block* input_bl
             _value_places[0]->append_whole_block(input_block, child(0)->row_desc());
         } else {
             //just simply use partition num to check
-            if (_num_partition > config::partition_topn_partition_threshold &&
+            //if is TWO_PHASE_GLOBAL, must be sort all data thought partition num threshold have been exceeded.
+            if (_topn_phase != TPartTopNPhase::TWO_PHASE_GLOBAL &&
+                _num_partition > config::partition_topn_partition_threshold &&
                 child_input_rows < 10000 * _num_partition) {
                 {
                     std::lock_guard<std::mutex> lock(_buffer_mutex);
@@ -239,7 +221,7 @@ Status VPartitionSortNode::open(RuntimeState* state) {
         RETURN_IF_ERROR(sink(state, input_block.get(), eos));
     } while (!eos);
 
-    child(0)->close(state);
+    static_cast<void>(child(0)->close(state));
 
     return Status::OK();
 }
@@ -268,14 +250,20 @@ Status VPartitionSortNode::pull(doris::RuntimeState* state, vectorized::Block* o
         if (_blocks_buffer.empty() == false) {
             _blocks_buffer.front().swap(*output_block);
             _blocks_buffer.pop();
+            RETURN_IF_ERROR(
+                    VExprContext::filter_block(_conjuncts, output_block, output_block->columns()));
             return Status::OK();
         }
     }
-
+    // notice: must output block from _blocks_buffer firstly, and then get_sorted_block.
+    // as when the child is eos, then set _can_read = true, and _partition_sorts have push_back sorter.
+    // if we move the _blocks_buffer output at last(behind 286 line),
+    // it's maybe eos but not output all data: when _blocks_buffer.empty() and _can_read = false (this: _sort_idx && _partition_sorts.size() are 0)
     if (_can_read) {
         bool current_eos = false;
         RETURN_IF_ERROR(get_sorted_block(state, output_block, &current_eos));
     }
+    RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, output_block, output_block->columns()));
     {
         std::lock_guard<std::mutex> lock(_buffer_mutex);
         if (_blocks_buffer.empty() && _sort_idx >= _partition_sorts.size()) {

@@ -18,6 +18,8 @@
 #include "data_type_map_serde.h"
 
 #include "arrow/array/builder_nested.h"
+#include "common/exception.h"
+#include "common/status.h"
 #include "util/jsonb_document.h"
 #include "util/simd/bits.h"
 #include "vec/columns/column.h"
@@ -29,14 +31,15 @@ namespace doris {
 namespace vectorized {
 class Arena;
 
-void DataTypeMapSerDe::serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
-                                                BufferWritable& bw, FormatOptions& options) const {
-    SERIALIZE_COLUMN_TO_JSON()
+Status DataTypeMapSerDe::serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
+                                                  BufferWritable& bw, FormatOptions& options,
+                                                  int nesting_level) const {
+    SERIALIZE_COLUMN_TO_JSON();
 }
 
-void DataTypeMapSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
-                                                  BufferWritable& bw,
-                                                  FormatOptions& options) const {
+Status DataTypeMapSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+                                                    BufferWritable& bw, FormatOptions& options,
+                                                    int nesting_level) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -55,11 +58,14 @@ void DataTypeMapSerDe::serialize_one_cell_to_json(const IColumn& column, int row
             bw.write(&options.collection_delim, 1);
             bw.write(" ", 1);
         }
-        key_serde->serialize_one_cell_to_json(nested_keys_column, i, bw, options);
+        RETURN_IF_ERROR(key_serde->serialize_one_cell_to_json(nested_keys_column, i, bw, options,
+                                                              nesting_level + 1));
         bw.write(&options.map_key_delim, 1);
-        value_serde->serialize_one_cell_to_json(nested_values_column, i, bw, options);
+        RETURN_IF_ERROR(value_serde->serialize_one_cell_to_json(nested_values_column, i, bw,
+                                                                options, nesting_level + 1));
     }
     bw.write("}", 1);
+    return Status::OK();
 }
 
 Status DataTypeMapSerDe::deserialize_one_cell_from_hive_text(IColumn& column, Slice& slice,
@@ -343,7 +349,8 @@ void DataTypeMapSerDe::write_column_to_arrow(const IColumn& column, const NullMa
             MutableColumnPtr value_mutable_data = nested_values_column.clone_empty();
             for (size_t i = offsets[r - 1]; i < offsets[r]; ++i) {
                 if (keys_nullmap_data[i] == 1) {
-                    continue;
+                    throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                           "Can not write null value of map key to arrow.");
                 }
                 key_mutable_data->insert_from(nested_keys_column, i);
                 value_mutable_data->insert_from(nested_values_column, i);
@@ -487,11 +494,12 @@ Status DataTypeMapSerDe::write_column_to_orc(const IColumn& column, const NullMa
         size_t next_offset = offsets[row_id];
 
         if (cur_batch->notNull[row_id] == 1) {
-            key_serde->write_column_to_orc(nested_keys_column, nullptr, cur_batch->keys.get(),
-                                           offset, next_offset, buffer_list);
-            value_serde->write_column_to_orc(nested_values_column, nullptr,
-                                             cur_batch->elements.get(), offset, next_offset,
-                                             buffer_list);
+            static_cast<void>(key_serde->write_column_to_orc(nested_keys_column, nullptr,
+                                                             cur_batch->keys.get(), offset,
+                                                             next_offset, buffer_list));
+            static_cast<void>(value_serde->write_column_to_orc(nested_values_column, nullptr,
+                                                               cur_batch->elements.get(), offset,
+                                                               next_offset, buffer_list));
         }
 
         cur_batch->offsets[row_id + 1] = next_offset;
