@@ -118,6 +118,11 @@ public class EsExternalCatalog extends ExternalCatalog {
                 EsResource.LIKE_PUSH_DOWN_DEFAULT_VALUE));
     }
 
+    public boolean enableIncludeHiddenIndex() {
+        return Boolean.parseBoolean(catalogProperty.getOrDefault(EsResource.INCLUDE_HIDDEN_INDEX,
+                EsResource.INCLUDE_HIDDEN_INDEX_DEFAULT_VALUE));
+    }
+
     @Override
     protected void initLocalObjectsImpl() {
         esRestClient = new EsRestClient(getNodes(), getUsername(), getPassword(), enableSsl());
@@ -136,7 +141,7 @@ public class EsExternalCatalog extends ExternalCatalog {
             db.getTables().forEach(table -> names.add(table.getName()));
             return names;
         } else {
-            return esRestClient.listTable();
+            return esRestClient.listTable(enableIncludeHiddenIndex());
         }
     }
 

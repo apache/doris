@@ -33,6 +33,8 @@ curl "http://${ES_6_HOST}:9200/test2_20220808/doc/3" -H "Content-Type:applicatio
 # put _meta for array
 curl "http://${ES_6_HOST}:9200/test1/doc/_mapping" -H "Content-Type:application/json" -X PUT -d "@/mnt/scripts/index/array_meta.json"
 curl "http://${ES_6_HOST}:9200/test2_20220808/doc/_mapping" -H "Content-Type:application/json" -X PUT -d "@/mnt/scripts/index/array_meta.json"
+# create index .hide
+curl "http://${ES_6_HOST}:9200/.hide" -H "Content-Type:application/json" -X PUT -d "@/mnt/scripts/index/es6_hide.json"
 
 # es7
 # create index test1
@@ -57,6 +59,9 @@ curl "http://${ES_7_HOST}:9200/test3_20231005/_doc/1" -H "Content-Type:applicati
 # put _meta for array
 curl "http://${ES_7_HOST}:9200/test1/_mapping" -H "Content-Type:application/json" -X PUT -d "@/mnt/scripts/index/array_meta.json"
 curl "http://${ES_7_HOST}:9200/test2_20220808/_mapping" -H "Content-Type:application/json" -X PUT -d "@/mnt/scripts/index/array_meta.json"
+
+# create index .hide
+curl "http://${ES_7_HOST}:9200/.hide" -H "Content-Type:application/json" -X PUT -d "@/mnt/scripts/index/es7_hide.json"
 
 # es8
 # create index test1

@@ -65,14 +65,14 @@ public:
     [[nodiscard]] int64_t read_watcher_elapse_time() override { return 0; }
 };
 
-struct EosDependency : public Dependency {
+class EosDependency : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(EosDependency);
     EosDependency(int id) : Dependency(id, "EosDependency") {}
     void* shared_state() override { return nullptr; }
 };
 
-struct ScannerDoneDependency : public Dependency {
+class ScannerDoneDependency : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(ScannerDoneDependency);
     ScannerDoneDependency(int id, vectorized::ScannerContext* scanner_ctx)
@@ -90,7 +90,7 @@ private:
     vectorized::ScannerContext* _scanner_ctx;
 };
 
-struct DataReadyDependency : public Dependency {
+class DataReadyDependency : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(DataReadyDependency);
     DataReadyDependency(int id, vectorized::ScannerContext* scanner_ctx)
@@ -238,7 +238,7 @@ protected:
     }
     virtual bool _should_push_down_common_expr() { return false; }
 
-    virtual bool _storage_no_merge() { return true; }
+    virtual bool _storage_no_merge() { return false; }
     virtual bool _is_key_column(const std::string& col_name) { return false; }
     virtual vectorized::VScanNode::PushDownType _should_push_down_bloom_filter() {
         return vectorized::VScanNode::PushDownType::UNACCEPTABLE;
@@ -417,14 +417,14 @@ public:
     Status try_close(RuntimeState* state) override;
 
     Dependency* wait_for_dependency(RuntimeState* state) override;
-    bool is_pending_finish(RuntimeState* state) const override;
+    FinishDependency* finish_blocked_by(RuntimeState* state) const override;
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override { return OperatorXBase::prepare(state); }
     Status open(RuntimeState* state) override;
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override;
-    bool is_source() const override { return true; }
+    [[nodiscard]] bool is_source() const override { return true; }
 
     const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() override {
         return _runtime_filter_descs;

@@ -63,6 +63,8 @@ suite("nereids_scalar_fn_L") {
 	qt_sql_length_Varchar_notnull "select length(kvchrs1) from fn_test_not_nullable order by kvchrs1"
 	qt_sql_length_String "select length(kstr) from fn_test order by kstr"
 	qt_sql_length_String_notnull "select length(kstr) from fn_test_not_nullable order by kstr"
+	qt_sql_like_Varchar_Varchar "select like(kvchrs1, kvchrs2) from fn_test order by kvchrs1"
+	qt_sql_like_Varchar_Varchar_not_null "select like(kvchrs1, kvchrs2) from fn_test_not_nullable order by kvchrs1"
 	qt_sql_ln_Double "select ln(kdbl) from fn_test order by kdbl"
 	qt_sql_ln_Double_notnull "select ln(kdbl) from fn_test_not_nullable order by kdbl"
 	qt_sql_locate_Varchar_Varchar "select locate(kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1"
@@ -91,4 +93,8 @@ suite("nereids_scalar_fn_L") {
 	qt_sql_ltrim_Varchar_notnull "select ltrim(kvchrs1) from fn_test_not_nullable order by kvchrs1"
 	qt_sql_ltrim_String "select ltrim(kstr) from fn_test order by kstr"
 	qt_sql_ltrim_String_notnull "select ltrim(kstr) from fn_test_not_nullable order by kstr"
+	qt_sql_ltrim_Varchar_Varchar "select ltrim(kvchrs1, 'var') from fn_test order by kvchrs1"
+	qt_sql_ltrim_Varchar_Varchar_notnull "select ltrim(kvchrs1, 'var') from fn_test_not_nullable order by kvchrs1"
+	qt_sql_ltrim_String_String "select ltrim(kstr, 'str') from fn_test order by kstr"
+	qt_sql_ltrim_String_String_notnull "select ltrim(kstr, 'str') from fn_test_not_nullable order by kstr"
 }

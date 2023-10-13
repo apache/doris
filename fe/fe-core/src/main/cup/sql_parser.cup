@@ -3253,6 +3253,15 @@ opt_partition ::=
         exprs.add(fnExpr);
         RESULT = RangePartitionDesc.createRangePartitionDesc(exprs, list);
     :}
+    | KW_AUTO KW_PARTITION KW_BY KW_RANGE function_name:functionName LPAREN expr_list:l COMMA
+        KW_INTERVAL expr:v ident:u RPAREN LPAREN opt_all_partition_desc_list:list RPAREN
+    {:
+        Expr fnExpr = FunctionCallExpr.functionWithIntervalConvert(functionName.getFunction().toLowerCase(), l.get(0), v, u); 
+        ArrayList<Expr> exprs = new ArrayList<Expr>();
+        exprs.add(fnExpr);
+        RESULT = RangePartitionDesc.createRangePartitionDesc(exprs, list);
+    :}
+
     /* expr list partition */
     | KW_AUTO KW_PARTITION KW_BY KW_LIST LPAREN expr_list:exprs RPAREN
             LPAREN opt_all_partition_desc_list:list RPAREN

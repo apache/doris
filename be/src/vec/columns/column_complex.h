@@ -127,10 +127,6 @@ public:
         LOG(FATAL) << "get_permutation not implemented";
     }
 
-    [[noreturn]] TypeIndex get_data_type() const override {
-        LOG(FATAL) << "ColumnComplexType get_data_type not implemeted";
-    }
-
     void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
                                          size_t limit) const override {
         LOG(FATAL) << "get_indices_of_non_default_rows not implemented";
@@ -237,10 +233,6 @@ public:
                                 int nan_direction_hint) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "compare_at for " + std::string(get_family_name()));
-    }
-
-    void get_extremes(Field& min, Field& max) const override {
-        LOG(FATAL) << "get_extremes not implemented";
     }
 
     bool can_be_inside_nullable() const override { return true; }

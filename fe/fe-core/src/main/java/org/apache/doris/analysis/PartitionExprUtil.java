@@ -57,9 +57,9 @@ public class PartitionExprUtil {
             throw new AnalysisException("now range partition only support FunctionCallExpr");
         }
         FunctionCallExpr functionCallExpr = (FunctionCallExpr) e;
-        String fnName = functionCallExpr.getFnName().getFunction();
+        String fnName = functionCallExpr.getFnName().getFunction().toLowerCase();
         String timeUnit;
-        int interval;
+        long interval;
         if ("date_trunc".equalsIgnoreCase(fnName)) {
             List<Expr> paramsExprs = functionCallExpr.getParams().exprs();
             if (paramsExprs.size() != 2) {
@@ -70,9 +70,22 @@ public class PartitionExprUtil {
                 throw new AnalysisException("date_trunc param of time unit is not string literal.");
             }
             timeUnit = ((StringLiteral) param).getStringValue().toLowerCase();
-            interval = 1;
+            interval = 1L;
+        } else if (PartitionDesc.RANGE_PARTITION_FUNCTIONS.contains(fnName)) {
+            List<Expr> paramsExprs = functionCallExpr.getParams().exprs();
+            if (paramsExprs.size() != 3) {
+                throw new AnalysisException("date_floor/date_ceil params exprs size should be 3.");
+            }
+            Expr param = paramsExprs.get(1);
+            if (!(param instanceof IntLiteral)) {
+                throw new AnalysisException("date_floor/date_ceil param of interval must be int literal.");
+            }
+            //date_floor(event_day,interval 5 day) ---> day_floor(`event_day`, 5, '0001-01-01 00:00:00')
+            String[] splits = fnName.split("_");
+            timeUnit = splits[0]; //day
+            interval = ((IntLiteral) param).getLongValue(); //5
         } else {
-            throw new AnalysisException("now range partition only support date_trunc.");
+            throw new AnalysisException("now range partition only support date_trunc/date_floor/date_ceil.");
         }
         return partitionExprUtil.new FunctionIntervalInfo(timeUnit, interval);
     }
@@ -80,7 +93,7 @@ public class PartitionExprUtil {
     public static DateLiteral getRangeEnd(DateLiteral beginTime, FunctionIntervalInfo intervalInfo)
             throws AnalysisException {
         String timeUnit = intervalInfo.timeUnit;
-        int interval = intervalInfo.interval;
+        long interval = intervalInfo.interval;
         switch (timeUnit) {
             case "year":
                 return beginTime.plusYears(interval);
@@ -206,9 +219,9 @@ public class PartitionExprUtil {
 
     public class FunctionIntervalInfo {
         public String timeUnit;
-        public int interval;
+        public long interval;
 
-        public FunctionIntervalInfo(String timeUnit, int interval) {
+        public FunctionIntervalInfo(String timeUnit, long interval) {
             this.timeUnit = timeUnit;
             this.interval = interval;
         }
