@@ -815,7 +815,12 @@ Status DataDir::update_capacity() {
 
 void DataDir::update_trash_capacity() {
     auto trash_path = fmt::format("{}/{}", _path, TRASH_PREFIX);
-    _trash_used_bytes = StorageEngine::instance()->get_file_or_directory_size(trash_path);
+    try {
+        _trash_used_bytes = StorageEngine::instance()->get_file_or_directory_size(trash_path);
+    } catch (const std::filesystem::filesystem_error& e) {
+        LOG(WARNING) << "update trash capacity failed, path: " << _path << ", err: " << e.what();
+        return;
+    }
     disks_trash_used_capacity->set_value(_trash_used_bytes);
     LOG(INFO) << "path: " << _path << " trash capacity: " << _trash_used_bytes;
 }
