@@ -19,6 +19,7 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.DiskUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -85,6 +86,23 @@ public class FrontendsProcNode implements ProcNodeInterface {
         } else if (detailType.equals("disks")) {
             getFrontendsDiskInfo(env, infos);
         }
+    }
+
+    public static List<Pair<String, Integer>> getFrontendWithRpcPort(Env env, boolean includeSelf) {
+        List<Pair<String, Integer>> allFe = new ArrayList<>();
+        List<Frontend> frontends = env.getFrontends(null);
+
+        String selfNode = Env.getCurrentEnv().getSelfNode().getHost();
+        if (ConnectContext.get() != null && !Strings.isNullOrEmpty(ConnectContext.get().getCurrentConnectedFEIp())) {
+            selfNode = ConnectContext.get().getCurrentConnectedFEIp();
+        }
+
+        String finalSelfNode = selfNode;
+        frontends.stream()
+            .filter(fe -> (!fe.getHost().equals(finalSelfNode) || includeSelf))
+            .map(fe -> Pair.of(fe.getHost(), fe.getRpcPort()))
+                .forEach(allFe::add);
+        return allFe;
     }
 
     public static void getFrontendsInfo(Env env, List<List<String>> infos) {

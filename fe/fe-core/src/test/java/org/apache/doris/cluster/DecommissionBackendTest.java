@@ -52,7 +52,7 @@ public class DecommissionBackendTest extends TestWithFeService {
     @Override
     protected void beforeCreatingConnectContext() throws Exception {
         FeConstants.default_scheduler_interval_millisecond = 1000;
-        FeConstants.tablet_checker_interval_ms = 1000;
+        Config.tablet_checker_interval_ms = 1000;
         Config.tablet_repair_delay_factor_second = 1;
         Config.allow_replica_on_same_host = true;
     }

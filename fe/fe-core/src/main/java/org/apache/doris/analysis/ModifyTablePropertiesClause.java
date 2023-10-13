@@ -46,6 +46,8 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
 
     private boolean isBeingSynced = false;
 
+    private short minLoadReplicaNum = -1;
+
     public void setIsBeingSynced(boolean isBeingSynced) {
         this.isBeingSynced = isBeingSynced;
     }
@@ -117,6 +119,9 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TABLET_TYPE)) {
             throw new AnalysisException("Alter tablet type not supported");
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_MIN_LOAD_REPLICA_NUM)) {
+            // do nothing, will be alter in Alter.processAlterOlapTable
+            this.needTableStable = false;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY)) {
             this.needTableStable = false;
             String storagePolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, "");

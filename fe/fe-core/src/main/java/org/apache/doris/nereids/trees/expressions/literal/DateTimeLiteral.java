@@ -181,7 +181,7 @@ public class DateTimeLiteral extends DateLiteral {
 
     @Override
     public String toSql() {
-        return toString();
+        return String.format("'%s'", toString());
     }
 
     @Override
@@ -207,6 +207,11 @@ public class DateTimeLiteral extends DateLiteral {
     public Expression plusMonths(long months) {
         return fromJavaDateType(
                 DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER, getStringValue()).plusMonths(months));
+    }
+
+    public Expression plusWeeks(long weeks) {
+        return fromJavaDateType(
+                DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER, getStringValue()).plusWeeks(weeks));
     }
 
     public Expression plusDays(long days) {

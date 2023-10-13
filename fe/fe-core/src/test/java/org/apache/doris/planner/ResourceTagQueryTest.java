@@ -41,6 +41,7 @@ import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TDisk;
+import org.apache.doris.thrift.TDiskType;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.UtFrameUtils;
 
@@ -90,7 +91,7 @@ public class ResourceTagQueryTest {
     public static void beforeClass() throws Exception {
         System.out.println(runningDir);
         FeConstants.runningUnitTest = true;
-        FeConstants.tablet_checker_interval_ms = 1000;
+        Config.tablet_checker_interval_ms = 1000;
         Config.tablet_repair_delay_factor_second = 1;
         // 5 backends:
         // 127.0.0.1
@@ -118,6 +119,7 @@ public class ResourceTagQueryTest {
             tDisk1.setDiskAvailableCapacity(tDisk1.disk_total_capacity - tDisk1.data_used_capacity);
             tDisk1.setPathHash(random.nextLong());
             tDisk1.setStorageMedium(TStorageMedium.HDD);
+            tDisk1.setDirType(TDiskType.STORAGE);
             backendDisks.put(tDisk1.getRootPath(), tDisk1);
 
             TDisk tDisk2 = new TDisk();
@@ -128,6 +130,7 @@ public class ResourceTagQueryTest {
             tDisk2.setDiskAvailableCapacity(tDisk2.disk_total_capacity - tDisk2.data_used_capacity);
             tDisk2.setPathHash(random.nextLong());
             tDisk2.setStorageMedium(TStorageMedium.SSD);
+            tDisk2.setDirType(TDiskType.STORAGE);
             backendDisks.put(tDisk2.getRootPath(), tDisk2);
 
             be.updateDisks(backendDisks);

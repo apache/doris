@@ -19,11 +19,11 @@ PhysicalResultSink
 ----------------------------PhysicalProject
 ------------------------------filter((date_dim.d_qoy < 4) and (date_dim.d_year = 2001))
 --------------------------------PhysicalOlapScan[date_dim]
---------------------PhysicalProject
-----------------------filter(($c$1 OR $c$2))
-------------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((c.c_customer_sk = catalog_sales.cs_ship_customer_sk))otherCondition=()
---------------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((c.c_customer_sk = web_sales.ws_bill_customer_sk))otherCondition=()
-----------------------------PhysicalDistribute
+--------------------PhysicalDistribute
+----------------------PhysicalProject
+------------------------filter(($c$1 OR $c$2))
+--------------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((c.c_customer_sk = catalog_sales.cs_ship_customer_sk))otherCondition=()
+----------------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((c.c_customer_sk = web_sales.ws_bill_customer_sk))otherCondition=()
 ------------------------------PhysicalProject
 --------------------------------hashJoin[INNER_JOIN] hashCondition=((customer_demographics.cd_demo_sk = c.c_current_cdemo_sk))otherCondition=()
 ----------------------------------PhysicalDistribute
@@ -38,22 +38,22 @@ PhysicalResultSink
 ----------------------------------PhysicalDistribute
 ------------------------------------PhysicalProject
 --------------------------------------PhysicalOlapScan[customer_demographics]
+------------------------------PhysicalDistribute
+--------------------------------PhysicalProject
+----------------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk))otherCondition=()
+------------------------------------PhysicalProject
+--------------------------------------PhysicalOlapScan[web_sales]
+------------------------------------PhysicalDistribute
+--------------------------------------PhysicalProject
+----------------------------------------filter((date_dim.d_qoy < 4) and (date_dim.d_year = 2001))
+------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
---------------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk))otherCondition=()
+--------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk))otherCondition=()
 ----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[web_sales]
+------------------------------------PhysicalOlapScan[catalog_sales]
 ----------------------------------PhysicalDistribute
 ------------------------------------PhysicalProject
 --------------------------------------filter((date_dim.d_qoy < 4) and (date_dim.d_year = 2001))
 ----------------------------------------PhysicalOlapScan[date_dim]
---------------------------PhysicalDistribute
-----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk))otherCondition=()
---------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[catalog_sales]
---------------------------------PhysicalDistribute
-----------------------------------PhysicalProject
-------------------------------------filter((date_dim.d_qoy < 4) and (date_dim.d_year = 2001))
---------------------------------------PhysicalOlapScan[date_dim]
 

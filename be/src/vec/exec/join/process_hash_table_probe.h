@@ -75,20 +75,15 @@ struct ProcessHashTableProbe {
                                                UInt8* __restrict null_map_data,
                                                UInt8* __restrict filter_map, Block* output_block);
 
-    void _pre_serialize_key(const ColumnRawPtrs& key_columns, const size_t key_rows,
-                            std::vector<StringRef>& serialized_keys);
-
     void _emplace_element(int8_t block_offset, int32_t block_row, int& current_offset);
 
-    template <typename KeyGetter>
-    KeyGetter _init_probe_side(size_t probe_rows, bool with_other_join_conjuncts);
+    template <typename HashTableType>
+    HashTableType::State _init_probe_side(HashTableType& hash_table_ctx, size_t probe_rows,
+                                          bool with_other_join_conjuncts, const uint8_t* null_map);
 
     template <typename Mapped, bool with_other_join_conjuncts>
     ForwardIterator<Mapped>& _probe_row_match(int& current_offset, int& probe_index,
                                               size_t& probe_size, bool& all_match_one);
-
-    template <bool need_null_map_for_probe, typename HashTableType, typename Keys>
-    void _probe_hash(const Keys& keys, HashTableType& hash_table_ctx, ConstNullMapPtr null_map);
 
     // Process full outer join/ right join / right semi/anti join to output the join result
     // in hash table
@@ -114,7 +109,6 @@ struct ProcessHashTableProbe {
     size_t _serialized_key_buffer_size {0};
     uint8_t* _serialized_key_buffer;
     std::unique_ptr<Arena> _serialize_key_arena;
-    std::vector<size_t> _probe_side_hash_values;
     std::vector<char> _probe_side_find_result;
 
     std::vector<bool*> _visited_map;

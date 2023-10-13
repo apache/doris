@@ -28,6 +28,35 @@
 0.019198621771937627
 0.020943951023931952
 
+-- !sql_regexp_Varchar_Varchar --
+true
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+
+-- !sql_regexp_Varchar_Varchar_not_null --
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+
 -- !sql_regexp_extract_Varchar_Varchar_BigInt --
 \N
 
@@ -1005,6 +1034,64 @@ string1
 string1
 string1
 string1
+string2
+string2
+string2
+string2
+string3
+string3
+string3
+string3
+
+-- !sql_rtrim_Varchar_Varchar --
+null
+varchar
+varchar
+varchar
+varchar
+varchar12
+varchar12
+varchar12
+varchar12
+varchar13
+varchar13
+varchar13
+varchar13
+
+-- !sql_rtrim_Varchar_Varchar_notnull --
+varchar
+varchar
+varchar
+varchar
+varchar12
+varchar12
+varchar12
+varchar12
+varchar13
+varchar13
+varchar13
+varchar13
+
+-- !sql_rtrim_String_String --
+null
+string
+string
+string
+string
+string2
+string2
+string2
+string2
+string3
+string3
+string3
+string3
+
+-- !sql_rtrim_String_String_notnull --
+string
+string
+string
+string
 string2
 string2
 string2

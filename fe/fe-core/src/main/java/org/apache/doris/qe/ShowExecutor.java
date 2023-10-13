@@ -1977,7 +1977,7 @@ public class ShowExecutor {
 
     private void handleShowBackends() {
         final ShowBackendsStmt showStmt = (ShowBackendsStmt) stmt;
-        List<List<String>> backendInfos = BackendsProcDir.getBackendInfos();
+        List<List<String>> backendInfos = BackendsProcDir.getBackendInfos(showStmt.getType());
 
         backendInfos.sort(new Comparator<List<String>>() {
             @Override

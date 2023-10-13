@@ -280,6 +280,7 @@ E(ENTRY_NOT_FOUND, -6011);
 constexpr bool capture_stacktrace(int code) {
     return code != ErrorCode::OK
         && code != ErrorCode::END_OF_FILE
+        && code != ErrorCode::DATA_QUALITY_ERROR
         && code != ErrorCode::MEM_LIMIT_EXCEEDED
         && code != ErrorCode::TRY_LOCK_FAILED
         && code != ErrorCode::TOO_MANY_SEGMENTS
@@ -377,7 +378,8 @@ public:
         }
 #ifdef ENABLE_STACKTRACE
         if constexpr (stacktrace && capture_stacktrace(code)) {
-            status._err_msg->_stack = get_stack_trace();
+            // Delete the first one frame pointers, which are inside the status.h
+            status._err_msg->_stack = get_stack_trace(1);
             LOG(WARNING) << "meet error status: " << status; // may print too many stacks.
         }
 #endif
@@ -396,7 +398,7 @@ public:
         }
 #ifdef ENABLE_STACKTRACE
         if (stacktrace && capture_stacktrace(code)) {
-            status._err_msg->_stack = get_stack_trace();
+            status._err_msg->_stack = get_stack_trace(1);
             LOG(WARNING) << "meet error status: " << status; // may print too many stacks.
         }
 #endif

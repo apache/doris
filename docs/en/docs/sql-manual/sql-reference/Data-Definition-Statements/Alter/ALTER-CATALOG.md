@@ -61,6 +61,15 @@ illustrate:
 - property `type` cannot be modified.
 - properties of builtin catalog `internal` cannot be modified.
 
+3) Modify comment for the catalog
+
+```sql
+ALTER CATALOG catalog_name MODIFY COMMENT "new catalog comment";
+```
+
+illustrate：
+- The builtin catalog `internal` cannot be modified
+
 ### Example
 
 1. rename catalog ctlg_hive to hive
@@ -73,6 +82,12 @@ ALTER CATALOG ctlg_hive RENAME hive;
 
 ```sql
 ALTER CATALOG hive SET PROPERTIES ('hive.metastore.uris'='thrift://172.21.0.1:9083');
+```
+
+4. modify comment of catalog hive
+
+```sql
+ALTER CATALOG hive MODIFY COMMENT "new catalog comment";
 ```
 
 ### Keywords

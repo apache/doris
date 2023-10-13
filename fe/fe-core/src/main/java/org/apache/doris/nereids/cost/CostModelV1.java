@@ -207,15 +207,6 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
         // replicate
         if (spec instanceof DistributionSpecReplicated) {
-            double dataSize = childStatistics.computeSize();
-            double memLimit = ConnectContext.get().getSessionVariable().getMaxExecMemByte();
-            //if build side is big, avoid use broadcast join
-            double rowsLimit = ConnectContext.get().getSessionVariable().getBroadcastRowCountLimit();
-            double brMemlimit = ConnectContext.get().getSessionVariable().getBroadcastHashtableMemLimitPercentage();
-            if (dataSize > memLimit * brMemlimit
-                    || childStatistics.getRowCount() > rowsLimit) {
-                return CostV1.of(Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE);
-            }
             // estimate broadcast cost by an experience formula: beNumber^0.5 * rowCount
             // - sender number and receiver number is not available at RBO stage now, so we use beNumber
             // - senders and receivers work in parallel, that why we use square of beNumber

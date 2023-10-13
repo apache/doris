@@ -309,7 +309,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         } else {
             decommissionTime = -1;
             if (code == SubCode.WAITING_SLOT && type != Type.BALANCE) {
-                return failedSchedCounter > 30 * 1000 / FeConstants.tablet_schedule_interval_ms;
+                return failedSchedCounter > 30 * 1000 / Config.tablet_schedule_interval_ms;
             } else {
                 return failedSchedCounter > 10;
             }

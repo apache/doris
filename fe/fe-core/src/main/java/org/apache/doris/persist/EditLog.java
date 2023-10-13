@@ -921,6 +921,11 @@ public class EditLog {
                     env.getCatalogMgr().replayAlterCatalogName(log);
                     break;
                 }
+                case OperationType.OP_ALTER_CATALOG_COMMENT: {
+                    CatalogLog log = (CatalogLog) journal.getData();
+                    env.getCatalogMgr().replayAlterCatalogComment(log);
+                    break;
+                }
                 case OperationType.OP_ALTER_CATALOG_PROPS: {
                     CatalogLog log = (CatalogLog) journal.getData();
                     env.getCatalogMgr().replayAlterCatalogProps(log, null, true);
