@@ -1,0 +1,99 @@
+{
+  "format-version" : 1,
+  "table-uuid" : "8a40730c-4330-459f-b0d5-59a320ca231d",
+  "location" : "s3://warehouse/tmp_db2/taxis3",
+  "last-updated-ms" : 1697080442696,
+  "last-column-id" : 5,
+  "schema" : {
+    "type" : "struct",
+    "schema-id" : 0,
+    "fields" : [ {
+      "id" : 1,
+      "name" : "vendor_id",
+      "required" : false,
+      "type" : "long"
+    }, {
+      "id" : 2,
+      "name" : "trip_id",
+      "required" : false,
+      "type" : "long"
+    }, {
+      "id" : 3,
+      "name" : "trip_distance",
+      "required" : false,
+      "type" : "float"
+    }, {
+      "id" : 4,
+      "name" : "fare_amount",
+      "required" : false,
+      "type" : "double"
+    }, {
+      "id" : 5,
+      "name" : "store_and_fwd_flag",
+      "required" : false,
+      "type" : "string"
+    } ]
+  },
+  "current-schema-id" : 0,
+  "schemas" : [ {
+    "type" : "struct",
+    "schema-id" : 0,
+    "fields" : [ {
+      "id" : 1,
+      "name" : "vendor_id",
+      "required" : false,
+      "type" : "long"
+    }, {
+      "id" : 2,
+      "name" : "trip_id",
+      "required" : false,
+      "type" : "long"
+    }, {
+      "id" : 3,
+      "name" : "trip_distance",
+      "required" : false,
+      "type" : "float"
+    }, {
+      "id" : 4,
+      "name" : "fare_amount",
+      "required" : false,
+      "type" : "double"
+    }, {
+      "id" : 5,
+      "name" : "store_and_fwd_flag",
+      "required" : false,
+      "type" : "string"
+    } ]
+  } ],
+  "partition-spec" : [ {
+    "name" : "vendor_id",
+    "transform" : "identity",
+    "source-id" : 1,
+    "field-id" : 1000
+  } ],
+  "default-spec-id" : 0,
+  "partition-specs" : [ {
+    "spec-id" : 0,
+    "fields" : [ {
+      "name" : "vendor_id",
+      "transform" : "identity",
+      "source-id" : 1,
+      "field-id" : 1000
+    } ]
+  } ],
+  "last-partition-id" : 1000,
+  "default-sort-order-id" : 0,
+  "sort-orders" : [ {
+    "order-id" : 0,
+    "fields" : [ ]
+  } ],
+  "properties" : {
+    "owner" : "root"
+  },
+  "current-snapshot-id" : -1,
+  "refs" : { },
+  "snapshots" : [ ],
+  "statistics" : [ ],
+  "snapshot-log" : [ ],
+  "metadata-log" : [ ]
+}
