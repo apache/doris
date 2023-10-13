@@ -66,6 +66,7 @@ import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.PartitionPruner;
 import org.apache.doris.planner.RangePartitionPrunerV2;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.QueryStateException;
 import org.apache.doris.service.FrontendOptions;
@@ -151,6 +152,11 @@ public class DeleteHandler implements Writable {
         lock.writeLock().unlock();
     }
 
+    public void process(DeleteStmt stmt, QueryState execState) {
+
+    }
+
+    @Deprecated
     public void process(DeleteStmt stmt) throws DdlException, QueryStateException {
         String dbName = stmt.getDbName();
         String tableName = stmt.getTableName();
@@ -919,7 +925,6 @@ public class DeleteHandler implements Writable {
     @Override
     public void write(DataOutput out) throws IOException {
         removeOldDeleteInfos();
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
     public static DeleteHandler read(DataInput in) throws IOException {
