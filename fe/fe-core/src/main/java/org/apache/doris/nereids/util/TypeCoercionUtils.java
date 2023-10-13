@@ -265,7 +265,6 @@ public class TypeCoercionUtils {
     /**
      * return ture if datatype has character type in it, cannot use instance of CharacterType because of complex type.
      */
-    @Developing
     public static boolean hasCharacterType(DataType dataType) {
         if (dataType instanceof ArrayType) {
             return hasCharacterType(((ArrayType) dataType).getItemType());
@@ -276,6 +275,27 @@ public class TypeCoercionUtils {
             return ((StructType) dataType).getFields().stream().anyMatch(f -> hasCharacterType(f.getDataType()));
         }
         return dataType instanceof CharacterType;
+    }
+
+    /**
+     * replace all character types to string for correct type coercion
+     */
+    public static DataType replaceCharacterToString(DataType dataType) {
+        if (dataType instanceof ArrayType) {
+            return ArrayType.of(replaceCharacterToString(((ArrayType) dataType).getItemType()));
+        } else if (dataType instanceof MapType) {
+            return MapType.of(replaceCharacterToString(((MapType) dataType).getKeyType()),
+                    replaceCharacterToString(((MapType) dataType).getValueType()));
+        } else if (dataType instanceof StructType) {
+            List<StructField> newFields = ((StructType) dataType).getFields().stream()
+                    .map(f -> f.withDataType(replaceCharacterToString(f.getDataType())))
+                    .collect(ImmutableList.toImmutableList());
+            return new StructType(newFields);
+        } else if (dataType instanceof CharacterType) {
+            return StringType.INSTANCE;
+        } else {
+            return dataType;
+        }
     }
 
     /**
@@ -825,6 +845,10 @@ public class TypeCoercionUtils {
 
         // same type
         if (left.getDataType().equals(right.getDataType())) {
+            if (!supportCompare(left.getDataType())) {
+                throw new AnalysisException("data type " + left.getDataType()
+                        + " could not used in ComparisonPredicate " + comparisonPredicate.toSql());
+            }
             return comparisonPredicate.withChildren(left, right);
         }
 
@@ -837,6 +861,10 @@ public class TypeCoercionUtils {
         Optional<DataType> commonType = findWiderTypeForTwoForComparison(
                 left.getDataType(), right.getDataType(), false);
         if (commonType.isPresent()) {
+            if (!supportCompare(commonType.get())) {
+                throw new AnalysisException("data type " + commonType.get()
+                        + " could not used in ComparisonPredicate " + comparisonPredicate.toSql());
+            }
             left = castIfNotSameType(left, commonType.get());
             right = castIfNotSameType(right, commonType.get());
         }
@@ -852,6 +880,10 @@ public class TypeCoercionUtils {
 
         if (inPredicate.getOptions().stream().map(Expression::getDataType)
                 .allMatch(dt -> dt.equals(inPredicate.getCompareExpr().getDataType()))) {
+            if (!supportCompare(inPredicate.getCompareExpr().getDataType())) {
+                throw new AnalysisException("data type " + inPredicate.getCompareExpr().getDataType()
+                        + " could not used in InPredicate " + inPredicate.toSql());
+            }
             return inPredicate;
         }
         Optional<DataType> optionalCommonType = TypeCoercionUtils.findWiderCommonTypeForComparison(
@@ -859,6 +891,10 @@ public class TypeCoercionUtils {
                         .stream()
                         .map(Expression::getDataType).collect(Collectors.toList()),
                 true);
+        if (optionalCommonType.isPresent() && !supportCompare(optionalCommonType.get())) {
+            throw new AnalysisException("data type " + optionalCommonType.get()
+                    + " could not used in InPredicate " + inPredicate.toSql());
+        }
 
         return optionalCommonType
                 .map(commonType -> {
@@ -969,6 +1005,11 @@ public class TypeCoercionUtils {
         Map<Boolean, List<DataType>> partitioned = dataTypes.stream()
                 .collect(Collectors.partitioningBy(TypeCoercionUtils::hasCharacterType));
         List<DataType> needTypeCoercion = Lists.newArrayList(Sets.newHashSet(partitioned.get(true)));
+        if (needTypeCoercion.size() > 1 || !partitioned.get(false).isEmpty()) {
+            needTypeCoercion = needTypeCoercion.stream()
+                    .map(TypeCoercionUtils::replaceCharacterToString)
+                    .collect(Collectors.toList());
+        }
         needTypeCoercion.addAll(partitioned.get(false));
         return needTypeCoercion.stream().map(Optional::of).reduce(Optional.of(NullType.INSTANCE),
                 (r, c) -> {
@@ -1175,6 +1216,11 @@ public class TypeCoercionUtils {
         Map<Boolean, List<DataType>> partitioned = dataTypes.stream()
                 .collect(Collectors.partitioningBy(TypeCoercionUtils::hasCharacterType));
         List<DataType> needTypeCoercion = Lists.newArrayList(Sets.newHashSet(partitioned.get(true)));
+        if (needTypeCoercion.size() > 1 || !partitioned.get(false).isEmpty()) {
+            needTypeCoercion = needTypeCoercion.stream()
+                    .map(TypeCoercionUtils::replaceCharacterToString)
+                    .collect(Collectors.toList());
+        }
         needTypeCoercion.addAll(partitioned.get(false));
         return needTypeCoercion.stream().map(Optional::of).reduce(Optional.of(NullType.INSTANCE),
                 (r, c) -> {
@@ -1492,5 +1538,18 @@ public class TypeCoercionUtils {
         // multiply do not need to cast children to same type
         return binaryArithmetic.withChildren(castIfNotSameType(left, dt1),
                 castIfNotSameType(right, dt2));
+    }
+
+    private static boolean supportCompare(DataType dataType) {
+        if (!(dataType instanceof PrimitiveType)) {
+            return false;
+        }
+        if (dataType.isObjectType()) {
+            return false;
+        }
+        if (dataType instanceof JsonType) {
+            return false;
+        }
+        return true;
     }
 }

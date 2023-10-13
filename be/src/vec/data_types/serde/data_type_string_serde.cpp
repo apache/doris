@@ -47,8 +47,14 @@ Status DataTypeStringSerDe::serialize_one_cell_to_json(const IColumn& column, in
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
+    if (nesting_level > 1) {
+        bw.write('"');
+    }
     const auto& value = assert_cast<const ColumnString&>(*ptr).get_data_at(row_num);
     bw.write(value.data, value.size);
+    if (nesting_level > 1) {
+        bw.write('"');
+    }
     return Status::OK();
 }
 

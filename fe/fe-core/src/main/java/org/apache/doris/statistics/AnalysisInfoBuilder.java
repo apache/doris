@@ -58,9 +58,7 @@ public class AnalysisInfoBuilder {
     private boolean samplingPartition;
     private boolean isAllPartition;
     private long partitionCount;
-
     private CronExpression cronExpression;
-
     private boolean forceFull;
 
     public AnalysisInfoBuilder() {

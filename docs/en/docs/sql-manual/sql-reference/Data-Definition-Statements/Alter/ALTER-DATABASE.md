@@ -56,6 +56,12 @@ illustrate:
     After renaming the database, use the REVOKE and GRANT commands to modify the appropriate user permissions, if necessary.
     The default data quota for the database is 1024GB, and the default replica quota is 1073741824.
 
+4) Modify the properties of an existing database
+
+```sql
+ALTER DATABASE db_name SET PROPERTIES ("key"="value", ...); 
+```
+
 ### Example
 
 1. Set the specified database data volume quota
@@ -80,6 +86,18 @@ ALTER DATABASE example_db RENAME example_db2;
 
 ```sql
 ALTER DATABASE example_db SET REPLICA QUOTA 102400;
+```
+
+4. Modify the default replica distribution policy for tables in db (this operation only applies to newly created tables and will not modify existing tables in db)
+
+```sql
+ALTER DATABASE example_db SET PROPERTIES("replication_allocation" = "tag.location.default:2");
+```
+
+5. Cancel the default replica distribution policy for tables in db (this operation only applies to newly created tables and will not modify existing tables in db)
+
+```sql
+ALTER DATABASE example_db SET PROPERTIES("replication_allocation" = "");
 ```
 
 ### Keywords

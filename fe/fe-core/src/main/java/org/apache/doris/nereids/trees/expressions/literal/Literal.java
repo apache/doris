@@ -197,6 +197,13 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
 
     @Override
     protected Expression uncheckedCastTo(DataType targetType) throws AnalysisException {
+        if (this.dataType.equals(targetType)) {
+            return this;
+        }
+        if (this instanceof NullLiteral) {
+            return new NullLiteral(targetType);
+        }
+        // TODO support string to complex
         String desc = getStringValue();
         if (targetType.isBooleanType()) {
             if ("0".equals(desc) || "false".equals(desc.toLowerCase(Locale.ROOT))) {

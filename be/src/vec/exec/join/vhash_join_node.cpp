@@ -159,7 +159,8 @@ HashJoinProbeContext::HashJoinProbeContext(pipeline::HashJoinProbeLocalState* lo
           _probe_key_sz(local_state->_shared_state->probe_key_sz),
           _left_output_slot_flags(&local_state->join_probe()->_left_output_slot_flags),
           _right_output_slot_flags(&local_state->join_probe()->_right_output_slot_flags),
-          _is_any_probe_match_row_output(&local_state->_is_any_probe_match_row_output) {}
+          _is_any_probe_match_row_output(&local_state->_is_any_probe_match_row_output),
+          _has_null_value_in_build_side(local_state->_shared_state->_has_null_in_build_side) {}
 
 HashJoinBuildContext::HashJoinBuildContext(HashJoinNode* join_node)
         : _hash_table_memory_usage(join_node->_hash_table_memory_usage),
@@ -657,7 +658,7 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
                               LOG(FATAL) << "FATAL: uninited hash table";
                               __builtin_unreachable();
                           },
-                          [&](auto&& arg) -> bool { return arg.hash_table.size() == 0; }},
+                          [&](auto&& arg) -> bool { return arg.hash_table->size() == 0; }},
                 *_hash_table_variants);
 
         if (hash_table_empty) {
@@ -934,8 +935,17 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
                 "SharedHashTableFrom",
                 print_id(_shared_hashtable_controller->get_builder_fragment_instance_id(id())));
         _has_null_in_build_side = _shared_hash_table_context->short_circuit_for_null_in_probe_side;
-        _hash_table_variants = std::static_pointer_cast<HashTableVariants>(
-                _shared_hash_table_context->hash_table_variants);
+        std::visit(
+                [](auto&& dst, auto&& src) {
+                    if constexpr (!std::is_same_v<std::monostate, std::decay_t<decltype(dst)>> &&
+                                  std::is_same_v<std::decay_t<decltype(src)>,
+                                                 std::decay_t<decltype(dst)>>) {
+                        dst.hash_table = src.hash_table;
+                    }
+                },
+                *_hash_table_variants,
+                *std::static_pointer_cast<HashTableVariants>(
+                        _shared_hash_table_context->hash_table_variants));
         _build_blocks = _shared_hash_table_context->blocks;
 
         if (!_shared_hash_table_context->runtime_filters.empty()) {
@@ -952,7 +962,7 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
                                           _build_expr_ctxs, _runtime_filter_descs);
 
                                   RETURN_IF_ERROR(_runtime_filter_slots->init(
-                                          state, arg.hash_table.size(), 0));
+                                          state, arg.hash_table->size(), 0));
                                   RETURN_IF_ERROR(_runtime_filter_slots->copy_from_shared_context(
                                           _shared_hash_table_context));
                                   RETURN_IF_ERROR(_runtime_filter_slots->publish());
@@ -1257,7 +1267,7 @@ void HashJoinNode::_hash_table_init(RuntimeState* state) {
                              __builtin_unreachable();
                          },
                          [&](auto&& arg) {
-                             arg.hash_table.set_partitioned_threshold(
+                             arg.hash_table->set_partitioned_threshold(
                                      state->partitioned_hash_join_rows_threshold());
                          }},
                *_hash_table_variants);
