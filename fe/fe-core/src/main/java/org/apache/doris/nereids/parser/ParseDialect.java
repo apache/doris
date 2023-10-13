@@ -29,7 +29,7 @@ public enum ParseDialect {
     /**
      * Doris parser and it's version is 2.0.0.
      */
-    DORIS_2_(Dialect.DORIS, Version.DORIS_2_);
+    DORIS_2_ALL(Dialect.DORIS, Version.DORIS_2_ALL);
 
     private final Dialect dialect;
     private final Version version;
@@ -58,7 +58,7 @@ public enum ParseDialect {
         /**
          * Doris parser and it's version is 2.0.0.
          */
-        DORIS_2_("2.*");
+        DORIS_2_ALL("2.*");
         private final String version;
 
         Version(String version) {
