@@ -51,4 +51,59 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
             "hadoop.username"="hadoop"
         );
     """
+
+    String enabled = context.config.otherConfigs.get("enablePaimonTest")
+        if (enabled != null && enabled.equalsIgnoreCase("true")) {
+            def all = """select * from all_table;"""
+            def c1 = """select * from all_table where c1=1;"""
+            def c2 = """select * from all_table where c2=2;"""
+            def c3 = """select * from all_table where c3=3;"""
+            def c4 = """select * from all_table where c4=4;"""
+            def c5 = """select * from all_table where c5=5;"""
+            def c6 = """select * from all_table where c6=6;"""
+            def c7 = """select * from all_table where c7=7;"""
+            def c8 = """select * from all_table where c8=8;"""
+            def c9 = """select * from all_table where c9<10;"""
+            def c10 = """select * from all_table where c10=10.1;"""
+            def c11 = """select * from all_table where c11=11.1;"""
+            def c12 = """select * from all_table where c12='2020-02-02';"""
+            def c13 = """select * from all_table where c13='13str';"""
+            def c14 = """select * from all_table where c14='14varchar';"""
+            def c15 = """select * from all_table where c15='a';"""
+            def c16 = """select * from all_table where c16=true;"""
+            def c18 = """select * from all_table where c18='2023-08-13 09:32:38.53';"""
+            def c19 = """select * from auto_bucket;"""
+
+            String hdfs_port = context.config.otherConfigs.get("hdfs_port")
+            String catalog_name = "paimon1"
+            String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+
+            sql """drop catalog if exists ${catalog_name}"""
+            sql """create catalog if not exists ${catalog_name} properties (
+                "type" = "paimon",
+                "paimon.catalog.type"="filesystem",
+                "warehouse" = "hdfs://${externalEnvIp}:${hdfs_port}/user/doris/paimon1"
+            );"""
+            sql """use `${catalog_name}`.`db1`"""
+
+            qt_all all
+            qt_c1 c1
+            qt_c2 c2
+            qt_c3 c3
+            qt_c4 c4
+            qt_c5 c5
+            qt_c6 c6
+            qt_c7 c7
+            qt_c8 c8
+            qt_c9 c9
+            qt_c10 c10
+            qt_c11 c11
+            qt_c12 c12
+            qt_c13 c13
+            qt_c14 c14
+            qt_c15 c15
+            qt_c16 c16
+            qt_c18 c18
+            qt_c19 c19
+        }
 }
