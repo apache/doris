@@ -124,6 +124,8 @@ partial_columns:true
 set enable_unique_key_partial_update=true
 ```
 
+需要注意的是，控制insert语句是否开启严格模式的会话变量`enable_insert_strict`的默认值为true，即insert语句默认开启严格模式，而在严格模式下进行部分列更新不允许更新不存在的key。所以，在使用insert语句进行部分列更新的时候如果希望能插入不存在的key，需要在`enable_unique_key_partial_update`设置为true的基础上同时将`enable_insert_strict`也设置为true。
+
 #### 示例
 
 假设 Doris 中存在一张订单表order_tbl，其中 订单id 是 Key 列，订单状态，订单金额是 Value 列。数据状态如下：
