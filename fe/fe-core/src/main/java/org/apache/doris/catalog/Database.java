@@ -28,6 +28,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -858,33 +859,35 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     public void replayUpdateDbProperties(Map<String, String> properties) {
         dbProperties.updateProperties(properties);
-        binlogConfig = dbProperties.getBinlogConfig();
+        if (PropertyAnalyzer.hasBinlogConfig(properties)) {
+            binlogConfig = dbProperties.getBinlogConfig();
+        }
     }
 
     public boolean updateDbProperties(Map<String, String> properties) throws DdlException {
-        BinlogConfig oldBinlogConfig = getBinlogConfig();
-        BinlogConfig newBinlogConfig = BinlogConfig.fromProperties(properties);
-        if (oldBinlogConfig.equals(newBinlogConfig)) {
-            return false;
-        }
+        if (PropertyAnalyzer.hasBinlogConfig(properties)) {
+            BinlogConfig oldBinlogConfig = getBinlogConfig();
+            BinlogConfig newBinlogConfig = BinlogConfig.fromProperties(properties);
 
-        if (newBinlogConfig.isEnable() && !oldBinlogConfig.isEnable()) {
-            // check all tables binlog enable is true
-            for (Table table : idToTable.values()) {
-                if (table.getType() != TableType.OLAP) {
-                    continue;
-                }
-
-                OlapTable olapTable = (OlapTable) table;
-                olapTable.readLock();
-                try {
-                    if (!olapTable.getBinlogConfig().isEnable()) {
-                        String errMsg = String.format("binlog is not enable in table[%s] in db [%s]", table.getName(),
-                                getFullName());
-                        throw new DdlException(errMsg);
+            if (newBinlogConfig.isEnable() && !oldBinlogConfig.isEnable()) {
+                // check all tables binlog enable is true
+                for (Table table : idToTable.values()) {
+                    if (table.getType() != TableType.OLAP) {
+                        continue;
                     }
-                } finally {
-                    olapTable.readUnlock();
+
+                    OlapTable olapTable = (OlapTable) table;
+                    olapTable.readLock();
+                    try {
+                        if (!olapTable.getBinlogConfig().isEnable()) {
+                            String errMsg = String
+                                    .format("binlog is not enable in table[%s] in db [%s]", table.getName(),
+                                            getFullName());
+                            throw new DdlException(errMsg);
+                        }
+                    } finally {
+                        olapTable.readUnlock();
+                    }
                 }
             }
         }
