@@ -32,6 +32,7 @@ import org.apache.doris.catalog.Resource.ReferenceType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.ExternalTable;
+import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
@@ -961,14 +962,21 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             }
             return;
         }
+        if (!(table instanceof HMSExternalTable)) {
+            LOG.warn("only support HMSTable");
+            return;
+        }
 
-        Env.getCurrentEnv().getExtMetaCacheMgr().addPartitionsCache(catalog.getId(),
-                (ExternalTable) table, partitionNames);
+        HMSExternalTable hmsTable = (HMSExternalTable) table;
+        Env.getCurrentEnv().getExtMetaCacheMgr().addPartitionsCache(catalog.getId(), hmsTable, partitionNames);
+        long lastPartitionUpdateTime = System.currentTimeMillis();
+        hmsTable.setPartitionUpdateTime(lastPartitionUpdateTime);
         ExternalObjectLog log = new ExternalObjectLog();
         log.setCatalogId(catalog.getId());
         log.setDbId(db.getId());
         log.setTableId(table.getId());
         log.setPartitionNames(partitionNames);
+        log.setLastUpdateTime(lastPartitionUpdateTime);
         Env.getCurrentEnv().getEditLog().logAddExternalPartitions(log);
     }
 
@@ -990,9 +998,16 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             LOG.warn("No table found with id:[{}], it may have been dropped.", log.getTableId());
             return;
         }
+        if (!(table instanceof HMSExternalTable)) {
+            LOG.warn("only support HMSTable");
+            return;
+        }
+
+        HMSExternalTable hmsTable = (HMSExternalTable) table;
         try {
             Env.getCurrentEnv().getExtMetaCacheMgr()
-                .addPartitionsCache(catalog.getId(), table, log.getPartitionNames());
+                        .addPartitionsCache(catalog.getId(), hmsTable, log.getPartitionNames());
+            hmsTable.setPartitionUpdateTime(log.getLastUpdateTime());
         } catch (HMSClientException e) {
             LOG.warn("Network problem occurs or hms table has been deleted, fallback to invalidate table cache", e);
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(catalog.getId(),
@@ -1031,6 +1046,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         log.setDbId(db.getId());
         log.setTableId(table.getId());
         log.setPartitionNames(partitionNames);
+        log.setLastUpdateTime(System.currentTimeMillis());
         replayDropExternalPartitions(log);
         Env.getCurrentEnv().getEditLog().logDropExternalPartitions(log);
     }
@@ -1053,8 +1069,14 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             LOG.warn("No table found with id:[{}], it may have been dropped.", log.getTableId());
             return;
         }
+        if (!(table instanceof HMSExternalTable)) {
+            LOG.warn("only support HMSTable");
+            return;
+        }
+        HMSExternalTable hmsTable = (HMSExternalTable) table;
         Env.getCurrentEnv().getExtMetaCacheMgr()
-                .dropPartitionsCache(catalog.getId(), table, log.getPartitionNames());
+                .dropPartitionsCache(catalog.getId(), hmsTable, log.getPartitionNames());
+        hmsTable.setPartitionUpdateTime(log.getLastUpdateTime());
     }
 
     public void refreshExternalPartitions(String catalogName, String dbName, String tableName,
@@ -1091,6 +1113,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         log.setDbId(db.getId());
         log.setTableId(table.getId());
         log.setPartitionNames(partitionNames);
+        log.setLastUpdateTime(System.currentTimeMillis());
         replayRefreshExternalPartitions(log);
         Env.getCurrentEnv().getEditLog().logInvalidateExternalPartitions(log);
     }
@@ -1113,9 +1136,14 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             LOG.warn("No table found with id:[{}], it may have been dropped.", log.getTableId());
             return;
         }
+        if (!(table instanceof HMSExternalTable)) {
+            LOG.warn("only support HMSTable");
+            return;
+        }
         Env.getCurrentEnv().getExtMetaCacheMgr()
                 .invalidatePartitionsCache(catalog.getId(), db.getFullName(), table.getName(),
                         log.getPartitionNames());
+        ((HMSExternalTable) table).setPartitionUpdateTime(log.getLastUpdateTime());
     }
 
     public void registerCatalogRefreshListener(Env env) {

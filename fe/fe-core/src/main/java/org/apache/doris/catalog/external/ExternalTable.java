@@ -69,8 +69,8 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     protected long timestamp;
     @SerializedName(value = "dbName")
     protected String dbName;
-    @SerializedName(value = "lastUpdateTime")
-    protected long lastUpdateTime;
+    // this field will be refreshed after reloading schema
+    protected volatile long schemaUpdateTime;
 
     protected boolean objectCreated;
     protected ExternalCatalog catalog;
@@ -288,9 +288,12 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         return 0;
     }
 
+    // return schema update time as default
+    // override this method if there is some other kinds of update time
+    // use getSchemaUpdateTime if just need the schema update time
     @Override
     public long getUpdateTime() {
-        return 0;
+        return this.schemaUpdateTime;
     }
 
     @Override
@@ -345,7 +348,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
      * @return
      */
     public List<Column> initSchemaAndUpdateTime() {
-        lastUpdateTime = System.currentTimeMillis();
+        schemaUpdateTime = System.currentTimeMillis();
         return initSchema();
     }
 
