@@ -121,7 +121,7 @@ suite("nereids_function") {
     }
 
     test {
-        sql """select "1" == "123", "%%" == "%%" """
+        sql """select "1" = "123", "%%" = "%%" """
         result([[false, true]])
     }
     
