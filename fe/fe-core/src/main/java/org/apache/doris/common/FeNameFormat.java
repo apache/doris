@@ -196,6 +196,10 @@ public class FeNameFormat {
     }
 
     public static String getSuccessFileNameRegex() {
-        return FeNameFormat.isEnableUnicodeNameSupport() ? UNICODE_UNDERSCORE_COMMON_NAME_REGEX : UNDERSCORE_COMMON_NAME_REGEX;
+        if (FeNameFormat.isEnableUnicodeNameSupport()) {
+            return UNICODE_UNDERSCORE_COMMON_NAME_REGEX;
+        } else {
+            return UNDERSCORE_COMMON_NAME_REGEX;
+        }
     }
 }
