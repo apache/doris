@@ -19,6 +19,7 @@
 
 #include <gen_cpp/data.pb.h>
 #include <glog/logging.h>
+
 #include <memory>
 
 namespace doris {
