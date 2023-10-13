@@ -59,9 +59,11 @@ public abstract class DateLikeType extends PrimitiveType {
      */
     public DateLiteral fromString(String s) {
         if (this instanceof DateType) {
-            return new DateLiteral(s);
+            DateTimeV2Literal l = new DateTimeV2Literal(DateTimeV2Type.MAX, s);
+            return new DateLiteral(l.getYear(), l.getMonth(), l.getDay());
         } else if (this instanceof DateV2Type) {
-            return new DateV2Literal(s);
+            DateTimeV2Literal l = new DateTimeV2Literal(DateTimeV2Type.MAX, s);
+            return new DateV2Literal(l.getYear(), l.getMonth(), l.getDay());
         } else if (this instanceof DateTimeType) {
             return new DateTimeLiteral(s);
         } else if (this instanceof DateTimeV2Type) {

@@ -491,10 +491,10 @@ public class FoldConstantTest extends ExpressionRewriteTestHelper {
         Assertions.assertEquals(DateTimeExtractAndTransform.dateV2(dateLiteral).toSql(), answer[answerIdx]);
 
         Assertions.assertEquals("'2021 52 2022 01'", DateTimeExtractAndTransform.dateFormat(
-                new DateLiteral("2022-01-01 00:12:42"),
+                new DateTimeLiteral("2022-01-01 00:12:42"),
                 new VarcharLiteral("%x %v %X %V")).toSql());
         Assertions.assertEquals("'2023 18 2023 19'", DateTimeExtractAndTransform.dateFormat(
-                new DateLiteral("2023-05-07 02:41:42"),
+                new DateTimeLiteral("2023-05-07 02:41:42"),
                 new VarcharLiteral("%x %v %X %V")).toSql());
     }
 
