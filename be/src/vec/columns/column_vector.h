@@ -332,8 +332,6 @@ public:
 
     size_t allocated_bytes() const override { return data.allocated_bytes(); }
 
-    void protect() override { data.protect(); }
-
     void insert_value(const T value) { data.push_back(value); }
 
     /// This method implemented in header because it could be possibly devirtualized.

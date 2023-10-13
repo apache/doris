@@ -510,11 +510,6 @@ void ColumnString::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
     sorter->sort_column(static_cast<const ColumnString&>(*this), flags, perms, range, last_column);
 }
 
-void ColumnString::protect() {
-    get_chars().protect();
-    get_offsets().protect();
-}
-
 void ColumnString::compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
                                     int direction, std::vector<uint8>& cmp_res,
                                     uint8* __restrict filter) const {

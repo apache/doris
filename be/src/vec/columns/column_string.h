@@ -118,8 +118,6 @@ public:
         return chars.allocated_bytes() + offsets.allocated_bytes();
     }
 
-    void protect() override;
-
     MutableColumnPtr clone_resized(size_t to_size) const override;
 
     MutableColumnPtr get_shrinked_column() override;
