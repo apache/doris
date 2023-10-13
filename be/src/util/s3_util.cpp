@@ -125,8 +125,10 @@ bool S3ClientFactory::is_s3_conf_valid(const std::map<std::string, std::string>&
     if (properties.find(S3_AK) == properties.end() || properties.find(S3_SK) == properties.end() ||
         properties.find(S3_ENDPOINT) == properties.end() ||
         properties.find(S3_REGION) == properties.end()) {
+        LOG_ERROR("incorrect properties with S3_AK {}, S3_SK {}, ENDPOINT {}, REGION {}",
+                  properties[S3_AK], properties[S3_SK], properties[S3_ENDPOINT],
+                  properties[S3_REGION]);
         DCHECK(false) << "aws properties is incorrect.";
-        LOG(ERROR) << "aws properties is incorrect.";
         return false;
     }
     return true;
