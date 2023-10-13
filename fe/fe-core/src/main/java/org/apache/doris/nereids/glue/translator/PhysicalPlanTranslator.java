@@ -380,9 +380,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         OlapTable olapTable = (OlapTable) olapTableSink.getTargetTable();
 
         if (olapTable.hasSequenceCol() && olapTable.getSequenceMapCol() != null
-                && !olapTableSink.getCols().isEmpty() && olapTableSink.isFromNativeInsertStmt()) {
-            Optional<Column> foundCol = olapTableSink.getCols().stream()
-                        .filter(col -> col.getName().equalsIgnoreCase(olapTable.getSequenceMapCol())).findAny();
+                && !olapTableSink.getOutput().isEmpty() && olapTableSink.isFromNativeInsertStmt()) {
+            Optional<Slot> foundCol = olapTableSink.getOutput().stream()
+                        .filter(slot -> slot.getName().equalsIgnoreCase(olapTable.getSequenceMapCol())).findAny();
             if (!foundCol.isPresent() && !isPartialUpdate) {
                 throw new AnalysisException("Table " + olapTable.getName()
                         + " has sequence column, need to specify the sequence column");
