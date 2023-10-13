@@ -137,7 +137,7 @@ public class SelectStmtTest {
                 + "  `username` varchar(32) NULL DEFAULT \"\" COMMENT \"\",\n"
                 + "  `pv` bigint(20) NULL DEFAULT \"0\" COMMENT \"\"\n"
                 + ") ENGINE=OLAP\n"
-                + "UNIQUE KEY(`siteid`, `citycode`, `username`)\n"
+                + "DUPLICATE KEY(`siteid`, `citycode`, `username`)\n"
                 + "COMMENT \"OLAP\"\n"
                 + "DISTRIBUTED BY RANDOM BUCKETS 10\n"
                 + "PROPERTIES (\n"
