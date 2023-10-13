@@ -85,9 +85,8 @@ BetaRowsetWriter::~BetaRowsetWriter() {
     WARN_IF_ERROR(wait_flying_segcompaction(), "segment compaction failed");
 
     // TODO(lingbin): Should wrapper exception logic, no need to know file ops directly.
-    if (!_already_built) { // abnormal exit, remove all files generated
-        WARN_IF_ERROR(_segment_creator.close(),
-                      "close segment creator failed"); // ensure all files are closed
+    if (!_already_built) {       // abnormal exit, remove all files generated
+        _segment_writer.reset(); // ensure all files are closed
         auto fs = _rowset_meta->fs();
         if (!fs) {
             return;
