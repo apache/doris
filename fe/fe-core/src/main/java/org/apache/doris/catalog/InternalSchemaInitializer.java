@@ -83,6 +83,7 @@ public class InternalSchemaInitializer extends Thread {
             return;
         }
         Database database = op.get();
+        modifyTblReplicaCount(database, StatisticConstants.ANALYSIS_TBL_NAME);
         modifyTblReplicaCount(database, StatisticConstants.STATISTIC_TBL_NAME);
         modifyTblReplicaCount(database, StatisticConstants.HISTOGRAM_TBL_NAME);
     }
@@ -125,6 +126,7 @@ public class InternalSchemaInitializer extends Thread {
     }
 
     private void createTbl() throws UserException {
+        Env.getCurrentEnv().getInternalCatalog().createTable(buildAnalysisTblStmt());
         Env.getCurrentEnv().getInternalCatalog().createTable(buildStatisticsTblStmt());
         Env.getCurrentEnv().getInternalCatalog().createTable(buildHistogramTblStmt());
     }
@@ -141,6 +143,41 @@ public class InternalSchemaInitializer extends Thread {
             LOG.warn("Failed to create database: {}, will try again later",
                     FeConstants.INTERNAL_DB_NAME, e);
         }
+    }
+
+    @VisibleForTesting
+    public CreateTableStmt buildAnalysisTblStmt() throws UserException {
+        TableName tableName = new TableName("",
+                FeConstants.INTERNAL_DB_NAME, StatisticConstants.ANALYSIS_TBL_NAME);
+        List<ColumnDef> columnDefs = new ArrayList<>();
+        columnDefs.add(new ColumnDef("id", TypeDef.createVarchar(StatisticConstants.ID_LEN)));
+        columnDefs.add(new ColumnDef("catalog_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
+        columnDefs.add(new ColumnDef("db_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
+        columnDefs.add(new ColumnDef("tbl_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
+        columnDefs.add(new ColumnDef("idx_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
+        ColumnDef partId = new ColumnDef("part_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN));
+        partId.setAllowNull(true);
+        columnDefs.add(partId);
+        columnDefs.add(new ColumnDef("count", TypeDef.create(PrimitiveType.BIGINT)));
+        columnDefs.add(new ColumnDef("last_analyze_time_in_ms", TypeDef.create(PrimitiveType.BIGINT)));
+        columnDefs.add(new ColumnDef("update_time", TypeDef.create(PrimitiveType.DATETIME)));
+        String engineName = "olap";
+        ArrayList<String> uniqueKeys = Lists.newArrayList("id", "catalog_id",
+                "db_id", "tbl_id", "idx_id", "part_id");
+        KeysDesc keysDesc = new KeysDesc(KeysType.UNIQUE_KEYS, uniqueKeys);
+        DistributionDesc distributionDesc = new HashDistributionDesc(
+                StatisticConstants.STATISTIC_TABLE_BUCKET_COUNT, uniqueKeys);
+        Map<String, String> properties = new HashMap<String, String>() {
+            {
+                put("replication_num", String.valueOf(
+                        Math.max(1, Config.min_replication_num_per_tablet)));
+            }
+        };
+        CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
+                tableName, columnDefs, engineName, keysDesc, null, distributionDesc,
+                properties, null, "Doris internal statistics table, DO NOT MODIFY IT", null);
+        StatisticsUtil.analyze(createTableStmt);
+        return createTableStmt;
     }
 
     @VisibleForTesting
@@ -244,7 +281,8 @@ public class InternalSchemaInitializer extends Thread {
             }
             return false;
         }
-        return db.getTable(StatisticConstants.HISTOGRAM_TBL_NAME).isPresent();
+        return db.getTable(StatisticConstants.HISTOGRAM_TBL_NAME).isPresent()
+                && db.getTable(StatisticConstants.ANALYSIS_TBL_NAME).isPresent();
     }
 
 }

@@ -82,7 +82,6 @@ import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 import org.apache.doris.statistics.AnalysisInfo;
-import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -1066,16 +1065,16 @@ public class EditLog {
                     env.getBinlogManager().addBarrierLog(log, logId);
                     break;
                 }
+                // For backward compatible with 2.0.3
                 case OperationType.OP_UPDATE_TABLE_STATS: {
-                    env.getAnalysisManager().replayUpdateTableStatsStatus((TableStatsMeta) journal.getData());
                     break;
                 }
+                // For backward compatible with 2.0.3
                 case OperationType.OP_PERSIST_AUTO_JOB: {
-                    env.getAnalysisManager().replayPersistSysJob((AnalysisInfo) journal.getData());
                     break;
                 }
+                // For backward compatible with 2.0.3
                 case OperationType.OP_DELETE_TABLE_STATS: {
-                    env.getAnalysisManager().replayTableStatsDeletion((TableStatsDeletionLog) journal.getData());
                     break;
                 }
                 default: {
@@ -1880,17 +1879,5 @@ public class EditLog {
         Env.getCurrentEnv().getBinlogManager().addBarrierLog(log, logId);
         LOG.info("logId {}, barrier {}", logId, log);
         return logId;
-    }
-
-    public void logCreateTableStats(TableStatsMeta tableStats) {
-        logEdit(OperationType.OP_UPDATE_TABLE_STATS, tableStats);
-    }
-
-    public void logAutoJob(AnalysisInfo analysisInfo) {
-        logEdit(OperationType.OP_PERSIST_AUTO_JOB, analysisInfo);
-    }
-
-    public void logDeleteTableStats(TableStatsDeletionLog log) {
-        logEdit(OperationType.OP_DELETE_TABLE_STATS, log);
     }
 }

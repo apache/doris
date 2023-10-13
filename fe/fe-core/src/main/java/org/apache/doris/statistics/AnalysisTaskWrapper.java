@@ -18,15 +18,11 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
-import org.apache.doris.statistics.util.StatisticsUtil;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.time.LocalTime;
 import java.util.concurrent.FutureTask;
 
 public class AnalysisTaskWrapper extends FutureTask<Void> {
@@ -54,14 +50,6 @@ public class AnalysisTaskWrapper extends FutureTask<Void> {
         Throwable except = null;
         try {
             if (task.killed) {
-                return;
-            }
-            if (task.info.scheduleType.equals(ScheduleType.AUTOMATIC) && !StatisticsUtil.inAnalyzeTime(
-                    LocalTime.now(TimeUtils.getTimeZone().toZoneId()))) {
-                // TODO: Do we need a separate AnalysisState here?
-                Env.getCurrentEnv().getAnalysisManager()
-                        .updateTaskStatus(task.info, AnalysisState.FAILED, "Auto task"
-                                + "doesn't get executed within specified time range", System.currentTimeMillis());
                 return;
             }
             executor.putJob(this);

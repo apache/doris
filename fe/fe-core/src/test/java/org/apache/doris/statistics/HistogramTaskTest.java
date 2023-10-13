@@ -30,6 +30,7 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import mockit.Mock;
 import mockit.MockUp;
+import mockit.Mocked;
 import org.junit.FixMethodOrder;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -41,6 +42,9 @@ import java.util.concurrent.ConcurrentMap;
 
 @FixMethodOrder(value = MethodSorters.NAME_ASCENDING)
 public class HistogramTaskTest extends TestWithFeService {
+
+    @Mocked
+    AnalysisTaskScheduler analysisTaskScheduler;
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -92,7 +96,7 @@ public class HistogramTaskTest extends TestWithFeService {
 
     @Test
     public void test2TaskExecution() throws Exception {
-        AnalysisTaskExecutor analysisTaskExecutor = new AnalysisTaskExecutor(1);
+        AnalysisTaskExecutor analysisTaskExecutor = new AnalysisTaskExecutor(analysisTaskScheduler);
         AnalysisInfo analysisInfo = new AnalysisInfoBuilder()
                 .setJobId(0).setTaskId(0).setCatalogName("internal")
                 .setDbName(SystemInfoService.DEFAULT_CLUSTER + ":" + "histogram_task_test").setTblName("t1")
@@ -103,11 +107,17 @@ public class HistogramTaskTest extends TestWithFeService {
                 .build();
         HistogramTask task = new HistogramTask(analysisInfo);
 
+        new MockUp<AnalysisTaskScheduler>() {
+            @Mock
+            public synchronized BaseAnalysisTask getPendingTasks() {
+                return task;
+            }
+        };
         new MockUp<AnalysisManager>() {
             @Mock
             public void updateTaskStatus(AnalysisInfo info, AnalysisState jobState, String message, long time) {}
         };
 
-        Deencapsulation.invoke(analysisTaskExecutor, "submitTask", task);
+        Deencapsulation.invoke(analysisTaskExecutor, "doFetchAndExecute");
     }
 }

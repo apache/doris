@@ -18,9 +18,7 @@
 package org.apache.doris.statistics;
 
 public enum AnalysisState {
-    // When analyze job/task created, but never run
     PENDING,
-    // When analyze job/task is in running queue
     RUNNING,
     FINISHED,
     FAILED;

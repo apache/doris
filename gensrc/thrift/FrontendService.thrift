@@ -1091,7 +1091,7 @@ struct TGetBinlogLagResult {
 
 struct TUpdateFollowerStatsCacheRequest {
     1: optional string key;
-    2: list<string> statsRows;
+    2: optional string colStats;
 }
 
 service FrontendService {

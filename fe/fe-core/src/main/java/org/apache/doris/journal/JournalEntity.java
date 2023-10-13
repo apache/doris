@@ -111,7 +111,6 @@ import org.apache.doris.persist.TableAddOrDropInvertedIndicesInfo;
 import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.TableRenameColumnInfo;
-import org.apache.doris.persist.TableStatsDeletionLog;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
@@ -119,7 +118,6 @@ import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 import org.apache.doris.statistics.AnalysisInfo;
-import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -844,21 +842,6 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_BARRIER: {
                 data = BarrierLog.read(in);
-                isRead = true;
-                break;
-            }
-            case OperationType.OP_UPDATE_TABLE_STATS: {
-                data = TableStatsMeta.read(in);
-                isRead = true;
-                break;
-            }
-            case OperationType.OP_PERSIST_AUTO_JOB: {
-                data = AnalysisInfo.read(in);
-                isRead = true;
-                break;
-            }
-            case OperationType.OP_DELETE_TABLE_STATS: {
-                data = TableStatsDeletionLog.read(in);
                 isRead = true;
                 break;
             }

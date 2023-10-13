@@ -20,7 +20,6 @@ package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.datasets.tpch.TPCHTestBase;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.HyperGraphBuilder;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -33,37 +32,23 @@ import java.util.Set;
 
 public class OtherJoinTest extends TPCHTestBase {
     @Test
-    public void test() {
-        for (int t = 3; t < 10; t++) {
-            for (int e = t - 1; e <= (t * (t - 1)) / 2; e++) {
-                for (int i = 0; i < 10; i++) {
-                    System.out.println(String.valueOf(t) + " " + e + ": " + i);
-                    randomTest(t, e);
-                }
-            }
-        }
-    }
-
-    private void randomTest(int tableNum, int edgeNum) {
+    public void randomTest() {
         HyperGraphBuilder hyperGraphBuilder = new HyperGraphBuilder();
         Plan plan = hyperGraphBuilder
-                .randomBuildPlanWith(tableNum, edgeNum);
-        plan = new LogicalProject(plan.getOutput(), plan);
-        Set<List<String>> res1 = hyperGraphBuilder.evaluate(plan);
+                .randomBuildPlanWith(10, 20);
+        Set<List<Integer>> res1 = hyperGraphBuilder.evaluate(plan);
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
         hyperGraphBuilder.initStats(cascadesContext);
         Plan optimizedPlan = PlanChecker.from(cascadesContext)
-                .dpHypOptimize()
-                .getBestPlanTree();
+                        .dpHypOptimize()
+                        .getBestPlanTree();
 
-        Set<List<String>> res2 = hyperGraphBuilder.evaluate(optimizedPlan);
+        Set<List<Integer>> res2 = hyperGraphBuilder.evaluate(optimizedPlan);
         if (!res1.equals(res2)) {
-            System.out.println(plan.treeString());
-            System.out.println(optimizedPlan.treeString());
-            cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
-            PlanChecker.from(cascadesContext).dpHypOptimize().getBestPlanTree();
             System.out.println(res1);
             System.out.println(res2);
+            System.out.println(plan.treeString());
+            System.out.println(optimizedPlan.treeString());
         }
         Assertions.assertTrue(res1.equals(res2));
 

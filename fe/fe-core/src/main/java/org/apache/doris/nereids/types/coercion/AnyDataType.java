@@ -26,18 +26,7 @@ import org.apache.doris.nereids.types.DataType;
  */
 public class AnyDataType implements AbstractDataType {
 
-    public static final AnyDataType INSTANCE_WITHOUT_INDEX = new AnyDataType(-1);
-
-    public static final AnyDataType INSTANCE = new AnyDataType(-1);
-
-    private final int index;
-
-    public AnyDataType(int index) {
-        if (index < 0) {
-            index = -1;
-        }
-        this.index = index;
-    }
+    public static final AnyDataType INSTANCE = new AnyDataType();
 
     @Override
     public DataType defaultConcreteType() {
@@ -58,9 +47,4 @@ public class AnyDataType implements AbstractDataType {
     public String simpleString() {
         return "any";
     }
-
-    public int getIndex() {
-        return index;
-    }
-
 }

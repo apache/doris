@@ -27,6 +27,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.SystemInfoService;
 
@@ -194,32 +195,31 @@ public class StatisticsCleaner extends MasterDaemon {
             pos += StatisticConstants.FETCH_LIMIT;
             for (ResultRow r : rows) {
                 try {
-                    StatsId statsId = new StatsId(r);
-                    String id = statsId.id;
-                    long catalogId = statsId.catalogId;
+                    String id = r.getColumnValue("id");
+                    long catalogId = Long.parseLong(r.getColumnValue("catalog_id"));
                     if (!idToCatalog.containsKey(catalogId)) {
                         expiredStats.expiredCatalog.add(catalogId);
                         continue;
                     }
-                    long dbId = statsId.dbId;
+                    long dbId = Long.parseLong(r.getColumnValue("db_id"));
                     if (!idToDb.containsKey(dbId)) {
                         expiredStats.expiredDatabase.add(dbId);
                         continue;
                     }
-                    long tblId = statsId.tblId;
+                    long tblId = Long.parseLong(r.getColumnValue("tbl_id"));
                     if (!idToTbl.containsKey(tblId)) {
                         expiredStats.expiredTable.add(tblId);
                         continue;
                     }
 
-                    long idxId = statsId.idxId;
+                    long idxId = Long.parseLong(r.getColumnValue("idx_id"));
                     if (idxId != -1 && !idToMVIdx.containsKey(idxId)) {
                         expiredStats.expiredIdxId.add(idxId);
                         continue;
                     }
 
                     TableIf t = idToTbl.get(tblId);
-                    String colId = statsId.colId;
+                    String colId = r.getColumnValue("col_id");
                     if (t.getColumn(colId) == null) {
                         expiredStats.ids.add(id);
                         continue;
@@ -228,11 +228,12 @@ public class StatisticsCleaner extends MasterDaemon {
                         continue;
                     }
                     OlapTable olapTable = (OlapTable) t;
-                    String partId = statsId.partId;
-                    if (partId == null) {
+                    String partIdStr = r.getColumnValue("part_id");
+                    if (partIdStr == null) {
                         continue;
                     }
-                    if (!olapTable.getPartitionIds().contains(Long.parseLong(partId))) {
+                    long partId = Long.parseLong(partIdStr);
+                    if (!olapTable.getPartitionIds().contains(partId)) {
                         expiredStats.ids.add(id);
                     }
                 } catch (Exception e) {
