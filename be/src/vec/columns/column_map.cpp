@@ -465,10 +465,4 @@ size_t ColumnMap::allocated_bytes() const {
            get_offsets().allocated_bytes();
 }
 
-void ColumnMap::protect() {
-    offsets_column->protect();
-    keys_column->protect();
-    values_column->protect();
-}
-
 } // namespace doris::vectorized

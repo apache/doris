@@ -347,12 +347,6 @@ size_t ColumnStruct::allocated_bytes() const {
     return res;
 }
 
-void ColumnStruct::protect() {
-    for (auto& column : columns) {
-        column->protect();
-    }
-}
-
 void ColumnStruct::for_each_subcolumn(ColumnCallback callback) {
     for (auto& column : columns) {
         callback(column);
