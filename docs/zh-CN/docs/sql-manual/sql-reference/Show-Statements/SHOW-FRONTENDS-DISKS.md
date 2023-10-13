@@ -69,7 +69,7 @@ mysql> show frontends disks;
 
 ### Keywords
 
-    SHOW, FRONTENDS, DISK, DISKS
+    SHOW, FRONTENDS
 
 ### Best Practice
 
