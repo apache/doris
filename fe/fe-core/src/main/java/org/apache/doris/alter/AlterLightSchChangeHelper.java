@@ -65,13 +65,23 @@ public class AlterLightSchChangeHelper {
 
     private static final Logger LOG = LogManager.getLogger(AlterLightSchChangeHelper.class);
 
+    private  static final long DEFAULT_RPC_TIMEOUT = 900;
+
     private final Database db;
 
     private final OlapTable olapTable;
 
+    private final long rpcTimoutMs;
+
     public AlterLightSchChangeHelper(Database db, OlapTable olapTable) {
         this.db = db;
         this.olapTable = olapTable;
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext == null) {
+            rpcTimoutMs = DEFAULT_RPC_TIMEOUT;
+        } else {
+            rpcTimoutMs = connectContext.getExecTimeout();
+        }
     }
 
     /**
@@ -158,7 +168,7 @@ public class AlterLightSchChangeHelper {
         }
         // wait for and get results
         final long start = System.currentTimeMillis();
-        long timeoutMs = ConnectContext.get().getExecTimeout() * 1000L;
+        long timeoutMs = rpcTimoutMs;
         final List<PFetchColIdsResponse> resultList = new ArrayList<>();
         try {
             for (Map.Entry<Long, Future<PFetchColIdsResponse>> entry : beIdToRespFuture.entrySet()) {
