@@ -98,6 +98,9 @@ struct FullBaseSchemaView {
     std::string db_name;
 };
 
+Status send_add_columns_rpc(ColumnsWithTypeAndName column_type_names,
+                            FullBaseSchemaView* schema_view);
+
 Status send_fetch_full_base_schema_view_rpc(FullBaseSchemaView* schema_view);
 
 // For tracking local schema change during load procedure
