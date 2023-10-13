@@ -50,7 +50,7 @@ class SharedHashTableDependency : public WriteDependency {
 public:
     ENABLE_FACTORY_CREATOR(SharedHashTableDependency);
     SharedHashTableDependency(int id) : WriteDependency(id, "SharedHashTableDependency") {}
-    ~SharedHashTableDependency() = default;
+    ~SharedHashTableDependency() override = default;
 
     void* shared_state() override { return nullptr; }
 };
@@ -135,9 +135,6 @@ public:
 
     WriteDependency* wait_for_dependency(RuntimeState* state) override {
         CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-        if (local_state._should_build_hash_table) {
-            return nullptr;
-        }
         return local_state._shared_hash_table_dependency->write_blocked_by();
     }
 

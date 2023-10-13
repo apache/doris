@@ -298,6 +298,18 @@ private:
 
     Status _fill_column(ColumnPtr& doris_column, DataTypePtr& data_type, size_t num_rows);
 
+    Status _fill_map_column(MutableColumnPtr& doris_column, DataTypePtr& data_type,
+                            size_t num_rows);
+
+    Status _fill_array_column(MutableColumnPtr& doris_column, DataTypePtr& data_type,
+                              size_t num_rows);
+
+    Status _fill_struct_column(MutableColumnPtr& doris_column, DataTypePtr& data_type,
+                               size_t num_rows);
+
+    static void _fill_column_meta(ColumnPtr& doris_column, DataTypePtr& data_type,
+                                  std::vector<long>& meta_data);
+
     template <typename CppType>
     Status _fill_numeric_column(MutableColumnPtr& doris_column, CppType* ptr, size_t num_rows) {
         auto& column_data = static_cast<ColumnVector<CppType>&>(*doris_column).get_data();

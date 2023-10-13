@@ -197,8 +197,8 @@ public:
       * NOTE This method is usable only for the last allocation made on this
       * Arena. For earlier allocations, see 'realloc' method.
       */
-    char* alloc_continue(size_t additional_bytes, char const*& range_start,
-                         size_t start_alignment = 0) {
+    [[nodiscard]] char* alloc_continue(size_t additional_bytes, char const*& range_start,
+                                       size_t start_alignment = 0) {
         if (!range_start) {
             // Start a new memory range.
             char* result = start_alignment ? aligned_alloc(additional_bytes, start_alignment)
@@ -245,7 +245,7 @@ public:
     }
 
     /// NOTE Old memory region is wasted.
-    char* realloc(const char* old_data, size_t old_size, size_t new_size) {
+    [[nodiscard]] char* realloc(const char* old_data, size_t old_size, size_t new_size) {
         char* res = alloc(new_size);
         if (old_data) {
             memcpy(res, old_data, old_size);
@@ -254,8 +254,8 @@ public:
         return res;
     }
 
-    char* aligned_realloc(const char* old_data, size_t old_size, size_t new_size,
-                          size_t alignment) {
+    [[nodiscard]] char* aligned_realloc(const char* old_data, size_t old_size, size_t new_size,
+                                        size_t alignment) {
         char* res = aligned_alloc(new_size, alignment);
         if (old_data) {
             memcpy(res, old_data, old_size);
@@ -265,13 +265,13 @@ public:
     }
 
     /// Insert string without alignment.
-    const char* insert(const char* data, size_t size) {
+    [[nodiscard]] const char* insert(const char* data, size_t size) {
         char* res = alloc(size);
         memcpy(res, data, size);
         return res;
     }
 
-    const char* aligned_insert(const char* data, size_t size, size_t alignment) {
+    [[nodiscard]] const char* aligned_insert(const char* data, size_t size, size_t alignment) {
         char* res = aligned_alloc(size, alignment);
         memcpy(res, data, size);
         return res;

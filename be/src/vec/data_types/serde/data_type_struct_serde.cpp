@@ -18,6 +18,7 @@
 #include "data_type_struct_serde.h"
 
 #include "arrow/array/builder_nested.h"
+#include "common/status.h"
 #include "util/jsonb_document.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
@@ -37,6 +38,34 @@ std::optional<size_t> DataTypeStructSerDe::try_get_position_by_name(const String
         }
     }
     return std::nullopt;
+}
+
+Status DataTypeStructSerDe::serialize_column_to_json(const IColumn& column, int start_idx,
+                                                     int end_idx, BufferWritable& bw,
+                                                     FormatOptions& options,
+                                                     int nesting_level) const {
+    SERIALIZE_COLUMN_TO_JSON();
+}
+
+Status DataTypeStructSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+                                                       BufferWritable& bw, FormatOptions& options,
+                                                       int nesting_level) const {
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
+
+    const ColumnStruct& struct_column = assert_cast<const ColumnStruct&>(*ptr);
+    bw.write('{');
+    for (int i = 0; i < struct_column.get_columns().size(); i++) {
+        if (i != 0) {
+            bw.write(',');
+            bw.write(' ');
+        }
+        RETURN_IF_ERROR(elemSerDeSPtrs[i]->serialize_one_cell_to_json(
+                struct_column.get_column(i), row_num, bw, options, nesting_level + 1));
+    }
+    bw.write('}');
+    return Status::OK();
 }
 
 Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
@@ -339,6 +368,34 @@ Status DataTypeStructSerDe::write_column_to_mysql(const IColumn& column,
                                                   MysqlRowBuffer<false>& row_buffer, int row_idx,
                                                   bool col_const) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+}
+
+Status DataTypeStructSerDe::write_column_to_orc(const IColumn& column, const NullMap* null_map,
+                                                orc::ColumnVectorBatch* orc_col_batch, int start,
+                                                int end,
+                                                std::vector<StringRef>& buffer_list) const {
+    orc::StructVectorBatch* cur_batch = dynamic_cast<orc::StructVectorBatch*>(orc_col_batch);
+
+    const ColumnStruct& struct_col = assert_cast<const ColumnStruct&>(column);
+    for (size_t row_id = start; row_id < end; row_id++) {
+        if (cur_batch->notNull[row_id] == 1) {
+            for (int i = 0; i < struct_col.tuple_size(); ++i) {
+                static_cast<void>(elemSerDeSPtrs[i]->write_column_to_orc(
+                        struct_col.get_column(i), nullptr, cur_batch->fields[i], row_id, row_id + 1,
+                        buffer_list));
+            }
+        } else {
+            // This else is necessary
+            // because we must set notNull when cur_batch->notNull[row_id] == 0
+            for (int j = 0; j < struct_col.tuple_size(); ++j) {
+                cur_batch->fields[j]->hasNulls = true;
+                cur_batch->fields[j]->notNull[row_id] = 0;
+            }
+        }
+    }
+
+    cur_batch->numElements = end - start;
+    return Status::OK();
 }
 
 } // namespace vectorized

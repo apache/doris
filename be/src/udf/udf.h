@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "runtime/types.h"
+#include "vec/common/arena.h"
 
 namespace doris {
 
@@ -127,6 +128,8 @@ public:
 
     ~FunctionContext() = default;
 
+    vectorized::Arena& get_arena() { return arena; }
+
 private:
     FunctionContext() = default;
 
@@ -160,6 +163,8 @@ private:
     bool _check_overflow_for_decimal = false;
 
     std::string _string_result;
+
+    vectorized::Arena arena;
 };
 
 using doris::FunctionContext;

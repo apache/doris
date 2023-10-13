@@ -38,6 +38,7 @@
 #include "olap/tablet_meta_manager.h"
 #include "olap/utils.h"
 #include "util/string_util.h"
+#include "util/time.h"
 #include "util/uid_util.h"
 
 using std::string;
@@ -437,11 +438,21 @@ Status TabletMeta::_save_meta(DataDir* data_dir) {
                    << " tablet=" << full_name() << " _tablet_uid=" << _tablet_uid.to_string();
     }
     string meta_binary;
+
+    auto t1 = MonotonicMicros();
     RETURN_IF_ERROR(serialize(&meta_binary));
+    auto t2 = MonotonicMicros();
     Status status = TabletMetaManager::save(data_dir, tablet_id(), schema_hash(), meta_binary);
     if (!status.ok()) {
         LOG(FATAL) << "fail to save tablet_meta. status=" << status << ", tablet_id=" << tablet_id()
                    << ", schema_hash=" << schema_hash();
+    }
+    auto t3 = MonotonicMicros();
+    auto cost =  t3 - t1;
+    if (cost > 1 * 1000 * 1000) {
+        LOG(INFO) << "save tablet(" << full_name() << ") meta too slow. serialize cost " << t2 - t1
+                  << "(us), serialized binary size: " << meta_binary.length()
+                  << "(bytes), write rocksdb cost " << t3 - t2 << "(us)";
     }
     return status;
 }
@@ -826,30 +837,6 @@ RowsetMetaSharedPtr TabletMeta::acquire_stale_rs_meta_by_version(const Version& 
         }
     }
     return nullptr;
-}
-
-const std::vector<RowsetMetaSharedPtr> TabletMeta::delete_predicates() const {
-    std::vector<RowsetMetaSharedPtr> res;
-    for (auto& del_pred : _rs_metas) {
-        if (del_pred->has_delete_predicate()) {
-            res.push_back(del_pred);
-        }
-    }
-    return res;
-}
-
-bool TabletMeta::version_for_delete_predicate(const Version& version) {
-    if (version.first != version.second) {
-        return false;
-    }
-
-    for (auto& del_pred : _rs_metas) {
-        if (del_pred->version().first == version.first && del_pred->has_delete_predicate()) {
-            return true;
-        }
-    }
-
-    return false;
 }
 
 std::string TabletMeta::full_name() const {

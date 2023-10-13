@@ -116,38 +116,10 @@ private:
 class ChannelDependency final : public WriteDependency {
 public:
     ENABLE_FACTORY_CREATOR(ChannelDependency);
-    ChannelDependency(int id, int sender_id, vectorized::VDataStreamRecvr* local_recvr)
-            : WriteDependency(id, "ChannelDependency"),
-              _sender_id(sender_id),
-              _local_recvr(local_recvr) {}
+    ChannelDependency(int id) : WriteDependency(id, "ChannelDependency") {}
     ~ChannelDependency() override = default;
 
     void* shared_state() override { return nullptr; }
-
-    void try_set_ready_for_write() {
-        if (_ready_for_write) {
-            return;
-        }
-        if (_is_runnable()) {
-            _write_dependency_watcher.stop();
-            _ready_for_write = true;
-        }
-    }
-
-    void try_block_writing() {
-        if (!_is_runnable()) {
-            _ready_for_write = false;
-        }
-    }
-
-private:
-    bool _is_runnable() {
-        return _local_recvr->is_closed() || !_local_recvr->exceeds_limit(0) ||
-               _local_recvr->sender_queue_empty(_sender_id);
-    }
-
-    int _sender_id;
-    vectorized::VDataStreamRecvr* _local_recvr;
 };
 
 class ExchangeSinkLocalState final : public PipelineXSinkLocalState<> {
@@ -263,7 +235,7 @@ public:
 
     Status try_close(RuntimeState* state, Status exec_status) override;
     WriteDependency* wait_for_dependency(RuntimeState* state) override;
-    bool is_pending_finish(RuntimeState* state) const override;
+    FinishDependency* finish_blocked_by(RuntimeState* state) const override;
 
 private:
     friend class ExchangeSinkLocalState;

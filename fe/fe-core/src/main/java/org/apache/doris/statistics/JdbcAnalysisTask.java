@@ -84,7 +84,7 @@ public class JdbcAnalysisTask extends BaseAnalysisTask {
                 StatisticsUtil.execStatisticQuery(new StringSubstitutor(params).replace(ANALYZE_TABLE_COUNT_TEMPLATE));
         String rowCount = columnResult.get(0).get(0);
         Env.getCurrentEnv().getAnalysisManager()
-            .updateTableStatsStatus(new TableStats(table.getId(), Long.parseLong(rowCount), info));
+            .updateTableStatsStatus(new TableStatsMeta(table.getId(), Long.parseLong(rowCount), info));
     }
 
     /**

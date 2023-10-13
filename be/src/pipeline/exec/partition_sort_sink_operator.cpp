@@ -29,6 +29,7 @@ OperatorPtr PartitionSortSinkOperatorBuilder::build_operator() {
 
 Status PartitionSortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(PipelineXSinkLocalState<PartitionSortDependency>::init(state, info));
+    SCOPED_TIMER(profile()->total_time_counter());
     auto& p = _parent->cast<PartitionSortSinkOperatorX>();
     RETURN_IF_ERROR(p._vsort_exec_exprs.clone(state, _vsort_exec_exprs));
     _partition_expr_ctxs.resize(p._partition_expr_ctxs.size());
@@ -54,7 +55,8 @@ PartitionSortSinkOperatorX::PartitionSortSinkOperatorX(ObjectPool* pool, const T
         : DataSinkOperatorX(tnode.node_id),
           _pool(pool),
           _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
-          _limit(tnode.limit) {}
+          _limit(tnode.limit),
+          _topn_phase(tnode.partition_sort_node.ptopn_phase) {}
 
 Status PartitionSortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX::init(tnode, state));
@@ -105,7 +107,9 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
             local_state._value_places[0]->append_whole_block(input_block, _child_x->row_desc());
         } else {
             //just simply use partition num to check
-            if (local_state._num_partition > config::partition_topn_partition_threshold &&
+            //if is TWO_PHASE_GLOBAL, must be sort all data thought partition num threshold have been exceeded.
+            if (_topn_phase != TPartTopNPhase::TWO_PHASE_GLOBAL &&
+                local_state._num_partition > config::partition_topn_partition_threshold &&
                 local_state.child_input_rows < 10000 * local_state._num_partition) {
                 {
                     std::lock_guard<std::mutex> lock(local_state._shared_state->buffer_mutex);
@@ -174,61 +178,31 @@ void PartitionSortSinkOperatorX::_emplace_into_hash_table(
             [&](auto&& agg_method) -> void {
                 SCOPED_TIMER(local_state._build_timer);
                 using HashMethodType = std::decay_t<decltype(agg_method)>;
-                using HashTableType = std::decay_t<decltype(agg_method.data)>;
                 using AggState = typename HashMethodType::State;
 
-                AggState state(key_columns, local_state._partition_key_sz, nullptr);
+                AggState state(key_columns, local_state._partition_key_sz);
                 size_t num_rows = input_block->rows();
-                _pre_serialize_key_if_need(state, agg_method, key_columns, num_rows);
+                agg_method.init_serialized_keys(key_columns, local_state._partition_key_sz,
+                                                num_rows);
 
-                //PHHashMap
-                if constexpr (HashTableTraits<HashTableType>::is_phmap) {
-                    if (local_state._hash_values.size() < num_rows) {
-                        local_state._hash_values.resize(num_rows);
-                    }
-                    if constexpr (vectorized::ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
-                                          AggState>::value) {
-                        for (size_t i = 0; i < num_rows; ++i) {
-                            local_state._hash_values[i] = agg_method.data.hash(agg_method.keys[i]);
-                        }
-                    } else {
-                        for (size_t i = 0; i < num_rows; ++i) {
-                            local_state._hash_values[i] = agg_method.data.hash(
-                                    state.get_key_holder(i, *local_state._agg_arena_pool));
-                        }
-                    }
-                }
+                auto creator = [&](const auto& ctor, auto& key, auto& origin) {
+                    HashMethodType::try_presis_key(key, origin, *local_state._agg_arena_pool);
+                    auto aggregate_data = _pool->add(new vectorized::PartitionBlocks());
+                    local_state._value_places.push_back(aggregate_data);
+                    ctor(key, aggregate_data);
+                    local_state._num_partition++;
+                };
+                auto creator_for_null_key = [&](auto& mapped) {
+                    mapped = _pool->add(new vectorized::PartitionBlocks());
+                    local_state._value_places.push_back(mapped);
+                    local_state._num_partition++;
+                };
 
+                SCOPED_TIMER(local_state._emplace_key_timer);
                 for (size_t row = 0; row < num_rows; ++row) {
-                    SCOPED_TIMER(local_state._emplace_key_timer);
-                    vectorized::PartitionDataPtr aggregate_data = nullptr;
-                    auto emplace_result = [&]() {
-                        if constexpr (HashTableTraits<HashTableType>::is_phmap) {
-                            if (LIKELY(row + HASH_MAP_PREFETCH_DIST < num_rows)) {
-                                agg_method.data.prefetch_by_hash(
-                                        local_state._hash_values[row + HASH_MAP_PREFETCH_DIST]);
-                            }
-                            return state.emplace_key(agg_method.data, local_state._hash_values[row],
-                                                     row, *local_state._agg_arena_pool);
-                        } else {
-                            return state.emplace_key(agg_method.data, row,
-                                                     *local_state._agg_arena_pool);
-                        }
-                    }();
-
-                    /// If a new key is inserted, initialize the states of the aggregate functions, and possibly something related to the key.
-                    if (emplace_result.is_inserted()) {
-                        /// exception-safety - if you can not allocate memory or create states, then destructors will not be called.
-                        emplace_result.set_mapped(nullptr);
-                        aggregate_data = _pool->add(new vectorized::PartitionBlocks());
-                        emplace_result.set_mapped(aggregate_data);
-                        local_state._value_places.push_back(aggregate_data);
-                        local_state._num_partition++;
-                    } else {
-                        aggregate_data = emplace_result.get_mapped();
-                    }
-                    assert(aggregate_data != nullptr);
-                    aggregate_data->add_row_idx(row);
+                    auto& mapped =
+                            agg_method.lazy_emplace(state, row, creator, creator_for_null_key);
+                    mapped->add_row_idx(row);
                 }
                 for (auto place : local_state._value_places) {
                     SCOPED_TIMER(local_state._selector_block_timer);

@@ -60,7 +60,8 @@ void S3FileBuffer::submit() {
         _stream_ptr = std::make_shared<StringViewStream>(_buf.data, _size);
     }
 
-    _thread_pool->submit_func([buf = this->shared_from_this()]() { buf->_on_upload(); });
+    static_cast<void>(
+            _thread_pool->submit_func([buf = this->shared_from_this()]() { buf->_on_upload(); }));
 }
 
 void S3FileBufferPool::init(int32_t s3_write_buffer_whole_size, int32_t s3_write_buffer_size,

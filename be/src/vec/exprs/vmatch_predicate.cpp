@@ -92,10 +92,15 @@ Status VMatchPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
 
 Status VMatchPredicate::open(RuntimeState* state, VExprContext* context,
                              FunctionContext::FunctionStateScope scope) {
-    RETURN_IF_ERROR(VExpr::open(state, context, scope));
+    for (int i = 0; i < _children.size(); ++i) {
+        RETURN_IF_ERROR(_children[i]->open(state, context, scope));
+    }
     RETURN_IF_ERROR(VExpr::init_function_context(context, scope, _function));
     if (scope == FunctionContext::THREAD_LOCAL || scope == FunctionContext::FRAGMENT_LOCAL) {
         context->fn_context(_fn_context_index)->set_function_state(scope, _inverted_index_ctx);
+    }
+    if (scope == FunctionContext::FRAGMENT_LOCAL) {
+        RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
     }
     return Status::OK();
 }

@@ -759,6 +759,10 @@ under the License.
             <groupId>org.apache.arrow</groupId>
             <artifactId>flight-sql</artifactId>
         </dependency>
+        <dependency>
+            <groupId>org.immutables</groupId>
+            <artifactId>value</artifactId>
+        </dependency>
     </dependencies>
     <repositories>
         <!-- for huawei obs sdk -->

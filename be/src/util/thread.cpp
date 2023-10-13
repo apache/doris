@@ -337,7 +337,7 @@ void Thread::set_thread_nice_value() {
 #endif
 
 void Thread::join() {
-    ThreadJoiner(this).join();
+    static_cast<void>(ThreadJoiner(this).join());
 }
 
 int64_t Thread::tid() const {

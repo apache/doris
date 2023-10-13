@@ -5,30 +5,30 @@ PhysicalResultSink
 ----PhysicalDistribute
 ------PhysicalQuickSort
 --------PhysicalProject
-----------hashJoin[INNER_JOIN](dj.ss_customer_sk = customer.c_customer_sk)
+----------hashJoin[INNER_JOIN] hashCondition=((dj.ss_customer_sk = customer.c_customer_sk))otherCondition=()
 ------------PhysicalProject
 --------------PhysicalOlapScan[customer]
 ------------PhysicalDistribute
---------------filter((dj.cnt >= 1)(dj.cnt <= 5))
+--------------filter((dj.cnt <= 5) and (dj.cnt >= 1))
 ----------------hashAgg[GLOBAL]
 ------------------PhysicalDistribute
 --------------------hashAgg[LOCAL]
 ----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN](store_sales.ss_store_sk = store.s_store_sk)
---------------------------hashJoin[INNER_JOIN](store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)
-----------------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
+------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk))otherCondition=()
+--------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk))otherCondition=()
+----------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk))otherCondition=()
 ------------------------------PhysicalProject
 --------------------------------PhysicalOlapScan[store_sales]
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
-----------------------------------filter((date_dim.d_dom >= 1)d_year IN (2000, 2001, 2002)(date_dim.d_dom <= 2))
+----------------------------------filter((date_dim.d_dom <= 2) and (date_dim.d_dom >= 1) and d_year IN (2000, 2001, 2002))
 ------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
---------------------------------filter(hd_buy_potential IN ('501-1000', 'Unknown')(household_demographics.hd_vehicle_count > 0)(if((hd_vehicle_count > 0), (cast(hd_dep_count as DOUBLE) / cast(hd_vehicle_count as DOUBLE)), NULL) > 1))
+--------------------------------filter((household_demographics.hd_vehicle_count > 0) and (if((hd_vehicle_count > 0), (cast(hd_dep_count as DOUBLE) / cast(hd_vehicle_count as DOUBLE)), NULL) > 1) and hd_buy_potential IN ('501-1000', 'Unknown'))
 ----------------------------------PhysicalOlapScan[household_demographics]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
-------------------------------filter(s_county IN ('Fairfield County', 'Walker County', 'Daviess County', 'Barrow County'))
+------------------------------filter(s_county IN ('Barrow County', 'Daviess County', 'Fairfield County', 'Walker County'))
 --------------------------------PhysicalOlapScan[store]
 

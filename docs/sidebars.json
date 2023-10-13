@@ -93,6 +93,13 @@
                                 "data-operate/import/import-way/insert-into-manual",
                                 "data-operate/import/import-way/load-json-format"
                             ]
+                        },
+                        {
+                            "type": "category",
+                            "label": "Import Advanced",
+                            "items": [
+                                "data-operate/import/import-advanced/min-load-replica-num"
+                            ]
                         }
                     ]
                 },
@@ -642,8 +649,10 @@
                                 "sql-manual/sql-functions/json-functions/get-json-double",
                                 "sql-manual/sql-functions/json-functions/get-json-int",
                                 "sql-manual/sql-functions/json-functions/get-json-bigint",
-                                "sql-manual/sql-functions/json-functions/get-json-string"
-                                
+                                "sql-manual/sql-functions/json-functions/get-json-string",
+                                "sql-manual/sql-functions/json-functions/json-insert",
+                                "sql-manual/sql-functions/json-functions/json-replace",
+                                "sql-manual/sql-functions/json-functions/json-set"
                             ]
                         },
                         {
@@ -922,6 +931,7 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-VIEW",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-STORAGE-POLICY",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-RESOURCE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-COLOCATE-GROUP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-WORKLOAD-GROUP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-SQL-BLOCK-RULE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/PAUSE-JOB",
@@ -1255,6 +1265,7 @@
                                 "admin-manual/http-actions/fe/upload-action",
                                 "admin-manual/http-actions/fe/import-action",
                                 "admin-manual/http-actions/fe/meta-info-action-V2",
+                                "admin-manual/http-actions/fe/debug-point-action",
                                 "admin-manual/http-actions/fe/statistic-action"
                             ]
                         },

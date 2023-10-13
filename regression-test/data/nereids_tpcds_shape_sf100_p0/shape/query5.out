@@ -15,8 +15,8 @@ PhysicalResultSink
 ------------------------PhysicalDistribute
 --------------------------hashAgg[LOCAL]
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN](salesreturns.store_sk = store.s_store_sk)
---------------------------------hashJoin[INNER_JOIN](salesreturns.date_sk = date_dim.d_date_sk)
+------------------------------hashJoin[INNER_JOIN] hashCondition=((salesreturns.store_sk = store.s_store_sk))otherCondition=()
+--------------------------------hashJoin[INNER_JOIN] hashCondition=((salesreturns.date_sk = date_dim.d_date_sk))otherCondition=()
 ----------------------------------PhysicalUnion
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
@@ -25,7 +25,7 @@ PhysicalResultSink
 --------------------------------------PhysicalProject
 ----------------------------------------PhysicalOlapScan[store_returns]
 ----------------------------------PhysicalDistribute
-------------------------------------filter((date_dim.d_date <= 2000-09-02)(date_dim.d_date >= 2000-08-19))
+------------------------------------filter((date_dim.d_date <= '2000-09-02') and (date_dim.d_date >= '2000-08-19'))
 --------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalOlapScan[store]
@@ -34,8 +34,8 @@ PhysicalResultSink
 ------------------------PhysicalDistribute
 --------------------------hashAgg[LOCAL]
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN](salesreturns.page_sk = catalog_page.cp_catalog_page_sk)
---------------------------------hashJoin[INNER_JOIN](salesreturns.date_sk = date_dim.d_date_sk)
+------------------------------hashJoin[INNER_JOIN] hashCondition=((salesreturns.page_sk = catalog_page.cp_catalog_page_sk))otherCondition=()
+--------------------------------hashJoin[INNER_JOIN] hashCondition=((salesreturns.date_sk = date_dim.d_date_sk))otherCondition=()
 ----------------------------------PhysicalUnion
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
@@ -44,7 +44,7 @@ PhysicalResultSink
 --------------------------------------PhysicalProject
 ----------------------------------------PhysicalOlapScan[catalog_returns]
 ----------------------------------PhysicalDistribute
-------------------------------------filter((date_dim.d_date >= 2000-08-19)(date_dim.d_date <= 2000-09-02))
+------------------------------------filter((date_dim.d_date <= '2000-09-02') and (date_dim.d_date >= '2000-08-19'))
 --------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalOlapScan[catalog_page]
@@ -53,19 +53,19 @@ PhysicalResultSink
 ------------------------PhysicalDistribute
 --------------------------hashAgg[LOCAL]
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN](salesreturns.wsr_web_site_sk = web_site.web_site_sk)
---------------------------------hashJoin[INNER_JOIN](salesreturns.date_sk = date_dim.d_date_sk)
+------------------------------hashJoin[INNER_JOIN] hashCondition=((salesreturns.wsr_web_site_sk = web_site.web_site_sk))otherCondition=()
+--------------------------------hashJoin[INNER_JOIN] hashCondition=((salesreturns.date_sk = date_dim.d_date_sk))otherCondition=()
 ----------------------------------PhysicalUnion
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
 ----------------------------------------PhysicalOlapScan[web_sales]
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
-----------------------------------------hashJoin[INNER_JOIN](web_returns.wr_item_sk = web_sales.ws_item_sk)(web_returns.wr_order_number = web_sales.ws_order_number)
+----------------------------------------hashJoin[INNER_JOIN] hashCondition=((web_returns.wr_item_sk = web_sales.ws_item_sk) and (web_returns.wr_order_number = web_sales.ws_order_number))otherCondition=()
 ------------------------------------------PhysicalOlapScan[web_sales]
 ------------------------------------------PhysicalOlapScan[web_returns]
 ----------------------------------PhysicalDistribute
-------------------------------------filter((date_dim.d_date >= 2000-08-19)(date_dim.d_date <= 2000-09-02))
+------------------------------------filter((date_dim.d_date <= '2000-09-02') and (date_dim.d_date >= '2000-08-19'))
 --------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalOlapScan[web_site]

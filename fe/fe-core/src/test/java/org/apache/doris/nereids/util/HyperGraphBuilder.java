@@ -61,14 +61,14 @@ public class HyperGraphBuilder {
     private final HashMap<BitSet, LogicalPlan> plans = new HashMap<>();
     private final HashMap<BitSet, List<Integer>> schemas = new HashMap<>();
 
-    private final ImmutableList<JoinType> fullJoinTypes = ImmutableList.of(
+    private ImmutableList<JoinType> fullJoinTypes = ImmutableList.of(
             JoinType.INNER_JOIN,
             JoinType.LEFT_OUTER_JOIN,
             JoinType.RIGHT_OUTER_JOIN,
             JoinType.FULL_OUTER_JOIN
     );
 
-    private final ImmutableList<JoinType> leftFullJoinTypes = ImmutableList.of(
+    private ImmutableList<JoinType> leftFullJoinTypes = ImmutableList.of(
             JoinType.INNER_JOIN,
             JoinType.LEFT_OUTER_JOIN,
             JoinType.RIGHT_OUTER_JOIN,
@@ -78,7 +78,7 @@ public class HyperGraphBuilder {
             JoinType.NULL_AWARE_LEFT_ANTI_JOIN
     );
 
-    private final ImmutableList<JoinType> rightFullJoinTypes = ImmutableList.of(
+    private ImmutableList<JoinType> rightFullJoinTypes = ImmutableList.of(
             JoinType.INNER_JOIN,
             JoinType.LEFT_OUTER_JOIN,
             JoinType.RIGHT_OUTER_JOIN,
@@ -86,6 +86,20 @@ public class HyperGraphBuilder {
             JoinType.RIGHT_SEMI_JOIN,
             JoinType.RIGHT_ANTI_JOIN
     );
+
+    public HyperGraphBuilder() {}
+
+    public HyperGraphBuilder(Set<JoinType> validJoinType) {
+        fullJoinTypes = fullJoinTypes.stream()
+                .filter(validJoinType::contains)
+                .collect(ImmutableList.toImmutableList());
+        leftFullJoinTypes = leftFullJoinTypes.stream()
+                .filter(validJoinType::contains)
+                .collect(ImmutableList.toImmutableList());
+        rightFullJoinTypes = rightFullJoinTypes.stream()
+                .filter(validJoinType::contains)
+                .collect(ImmutableList.toImmutableList());
+    }
 
     public HyperGraph build() {
         assert plans.size() == 1 : "there are cross join";

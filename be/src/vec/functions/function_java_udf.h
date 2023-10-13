@@ -55,7 +55,7 @@ public:
 
 protected:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         return callback_function(context, block, arguments, result, input_rows_count);
     }
 
@@ -165,10 +165,6 @@ private:
             env->DeleteGlobalRef(executor);
             is_closed = true;
         }
-
-        /// These functions are cross-compiled to IR and used by codegen.
-        static void SetInputNullsBufferElement(JniContext* jni_ctx, int index, uint8_t value);
-        static uint8_t* GetInputValuesBufferAtOffset(JniContext* jni_ctx, int offset);
     };
 };
 

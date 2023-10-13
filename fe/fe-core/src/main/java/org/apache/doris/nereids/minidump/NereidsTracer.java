@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.qe.ConnectContext;
 
+import lombok.extern.slf4j.Slf4j;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -40,6 +41,7 @@ import java.util.Optional;
 /**
  * log consumer
  */
+@Slf4j
 public class NereidsTracer {
     private static long startTime;
     private static String TRACE_PATH = null;
@@ -162,7 +164,7 @@ public class NereidsTracer {
         try (FileWriter file = new FileWriter(TRACE_PATH + "/" + queryId + ".json")) {
             file.write(totalTraces.toString(4));
         } catch (IOException e) {
-            e.printStackTrace();
+            log.info("failed to output of tracer", e);
         }
     }
 

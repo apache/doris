@@ -29,6 +29,7 @@
 #include <utility>
 
 #include "common/logging.h"
+#include "common/status.h"
 #include "gutil/strings/substitute.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
@@ -122,8 +123,8 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
                             return tablet->get_table_id() == table_id;
                         });
         for (const auto& tablet : tablet_vec) {
-            StorageEngine::instance()->submit_compaction_task(
-                    tablet, CompactionType::FULL_COMPACTION, false);
+            static_cast<void>(StorageEngine::instance()->submit_compaction_task(
+                    tablet, CompactionType::FULL_COMPACTION, false));
         }
     } else {
         // 2. fetch the tablet by tablet_id

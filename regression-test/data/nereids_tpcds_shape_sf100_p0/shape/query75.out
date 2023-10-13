@@ -9,12 +9,12 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------PhysicalUnion
 --------------PhysicalDistribute
 ----------------PhysicalProject
-------------------hashJoin[RIGHT_OUTER_JOIN](catalog_sales.cs_item_sk = catalog_returns.cr_item_sk)(catalog_sales.cs_order_number = catalog_returns.cr_order_number)
+------------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((catalog_sales.cs_item_sk = catalog_returns.cr_item_sk) and (catalog_sales.cs_order_number = catalog_returns.cr_order_number))otherCondition=()
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[catalog_returns]
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN](date_dim.d_date_sk = catalog_sales.cs_sold_date_sk)
-------------------------hashJoin[INNER_JOIN](item.i_item_sk = catalog_sales.cs_item_sk)
+----------------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_date_sk = catalog_sales.cs_sold_date_sk))otherCondition=()
+------------------------hashJoin[INNER_JOIN] hashCondition=((item.i_item_sk = catalog_sales.cs_item_sk))otherCondition=()
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[catalog_sales]
 --------------------------PhysicalDistribute
@@ -27,12 +27,12 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------------PhysicalOlapScan[date_dim]
 --------------PhysicalDistribute
 ----------------PhysicalProject
-------------------hashJoin[RIGHT_OUTER_JOIN](store_sales.ss_item_sk = store_returns.sr_item_sk)(store_sales.ss_ticket_number = store_returns.sr_ticket_number)
+------------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((store_sales.ss_item_sk = store_returns.sr_item_sk) and (store_sales.ss_ticket_number = store_returns.sr_ticket_number))otherCondition=()
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[store_returns]
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN](date_dim.d_date_sk = store_sales.ss_sold_date_sk)
-------------------------hashJoin[INNER_JOIN](item.i_item_sk = store_sales.ss_item_sk)
+----------------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_date_sk = store_sales.ss_sold_date_sk))otherCondition=()
+------------------------hashJoin[INNER_JOIN] hashCondition=((item.i_item_sk = store_sales.ss_item_sk))otherCondition=()
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[store_sales]
 --------------------------PhysicalDistribute
@@ -45,12 +45,12 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------------PhysicalOlapScan[date_dim]
 --------------PhysicalDistribute
 ----------------PhysicalProject
-------------------hashJoin[RIGHT_OUTER_JOIN](web_sales.ws_item_sk = web_returns.wr_item_sk)(web_sales.ws_order_number = web_returns.wr_order_number)
+------------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((web_sales.ws_item_sk = web_returns.wr_item_sk) and (web_sales.ws_order_number = web_returns.wr_order_number))otherCondition=()
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[web_returns]
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN](date_dim.d_date_sk = web_sales.ws_sold_date_sk)
-------------------------hashJoin[INNER_JOIN](item.i_item_sk = web_sales.ws_item_sk)
+----------------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_date_sk = web_sales.ws_sold_date_sk))otherCondition=()
+------------------------hashJoin[INNER_JOIN] hashCondition=((item.i_item_sk = web_sales.ws_item_sk))otherCondition=()
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[web_sales]
 --------------------------PhysicalDistribute
@@ -66,7 +66,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------PhysicalDistribute
 --------PhysicalTopN
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN](curr_yr.i_brand_id = prev_yr.i_brand_id)(curr_yr.i_class_id = prev_yr.i_class_id)(curr_yr.i_category_id = prev_yr.i_category_id)(curr_yr.i_manufact_id = prev_yr.i_manufact_id)((cast(cast(sales_cnt as DECIMALV3(17, 2)) as DECIMALV3(23, 8)) / cast(sales_cnt as DECIMALV3(17, 2))) < 0.900000)
+------------hashJoin[INNER_JOIN] hashCondition=((curr_yr.i_brand_id = prev_yr.i_brand_id) and (curr_yr.i_category_id = prev_yr.i_category_id) and (curr_yr.i_class_id = prev_yr.i_class_id) and (curr_yr.i_manufact_id = prev_yr.i_manufact_id))otherCondition=(((cast(cast(sales_cnt as DECIMALV3(17, 2)) as DECIMALV3(23, 8)) / cast(sales_cnt as DECIMALV3(17, 2))) < 0.900000))
 --------------PhysicalDistribute
 ----------------filter((curr_yr.d_year = 1999))
 ------------------PhysicalCteConsumer ( cteId=CTEId#0 )

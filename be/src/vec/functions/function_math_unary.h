@@ -128,7 +128,7 @@ private:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         const ColumnWithTypeAndName& col = block.get_by_position(arguments[0]);
 
         auto call = [&](const auto& types) -> bool {

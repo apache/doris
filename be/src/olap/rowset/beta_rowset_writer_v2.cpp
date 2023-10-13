@@ -72,7 +72,7 @@ Status BetaRowsetWriterV2::init(const RowsetWriterContext& rowset_writer_context
     _context = rowset_writer_context;
     _context.segment_collector = std::make_shared<SegmentCollectorT<BetaRowsetWriterV2>>(this);
     _context.file_writer_creator = std::make_shared<FileWriterCreatorT<BetaRowsetWriterV2>>(this);
-    _segment_creator.init(_context);
+    static_cast<void>(_segment_creator.init(_context));
     return Status::OK();
 }
 

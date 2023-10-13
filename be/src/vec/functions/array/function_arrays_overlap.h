@@ -131,7 +131,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         auto left_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         auto right_column =
@@ -242,7 +242,7 @@ public:
     }
 
 private:
-    Status _execute_nullable(const ColumnArrayExecutionData& data, UInt8* dst_nullmap_data) {
+    Status _execute_nullable(const ColumnArrayExecutionData& data, UInt8* dst_nullmap_data) const {
         for (ssize_t row = 0; row < data.offsets_ptr->size(); ++row) {
             if (dst_nullmap_data[row]) {
                 continue;
@@ -271,7 +271,7 @@ private:
     template <typename T>
     Status _execute_internal(const ColumnArrayExecutionData& left_data,
                              const ColumnArrayExecutionData& right_data,
-                             const UInt8* dst_nullmap_data, UInt8* dst_data) {
+                             const UInt8* dst_nullmap_data, UInt8* dst_data) const {
         using ExecutorImpl = OverlapSetImpl<T>;
         for (ssize_t row = 0; row < left_data.offsets_ptr->size(); ++row) {
             if (dst_nullmap_data[row]) {

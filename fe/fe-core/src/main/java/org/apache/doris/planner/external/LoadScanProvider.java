@@ -27,9 +27,9 @@ import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.Load;
@@ -131,8 +131,8 @@ public class LoadScanProvider {
 
     private String getHeaderType(String formatType) {
         if (formatType != null) {
-            if (formatType.equalsIgnoreCase(FeConstants.csv_with_names) || formatType.equalsIgnoreCase(
-                    FeConstants.csv_with_names_and_types)) {
+            if (formatType.equalsIgnoreCase(FileFormatConstants.FORMAT_CSV_WITH_NAMES)
+                    || formatType.equalsIgnoreCase(FileFormatConstants.FORMAT_CSV_WITH_NAMES_AND_TYPES)) {
                 return formatType;
             }
         }

@@ -38,6 +38,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -309,6 +310,11 @@ public class FunctionCallExpr extends Expr {
         super();
     }
 
+    @Override
+    protected String getExprName() {
+        return Utils.normalizeName(this.getFnName().getFunction(), DEFAULT_EXPR_NAME);
+    }
+
     public FunctionCallExpr(String functionName, List<Expr> params) {
         this(new FunctionName(functionName), new FunctionParams(false, params));
     }
@@ -422,6 +428,18 @@ public class FunctionCallExpr extends Expr {
         this.isMergeAggFn = other.isMergeAggFn;
         fn = other.fn;
         this.isTableFnCall = other.isTableFnCall;
+    }
+
+    public String parseJsonValueModifyDataType() {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < children.size(); ++i) {
+            Type type = getChild(i).getType();
+            if (i > 0 && (i & 1) == 0 && type.isNull()) {
+                children.set(i, new StringLiteral("NULL"));
+            }
+            sb.append(computeJsonDataType(type));
+        }
+        return sb.toString();
     }
 
     public String parseJsonDataType(boolean useKeyCheck) throws AnalysisException {
@@ -586,7 +604,10 @@ public class FunctionCallExpr extends Expr {
         // used by nereids END
 
         if (fnName.getFunction().equalsIgnoreCase("json_array")
-                || fnName.getFunction().equalsIgnoreCase("json_object")) {
+                || fnName.getFunction().equalsIgnoreCase("json_object")
+                || fnName.getFunction().equalsIgnoreCase("json_insert")
+                || fnName.getFunction().equalsIgnoreCase("json_replace")
+                || fnName.getFunction().equalsIgnoreCase("json_set")) {
             len = len - 1;
         }
 
@@ -649,7 +670,10 @@ public class FunctionCallExpr extends Expr {
             sb.append(paramsToSql());
             if (fnName.getFunction().equalsIgnoreCase("json_quote")
                     || fnName.getFunction().equalsIgnoreCase("json_array")
-                    || fnName.getFunction().equalsIgnoreCase("json_object")) {
+                    || fnName.getFunction().equalsIgnoreCase("json_object")
+                    || fnName.getFunction().equalsIgnoreCase("json_insert")
+                    || fnName.getFunction().equalsIgnoreCase("json_replace")
+                    || fnName.getFunction().equalsIgnoreCase("json_set")) {
                 return forJSON(sb.toString());
             }
         }
@@ -669,7 +693,10 @@ public class FunctionCallExpr extends Expr {
         int len = children.size();
         List<String> result = Lists.newArrayList();
         if (fnName.getFunction().equalsIgnoreCase("json_array")
-                || fnName.getFunction().equalsIgnoreCase("json_object")) {
+                || fnName.getFunction().equalsIgnoreCase("json_object")
+                || fnName.getFunction().equalsIgnoreCase("json_insert")
+                || fnName.getFunction().equalsIgnoreCase("json_replace")
+                || fnName.getFunction().equalsIgnoreCase("json_set")) {
             len = len - 1;
         }
         if (fnName.getFunction().equalsIgnoreCase("aes_decrypt")
@@ -713,7 +740,10 @@ public class FunctionCallExpr extends Expr {
         sb.append(paramsToDigest());
         if (fnName.getFunction().equalsIgnoreCase("json_quote")
                 || fnName.getFunction().equalsIgnoreCase("json_array")
-                || fnName.getFunction().equalsIgnoreCase("json_object")) {
+                || fnName.getFunction().equalsIgnoreCase("json_object")
+                || fnName.getFunction().equalsIgnoreCase("json_insert")
+                || fnName.getFunction().equalsIgnoreCase("json_replace")
+                || fnName.getFunction().equalsIgnoreCase("json_set")) {
             return forJSON(sb.toString());
         }
         return sb.toString();
@@ -832,6 +862,22 @@ public class FunctionCallExpr extends Expr {
             }
             return;
         }
+
+        if (fnName.getFunction().equalsIgnoreCase("json_insert")
+                || fnName.getFunction().equalsIgnoreCase("json_replace")
+                || fnName.getFunction().equalsIgnoreCase("json_set")) {
+            if (((children.size() & 1) == 0 || children.size() < 3)
+                    && (originChildSize == children.size())) {
+                throw new AnalysisException(fnName.getFunction() + " need odd parameters, and >= 3 arguments: "
+                    + this.toSql());
+            }
+            String res = parseJsonValueModifyDataType();
+            if (children.size() == originChildSize) {
+                children.add(new StringLiteral(res));
+            }
+            return;
+        }
+
         if (fnName.getFunction().equalsIgnoreCase("group_concat")) {
             if (children.size() - orderByElements.size() > 2 || children.isEmpty()) {
                 throw new AnalysisException(

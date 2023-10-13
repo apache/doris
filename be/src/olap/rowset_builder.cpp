@@ -49,6 +49,7 @@
 #include "util/ref_count_closure.h"
 #include "util/stopwatch.hpp"
 #include "util/time.h"
+#include "util/trace.h"
 #include "vec/core/block.h"
 
 namespace doris {
@@ -113,6 +114,7 @@ Status RowsetBuilder::init() {
     // get rowset ids snapshot
     if (_tablet->enable_unique_key_merge_on_write()) {
         std::lock_guard<std::shared_mutex> lck(_tablet->get_header_lock());
+        SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
         int64_t cur_max_version = _tablet->max_version_unlocked().second;
         // tablet is under alter process. The delete bitmap will be calculated after conversion.
         if (_tablet->tablet_state() == TABLET_NOTREADY &&
@@ -137,8 +139,8 @@ Status RowsetBuilder::init() {
         _tablet->exceed_version_limit(config::max_tablet_version_num - 100) &&
         !MemInfo::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
         //trigger compaction
-        StorageEngine::instance()->submit_compaction_task(
-                _tablet, CompactionType::CUMULATIVE_COMPACTION, true);
+        static_cast<void>(StorageEngine::instance()->submit_compaction_task(
+                _tablet, CompactionType::CUMULATIVE_COMPACTION, true));
         if (_tablet->version_count() > config::max_tablet_version_num) {
             return Status::Error<TOO_MANY_VERSION>(
                     "failed to init rowset builder. version count: {}, exceed limit: {}, tablet: "

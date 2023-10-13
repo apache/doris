@@ -15,11 +15,11 @@ PhysicalResultSink
 ------------------------hashAgg[LOCAL]
 --------------------------PhysicalRepeat
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN](store.s_store_sk = store_sales.ss_store_sk)
---------------------------------hashJoin[INNER_JOIN](item.i_item_sk = store_sales.ss_item_sk)
+------------------------------hashJoin[INNER_JOIN] hashCondition=((store.s_store_sk = store_sales.ss_store_sk))otherCondition=()
+--------------------------------hashJoin[INNER_JOIN] hashCondition=((item.i_item_sk = store_sales.ss_item_sk))otherCondition=()
 ----------------------------------PhysicalDistribute
 ------------------------------------PhysicalProject
---------------------------------------hashJoin[INNER_JOIN](d1.d_date_sk = store_sales.ss_sold_date_sk)
+--------------------------------------hashJoin[INNER_JOIN] hashCondition=((d1.d_date_sk = store_sales.ss_sold_date_sk))otherCondition=()
 ----------------------------------------PhysicalProject
 ------------------------------------------PhysicalOlapScan[store_sales]
 ----------------------------------------PhysicalDistribute
@@ -31,6 +31,6 @@ PhysicalResultSink
 --------------------------------------PhysicalOlapScan[item]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
-------------------------------------filter(s_state IN ('SD', 'TN', 'GA', 'SC', 'MO', 'AL', 'MI', 'OH'))
+------------------------------------filter(s_state IN ('AL', 'GA', 'MI', 'MO', 'OH', 'SC', 'SD', 'TN'))
 --------------------------------------PhysicalOlapScan[store]
 

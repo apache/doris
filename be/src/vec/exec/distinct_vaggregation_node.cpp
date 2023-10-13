@@ -86,43 +86,27 @@ void DistinctAggregationNode::_emplace_into_hash_table_to_distinct(IColumn::Sele
             [&](auto&& agg_method) -> void {
                 SCOPED_TIMER(_hash_table_compute_timer);
                 using HashMethodType = std::decay_t<decltype(agg_method)>;
-                using HashTableType = std::decay_t<decltype(agg_method.data)>;
                 using AggState = typename HashMethodType::State;
-                AggState state(key_columns, _probe_key_sz, nullptr);
-                _pre_serialize_key_if_need(state, agg_method, key_columns, num_rows);
+                AggState state(key_columns, _probe_key_sz);
+                agg_method.init_serialized_keys(key_columns, _probe_key_sz, num_rows);
 
-                if constexpr (HashTableTraits<HashTableType>::is_phmap) {
-                    auto keys = state.get_keys(num_rows);
-                    if (_hash_values.size() < num_rows) {
-                        _hash_values.resize(num_rows);
-                    }
+                size_t row = 0;
+                auto creator = [&](const auto& ctor, auto& key, auto& origin) {
+                    HashMethodType::try_presis_key(key, origin, *_agg_arena_pool);
+                    ctor(key, dummy_mapped_data);
+                    distinct_row.push_back(row);
+                };
 
-                    for (size_t i = 0; i < num_rows; ++i) {
-                        _hash_values[i] = agg_method.data.hash(keys[i]);
-                    }
-                    SCOPED_TIMER(_hash_table_emplace_timer);
-                    for (size_t i = 0; i < num_rows; ++i) {
-                        if (LIKELY(i + HASH_MAP_PREFETCH_DIST < num_rows)) {
-                            agg_method.data.prefetch_by_hash(
-                                    _hash_values[i + HASH_MAP_PREFETCH_DIST]);
-                        }
-                        auto result = state.emplace_with_key(
-                                agg_method.data, state.pack_key_holder(keys[i], *_agg_arena_pool),
-                                _hash_values[i], i);
-                        if (result.is_inserted()) {
-                            distinct_row.push_back(i);
-                        }
-                    }
-                } else {
-                    SCOPED_TIMER(_hash_table_emplace_timer);
-                    for (size_t i = 0; i < num_rows; ++i) {
-                        auto result = state.emplace_key(agg_method.data, i, *_agg_arena_pool);
-                        if (result.is_inserted()) {
-                            result.set_mapped(dummy_mapped_data);
-                            distinct_row.push_back(i);
-                        }
-                    }
+                auto creator_for_null_key = [&](auto& mapped) {
+                    mapped = dummy_mapped_data;
+                    distinct_row.push_back(row);
+                };
+
+                SCOPED_TIMER(_hash_table_emplace_timer);
+                for (; row < num_rows; ++row) {
+                    agg_method.lazy_emplace(state, row, creator, creator_for_null_key);
                 }
+
                 COUNTER_UPDATE(_hash_table_input_counter, num_rows);
             },
             _agg_data->method_variant);

@@ -20,6 +20,7 @@
 #include <glog/logging.h>
 
 #include <algorithm>
+#include <regex>
 #include <utility>
 
 #include "CLucene/StdHeader.h"
@@ -29,46 +30,26 @@
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
-#include "vec/core/field.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
 
 Status parse(const std::string& str, std::map<std::string, std::string>& result) {
-    std::string::size_type start = 0;
+    std::regex pattern(
+            R"delimiter((?:'([^']*)'|"([^"]*)"|([^,]*))\s*=\s*(?:'([^']*)'|"([^"]*)"|([^,]*)))delimiter");
+    std::smatch matches;
 
-    while (start < str.size()) {
-        std::string::size_type end = str.find(',', start);
-        std::string pair =
-                (end == std::string::npos) ? str.substr(start) : str.substr(start, end - start);
-
-        std::string::size_type eq_pos = pair.find('=');
-        if (eq_pos == std::string::npos) {
-            return Status::InvalidArgument(
-                    fmt::format("invalid params {} for function tokenize", str));
-        }
-        std::string key = pair.substr(0, eq_pos);
-        key = key.substr(key.find_first_not_of(" '\""
-                                               "\t\n\r"),
-                         key.find_last_not_of(" '\""
-                                              "\t\n\r") -
-                                 key.find_first_not_of(" '\""
-                                                       "\t\n\r") +
-                                 1);
-        std::string value = pair.substr(eq_pos + 1);
-        value = value.substr(value.find_first_not_of(" '\""
-                                                     "\t\n\r"),
-                             value.find_last_not_of(" '\""
-                                                    "\t\n\r") -
-                                     value.find_first_not_of(" '\""
-                                                             "\t\n\r") +
-                                     1);
+    std::string::const_iterator searchStart(str.cbegin());
+    while (std::regex_search(searchStart, str.cend(), matches, pattern)) {
+        std::string key =
+                matches[1].length() ? matches[1] : (matches[2].length() ? matches[2] : matches[3]);
+        std::string value =
+                matches[4].length() ? matches[4] : (matches[5].length() ? matches[5] : matches[6]);
 
         result[key] = value;
 
-        start = (end == std::string::npos) ? str.size() : end + 1;
+        searchStart = matches.suffix().first;
     }
 
     return Status::OK();
@@ -78,7 +59,7 @@ void FunctionTokenize::_do_tokenize(const ColumnString& src_column_string,
                                     InvertedIndexCtx& inverted_index_ctx,
                                     IColumn& dest_nested_column,
                                     ColumnArray::Offsets64& dest_offsets,
-                                    NullMapType* dest_nested_null_map) {
+                                    NullMapType* dest_nested_null_map) const {
     ColumnString& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
     ColumnString::Chars& column_string_chars = dest_column_string.get_chars();
     ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
@@ -124,7 +105,7 @@ void FunctionTokenize::_do_tokenize(const ColumnString& src_column_string,
 
 Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block,
                                       const ColumnNumbers& arguments, size_t result,
-                                      size_t /*input_rows_count*/) {
+                                      size_t /*input_rows_count*/) const {
     DCHECK_EQ(arguments.size(), 2);
     const auto& [src_column, left_const] =
             unpack_if_const(block.get_by_position(arguments[0]).column);
@@ -169,6 +150,6 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
             return Status::OK();
         }
     }
-    return Status::RuntimeError("unimplements function {}", get_name());
+    return Status::RuntimeError("unimplemented function {}", get_name());
 }
 } // namespace doris::vectorized

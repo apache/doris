@@ -269,7 +269,6 @@ under the License.
         <spark.version>2.4.6</spark.version>
         <hive.version>3.1.3</hive.version>
         <hive.common.version>2.3.9</hive.common.version>
-        <hbase.version>2.5.5</hbase.version>
         <nimbusds.version>9.35</nimbusds.version>
         <mapreduce.client.version>2.10.1</mapreduce.client.version>
         <calcite.version>1.33.0</calcite.version>
@@ -314,6 +313,7 @@ under the License.
         <woodstox.version>6.5.1</woodstox.version>
         <kerby.version>2.0.3</kerby.version>
         <jettison.version>1.5.4</jettison.version>
+        <immutables.version>2.9.3</immutables.version>
         <vesoft.client.version>3.0.0</vesoft.client.version>
         <!--todo waiting release-->
         <quartz.version>2.3.2</quartz.version>
@@ -344,9 +344,10 @@ under the License.
                     <url>https://repository.apache.org/content/repositories/snapshots/</url>
                 </repository>
                 <!-- for java-cup -->
+                <!-- https://docs.cloudera.com/documentation/enterprise/release-notes/topics/cdh_vd_cdh5_maven_repo.html -->
                 <repository>
-                    <id>cloudera-public</id>
-                    <url>https://repository.cloudera.com/artifactory/public/</url>
+                    <id>cloudera</id>
+                    <url>https://repository.cloudera.com/artifactory/cloudera-repos/</url>
                 </repository>
             </repositories>
             <pluginRepositories>
@@ -355,9 +356,10 @@ under the License.
                     <url>https://repo.maven.apache.org/maven2</url>
                 </pluginRepository>
                 <!-- for cup-maven-plugin -->
+                <!-- https://docs.cloudera.com/documentation/enterprise/release-notes/topics/cdh_vd_cdh5_maven_repo.html -->
                 <pluginRepository>
-                    <id>cloudera-public</id>
-                    <url>https://repository.cloudera.com/artifactory/public/</url>
+                    <id>cloudera</id>
+                    <url>https://repository.cloudera.com/artifactory/cloudera-repos/</url>
                 </pluginRepository>
             </pluginRepositories>
         </profile>
@@ -373,21 +375,6 @@ under the License.
                 <groupId>com.nimbusds</groupId>
                 <artifactId>nimbus-jose-jwt</artifactId>
                 <version>${nimbusds.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.apache.hbase</groupId>
-                <artifactId>hbase-protocol-shaded</artifactId>
-                <version>${hbase.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.apache.hbase</groupId>
-                <artifactId>hbase-server</artifactId>
-                <version>${hbase.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.apache.hbase</groupId>
-                <artifactId>hbase-client</artifactId>
-                <version>${hbase.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.amazonaws</groupId>
@@ -1523,6 +1510,12 @@ under the License.
                 <groupId>org.apache.arrow</groupId>
                 <artifactId>arrow-jdbc</artifactId>
                 <version>${arrow.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.immutables</groupId>
+                <artifactId>value</artifactId>
+                <version>${immutables.version}</version>
+                <scope>provided</scope>
             </dependency>
         </dependencies>
     </dependencyManagement>

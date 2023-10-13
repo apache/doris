@@ -199,7 +199,7 @@ import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
 import org.apache.doris.statistics.StatisticsRepository;
-import org.apache.doris.statistics.TableStats;
+import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.statistics.query.QueryStatsUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Diagnoser;
@@ -461,7 +461,7 @@ public class ShowExecutor {
                 .listConnection(ctx.getQualifiedUser(), showStmt.isFull());
         long nowMs = System.currentTimeMillis();
         for (ConnectContext.ThreadInfo info : threadInfos) {
-            rowSet.add(info.toRow(nowMs, false));
+            rowSet.add(info.toRow(ctx.getConnectionId(), nowMs, false));
         }
 
         resultSet = new ShowResultSet(showStmt.getMetaData(), rowSet);
@@ -682,19 +682,6 @@ public class ShowExecutor {
         ProcNodeInterface procNode = showProcStmt.getNode();
 
         List<List<String>> finalRows = procNode.fetchResult().getRows();
-        // if this is superuser, hide ip and host info form backends info proc
-        if (procNode instanceof BackendsProcDir) {
-            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.OPERATOR)) {
-                // hide host info
-                for (List<String> row : finalRows) {
-                    row.remove(BackendsProcDir.HOSTNAME_INDEX);
-                }
-
-                // mod meta data
-                metaData.removeColumn(BackendsProcDir.HOSTNAME_INDEX);
-            }
-        }
-
         resultSet = new ShowResultSet(metaData, finalRows);
     }
 
@@ -2454,7 +2441,7 @@ public class ShowExecutor {
     private void handleShowTableStats() {
         ShowTableStatsStmt showTableStatsStmt = (ShowTableStatsStmt) stmt;
         TableIf tableIf = showTableStatsStmt.getTable();
-        TableStats tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(tableIf.getId());
+        TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(tableIf.getId());
         /*
            HMSExternalTable table will fetch row count from HMS
            or estimate with file size and schema if it's not analyzed.

@@ -43,39 +43,47 @@ struct ProcessHashTableProbe {
     ~ProcessHashTableProbe() = default;
 
     // output build side result column
-    template <bool have_other_join_conjunct = false>
-    void build_side_output_column(MutableColumns& mcol, int column_offset, int column_length,
-                                  const std::vector<bool>& output_slot_flags, int size);
+    void build_side_output_column(MutableColumns& mcol, const std::vector<bool>& output_slot_flags,
+                                  int size, bool have_other_join_conjunct);
 
     void probe_side_output_column(MutableColumns& mcol, const std::vector<bool>& output_slot_flags,
                                   int size, int last_probe_index, size_t probe_size,
                                   bool all_match_one, bool have_other_join_conjunct);
+
+    template <bool need_null_map_for_probe, bool ignore_null, typename HashTableType>
+    Status process(HashTableType& hash_table_ctx, ConstNullMapPtr null_map,
+                   MutableBlock& mutable_block, Block* output_block, size_t probe_rows,
+                   bool is_mark_join, bool have_other_join_conjunct);
+
     // Only process the join with no other join conjunct, because of no other join conjunt
     // the output block struct is same with mutable block. we can do more opt on it and simplify
     // the logic of probe
     // TODO: opt the visited here to reduce the size of hash table
-    template <bool need_null_map_for_probe, bool ignore_null, typename HashTableType>
+    template <bool need_null_map_for_probe, bool ignore_null, typename HashTableType,
+              bool with_other_conjuncts, bool is_mark_join>
     Status do_process(HashTableType& hash_table_ctx, ConstNullMapPtr null_map,
-                      MutableBlock& mutable_block, Block* output_block, size_t probe_rows,
-                      bool is_mark_join);
+                      MutableBlock& mutable_block, Block* output_block, size_t probe_rows);
     // In the presence of other join conjunct, the process of join become more complicated.
     // each matching join column need to be processed by other join conjunct. so the struct of mutable block
     // and output block may be different
     // The output result is determined by the other join conjunct result and same_to_prev struct
-    template <bool need_null_map_for_probe, bool ignore_null, typename HashTableType>
-    Status do_process_with_other_join_conjuncts(HashTableType& hash_table_ctx,
-                                                ConstNullMapPtr null_map,
-                                                MutableBlock& mutable_block, Block* output_block,
-                                                size_t probe_rows, bool is_mark_join);
+    Status do_other_join_conjuncts(Block* output_block, bool is_mark_join,
+                                   int multi_matched_output_row_count, bool is_the_last_sub_block);
 
     void _process_splited_equal_matched_tuples(int start_row_idx, int row_count,
-                                               const ColumnPtr& other_hit_column,
-                                               std::vector<bool*>& visited_map, int right_col_idx,
-                                               int right_col_len, UInt8* __restrict null_map_data,
+                                               const UInt8* __restrict other_hit_column,
+                                               UInt8* __restrict null_map_data,
                                                UInt8* __restrict filter_map, Block* output_block);
 
-    void _pre_serialize_key(const ColumnRawPtrs& key_columns, const size_t key_rows,
-                            std::vector<StringRef>& serialized_keys);
+    void _emplace_element(int8_t block_offset, int32_t block_row, int& current_offset);
+
+    template <typename HashTableType>
+    HashTableType::State _init_probe_side(HashTableType& hash_table_ctx, size_t probe_rows,
+                                          bool with_other_join_conjuncts, const uint8_t* null_map);
+
+    template <typename Mapped, bool with_other_join_conjuncts>
+    ForwardIterator<Mapped>& _probe_row_match(int& current_offset, int& probe_index,
+                                              size_t& probe_size, bool& all_match_one);
 
     // Process full outer join/ right join / right semi/anti join to output the join result
     // in hash table
@@ -90,8 +98,8 @@ struct ProcessHashTableProbe {
     std::vector<StringRef> _probe_keys;
 
     std::vector<uint32_t> _probe_indexs;
-    std::vector<int8_t> _build_block_offsets;
-    std::vector<int> _build_block_rows;
+    PaddedPODArray<int8_t> _build_block_offsets;
+    PaddedPODArray<int32_t> _build_block_rows;
     std::vector<std::pair<int8_t, int>> _build_blocks_locs;
     // only need set the tuple is null in RIGHT_OUTER_JOIN and FULL_OUTER_JOIN
     ColumnUInt8::Container* _tuple_is_null_left_flags;
@@ -101,14 +109,21 @@ struct ProcessHashTableProbe {
     size_t _serialized_key_buffer_size {0};
     uint8_t* _serialized_key_buffer;
     std::unique_ptr<Arena> _serialize_key_arena;
-    std::vector<size_t> _probe_side_hash_values;
+    std::vector<char> _probe_side_find_result;
+
+    std::vector<bool*> _visited_map;
+    std::vector<bool> _same_to_prev;
+
+    int _right_col_idx;
+    int _right_col_len;
+    int _row_count_from_last_probe;
 
     RuntimeProfile::Counter* _rows_returned_counter;
     RuntimeProfile::Counter* _search_hashtable_timer;
     RuntimeProfile::Counter* _build_side_output_timer;
     RuntimeProfile::Counter* _probe_side_output_timer;
     RuntimeProfile::Counter* _probe_process_hashtable_timer;
-    static constexpr int PROBE_SIDE_EXPLODE_RATE = 3;
+    static constexpr int PROBE_SIDE_EXPLODE_RATE = 1;
 };
 
 } // namespace vectorized

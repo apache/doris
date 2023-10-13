@@ -43,8 +43,9 @@ class TupleDescriptor;
 
 namespace pipeline {
 class ScanLocalStateBase;
-struct ScannerDoneDependency;
-struct DataReadyDependency;
+class ScannerDoneDependency;
+class FinishDependency;
+class DataReadyDependency;
 } // namespace pipeline
 
 namespace taskgroup {
@@ -106,7 +107,8 @@ public:
 
     virtual void set_dependency(
             std::shared_ptr<pipeline::DataReadyDependency> dependency,
-            std::shared_ptr<pipeline::ScannerDoneDependency> scanner_done_dependency) {}
+            std::shared_ptr<pipeline::ScannerDoneDependency> scanner_done_dependency,
+            std::shared_ptr<pipeline::FinishDependency> finish_dependency) {}
 
     // Called by ScanNode.
     // Used to notify the scheduler that this ScannerContext can stop working.
@@ -116,13 +118,7 @@ public:
     virtual bool done() { return _is_finished || _should_stop; }
 
     // Update the running num of scanners and contexts
-    void update_num_running(int32_t scanner_inc, int32_t sched_inc) {
-        std::lock_guard l(_transfer_lock);
-        _num_running_scanners += scanner_inc;
-        _num_scheduling_ctx += sched_inc;
-        _blocks_queue_added_cv.notify_one();
-        _ctx_finish_cv.notify_one();
-    }
+    void update_num_running(int32_t scanner_inc, int32_t sched_inc);
 
     int get_num_running_scanners() const { return _num_running_scanners; }
 
@@ -254,7 +250,6 @@ protected:
     int64_t _cur_bytes_in_queue = 0;
     // The max limit bytes of blocks in blocks queue
     const int64_t _max_bytes_in_queue;
-    std::atomic<int64_t> _bytes_allocated = 0;
 
     doris::vectorized::ScannerScheduler* _scanner_scheduler;
     // List "scanners" saves all "unfinished" scanners.
@@ -279,6 +274,7 @@ protected:
     RuntimeProfile::Counter* _scanner_wait_batch_timer = nullptr;
 
     std::shared_ptr<pipeline::ScannerDoneDependency> _scanner_done_dependency = nullptr;
+    std::shared_ptr<pipeline::FinishDependency> _finish_dependency = nullptr;
 };
 } // namespace vectorized
 } // namespace doris

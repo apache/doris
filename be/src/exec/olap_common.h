@@ -367,7 +367,7 @@ public:
     int scale() const { return _scale; }
 
     static void add_fixed_value_range(ColumnValueRange<primitive_type>& range, CppType* value) {
-        range.add_fixed_value(*value);
+        static_cast<void>(range.add_fixed_value(*value));
     }
 
     static void remove_fixed_value_range(ColumnValueRange<primitive_type>& range, CppType* value) {
@@ -376,17 +376,17 @@ public:
 
     static void add_value_range(ColumnValueRange<primitive_type>& range, SQLFilterOp op,
                                 CppType* value) {
-        range.add_range(op, *value);
+        static_cast<void>(range.add_range(op, *value));
     }
 
     static void add_compound_value_range(ColumnValueRange<primitive_type>& range, SQLFilterOp op,
                                          CppType* value) {
-        range.add_compound_value(op, *value);
+        static_cast<void>(range.add_compound_value(op, *value));
     }
 
     static void add_match_value_range(ColumnValueRange<primitive_type>& range, MatchType match_type,
                                       CppType* match_value) {
-        range.add_match_value(match_type, *match_value);
+        static_cast<void>(range.add_match_value(match_type, *match_value));
     }
 
     static ColumnValueRange<primitive_type> create_empty_column_value_range(bool is_nullable_col,
@@ -904,7 +904,7 @@ Status ColumnValueRange<primitive_type>::add_range(SQLFilterOp op, CppType value
 
         if (FILTER_LARGER_OR_EQUAL == _low_op && FILTER_LESS_OR_EQUAL == _high_op &&
             _high_value == _low_value) {
-            add_fixed_value(_high_value);
+            static_cast<void>(add_fixed_value(_high_value));
             _high_value = TYPE_MIN;
             _low_value = TYPE_MAX;
         }
@@ -1003,7 +1003,7 @@ void ColumnValueRange<primitive_type>::intersection(ColumnValueRange<primitive_t
             _low_value = TYPE_MAX;
         } else if (range.is_match_value_range()) {
             for (auto& value : range._match_values) {
-                add_match_value(value.first, value.second);
+                static_cast<void>(add_match_value(value.first, value.second));
             }
         } else {
             set_empty_value_range();
@@ -1015,8 +1015,8 @@ void ColumnValueRange<primitive_type>::intersection(ColumnValueRange<primitive_t
                 set_contain_null(true);
             }
         } else {
-            add_range(range._high_op, range._high_value);
-            add_range(range._low_op, range._low_value);
+            static_cast<void>(add_range(range._high_op, range._high_value));
+            static_cast<void>(add_range(range._low_op, range._low_value));
         }
     }
 }

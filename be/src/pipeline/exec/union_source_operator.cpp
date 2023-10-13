@@ -60,18 +60,18 @@ Status UnionSourceOperator::pull_data(RuntimeState* state, vectorized::Block* bl
     // here we precess const expr firstly
     if (_need_read_for_const_expr) {
         if (_node->has_more_const(state)) {
-            _node->get_next_const(state, block);
+            static_cast<void>(_node->get_next_const(state, block));
         }
         _need_read_for_const_expr = _node->has_more_const(state);
     } else {
         std::unique_ptr<vectorized::Block> output_block;
         int child_idx = 0;
-        _data_queue->get_block_from_queue(&output_block, &child_idx);
+        static_cast<void>(_data_queue->get_block_from_queue(&output_block, &child_idx));
         if (!output_block) {
             return Status::OK();
         }
         block->swap(*output_block);
-        output_block->clear_column_data(_node->row_desc().num_materialized_slots());
+        output_block->clear_column_data(_node->intermediate_row_desc().num_materialized_slots());
         _data_queue->push_free_block(std::move(output_block), child_idx);
     }
 
@@ -124,7 +124,7 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     return Status::OK();
 }
 
-std::shared_ptr<DataQueue> UnionSourceLocalState::data_queue() {
+std::shared_ptr<DataQueue> UnionSourceLocalState::create_data_queue() {
     auto& p = _parent->cast<Parent>();
     std::shared_ptr<DataQueue> data_queue = std::make_shared<DataQueue>(p._child_size, _dependency);
     return data_queue;
@@ -136,23 +136,26 @@ Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     if (local_state._need_read_for_const_expr) {
         if (has_more_const(state)) {
-            get_next_const(state, block);
+            static_cast<void>(get_next_const(state, block));
         }
         local_state._need_read_for_const_expr = has_more_const(state);
     } else {
         std::unique_ptr<vectorized::Block> output_block = vectorized::Block::create_unique();
         int child_idx = 0;
-        local_state._shared_state->data_queue->get_block_from_queue(&output_block, &child_idx);
+        static_cast<void>(local_state._shared_state->data_queue->get_block_from_queue(&output_block,
+                                                                                      &child_idx));
         if (!output_block) {
             return Status::OK();
         }
         block->swap(*output_block);
-        output_block->clear_column_data(row_desc().num_materialized_slots());
+        output_block->clear_column_data(_row_descriptor.num_materialized_slots());
         local_state._shared_state->data_queue->push_free_block(std::move(output_block), child_idx);
     }
     local_state.reached_limit(block, source_state);
     //have exectue const expr, queue have no data any more, and child could be colsed
-    if ((!_has_data(state) && local_state._shared_state->data_queue->is_all_finish())) {
+    if (_child_size == 0) {
+        source_state = SourceState::FINISHED;
+    } else if ((!_has_data(state) && local_state._shared_state->data_queue->is_all_finish())) {
         source_state = SourceState::FINISHED;
     } else if (_has_data(state)) {
         source_state = SourceState::MORE_DATA;

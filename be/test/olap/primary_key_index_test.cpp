@@ -58,12 +58,12 @@ TEST_F(PrimaryKeyIndexTest, builder) {
     EXPECT_TRUE(fs->create_file(filename, &file_writer).ok());
 
     PrimaryKeyIndexBuilder builder(file_writer.get(), 0);
-    builder.init();
+    static_cast<void>(builder.init());
     size_t num_rows = 0;
     std::vector<std::string> keys;
     for (int i = 1000; i < 10000; i += 2) {
         keys.push_back(std::to_string(i));
-        builder.add_item(std::to_string(i));
+        static_cast<void>(builder.add_item(std::to_string(i)));
         num_rows++;
     }
     EXPECT_EQ("1000", builder.min_key().to_string());

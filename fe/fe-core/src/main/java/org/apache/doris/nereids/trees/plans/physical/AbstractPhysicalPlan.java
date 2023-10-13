@@ -88,9 +88,9 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
         // so right maybe an expression and left is a slot
         Slot probeSlot = RuntimeFilterGenerator.checkTargetChild(probeExpr);
 
-        // aliasTransMap doesn't contain the key, means that the path from the olap scan to the join
+        // aliasTransMap doesn't contain the key, means that the path from the scan to the join
         // contains join with denied join type. for example: a left join b on a.id = b.id
-        if (!RuntimeFilterGenerator.checkPushDownPreconditions(builderNode, ctx, probeSlot)) {
+        if (!RuntimeFilterGenerator.checkPushDownPreconditionsForJoin(builderNode, ctx, probeSlot)) {
             return false;
         }
 
@@ -104,12 +104,11 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
             return true;
         }
 
-        Slot olapScanSlot = aliasTransferMap.get(probeSlot).second;
+        Slot scanSlot = aliasTransferMap.get(probeSlot).second;
         PhysicalRelation scan = aliasTransferMap.get(probeSlot).first;
-        if (!RuntimeFilterGenerator.isCoveredByPlanNode(this, scan)) {
+        if (!RuntimeFilterGenerator.checkPushDownPreconditionsForRelation(this, scan)) {
             return false;
         }
-        Preconditions.checkState(olapScanSlot != null && scan != null);
 
         // in-filter is not friendly to pipeline
         if (type == TRuntimeFilterType.IN_OR_BLOOM
@@ -119,15 +118,16 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
         }
         org.apache.doris.nereids.trees.plans.physical.RuntimeFilter filter =
                 ctx.getRuntimeFilterBySrcAndType(src, type, builderNode);
+        Preconditions.checkState(scanSlot != null, "scan slot is null");
         if (filter != null) {
-            filter.addTargetSlot(olapScanSlot);
-            filter.addTargetExpressoin(olapScanSlot);
+            filter.addTargetSlot(scanSlot);
+            filter.addTargetExpressoin(scanSlot);
         } else {
             filter = new RuntimeFilter(generator.getNextId(),
-                    src, ImmutableList.of(olapScanSlot), type, exprOrder, builderNode, buildSideNdv);
-            ctx.addJoinToTargetMap(builderNode, olapScanSlot.getExprId());
-            ctx.setTargetExprIdToFilter(olapScanSlot.getExprId(), filter);
-            ctx.setTargetsOnScanNode(aliasTransferMap.get(probeExpr).first.getRelationId(), olapScanSlot);
+                    src, ImmutableList.of(scanSlot), type, exprOrder, builderNode, buildSideNdv);
+            ctx.addJoinToTargetMap(builderNode, scanSlot.getExprId());
+            ctx.setTargetExprIdToFilter(scanSlot.getExprId(), filter);
+            ctx.setTargetsOnScanNode(aliasTransferMap.get(probeExpr).first.getRelationId(), scanSlot);
             ctx.setRuntimeFilterIdentityToFilter(src, type, builderNode, filter);
         }
         return true;

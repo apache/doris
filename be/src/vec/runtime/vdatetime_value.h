@@ -763,7 +763,7 @@ public:
     }
 
     void set_time(uint16_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute,
-                  uint8_t second, uint32_t microsecond);
+                  uint8_t second, uint32_t microsecond = 0);
 
     void set_time(uint8_t hour, uint8_t minute, uint8_t second, uint32_t microsecond);
 
@@ -1524,9 +1524,26 @@ public:
     static constexpr int DAY_AFTER_EPOCH = 25500;  // 2039-10-24
     static constexpr int DICT_DAYS = DAY_BEFORE_EPOCH + DAY_AFTER_EPOCH;
 
+    static constexpr int START_YEAR = 1900;                         // 1900-01-01
+    static constexpr int END_YEAR = 2039;                           // 2039-10-24
+    static constexpr int DAY_OFFSET_CAL_START_POINT_DAYNR = 719527; // 1969-12-31
+
+    static bool can_speed_up_calc_daynr(int year) { return year >= START_YEAR && year < END_YEAR; }
+
+    static int get_offset_by_daynr(int daynr) { return daynr - DAY_OFFSET_CAL_START_POINT_DAYNR; }
+
+    static bool can_speed_up_daynr_to_date(int daynr) {
+        auto res = get_offset_by_daynr(daynr);
+        return res >= 0 ? res <= DAY_AFTER_EPOCH : -res <= DAY_BEFORE_EPOCH;
+    }
+
     static date_day_offset_dict& get();
 
-    DateV2Value<DateV2ValueType> operator[](int day);
+    static bool get_dict_init();
+
+    DateV2Value<DateV2ValueType> operator[](int day) const;
+
+    int daynr(int year, int month, int day) const;
 };
 
 template <typename T>

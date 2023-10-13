@@ -2774,3 +2774,9 @@ show data （其他用法：HELP SHOW DATA）
 默认值：true
 
 禁止LocalDeployManager删除节点，防止cluster.info文件有误导致节点被删除。
+
+#### `mysqldb_replace_name`
+
+Default: mysql
+
+Doris 为了兼用 mysql 周边工具生态，会内置一个名为 mysql 的数据库，如果该数据库与用户自建数据库冲突，请修改这个字段，为 doris 内置的 mysql database 更换一个名字

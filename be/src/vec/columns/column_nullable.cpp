@@ -262,7 +262,7 @@ void ColumnNullable::serialize_vec(std::vector<StringRef>& keys, size_t num_rows
         keys[i].size += s;
     }
 
-    get_nested_column().serialize_vec_with_null_map(keys, num_rows, arr.data(), max_row_byte_size);
+    get_nested_column().serialize_vec_with_null_map(keys, num_rows, arr.data());
 }
 
 void ColumnNullable::deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
@@ -362,8 +362,16 @@ Status ColumnNullable::filter_by_selector(const uint16_t* sel, size_t sel_size, 
     ColumnPtr null_map_ptr = nullable_col_ptr->null_map;
     RETURN_IF_ERROR(get_nested_column().filter_by_selector(
             sel, sel_size, const_cast<doris::vectorized::IColumn*>(nest_col_ptr.get())));
-    RETURN_IF_ERROR(get_null_map_column().filter_by_selector(
-            sel, sel_size, const_cast<doris::vectorized::IColumn*>(null_map_ptr.get())));
+    //insert cur nullmap into result nullmap which is empty
+    auto& res_nullmap = reinterpret_cast<vectorized::ColumnVector<UInt8>*>(
+                                const_cast<doris::vectorized::IColumn*>(null_map_ptr.get()))
+                                ->get_data();
+    DCHECK(res_nullmap.empty());
+    res_nullmap.resize(sel_size);
+    auto& cur_nullmap = get_null_map_column().get_data();
+    for (size_t i = 0; i < sel_size; i++) {
+        res_nullmap[i] = cur_nullmap[sel[i]];
+    }
     return Status::OK();
 }
 
@@ -483,93 +491,6 @@ size_t ColumnNullable::allocated_bytes() const {
 void ColumnNullable::protect() {
     get_nested_column().protect();
     get_null_map_column().protect();
-}
-
-namespace {
-
-/// The following function implements a slightly more general version
-/// of get_extremes() than the implementation from ColumnVector.
-/// It takes into account the possible presence of nullable values.
-template <typename T>
-void getExtremesFromNullableContent(const ColumnVector<T>& col, const NullMap& null_map, Field& min,
-                                    Field& max) {
-    const auto& data = col.get_data();
-    size_t size = data.size();
-
-    if (size == 0) {
-        min = Null();
-        max = Null();
-        return;
-    }
-
-    bool has_not_null = false;
-    bool has_not_nan = false;
-
-    T cur_min = 0;
-    T cur_max = 0;
-
-    for (size_t i = 0; i < size; ++i) {
-        const T x = data[i];
-
-        if (null_map[i]) continue;
-
-        if (!has_not_null) {
-            cur_min = x;
-            cur_max = x;
-            has_not_null = true;
-            has_not_nan = !is_nan(x);
-            continue;
-        }
-
-        if (is_nan(x)) continue;
-
-        if (!has_not_nan) {
-            cur_min = x;
-            cur_max = x;
-            has_not_nan = true;
-            continue;
-        }
-
-        if (x < cur_min)
-            cur_min = x;
-        else if (x > cur_max)
-            cur_max = x;
-    }
-
-    if (has_not_null) {
-        min = cur_min;
-        max = cur_max;
-    }
-}
-
-} // namespace
-
-void ColumnNullable::get_extremes(Field& min, Field& max) const {
-    min = Null();
-    max = Null();
-
-    const auto& null_map_data = get_null_map_data();
-
-    if (const auto col_i8 = typeid_cast<const ColumnInt8*>(nested_column.get()))
-        getExtremesFromNullableContent<Int8>(*col_i8, null_map_data, min, max);
-    else if (const auto col_i16 = typeid_cast<const ColumnInt16*>(nested_column.get()))
-        getExtremesFromNullableContent<Int16>(*col_i16, null_map_data, min, max);
-    else if (const auto col_i32 = typeid_cast<const ColumnInt32*>(nested_column.get()))
-        getExtremesFromNullableContent<Int32>(*col_i32, null_map_data, min, max);
-    else if (const auto col_i64 = typeid_cast<const ColumnInt64*>(nested_column.get()))
-        getExtremesFromNullableContent<Int64>(*col_i64, null_map_data, min, max);
-    else if (const auto col_u8 = typeid_cast<const ColumnUInt8*>(nested_column.get()))
-        getExtremesFromNullableContent<UInt8>(*col_u8, null_map_data, min, max);
-    else if (const auto col_u16 = typeid_cast<const ColumnUInt16*>(nested_column.get()))
-        getExtremesFromNullableContent<UInt16>(*col_u16, null_map_data, min, max);
-    else if (const auto col_u32 = typeid_cast<const ColumnUInt32*>(nested_column.get()))
-        getExtremesFromNullableContent<UInt32>(*col_u32, null_map_data, min, max);
-    else if (const auto col_u64 = typeid_cast<const ColumnUInt64*>(nested_column.get()))
-        getExtremesFromNullableContent<UInt64>(*col_u64, null_map_data, min, max);
-    else if (const auto col_f32 = typeid_cast<const ColumnFloat32*>(nested_column.get()))
-        getExtremesFromNullableContent<Float32>(*col_f32, null_map_data, min, max);
-    else if (const auto col_f64 = typeid_cast<const ColumnFloat64*>(nested_column.get()))
-        getExtremesFromNullableContent<Float64>(*col_f64, null_map_data, min, max);
 }
 
 ColumnPtr ColumnNullable::replicate(const Offsets& offsets) const {

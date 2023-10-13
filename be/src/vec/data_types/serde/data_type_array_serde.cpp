@@ -31,15 +31,16 @@ namespace doris {
 namespace vectorized {
 class Arena;
 
-void DataTypeArraySerDe::serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
-                                                  BufferWritable& bw,
-                                                  FormatOptions& options) const {
-    SERIALIZE_COLUMN_TO_JSON()
+Status DataTypeArraySerDe::serialize_column_to_json(const IColumn& column, int start_idx,
+                                                    int end_idx, BufferWritable& bw,
+                                                    FormatOptions& options,
+                                                    int nesting_level) const {
+    SERIALIZE_COLUMN_TO_JSON();
 }
 
-void DataTypeArraySerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
-                                                    BufferWritable& bw,
-                                                    FormatOptions& options) const {
+Status DataTypeArraySerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+                                                      BufferWritable& bw, FormatOptions& options,
+                                                      int nesting_level) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -57,8 +58,10 @@ void DataTypeArraySerDe::serialize_one_cell_to_json(const IColumn& column, int r
     //  add ' ' to keep same with origin format with array
     options.field_delim = options.collection_delim;
     options.field_delim += " ";
-    nested_serde->serialize_column_to_json(nested_column, offset, next_offset, bw, options);
+    RETURN_IF_ERROR(nested_serde->serialize_column_to_json(nested_column, offset, next_offset, bw,
+                                                           options, nesting_level + 1));
     bw.write("]", 1);
+    return Status::OK();
 }
 
 Status DataTypeArraySerDe::deserialize_column_from_json_vector(IColumn& column,
@@ -320,6 +323,35 @@ Status DataTypeArraySerDe::write_column_to_mysql(const IColumn& column,
                                                  MysqlRowBuffer<false>& row_buffer, int row_idx,
                                                  bool col_const) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+}
+
+Status DataTypeArraySerDe::write_column_to_orc(const IColumn& column, const NullMap* null_map,
+                                               orc::ColumnVectorBatch* orc_col_batch, int start,
+                                               int end, std::vector<StringRef>& buffer_list) const {
+    orc::ListVectorBatch* cur_batch = dynamic_cast<orc::ListVectorBatch*>(orc_col_batch);
+    cur_batch->offsets[0] = 0;
+
+    const ColumnArray& array_col = assert_cast<const ColumnArray&>(column);
+    const IColumn& nested_column = array_col.get_data();
+    auto& offsets = array_col.get_offsets();
+
+    cur_batch->elements->resize(nested_column.size());
+    for (size_t row_id = start; row_id < end; row_id++) {
+        size_t offset = offsets[row_id - 1];
+        size_t next_offset = offsets[row_id];
+
+        if (cur_batch->notNull[row_id] == 1) {
+            static_cast<void>(nested_serde->write_column_to_orc(nested_column, nullptr,
+                                                                cur_batch->elements.get(), offset,
+                                                                next_offset, buffer_list));
+        }
+
+        cur_batch->offsets[row_id + 1] = next_offset;
+    }
+    cur_batch->elements->numElements = nested_column.size();
+
+    cur_batch->numElements = end - start;
+    return Status::OK();
 }
 
 } // namespace vectorized

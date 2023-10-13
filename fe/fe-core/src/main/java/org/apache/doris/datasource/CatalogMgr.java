@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.analysis.AlterCatalogCommentStmt;
 import org.apache.doris.analysis.AlterCatalogNameStmt;
 import org.apache.doris.analysis.AlterCatalogPropertyStmt;
 import org.apache.doris.analysis.CreateCatalogStmt;
@@ -31,6 +32,7 @@ import org.apache.doris.catalog.Resource.ReferenceType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.ExternalTable;
+import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
@@ -289,7 +291,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 LOG.warn("Non catalog {} is found.", stmt.getCatalogName());
                 return;
             }
-            CatalogIf catalog = nameToCatalog.get(stmt.getCatalogName());
+            CatalogIf<DatabaseIf<TableIf>> catalog = nameToCatalog.get(stmt.getCatalogName());
             if (catalog == null) {
                 throw new DdlException("No catalog found with name: " + stmt.getCatalogName());
             }
@@ -299,7 +301,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
             lastDBOfCatalog.remove(stmt.getCatalogName());
             Env.getCurrentEnv().getQueryStats().clear(catalog.getId());
-
         } finally {
             writeUnlock();
         }
@@ -327,6 +328,24 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 lastDBOfCatalog.remove(stmt.getCatalogName());
                 lastDBOfCatalog.put(log.getNewCatalogName(), db);
             }
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    /**
+     * Modify the catalog comment to a new one and write the meta log.
+     */
+    public void alterCatalogComment(AlterCatalogCommentStmt stmt) throws UserException {
+        writeLock();
+        try {
+            CatalogIf catalog = nameToCatalog.get(stmt.getCatalogName());
+            if (catalog == null) {
+                throw new DdlException("No catalog found with name: " + stmt.getCatalogName());
+            }
+            CatalogLog log = CatalogFactory.createCatalogLog(catalog.getId(), stmt);
+            replayAlterCatalogComment(log);
+            Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_COMMENT, log);
         } finally {
             writeUnlock();
         }
@@ -391,7 +410,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                         row.add(String.valueOf(catalog.getId()));
                         row.add(name);
                         row.add(catalog.getType());
-                        if (currentCtlg != null && name.equals(currentCtlg)) {
+                        if (name.equals(currentCtlg)) {
                             row.add(YES);
                         } else {
                             row.add("");
@@ -553,6 +572,21 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             CatalogIf catalog = removeCatalog(log.getCatalogId());
             catalog.modifyCatalogName(log.getNewCatalogName());
             addCatalog(catalog);
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    /**
+     * Reply for alter catalog comment event.
+     */
+    public void replayAlterCatalogComment(CatalogLog log) {
+        writeLock();
+        try {
+            CatalogIf catalog = idToCatalog.get(log.getCatalogId());
+            if (catalog != null) {
+                catalog.setComment(log.getComment());
+            }
         } finally {
             writeUnlock();
         }
@@ -929,14 +963,21 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             }
             return;
         }
+        if (!(table instanceof HMSExternalTable)) {
+            LOG.warn("only support HMSTable");
+            return;
+        }
 
-        Env.getCurrentEnv().getExtMetaCacheMgr().addPartitionsCache(catalog.getId(),
-                (ExternalTable) table, partitionNames);
+        HMSExternalTable hmsTable = (HMSExternalTable) table;
+        Env.getCurrentEnv().getExtMetaCacheMgr().addPartitionsCache(catalog.getId(), hmsTable, partitionNames);
+        long lastPartitionUpdateTime = System.currentTimeMillis();
+        hmsTable.setPartitionUpdateTime(lastPartitionUpdateTime);
         ExternalObjectLog log = new ExternalObjectLog();
         log.setCatalogId(catalog.getId());
         log.setDbId(db.getId());
         log.setTableId(table.getId());
         log.setPartitionNames(partitionNames);
+        log.setLastUpdateTime(lastPartitionUpdateTime);
         Env.getCurrentEnv().getEditLog().logAddExternalPartitions(log);
     }
 
@@ -958,9 +999,16 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             LOG.warn("No table found with id:[{}], it may have been dropped.", log.getTableId());
             return;
         }
+        if (!(table instanceof HMSExternalTable)) {
+            LOG.warn("only support HMSTable");
+            return;
+        }
+
+        HMSExternalTable hmsTable = (HMSExternalTable) table;
         try {
             Env.getCurrentEnv().getExtMetaCacheMgr()
-                .addPartitionsCache(catalog.getId(), table, log.getPartitionNames());
+                        .addPartitionsCache(catalog.getId(), hmsTable, log.getPartitionNames());
+            hmsTable.setPartitionUpdateTime(log.getLastUpdateTime());
         } catch (HMSClientException e) {
             LOG.warn("Network problem occurs or hms table has been deleted, fallback to invalidate table cache", e);
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(catalog.getId(),
@@ -999,6 +1047,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         log.setDbId(db.getId());
         log.setTableId(table.getId());
         log.setPartitionNames(partitionNames);
+        log.setLastUpdateTime(System.currentTimeMillis());
         replayDropExternalPartitions(log);
         Env.getCurrentEnv().getEditLog().logDropExternalPartitions(log);
     }
@@ -1021,8 +1070,14 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             LOG.warn("No table found with id:[{}], it may have been dropped.", log.getTableId());
             return;
         }
+        if (!(table instanceof HMSExternalTable)) {
+            LOG.warn("only support HMSTable");
+            return;
+        }
+        HMSExternalTable hmsTable = (HMSExternalTable) table;
         Env.getCurrentEnv().getExtMetaCacheMgr()
-                .dropPartitionsCache(catalog.getId(), table, log.getPartitionNames());
+                .dropPartitionsCache(catalog.getId(), hmsTable, log.getPartitionNames());
+        hmsTable.setPartitionUpdateTime(log.getLastUpdateTime());
     }
 
     public void refreshExternalPartitions(String catalogName, String dbName, String tableName,
@@ -1059,6 +1114,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         log.setDbId(db.getId());
         log.setTableId(table.getId());
         log.setPartitionNames(partitionNames);
+        log.setLastUpdateTime(System.currentTimeMillis());
         replayRefreshExternalPartitions(log);
         Env.getCurrentEnv().getEditLog().logInvalidateExternalPartitions(log);
     }
@@ -1081,9 +1137,14 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             LOG.warn("No table found with id:[{}], it may have been dropped.", log.getTableId());
             return;
         }
+        if (!(table instanceof HMSExternalTable)) {
+            LOG.warn("only support HMSTable");
+            return;
+        }
         Env.getCurrentEnv().getExtMetaCacheMgr()
                 .invalidatePartitionsCache(catalog.getId(), db.getFullName(), table.getName(),
                         log.getPartitionNames());
+        ((HMSExternalTable) table).setPartitionUpdateTime(log.getLastUpdateTime());
     }
 
     public void registerCatalogRefreshListener(Env env) {

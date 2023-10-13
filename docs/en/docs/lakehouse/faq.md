@@ -216,6 +216,21 @@ under the License.
     </property> 
    ```
 
+10. Error：java.security.InvalidAlgorithmParameterException: the trustAnchors parameter must be non-empty
+
+    Entire error info found in FE.log is shown as below:
+    ```
+    org.apache.doris.common.UserException: errCode = 2, detailMessage = S3 list path failed. path=s3://bucket/part-*,msg=errors while get file status listStatus on s3://bucket: com.amazonaws.SdkClientException: Unable to execute HTTP request: Unexpected error: java.security.InvalidAlgorithmParameterException: the trustAnchors parameter must be non-empty: Unable to execute HTTP request: Unexpected error: java.security.InvalidAlgorithmParameterException: the trustAnchors parameter must be non-empty
+    org.apache.doris.common.UserException: errCode = 2, detailMessage = S3 list path exception. path=s3://bucket/part-*, err: errCode = 2, detailMessage = S3 list path failed. path=s3://bucket/part-*,msg=errors while get file status listStatus on s3://bucket: com.amazonaws.SdkClientException: Unable to execute HTTP request: Unexpected error: java.security.InvalidAlgorithmParameterException: the trustAnchors parameter must be non-empty: Unable to execute HTTP request: Unexpected error: java.security.InvalidAlgorithmParameterException: the trustAnchors parameter must be non-empty
+    org.apache.hadoop.fs.s3a.AWSClientIOException: listStatus on s3://bucket: com.amazonaws.SdkClientException: Unable to execute HTTP request: Unexpected error: java.security.InvalidAlgorithmParameterException: the trustAnchors parameter must be non-empty: Unable to execute HTTP request: Unexpected error: java.security.InvalidAlgorithmParameterException: the trustAnchors parameter must be non-empty
+    Caused by: com.amazonaws.SdkClientException: Unable to execute HTTP request: Unexpected error: java.security.InvalidAlgorithmParameterException: the trustAnchors parameter must be non-empty
+    Caused by: javax.net.ssl.SSLException: Unexpected error: java.security.InvalidAlgorithmParameterException: the trustAnchors parameter must be non-empty
+    Caused by: java.lang.RuntimeException: Unexpected error: java.security.InvalidAlgorithmParameterException: the trustAnchors parameter must be non-empty
+    Caused by: java.security.InvalidAlgorithmParameterException: the trustAnchors parameter must be non-empty
+    ```
+    
+    Try to update FE node CA certificates, use command `update-ca-trust (CentOS/RockyLinux)`, then restart FE process.
+
 ## HDFS
 
 1. What to do with the`java.lang.VerifyError: xxx` error when accessing HDFS 3.x?
@@ -243,16 +258,6 @@ under the License.
          `dfs.client.hedged.read.threadpool.size` indicates the number of threads used for Hedged Read, which are shared by one HDFS Client. Usually, for an HDFS cluster, BE nodes will share an HDFS Client.
 
          `dfs.client.hedged.read.threshold.millis` is the read threshold in milliseconds. When a read request exceeds this threshold and is not returned, Hedged Read will be triggered.
-
-     - Configure parameters in be.conf
-
-         ```
-         enable_hdfs_hedged_read = true
-         hdfs_hedged_read_thread_num = 128
-         hdfs_hedged_read_threshold_time = 500
-         ```
-
-         This method will enable Hedged Read globally on BE nodes (not enabled by default). And ignore the Hedged Read property set when creating the Catalog.
 
      After enabling it, you can see related parameters in Query Profile:
 

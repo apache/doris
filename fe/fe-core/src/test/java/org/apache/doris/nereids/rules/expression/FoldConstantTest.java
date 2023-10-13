@@ -308,10 +308,11 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         VarcharLiteral format = new VarcharLiteral("%Y-%m-%d");
 
         String[] answer = {
-                "2000-01-30", "1999-12-01", "2029-12-31", "1969-12-31",
-                "2002-06-30", "1997-06-30", "2000-01-30", "1999-12-01",
+                "'2000-01-30'", "'1999-12-01'", "'2029-12-31'", "'1969-12-31'",
+                "'2002-06-30'", "'1997-06-30'", "'2000-07-28'", "'1999-06-04'",
+                "'2000-01-30'", "'1999-12-01'",
                 "1999", "4", "12", "6", "31", "365", "31",
-                "'1999-12-31'", "1999-12-27", "1999-12-31"
+                "'1999-12-31'", "'1999-12-27'", "'1999-12-31'"
         };
         int answerIdx = 0;
 
@@ -321,6 +322,8 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         Assertions.assertEquals(DateTimeArithmetic.yearsSub(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
         Assertions.assertEquals(DateTimeArithmetic.monthsAdd(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
         Assertions.assertEquals(DateTimeArithmetic.monthsSub(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.weeksAdd(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeArithmetic.weeksSub(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
         Assertions.assertEquals(DateTimeArithmetic.daysAdd(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
         Assertions.assertEquals(DateTimeArithmetic.daysSub(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
 
@@ -345,12 +348,12 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         VarcharLiteral format = new VarcharLiteral("%Y-%m-%d");
 
         String[] answer = {
-                "2000-01-30 23:59:59", "1999-12-01 23:59:59", "2029-12-31 23:59:59", "1969-12-31 23:59:59",
-                "2002-06-30 23:59:59", "1997-06-30 23:59:59", "2000-01-30 23:59:59", "1999-12-01 23:59:59",
-                "2000-01-02 05:59:59", "1999-12-30 17:59:59", "2000-01-01 00:29:59",
-                "1999-12-31 23:29:59", "2000-01-01 00:00:29", "1999-12-31 23:59:29",
+                "'2000-01-30 23:59:59'", "'1999-12-01 23:59:59'", "'2029-12-31 23:59:59'", "'1969-12-31 23:59:59'",
+                "'2002-06-30 23:59:59'", "'1997-06-30 23:59:59'", "'2000-01-30 23:59:59'", "'1999-12-01 23:59:59'",
+                "'2000-01-02 05:59:59'", "'1999-12-30 17:59:59'", "'2000-01-01 00:29:59'",
+                "'1999-12-31 23:29:59'", "'2000-01-01 00:00:29'", "'1999-12-31 23:59:29'",
                 "1999", "4", "12", "6", "31", "365", "31", "23", "59", "59",
-                "'1999-12-31'", "1999-12-27", "1999-12-31", "1999-12-31", "730484", "1999-12-31"
+                "'1999-12-31'", "'1999-12-27'", "'1999-12-31'", "'1999-12-31'", "730484", "'1999-12-31'"
         };
         int answerIdx = 0;
 
@@ -400,10 +403,10 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         VarcharLiteral format = new VarcharLiteral("%Y-%m-%d");
 
         String[] answer = {
-                "2000-01-30", "1999-12-01", "2029-12-31", "1969-12-31",
-                "2002-06-30", "1997-06-30", "2000-01-30", "1999-12-01",
+                "'2000-01-30'", "'1999-12-01'", "'2029-12-31'", "'1969-12-31'",
+                "'2002-06-30'", "'1997-06-30'", "'2000-01-30'", "'1999-12-01'",
                 "1999", "4", "12", "6", "31", "365", "31",
-                "'1999-12-31'", "1999-12-27", "1999-12-31"
+                "'1999-12-31'", "'1999-12-27'", "'1999-12-31'"
         };
         int answerIdx = 0;
 
@@ -437,12 +440,12 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         VarcharLiteral format = new VarcharLiteral("%Y-%m-%d");
 
         String[] answer = {
-                "2000-01-30 23:59:59", "1999-12-01 23:59:59", "2029-12-31 23:59:59", "1969-12-31 23:59:59",
-                "2002-06-30 23:59:59", "1997-06-30 23:59:59", "2000-01-30 23:59:59", "1999-12-01 23:59:59",
-                "2000-01-02 05:59:59", "1999-12-30 17:59:59", "2000-01-01 00:29:59",
-                "1999-12-31 23:29:59", "2000-01-01 00:00:29", "1999-12-31 23:59:29", "1999-12-31 23:59:59",
+                "'2000-01-30 23:59:59'", "'1999-12-01 23:59:59'", "'2029-12-31 23:59:59'", "'1969-12-31 23:59:59'",
+                "'2002-06-30 23:59:59'", "'1997-06-30 23:59:59'", "'2000-01-30 23:59:59'", "'1999-12-01 23:59:59'",
+                "'2000-01-02 05:59:59'", "'1999-12-30 17:59:59'", "'2000-01-01 00:29:59'",
+                "'1999-12-31 23:29:59'", "'2000-01-01 00:00:29'", "'1999-12-31 23:59:29'", "'1999-12-31 23:59:59'",
                 "1999", "4", "12", "6", "31", "365", "31", "23", "59", "59",
-                "'1999-12-31'", "1999-12-27", "1999-12-31", "1999-12-31", "730484", "1999-12-31", "1999-12-31"
+                "'1999-12-31'", "'1999-12-27'", "'1999-12-31'", "'1999-12-31'", "730484", "'1999-12-31'", "'1999-12-31'"
         };
         int answerIdx = 0;
 
@@ -488,10 +491,10 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         Assertions.assertEquals(DateTimeExtractAndTransform.dateV2(dateLiteral).toSql(), answer[answerIdx]);
 
         Assertions.assertEquals("'2021 52 2022 01'", DateTimeExtractAndTransform.dateFormat(
-                new DateLiteral("2022-01-01 00:12:42"),
+                new DateTimeLiteral("2022-01-01 00:12:42"),
                 new VarcharLiteral("%x %v %X %V")).toSql());
         Assertions.assertEquals("'2023 18 2023 19'", DateTimeExtractAndTransform.dateFormat(
-                new DateLiteral("2023-05-07 02:41:42"),
+                new DateTimeLiteral("2023-05-07 02:41:42"),
                 new VarcharLiteral("%x %v %X %V")).toSql());
     }
 
@@ -525,14 +528,14 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         String[] tags = {"year", "month", "day", "hour", "minute", "second"};
 
         String[] answer = {
-                "2001-01-01 00:00:00", "2001-01-01 00:00:00", "2001-12-01 00:00:00", "2001-12-01 00:00:00",
-                "2001-12-31 00:00:00", "2001-12-31 00:00:00", "2001-12-31 01:00:00", "2001-12-31 01:00:00",
-                "2001-12-31 01:01:00", "2001-12-31 01:01:00", "2001-12-31 01:01:01", "2001-12-31 01:01:01",
-                "2001-01-01 00:00:00", "2001-01-01 00:00:00", "2001-01-01 00:00:00",
-                "2001-04-01 00:00:00", "2001-04-01 00:00:00", "2001-04-01 00:00:00",
-                "2001-07-01 00:00:00", "2001-07-01 00:00:00", "2001-07-01 00:00:00",
-                "2001-10-01 00:00:00", "2001-10-01 00:00:00", "2001-10-01 00:00:00",
-                "2001-01-15 00:00:00", "2001-02-12 00:00:00", "2001-03-12 00:00:00",
+                "'2001-01-01 00:00:00'", "'2001-01-01 00:00:00'", "'2001-12-01 00:00:00'", "'2001-12-01 00:00:00'",
+                "'2001-12-31 00:00:00'", "'2001-12-31 00:00:00'", "'2001-12-31 01:00:00'", "'2001-12-31 01:00:00'",
+                "'2001-12-31 01:01:00'", "'2001-12-31 01:01:00'", "'2001-12-31 01:01:01'", "'2001-12-31 01:01:01'",
+                "'2001-01-01 00:00:00'", "'2001-01-01 00:00:00'", "'2001-01-01 00:00:00'",
+                "'2001-04-01 00:00:00'", "'2001-04-01 00:00:00'", "'2001-04-01 00:00:00'",
+                "'2001-07-01 00:00:00'", "'2001-07-01 00:00:00'", "'2001-07-01 00:00:00'",
+                "'2001-10-01 00:00:00'", "'2001-10-01 00:00:00'", "'2001-10-01 00:00:00'",
+                "'2001-01-15 00:00:00'", "'2001-02-12 00:00:00'", "'2001-03-12 00:00:00'",
         };
         int answerIdx = 0;
 
@@ -558,7 +561,7 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
     @Test
     void testDateConstructFunction() {
         String[] answer = {
-                "2001-07-19", "6411-08-17", "0000-01-01", "'1977-06-03 17:57:24'",
+                "'2001-07-19'", "'6411-08-17'", "'0000-01-01'", "'1977-06-03 17:57:24'",
                 "'1977-06-03'", "1008909293", "1008864000"
         };
         int answerIdx = 0;
@@ -591,7 +594,7 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
 
     @Test
     void testFoldNestedExpression() {
-        assertRewriteExpression("makedate(year('2010-04-10'), dayofyear('2010-04-11'))", "2010-04-11");
+        assertRewriteExpression("makedate(year('2010-04-10'), dayofyear('2010-04-11'))", "'2010-04-11'");
         assertRewriteExpression("null in ('d', null)", "NULL");
         assertRewriteExpression("null not in ('d', null)", "NULL");
         assertRewriteExpression("'a' in ('d', null)", "NULL");
@@ -605,13 +608,13 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
 
     @Test
     void testFoldCastStringToDate() {
-        assertRewriteExpression("cast('2021-01-01' as date)", "2021-01-01");
-        assertRewriteExpression("cast('20210101' as date)", "2021-01-01");
-        assertRewriteExpression("cast('2021-01-01T00:00:00' as date)", "2021-01-01");
-        assertRewriteExpression("cast('2021-01-01' as datetime)", "2021-01-01 00:00:00");
-        assertRewriteExpression("cast('20210101' as datetime)", "2021-01-01 00:00:00");
-        assertRewriteExpression("cast('2021-01-01T00:00:00' as datetime)", "2021-01-01 00:00:00");
-        assertRewriteExpression("cast ('2022-12-02 22:23:24.999999' as datetimev2(3))", "2022-12-02 22:23:24.999");
+        assertRewriteExpression("cast('2021-01-01' as date)", "'2021-01-01'");
+        assertRewriteExpression("cast('20210101' as date)", "'2021-01-01'");
+        assertRewriteExpression("cast('2021-01-01T00:00:00' as date)", "'2021-01-01'");
+        assertRewriteExpression("cast('2021-01-01' as datetime)", "'2021-01-01 00:00:00'");
+        assertRewriteExpression("cast('20210101' as datetime)", "'2021-01-01 00:00:00'");
+        assertRewriteExpression("cast('2021-01-01T00:00:00' as datetime)", "'2021-01-01 00:00:00'");
+        assertRewriteExpression("cast ('2022-12-02 22:23:24.999999' as datetimev2(3))", "'2022-12-02 22:23:25.000'");
     }
 
     @Test

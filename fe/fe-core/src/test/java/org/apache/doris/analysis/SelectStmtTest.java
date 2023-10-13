@@ -651,10 +651,6 @@ public class SelectStmtTest {
         try {
             SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
             Assert.assertEquals(1, stmt.getOutFileClause().getParquetSchemas().size());
-            Assert.assertEquals(stmt.getOutFileClause().PARQUET_REPETITION_TYPE_MAP.get("optional"),
-                    stmt.getOutFileClause().getParquetSchemas().get(0).schema_repetition_type);
-            Assert.assertEquals(stmt.getOutFileClause().PARQUET_DATA_TYPE_MAP.get("byte_array"),
-                    stmt.getOutFileClause().getParquetSchemas().get(0).schema_data_type);
             Assert.assertEquals("k1", stmt.getOutFileClause().getParquetSchemas().get(0).schema_column_name);
         } catch (Exception e) {
             Assert.fail(e.getMessage());

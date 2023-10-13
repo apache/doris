@@ -85,6 +85,7 @@ public class CloneTask extends AgentTask {
         request.setStorageMedium(storageMedium);
         request.setCommittedVersion(visibleVersion);
         request.setTaskVersion(taskVersion);
+        request.setPartitionId(partitionId);
         if (taskVersion == VERSION_2) {
             request.setSrcPathHash(srcPathHash);
             request.setDestPathHash(destPathHash);

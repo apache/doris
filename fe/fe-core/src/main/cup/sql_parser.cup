@@ -297,6 +297,7 @@ terminal String
     KW_CLUSTERS,
     KW_COLLATE,
     KW_COLLATION,
+    KW_COLOCATE,
     KW_COLUMN,
     KW_COLUMNS,
     KW_COMMENT,
@@ -812,6 +813,7 @@ nonterminal ArrayList<String> opt_common_hints;
 nonterminal String optional_on_ident;
 nonterminal String opt_job_starts;
 nonterminal String opt_job_ends;
+nonterminal ColocateGroupName colocate_group_name;
 
 nonterminal LoadTask.MergeType opt_merge_type, opt_with_merge_type;
 
@@ -1343,9 +1345,17 @@ alter_stmt ::=
     {:
         RESULT = new AlterCatalogPropertyStmt(catalogName, map);
     :}
+    | KW_ALTER KW_CATALOG ident:catalogName KW_MODIFY KW_COMMENT STRING_LITERAL:comment
+    {:
+        RESULT = new AlterCatalogCommentStmt(catalogName, comment);
+    :}
     | KW_ALTER KW_RESOURCE ident_or_text:resourceName opt_properties:properties
     {:
         RESULT = new AlterResourceStmt(resourceName, properties);
+    :}
+    | KW_ALTER KW_COLOCATE KW_GROUP colocate_group_name:colocateGroupName KW_SET LPAREN key_value_map:properties RPAREN
+    {:
+        RESULT = new AlterColocateGroupStmt(colocateGroupName, properties);
     :}
     | KW_ALTER KW_WORKLOAD KW_GROUP ident_or_text:workloadGroupName opt_properties:properties
     {:
@@ -3247,6 +3257,15 @@ opt_partition ::=
         exprs.add(fnExpr);
         RESULT = RangePartitionDesc.createRangePartitionDesc(exprs, list);
     :}
+    | KW_AUTO KW_PARTITION KW_BY KW_RANGE function_name:functionName LPAREN expr_list:l COMMA
+        KW_INTERVAL expr:v ident:u RPAREN LPAREN opt_all_partition_desc_list:list RPAREN
+    {:
+        Expr fnExpr = FunctionCallExpr.functionWithIntervalConvert(functionName.getFunction().toLowerCase(), l.get(0), v, u); 
+        ArrayList<Expr> exprs = new ArrayList<Expr>();
+        exprs.add(fnExpr);
+        RESULT = RangePartitionDesc.createRangePartitionDesc(exprs, list);
+    :}
+
     /* expr list partition */
     | KW_AUTO KW_PARTITION KW_BY KW_LIST LPAREN expr_list:exprs RPAREN
             LPAREN opt_all_partition_desc_list:list RPAREN
@@ -5642,6 +5661,17 @@ table_name ::=
     {: RESULT = new TableName(ctl, db, tbl); :}
     ;
 
+colocate_group_name ::=
+    ident:group
+    {:
+        RESULT = new ColocateGroupName(null, group);
+    :}
+    | ident:db DOT ident:group
+    {:
+        RESULT = new ColocateGroupName(db, group);
+    :}
+    ;
+
 encryptkey_name ::=
     ident:name
     {:
@@ -6450,10 +6480,7 @@ type_def_nullable_list ::=
 
 
 func_args_def ::=
-  /* empty */
-  {:
-    RESULT = new FunctionArgsDef(Lists.newArrayList(), false);
-  :}
+  {: RESULT = new FunctionArgsDef(Lists.newArrayList(), false); :}
   | type_def_list:argTypes
   {:
     RESULT = new FunctionArgsDef(argTypes, false);

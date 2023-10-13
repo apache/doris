@@ -36,9 +36,9 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/columns_number.h"
-#include "vec/common/aggregation_common.h"
 #include "vec/common/arena.h"
 #include "vec/common/columns_hashing.h"
+#include "vec/common/hash_table/hash_map_context.h"
 #include "vec/common/hash_table/partitioned_hash_map.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
@@ -97,7 +97,7 @@ struct ProcessRuntimeFilterBuild {
                 _context->_build_expr_ctxs, _context->_runtime_filter_descs);
 
         RETURN_IF_ERROR(_context->_runtime_filter_slots->init(
-                state, hash_table_ctx.hash_table.size(), _context->_build_rf_cardinality));
+                state, hash_table_ctx.hash_table->size(), _context->_build_rf_cardinality));
 
         if (!_context->_runtime_filter_slots->empty() && !_context->_inserted_rows.empty()) {
             {
@@ -169,23 +169,23 @@ struct ProcessHashTableBuild {
         using Mapped = typename HashTableContext::Mapped;
 
         Defer defer {[&]() {
-            int64_t bucket_size = hash_table_ctx.hash_table.get_buffer_size_in_cells();
-            int64_t filled_bucket_size = hash_table_ctx.hash_table.size();
-            int64_t bucket_bytes = hash_table_ctx.hash_table.get_buffer_size_in_bytes();
+            int64_t bucket_size = hash_table_ctx.hash_table->get_buffer_size_in_cells();
+            int64_t filled_bucket_size = hash_table_ctx.hash_table->size();
+            int64_t bucket_bytes = hash_table_ctx.hash_table->get_buffer_size_in_bytes();
             COUNTER_SET(_join_context->_hash_table_memory_usage, bucket_bytes);
             COUNTER_SET(_join_context->_build_buckets_counter, bucket_size);
             COUNTER_SET(_join_context->_build_collisions_counter,
-                        hash_table_ctx.hash_table.get_collisions());
+                        hash_table_ctx.hash_table->get_collisions());
             COUNTER_SET(_join_context->_build_buckets_fill_counter, filled_bucket_size);
 
-            auto hash_table_buckets = hash_table_ctx.hash_table.get_buffer_sizes_in_cells();
+            auto hash_table_buckets = hash_table_ctx.hash_table->get_buffer_sizes_in_cells();
             std::string hash_table_buckets_info;
             for (auto bucket_count : hash_table_buckets) {
                 hash_table_buckets_info += std::to_string(bucket_count) + ", ";
             }
             _join_context->add_hash_buckets_info(hash_table_buckets_info);
 
-            auto hash_table_sizes = hash_table_ctx.hash_table.sizes();
+            auto hash_table_sizes = hash_table_ctx.hash_table->sizes();
             hash_table_buckets_info.clear();
             for (auto table_size : hash_table_sizes) {
                 hash_table_buckets_info += std::to_string(table_size) + ", ";
@@ -193,10 +193,10 @@ struct ProcessHashTableBuild {
             _join_context->add_hash_buckets_filled_info(hash_table_buckets_info);
         }};
 
-        KeyGetter key_getter(_build_raw_ptrs, _join_context->_build_key_sz, nullptr);
+        KeyGetter key_getter(_build_raw_ptrs, _join_context->_build_key_sz);
 
         SCOPED_TIMER(_join_context->_build_table_insert_timer);
-        hash_table_ctx.hash_table.reset_resize_timer();
+        hash_table_ctx.hash_table->reset_resize_timer();
 
         // only not build_unique, we need expanse hash table before insert data
         // 1. There are fewer duplicate keys, reducing the number of resize hash tables
@@ -205,7 +205,7 @@ struct ProcessHashTableBuild {
         // the hash table build bucket, which may waste a lot of memory.
         // TODO, use the NDV expansion of the key column in the optimizer statistics
         if (!_join_context->_build_unique) {
-            RETURN_IF_CATCH_EXCEPTION(hash_table_ctx.hash_table.expanse_for_add_elem(
+            RETURN_IF_CATCH_EXCEPTION(hash_table_ctx.hash_table->expanse_for_add_elem(
                     std::min<int>(_rows, config::hash_table_pre_expanse_max_rows)));
         }
 
@@ -215,105 +215,65 @@ struct ProcessHashTableBuild {
             inserted_rows.reserve(_batch_size);
         }
 
-        _build_side_hash_values.resize(_rows);
+        hash_table_ctx.init_serialized_keys(_build_raw_ptrs, _join_context->_build_key_sz, _rows,
+                                            null_map ? null_map->data() : nullptr);
+
         auto& arena = *(_join_context->_arena);
         auto old_build_arena_memory = arena.size();
-        {
-            SCOPED_TIMER(_build_side_compute_hash_timer);
-            if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<KeyGetter>::value) {
-                auto old_keys_memory = hash_table_ctx.keys_memory_usage;
-                hash_table_ctx.serialize_keys(_build_raw_ptrs, _rows);
-                key_getter.set_serialized_keys(hash_table_ctx.keys.data());
-                _join_context->_build_arena_memory_usage->add(hash_table_ctx.keys_memory_usage -
-                                                              old_keys_memory);
-            }
 
-            for (size_t k = 0; k < _rows; ++k) {
-                if (k % CHECK_FRECUENCY == 0) {
-                    RETURN_IF_CANCELLED(_state);
-                }
-                if constexpr (ignore_null) {
-                    if ((*null_map)[k]) {
-                        continue;
-                    }
-                }
-                // If apply short circuit strategy for null value (e.g. join operator is
-                // NULL_AWARE_LEFT_ANTI_JOIN), we build hash table until we meet a null value.
-                if constexpr (short_circuit_for_null) {
-                    if ((*null_map)[k]) {
-                        DCHECK(has_null_key);
-                        *has_null_key = true;
-                        return Status::OK();
-                    }
-                }
-                if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
-                                      KeyGetter>::value) {
-                    _build_side_hash_values[k] =
-                            hash_table_ctx.hash_table.hash(key_getter.get_key_holder(k, arena).key);
-                } else {
-                    _build_side_hash_values[k] =
-                            hash_table_ctx.hash_table.hash(key_getter.get_key_holder(k, arena));
-                }
-            }
-        }
+        size_t k = 0;
+        bool inserted = false;
+        auto creator = [&](const auto& ctor, auto& key, auto& origin) {
+            HashTableContext::try_presis_key(key, origin, arena);
+            inserted = true;
+            ctor(key, Mapped {k, _offset});
+        };
 
         bool build_unique = _join_context->_build_unique;
-#define EMPLACE_IMPL(stmt)                                                                  \
-    for (size_t k = 0; k < _rows; ++k) {                                                    \
-        if (k % CHECK_FRECUENCY == 0) {                                                     \
-            RETURN_IF_CANCELLED(_state);                                                    \
-        }                                                                                   \
-        if constexpr (ignore_null) {                                                        \
-            if ((*null_map)[k]) {                                                           \
-                continue;                                                                   \
-            }                                                                               \
-        }                                                                                   \
-        auto emplace_result = key_getter.emplace_key(hash_table_ctx.hash_table,             \
-                                                     _build_side_hash_values[k], k, arena); \
-        if (k + HASH_MAP_PREFETCH_DIST < _rows) {                                           \
-            key_getter.template prefetch_by_hash<false>(                                    \
-                    hash_table_ctx.hash_table,                                              \
-                    _build_side_hash_values[k + HASH_MAP_PREFETCH_DIST]);                   \
-        }                                                                                   \
-        stmt;                                                                               \
+#define EMPLACE_IMPL(stmt)                                                    \
+    for (; k < _rows; ++k) {                                                  \
+        if (k % CHECK_FRECUENCY == 0) {                                       \
+            RETURN_IF_CANCELLED(_state);                                      \
+        }                                                                     \
+        if constexpr (short_circuit_for_null) {                               \
+            if ((*null_map)[k]) {                                             \
+                *has_null_key = true;                                         \
+                return Status::OK();                                          \
+            }                                                                 \
+        } else if constexpr (ignore_null) {                                   \
+            if ((*null_map)[k]) {                                             \
+                *has_null_key = true;                                         \
+                continue;                                                     \
+            }                                                                 \
+        }                                                                     \
+        inserted = false;                                                     \
+        [[maybe_unused]] auto& mapped =                                       \
+                hash_table_ctx.lazy_emplace(key_getter, k, creator, nullptr); \
+        stmt;                                                                 \
     }
 
         if (has_runtime_filter && build_unique) {
             EMPLACE_IMPL(
-                    if (emplace_result.is_inserted()) {
-                        new (&emplace_result.get_mapped()) Mapped({k, _offset});
-                        inserted_rows.push_back(k);
-                    } else { _skip_rows++; });
+                    if (inserted) { inserted_rows.push_back(k); } else { _skip_rows++; });
         } else if (has_runtime_filter && !build_unique) {
             EMPLACE_IMPL(
-                    if (emplace_result.is_inserted()) {
-                        new (&emplace_result.get_mapped()) Mapped({k, _offset});
-                        inserted_rows.push_back(k);
-                    } else {
-                        emplace_result.get_mapped().insert({k, _offset}, *(_join_context->_arena));
+                    if (inserted) { inserted_rows.push_back(k); } else {
+                        mapped.insert({k, _offset}, *(_join_context->_arena));
                         inserted_rows.push_back(k);
                     });
         } else if (!has_runtime_filter && build_unique) {
-            EMPLACE_IMPL(
-                    if (emplace_result.is_inserted()) {
-                        new (&emplace_result.get_mapped()) Mapped({k, _offset});
-                    } else { _skip_rows++; });
+            EMPLACE_IMPL(if (!inserted) { _skip_rows++; });
         } else {
-            EMPLACE_IMPL(
-                    if (emplace_result.is_inserted()) {
-                        new (&emplace_result.get_mapped()) Mapped({k, _offset});
-                    } else {
-                        emplace_result.get_mapped().insert({k, _offset}, *(_join_context->_arena));
-                    });
+            EMPLACE_IMPL(if (!inserted) { mapped.insert({k, _offset}, *(_join_context->_arena)); });
         }
         _join_context->_build_rf_cardinality += inserted_rows.size();
 
         _join_context->_build_arena_memory_usage->add(arena.size() - old_build_arena_memory);
 
         COUNTER_UPDATE(_join_context->_build_table_expanse_timer,
-                       hash_table_ctx.hash_table.get_resize_timer_value());
+                       hash_table_ctx.hash_table->get_resize_timer_value());
         COUNTER_UPDATE(_join_context->_build_table_convert_timer,
-                       hash_table_ctx.hash_table.get_convert_timer_value());
+                       hash_table_ctx.hash_table->get_convert_timer_value());
 
         return Status::OK();
     }
@@ -329,69 +289,6 @@ private:
     RuntimeState* _state;
 
     ProfileCounter* _build_side_compute_hash_timer;
-    std::vector<size_t> _build_side_hash_values;
-};
-
-template <typename RowRefListType>
-struct SerializedHashTableContext {
-    using Mapped = RowRefListType;
-    using HashTable = PartitionedHashMap<StringRef, Mapped>;
-    using State =
-            ColumnsHashing::HashMethodSerialized<typename HashTable::value_type, Mapped, true>;
-    using Iter = typename HashTable::iterator;
-
-    SerializedHashTableContext() { _arena.reset(new Arena()); }
-
-    HashTable hash_table;
-    Iter iter;
-    bool inited = false;
-    std::vector<StringRef> keys;
-    size_t keys_memory_usage = 0;
-
-    void serialize_keys(const ColumnRawPtrs& key_columns, size_t num_rows) {
-        if (keys.size() < num_rows) {
-            keys.resize(num_rows);
-        }
-
-        _arena->clear();
-        keys_memory_usage = 0;
-        size_t keys_size = key_columns.size();
-        for (size_t i = 0; i < num_rows; ++i) {
-            keys[i] = serialize_keys_to_pool_contiguous(i, keys_size, key_columns, *_arena);
-        }
-        keys_memory_usage = _arena->size();
-    }
-
-    void init_once() {
-        if (!inited) {
-            inited = true;
-            iter = hash_table.begin();
-        }
-    }
-
-private:
-    std::unique_ptr<Arena> _arena;
-};
-
-// T should be UInt32 UInt64 UInt128
-template <class T, typename RowRefListType>
-struct PrimaryTypeHashTableContext {
-    using Mapped = RowRefListType;
-    using HashTable = PartitionedHashMap<T, Mapped, HashCRC32<T>>;
-    using State =
-            ColumnsHashing::HashMethodOneNumber<typename HashTable::value_type, Mapped, T, false>;
-    using Iter = typename HashTable::iterator;
-
-    HashTable hash_table;
-    Iter iter;
-    bool inited = false;
-
-    void init_once() {
-        if (!inited) {
-            inited = true;
-            iter = hash_table.begin();
-        }
-    }
 };
 
 // TODO: use FixedHashTable instead of HashTable
@@ -407,26 +304,6 @@ template <typename RowRefListType>
 using I128HashTableContext = PrimaryTypeHashTableContext<UInt128, RowRefListType>;
 template <typename RowRefListType>
 using I256HashTableContext = PrimaryTypeHashTableContext<UInt256, RowRefListType>;
-
-template <class T, bool has_null, typename RowRefListType>
-struct FixedKeyHashTableContext {
-    using Mapped = RowRefListType;
-    using HashTable = PartitionedHashMap<T, Mapped, HashCRC32<T>>;
-    using State = ColumnsHashing::HashMethodKeysFixed<typename HashTable::value_type, T, Mapped,
-                                                      has_null, false>;
-    using Iter = typename HashTable::iterator;
-
-    HashTable hash_table;
-    Iter iter;
-    bool inited = false;
-
-    void init_once() {
-        if (!inited) {
-            inited = true;
-            iter = hash_table.begin();
-        }
-    }
-};
 
 template <bool has_null, typename RowRefListType>
 using I64FixedKeyHashTableContext = FixedKeyHashTableContext<UInt64, has_null, RowRefListType>;
@@ -522,7 +399,7 @@ struct HashJoinProbeContext {
     Block* _probe_block;
     ColumnRawPtrs* _probe_columns;
     int* _probe_index;
-    int* _ready_probe_index;
+    bool* _ready_probe;
 
     Sizes _probe_key_sz;
 
@@ -531,6 +408,7 @@ struct HashJoinProbeContext {
 
     // for cases when a probe row matches more than batch size build rows.
     bool* _is_any_probe_match_row_output;
+    bool _has_null_value_in_build_side {};
 };
 
 class HashJoinNode final : public VJoinNodeBase {
@@ -582,8 +460,8 @@ private:
 
     void _init_short_circuit_for_probe() override {
         _short_circuit_for_probe =
-                (_short_circuit_for_null_in_probe_side &&
-                 _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) ||
+                (_has_null_in_build_side && _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN &&
+                 !_is_mark_join) ||
                 (_build_blocks->empty() && _join_op == TJoinOp::INNER_JOIN && !_is_mark_join) ||
                 (_build_blocks->empty() && _join_op == TJoinOp::LEFT_SEMI_JOIN && !_is_mark_join) ||
                 (_build_blocks->empty() && _join_op == TJoinOp::RIGHT_OUTER_JOIN) ||
@@ -592,7 +470,7 @@ private:
 
         //when build table rows is 0 and not have other_join_conjunct and not _is_mark_join and join type is one of LEFT_OUTER_JOIN/FULL_OUTER_JOIN/LEFT_ANTI_JOIN
         //we could get the result is probe table + null-column(if need output)
-        _short_circuit_for_probe_and_additional_data =
+        _empty_right_table_need_probe_dispose =
                 (_build_blocks->empty() && !_have_other_join_conjunct && !_is_mark_join) &&
                 (_join_op == TJoinOp::LEFT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN ||
                  _join_op == TJoinOp::LEFT_ANTI_JOIN);
@@ -670,7 +548,7 @@ private:
     bool _has_set_need_null_map_for_build = false;
     bool _probe_ignore_null = false;
     int _probe_index = -1;
-    int _ready_probe_index = -1;
+    bool _ready_probe = false;
     bool _probe_eos = false;
 
     bool _build_side_ignore_null = false;

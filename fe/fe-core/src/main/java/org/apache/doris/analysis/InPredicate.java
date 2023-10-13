@@ -170,6 +170,7 @@ public class InPredicate extends Predicate {
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         super.analyzeImpl(analyzer);
+        this.checkIncludeBitmap();
 
         if (contains(Subquery.class)) {
             // An [NOT] IN predicate with a subquery must contain two children, the second

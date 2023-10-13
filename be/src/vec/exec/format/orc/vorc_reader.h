@@ -215,7 +215,7 @@ private:
         ~ORCFilterImpl() override = default;
         void filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t size,
                     void* arg) const override {
-            orcReader->filter(data, sel, size, arg);
+            static_cast<void>(orcReader->filter(data, sel, size, arg));
         }
 
     private:
@@ -230,13 +230,14 @@ private:
         virtual void fillDictFilterColumnNames(
                 std::unique_ptr<orc::StripeInformation> current_strip_information,
                 std::list<std::string>& column_names) const override {
-            _orc_reader->fill_dict_filter_column_names(std::move(current_strip_information),
-                                                       column_names);
+            static_cast<void>(_orc_reader->fill_dict_filter_column_names(
+                    std::move(current_strip_information), column_names));
         }
         virtual void onStringDictsLoaded(
                 std::unordered_map<std::string, orc::StringDictionary*>& column_name_to_dict_map,
                 bool* is_stripe_filtered) const override {
-            _orc_reader->on_string_dicts_loaded(column_name_to_dict_map, is_stripe_filtered);
+            static_cast<void>(_orc_reader->on_string_dicts_loaded(column_name_to_dict_map,
+                                                                  is_stripe_filtered));
         }
 
     private:

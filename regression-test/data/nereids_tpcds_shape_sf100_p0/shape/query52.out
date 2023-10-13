@@ -4,20 +4,21 @@ PhysicalResultSink
 --PhysicalTopN
 ----PhysicalDistribute
 ------PhysicalTopN
---------hashAgg[GLOBAL]
-----------PhysicalDistribute
-------------hashAgg[LOCAL]
---------------PhysicalProject
-----------------hashJoin[INNER_JOIN](dt.d_date_sk = store_sales.ss_sold_date_sk)
-------------------hashJoin[INNER_JOIN](store_sales.ss_item_sk = item.i_item_sk)
---------------------PhysicalProject
-----------------------PhysicalOlapScan[store_sales]
+--------PhysicalProject
+----------hashAgg[GLOBAL]
+------------PhysicalDistribute
+--------------hashAgg[LOCAL]
+----------------PhysicalProject
+------------------hashJoin[INNER_JOIN] hashCondition=((dt.d_date_sk = store_sales.ss_sold_date_sk))otherCondition=()
+--------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk))otherCondition=()
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[store_sales]
+----------------------PhysicalDistribute
+------------------------PhysicalProject
+--------------------------filter((item.i_manager_id = 1))
+----------------------------PhysicalOlapScan[item]
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
-------------------------filter((item.i_manager_id = 1))
---------------------------PhysicalOlapScan[item]
-------------------PhysicalDistribute
---------------------PhysicalProject
-----------------------filter((dt.d_moy = 12)(dt.d_year = 2002))
-------------------------PhysicalOlapScan[date_dim]
+------------------------filter((dt.d_moy = 12) and (dt.d_year = 2002))
+--------------------------PhysicalOlapScan[date_dim]
 

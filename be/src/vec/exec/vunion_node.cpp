@@ -269,7 +269,7 @@ Status VUnionNode::get_next(RuntimeState* state, Block* block, bool* eos) {
         // passthrough case, the child was already closed in the previous call to get_next().
         DCHECK(is_child_passthrough(_to_close_child_idx));
         DCHECK(!is_in_subplan());
-        child(_to_close_child_idx)->close(state);
+        static_cast<void>(child(_to_close_child_idx)->close(state));
         _to_close_child_idx = -1;
     }
 

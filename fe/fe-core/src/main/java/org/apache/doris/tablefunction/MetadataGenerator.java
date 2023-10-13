@@ -19,16 +19,23 @@ package org.apache.doris.tablefunction;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.FrontendsProcNode;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.planner.external.iceberg.IcebergMetadataCache;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryDetail;
+import org.apache.doris.qe.QueryDetailQueue;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TBackendsMetadataParams;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TFetchSchemaTableDataRequest;
@@ -37,6 +44,8 @@ import org.apache.doris.thrift.TIcebergMetadataParams;
 import org.apache.doris.thrift.TIcebergQueryType;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMetadataType;
+import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TQueriesMetadataParams;
 import org.apache.doris.thrift.TRow;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
@@ -57,6 +66,7 @@ import org.jetbrains.annotations.NotNull;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -91,6 +101,9 @@ public class MetadataGenerator {
                 break;
             case CATALOGS:
                 result = catalogsMetadataResult(params);
+                break;
+            case QUERIES:
+                result = queriesMetadataResult(params, request);
                 break;
             default:
                 return errorResult("Metadata table params is not set.");
@@ -350,6 +363,96 @@ public class MetadataGenerator {
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));
         return result;
+    }
+
+    private static TFetchSchemaTableDataResult queriesMetadataResult(TMetadataTableRequestParams params,
+                                                                     TFetchSchemaTableDataRequest parentRequest) {
+        if (!params.isSetQueriesMetadataParams()) {
+            return errorResult("queries metadata param is not set.");
+        }
+
+        TQueriesMetadataParams queriesMetadataParams = params.getQueriesMetadataParams();
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+
+        String selfNode = Env.getCurrentEnv().getSelfNode().getHost();
+        if (ConnectContext.get() != null && !Strings.isNullOrEmpty(ConnectContext.get().getCurrentConnectedFEIp())) {
+            selfNode = ConnectContext.get().getCurrentConnectedFEIp();
+        }
+        selfNode = NetUtils.getHostnameByIp(selfNode);
+
+        List<TRow> dataBatch = Lists.newArrayList();
+        List<QueryDetail> queries = QueryDetailQueue.getQueryDetails(0L);
+        for (QueryDetail query : queries) {
+            TRow trow = new TRow();
+            trow.addToColumnValue(new TCell().setStringVal(query.getQueryId()));
+            trow.addToColumnValue(new TCell().setLongVal(query.getStartTime()));
+            trow.addToColumnValue(new TCell().setLongVal(query.getEndTime()));
+            trow.addToColumnValue(new TCell().setLongVal(query.getEventTime()));
+            if (query.getState() == QueryDetail.QueryMemState.RUNNING) {
+                trow.addToColumnValue(new TCell().setLongVal(System.currentTimeMillis() - query.getStartTime()));
+            } else {
+                trow.addToColumnValue(new TCell().setLongVal(query.getLatency()));
+            }
+            trow.addToColumnValue(new TCell().setStringVal(query.getState().toString()));
+            trow.addToColumnValue(new TCell().setStringVal(query.getDatabase()));
+            trow.addToColumnValue(new TCell().setStringVal(query.getSql()));
+            trow.addToColumnValue(new TCell().setStringVal(selfNode));
+            dataBatch.add(trow);
+        }
+
+        /* Get the query results from other FE also */
+        if (queriesMetadataParams.isRelayToOtherFe()) {
+            TFetchSchemaTableDataRequest relayRequest = new TFetchSchemaTableDataRequest(parentRequest);
+            TMetadataTableRequestParams relayParams = new TMetadataTableRequestParams(params);
+            TQueriesMetadataParams relayQueryParams = new TQueriesMetadataParams(queriesMetadataParams);
+
+            relayQueryParams.setRelayToOtherFe(false);
+            relayParams.setQueriesMetadataParams(relayQueryParams);
+            relayRequest.setMetadaTableParams(relayParams);
+
+            List<TFetchSchemaTableDataResult> relayResults = forwardToOtherFrontends(relayRequest);
+            relayResults
+                    .forEach(rs -> rs.getDataBatch()
+                        .forEach(row -> dataBatch.add(row)));
+        }
+
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static List<TFetchSchemaTableDataResult> forwardToOtherFrontends(TFetchSchemaTableDataRequest request) {
+        List<TFetchSchemaTableDataResult> results = new ArrayList<>();
+        List<Pair<String, Integer>> frontends = FrontendsProcNode.getFrontendWithRpcPort(Env.getCurrentEnv(), false);
+
+        FrontendService.Client client = null;
+        int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeout();
+        for (Pair<String, Integer> fe : frontends) {
+            TNetworkAddress thriftAddress = new TNetworkAddress(fe.key(), fe.value());
+            try {
+                client = ClientPool.frontendPool.borrowObject(thriftAddress, waitTimeOut * 1000);
+            } catch (Exception e) {
+                LOG.warn("Failed to get frontend {} client. exception: {}", fe.key(), e);
+                continue;
+            }
+
+            boolean isReturnToPool = false;
+            try {
+                TFetchSchemaTableDataResult result = client.fetchSchemaTableData(request);
+                results.add(result);
+                isReturnToPool = true;
+            } catch (Exception e) {
+                LOG.warn("Failed to finish forward fetch operation to fe: {} . exception: {}", fe.key(), e);
+            } finally {
+                if (isReturnToPool) {
+                    ClientPool.frontendPool.returnObject(thriftAddress, client);
+                } else {
+                    ClientPool.frontendPool.invalidateObject(thriftAddress, client);
+                }
+            }
+        }
+
+        return results;
     }
 
     private static void filterColumns(TFetchSchemaTableDataResult result,
