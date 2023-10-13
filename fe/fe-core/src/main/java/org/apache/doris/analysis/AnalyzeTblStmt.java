@@ -24,7 +24,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
-import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -42,7 +41,6 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -86,7 +84,7 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
 
     private final TableName tableName;
     private List<String> columnNames;
-    private PartitionNames partitionNames;
+    private List<String> partitionNames;
     private boolean isAllColumns;
 
     // after analyzed
@@ -99,7 +97,7 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
             AnalyzeProperties properties) {
         super(properties);
         this.tableName = tableName;
-        this.partitionNames = partitionNames;
+        this.partitionNames = partitionNames == null ? null : partitionNames.getPartitionNames();
         this.columnNames = columnNames;
         this.analyzeProperties = properties;
         this.isAllColumns = columnNames == null;
@@ -168,9 +166,11 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
         analyzeProperties.check();
 
         // TODO support external table
-        if (analyzeProperties.isSampleRows() && !(table instanceof OlapTable)) {
-            throw new AnalysisException("Sampling statistics "
-                    + "collection of external tables is not supported with rows, use percent instead.");
+        if (analyzeProperties.isSample()) {
+            if (!(table instanceof OlapTable)) {
+                throw new AnalysisException("Sampling statistics "
+                        + "collection of external tables is not supported");
+            }
         }
         if (analyzeProperties.isSync()
                 && (analyzeProperties.isAutomatic() || analyzeProperties.getPeriodTimeInMs() != 0)) {
@@ -180,9 +180,6 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
         if (analyzeProperties.isAutomatic() && analyzeProperties.getPeriodTimeInMs() != 0) {
             throw new AnalysisException("Automatic collection "
                     + "and period statistics collection cannot be set at same time");
-        }
-        if (analyzeProperties.isSample() && analyzeProperties.forceFull()) {
-            throw new AnalysisException("Impossible to analyze with sample and full simultaneously");
         }
     }
 
@@ -199,8 +196,7 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
             }
         }
         if (containsUnsupportedTytpe) {
-            if (ConnectContext.get() == null
-                    || !ConnectContext.get().getSessionVariable().enableAnalyzeComplexTypeColumn) {
+            if (!ConnectContext.get().getSessionVariable().enableAnalyzeComplexTypeColumn) {
                 columnNames = columnNames.stream()
                         .filter(c -> !StatisticsUtil.isUnsupportedType(table.getColumn(c).getType()))
                         .collect(Collectors.toList());
@@ -240,31 +236,12 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
     }
 
     public Set<String> getPartitionNames() {
-        if (partitionNames == null || partitionNames.getPartitionNames() == null) {
-            if (table instanceof ExternalTable) {
-                // External table couldn't return all partitions when partitionNames is not set.
-                // Because Analyze Table command for external table could specify partition names.
-                return Collections.emptySet();
-            }
-            return table.getPartitionNames();
+        Set<String> partitions = partitionNames == null ? table.getPartitionNames() : Sets.newHashSet(partitionNames);
+        if (isSamplingPartition()) {
+            int partNum = ConnectContext.get().getSessionVariable().getExternalTableAnalyzePartNum();
+            partitions = partitions.stream().limit(partNum).collect(Collectors.toSet());
         }
-        Set<String> partitions = Sets.newHashSet();
-        partitions.addAll(partitionNames.getPartitionNames());
         return partitions;
-    }
-
-    public boolean isAllPartitions() {
-        if (partitionNames == null) {
-            return false;
-        }
-        return partitionNames.isAllPartitions();
-    }
-
-    public long getPartitionCount() {
-        if (partitionNames == null) {
-            return 0;
-        }
-        return partitionNames.getCount();
     }
 
     public boolean isPartitionOnly() {
@@ -283,13 +260,8 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
     }
 
     private void checkAnalyzePriv(String dbName, String tblName) throws AnalysisException {
-        ConnectContext ctx = ConnectContext.get();
-        // means it a system analyze
-        if (ctx == null) {
-            return;
-        }
         if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ctx, dbName, tblName, PrivPredicate.SELECT)) {
+                .checkTblPriv(ConnectContext.get(), dbName, tblName, PrivPredicate.SELECT)) {
             ErrorReport.reportAnalysisException(
                     ErrorCode.ERR_TABLEACCESS_DENIED_ERROR,
                     "ANALYZE",

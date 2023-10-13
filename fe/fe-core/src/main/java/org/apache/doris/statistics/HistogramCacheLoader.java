@@ -18,6 +18,7 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import org.apache.commons.collections.CollectionUtils;

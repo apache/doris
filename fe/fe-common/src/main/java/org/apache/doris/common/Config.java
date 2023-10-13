@@ -2178,13 +2178,6 @@ public class Config extends ConfigBase {
     })
     public static int autobucket_min_buckets = 1;
 
-    @ConfField
-    public static int full_auto_analyze_simultaneously_running_task_num = 1;
-
-    @ConfField
-    public static final int period_analyze_simultaneously_running_task_num = 1;
-
-
     @ConfField(mutable = true, description = {
             "Doris 为了兼用 mysql 周边工具生态，会内置一个名为 mysql 的数据库，如果该数据库与用户自建数据库冲突，"
             + "请修改这个字段，为 doris 内置的 mysql database 更换一个名字",

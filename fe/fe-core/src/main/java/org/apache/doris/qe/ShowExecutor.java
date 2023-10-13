@@ -138,6 +138,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -195,7 +196,7 @@ import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
 import org.apache.doris.statistics.StatisticsRepository;
-import org.apache.doris.statistics.TableStatsMeta;
+import org.apache.doris.statistics.TableStatistic;
 import org.apache.doris.statistics.query.QueryStatsUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Diagnoser;
@@ -239,6 +240,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
@@ -2390,16 +2392,29 @@ public class ShowExecutor {
     private void handleShowTableStats() {
         ShowTableStatsStmt showTableStatsStmt = (ShowTableStatsStmt) stmt;
         TableIf tableIf = showTableStatsStmt.getTable();
-        TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(tableIf.getId());
-        /*
-           HMSExternalTable table will fetch row count from HMS
-           or estimate with file size and schema if it's not analyzed.
-           tableStats == null means it's not analyzed, in this case show the estimated row count.
-         */
-        if (tableStats == null && tableIf instanceof HMSExternalTable) {
-            resultSet = showTableStatsStmt.constructResultSet(tableIf.estimatedRowCount());
-        } else {
-            resultSet = showTableStatsStmt.constructResultSet(tableStats);
+        long partitionId = showTableStatsStmt.getPartitionId();
+        boolean showCache = showTableStatsStmt.isCached();
+        try {
+            if (tableIf instanceof ExternalTable && showCache) {
+                Optional<TableStatistic> tableStatistics = Env.getCurrentEnv().getStatisticsCache().getTableStatistics(
+                        tableIf.getDatabase().getCatalog().getId(),
+                        tableIf.getDatabase().getId(),
+                        tableIf.getId());
+                if (tableStatistics.isPresent()) {
+                    resultSet = showTableStatsStmt.constructResultSet(tableStatistics.get());
+                } else {
+                    resultSet = showTableStatsStmt.constructResultSet(TableStatistic.UNKNOWN);
+                }
+            } else if (partitionId > 0) {
+                TableStatistic partStats = StatisticsRepository.fetchTableLevelOfPartStats(partitionId);
+                resultSet = showTableStatsStmt.constructResultSet(partStats);
+            } else {
+                TableStatistic tableStats = StatisticsRepository.fetchTableLevelStats(tableIf.getId());
+                resultSet = showTableStatsStmt.constructResultSet(tableStats);
+            }
+        } catch (DdlException e) {
+            LOG.warn("Table statistics do not exist: {}", tableIf.getName());
+            resultSet = showTableStatsStmt.constructResultSet(TableStatistic.UNKNOWN);
         }
     }
 

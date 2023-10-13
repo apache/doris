@@ -3183,9 +3183,4 @@ public class InternalCatalog implements CatalogIf<Database> {
     public Collection<DatabaseIf> getAllDbs() {
         return new HashSet<>(idToDb.values());
     }
-
-    @Override
-    public boolean enableAutoAnalyze() {
-        return true;
-    }
 }

@@ -23,8 +23,6 @@ import org.apache.doris.statistics.AnalysisInfo.AnalysisMode;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
 
-import org.apache.logging.log4j.core.util.CronExpression;
-
 import java.util.Map;
 
 public class AnalyzeStmt extends StatementBase {
@@ -57,8 +55,7 @@ public class AnalyzeStmt extends StatementBase {
         if (analyzeProperties.isAutomatic()) {
             return ScheduleType.AUTOMATIC;
         }
-        return analyzeProperties.getPeriodTimeInMs() > 0 || analyzeProperties.getCron() != null
-                ? ScheduleType.PERIOD : ScheduleType.ONCE;
+        return analyzeProperties.getPeriodTimeInMs() > 0 ? ScheduleType.PERIOD : ScheduleType.ONCE;
     }
 
     public boolean isSync() {
@@ -88,13 +85,5 @@ public class AnalyzeStmt extends StatementBase {
     @Override
     public RedirectStatus getRedirectStatus() {
         return RedirectStatus.FORWARD_WITH_SYNC;
-    }
-
-    public CronExpression getCron() {
-        return analyzeProperties.getCron();
-    }
-
-    public boolean forceFull() {
-        return analyzeProperties.forceFull();
     }
 }

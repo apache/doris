@@ -32,13 +32,12 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
-import org.apache.doris.statistics.TableStatsMeta;
+import org.apache.doris.statistics.TableStatistic;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
-import java.sql.Date;
-import java.util.ArrayList;
 import java.util.List;
 
 public class ShowTableStatsStmt extends ShowStmt {
@@ -46,12 +45,9 @@ public class ShowTableStatsStmt extends ShowStmt {
     // TODO add more columns
     private static final ImmutableList<String> TITLE_NAMES =
             new ImmutableList.Builder<String>()
-                    .add("updated_rows")
-                    .add("query_times")
                     .add("row_count")
-                    .add("updated_time")
-                    .add("columns")
-                    .add("trigger")
+                    .add("update_time")
+                    .add("last_analyze_time")
                     .build();
 
     private final TableName tableName;
@@ -130,33 +126,12 @@ public class ShowTableStatsStmt extends ShowStmt {
         return table.getPartition(partitionName).getId();
     }
 
-    public ShowResultSet constructResultSet(TableStatsMeta tableStatistic) {
-        if (tableStatistic == null) {
-            return new ShowResultSet(getMetaData(), new ArrayList<>());
-        }
+    public ShowResultSet constructResultSet(TableStatistic tableStatistic) {
         List<List<String>> result = Lists.newArrayList();
         List<String> row = Lists.newArrayList();
-        row.add(String.valueOf(tableStatistic.updatedRows));
-        row.add(String.valueOf(tableStatistic.queriedTimes.get()));
         row.add(String.valueOf(tableStatistic.rowCount));
-        row.add(new Date(tableStatistic.updatedTime).toString());
-        row.add(tableStatistic.analyzeColumns().toString());
-        row.add(tableStatistic.jobType.toString());
-        result.add(row);
-        return new ShowResultSet(getMetaData(), result);
-    }
-
-    public ShowResultSet constructResultSet(long rowCount) {
-        List<List<String>> result = Lists.newArrayList();
-        List<String> row = Lists.newArrayList();
-        row.add("");
-        row.add("");
-        row.add(String.valueOf(rowCount));
-        row.add("");
-        row.add("");
-        row.add("");
-        row.add("");
-        row.add("");
+        row.add(String.valueOf(tableStatistic.updateTime));
+        row.add(StatisticsUtil.getReadableTime(tableStatistic.lastAnalyzeTimeInMs));
         result.add(row);
         return new ShowResultSet(getMetaData(), result);
     }

@@ -26,7 +26,7 @@ public class StatisticsBuilder {
 
     private double rowCount;
 
-    private final Map<Expression, ColumnStatistic> expressionToColumnStats;
+    private Map<Expression, ColumnStatistic> expressionToColumnStats;
 
     public StatisticsBuilder() {
         expressionToColumnStats = new HashMap<>();

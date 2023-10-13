@@ -19,7 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions.table;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.Properties;
+import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.tablefunction.HdfsTableValuedFunction;
@@ -30,13 +30,13 @@ import java.util.Map;
 
 /** hdfs */
 public class Hdfs extends TableValuedFunction {
-    public Hdfs(Properties properties) {
+    public Hdfs(TVFProperties properties) {
         super("hdfs", properties);
     }
 
     @Override
     public FunctionSignature customSignature() {
-        return FunctionSignature.of(AnyDataType.INSTANCE_WITHOUT_INDEX, (List) getArgumentsTypes());
+        return FunctionSignature.of(AnyDataType.INSTANCE, (List) getArgumentsTypes());
     }
 
     @Override
@@ -46,7 +46,7 @@ public class Hdfs extends TableValuedFunction {
             return new HdfsTableValuedFunction(arguments);
         } catch (Throwable t) {
             throw new AnalysisException("Can not build HdfsTableValuedFunction by "
-                    + this + ": " + t.getMessage(), t);
+                + this + ": " + t.getMessage(), t);
         }
     }
 

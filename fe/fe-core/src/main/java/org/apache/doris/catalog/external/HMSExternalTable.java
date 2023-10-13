@@ -32,7 +32,7 @@ import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.HMSAnalysisTask;
-import org.apache.doris.statistics.TableStatsMeta;
+import org.apache.doris.statistics.TableStatistic;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -57,7 +57,6 @@ import org.apache.iceberg.Table;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.time.LocalDate;
@@ -103,16 +102,13 @@ public class HMSExternalTable extends ExternalTable {
         SUPPORTED_HUDI_FILE_FORMATS.add("com.uber.hoodie.hadoop.realtime.HoodieRealtimeInputFormat");
     }
 
-    protected volatile org.apache.hadoop.hive.metastore.api.Table remoteTable = null;
-    protected List<Column> partitionColumns;
+    private volatile org.apache.hadoop.hive.metastore.api.Table remoteTable = null;
+    private List<Column> partitionColumns;
 
-    protected DLAType dlaType = DLAType.UNKNOWN;
-
-    // No as precise as row count in TableStats, but better than none.
-    private long estimatedRowCount = -1;
+    private DLAType dlaType = DLAType.UNKNOWN;
 
     public enum DLAType {
-        UNKNOWN, HIVE, HUDI, ICEBERG, DELTALAKE
+        UNKNOWN, HIVE, HUDI, ICEBERG
     }
 
     /**
@@ -125,10 +121,6 @@ public class HMSExternalTable extends ExternalTable {
      */
     public HMSExternalTable(long id, String name, String dbName, HMSExternalCatalog catalog) {
         super(id, name, catalog, dbName, TableType.HMS_EXTERNAL_TABLE);
-    }
-
-    public HMSExternalTable(long id, String name, String dbName, HMSExternalCatalog catalog, TableType type) {
-        super(id, name, catalog, dbName, type);
     }
 
     public boolean isSupportedHmsTable() {
@@ -154,7 +146,6 @@ public class HMSExternalTable extends ExternalTable {
                 }
             }
             objectCreated = true;
-            estimatedRowCount = getRowCountFromExternalSource(true);
         }
     }
 
@@ -278,19 +269,10 @@ public class HMSExternalTable extends ExternalTable {
     @Override
     public long getRowCount() {
         makeSureInitialized();
-        long rowCount = getRowCountFromExternalSource(false);
-        if (rowCount == -1) {
-            LOG.debug("Will estimate row count from file list.");
-            rowCount = StatisticsUtil.getRowCountFromFileList(this);
-        }
-        return rowCount;
-    }
-
-    private long getRowCountFromExternalSource(boolean isInit) {
         long rowCount;
         switch (dlaType) {
             case HIVE:
-                rowCount = StatisticsUtil.getHiveRowCount(this, isInit);
+                rowCount = StatisticsUtil.getHiveRowCount(this);
                 break;
             case ICEBERG:
                 rowCount = StatisticsUtil.getIcebergRowCount(this);
@@ -298,6 +280,10 @@ public class HMSExternalTable extends ExternalTable {
             default:
                 LOG.warn("getRowCount for dlaType {} is not supported.", dlaType);
                 rowCount = -1;
+        }
+        if (rowCount == -1) {
+            LOG.debug("Will estimate row count from file list.");
+            rowCount = StatisticsUtil.getRowCountFromFileList(this);
         }
         return rowCount;
     }
@@ -436,20 +422,13 @@ public class HMSExternalTable extends ExternalTable {
     @Override
     public long estimatedRowCount() {
         try {
-            TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(id);
-            if (tableStats != null) {
-                long rowCount = tableStats.rowCount;
+            Optional<TableStatistic> tableStatistics = Env.getCurrentEnv().getStatisticsCache().getTableStatistics(
+                    catalog.getId(), catalog.getDbOrAnalysisException(dbName).getId(), id);
+            if (tableStatistics.isPresent()) {
+                long rowCount = tableStatistics.get().rowCount;
                 LOG.debug("Estimated row count for db {} table {} is {}.", dbName, name, rowCount);
                 return rowCount;
             }
-
-            if (estimatedRowCount != -1) {
-                return estimatedRowCount;
-            }
-            // Cache the estimated row count in this structure
-            // though the table never get analyzed, since the row estimation might be expensive caused by RPC.
-            estimatedRowCount = getRowCount();
-            return estimatedRowCount;
         } catch (Exception e) {
             LOG.warn("Fail to get row count for table {}", name, e);
         }
@@ -470,7 +449,7 @@ public class HMSExternalTable extends ExternalTable {
         return tmpSchema;
     }
 
-    protected void initPartitionColumns(List<Column> schema) {
+    private void initPartitionColumns(List<Column> schema) {
         List<String> partitionKeys = remoteTable.getPartitionKeys().stream().map(FieldSchema::getName)
                 .collect(Collectors.toList());
         partitionColumns = Lists.newArrayListWithCapacity(partitionKeys.size());
@@ -501,7 +480,7 @@ public class HMSExternalTable extends ExternalTable {
                 return getHiveColumnStats(colName);
             case ICEBERG:
                 return StatisticsUtil.getIcebergColumnStats(colName,
-                        Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache().getIcebergTable(this));
+                    Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache().getIcebergTable(this));
             default:
                 LOG.warn("get column stats for dlaType {} is not supported.", dlaType);
         }
@@ -628,12 +607,6 @@ public class HMSExternalTable extends ExternalTable {
         } else {
             builder.setMaxValue(Double.MAX_VALUE);
         }
-    }
-
-    @Override
-    public void gsonPostProcess() throws IOException {
-        super.gsonPostProcess();
-        estimatedRowCount = -1;
     }
 }
 
