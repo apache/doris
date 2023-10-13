@@ -321,7 +321,7 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_process(HashTableType& hash
                 if constexpr (is_mark_join) {
                     ++current_offset;
                     bool null_result = (need_null_map_for_probe && (*null_map)[probe_index]) ||
-                                       (!need_go_ahead && _has_null_in_build_side);
+                                       (!need_go_ahead && *_has_null_in_build_side);
                     if (null_result) {
                         mark_column->insert_null();
                     } else {

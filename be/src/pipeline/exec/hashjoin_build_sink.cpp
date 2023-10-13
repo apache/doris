@@ -83,7 +83,7 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     if (!_should_build_hash_table) {
         _shared_hash_table_dependency->block_writing();
         p._shared_hashtable_controller->append_dependency(p.id(), _shared_hash_table_dependency);
-    } else {
+    } else if (p._is_broadcast_join) {
         // avoid vector expand change block address.
         // one block can store 4g data, _build_blocks can store 128*4g data.
         // if probe data bigger than 512g, runtime filter maybe will core dump when insert data.

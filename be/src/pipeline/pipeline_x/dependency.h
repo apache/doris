@@ -622,20 +622,31 @@ public:
     std::mutex buffer_mutex;
     std::vector<std::unique_ptr<vectorized::PartitionSorter>> partition_sorts;
     std::unique_ptr<vectorized::SortCursorCmp> previous_row = nullptr;
-    int sort_idx = 0;
 };
 
 class PartitionSortDependency final : public WriteDependency {
 public:
     using SharedState = PartitionSortNodeSharedState;
-    PartitionSortDependency(int id) : WriteDependency(id, "PartitionSortDependency") {}
+    PartitionSortDependency(int id) : WriteDependency(id, "PartitionSortDependency"), _eos(false) {}
     ~PartitionSortDependency() override = default;
     void* shared_state() override { return (void*)&_partition_sort_state; };
     void set_ready_for_write() override {}
     void block_writing() override {}
 
+    [[nodiscard]] Dependency* read_blocked_by() override {
+        if (config::enable_fuzzy_mode && !(_ready_for_read || _eos) &&
+            _read_dependency_watcher.elapsed_time() > SLOW_DEPENDENCY_THRESHOLD) {
+            LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
+                         << id();
+        }
+        return _ready_for_read || _eos ? nullptr : this;
+    }
+
+    void set_eos() { _eos = true; }
+
 private:
     PartitionSortNodeSharedState _partition_sort_state;
+    std::atomic<bool> _eos;
 };
 
 class AsyncWriterDependency final : public WriteDependency {
