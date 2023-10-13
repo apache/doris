@@ -378,6 +378,12 @@ DEFINE_mDouble(compaction_promotion_ratio, "0.05");
 // rowset will be not given to base compaction. The unit is m byte.
 DEFINE_mInt64(compaction_promotion_min_size_mbytes, "128");
 
+// When output rowset of cumulative compaction total version count (end_version - start_version)
+// exceed this config count, the rowset will be moved to base compaction
+// NOTE: this config will work for unique key merge-on-write table only, to reduce version count
+// related cost on delete bitmap more effectively.
+DEFINE_mInt64(compaction_promotion_version_count, "1000");
+
 // The lower bound size to do cumulative compaction. When total disk size of candidate rowsets is less than
 // this size, size_based policy may not do to cumulative compaction. The unit is m byte.
 DEFINE_mInt64(compaction_min_size_mbytes, "64");
@@ -1102,6 +1108,8 @@ DEFINE_Bool(exit_on_exception, "false");
 // cgroup
 DEFINE_String(doris_cgroup_cpu_path, "");
 DEFINE_Bool(enable_cpu_hard_limit, "false");
+
+DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
 
 // clang-format off
 #ifdef BE_TEST
