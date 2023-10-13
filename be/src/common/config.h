@@ -1179,6 +1179,9 @@ DECLARE_mBool(exit_on_exception);
 DECLARE_String(doris_cgroup_cpu_path);
 DECLARE_Bool(enable_cpu_hard_limit);
 
+// Remove predicate that is always true for a segment.
+DECLARE_Bool(ignore_always_true_predicate_for_segment);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
