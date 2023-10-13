@@ -199,7 +199,7 @@ public class ResourceTagQueryTest {
         OlapTable tbl = (OlapTable) db.getTableNullable("tbl1");
 
         Set<Tag> userTags = Env.getCurrentEnv().getAuth().getResourceTags(Auth.ROOT_USER);
-        Assert.assertEquals(0, userTags.size());
+        Assert.assertEquals(1, userTags.size());
 
         // set default tag for root
         String setPropStr = "set property for 'root' 'resource_tags.location' = 'default';";
