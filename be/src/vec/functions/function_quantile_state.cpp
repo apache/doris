@@ -191,28 +191,14 @@ public:
         }
         auto str_col = assert_cast<const ColumnQuantileState*>(column.get());
         auto& col_data = str_col->get_data();
-        float percent_arg_value = -1.0;
-        const auto& [percent_column, percent_column_const] =
-                unpack_if_const(block.get_by_position(arguments[1]).column);
+        auto percent_arg = check_and_get_column_const<ColumnFloat32>(
+                block.get_by_position(arguments.back()).column);
 
-        if (percent_column_const) {
-            const ColumnFloat32& const_column = assert_cast<const ColumnFloat32&>(*percent_column);
-            percent_arg_value = const_column.get_element(0);
-        } else {
-            if (auto* percent_column_nullable =
-                        check_and_get_column<const ColumnNullable>(*percent_column)) {
-                if (percent_column_nullable->is_null_at(0)) {
-                    return Status::InternalError("Second argument of data can't be null");
-                } else {
-                    percent_arg_value = assert_cast<const ColumnFloat32&>(
-                                                percent_column_nullable->get_nested_column())
-                                                .get_element(0);
-                }
-            } else {
-                percent_arg_value =
-                        assert_cast<const ColumnFloat32&>(*percent_column).get_element(0);
-            }
+        if (!percent_arg) {
+            return Status::InternalError(
+                    "Second argument to {} must be a constant float describing type", get_name());
         }
+        float percent_arg_value = percent_arg->get_value<Float32>();
         if (percent_arg_value < 0 || percent_arg_value > 1) {
             return Status::InternalError(
                     "the input argument of percentage: {} is not valid, must be in range [0,1] ",

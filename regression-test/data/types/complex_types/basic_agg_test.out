@@ -30,5 +30,7 @@
 3	1.0
 
 -- !sql_quantile_state_percent2 --
-nan
+1	\N	-1.0
+2	\N	0.5
+3	\N	1.0
 
