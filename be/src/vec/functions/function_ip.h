@@ -26,8 +26,8 @@
 #include "vec/columns/column_vector.h"
 #include "vec/common/format_ip.h"
 #include "vec/core/column_with_type_and_name.h"
-#include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_string.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
 
@@ -119,52 +119,49 @@ public:
     }
 };
 
-static inline bool tryParseIPv4(const char * pos, Int64 & result_value)
-{
-    return parseIPv4whole(pos, reinterpret_cast<unsigned char *>(&result_value));
+static inline bool tryParseIPv4(const char* pos, Int64& result_value) {
+    return parseIPv4whole(pos, reinterpret_cast<unsigned char*>(&result_value));
 }
 
 template <typename ToColumn>
-ColumnPtr convertToIPv4(ColumnPtr column, const PaddedPODArray<UInt8> * null_map = nullptr)
-{
-    const ColumnString * column_string = check_and_get_column<ColumnString>(column.get());
+ColumnPtr convertToIPv4(ColumnPtr column, const PaddedPODArray<UInt8>* null_map = nullptr) {
+    const ColumnString* column_string = check_and_get_column<ColumnString>(column.get());
 
-    if (!column_string)
-    {
-        throw Exception(ErrorCode::INTERNAL_ERROR, "Illegal column type {}. Expected String.", column->get_name());
+    if (!column_string) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Illegal column {} of argument of function {}, expected VARCHAR",
+                        column->getName());
     }
 
     size_t column_size = column_string->size();
 
     ColumnUInt8::MutablePtr col_null_map_to;
-    ColumnUInt8::Container * vec_null_map_to = nullptr;
+    ColumnUInt8::Container* vec_null_map_to = nullptr;
 
     col_null_map_to = ColumnUInt8::create(column_size, false);
     vec_null_map_to = &col_null_map_to->get_data();
 
     auto col_res = ToColumn::create();
 
-    auto & vec_res = col_res->get_data();
+    auto& vec_res = col_res->get_data();
     vec_res.resize(column_size);
 
-    const ColumnString::Chars & vec_src = column_string->get_chars();
-    const ColumnString::Offsets & offsets_src = column_string->get_offsets();
+    const ColumnString::Chars& vec_src = column_string->get_chars();
+    const ColumnString::Offsets& offsets_src = column_string->get_offsets();
     size_t prev_offset = 0;
 
-    for (size_t i = 0; i < vec_res.size(); ++i)
-    {
-        if (null_map && (*null_map)[i])
-        {
+    for (size_t i = 0; i < vec_res.size(); ++i) {
+        if (null_map && (*null_map)[i]) {
             vec_res[i] = 0;
             prev_offset = offsets_src[i];
             (*vec_null_map_to)[i] = true;
             continue;
         }
 
-        bool parse_result = tryParseIPv4(reinterpret_cast<const char *>(&vec_src[prev_offset]), vec_res[i]);
+        bool parse_result =
+                tryParseIPv4(reinterpret_cast<const char*>(&vec_src[prev_offset]), vec_res[i]);
 
-        if (!parse_result)
-        {
+        if (!parse_result) {
             (*vec_null_map_to)[i] = true;
             vec_res[i] = 0;
         }
@@ -186,24 +183,24 @@ public:
 
     size_t get_number_of_arguments() const override { return 1; }
 
-    DataTypePtr get_return_type_impl(const DataTypes &arguments) const override {
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<DataTypeInt64>());
     }
 
     bool use_default_implementation_for_nulls() const override { return true; }
 
-    Status execute_impl(FunctionContext *context, Block &block, const ColumnNumbers &arguments,
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         ColumnPtr column = block.get_by_position(arguments[0]).column;
         ColumnPtr null_map_column;
-        const NullMap * null_map = nullptr;
-        const auto * column_nullable = assert_cast<const ColumnNullable *>(column.get());
+        const NullMap* null_map = nullptr;
+        const auto* column_nullable = assert_cast<const ColumnNullable*>(column.get());
         column = column_nullable->get_nested_column_ptr();
         null_map_column = column_nullable->get_null_map_column_ptr();
         null_map = &column_nullable->get_null_map_data();
 
-        auto col_res = convertToIPv4<ColumnInt64>(column, null_map);
-        
+        auto col_res = convertToIPv4<ColumnString>(column, null_map);
+
         block.replace_by_position(result, col_res);
         return Status::OK();
     }

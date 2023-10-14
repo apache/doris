@@ -20,13 +20,14 @@
 
 #pragma once
 
+#include <vec/common/string_utils/string_utils.h>
+
 #include <algorithm>
 #include <array>
 #include <bit>
 #include <cstdint>
 #include <cstring>
 #include <utility>
-#include <vec/common/string_utils/string_utils.h>
 
 constexpr size_t IPV4_BINARY_LENGTH = 4;
 constexpr size_t IPV4_MAX_TEXT_LENGTH = 15;       /// Does not count tail zero byte.
@@ -115,41 +116,32 @@ inline void formatIPv4(const unsigned char* src, char*& dst, uint8_t mask_tail_o
  * @return            - true if parsed successfully, false otherwise.
  */
 template <typename T, typename EOFfunction>
-requires (std::is_same<typename std::remove_cv<T>::type, char>::value)
-inline bool parseIPv4(T * &src, EOFfunction eof, unsigned char * dst, int64_t first_octet = -1)
-{
-    if (src == nullptr || first_octet > 255)
-        return false;
+    requires(std::is_same<typename std::remove_cv<T>::type, char>::value)
+inline bool parseIPv4(T*& src, EOFfunction eof, unsigned char* dst, int64_t first_octet = -1) {
+    if (src == nullptr || first_octet > 255) return false;
 
     int64_t result = 0;
     int offset = 24;
-    if (first_octet >= 0)
-    {
+    if (first_octet >= 0) {
         result |= first_octet << offset;
         offset -= 8;
     }
 
-    for (; true; offset -= 8, ++src)
-    {
-        if (eof())
-            return false;
+    for (; true; offset -= 8, ++src) {
+        if (eof()) return false;
 
         int64_t value = 0;
         size_t len = 0;
-        while (is_numeric_ascii(*src) && len <= 3)
-        {
+        while (is_numeric_ascii(*src) && len <= 3) {
             value = value * 10 + (*src - '0');
             ++len;
             ++src;
-            if (eof())
-                break;
+            if (eof()) break;
         }
-        if (len == 0 || value > 255 || (offset > 0 && (eof() || *src != '.')))
-            return false;
+        if (len == 0 || value > 255 || (offset > 0 && (eof() || *src != '.'))) return false;
         result |= value << offset;
 
-        if (offset == 0)
-            break;
+        if (offset == 0) break;
     }
 
     memcpy(dst, &result, sizeof(result));
@@ -157,31 +149,29 @@ inline bool parseIPv4(T * &src, EOFfunction eof, unsigned char * dst, int64_t fi
 }
 
 /// returns pointer to the right after parsed sequence or null on failed parsing
-inline const char * parseIPv4(const char * src, const char * end, unsigned char * dst)
-{
-    if (parseIPv4(src, [&src, end](){ return src == end; }, dst))
+inline const char* parseIPv4(const char* src, const char* end, unsigned char* dst) {
+    if (parseIPv4(
+                src, [&src, end]() { return src == end; }, dst))
         return src;
     return nullptr;
 }
 
 /// returns true if whole buffer was parsed successfully
-inline bool parseIPv4whole(const char * src, const char * end, unsigned char * dst)
-{
+inline bool parseIPv4whole(const char* src, const char* end, unsigned char* dst) {
     return parseIPv4(src, end, dst) == end;
 }
 
 /// returns pointer to the right after parsed sequence or null on failed parsing
-inline const char * parseIPv4(const char * src, unsigned char * dst)
-{
-    if (parseIPv4(src, [](){ return false; }, dst))
+inline const char* parseIPv4(const char* src, unsigned char* dst) {
+    if (parseIPv4(
+                src, []() { return false; }, dst))
         return src;
     return nullptr;
 }
 
 /// returns true if whole null-terminated string was parsed successfully
-inline bool parseIPv4whole(const char * src, unsigned char * dst)
-{
-    const char * end = parseIPv4(src, dst);
+inline bool parseIPv4whole(const char* src, unsigned char* dst) {
+    const char* end = parseIPv4(src, dst);
     return end != nullptr && *end == '\0';
 }
 
