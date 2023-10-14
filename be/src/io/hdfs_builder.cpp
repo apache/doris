@@ -146,17 +146,6 @@ Status create_hdfs_builder(const THdfsParams& hdfsParams, const std::string& fs_
         }
     }
 
-#ifdef USE_HADOOP_HDFS
-    if (config::enable_hdfs_hedged_read) {
-        hdfsBuilderConfSetStr(builder->get(), "dfs.client.hedged.read.threadpool.size",
-                              std::to_string(config::hdfs_hedged_read_thread_num).c_str());
-        hdfsBuilderConfSetStr(builder->get(), "dfs.client.hedged.read.threshold.millis",
-                              std::to_string(config::hdfs_hedged_read_threshold_time).c_str());
-        LOG(INFO) << "set hdfs hedged read config: " << config::hdfs_hedged_read_thread_num << ", "
-                  << config::hdfs_hedged_read_threshold_time;
-    }
-#endif
-
     hdfsBuilderConfSetStr(builder->get(), "ipc.client.fallback-to-simple-auth-allowed", "true");
 
     if (builder->is_need_kinit()) {

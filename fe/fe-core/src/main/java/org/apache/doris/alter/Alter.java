@@ -210,6 +210,10 @@ public class Alter {
         } else if (currentAlterOps.checkIsBeingSynced(alterClauses)) {
             olapTable.setIsBeingSynced(currentAlterOps.isBeingSynced(alterClauses));
             needProcessOutsideTableLock = true;
+        } else if (currentAlterOps.checkMinLoadReplicaNum(alterClauses)) {
+            Preconditions.checkState(alterClauses.size() == 1);
+            AlterClause alterClause = alterClauses.get(0);
+            processModifyMinLoadReplicaNum(db, olapTable, alterClause);
         } else if (currentAlterOps.checkBinlogConfigChange(alterClauses)) {
             if (!Config.enable_feature_binlog) {
                 throw new DdlException("Binlog feature is not enabled");
@@ -881,6 +885,37 @@ public class Alter {
             if (tblProperties != null && !tblProperties.isEmpty()) {
                 olapTable.setReplicaAllocation(tblProperties);
             }
+        } finally {
+            olapTable.writeUnlock();
+        }
+    }
+
+    private void processModifyMinLoadReplicaNum(Database db, OlapTable olapTable, AlterClause alterClause)
+            throws DdlException {
+        Map<String, String> properties = alterClause.getProperties();
+        short minLoadReplicaNum = -1;
+        try {
+            minLoadReplicaNum = PropertyAnalyzer.analyzeMinLoadReplicaNum(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        ReplicaAllocation replicaAlloc = olapTable.getDefaultReplicaAllocation();
+        if (minLoadReplicaNum > replicaAlloc.getTotalReplicaNum()) {
+            throw new DdlException("Failed to check min load replica num [" + minLoadReplicaNum + "]  <= "
+                    + "default replica num [" + replicaAlloc.getTotalReplicaNum() + "]");
+        }
+        if (olapTable.dynamicPartitionExists()) {
+            replicaAlloc = olapTable.getTableProperty().getDynamicPartitionProperty().getReplicaAllocation();
+            if (!replicaAlloc.isNotSet() && minLoadReplicaNum > replicaAlloc.getTotalReplicaNum()) {
+                throw new DdlException("Failed to check min load replica num [" + minLoadReplicaNum + "]  <= "
+                        + "dynamic partition replica num [" + replicaAlloc.getTotalReplicaNum() + "]");
+            }
+        }
+        properties.put(PropertyAnalyzer.PROPERTIES_MIN_LOAD_REPLICA_NUM, Short.toString(minLoadReplicaNum));
+        olapTable.setMinLoadReplicaNum(minLoadReplicaNum);
+        olapTable.writeLockOrDdlException();
+        try {
+            Env.getCurrentEnv().modifyTableProperties(db, olapTable, properties);
         } finally {
             olapTable.writeUnlock();
         }

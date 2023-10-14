@@ -674,6 +674,14 @@ void Block::clear() {
     row_same_bit.clear();
 }
 
+std::string Block::print_use_count() {
+    std::stringstream ss;
+    for (auto& d : data) {
+        ss << ", [" << d.name << ", " << d.column->use_count() << "]";
+    }
+    return ss.str();
+}
+
 void Block::clear_column_data(int column_size) noexcept {
     // data.size() greater than column_size, means here have some
     // function exec result in block, need erase it here

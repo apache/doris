@@ -19,11 +19,18 @@
 
 #include <stdint.h>
 
+#include "olap/olap_common.h"
 #include "operator.h"
+#include "pipeline/pipeline_x/operator.h"
 #include "vec/exec/vset_operation_node.h"
 
 namespace doris {
 class ExecNode;
+
+namespace vectorized {
+template <class HashTableContext, bool is_intersected>
+struct HashTableBuildX;
+}
 
 namespace pipeline {
 
@@ -36,7 +43,7 @@ private:
 
 public:
     SetSinkOperatorBuilder(int32_t id, ExecNode* set_node);
-    bool is_sink() const override { return true; }
+    [[nodiscard]] bool is_sink() const override { return true; }
 
     OperatorPtr build_operator() override;
 };
@@ -51,6 +58,74 @@ public:
 
 private:
     vectorized::VSetOperationNode<is_intersect>* _set_node;
+};
+
+template <bool is_intersect>
+class SetSinkOperatorX;
+
+template <bool is_intersect>
+class SetSinkLocalState final : public PipelineXSinkLocalState<SetDependency> {
+public:
+    ENABLE_FACTORY_CREATOR(SetSinkLocalState);
+    using Base = PipelineXSinkLocalState<SetDependency>;
+    using Parent = SetSinkOperatorX<is_intersect>;
+
+    SetSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state) : Base(parent, state) {}
+
+    Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+
+private:
+    friend class SetSinkOperatorX<is_intersect>;
+    template <class HashTableContext, bool is_intersected>
+    friend struct vectorized::HashTableBuildX;
+
+    RuntimeProfile::Counter* _build_timer; // time to build hash table
+    vectorized::MutableBlock _mutable_block;
+    // every child has its result expr list
+    vectorized::VExprContextSPtrs _child_exprs;
+    vectorized::Arena _arena;
+};
+
+template <bool is_intersect>
+class SetSinkOperatorX final : public DataSinkOperatorX<SetSinkLocalState<is_intersect>> {
+public:
+    using Base = DataSinkOperatorX<SetSinkLocalState<is_intersect>>;
+    using DataSinkOperatorXBase::id;
+    using typename Base::LocalState;
+
+    friend class SetSinkLocalState<is_intersect>;
+    SetSinkOperatorX(int child_id, int sink_id, ObjectPool* pool, const TPlanNode& tnode,
+                     const DescriptorTbl& descs)
+            : Base(sink_id, tnode.node_id, tnode.node_id), _cur_child_id(child_id) {}
+    ~SetSinkOperatorX() override = default;
+    Status init(const TDataSink& tsink) override {
+        return Status::InternalError("{} should not init with TDataSink",
+                                     DataSinkOperatorX<SetSinkLocalState<is_intersect>>::_name);
+    }
+
+    Status init(const TPlanNode& tnode, RuntimeState* state) override;
+
+    Status prepare(RuntimeState* state) override;
+
+    Status open(RuntimeState* state) override;
+
+    Status sink(RuntimeState* state, vectorized::Block* in_block,
+                SourceState source_state) override;
+
+private:
+    template <class HashTableContext, bool is_intersected>
+    friend struct HashTableBuild;
+
+    Status _process_build_block(SetSinkLocalState<is_intersect>& local_state,
+                                vectorized::Block& block, uint8_t offset, RuntimeState* state);
+    Status _extract_build_column(SetSinkLocalState<is_intersect>& local_state,
+                                 vectorized::Block& block, vectorized::ColumnRawPtrs& raw_ptrs);
+
+    const int _cur_child_id;
+    int _child_quantity;
+    // every child has its result expr list
+    vectorized::VExprContextSPtrs _child_exprs;
+    using OperatorBase::_child_x;
 };
 
 } // namespace pipeline

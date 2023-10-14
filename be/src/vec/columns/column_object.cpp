@@ -610,7 +610,7 @@ void ColumnObject::try_insert_from(const IColumn& src, size_t n) {
 
 void ColumnObject::try_insert(const Field& field) {
     const auto& object = field.get<const VariantMap&>();
-    phmap::flat_hash_set<StringRef, StringRefHash> inserted;
+    phmap::flat_hash_set<std::string> inserted;
     size_t old_size = size();
     for (const auto& [key_str, value] : object) {
         PathInData key(key_str);
