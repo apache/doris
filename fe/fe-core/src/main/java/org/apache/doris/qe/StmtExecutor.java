@@ -2789,7 +2789,8 @@ public class StmtExecutor {
         context.setTxnEntry(null);
         context.setQueryId(queryId);
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
-        SqlScanner input = new SqlScanner(new StringReader(originStmt.originStmt), context.getSessionVariable().getSqlMode());
+        SqlScanner input = new SqlScanner(new StringReader(originStmt.originStmt),
+                context.getSessionVariable().getSqlMode());
         SqlParser parser = new SqlParser(input);
         parsedStmt = SqlParserUtils.getFirstStmt(parser);
         if (isGroupCommit && ((NativeInsertStmt) parsedStmt).getLabel() != null) {
