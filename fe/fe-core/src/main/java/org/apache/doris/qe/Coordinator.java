@@ -241,6 +241,8 @@ public class Coordinator implements CoordInterface {
 
     private boolean enablePipelineEngine = false;
 
+    private boolean fasterFloatConvert = false;
+
     // Runtime filter merge instance address and ID
     public TNetworkAddress runtimeFilterMergeAddr;
     public TUniqueId runtimeFilterMergeInstanceId;
@@ -291,6 +293,9 @@ public class Coordinator implements CoordInterface {
         // Only enable pipeline query engine in query, not load
         this.enablePipelineEngine = context.getSessionVariable().getEnablePipelineEngine()
                 && (fragments.size() > 0 && fragments.get(0).getSink() instanceof ResultSink);
+
+        this.fasterFloatConvert = context.getSessionVariable().fasterFloatConvert();
+
         initQueryOptions(context);
 
         setFromUserProperty(context);

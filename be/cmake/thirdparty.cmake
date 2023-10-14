@@ -283,6 +283,9 @@ set_target_properties(k5crypto PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/li
 add_library(gssapi_krb5 STATIC IMPORTED)
 set_target_properties(gssapi_krb5 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libgssapi_krb5.a)
 
+add_library(dragonbox_to_chars STATIC IMPORTED)
+set_target_properties(dragonbox_to_chars PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libdragonbox_to_chars.a)
+
 find_program(THRIFT_COMPILER thrift ${CMAKE_SOURCE_DIR}/bin)
 
 if (OS_MACOSX)

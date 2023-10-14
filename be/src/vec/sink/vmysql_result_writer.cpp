@@ -90,6 +90,8 @@ Status VMysqlResultWriter<is_binary_format>::init(RuntimeState* state) {
     }
     set_output_object_data(state->return_object_data_as_binary());
     _is_dry_run = state->query_options().dry_run_query;
+    _enable_faster_float_convert = state->enable_faster_float_convert();
+
     return Status::OK();
 }
 
@@ -619,6 +621,7 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
     {
         SCOPED_TIMER(_convert_tuple_timer);
         MysqlRowBuffer<is_binary_format> row_buffer;
+        row_buffer.set_faster_float_convert(_enable_faster_float_convert);
         if constexpr (is_binary_format) {
             row_buffer.start_binary_row(_output_vexpr_ctxs.size());
         }
