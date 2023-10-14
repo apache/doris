@@ -234,10 +234,19 @@ public class SystemInfoService {
                 String backendIdentifier = hostInfo.getHost() + ":" + hostInfo.getPort();
                 throw new DdlException("backend does not exists[" + backendIdentifier + "]");
             }
-        }
-        for (HostInfo hostInfo : hostInfos) {
             dropBackend(hostInfo.getHost(), hostInfo.getPort());
         }
+    }
+
+    public void dropBackendsByIds(List<String> ids) throws DdlException {
+
+        for (String id : ids) {
+            if (getBackend(Long.parseLong(id)) == null) {
+                throw new DdlException("backend does not exists[" + id + "]");
+            }
+            dropBackend(Long.parseLong(id));
+        }
+
     }
 
     // for decommission
@@ -894,13 +903,25 @@ public class SystemInfoService {
     public void modifyBackends(ModifyBackendClause alterClause) throws UserException {
         List<HostInfo> hostInfos = alterClause.getHostInfos();
         List<Backend> backends = Lists.newArrayList();
-        for (HostInfo hostInfo : hostInfos) {
-            Backend be = getBackendWithHeartbeatPort(hostInfo.getHost(), hostInfo.getPort());
-            if (be == null) {
-                throw new DdlException(
-                        "backend does not exists[" + hostInfo.getHost() + ":" + hostInfo.getPort() + "]");
+        if (hostInfos.isEmpty()) {
+            List<String> ids = alterClause.getIds();
+            for (String id : ids) {
+                long backendId = Long.parseLong(id);
+                Backend be = getBackend(backendId);
+                if (be == null) {
+                    throw new DdlException("backend does not exists[" + backendId + "]");
+                }
+                backends.add(be);
             }
-            backends.add(be);
+        } else {
+            for (HostInfo hostInfo : hostInfos) {
+                Backend be = getBackendWithHeartbeatPort(hostInfo.getHost(), hostInfo.getPort());
+                if (be == null) {
+                    throw new DdlException(
+                            "backend does not exists[" + hostInfo.getHost() + ":" + hostInfo.getPort() + "]");
+                }
+                backends.add(be);
+            }
         }
 
         for (Backend be : backends) {
