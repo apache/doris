@@ -57,31 +57,31 @@ Status LoadBlockQueue::get_block(vectorized::Block* block, bool* find_block, boo
     *eos = false;
     std::unique_lock l(*_mutex);
     if (!need_commit) {
-        auto left_seconds = config::group_commit_interval_seconds -
-                            std::chrono::duration_cast<std::chrono::seconds>(
-                                    std::chrono::steady_clock::now() - _start_time)
-                                    .count();
-        if (left_seconds <= 0) {
+        auto left_milliseconds = config::group_commit_interval_ms -
+                                 std::chrono::duration_cast<std::chrono::milliseconds>(
+                                         std::chrono::steady_clock::now() - _start_time)
+                                         .count();
+        if (left_milliseconds <= 0) {
             need_commit = true;
         }
     }
     while (_status.ok() && _block_queue.empty() &&
            (!need_commit || (need_commit && !_load_ids.empty()))) {
-        auto left_seconds = config::group_commit_interval_seconds;
+        auto left_milliseconds = config::group_commit_interval_ms;
         if (!need_commit) {
-            left_seconds = config::group_commit_interval_seconds -
-                           std::chrono::duration_cast<std::chrono::seconds>(
-                                   std::chrono::steady_clock::now() - _start_time)
-                                   .count();
-            if (left_seconds <= 0) {
+            left_milliseconds = config::group_commit_interval_ms -
+                                std::chrono::duration_cast<std::chrono::milliseconds>(
+                                        std::chrono::steady_clock::now() - _start_time)
+                                        .count();
+            if (left_milliseconds <= 0) {
                 need_commit = true;
                 break;
             }
         }
 #if !defined(USE_BTHREAD_SCANNER)
-        _cv->wait_for(l, std::chrono::seconds(left_seconds));
+        _cv->wait_for(l, std::chrono::milliseconds(left_milliseconds));
 #else
-        _cv->wait_for(l, left_seconds * 1000000);
+        _cv->wait_for(l, left_milliseconds * 1000);
 #endif
     }
     if (!_block_queue.empty()) {
