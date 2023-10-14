@@ -1141,9 +1141,6 @@ DECLARE_mInt32(tablet_schema_cache_recycle_interval);
 // Use `LOG(FATAL)` to replace `throw` when true
 DECLARE_mBool(exit_on_exception);
 
-// Remove predicate that is always true for a segment.
-DECLARE_Bool(ignore_always_true_predicate_for_segment);
-
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
