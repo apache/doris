@@ -30,8 +30,9 @@ namespace doris {
 
 class CgroupCpuCtl {
 public:
-    CgroupCpuCtl() {}
-    virtual ~CgroupCpuCtl() {}
+    CgroupCpuCtl::~CgroupCpuCtl() = default;
+    CgroupCpuCtl(uint64_t tg_id) { _tg_id = tg_id; }
+    virtual ~CgroupCpuCtl() = 0;
 
     virtual Status init();
 
@@ -50,6 +51,7 @@ protected:
     uint64_t _cpu_hard_limit = 0;
     std::shared_mutex _lock_mutex;
     bool _init_succ = false;
+    uint64_t _tg_id; // workload group id
 };
 
 /*
@@ -66,23 +68,27 @@ protected:
     4 doris query path
         /sys/fs/cgroup/cpu/{doris_home}/query
     
-    5 doris query quota file:
-        /sys/fs/cgroup/cpu/{doris_home}/query/cpu.cfs_quota_us
+    5 workload group path
+        /sys/fs/cgroup/cpu/{doris_home}/query/{workload group id}
     
-    6 doris query tasks file:
-        /sys/fs/cgroup/cpu/{doris_home}/query/tasks
+    6 workload group quota file:
+        /sys/fs/cgroup/cpu/{doris_home}/query/{workload group id}/cpu.cfs_quota_us
+    
+     7 workload group tasks file:
+        /sys/fs/cgroup/cpu/{doris_home}/query/{workload group id}/tasks
 */
 class CgroupV1CpuCtl : public CgroupCpuCtl {
 public:
+    CgroupV1CpuCtl(uint64_t tg_id) : CgroupCpuCtl(tg_id) {}
     Status init() override;
     Status modify_cg_cpu_hard_limit_no_lock(int cpu_hard_limit) override;
     Status add_thread_to_cgroup() override;
 
 private:
-    // todo(wb) support load/compaction path
     std::string _cgroup_v1_cpu_query_path;
-    std::string _cgroup_v1_cpu_query_quota_path;
-    std::string _cgroup_v1_cpu_query_task_path;
+    std::string _cgroup_v1_cpu_tg_path; // workload group path
+    std::string _cgroup_v1_cpu_tg_quota_file;
+    std::string _cgroup_v1_cpu_tg_task_file;
 };
 
 } // namespace doris

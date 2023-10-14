@@ -121,4 +121,64 @@ private:
             config::doris_scanner_thread_pool_thread_num + config::pipeline_executor_size;
 };
 
+struct SimplifiedScanTask {
+    SimplifiedScanTask() = default;
+    SimplifiedScanTask(std::function<void()> scan_func,
+                       vectorized::ScannerContext* scanner_context) {
+        this->scan_func = scan_func;
+        this->scanner_context = scanner_context;
+    }
+
+    std::function<void()> scan_func;
+    vectorized::ScannerContext* scanner_context;
+};
+
+// used for cpu hard limit
+class SimplifiedScanScheduler {
+public:
+    SimplifiedScanScheduler(std::string wg_name, CgroupCpuCtl* cgroup_cpu_ctl) {
+        _scan_task_queue = std::make_unique<BlockingQueue<SimplifiedScanTask>>(
+                config::doris_scanner_thread_pool_queue_size);
+        _is_stop.store(false);
+        _cgroup_cpu_ctl = cgroup_cpu_ctl;
+        _wg_name = wg_name;
+    }
+
+    void stop() {
+        _is_stop.store(true);
+        _scan_thread_pool->shutdown();
+        _scan_thread_pool->wait();
+    }
+
+    Status start() {
+        RETURN_IF_ERROR(ThreadPoolBuilder("Scan_" + _wg_name)
+                                .set_min_threads(config::doris_scanner_thread_pool_thread_num)
+                                .set_max_threads(config::doris_scanner_thread_pool_thread_num)
+                                .set_cgroup_cpu_ctl(_cgroup_cpu_ctl)
+                                .build(&_scan_thread_pool));
+
+        for (int i = 0; i < config::doris_scanner_thread_pool_thread_num; i++) {
+            RETURN_IF_ERROR(_scan_thread_pool->submit_func([this] { this->_work(); }));
+        }
+        return Status::OK();
+    }
+
+    BlockingQueue<SimplifiedScanTask>* get_scan_queue() { return _scan_task_queue.get(); }
+
+private:
+    void _work() {
+        while (!_is_stop.load()) {
+            SimplifiedScanTask scan_task;
+            _scan_task_queue->blocking_get(&scan_task);
+            scan_task.scan_func();
+        }
+    }
+
+    std::unique_ptr<ThreadPool> _scan_thread_pool;
+    std::unique_ptr<BlockingQueue<SimplifiedScanTask>> _scan_task_queue;
+    std::atomic<bool> _is_stop;
+    CgroupCpuCtl* _cgroup_cpu_ctl;
+    std::string _wg_name;
+};
+
 } // namespace doris::vectorized

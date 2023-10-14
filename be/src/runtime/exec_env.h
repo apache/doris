@@ -44,7 +44,8 @@ class DeltaWriterV2Pool;
 } // namespace vectorized
 namespace pipeline {
 class TaskScheduler;
-}
+class BlockedTaskScheduler;
+} // namespace pipeline
 namespace taskgroup {
 class TaskGroupManager;
 }
@@ -263,7 +264,9 @@ public:
         return _inverted_index_query_cache;
     }
 
-    CgroupCpuCtl* get_cgroup_cpu_ctl() { return _cgroup_cpu_ctl.get(); }
+    std::shared_ptr<doris::pipeline::BlockedTaskScheduler> get_global_block_scheduler() {
+        return _global_block_scheduler;
+    }
 
 private:
     ExecEnv();
@@ -368,7 +371,12 @@ private:
     segment_v2::InvertedIndexSearcherCache* _inverted_index_searcher_cache = nullptr;
     segment_v2::InvertedIndexQueryCache* _inverted_index_query_cache = nullptr;
 
-    std::unique_ptr<CgroupCpuCtl> _cgroup_cpu_ctl = nullptr;
+    // used for query with group cpu hard limit
+    std::shared_ptr<doris::pipeline::BlockedTaskScheduler> _global_block_scheduler;
+    // used for query without workload group
+    std::shared_ptr<doris::pipeline::BlockedTaskScheduler> _without_group_block_scheduler;
+    // used for query with workload group cpu soft limit
+    std::shared_ptr<doris::pipeline::BlockedTaskScheduler> _with_group_block_scheduler;
 };
 
 template <>

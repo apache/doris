@@ -170,6 +170,14 @@ void FragmentMgr::stop() {
         _pipeline_map.clear();
     }
     _async_report_thread_pool->shutdown();
+
+    // stop task scheduler
+    for (auto& task_sche : _wg_sche_map) {
+        task_sche.second->stop();
+    }
+    for (auto& task_sche : _wg_scan_sche_map) {
+        task_sche.second->stop();
+    }
 }
 
 std::string FragmentMgr::to_http_path(const std::string& file_name) {
@@ -640,21 +648,28 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         if constexpr (std::is_same_v<TPipelineFragmentParams, Params>) {
             if (params.__isset.workload_groups && !params.workload_groups.empty()) {
                 taskgroup::TaskGroupInfo task_group_info;
-                int query_cpu_hard_limit = -1;
-                auto status = taskgroup::TaskGroupInfo::parse_group_info(
-                        params.workload_groups[0], &task_group_info, &query_cpu_hard_limit);
+                auto status = taskgroup::TaskGroupInfo::parse_group_info(params.workload_groups[0],
+                                                                         &task_group_info);
                 if (status.ok()) {
                     auto tg = _exec_env->task_group_manager()->get_or_create_task_group(
                             task_group_info);
                     tg->add_mem_tracker_limiter(query_ctx->query_mem_tracker);
-                    query_ctx->set_task_group(tg);
+                    uint64_t tg_id = tg->id();
+                    std::string tg_name = tg->name();
                     LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
                               << " use task group: " << tg->debug_string()
-                              << " query_cpu_hard_limit: " << query_cpu_hard_limit
+                              << " cpu_hard_limit: " << task_group_info.cpu_hard_limit
                               << " cpu_share:" << task_group_info.cpu_share;
-                    if (query_cpu_hard_limit > 0 && _exec_env->get_cgroup_cpu_ctl() != nullptr) {
-                        _exec_env->get_cgroup_cpu_ctl()->update_cpu_hard_limit(
-                                query_cpu_hard_limit);
+                    if (task_group_info.cpu_hard_limit > 0) {
+                        Status ret = create_and_get_task_scheduler(
+                                tg_id, tg_name, task_group_info.cpu_hard_limit, query_ctx.get());
+                        if (!ret.ok()) {
+                            LOG(INFO) << "workload group init failed "
+                                      << ", name=" << tg_name << ", id=" << tg_id
+                                      << ", reason=" << ret.to_string();
+                        }
+                    } else {
+                        query_ctx->set_task_group(tg);
                     }
                 }
             } else {
@@ -1490,6 +1505,68 @@ void FragmentMgr::_setup_shared_hashtable_for_broadcast_join(const TPipelineFrag
             }
         }
     }
+}
+
+Status FragmentMgr::create_and_get_task_scheduler(uint64_t wg_id, std::string wg_name,
+                                                  int cpu_hard_limit, QueryContext* query_ctx_ptr) {
+    std::lock_guard<std::mutex> lock(_task_scheduler_lock);
+    // step 1: init cgroup cpu controller
+    CgroupCpuCtl* cg_cu_ctl_ptr = nullptr;
+    if (_cgroup_ctl_map.find(wg_id) == _cgroup_ctl_map.end()) {
+        std::unique_ptr<CgroupCpuCtl> cgroup_cpu_ctl = std::make_unique<CgroupV1CpuCtl>(wg_id);
+        Status ret = cgroup_cpu_ctl->init();
+        if (ret.ok()) {
+            cg_cu_ctl_ptr = cgroup_cpu_ctl.get();
+            _cgroup_ctl_map.emplace(wg_id, std::move(cgroup_cpu_ctl));
+        } else {
+            return Status::Error<INTERNAL_ERROR, false>("cgroup init failed, gid={}", wg_id);
+        }
+    }
+
+    // step 2: init task scheduler
+    if (_wg_sche_map.find(wg_id) == _wg_sche_map.end()) {
+        int32_t executors_size = config::pipeline_executor_size;
+        if (executors_size <= 0) {
+            executors_size = CpuInfo::num_cores();
+        }
+        auto task_queue = std::make_shared<pipeline::MultiCoreTaskQueue>(executors_size);
+
+        auto pipeline_task_scheduler = std::make_unique<pipeline::TaskScheduler>(
+                _exec_env, _exec_env->get_global_block_scheduler(), std::move(task_queue),
+                "Exec_" + wg_name, cg_cu_ctl_ptr);
+        Status ret = pipeline_task_scheduler->start();
+        if (ret.ok()) {
+            _wg_sche_map.emplace(wg_id, std::move(pipeline_task_scheduler));
+        } else {
+            return Status::Error<INTERNAL_ERROR, false>("task scheduler start failed, gid={}",
+                                                        wg_id);
+        }
+    }
+
+    // step 3: init scan scheduler
+    if (_wg_scan_sche_map.find(wg_id) == _wg_scan_sche_map.end()) {
+        auto scan_scheduler =
+                std::make_unique<vectorized::SimplifiedScanScheduler>(wg_name, cg_cu_ctl_ptr);
+        Status ret = scan_scheduler->start();
+        if (ret.ok()) {
+            _wg_scan_sche_map.emplace(wg_id, std::move(scan_scheduler));
+        } else {
+            return Status::Error<INTERNAL_ERROR, false>("scan scheduler start failed, gid={}",
+                                                        wg_id);
+        }
+    }
+
+    // step 4 set exec/scan task scheudler to query ctx
+    pipeline::TaskScheduler* task_sche = _wg_sche_map.at(wg_id).get();
+    query_ctx_ptr->set_task_scheduler(task_sche);
+
+    vectorized::SimplifiedScanScheduler* scan_task_sche = _wg_scan_sche_map.at(wg_id).get();
+    query_ctx_ptr->set_scan_task_scheduler(scan_task_sche);
+
+    // step 5 update cgroup cpu if needed
+    _cgroup_ctl_map.at(wg_id)->update_cpu_hard_limit(cpu_hard_limit);
+
+    return Status::OK();
 }
 
 } // namespace doris

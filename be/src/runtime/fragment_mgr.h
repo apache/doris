@@ -33,6 +33,8 @@
 #include "common/status.h"
 #include "gutil/ref_counted.h"
 #include "http/rest_monitor_iface.h"
+#include "pipeline/task_queue.h"
+#include "pipeline/task_scheduler.h"
 #include "runtime/query_context.h"
 #include "runtime_filter_mgr.h"
 #include "util/countdown_latch.h"
@@ -48,6 +50,8 @@ namespace doris {
 namespace pipeline {
 class PipelineFragmentContext;
 class PipelineXFragmentContext;
+class TaskScheduler;
+class MultiCoreTaskQueue;
 } // namespace pipeline
 class QueryContext;
 class ExecEnv;
@@ -150,6 +154,9 @@ public:
         return _query_ctx_map.size();
     }
 
+    Status create_and_get_task_scheduler(uint64_t wg_id, std::string wg_name, int cpu_hard_limit,
+                                         QueryContext* query_ctx_ptr);
+
 private:
     void cancel_unlocked_impl(const TUniqueId& id, const PPlanFragmentCancelReason& reason,
                               const std::unique_lock<std::mutex>& state_lock, bool is_pipeline,
@@ -206,6 +213,13 @@ private:
 
     RuntimeFilterMergeController _runtimefilter_controller;
     std::unique_ptr<ThreadPool> _async_report_thread_pool; // used for pipeliine context report
+
+    // map for workload group id and task scheduler pool
+    // used for cpu hard limit
+    std::mutex _task_scheduler_lock;
+    std::map<uint64_t, std::unique_ptr<doris::pipeline::TaskScheduler>> _wg_sche_map;
+    std::map<uint64_t, std::unique_ptr<vectorized::SimplifiedScanScheduler>> _wg_scan_sche_map;
+    std::map<uint64_t, std::unique_ptr<CgroupCpuCtl>> _cgroup_ctl_map;
 };
 
 } // namespace doris
