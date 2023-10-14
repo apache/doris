@@ -199,7 +199,7 @@ public:
         null_map_column = column_nullable->get_null_map_column_ptr();
         null_map = &column_nullable->get_null_map_data();
 
-        auto col_res = convertToIPv4<ColumnString>(column, null_map);
+        auto col_res = convertToIPv4<ColumnInt64>(column, null_map);
 
         block.replace_by_position(result, col_res);
         return Status::OK();
