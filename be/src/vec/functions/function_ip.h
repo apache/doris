@@ -130,7 +130,7 @@ ColumnPtr convertToIPv4(ColumnPtr column, const PaddedPODArray<UInt8>* null_map 
     if (!column_string) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "Illegal column {} of argument of function {}, expected VARCHAR",
-                        column->getName());
+                        column->get_name());
     }
 
     size_t column_size = column_string->size();
