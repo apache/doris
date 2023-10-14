@@ -21,73 +21,73 @@ suite("test_mow_create_table_with_binlog_config") {
         logger.info("fe enable_feature_binlog is false, skip case test_mow_create_table_with_binlog_config")
         return
     }
-    sql "drop database if exists test_table_binlog"
+    sql "drop database if exists test_mow_table_binlog"
 
     sql """
-        create database test_table_binlog
+        create database test_mow_table_binlog
         """
-    result = sql "show create database test_table_binlog"
+    def result = sql "show create database test_mow_table_binlog"
     logger.info("${result}")
 
     // Case 1: database disable binlog, create table with binlog disable
     sql """
-        CREATE TABLE test_table_binlog.t1 ( k1 INT ) ENGINE = olap UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 3 PROPERTIES ( "enable_unique_key_merge_on_write" = "true", "replication_num" = "1", "binlog.enable" = "false" );
+        CREATE TABLE test_mow_table_binlog.t1 ( k1 INT ) ENGINE = olap UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 3 PROPERTIES ( "enable_unique_key_merge_on_write" = "true", "replication_num" = "1", "binlog.enable" = "false" );
         """
-    result = sql "show create table test_table_binlog.t1"
+    result = sql "show create table test_mow_table_binlog.t1"
     logger.info("${result}")
     assertTrue(result.toString().containsIgnoreCase('"binlog.enable" = "false"'))
     sql """
-        drop table if exists test_table_binlog.t1
+        drop table if exists test_mow_table_binlog.t1
         """
 
     // Case 2: database disable binlog, create table with binlog enable
     sql """
-        CREATE TABLE test_table_binlog.t1 ( k1 INT ) ENGINE = olap UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 3 PROPERTIES ( "enable_unique_key_merge_on_write" = "true", "replication_num" = "1", "binlog.enable" = "true" );
+        CREATE TABLE test_mow_table_binlog.t1 ( k1 INT ) ENGINE = olap UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 3 PROPERTIES ( "enable_unique_key_merge_on_write" = "true", "replication_num" = "1", "binlog.enable" = "true" );
         """
-    result = sql "show create table test_table_binlog.t1"
+    result = sql "show create table test_mow_table_binlog.t1"
     logger.info("${result}")
     assertTrue(result.toString().containsIgnoreCase('"binlog.enable" = "true"'))
     sql """
-        drop table if exists test_table_binlog.t1
+        drop table if exists test_mow_table_binlog.t1
         """
 
     // Case 3: database enable binlog, create table with binlog disable
     sql """
-        alter database test_table_binlog set properties ("binlog.enable" = "true")
+        alter database test_mow_table_binlog set properties ("binlog.enable" = "true")
         """
     assertThrows(Exception.class, {
         sql """
-            CREATE TABLE test_table_binlog.t1 ( k1 INT ) ENGINE = olap UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 3 PROPERTIES ( "enable_unique_key_merge_on_write" = "true", "replication_num" = "1", "binlog.enable" = "false" );
+            CREATE TABLE test_mow_table_binlog.t1 ( k1 INT ) ENGINE = olap UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 3 PROPERTIES ( "enable_unique_key_merge_on_write" = "true", "replication_num" = "1", "binlog.enable" = "false" );
             """
     })
     sql """
-        drop table if exists test_table_binlog.t1
+        drop table if exists test_mow_table_binlog.t1
         """
 
     // Case 4: database enable binlog, create table with binlog enable
     sql """
-        alter database test_table_binlog set properties ("binlog.enable" = "true")
+        alter database test_mow_table_binlog set properties ("binlog.enable" = "true")
         """
     sql """
-        CREATE TABLE test_table_binlog.t1 ( k1 INT ) ENGINE = olap UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 3 PROPERTIES ( "enable_unique_key_merge_on_write" = "true", "replication_num" = "1", "binlog.enable" = "true" );
+        CREATE TABLE test_mow_table_binlog.t1 ( k1 INT ) ENGINE = olap UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 3 PROPERTIES ( "enable_unique_key_merge_on_write" = "true", "replication_num" = "1", "binlog.enable" = "true" );
         """
-    result = sql "show create table test_table_binlog.t1"
+    result = sql "show create table test_mow_table_binlog.t1"
     logger.info("${result}")
     assertTrue(result.toString().containsIgnoreCase('"binlog.enable" = "true"'))
     sql """
-        drop table if exists test_table_binlog.t1
+        drop table if exists test_mow_table_binlog.t1
         """
 
     // Case 5: database enable binlog, create table inherit database binlog config
     sql """
-        CREATE TABLE test_table_binlog.t1 ( k1 INT ) ENGINE = olap UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 3 PROPERTIES ( "enable_unique_key_merge_on_write" = "true", "replication_num" = "1" );
+        CREATE TABLE test_mow_table_binlog.t1 ( k1 INT ) ENGINE = olap UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 3 PROPERTIES ( "enable_unique_key_merge_on_write" = "true", "replication_num" = "1" );
         """
-    result = sql "show create table test_table_binlog.t1"
+    result = sql "show create table test_mow_table_binlog.t1"
     logger.info("${result}")
     assertTrue(result.toString().containsIgnoreCase('"binlog.enable" = "true"'))
     sql """
-        drop table if exists test_table_binlog.t1
+        drop table if exists test_mow_table_binlog.t1
         """
 
-    sql "drop database if exists test_table_binlog"
+    sql "drop database if exists test_mow_table_binlog"
 }
