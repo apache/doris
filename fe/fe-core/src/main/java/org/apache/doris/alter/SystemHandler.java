@@ -233,22 +233,39 @@ public class SystemHandler extends AlterHandler {
         // check if backends is under decommission
         List<Backend> backends = Lists.newArrayList();
         List<HostInfo> hostInfos = cancelAlterSystemStmt.getHostInfos();
-        for (HostInfo hostInfo : hostInfos) {
-            // check if exist
-            Backend backend = infoService.getBackendWithHeartbeatPort(hostInfo.getHost(),
-                    hostInfo.getPort());
-            if (backend == null) {
-                throw new DdlException("Backend does not exist["
-                        + hostInfo.getHost() + ":" + hostInfo.getPort() + "]");
+        if (hostInfos.isEmpty()) {
+            List<String> ids = cancelAlterSystemStmt.getIds();
+            for (String id : ids) {
+                Backend backend = infoService.getBackend(Long.parseLong(id));
+                if (backend == null) {
+                    throw new DdlException("Backend does not exist["
+                            + id + "]");
+                }
+                if (!backend.isDecommissioned()) {
+                    // it's ok. just log
+                    LOG.info("backend is not decommissioned[{}]", backend.getId());
+                    continue;
+                }
+                backends.add(backend);
             }
+        } else {
+            for (HostInfo hostInfo : hostInfos) {
+                // check if exist
+                Backend backend = infoService.getBackendWithHeartbeatPort(hostInfo.getHost(),
+                        hostInfo.getPort());
+                if (backend == null) {
+                    throw new DdlException("Backend does not exist["
+                            + hostInfo.getHost() + ":" + hostInfo.getPort() + "]");
+                }
 
-            if (!backend.isDecommissioned()) {
-                // it's ok. just log
-                LOG.info("backend is not decommissioned[{}]", backend.getId());
-                continue;
+                if (!backend.isDecommissioned()) {
+                    // it's ok. just log
+                    LOG.info("backend is not decommissioned[{}]", backend.getId());
+                    continue;
+                }
+
+                backends.add(backend);
             }
-
-            backends.add(backend);
         }
 
         for (Backend backend : backends) {
