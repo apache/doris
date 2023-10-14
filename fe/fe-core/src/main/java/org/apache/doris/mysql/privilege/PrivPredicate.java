@@ -29,7 +29,15 @@ public class PrivPredicate {
             Privilege.LOAD_PRIV,
             Privilege.ALTER_PRIV,
             Privilege.CREATE_PRIV,
+            Privilege.SHOW_VIEW_PRIV,
             Privilege.DROP_PRIV),
+            Operator.OR);
+    // show create table 'view'
+    public static final PrivPredicate SHOW_VIEW = PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
+            Privilege.CREATE_PRIV,
+            Privilege.ALTER_PRIV,
+            Privilege.DROP_PRIV,
+            Privilege.SHOW_VIEW_PRIV),
             Operator.OR);
     // show resources
     public static final PrivPredicate SHOW_RESOURCES = PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
