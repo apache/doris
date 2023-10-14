@@ -60,6 +60,7 @@
 #include "runtime/client_cache.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
+#include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/network_util.h"
 #include "util/stopwatch.hpp"
@@ -105,6 +106,10 @@ Status EngineCloneTask::execute() {
 }
 
 Status EngineCloneTask::_do_clone() {
+    DBUG_EXECUTE_IF("EngineCloneTask.wait_clone", {
+        auto duration = std::chrono::milliseconds(dp->param("duration", 10 * 1000));
+        std::this_thread::sleep_for(duration);
+    });
     Status status = Status::OK();
     string src_file_path;
     TBackend src_host;

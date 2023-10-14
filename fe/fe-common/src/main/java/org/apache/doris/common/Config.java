@@ -458,6 +458,10 @@ public class Config extends ConfigBase {
             "Maximal timeout for delete job, in seconds."})
     public static int delete_job_max_timeout_second = 300;
 
+    @ConfField(mutable = true, masterOnly = true, description = {"Load 成功所需的最小写入副本数。",
+            "Minimal number of write successful replicas for load job."})
+    public static short min_load_replica_num = -1;
+
     @ConfField(description = {"load job 调度器的执行间隔，单位是秒。",
             "The interval of load job scheduler, in seconds."})
     public static int load_checker_interval_second = 5;
@@ -950,6 +954,17 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int schedule_batch_size = 50;
 
+    /**
+     * tablet health check interval. Do not modify it in production environment.
+     */
+    @ConfField(mutable = false, masterOnly = true)
+    public static long tablet_checker_interval_ms = 20 * 1000;
+
+    /**
+     * tablet scheduled interval. Do not modify it in production environment.
+     */
+    @ConfField(mutable = false, masterOnly = true)
+    public static long tablet_schedule_interval_ms = 1000;
 
     /**
      * Deprecated after 0.10
@@ -1575,6 +1590,14 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static int async_task_consumer_thread_num = 5;
+
+    /**
+     * When job is finished, it will be saved in job manager for a while.
+     * This configuration is used to control the max saved time.
+     * Default is 3 days.
+     */
+    @ConfField
+    public static int finish_job_max_saved_second = 60 * 60 * 24 * 3;
 
     // enable_workload_group should be immutable and temporarily set to mutable during the development test phase
     @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
@@ -2217,4 +2240,11 @@ public class Config extends ConfigBase {
             + "If this database conflicts with a user's own database, please modify this field to replace "
             + "the name of the Doris built-in MySQL database with a different name."})
     public static String mysqldb_replace_name = "mysql";
+    @ConfField(description = {
+        "设置允许跨域访问的特定域名,默认允许任何域名跨域访问",
+        "Set the specific domain name that allows cross-domain access. "
+            + "By default, any domain name is allowed cross-domain access"
+    })
+    public static String access_control_allowed_origin_domain = "*";
+
 }

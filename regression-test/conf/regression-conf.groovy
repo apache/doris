@@ -47,6 +47,24 @@ pluginPath = "${DORIS_HOME}/regression-test/plugins"
 realDataPath = "${DORIS_HOME}/regression-test/realdata"
 sslCertificatePath = "${DORIS_HOME}/regression-test/ssl_default_certificate"
 
+// suite configs
+suites = {
+
+    //// equals to:
+    ////    suites.test_suite_1.key1 = "val1"
+    ////    suites.test_suite_1.key2 = "val2"
+    ////
+    //test_suite_1 {
+    //    key1 = "val1"
+    //    key2 = "val2"
+    //}
+
+    //test_suite_2 {
+    //    key3 = "val1"
+    //    key4 = "val2"
+    //}
+}
+
 // docker image
 image = ""
 dockerEndDeleteFiles = false

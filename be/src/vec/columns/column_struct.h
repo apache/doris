@@ -83,7 +83,6 @@ public:
 
     std::string get_name() const override;
     const char* get_family_name() const override { return "Struct"; }
-    TypeIndex get_data_type() const override { return TypeIndex::Struct; }
     bool can_be_inside_nullable() const override { return true; }
     MutableColumnPtr clone_empty() const override;
     MutableColumnPtr clone_resized(size_t size) const override;
@@ -164,7 +163,6 @@ public:
     void resize(size_t n) override;
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
-    void protect() override;
     void for_each_subcolumn(ColumnCallback callback) override;
     bool structure_equals(const IColumn& rhs) const override;
 

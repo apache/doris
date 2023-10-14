@@ -321,7 +321,7 @@ Status FullSorter::append_block(Block* block) {
         for (int i = 0; i < data.size(); ++i) {
             DCHECK(data[i].type->equals(*(arrival_data[i].type)))
                     << " type1: " << data[i].type->get_name()
-                    << " type2: " << arrival_data[i].type->get_name();
+                    << " type2: " << arrival_data[i].type->get_name() << " i: " << i;
             //TODO: to eliminate unnecessary expansion, we need a `insert_range_from_const` for every column type.
             data[i].column->assume_mutable()->insert_range_from(
                     *arrival_data[i].column->convert_to_full_column_if_const(), 0, sz);

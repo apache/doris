@@ -95,8 +95,6 @@ public:
 
     StringRef get_data_at(size_t) const override { return data->get_data_at(0); }
 
-    TypeIndex get_data_type() const override { return data->get_data_type(); }
-
     UInt64 get64(size_t) const override { return data->get64(0); }
 
     UInt64 get_uint(size_t) const override { return data->get_uint(0); }
@@ -169,9 +167,8 @@ public:
     }
 
     void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
-                                     const uint8_t* null_map,
-                                     size_t max_row_byte_size) const override {
-        data->serialize_vec_with_null_map(keys, num_rows, null_map, max_row_byte_size);
+                                     const uint8_t* null_map) const override {
+        data->serialize_vec_with_null_map(keys, num_rows, null_map);
     }
 
     void update_hash_with_value(size_t, SipHash& hash) const override {

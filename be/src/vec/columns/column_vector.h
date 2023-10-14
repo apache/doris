@@ -269,8 +269,7 @@ public:
                        size_t max_row_byte_size) const override;
 
     void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
-                                     const uint8_t* null_map,
-                                     size_t max_row_byte_size) const override;
+                                     const uint8_t* null_map) const override;
 
     void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                   const uint8_t* __restrict null_data) const override {
@@ -332,8 +331,6 @@ public:
     size_t byte_size() const override { return data.size() * sizeof(data[0]); }
 
     size_t allocated_bytes() const override { return data.allocated_bytes(); }
-
-    void protect() override { data.protect(); }
 
     void insert_value(const T value) { data.push_back(value); }
 
@@ -468,7 +465,6 @@ public:
     void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
                           int direction, std::vector<uint8>& cmp_res,
                           uint8* __restrict filter) const override;
-    TypeIndex get_data_type() const override { return TypeId<T>::value; }
     void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
                                          size_t limit) const override {
         return this->template get_indices_of_non_default_rows_impl<Self>(indices, from, limit);
