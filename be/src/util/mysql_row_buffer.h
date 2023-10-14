@@ -124,6 +124,8 @@ public:
      */
     void close_dynamic_mode();
 
+    void set_faster_float_convert(bool faster) { _faster_float_convert = faster; }
+
 private:
     int reserve(int64_t size);
 
@@ -142,6 +144,8 @@ private:
     uint64_t _len_pos;
     uint32_t _field_pos = 0;
     uint32_t _field_count = 0;
+
+    bool _faster_float_convert = false;
 };
 
 } // namespace doris
