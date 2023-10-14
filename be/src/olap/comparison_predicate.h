@@ -158,8 +158,6 @@ public:
         return _operator(*reinterpret_cast<const T*>(statistic.ELE->cell_ptr()), _value); \
     }
 
-    using WarpperFieldType = std::conditional_t<Type == TYPE_DATE, uint24_t, T>;
-
     bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
         if (statistic.first->is_null()) {
             return true;
@@ -202,29 +200,6 @@ public:
             static_assert(PT == PredicateType::GT || PT == PredicateType::GE);
             COMPARE_TO_MIN_OR_MAX(second)
         }
-    }
-
-    bool is_always_true(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
-        if (statistic.first->is_null() || statistic.second->is_null()) {
-            return false;
-        }
-
-        T tmp_min_value {};
-        T tmp_max_value {};
-        memcpy((char*)(&tmp_min_value), statistic.first->cell_ptr(), sizeof(WarpperFieldType));
-        memcpy((char*)(&tmp_max_value), statistic.second->cell_ptr(), sizeof(WarpperFieldType));
-
-        if constexpr (PT == PredicateType::LT) {
-            return _value > tmp_max_value;
-        } else if constexpr (PT == PredicateType::LE) {
-            return _value >= tmp_max_value;
-        } else if constexpr (PT == PredicateType::GT) {
-            return _value < tmp_min_value;
-        } else if constexpr (PT == PredicateType::GE) {
-            return _value <= tmp_min_value;
-        }
-
-        return false;
     }
 
     bool evaluate_del(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
