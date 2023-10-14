@@ -95,6 +95,7 @@ clean_be() {
 
     rm -rf "${CMAKE_BUILD_DIR}"
     rm -rf "${DORIS_HOME}/be/output"
+    rm -rf "${DORIS_HOME}/zoneinfo"
     popd
 }
 
@@ -634,8 +635,10 @@ if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
     cp -r -p "${DORIS_HOME}/be/output/bin"/* "${DORIS_OUTPUT}/be/bin"/
     cp -r -p "${DORIS_HOME}/be/output/conf"/* "${DORIS_OUTPUT}/be/conf"/
     cp -r -p "${DORIS_HOME}/be/output/dict" "${DORIS_OUTPUT}/be/"
-    if [[ ! -d "${DORIS_HOME}/zoneinfo" ]]; then
-        tar -xzf "${DORIS_HOME}/zoneinfo.tar.gz" -C "${DORIS_HOME}"/
+    if [[ ! -r "${DORIS_HOME}/zoneinfo/Africa/Abidjan" ]]; then
+        rm -rf "${DORIS_HOME}/zoneinfo"
+        echo "Generating zoneinfo files"
+        tar -xzf "${DORIS_HOME}/resource/zoneinfo.tar.gz" -C "${DORIS_HOME}"/
     fi
     cp -r -p "${DORIS_HOME}/zoneinfo" "${DORIS_OUTPUT}/be/"
 
