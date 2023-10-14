@@ -2032,7 +2032,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         try {
             StmtExecutor executor = new StmtExecutor(ctx, originStmt);
             ctx.setExecutor(executor);
-            executor.getStreamLoadPlan(ctx.queryId());
+            executor.getStreamLoadPlan(ctx.queryId(), request.isGroupCommit());
 
             Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
             Coordinator coord = new Coordinator(ctx, analyzer, executor.planner());
@@ -2067,17 +2067,19 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         ctx.setThreadLocalInfo();
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setQueryId(request.getLoadId());
-        UserIdentity currentUserIdentity = UserIdentity.createAnalyzedUserIdentWithIp(request.getUser(), "%");
-        ctx.setCluster(cluster);
-        ctx.setCurrentUserIdentity(currentUserIdentity);
-        ctx.setQualifiedUser(request.getUser());
+        //        UserIdentity currentUserIdentity = UserIdentity.createAnalyzedUserIdentWithIp(request.getUser(), "%");
+        //        ctx.setCluster(cluster);
+        //        ctx.setCurrentUserIdentity(currentUserIdentity);
+        //        ctx.setQualifiedUser(request.getUser());
+        // TODO let's do this first, group_commit does not have permission
+        ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
+        ctx.setCurrentUserIdentity(UserIdentity.ROOT);
+        ctx.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
+
         ctx.setBackendId(request.getBackendId());
 
         try {
             TExecPlanFragmentParams plan = initHttpStreamPlan(request, ctx);
-            if (request.isGroupCommit() && ctx.getTxnEntry().getLabel() != null) {
-                throw new AnalysisException("label and group_commit can't be set at the same time");
-            }
             final long txn_id = ctx.getTxnEntry().getTxnConf().getTxnId();
             result.setParams(plan);
             result.getParams().setDbName(ctx.getTxnEntry().getDb().getFullName());
@@ -2086,9 +2088,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.getParams().setTxnConf(new TTxnParams().setTxnId(txn_id));
             result.getParams().setImportLabel(ctx.getTxnEntry().getLabel());
             // TODO Due to the support for Nereids, this judgment should not be made here
-            // if (parsedStmt.isGroupCommitTvf) {
-            //    result.getParams().params.setGroupCommit(true);
-            // }
+            result.getParams().params.setGroupCommit(ctx.isGroupCommitTvf());
             result.setDbId(ctx.getTxnEntry().getDb().getId());
             result.setTableId(ctx.getTxnEntry().getTable().getId());
             result.setBaseSchemaVersion(((OlapTable) ctx.getTxnEntry().getTable()).getBaseSchemaVersion());

@@ -223,9 +223,6 @@ Status HttpStreamAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
 
     RETURN_IF_ERROR(_exec_env->new_load_stream_mgr()->put(ctx->id, ctx));
 
-    // Here, transactions are set from fe's NativeInsertStmt.
-    // TODO(zs) : How to support two_phase_commit
-
     return Status::OK();
 }
 

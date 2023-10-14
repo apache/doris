@@ -960,6 +960,7 @@ public class NativeInsertStmt extends InsertStmt {
             TableValuedFunctionRef tvfRef = (TableValuedFunctionRef) tableRefs.get(0);
             if (tvfRef.getTableFunction() instanceof GroupCommitTableValuedFunction) {
                 isGroupCommitTvf = true;
+                ConnectContext.get().setGroupCommitTvf(true);
             }
         }
     }

@@ -36,6 +36,7 @@ import java.util.Map;
 
 /**
  * The Implement of table valued function
+ * This tvf is called by be
  * group_commit().
  */
 public class GroupCommitTableValuedFunction extends ExternalFileTableValuedFunction {

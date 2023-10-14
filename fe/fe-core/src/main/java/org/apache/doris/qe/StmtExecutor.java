@@ -2782,31 +2782,44 @@ public class StmtExecutor {
         }
     }
 
-    public void getStreamLoadPlan(TUniqueId queryId) throws Exception {
-        try {
-            generateStreamLoadNereidsPlan(queryId);
-        } catch (NereidsException | ParseException e) {
-            if (context.getMinidump() != null) {
-                MinidumpUtils.saveMinidumpString(context.getMinidump(), DebugUtil.printId(context.queryId()));
+    private void generateStreamLoadLegacyPlan(TUniqueId queryId, boolean isGroupCommit) throws Exception {
+        // Due to executing Nereids, it needs to be reset
+        planner = null;
+        context.getState().setNereids(false);
+        context.setTxnEntry(null);
+        context.setQueryId(queryId);
+        context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
+        SqlScanner input = new SqlScanner(new StringReader(originStmt.originStmt), context.getSessionVariable().getSqlMode());
+        SqlParser parser = new SqlParser(input);
+        parsedStmt = SqlParserUtils.getFirstStmt(parser);
+        if (isGroupCommit && ((NativeInsertStmt) parsedStmt).getLabel() != null) {
+            throw new AnalysisException("label and group_commit can't be set at the same time");
+        }
+        analyze(context.getSessionVariable().toThrift());
+    }
+
+    public void getStreamLoadPlan(TUniqueId queryId, boolean isGroupCommit) throws Exception {
+        if (!isGroupCommit) {
+            try {
+                generateStreamLoadNereidsPlan(queryId);
+            } catch (NereidsException | ParseException e) {
+                if (context.getMinidump() != null) {
+                    MinidumpUtils.saveMinidumpString(context.getMinidump(), DebugUtil.printId(context.queryId()));
+                }
+                // try to fall back to legacy planner
+                LOG.debug("nereids cannot process statement\n" + originStmt.originStmt
+                        + "\n because of " + e.getMessage(), e);
+                if (e instanceof NereidsException && !context.getSessionVariable().enableFallbackToOriginalPlanner) {
+                    LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
+                    throw ((NereidsException) e).getException();
+                }
+                LOG.debug("fall back to legacy planner on statement:\n{}", originStmt.originStmt);
+                generateStreamLoadLegacyPlan(queryId, isGroupCommit);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
             }
-            // try to fall back to legacy planner
-            LOG.debug("nereids cannot process statement\n" + originStmt.originStmt
-                    + "\n because of " + e.getMessage(), e);
-            if (e instanceof NereidsException && !context.getSessionVariable().enableFallbackToOriginalPlanner) {
-                LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
-                throw ((NereidsException) e).getException();
-            }
-            LOG.debug("fall back to legacy planner on statement:\n{}", originStmt.originStmt);
-            // Due to executing Nereids, it needs to be reset
-            parsedStmt = null;
-            planner = null;
-            context.getState().setNereids(false);
-            context.setTxnEntry(null);
-            context.setQueryId(queryId);
-            context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
-            analyze(context.getSessionVariable().toThrift());
-        } catch (Exception e) {
-            throw new RuntimeException(e);
+        } else {
+            generateStreamLoadLegacyPlan(queryId, isGroupCommit);
         }
     }
 

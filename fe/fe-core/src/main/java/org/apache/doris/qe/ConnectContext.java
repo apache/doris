@@ -187,6 +187,7 @@ public class ConnectContext {
 
     private String workloadGroupName = "";
     private Map<Long, Backend> insertGroupCommitTableToBeMap = new HashMap<>();
+    private boolean isGroupCommitTvf;
 
     private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCAL;
 
@@ -902,6 +903,14 @@ public class ConnectContext {
 
     public Backend getInsertGroupCommit(long tableId) {
         return insertGroupCommitTableToBeMap.get(tableId);
+    }
+
+    public boolean isGroupCommitTvf() {
+        return isGroupCommitTvf;
+    }
+
+    public void setGroupCommitTvf(boolean groupCommitTvf) {
+        isGroupCommitTvf = groupCommitTvf;
     }
 }
 
