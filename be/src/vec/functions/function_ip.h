@@ -201,7 +201,7 @@ public:
 
         auto col_res = convertToIPv4<ColumnInt64>(column, null_map);
 
-        if (null_map && !col_res->isNullable())
+        if (null_map && !col_res->is_nullable())
             block.replace_by_position(result,
                         ColumnNullable::create(IColumn::mutate(col_res),
                             IColumn::mutate(null_map_column)));
