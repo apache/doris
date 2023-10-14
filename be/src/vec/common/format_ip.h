@@ -26,6 +26,7 @@
 #include <cstdint>
 #include <cstring>
 #include <utility>
+#include <vec/common/string_utils/string_utils.h>
 
 constexpr size_t IPV4_BINARY_LENGTH = 4;
 constexpr size_t IPV4_MAX_TEXT_LENGTH = 15;       /// Does not count tail zero byte.
@@ -93,6 +94,95 @@ inline void formatIPv4(const unsigned char* src, size_t src_size, char*& dst,
 inline void formatIPv4(const unsigned char* src, char*& dst, uint8_t mask_tail_octets = 0,
                        const char* mask_string = "xxx") {
     formatIPv4(src, 4, dst, mask_tail_octets, mask_string);
+}
+
+/** Unsafe (no bounds-checking for src nor dst), optimized version of parsing IPv4 string.
+ *
+ * Parses the input string `src` and stores binary host-endian value into buffer pointed by `dst`,
+ * which should be long enough.
+ * That is "127.0.0.1" becomes 0x7f000001.
+ *
+ * In case of failure doesn't modify buffer pointed by `dst`.
+ *
+ * WARNING - this function is adapted to work with ReadBuffer, where src is the position reference (ReadBuffer::position())
+ *           and eof is the ReadBuffer::eof() - therefore algorithm below does not rely on buffer's continuity.
+ *           To parse strings use overloads below.
+ *
+ * @param src         - iterator (reference to pointer) over input string - warning - continuity is not guaranteed.
+ * @param eof         - function returning true if iterator riched the end - warning - can break iterator's continuity.
+ * @param dst         - where to put output bytes, expected to be non-null and at IPV4_BINARY_LENGTH-long.
+ * @param first_octet - preparsed first octet
+ * @return            - true if parsed successfully, false otherwise.
+ */
+template <typename T, typename EOFfunction>
+requires (std::is_same<typename std::remove_cv<T>::type, char>::value)
+inline bool parseIPv4(T * &src, EOFfunction eof, unsigned char * dst, int64_t first_octet = -1)
+{
+    if (src == nullptr || first_octet > 255)
+        return false;
+
+    int64_t result = 0;
+    int offset = 24;
+    if (first_octet >= 0)
+    {
+        result |= first_octet << offset;
+        offset -= 8;
+    }
+
+    for (; true; offset -= 8, ++src)
+    {
+        if (eof())
+            return false;
+
+        int64_t value = 0;
+        size_t len = 0;
+        while (is_numeric_ascii(*src) && len <= 3)
+        {
+            value = value * 10 + (*src - '0');
+            ++len;
+            ++src;
+            if (eof())
+                break;
+        }
+        if (len == 0 || value > 255 || (offset > 0 && (eof() || *src != '.')))
+            return false;
+        result |= value << offset;
+
+        if (offset == 0)
+            break;
+    }
+
+    memcpy(dst, &result, sizeof(result));
+    return true;
+}
+
+/// returns pointer to the right after parsed sequence or null on failed parsing
+inline const char * parseIPv4(const char * src, const char * end, unsigned char * dst)
+{
+    if (parseIPv4(src, [&src, end](){ return src == end; }, dst))
+        return src;
+    return nullptr;
+}
+
+/// returns true if whole buffer was parsed successfully
+inline bool parseIPv4whole(const char * src, const char * end, unsigned char * dst)
+{
+    return parseIPv4(src, end, dst) == end;
+}
+
+/// returns pointer to the right after parsed sequence or null on failed parsing
+inline const char * parseIPv4(const char * src, unsigned char * dst)
+{
+    if (parseIPv4(src, [](){ return false; }, dst))
+        return src;
+    return nullptr;
+}
+
+/// returns true if whole null-terminated string was parsed successfully
+inline bool parseIPv4whole(const char * src, unsigned char * dst)
+{
+    const char * end = parseIPv4(src, dst);
+    return end != nullptr && *end == '\0';
 }
 
 } // namespace doris::vectorized

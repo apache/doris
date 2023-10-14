@@ -22,4 +22,7 @@ suite("test_ip_functions") {
     qt_sql "SELECT ipv4numtostring(4294967298);"
     qt_sql "SELECT inet_ntoa(3232235521);"
 
+    qt_sql "SELECT ipv4stringtonum('127.0.0.1');"
+    qt_sql "SELECT ipv4stringtonum('');"
+    qt_sql "SELECT inet_aton('192.168.0.1');"
 }

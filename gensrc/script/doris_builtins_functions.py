@@ -2003,6 +2003,7 @@ visible_functions = {
         [['ipv4numtostring','inet_ntoa'], 'VARCHAR', ['SMALLINT'], 'ALWAYS_NULLABLE'],
         [['ipv4numtostring','inet_ntoa'], 'VARCHAR', ['INT'], 'ALWAYS_NULLABLE'],
         [['ipv4numtostring','inet_ntoa'], 'VARCHAR', ['BIGINT'], 'ALWAYS_NULLABLE'],
+        [['ipv4stringtonum','inet_aton'], 'BIGINT', ['VARCHAR'], 'ALWAYS_NULLABLE'],
     ],
 
     "NonNullalbe": [
