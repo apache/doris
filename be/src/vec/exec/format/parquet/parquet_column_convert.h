@@ -105,6 +105,12 @@ struct PhysicalTypeTraits<tparquet::Type::INT96> {
     M(TypeIndex::Float32, Float32, Float32) \
     M(TypeIndex::Float64, Float64, Float64)
 
+#define FOR_LOGICAL_DECIMAL_TYPES(M)             \
+    M(TypeIndex::Decimal32, Decimal32, Int32)    \
+    M(TypeIndex::Decimal64, Decimal64, Int64)    \
+    M(TypeIndex::Decimal128, Decimal128, Int128) \
+    M(TypeIndex::Decimal128I, Decimal128, Int128)
+
 struct ConvertParams {
     // schema.logicalType.TIMESTAMP.isAdjustedToUTC == false
     static const cctz::time_zone utc0;
@@ -163,7 +169,7 @@ struct ConvertParams {
             return;
         }
         auto scale = field_schema->parquet_schema.scale;
-        auto* decimal_type = static_cast<DataTypeDecimal<DecimalPrimitiveType>*>(
+        auto* decimal_type = static_cast<DataTypeDecimal<Decimal<DecimalPrimitiveType>>*>(
                 const_cast<IDataType*>(remove_nullable(data_type).get()));
         auto dest_scale = decimal_type->get_scale();
         if (dest_scale > scale) {
@@ -181,7 +187,7 @@ struct ConvertParams {
     }
 };
 
-Status convert_data_type_from_parquet(tparquet::Type::type parquet_type,
+Status convert_data_type_from_parquet(tparquet::Type::type parquet_type, PrimitiveType,
                                       vectorized::DataTypePtr& ans_data_type, DataTypePtr& src_type,
                                       bool* need_convert);
 
@@ -257,7 +263,8 @@ Status NumberColumnToStringConvert<src_type, is_nullable>::convert(const IColumn
 
 template <bool is_nullable>
 struct int128totimestamp : public ColumnConvert {
-    [[nodiscard]] inline uint64_t to_timestamp_micros(uint32_t hi, uint64_t lo) const {
+public:
+    [[nodiscard]] static uint64_t to_timestamp_micros(uint32_t hi, uint64_t lo) {
         return (hi - ParquetInt96::JULIAN_EPOCH_OFFSET_DAYS) * ParquetInt96::MICROS_IN_DAY +
                lo / ParquetInt96::NANOS_PER_MICROSECOND;
     }
@@ -402,8 +409,72 @@ public:
     }
 };
 
+template <bool is_nullable>
+class stringtodecimalstring : public ColumnConvert {
+public:
+    Status convert(const IColumn* src_col, IColumn* dst_col) override {
+        size_t rows = src_col->size();
+        if constexpr (is_nullable) {
+            convert_null(&src_col, &dst_col);
+        }
+        auto buf = static_cast<const ColumnString*>(src_col)->get_chars().data();
+        auto& offset = static_cast<const ColumnString*>(src_col)->get_offsets();
+
+        auto data = static_cast<ColumnString*>(dst_col);
+        for (int i = 0; i < rows; i++) {
+            int len = offset[i] - offset[i - 1];
+            // When Decimal in parquet is stored in byte arrays, binary and fixed,
+            // the unscaled number must be encoded as two's complement using big-endian byte order.
+            Int64 value = 0;
+            memcpy(reinterpret_cast<char*>(&value), buf + offset[i - 1], len);
+            value = BitUtil::big_endian_to_host(value);
+            value = value >> ((sizeof(value) - len) * 8);
+            std::cout << "ans =" << value << "\n";
+            std::string ans = reinterpret_cast<Decimal64&>(value).to_string(
+                    _convert_params->field_schema->parquet_schema.scale);
+            std::cout << "ans = " << ans << "\n";
+            data->insert_data(ans.data(), ans.size());
+        }
+        return Status::OK();
+    }
+};
+
+template <bool is_nullable>
+class int128totimestampstring : public ColumnConvert {
+public:
+    Status convert(const IColumn* src_col, IColumn* dst_col) override {
+        size_t rows = src_col->size();
+        if constexpr (is_nullable) {
+            convert_null(&src_col, &dst_col);
+        }
+
+        auto& src_data = static_cast<const ColumnVector<Int128>*>(src_col)->get_data();
+        auto data = static_cast<ColumnString*>(dst_col);
+
+        for (int i = 0; i < rows; i++) {
+            __int128 x = src_data[i];
+            uint32_t hi = x >> 64;
+            uint64_t lo = (x << 64) >> 64;
+            uint64_t num = 0;
+            auto& value = reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(num);
+            int64_t micros = int128totimestamp<is_nullable>::to_timestamp_micros(hi, lo);
+            value.from_unixtime(micros / 1000000, *_convert_params->ctz);
+            value.set_microsecond(micros % 1000000);
+            std::string buf;
+            buf.resize(20);
+            char* end = value.to_string(buf.data());
+            data->insert_data(buf.data(), end - buf.data());
+
+            std::cout << "value = " << value << "\n";
+        }
+
+        return Status::OK();
+    }
+};
+
 template <bool is_nullable = true>
 inline Status get_converter_impl(std::shared_ptr<const IDataType> src_data_type,
+                                 PrimitiveType show_type,
                                  std::shared_ptr<const IDataType> dst_data_type,
                                  std::unique_ptr<ColumnConvert>* converter,
                                  ConvertParams* convert_params) {
@@ -445,7 +516,17 @@ inline Status get_converter_impl(std::shared_ptr<const IDataType> src_data_type,
         FOR_LOGICAL_NUMERIC_TYPES(DISPATCH)
 #undef DISPATCH
 
-    case TypeIndex::String:
+    case TypeIndex::String: {
+        if (src_type == TypeIndex::String) {
+            if (show_type == PrimitiveType::TYPE_DECIMAL64) {
+                *converter = std::make_unique<stringtodecimalstring<is_nullable>>();
+                break;
+            }
+        } else if (src_type == TypeIndex::Int128) {
+            *converter = std::make_unique<int128totimestampstring<is_nullable>>();
+            break;
+        }
+
         switch (src_type) {
 #define DISPATCH1(NUMERIC_TYPE, CPP_NUMERIC_TYPE, PHYSICAL_TYPE)                                \
     case NUMERIC_TYPE:                                                                          \
@@ -458,6 +539,7 @@ inline Status get_converter_impl(std::shared_ptr<const IDataType> src_data_type,
             break;
         }
         break;
+    }
     case TypeIndex::DateV2:
         if (src_type == TypeIndex::Int32) {
             *converter = std::make_unique<int32todate<is_nullable>>();
@@ -472,60 +554,60 @@ inline Status get_converter_impl(std::shared_ptr<const IDataType> src_data_type,
             std::cout << "src_type = " << getTypeName(src_type) << "\n";
         }
         break;
-    case TypeIndex::Decimal64: {
-        convert_params->init_decimal_converter<Decimal64>(dst_data_type);
-        DecimalScaleParams &scale_params = convert_params->decimal_scale;
-
-        if (src_type == TypeIndex::Int128) {
-            if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
-                *converter = std::make_unique<numbertodecimal<Int128, Int64, is_nullable,
-                        DecimalScaleParams::SCALE_UP>>();
-            } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {
-                *converter = std::make_unique<numbertodecimal<Int128, Int64, is_nullable,
-                        DecimalScaleParams::SCALE_DOWN>>();
-            } else {
-                *converter = std::make_unique<numbertodecimal<Int128, Int64, is_nullable,
-                        DecimalScaleParams::NO_SCALE>>();
-            }
-        } else if (src_type == TypeIndex::String) {
-            if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
-                *converter = std::make_unique<
-                        stringtodecimal<Decimal64, is_nullable, DecimalScaleParams::SCALE_UP>>();
-            } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {
-                *converter = std::make_unique<
-                        stringtodecimal<Decimal64, is_nullable, DecimalScaleParams::SCALE_DOWN>>();
-
-            } else {
-                *converter = std::make_unique<
-                        stringtodecimal<Decimal64, is_nullable, DecimalScaleParams::NO_SCALE>>();
-            }
-        } else if (src_type == TypeIndex::Int32) {
-            if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
-                *converter = std::make_unique<
-                        numbertodecimal<Int32, Int64, is_nullable, DecimalScaleParams::SCALE_UP>>();
-            } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {
-                *converter = std::make_unique<numbertodecimal<Int32, Int64, is_nullable,
-                        DecimalScaleParams::SCALE_DOWN>>();
-            } else {
-                *converter = std::make_unique<
-                        numbertodecimal<Int32, Int64, is_nullable, DecimalScaleParams::NO_SCALE>>();
-            }
-        } else if (src_type == TypeIndex::Int64) {
-            if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
-                *converter = std::make_unique<
-                        numbertodecimal<Int64, Int64, is_nullable, DecimalScaleParams::SCALE_UP>>();
-
-            } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {
-                *converter = std::make_unique<
-                        numbertodecimal<Int64, Int64, is_nullable, DecimalScaleParams::SCALE_DOWN>>();
-
-            } else {
-                *converter = std::make_unique<
-                        numbertodecimal<Int64, Int64, is_nullable, DecimalScaleParams::NO_SCALE>>();
-            }
-        }
-        break;
+#define DISPATCH2(TypeIndex_DECIMAL_TYPE, DECIMAL_TYPE, PRIMARY_TYPE)                             \
+    case TypeIndex_DECIMAL_TYPE: {                                                                \
+        convert_params->init_decimal_converter<PRIMARY_TYPE>(dst_data_type);                      \
+        DecimalScaleParams& scale_params = convert_params->decimal_scale;                         \
+        if (src_type == TypeIndex::Int128) {                                                      \
+            if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {                        \
+                *converter = std::make_unique<numbertodecimal<Int128, PRIMARY_TYPE, is_nullable,  \
+                                                              DecimalScaleParams::SCALE_UP>>();   \
+            } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {               \
+                *converter = std::make_unique<numbertodecimal<Int128, PRIMARY_TYPE, is_nullable,  \
+                                                              DecimalScaleParams::SCALE_DOWN>>(); \
+            } else {                                                                              \
+                *converter = std::make_unique<numbertodecimal<Int128, PRIMARY_TYPE, is_nullable,  \
+                                                              DecimalScaleParams::NO_SCALE>>();   \
+            }                                                                                     \
+        } else if (src_type == TypeIndex::String) {                                               \
+            if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {                        \
+                *converter = std::make_unique<stringtodecimal<DECIMAL_TYPE, is_nullable,          \
+                                                              DecimalScaleParams::SCALE_UP>>();   \
+            } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {               \
+                *converter = std::make_unique<stringtodecimal<DECIMAL_TYPE, is_nullable,          \
+                                                              DecimalScaleParams::SCALE_DOWN>>(); \
+            } else {                                                                              \
+                *converter = std::make_unique<stringtodecimal<DECIMAL_TYPE, is_nullable,          \
+                                                              DecimalScaleParams::NO_SCALE>>();   \
+            }                                                                                     \
+        } else if (src_type == TypeIndex::Int32) {                                                \
+            if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {                        \
+                *converter = std::make_unique<numbertodecimal<Int32, PRIMARY_TYPE, is_nullable,   \
+                                                              DecimalScaleParams::SCALE_UP>>();   \
+            } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {               \
+                *converter = std::make_unique<numbertodecimal<Int32, PRIMARY_TYPE, is_nullable,   \
+                                                              DecimalScaleParams::SCALE_DOWN>>(); \
+            } else {                                                                              \
+                *converter = std::make_unique<numbertodecimal<Int32, PRIMARY_TYPE, is_nullable,   \
+                                                              DecimalScaleParams::NO_SCALE>>();   \
+            }                                                                                     \
+        } else if (src_type == TypeIndex::Int64) {                                                \
+            if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {                        \
+                *converter = std::make_unique<numbertodecimal<Int64, PRIMARY_TYPE, is_nullable,   \
+                                                              DecimalScaleParams::SCALE_UP>>();   \
+            } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {               \
+                *converter = std::make_unique<numbertodecimal<Int64, PRIMARY_TYPE, is_nullable,   \
+                                                              DecimalScaleParams::SCALE_DOWN>>(); \
+            } else {                                                                              \
+                *converter = std::make_unique<numbertodecimal<Int64, PRIMARY_TYPE, is_nullable,   \
+                                                              DecimalScaleParams::NO_SCALE>>();   \
+            }                                                                                     \
+        }                                                                                         \
+        break;                                                                                    \
     }
+
+        FOR_LOGICAL_DECIMAL_TYPES(DISPATCH2)
+#undef DISPATCH2
     default:
         break;
     }
@@ -538,7 +620,7 @@ inline Status get_converter_impl(std::shared_ptr<const IDataType> src_data_type,
     return Status::OK();
 }
 
-Status get_converter(std::shared_ptr<const IDataType> src_type,
+Status get_converter(std::shared_ptr<const IDataType> src_type, PrimitiveType show_type,
                      std::shared_ptr<const IDataType> dst_type,
                      std::unique_ptr<ColumnConvert>* converter, ConvertParams* convert_param);
 

@@ -484,9 +484,11 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
     bool need_convert = false;
     auto& physical_type = _chunk_meta.meta_data.type;
     DataTypePtr src_type;
-    RETURN_IF_ERROR(ParquetConvert::convert_data_type_from_parquet(physical_type, src_type, type,
-                                                                   &need_convert));
 
+    RETURN_IF_ERROR(ParquetConvert::convert_data_type_from_parquet(
+            physical_type, _field_schema->type.type, src_type, type, &need_convert));
+    std::cout << "need_convert = " << need_convert << "\n";
+    //this->_field_schema->type.type
     ColumnPtr src_column = doris_column;
     if (need_convert) {
         src_column = src_type->create_column();
@@ -508,8 +510,8 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
             std::unique_ptr<ParquetConvert::ColumnConvert> converter;
             ParquetConvert::ConvertParams convert_params;
             convert_params.init(_field_schema, _ctz);
-            RETURN_IF_ERROR(
-                    ParquetConvert::get_converter(src_type, type, &converter, &convert_params));
+            RETURN_IF_ERROR(ParquetConvert::get_converter(src_type, _field_schema->type.type, type,
+                                                          &converter, &convert_params));
             RETURN_IF_ERROR(
                     converter->convert(src_column, const_cast<IColumn*>(doris_column.get())));
         }
@@ -586,7 +588,8 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
         std::unique_ptr<ParquetConvert::ColumnConvert> converter;
         ParquetConvert::ConvertParams convert_params;
         convert_params.init(_field_schema, _ctz);
-        RETURN_IF_ERROR(ParquetConvert::get_converter(src_type, type, &converter, &convert_params));
+        RETURN_IF_ERROR(ParquetConvert::get_converter(src_type, _field_schema->type.type, type,
+                                                      &converter, &convert_params));
         RETURN_IF_ERROR(converter->convert(src_column, const_cast<IColumn*>(doris_column.get())));
     }
 

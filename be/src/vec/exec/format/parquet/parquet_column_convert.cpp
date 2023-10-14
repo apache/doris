@@ -21,7 +21,7 @@ namespace doris::vectorized {
 namespace ParquetConvert {
 const cctz::time_zone ConvertParams::utc0 = cctz::utc_time_zone();
 
-Status convert_data_type_from_parquet(tparquet::Type::type parquet_type,
+Status convert_data_type_from_parquet(tparquet::Type::type parquet_type, PrimitiveType show_type,
                                       vectorized::DataTypePtr& ans_data_type, DataTypePtr& src_type,
                                       bool* need_convert) {
     std::cout << getTypeName(src_type->get_type_id()) << "\n";
@@ -66,6 +66,11 @@ Status convert_data_type_from_parquet(tparquet::Type::type parquet_type,
         ans_data_type = std::make_shared<DataTypeNullable>(ans_data_type);
 
         if (nested_src_type->get_type_id() == sub->get_type_id()) {
+            if (sub->get_type_id() == TypeIndex::String &&
+                show_type == PrimitiveType::TYPE_DECIMAL64) {
+                *need_convert = true;
+                return Status::OK();
+            }
             *need_convert = false;
             return Status::OK();
         }
@@ -75,16 +80,16 @@ Status convert_data_type_from_parquet(tparquet::Type::type parquet_type,
     return Status::OK();
 }
 
-Status get_converter(std::shared_ptr<const IDataType> src_type,
+Status get_converter(std::shared_ptr<const IDataType> src_type, PrimitiveType show_type,
                      std::shared_ptr<const IDataType> dst_type,
                      std::unique_ptr<ColumnConvert>* converter, ConvertParams* convert_param) {
     if (src_type->is_nullable()) {
         auto src = reinterpret_cast<const DataTypeNullable*>(src_type.get())->get_nested_type();
         auto dst = reinterpret_cast<const DataTypeNullable*>(dst_type.get())->get_nested_type();
 
-        return get_converter_impl<true>(src, dst, converter, convert_param);
+        return get_converter_impl<true>(src, show_type, dst, converter, convert_param);
     } else {
-        return get_converter_impl<false>(src_type, dst_type, converter, convert_param);
+        return get_converter_impl<false>(src_type, show_type, dst_type, converter, convert_param);
     }
 }
 } // namespace ParquetConvert
