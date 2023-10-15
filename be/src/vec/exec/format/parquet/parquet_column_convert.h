@@ -121,6 +121,7 @@ struct ConvertParams {
     int64_t scale_to_nano_factor = 1;
     DecimalScaleParams decimal_scale;
     FieldSchema* field_schema = nullptr;
+    size_t start_idx = 0;
 
     void init(FieldSchema* field_schema_, cctz::time_zone* ctz_) {
         field_schema = field_schema_;
@@ -196,6 +197,23 @@ struct ColumnConvert {
 
     virtual ~ColumnConvert() = default;
 
+    void convert_null(const IColumn** src_col, IColumn** dst_col) const {
+        size_t rows = (*src_col)->size();
+        if ((*src_col)->is_nullable()) {
+            auto src_nullable_column = static_cast<const ColumnNullable*>(*src_col);
+            auto dst_nullable_column = static_cast<ColumnNullable*>(*dst_col);
+            auto& src_null_data = src_nullable_column->get_null_map_column().get_data();
+            dst_nullable_column->get_null_map_column().resize(_convert_params->start_idx + rows);
+            auto& dst_null_data = dst_nullable_column->get_null_map_column().get_data();
+            for (auto j = 0; j < rows; j++) {
+                dst_null_data[_convert_params->start_idx + j] = src_null_data[j];
+            }
+
+            *src_col = &src_nullable_column->get_nested_column();
+            *dst_col = &dst_nullable_column->get_nested_column();
+        }
+    }
+
 public:
     ConvertParams* _convert_params;
 };
@@ -205,23 +223,6 @@ struct NumberColumnConvert : public ColumnConvert {
     Status convert(const IColumn* src_col, IColumn* dst_col) override;
 };
 
-inline void convert_null(const IColumn** src_col, IColumn** dst_col) {
-    size_t rows = (*src_col)->size();
-    if ((*src_col)->is_nullable()) {
-        auto src_nullable_column = static_cast<const ColumnNullable*>(*src_col);
-        auto dst_nullable_column = static_cast<ColumnNullable*>(*dst_col);
-        auto& src_null_data = src_nullable_column->get_null_map_column().get_data();
-        dst_nullable_column->get_null_map_column().resize(rows);
-        auto& dst_null_data = dst_nullable_column->get_null_map_column().get_data();
-        for (auto j = 0; j < rows; j++) {
-            dst_null_data[j] = src_null_data[j];
-        }
-
-        *src_col = &src_nullable_column->get_nested_column();
-        *dst_col = &dst_nullable_column->get_nested_column();
-    }
-}
-
 template <typename src_type, typename dst_type, bool is_nullable>
 Status NumberColumnConvert<src_type, dst_type, is_nullable>::convert(const IColumn* src_col,
                                                                      IColumn* dst_col) {
@@ -230,12 +231,12 @@ Status NumberColumnConvert<src_type, dst_type, is_nullable>::convert(const IColu
         convert_null(&src_col, &dst_col);
     }
     auto& src_data = static_cast<const ColumnVector<src_type>*>(src_col)->get_data();
-    dst_col->resize(rows);
+    dst_col->resize(_convert_params->start_idx + rows);
     auto& data = static_cast<ColumnVector<dst_type>*>(dst_col)->get_data();
 
     for (int i = 0; i < rows; i++) {
         dst_type value = static_cast<dst_type>(src_data[i]);
-        data[i] = value;
+        data[_convert_params->start_idx + i] = value;
     }
 
     return Status::OK();
@@ -274,14 +275,14 @@ public:
             convert_null(&src_col, &dst_col);
         }
         auto& src_data = static_cast<const ColumnVector<Int128>*>(src_col)->get_data();
-        dst_col->resize(rows);
+        dst_col->resize(_convert_params->start_idx + rows);
         auto& data = static_cast<ColumnVector<UInt64>*>(dst_col)->get_data();
 
         for (int i = 0; i < rows; i++) {
             __int128 x = src_data[i];
             uint32_t hi = x >> 64;
             uint64_t lo = (x << 64) >> 64;
-            auto& num = data[i];
+            auto& num = data[_convert_params->start_idx + i];
             auto& value = reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(num);
             int64_t micros = to_timestamp_micros(hi, lo);
             value.from_unixtime(micros / 1000000, *_convert_params->ctz);
@@ -300,13 +301,14 @@ public:
         if constexpr (is_nullable) {
             convert_null(&src_col, &dst_col);
         }
-        dst_col->resize(rows);
+        dst_col->resize(_convert_params->start_idx + rows);
+
         auto& src_data = static_cast<const ColumnVector<Int64>*>(src_col)->get_data();
         auto& data = static_cast<ColumnVector<UInt64>*>(dst_col)->get_data();
         for (int i = 0; i < rows; i++) {
             int64 x = src_data[i];
             dst_col = static_cast<ColumnVector<UInt64>*>(dst_col);
-            auto& num = data[i];
+            auto& num = data[_convert_params->start_idx + i];
             auto& value = reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(num);
             value.from_unixtime(x / _convert_params->second_mask, *_convert_params->ctz);
             value.set_microsecond((x % _convert_params->second_mask) *
@@ -325,13 +327,15 @@ public:
         if constexpr (is_nullable) {
             convert_null(&src_col, &dst_col);
         }
-        dst_col->resize(rows);
+        dst_col->resize(_convert_params->start_idx + rows);
+
         auto& src_data = static_cast<const ColumnVector<int32>*>(src_col)->get_data();
         auto& data = static_cast<ColumnDateV2*>(dst_col)->get_data();
         date_day_offset_dict& date_dict = date_day_offset_dict::get();
 
         for (int i = 0; i < rows; i++) {
-            auto& value = reinterpret_cast<DateV2Value<DateV2ValueType>&>(data[i]);
+            auto& value = reinterpret_cast<DateV2Value<DateV2ValueType>&>(
+                    data[_convert_params->start_idx + i]);
             int64_t date_value = (int64_t)src_data[i] + _convert_params->offset_days;
             value = date_dict[date_value];
             std::cout << "src_data[i] = " << src_data[i] << "datav2  value =" << value << "\n";
@@ -353,7 +357,8 @@ public:
         DecimalScaleParams& scale_params = _convert_params->decimal_scale;
         auto buf = static_cast<const ColumnString*>(src_col)->get_chars().data();
         auto& offset = static_cast<const ColumnString*>(src_col)->get_offsets();
-        dst_col->resize(rows);
+        dst_col->resize(_convert_params->start_idx + rows);
+
         auto& data = static_cast<ColumnDecimal<DecimalType>*>(dst_col)->get_data();
         for (int i = 0; i < rows; i++) {
             int len = offset[i] - offset[i - 1];
@@ -373,7 +378,7 @@ public:
                 LOG(FATAL) << "__builtin_unreachable";
                 __builtin_unreachable();
             }
-            auto& v = reinterpret_cast<DecimalType&>(data[i]);
+            auto& v = reinterpret_cast<DecimalType&>(data[_convert_params->start_idx + i]);
             v = (DecimalType)value;
         }
 
@@ -390,7 +395,8 @@ public:
             convert_null(&src_col, &dst_col);
         }
         auto* src_data = static_cast<const ColumnVector<NumberType>*>(src_col)->get_data().data();
-        dst_col->resize(rows);
+        dst_col->resize(_convert_params->start_idx + rows);
+
         DecimalScaleParams& scale_params = _convert_params->decimal_scale;
         auto* data = static_cast<ColumnDecimal<Decimal<DecimalPhysicalType>>*>(dst_col)
                              ->get_data()
@@ -403,7 +409,7 @@ public:
             } else if constexpr (ScaleType == DecimalScaleParams::SCALE_DOWN) {
                 value /= scale_params.scale_factor;
             }
-            data[i] = (DecimalPhysicalType)value;
+            data[_convert_params->start_idx + i] = (DecimalPhysicalType)value;
         }
         return Status::OK();
     }

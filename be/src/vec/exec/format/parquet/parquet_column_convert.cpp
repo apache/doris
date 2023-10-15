@@ -17,6 +17,8 @@
 
 #include "vec/exec/format/parquet/parquet_column_convert.h"
 
+#include <cctz/time_zone.h>
+
 namespace doris::vectorized {
 namespace ParquetConvert {
 const cctz::time_zone ConvertParams::utc0 = cctz::utc_time_zone();

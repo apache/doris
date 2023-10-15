@@ -54,8 +54,7 @@ public:
     template <tparquet::Type::type PhysicalType, bool has_filter>
     Status decode_byte_array(const std::vector<Slice>& decoded_vals, MutableColumnPtr& doris_column,
                              DataTypePtr& data_type, ColumnSelectVector& select_vector) {
-        if constexpr (PhysicalType == tparquet::Type::BYTE_ARRAY &&
-                      PhysicalType == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
+        if constexpr (PhysicalType == tparquet::Type::BYTE_ARRAY) {
             ColumnSelectVector::DataReadType read_type;
             while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
                 switch (read_type) {

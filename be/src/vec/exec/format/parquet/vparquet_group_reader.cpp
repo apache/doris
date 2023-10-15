@@ -415,8 +415,12 @@ Status RowGroupReader::_read_column_data(Block* block, const std::vector<std::st
             has_eof = true;
         }
     }
+    static int ct = 0;
     *read_rows = batch_read_rows;
     *batch_eof = has_eof;
+    ct += *read_rows;
+    std::cout << "block size = " << ct << "\n";
+
     return Status::OK();
 }
 
