@@ -36,7 +36,7 @@ import com.google.gson.annotations.SerializedName;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.StringJoiner;
+import java.util.Optional;
 
 public class MaxComputeExternalCatalog extends ExternalCatalog {
     private Odps odps;
@@ -95,7 +95,7 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
         odps.setDefaultProject(defaultProject);
     }
 
-    public long getTotalRows(String project, String table, List<String> partitionConjuncts) throws TunnelException {
+    public long getTotalRows(String project, String table, Optional<String> partitionSpec) throws TunnelException {
         makeSureInitialized();
         TableTunnel tunnel = new TableTunnel(odps);
         String tunnelUrl = tunnelUrlTemplate.replace("{}", region);
@@ -103,15 +103,11 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
             tunnelUrl = tunnelUrl.replace("-inc", "");
         }
         TableTunnel.DownloadSession downloadSession;
-        String downloadId = "DORIS_MC_TOTAL_ROWS_" + System.currentTimeMillis();
         tunnel.setEndpoint(tunnelUrl);
-        if (partitionConjuncts.isEmpty()) {
-            downloadSession = tunnel.getDownloadSession(project, table, downloadId);
+        if (!partitionSpec.isPresent()) {
+            downloadSession = tunnel.getDownloadSession(project, table, null);
         } else {
-            StringJoiner partitionStr = new StringJoiner(",");
-            partitionConjuncts.forEach(partitionStr::add);
-            PartitionSpec partitionSpec = new PartitionSpec(partitionStr.toString());
-            downloadSession = tunnel.getDownloadSession(project, table, partitionSpec, downloadId);
+            downloadSession = tunnel.getDownloadSession(project, table, new PartitionSpec(partitionSpec.get()), null);
         }
         return downloadSession.getRecordCount();
     }

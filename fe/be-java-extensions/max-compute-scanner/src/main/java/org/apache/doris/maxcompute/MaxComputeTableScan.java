@@ -63,8 +63,7 @@ public class MaxComputeTableScan {
     public TableTunnel.DownloadSession openDownLoadSession() throws IOException {
         TableTunnel.DownloadSession tableSession;
         try {
-            String downloadId = "DORIS_MC_DOWNLOAD_" + System.currentTimeMillis();
-            tableSession = tunnel.getDownloadSession(project, table, downloadId);
+            tableSession = tunnel.getDownloadSession(project, table, null);
             totalRows = tableSession.getRecordCount();
         } catch (TunnelException e) {
             throw new IOException(e);
@@ -75,8 +74,7 @@ public class MaxComputeTableScan {
     public TableTunnel.DownloadSession openDownLoadSession(PartitionSpec partitionSpec) throws IOException {
         TableTunnel.DownloadSession tableSession;
         try {
-            String downloadId = "DORIS_MC_DOWNLOAD_" + System.currentTimeMillis();
-            tableSession = tunnel.getDownloadSession(project, table, partitionSpec, downloadId);
+            tableSession = tunnel.getDownloadSession(project, table, partitionSpec, null);
             totalRows = tableSession.getRecordCount();
         } catch (TunnelException e) {
             throw new IOException(e);

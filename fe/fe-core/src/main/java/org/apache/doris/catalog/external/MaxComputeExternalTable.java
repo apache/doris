@@ -17,6 +17,11 @@
 
 package org.apache.doris.catalog.external;
 
+import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.InPredicate;
+import org.apache.doris.analysis.Predicate;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MapType;
@@ -39,10 +44,16 @@ import com.aliyun.odps.type.StructTypeInfo;
 import com.aliyun.odps.type.TypeInfo;
 import com.aliyun.odps.type.VarcharTypeInfo;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.StringJoiner;
 
 /**
  * MaxCompute external table.
@@ -51,6 +62,7 @@ public class MaxComputeExternalTable extends ExternalTable {
 
     private Table odpsTable;
     private Set<String> partitionKeys;
+    private String partitionSpec;
 
     public MaxComputeExternalTable(long id, String name, String dbName, MaxComputeExternalCatalog catalog) {
         super(id, name, catalog, dbName, TableType.MAX_COMPUTE_EXTERNAL_TABLE);
@@ -75,6 +87,7 @@ public class MaxComputeExternalTable extends ExternalTable {
                     true, field.getComment(), true, -1));
         }
         List<com.aliyun.odps.Column> partitionColumns = odpsTable.getSchema().getPartitionColumns();
+        partitionKeys = new HashSet<>();
         for (com.aliyun.odps.Column partColumn : partitionColumns) {
             result.add(new Column(partColumn.getName(), mcTypeToDorisType(partColumn.getTypeInfo()), true, null,
                     true, partColumn.getComment(), true, -1));
@@ -83,8 +96,62 @@ public class MaxComputeExternalTable extends ExternalTable {
         return result;
     }
 
-    public Set<String> getPartitionKeys() {
-        return partitionKeys;
+    public Optional<String> getPartitionSpec(List<Expr> conjuncts) {
+        if (!partitionKeys.isEmpty()) {
+            if (conjuncts.isEmpty()) {
+                throw new IllegalArgumentException("Max Compute partition table need partition predicate.");
+            }
+            // recreate partitionSpec when conjuncts is changed.
+            List<String> partitionConjuncts = parsePartitionConjuncts(conjuncts, partitionKeys);
+            StringJoiner partitionSpec = new StringJoiner(",");
+            partitionConjuncts.forEach(partitionSpec::add);
+            this.partitionSpec = partitionSpec.toString();
+            return Optional.of(this.partitionSpec);
+        }
+        return Optional.empty();
+    }
+
+    private static List<String> parsePartitionConjuncts(List<Expr> conjuncts, Set<String> partitionKeys) {
+        List<String> partitionConjuncts = new ArrayList<>();
+        Set<Predicate> predicates = Sets.newHashSet();
+        for (Expr conjunct : conjuncts) {
+            // collect depart predicate
+            conjunct.collect(BinaryPredicate.class, predicates);
+            conjunct.collect(InPredicate.class, predicates);
+        }
+        Map<String, Predicate> slotToConjuncts = new HashMap<>();
+        for (Predicate predicate : predicates) {
+            List<SlotRef> slotRefs = new ArrayList<>();
+            if (predicate instanceof BinaryPredicate) {
+                if (((BinaryPredicate) predicate).getOp() != BinaryPredicate.Operator.EQ) {
+                    // max compute only support the EQ operator: pt='pt-value'
+                    continue;
+                }
+                // BinaryPredicate has one left slotRef, and partition value not slotRef
+                predicate.collect(SlotRef.class, slotRefs);
+                slotToConjuncts.put(slotRefs.get(0).getColumnName(), predicate);
+            } else if (predicate instanceof InPredicate) {
+                predicate.collect(SlotRef.class, slotRefs);
+                slotToConjuncts.put(slotRefs.get(0).getColumnName(), predicate);
+            }
+        }
+        for (String partitionKey : partitionKeys) {
+            Predicate partitionPredicate = slotToConjuncts.get(partitionKey);
+            if (partitionPredicate == null) {
+                continue;
+            }
+            if (partitionPredicate instanceof InPredicate) {
+                List<Expr> inList = ((InPredicate) partitionPredicate).getListChildren();
+                for (Expr expr : inList) {
+                    String partitionConjunct = partitionKey + "=" + expr.toSql();
+                    partitionConjuncts.add(partitionConjunct.replace("`", ""));
+                }
+            } else {
+                String partitionConjunct = partitionPredicate.toSql();
+                partitionConjuncts.add(partitionConjunct.replace("`", ""));
+            }
+        }
+        return partitionConjuncts;
     }
 
     private Type mcTypeToDorisType(TypeInfo typeInfo) {
@@ -178,6 +245,7 @@ public class MaxComputeExternalTable extends ExternalTable {
         tMcTable.setRegion(mcCatalog.getRegion());
         tMcTable.setAccessKey(mcCatalog.getAccessKey());
         tMcTable.setSecretKey(mcCatalog.getSecretKey());
+        tMcTable.setPartitionSpec(this.partitionSpec);
         tMcTable.setPublicAccess(String.valueOf(mcCatalog.enablePublicAccess()));
         // use mc project as dbName
         tMcTable.setProject(dbName);
