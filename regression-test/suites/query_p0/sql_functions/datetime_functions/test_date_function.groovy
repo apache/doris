@@ -381,6 +381,9 @@ suite("test_date_function") {
     qt_sql """ select unix_timestamp('2007-11-30 10:30-19', '%Y-%m-%d %H:%i-%s') """
     qt_sql """ select unix_timestamp('2007-11-30 10:30%3A19', '%Y-%m-%d %H:%i%%3A%s') """
     qt_sql """ select unix_timestamp('1969-01-01 00:00:00') """
+    qt_sql """ select unix_timestamp('2007-11-30 10:30:19.123456') """
+    qt_sql """ select unix_timestamp(cast('2007-11-30 10:30:19.123456' as datetimev2(3))) """
+    qt_sql """ select unix_timestamp(cast('2007-11-30 10:30:19.123456' as datetimev2(4))) """
 
     // UTC_TIMESTAMP
     def utc_timestamp_str = sql """ select utc_timestamp(),utc_timestamp() + 1 """

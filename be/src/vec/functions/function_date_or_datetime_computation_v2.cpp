@@ -113,10 +113,6 @@ using FunctionDatetimeV2ToYearWeekTwoArgs =
 using FunctionDatetimeV2ToWeekTwoArgs =
         FunctionDateOrDateTimeComputation<ToWeekTwoArgsImpl<DataTypeDateTimeV2>>;
 
-/// @TEMPORARY: for be_exec_version=2
-using FunctionDatetimeV2ToWeekTwoArgsOld =
-        FunctionDateOrDateTimeComputation<ToWeekTwoArgsImplOld<DataTypeDateTimeV2>>;
-
 void register_function_date_time_computation_v2(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionAddSecondsV2>();
     factory.register_function<FunctionAddMinutesV2>();
@@ -183,9 +179,6 @@ void register_function_date_time_computation_v2(SimpleFunctionFactory& factory) 
     factory.register_function<FunctionToWeekTwoArgsV2>();
     factory.register_function<FunctionDatetimeV2ToYearWeekTwoArgs>();
     factory.register_function<FunctionDatetimeV2ToWeekTwoArgs>();
-
-    /// @TEMPORARY: for be_exec_version=2
-    factory.register_alternative_function<FunctionDatetimeV2ToWeekTwoArgsOld>();
 }
 
 } // namespace doris::vectorized
