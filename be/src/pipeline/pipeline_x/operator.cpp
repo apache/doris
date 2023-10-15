@@ -293,7 +293,6 @@ Status OperatorX<LocalStateType>::setup_local_state(RuntimeState* state, LocalSt
     return local_state->init(state, info);
 }
 
-
 PipelineXSinkLocalStateBase::PipelineXSinkLocalStateBase(DataSinkOperatorXBase* parent,
                                                          RuntimeState* state)
         : _parent(parent),
