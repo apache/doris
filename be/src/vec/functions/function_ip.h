@@ -129,7 +129,7 @@ ColumnPtr convertToIPv4(ColumnPtr column, const PaddedPODArray<UInt8>* null_map 
 
     if (!column_string) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
-                        "Illegal column {} of argument of function {}, expected VARCHAR",
+                        "Illegal column {} of argument of function {}, expected String",
                         column->get_name());
     }
 
@@ -194,17 +194,19 @@ public:
         ColumnPtr column = block.get_by_position(arguments[0]).column;
         ColumnPtr null_map_column;
         const NullMap* null_map = nullptr;
-        const auto* column_nullable = assert_cast<const ColumnNullable*>(column.get());
-        column = column_nullable->get_nested_column_ptr();
-        null_map_column = column_nullable->get_null_map_column_ptr();
-        null_map = &column_nullable->get_null_map_data();
+        if (column->is_nullable()) {
+            const auto* column_nullable = assert_cast<const ColumnNullable*>(column.get());
+            column = column_nullable->get_nested_column_ptr();
+            null_map_column = column_nullable->get_null_map_column_ptr();
+            null_map = &column_nullable->get_null_map_data();
+        }
 
         auto col_res = convertToIPv4<ColumnInt64>(column, null_map);
 
         if (null_map && !col_res->is_nullable())
             block.replace_by_position(result,
-                        ColumnNullable::create(IColumn::mutate(col_res),
-                            IColumn::mutate(null_map_column)));
+                                      ColumnNullable::create(IColumn::mutate(col_res),
+                                                             IColumn::mutate(null_map_column)));
 
         block.replace_by_position(result, col_res);
         return Status::OK();
