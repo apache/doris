@@ -129,7 +129,7 @@ Status RowGroupReader::init(
         std::unique_ptr<ParquetColumnReader> reader;
         RETURN_IF_ERROR(ParquetColumnReader::create(_file_reader, field, _row_group_meta,
                                                     _read_ranges, _ctz, _io_ctx, reader,
-                                                    max_buf_size)); //create column reader .....
+                                                    max_buf_size));
         if (reader == nullptr) {
             VLOG_DEBUG << "Init row group(" << _row_group_id << ") reader failed";
             return Status::Corruption("Init row group reader failed");
@@ -175,7 +175,8 @@ Status RowGroupReader::init(
 
 bool RowGroupReader::_can_filter_by_dict(int slot_id,
                                          const tparquet::ColumnMetaData& column_metadata) {
-    if (column_metadata.type != tparquet::Type::BYTE_ARRAY) {
+    if (column_metadata.encodings[0] != tparquet::Encoding::RLE_DICTIONARY ||
+        column_metadata.type != tparquet::Type::BYTE_ARRAY) {
         return false;
     }
 
@@ -328,9 +329,7 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
             bool can_filter_all = false;
             RETURN_IF_ERROR_OR_CATCH_EXCEPTION(VExprContext::execute_conjuncts(
                     _filter_conjuncts, &filters, block, &result_filter, &can_filter_all));
-            // => select col  where col = '1'    =>  col1  ,converted col , '1' col
 
-            //filter all data
             if (can_filter_all) {
                 for (auto& col : columns_to_filter) {
                     std::move(*block->get_by_position(col).column).assume_mutable()->clear();

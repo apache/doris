@@ -391,7 +391,7 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
 
         BlockUPtr block = ctx->get_free_block();
 
-        status = scanner->get_block(state, block.get(), &eos); //init reader ,read data
+        status = scanner->get_block(state, block.get(), &eos);
         VLOG_ROW << "VScanNode input rows: " << block->rows() << ", eos: " << eos;
         // The VFileScanner for external table may try to open not exist files,
         // Because FE file cache for external table may out of date.
