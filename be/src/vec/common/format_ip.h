@@ -117,10 +117,10 @@ inline void formatIPv4(const unsigned char* src, char*& dst, uint8_t mask_tail_o
  */
 template <typename T, typename EOFfunction>
     requires(std::is_same<typename std::remove_cv<T>::type, char>::value)
-inline bool parseIPv4(T*& src, EOFfunction eof, unsigned char* dst, int64_t first_octet = -1) {
+inline bool parseIPv4(T*& src, EOFfunction eof, unsigned char* dst, int32_t first_octet = -1) {
     if (src == nullptr || first_octet > 255) return false;
 
-    int64_t result = 0;
+    uint32_t result = 0;
     int offset = 24;
     if (first_octet >= 0) {
         result |= first_octet << offset;

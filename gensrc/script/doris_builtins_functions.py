@@ -2003,12 +2003,12 @@ visible_functions = {
         [['ipv4numtostring','inet_ntoa'], 'VARCHAR', ['SMALLINT'], 'ALWAYS_NULLABLE'],
         [['ipv4numtostring','inet_ntoa'], 'VARCHAR', ['INT'], 'ALWAYS_NULLABLE'],
         [['ipv4numtostring','inet_ntoa'], 'VARCHAR', ['BIGINT'], 'ALWAYS_NULLABLE'],
-        [['ipv4stringtonum','inet_aton'], 'BIGINT', ['VARCHAR'], 'ALWAYS_NULLABLE'],
-        [['ipv4stringtonum','inet_aton'], 'BIGINT', ['STRING'], 'ALWAYS_NULLABLE'],
-        [['ipv4stringtonumordefault','inet_aton'], 'BIGINT', ['VARCHAR'], 'ALWAYS_NULLABLE'],
-        [['ipv4stringtonumordefault','inet_aton'], 'BIGINT', ['STRING'], 'ALWAYS_NULLABLE'],
-        [['ipv4stringtonumornull','inet_aton'], 'BIGINT', ['VARCHAR'], 'ALWAYS_NULLABLE'],
-        [['ipv4stringtonumornull','inet_aton'], 'BIGINT', ['STRING'], 'ALWAYS_NULLABLE'],        
+        [['ipv4stringtonum','inet_aton'], 'BIGINT', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
+        [['ipv4stringtonum','inet_aton'], 'BIGINT', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
+        [['ipv4stringtonumordefault'], 'BIGINT', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
+        [['ipv4stringtonumordefault'], 'BIGINT', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
+        [['ipv4stringtonumornull'], 'BIGINT', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['ipv4stringtonumornull'], 'BIGINT', ['STRING'], 'ALWAYS_NULLABLE'],        
     ],
 
     "NonNullalbe": [
