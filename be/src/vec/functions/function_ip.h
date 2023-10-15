@@ -121,7 +121,7 @@ public:
 
 enum class IPStringToNumExceptionMode : uint8_t { Throw, Default, Null };
 
-static inline bool tryParseIPv4(const char* pos, UInt32& result_value) {
+static inline bool tryParseIPv4(const char* pos, Int64& result_value) {
     return parseIPv4whole(pos, reinterpret_cast<unsigned char*>(&result_value));
 }
 
@@ -209,7 +209,7 @@ public:
                             "Illegal type {} of argument of function {}", arguments[0]->get_name(),
                             get_name());
         }
-        auto result_type = std::make_shared<DataTypeUInt32>();
+        auto result_type = std::make_shared<DataTypeInt64>();
 
         if constexpr (exception_mode == IPStringToNumExceptionMode::Null) {
             return make_nullable(result_type);
@@ -232,7 +232,7 @@ public:
             null_map = &column_nullable->get_null_map_data();
         }
 
-        auto col_res = convertToIPv4<exception_mode, ColumnUInt32>(column, null_map);
+        auto col_res = convertToIPv4<exception_mode, ColumnInt64>(column, null_map);
 
         if (null_map && !col_res->is_nullable())
             block.replace_by_position(result,
