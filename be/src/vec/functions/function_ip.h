@@ -196,7 +196,7 @@ public:
                                                     : "ipv4stringtonumornull");
 
     static FunctionPtr create() {
-        return std::make_shared<FunctionIPv4StringToNum<exception_mode, Name>>();
+        return std::make_shared<FunctionIPv4StringToNum<exception_mode>>();
     }
 
     String get_name() const override { return name; }
